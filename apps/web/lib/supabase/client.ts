@@ -1,23 +1,27 @@
-import { createBrowserClient } from '@supabase/ssr'
-
 /**
- * Browser-side Supabase kliens.
+ * Next.js (böngésző-oldali) Supabase-kliens wrapper.
  *
- * STANDALONE MÓDBAN: a böngészőből nem férünk hozzá a SQLite-hoz közvetlenül,
- * de a server-side actions (lib/supabase/server.ts) automatikusan a SQLite-ra
- * irányítja a CRUD műveleteket.
+ * M1.3 óta a tényleges factory a `@kartoteka/supabase-client` közös csomagban
+ * él — hogy a Tauri desktop kliens (`apps/desktop/`) ugyanazt a forrást
+ * használhassa. Ez a wrapper csak a Next.js-specifikus env-bekötést teszi fel
+ * (NEXT_PUBLIC_ prefix).
  *
- * A kliens-oldali Supabase-hívások (pl. realtime, auth, storage) szabadon
- * futnak — csak ha van net. Offline-ban timeout-ra futnak (ezért minden
- * fontos lekérdezés a server actions-ön keresztül megy).
+ * Az API **visszafelé kompatibilis**: a kódbázisban 15+ fájl importálja ezt
+ * a függvényt úgy, hogy `createClient()`-ként hívja — a viselkedés azonos
+ * marad.
  *
- * MEGJEGYZÉS: a Fázis 0-6 PWA réteg (Dexie cache) UI-szinten kezeli az
- * offline állapotot — ez a wrapper "csak" auth/storage/realtime esetén
- * lát ki közvetlenül a felhőbe.
+ * STANDALONE MÓDBAN (a lelkész gépén — ma még a Next.js standalone output
+ * verzió): a böngészőből nem férünk hozzá a SQLite-hoz közvetlenül, de a
+ * server-side actions (lib/supabase/server.ts) automatikusan a SQLite-ra
+ * irányítja a CRUD műveleteket. A kliens-oldali Supabase-hívások (pl.
+ * realtime, auth, storage) szabadon futnak — csak ha van net.
  */
+
+import { createKartotekaBrowserClient } from '@kartoteka/supabase-client'
+
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  return createKartotekaBrowserClient({
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  })
 }

@@ -23,6 +23,47 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M1.3: Közös Supabase-kliens csomag (@kartoteka/supabase-client)
+
+<!-- key: 2026-04-23-m1-3-supabase-client -->
+<!-- category: improvement -->
+<!-- version: 1.15.4 -->
+<!-- targets: fejlesztő -->
+
+### 🔌 Közös Supabase-kliens factory — web és desktop között (M1 fázis folytatása)
+
+**Ez sem érinti a felhasználói működést** — a webes app pontosan úgy fut, ahogy eddig. Viszont most már létezik egy **közös kliens-factory** (`@kartoteka/supabase-client`), amit mind a Next.js web (`apps/web/`), mind a Tauri desktop (`apps/desktop/`) ugyanabból a forrásból használ.
+
+**Mit csináltunk:**
+
+- Új `packages/supabase-client/` csomag: `createKartotekaBrowserClient(config)` factory, `SupabaseBrowserConfig` típus, `Database` típus placeholder (M1.5-ben generáljuk a valós Supabase-sémából)
+- A csomag **platform-független**: paraméterként kapja az URL-t és az anon key-t, nem olvas `process.env`-et vagy `import.meta.env`-et direktben — a caller (Next.js / Vite) adja át
+- `apps/web/lib/supabase/client.ts` refaktor: most már csak **15 soros wrapper**, ami a `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` env-változókat adja tovább a közös csomagnak
+- `apps/desktop/src/lib/supabase.ts` új: Vite-alapú kliens, ami az `import.meta.env.VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` változókból olvas (**lazy-init** — ha nincs `.env`, a modul még betölthető, csak első hívásnál dob hibát)
+- `apps/desktop/.env.example`: mintafájl a desktop-hoz
+- `apps/desktop/src/vite-env.d.ts`: TypeScript deklarálás a `VITE_*` env-változókra
+
+**Visszafelé kompatibilis**: a **15 meglévő fájl** a `apps/web`-ben, ami eddig a `@/lib/supabase/client`-et importálta, ugyanúgy működik tovább. Nulla változtatás az app-kódban.
+
+**Mit NEM emeltünk ki közös csomagba** (tudatosan):
+
+- `apps/web/lib/supabase/server.ts` — `cookies()` + Next.js SSR-specifikus, csak a webben működik
+- `apps/web/lib/supabase/admin-client.ts` — `service_role` kulcsos, `'server-only'` import
+- `apps/web/lib/supabase/middleware.ts` — Next.js Edge Runtime proxy
+- `apps/web/lib/supabase/secret-vault.ts` — pgcrypto helpers, csak server-oldal
+
+Ezek mind **Next.js-specifikusak** és nem illenek a Tauri desktop-hoz. Marad a helyükön.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (packages/supabase-client): **0 hiba**
+- ✅ `npx tsc --noEmit` (apps/web): **0 hiba**
+- ✅ `npx tsc --noEmit` (apps/desktop): **0 hiba**
+- ✅ `npm run dev` (web root-ról): Ready in 453ms, `.env.local` betöltve
+
+**Következő (M1.4)**: közös `@kartoteka/ui` csomag bevezetése (shadcn-alapú komponensek), hogy ugyanazokat a gomb/dialog/kártya komponenseket használja a web és a desktop.
+
+---
+
 ## [2026-04-23] — M1.2: Tauri 2 desktop kliens bootstrap (apps/desktop/)
 
 <!-- key: 2026-04-23-m1-2-tauri-bootstrap -->
