@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.4: Első Supabase → SQLite szinkron (saját profil pull)
+
+<!-- key: 2026-04-23-m2-4-profile-pull -->
+<!-- category: feature -->
+<!-- version: 1.15.10 -->
+<!-- targets: fejlesztő -->
+
+### 🔄 A desktop kliens először ír saját magának adatot a Supabase-ről
+
+**A webes működést nem érinti.** A Tauri desktop-on végre **valódi adat** kerül a lokális (titkosított) SQLCipher DB-be: a bejelentkezett user saját profilját tükrözzük a Supabase `profiles`-ból egy új lokális `profiles_local` táblába.
+
+**Mi történt:**
+
+- **v2 migráció** a `db.rs`-ben: `profiles_local` tábla létrejön (id, email, full_name, phone, role, status, congregation_id, diocese_id, district_id, synced_at) + index a `congregation_id`-n
+- **Új TS modul** `apps/desktop/src/lib/sync.ts`:
+  - `pullOwnProfile(userId)` — Supabase `.eq('id', userId).maybeSingle()` → lokális `INSERT OR REPLACE`
+  - `getLocalOwnProfile(userId)` — tisztán offline olvasás
+  - `getLastPullIso()` — utolsó sync ISO-ideje a `settings:sync:profiles:last_pull` kulcsban
+- **Dashboard bővítve**: új „Saját profil — offline cache" kártya
+  - „Pull profil" gomb — lehozza a saját sort
+  - Táblázat a 10 oszloppal + utolsó sync ideje
+  - Hiba-panel, ha a pull elakad (offline, RLS stb.)
+
+**Biztonsági megjegyzés**: a pull egy standard Supabase RLS-védett SELECT — a user csak a saját sorát láthatja. A `.eq('id', userId)` dupla-védelem kliens oldalon. A tárolt érték **SQLCipher-titkosított** DB-ben van.
+
+**Mi NEM része az M2.4-nek (tudatosan):**
+- **Delta-sync** (updated_at > last_pull) — a Supabase `profiles` táblán még **nincs** `updated_at` + `revision` oszlop. Delta-sync-et azokra a domain-táblákra tervezünk, amelyek már készek (pl. a `presbiter` már tartalmazza). Külön SQL-migrációt igényel a `profiles`-hoz, mielőtt ott delta lehetne.
+- **Push-sync** (offline írás → outbox → Supabase) — M2.5
+- **Konfliktus-kezelés** — M2.6
+- **Több domain-tábla** (members, finance stb.) — fokozatosan M2.5+
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 1.03 s (csak a migráció-vektor változott)
+- ✅ `npm run desktop:build`: **2117 modul** (+1 sync.ts), 3.29 s
+
+**Kipróbálás**: indítsd az `npm run desktop:dev`-et, jelentkezz be, majd a Dashboard-on kattints a „Pull profil" gombra. A táblázat kitöltődik a saját adataiddal — utána a Credential Manager-ben őrzött kulccsal titkosított DB-ben ez a sor már lokálisan elérhető (akkor is, ha kikapcsolod az internetet és újraindítod az app-ot).
+
+**Következő (M2.5)**: Push-sync — az outbox bemutatása egy írás-útvonallal. Első probálkozás: a user képes lesz lokálisan elmenteni egy „saját telefon-számot", az outbox fogadja az írást, a Supabase-nek egy tranzakcióban át fog adni, és a pull-sync visszaolvassa.
+
+---
+
 ## [2026-04-23] — M2.3: SQLCipher-kulcs OS-szintű titkos tárolóban (Credential Manager)
 
 <!-- key: 2026-04-23-m2-3-os-keyring -->

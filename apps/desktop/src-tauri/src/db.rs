@@ -175,8 +175,43 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v1 migráció sikertelen: {e}"))?;
     }
 
+    if current < 2 {
+        // M2.4 — profiles_local: a Supabase `profiles` tábla lokális tükörképe.
+        // Az M2.4 egyelőre csak a bejelentkezett user saját profilját szinkronizálja
+        // (1 sor), mert a Supabase `profiles` tábla **még nincs** `updated_at` +
+        // `revision` oszlopokkal ellátva. Ahhoz egy külön séma-migráció kell
+        // a webes oldalon; addig a `pullOwnProfile()` full-pull-t csinál saját
+        // user-re.
+        //
+        // Az oszlop-séma követi a Supabase-vel: változás esetén a jövőbeli
+        // `v3` migráció hozzáad oszlopokat (ALTER TABLE), nem módosítja a
+        // meglévő verzió-szöveget.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS profiles_local (
+                id                TEXT PRIMARY KEY,        -- uuid (Supabase-formátum)
+                email             TEXT,
+                full_name         TEXT,
+                phone             TEXT,
+                role              TEXT,
+                status            TEXT,
+                congregation_id   TEXT,                    -- uuid
+                diocese_id        TEXT,                    -- uuid
+                district_id       TEXT,                    -- uuid
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_profiles_local_congregation
+                ON profiles_local(congregation_id);
+            PRAGMA user_version = 2;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v2 migráció (profiles_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 2 { ... PRAGMA user_version = 2; }
+    // if current < 3 { ... PRAGMA user_version = 3; }
 
     Ok(())
 }
