@@ -19,6 +19,19 @@
       }
     ],
     "paths": {
+      "@/components/ui/avatar": ["../../packages/ui/src/components/avatar"],
+      "@/components/ui/badge": ["../../packages/ui/src/components/badge"],
+      "@/components/ui/button": ["../../packages/ui/src/components/button"],
+      "@/components/ui/card": ["../../packages/ui/src/components/card"],
+      "@/components/ui/dialog": ["../../packages/ui/src/components/dialog"],
+      "@/components/ui/dropdown-menu": ["../../packages/ui/src/components/dropdown-menu"],
+      "@/components/ui/input": ["../../packages/ui/src/components/input"],
+      "@/components/ui/label": ["../../packages/ui/src/components/label"],
+      "@/components/ui/select": ["../../packages/ui/src/components/select"],
+      "@/components/ui/separator": ["../../packages/ui/src/components/separator"],
+      "@/components/ui/sheet": ["../../packages/ui/src/components/sheet"],
+      "@/components/ui/tabs": ["../../packages/ui/src/components/tabs"],
+      "@/components/ui/textarea": ["../../packages/ui/src/components/textarea"],
       "@/*": ["./*"]
     }
   },
