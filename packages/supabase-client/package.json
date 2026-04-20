@@ -1,0 +1,11 @@
+{
+  "name": "@kartoteka/supabase-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Közös Supabase client konfiguráció + típusok — web és desktop kliens között. M1.3-ban tölt fel.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M1.1: Monorepo átalakítás (apps/web + packages/*)
+
+<!-- key: 2026-04-23-m1-1-monorepo -->
+<!-- category: improvement -->
+<!-- version: 1.15.2 -->
+<!-- targets: fejlesztő -->
+
+### 🛠️ Tech-groundwork a Tauri desktop klienshez (M1 fázis)
+
+Ez a lépés **nem érinti a felhasználói működést** — csak a repo belső szerkezete változott, hogy a közelgő **Tauri 2 desktop kliens** és a jelenlegi **Next.js webapp** egyazon repo-ban, **közös csomagokon** (UI, Supabase-kliens, design-tokenek, séma-típusok) osztozzanak.
+
+**Mit változott a repo szerkezetében:**
+
+- A teljes Next.js app átkerült `app/`, `components/`, `lib/`, `public/` gyökér-mappákból → `apps/web/` alá
+- Az összes futtatási konfig (`next.config.ts`, `tsconfig.json`, `middleware.ts`, `eslint.config.mjs`, `postcss.config.mjs`, `components.json`, `next-env.d.ts`, `.env.local`, `.env.example`) is átkerült `apps/web/` alá
+- Új `packages/` könyvtár 4 placeholder csomaggal (`@kartoteka/ui`, `@kartoteka/supabase-client`, `@kartoteka/design-tokens`, `@kartoteka/schema-types`) — ezeket M1.2–M1.4 tölti fel tartalommal
+- A root `package.json` most **npm workspaces**-alapú monorepo-meta: a `dev`, `build`, `lint` parancsok a root-ról is működnek (`npm run dev` → `apps/web/` alá delegál)
+- A `scripts/audit-safety.mjs` átkerült `apps/web/scripts/` alá, a `scripts/build-adr-seed.mjs` maradt rooton (mert a `migration-docs/` gyökér-adatain dolgozik)
+
+**Mi maradt változatlan** (a felhasználó-látható szinten):
+
+- A rendszer **ugyanúgy működik**, mint eddig — minden URL, minden funkció, minden adatbázis-kapcsolat
+- A `npm run dev`, `npm run build`, `npm run lint` ugyanolyan parancsok, mint eddig (csak ezúttal a root `package.json` irányítja workspaces-en át)
+- Supabase, Brevo, RLS, auth — **semmi nem változott**
+- Az `.env.local` automatikusan betöltődik (Next.js a `apps/web/.env.local` fájlt olvassa)
+
+**Ellenőrzés futtatva:**
+
+- ✅ `npm install` — 968 csomag telepítve, workspaces összelinkelve (`node_modules/@kartoteka/{web,ui,...}` symlinkek OK)
+- ✅ `npx tsc --noEmit` (apps/web) — 0 hiba
+- ✅ `npm run dev` (root-ról) — `Ready in 386ms`, `Environments: .env.local` helyesen betöltve
+- ✅ Git: minden `git mv`-vel rögzítve, a történet megőrzöttt (file history linkelhető)
+
+**Következő lépés (M1.2):** Tauri 2 projekt init az `apps/desktop/` alá — Vite + React SPA a Tauri shell-ben. Ez már **új desktop kliens**, nem érinti a webes működést.
+
+---
+
 ## [2026-04-23] — Hozzáférés-kérelem rendszer: end-to-end ÉLES
 
 <!-- key: 2026-04-23-m0-end-to-end -->
