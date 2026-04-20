@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.1: Lokális SQLite a desktop kliensben (tauri-plugin-sql)
+
+<!-- key: 2026-04-23-m2-1-local-sqlite -->
+<!-- category: improvement -->
+<!-- version: 1.15.7 -->
+<!-- targets: fejlesztő -->
+
+### 💾 Offline adatréteg első lépése — titkosítás nélküli SQLite
+
+**A webes működést nem érinti.** Az M2 fázis első alfázisa: a Tauri desktop kliens ezentúl létre tud hozni és használni egy **lokális SQLite adatbázist** (`%APPDATA%\com.erek.kartoteka\kartoteka.db`). Ez az offline-first működés alapja.
+
+**Egyelőre nincs titkosítás** — az M2.2-ben cseréljük SQLCipher-re, és a kulcsot a Stronghold kulcstárba tesszük (M2.3).
+
+**Új csomagok:**
+- **Rust**: `tauri-plugin-sql` v2 (sqlite feature)
+- **JS**: `@tauri-apps/plugin-sql` v2
+
+**Séma — v1 migráció (automatikusan fut az első indításkor):**
+- `settings (key, value, updated_at)` — kulcs-érték alapbeállítások
+- `outbox (id, op, target_table, target_id, payload, status, …)` — offline írás-queue (M2.3-ban tölt fel)
+
+**TS wrapper (`apps/desktop/src/lib/local-db.ts`):**
+- `getLocalDb()` — singleton factory
+- `getSetting(key)` / `setSetting(key, value)` / `getAllSettings()`
+- `getOutboxStats()` — pending/sent/failed/total számok
+
+**Dashboard-demo:**
+- Új „Lokális adatbázis" kártya a desktop dashboard-on
+- Mutatja a settings sorokat + outbox statisztikát
+- „Ping local DB" gomb → beszúr egy `last_ping` értéket, ami bizonyítja a working write-read
+- Böngésző-módban (npm run desktop:vite) szép hibaüzenet: „A Tauri SQL-plugin csak natív ablakban aktív, indítsd `npm run desktop:dev`-vel"
+
+**Tauri capabilities**: a `sql:*` engedélyeket explicit megadtuk a `src-tauri/capabilities/default.json`-ban (Tauri 2 biztonsági modellje mindent zárt engedélyezés nélkül)
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 2m 18s, 0 hiba (sqlx-sqlite + tauri-plugin-sql 2.4 hozzáadva)
+- ✅ `npm run desktop:build` (Vite prod): **2116 modul (+4 plugin-sql SDK), 5.48s**
+
+**Következő (M2.2)**: SQLCipher cserélés — titkosított DB. Még mindig nincs Stronghold, a kulcs egy statikus env-változóból jön, de már SQLCipher-rel. A M2.3 adja hozzá a Stronghold-alapú kulcs-kezelést.
+
+---
+
 ## [2026-04-23] — M1.5: Desktop kliens login-képernyő + auth-flow
 
 <!-- key: 2026-04-23-m1-5-desktop-login -->
