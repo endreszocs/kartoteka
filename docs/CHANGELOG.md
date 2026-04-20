@@ -23,6 +23,53 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.2: SQLCipher-titkosított lokális DB (rusqlite + saját commands)
+
+<!-- key: 2026-04-23-m2-2-sqlcipher -->
+<!-- category: security -->
+<!-- version: 1.15.8 -->
+<!-- targets: fejlesztő -->
+
+### 🔐 A lokális adatbázis most már titkosított — SQLCipher a helyén
+
+**A webes működést ez sem érinti.** A desktop kliens korábbi (M2.1) sima SQLite-ja titkosított SQLCipher-re cserélve.
+
+**Mi változott a Rust-oldalon:**
+- Eltávolítva: `tauri-plugin-sql` csomag (külső plugin)
+- Hozzáadva: `rusqlite v0.32` a `bundled-sqlcipher-vendored-openssl` feature-rel — ez **nem igényel system-OpenSSL-t és nem igényel system-SQLCipher-t**, mindent a crate-ek magukban hoznak
+- Új modul: `src-tauri/src/db.rs` — nyit, migrál, `db_execute` + `db_select` Tauri command-ok
+- `src-tauri/src/lib.rs` refaktor: `setup()`-ban megnyitja és migrálja a DB-t, a commandokat regisztrálja
+
+**Mi változott a TS-oldalon:**
+- Eltávolítva: `@tauri-apps/plugin-sql` npm csomag
+- `apps/desktop/src/lib/local-db.ts` átírva: most közvetlenül `invoke('db_execute', ...)` / `invoke('db_select', ...)`-ot hív
+- A **nyilvános API változatlan**: `getSetting`, `setSetting`, `getAllSettings`, `getOutboxStats` — a dashboard kódot nem kellett módosítani
+
+**Biztonsági állapot:**
+- ✅ A DB már SQLCipher-titkosított
+- ⚠️ A kulcs **statikus fejlesztői konstans** a Rust kódban (`DEV_DB_KEY`) — **NEM production-safe**
+- ⏳ **M2.3-ban** a Stronghold kulcstárba kerül (user-jelszóból derivált, egyedi eszközönként)
+
+**Migráció:**
+- A `PRAGMA user_version` verzió-alapú stratégia megmaradt (v1 séma: `settings` + `outbox`)
+- Ha a fejlesztői gépen létezik az M2.1-es plain-SQLite DB, az **nem nyitható meg** — az M2.2 törlést nem végez, a user kézzel törölheti a `%APPDATA%\com.erek.kartoteka\kartoteka.db`-t ha gond van
+
+**Capabilities tisztítva:** a `sql:*` engedélyeket eltávolítottuk a `capabilities/default.json`-ből, mert a saját `#[tauri::command]` függvényekhez Tauri 2-ben nem kell explicit capability (csak plugin-command-ekhez).
+
+**Fejlesztő gép build-függőségei (csak Endre oldalán — a lelkészek MSI-t kapnak):**
+- Strawberry Perl 5.42.2.1 (OpenSSL `Configure` szkripthez) — `winget install StrawberryPerl.StrawberryPerl`
+- NASM (a Strawberry Perl már behúzza a `C:\Strawberry\c\bin\nasm.exe`-t, a winget-es `NASM.NASM` redundáns)
+- Build-target átirányítva `C:\kartoteka-target`-re egy `.cargo/config.toml`-lal — az `D:\Egyházi APP\...` útvonalban lévő `á` karakter összetöri az OpenSSL build-scriptet (NASM-kódlap ütközés)
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build` (Vite prod): **2115 modul**, 5.09s
+- ✅ `cargo check`: első build ~15 perc (SQLCipher C + OpenSSL C fordítás), inkrementális **1.20 s**
+
+**Következő (M2.3)**: Stronghold kulcstár — a `DEV_DB_KEY` konstans helyett a kulcs egy user-jelszóból derivált értékből származik, és a Stronghold-napló titkosított. Ez zárja a fejlesztés → produkció váltás utolsó biztonsági résé.
+
+---
+
 ## [2026-04-23] — M2.1: Lokális SQLite a desktop kliensben (tauri-plugin-sql)
 
 <!-- key: 2026-04-23-m2-1-local-sqlite -->

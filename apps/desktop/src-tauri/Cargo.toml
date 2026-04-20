@@ -20,8 +20,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-# M2.1 — lokális SQLite (later M2.2: SQLCipher-re cseréljük a `sqlite-unbundled` nélkül)
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# M2.2 — SQLCipher-titkosított SQLite saját Tauri commands-kel.
+# A `bundled-sqlcipher-vendored-openssl` feature-rel **SEM** az SQLCipher-t,
+# **SEM** az OpenSSL-t nem igényli a system-ből — mindkettő C-forrása a
+# `libsqlite3-sys` + `openssl-src` crate-ben van, magától fordul.
+# Első cargo build 15-25 perc (Windows MSVC-n kb. 4 GB RAM + 2 GB disk),
+# inkrementális utána ~pár másodperc.
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -1,53 +1,61 @@
-import Database from '@tauri-apps/plugin-sql'
+import { invoke } from '@tauri-apps/api/core'
 
 /**
- * Lokális SQLite hozzáférés a Tauri desktop kliensben.
+ * Lokális SQLCipher-titkosított SQLite elérés a Tauri desktop kliensben.
  *
- * **M2.1 állapot**: sima SQLite, a DB fájl az OS-specifikus app-data mappában
- * jön létre (Windows: `%APPDATA%\com.erek.kartoteka\kartoteka.db`).
+ * **M2.2 állapot** (2026-04-23 óta): saját Rust-oldali implementáció
+ * `rusqlite` + `bundled-sqlcipher` feature-rel. A M2.1-es `@tauri-apps/plugin-sql`
+ * csomagot eltávolítottuk.
  *
- * **M2.2+ terv**: SQLCipher cserélés — ugyanez az API marad, csak a Rust-oldal
- * cserélődik.
+ * - DB fájl: `%APPDATA%\com.erek.kartoteka\kartoteka.db` (Windows)
+ * - Titkosítás: **SQLCipher**, statikus dev-kulccsal az M2.2-ben.
+ *   Az M2.3-ban a kulcs a Stronghold kulcstárból jön.
+ * - A Rust-oldali commandok: `db_execute(sql, params)` és `db_select(sql, params)`.
  *
- * **M2.3+ terv**: pull-sync + outbox-alapú push-sync integráció.
+ * A nyilvános API **nem változott az M2.1 óta** — a `dashboard-page.tsx`
+ * ugyanazokat a helpereket hívja (`getSetting`, `setSetting`, `getAllSettings`,
+ * `getOutboxStats`).
  *
- * ## Használat
+ * ## Böngésző-mód vs Tauri-ablak
  *
- * ```ts
- * const db = await getLocalDb()
- * const rows = await db.select<{ key: string; value: string }>(
- *   'SELECT key, value FROM settings',
- * )
- * await db.execute(
- *   'INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)',
- *   ['theme', 'dark'],
- * )
- * ```
- *
- * ## Tauri vs Vite dev-mód
- *
- * A `Database.load()` csak **Tauri-ablakban** fut — ha a felhasználó a
- * böngészőben nyitja (`npm run desktop:vite`), a Tauri-plugin-ek nem érhetők el,
- * és a hívás futtatáskor hibára fut. A `getLocalDb()` ezért lazy — csak akkor
- * terheli a plugint, amikor ténylegesen szükség van rá, és graceful-fail a
- * hívó oldalon egyszerűen try/catch-sel kezelhető.
+ * A `invoke()` csak Tauri-ablakon belül működik. Ha a frontendet sima
+ * böngészőben nyitod (`npm run desktop:vite`), a Rust commandok nem elérhetők,
+ * és a hívások hibára futnak — ezeket a UI-oldal try/catch-sel kezeli.
  */
 
-type SqlDatabase = Awaited<ReturnType<typeof Database.load>>
+// ─────────────────────────────────────────────────────────────────────────
+// Nyers Rust-hívások
+// ─────────────────────────────────────────────────────────────────────────
 
-const DB_URL = 'sqlite:kartoteka.db'
-let cached: Promise<SqlDatabase> | null = null
+/** JSON-kompatibilis érték, amit a Rust-oldali `db_execute/db_select` fogad. */
+export type SqlParam =
+  | string
+  | number
+  | boolean
+  | null
+  // A Rust `json_to_sql` a komplex értékeket (tömb, objektum) string-re dumpolja
+  | Record<string, unknown>
+  | unknown[]
 
-export async function getLocalDb(): Promise<SqlDatabase> {
-  if (!cached) {
-    cached = Database.load(DB_URL)
-  }
-  return cached
+/** DDL/DML hívás: visszaadja az érintett sorok számát. */
+export async function dbExecute(sql: string, params: SqlParam[] = []): Promise<number> {
+  return invoke<number>('db_execute', { sql, params })
+}
+
+/**
+ * SELECT hívás: visszaadja a sorokat objektum-tömbként.
+ * A visszaadott `T` generikus — a hívó felelőssége az oszlopnevek + típusok
+ * helyessége.
+ */
+export async function dbSelect<T = Record<string, unknown>>(
+  sql: string,
+  params: SqlParam[] = [],
+): Promise<T[]> {
+  return invoke<T[]>('db_select', { sql, params })
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Kényelmi helperek a `settings` táblához — tipikus "utolsó sync időpontja"
-// vagy "user beállítás" jellegű értékek tárolására.
+// Kényelmi helperek a `settings` táblához
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface SettingRow {
@@ -57,33 +65,30 @@ export interface SettingRow {
 }
 
 export async function getSetting(key: string): Promise<string | null> {
-  const db = await getLocalDb()
-  const rows = await db.select<Array<Pick<SettingRow, 'value'>>>(
-    'SELECT value FROM settings WHERE key = $1',
+  const rows = await dbSelect<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?1',
     [key],
   )
   return rows[0]?.value ?? null
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-  const db = await getLocalDb()
-  await db.execute(
+  await dbExecute(
     `INSERT INTO settings (key, value, updated_at)
-     VALUES ($1, $2, datetime('now'))
+     VALUES (?1, ?2, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     [key, value],
   )
 }
 
 export async function getAllSettings(): Promise<SettingRow[]> {
-  const db = await getLocalDb()
-  return db.select<SettingRow[]>(
+  return dbSelect<SettingRow>(
     'SELECT key, value, updated_at FROM settings ORDER BY key',
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Outbox — offline CRUD-sor, M2.3-ban tölt fel tényleges használattal
+// Outbox — offline CRUD-sor
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface OutboxStats {
@@ -94,8 +99,7 @@ export interface OutboxStats {
 }
 
 export async function getOutboxStats(): Promise<OutboxStats> {
-  const db = await getLocalDb()
-  const rows = await db.select<Array<{ status: string; n: number }>>(
+  const rows = await dbSelect<{ status: string; n: number }>(
     `SELECT status, COUNT(*) AS n FROM outbox GROUP BY status`,
   )
   const stats: OutboxStats = { pending: 0, sent: 0, failed: 0, total: 0 }
