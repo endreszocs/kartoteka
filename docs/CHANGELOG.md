@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M1.5: Desktop kliens login-képernyő + auth-flow
+
+<!-- key: 2026-04-23-m1-5-desktop-login -->
+<!-- category: improvement -->
+<!-- version: 1.15.6 -->
+<!-- targets: fejlesztő -->
+
+### 🔑 Kartotéka Desktop első értelmes képernyője — bejelentkezés
+
+**A webes működést ez nem érinti.** A Tauri desktop kliens most először használja a közös csomagokat valós UI-val: Tailwind CSS 4 + `@kartoteka/ui` komponensek + `@kartoteka/supabase-client` auth, React Router routing-gel.
+
+**Mi van az M1.5-ben:**
+
+- **Tailwind CSS 4** beállítva a Vite-on át (`@tailwindcss/vite` plugin, nem PostCSS) — a közös `@kartoteka/ui` csomagot is scanneli (`@source "../../../packages/ui/src"`)
+- **Placeholder design tokenek** az `apps/desktop/src/index.css`-ben — minimál színpaletta (EREK zöld primary), M2-ben a `@kartoteka/design-tokens` fogja adni végleges formában
+- **React Router DOM v7** — `HashRouter` (Tauri-biztonságos, nem ütközik custom URL-scheme-ekkel)
+- **`AuthGate`** komponens — session-check, loading-spinner, redirect `/login`-ra, reagál `onAuthStateChange`-re
+- **Login képernyő** (`LoginPage`) — email + jelszó form, `@kartoteka/ui` Button/Card/Input/Label komponenseket használ, a Supabase hibákat magyar üzenetekre fordítja (pl. "invalid login credentials" → "Hibás e-mail cím vagy jelszó")
+- **Dashboard placeholder** — üdvözlő kártya + kijelentkezés gomb, bizonyítja hogy az auth-gate és a közös csomagok végig működnek
+- **Tauri default assetek** kitakarítva (App.css, react.svg, vite.svg, tauri.svg) — tiszta start
+
+**A user flow a desktop-on** (ha a `.env` kitöltve van):
+1. App indul → AuthGate session-check → nincs → redirect `#/login`
+2. Login form megjelenik a @kartoteka/ui Card-jával
+3. Email + jelszó beírása → `supabase.auth.signInWithPassword`
+4. Siker → redirect `#/` → AuthGate session OK → Dashboard
+5. "Kijelentkezés" → `supabase.auth.signOut` → redirect `#/login`
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): **0 hiba**
+- ✅ Vite dev (port 1420) — Ready in 663 ms
+- ✅ `GET /` → 200, 566 byte HTML (title: "Kartotéka")
+- ✅ `GET /src/main.tsx` → 200, transformált modul
+- ✅ `GET /src/index.css` → 200, **78 KB generált Tailwind CSS** (a közös UI komponensek class-ai sikeresen scannelve)
+
+**Próbald ki böngészőben (Tauri nélkül is):**
+```bash
+cd apps/desktop
+cp .env.example .env  # ha még nem tetted
+# töltsd ki a VITE_SUPABASE_URL és VITE_SUPABASE_ANON_KEY értékeket
+cd ../..
+npm run desktop:vite
+# → http://localhost:1420 — ugyanaz a UI, Tauri-ablak nélkül
+```
+
+**Vagy Tauri-ablakban** (első indítás 5-10 perc a cargo build miatt):
+```bash
+npm run desktop:dev
+```
+
+**Következő (M2 fázis kezdete)**: SQLCipher + offline DB réteg a Tauri-oldalán. Az M1 fázis **ezzel lezárult**.
+
+---
+
 ## [2026-04-23] — M1.4: Közös UI komponens-könyvtár (@kartoteka/ui)
 
 <!-- key: 2026-04-23-m1-4-ui-shared -->
