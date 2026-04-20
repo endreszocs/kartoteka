@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kartotéka",
+  "version": "0.1.0",
+  "identifier": "com.erek.kartoteka",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Kartotéka",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "© Barátosi Református Egyházközség / EREK — 2026",
+    "publisher": "EREK Kartotéka",
+    "shortDescription": "Egyházi adminisztrációs rendszer",
+    "longDescription": "A Kartotéka egy egyházi adminisztrációs rendszer, amely lehetővé teszi a gyülekezetek tagnyilvántartásának, pénzügyi ügyintézésének, anyakönyvvezetésének és további funkcióinak egységes kezelését."
+  }
+}

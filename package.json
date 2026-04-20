@@ -13,6 +13,9 @@
     "start": "npm run start --workspace=@kartoteka/web",
     "lint": "npm run lint --workspace=@kartoteka/web",
     "audit:safety": "npm run audit:safety --workspace=@kartoteka/web",
+    "desktop:dev": "npm run tauri dev --workspace=@kartoteka/desktop",
+    "desktop:build": "npm run tauri build --workspace=@kartoteka/desktop",
+    "desktop:vite": "npm run dev --workspace=@kartoteka/desktop",
     "build:portable": "powershell -ExecutionPolicy Bypass -File ./standalone-build/build-portable.ps1 -Slug default -Version 1.0.0",
     "adr:seed": "node scripts/build-adr-seed.mjs"
   }

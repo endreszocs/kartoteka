@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M1.2: Tauri 2 desktop kliens bootstrap (apps/desktop/)
+
+<!-- key: 2026-04-23-m1-2-tauri-bootstrap -->
+<!-- category: improvement -->
+<!-- version: 1.15.3 -->
+<!-- targets: fejlesztő -->
+
+### 🖥️ Üres desktop-kliens inicializálva (M1 fázis folytatása)
+
+**Ez sem érinti a felhasználói működést** — a jelenlegi webes Kartotéka-rendszer továbbra is ugyanúgy fut. Viszont most már létezik egy **kezdő Tauri 2 desktop projekt** az `apps/desktop/` alatt, amit M1.3-tól tartalommal töltünk fel.
+
+**Mi történt:**
+
+- Rust 1.95.0 stable toolchain telepítve (`winget install Rustlang.Rustup`) — ez csak a fejlesztői gépen kell
+- Az `apps/desktop/` alatt létrejött egy Tauri 2 + React + TypeScript + Vite projekt (a `create-tauri-app` hivatalos CLI-vel)
+- `@kartoteka/desktop` workspace-névvel bejegyezve — a root `npm install` behúzza, a root `npm run desktop:dev` parancs a Tauri dev-szervert indítja
+- A Tauri config magyarítva: `productName: "Kartotéka"`, `title: "Kartotéka"`, 1280×800 kezdő ablakméret, EREK copyright + leírás
+- A React-oldali `App.tsx` és a Rust-oldali `greet` parancs magyarítva
+- `cargo check` sikeresen lefutott (1 perc 29 mp, 517 crate) — a Rust backend fordítható
+
+**Hogyan telepíti majd egy lelkész az egészet?** Nem a Rust-ot és nem a Visual Studio-t — hanem egy **egyetlen `.msi` installer-t**, amit a Tauri bundler generál és mindent magával hoz (WebView2 runtime, Visual C++ Redistributable). A fejlesztői függőségek (Rust, C++ Build Tools) csak Endre gépén szükségesek. Részletek: `docs/project-tracking/KARTOTEKA-M1-2-tauri-bootstrap-2026-04-23.md`.
+
+**Új root parancsok:**
+
+- `npm run desktop:dev` — Tauri ablak indítása (fejlesztéshez, első indításkor 5-10 perc)
+- `npm run desktop:build` — MSI installer generálás
+- `npm run desktop:vite` — csak a Vite frontend (browser-ben teszteléshez)
+
+**Fontos**: az M0 (access-requests, Brevo, JWT hook) és az M1.1 (monorepo) **változatlanul működik**. Az M1.2 csak **új modul** — nem nyúl a webhez.
+
+---
+
 ## [2026-04-23] — M1.1: Monorepo átalakítás (apps/web + packages/*)
 
 <!-- key: 2026-04-23-m1-1-monorepo -->
