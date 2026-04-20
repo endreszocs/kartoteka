@@ -1,0 +1,262 @@
+import type { DebtCalcMode } from '@/lib/constants/finance'
+
+export interface JarulekDiscountRule {
+  id?: string
+  ev: number
+  tipus: 'idoszak' | 'kor' | 'jovedelem'
+  aktiv: boolean
+  hatarid: string | null
+  kedv_osszeg: number | null
+  kor_tol: number | null
+  szazalek: number | null
+  fix_osszeg: number | null
+  jov_leiras: string | null
+}
+
+export interface JarulekYearSetting {
+  year: number
+  eves_jarulek: number
+  jarulek_kedvezmenyes: number | null
+  jarulek_hatarid: string | null
+}
+
+export interface JarulekMemberLike {
+  id: number
+  sz_datum: string | null
+  familyId?: number | null
+}
+
+export interface JarulekPaymentLike {
+  id_szemely?: number | null
+  id_csalad?: number | null
+  datum?: string | null
+  fizetettev: number | null
+  osszeg: number
+}
+
+export interface JarulekExemption {
+  id_szemely: number | null
+  id_csalad: number | null
+  kezdete: number | null
+  vege: number | null
+}
+
+export interface JarulekComputationResult {
+  expected: number
+  paid: number
+  debt: number
+  appliedRules: string[]
+  usedYear: number
+}
+
+function normalizeAmount(value: unknown) {
+  return Math.max(0, Number(value) || 0)
+}
+
+function parseMonthDay(year: number, monthDay?: string | null) {
+  if (!monthDay) return null
+
+  const trimmed = monthDay.trim()
+  const parts = trimmed.split('-')
+  if (parts.length !== 2) return null
+
+  const month = Number(parts[0])
+  const day = Number(parts[1])
+  if (!month || !day) return null
+
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function parseComparableDate(value?: string | null) {
+  if (!value) return null
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function getAgeForYear(member: JarulekMemberLike, year: number) {
+  if (!member.sz_datum) return null
+  const birthYear = Number(String(member.sz_datum).slice(0, 4))
+  if (!birthYear || birthYear < 1900) return null
+  return year - birthYear
+}
+
+function getYearSetting(
+  year: number,
+  yearSettings: Record<number, JarulekYearSetting>,
+  debtCalcMode: DebtCalcMode,
+  currentYear: number,
+) {
+  const usedYear = debtCalcMode === 'aktualis' ? currentYear : year
+  return {
+    usedYear,
+    setting: yearSettings[usedYear] || yearSettings[year] || null,
+  }
+}
+
+function isExemptForYear(memberId: number, familyId: number | null | undefined, exemptions: JarulekExemption[], year: number) {
+  return exemptions.some((item) => {
+    const fromYear = item.kezdete || 0
+    const toYear = item.vege || 2099
+    if (year < fromYear || year > toYear) return false
+    return item.id_szemely === memberId || (!!familyId && item.id_csalad === familyId)
+  })
+}
+
+function getRelevantPayments(
+  payments: JarulekPaymentLike[],
+  memberId: number,
+  familyId: number | null | undefined,
+  year: number,
+) {
+  return payments.filter((payment) => {
+    if (payment.fizetettev !== year) return false
+    if (payment.id_szemely === memberId) return true
+    if (familyId && payment.id_csalad === familyId) return true
+    return false
+  })
+}
+
+function sumPaymentsUntil(payments: JarulekPaymentLike[], deadline: Date | null) {
+  if (!deadline) return 0
+  return payments.reduce((sum, payment) => {
+    const paymentDate = parseComparableDate(payment.datum)
+    if (!paymentDate) return sum
+    return paymentDate.getTime() <= deadline.getTime() ? sum + normalizeAmount(payment.osszeg) : sum
+  }, 0)
+}
+
+function getAgeAdjustedFee(
+  member: JarulekMemberLike,
+  year: number,
+  baseFee: number,
+  discounts: JarulekDiscountRule[],
+) {
+  const age = getAgeForYear(member, year)
+  if (age === null) return { amount: baseFee, labels: [] as string[] }
+
+  let bestAmount = baseFee
+  const labels: string[] = []
+
+  discounts
+    .filter((discount) => discount.tipus === 'kor' && discount.aktiv)
+    .forEach((discount) => {
+      const ageThreshold = Number(discount.kor_tol) || 0
+      if (age < ageThreshold) return
+
+      const candidate =
+        discount.fix_osszeg != null
+          ? normalizeAmount(discount.fix_osszeg)
+          : discount.szazalek != null
+            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
+            : baseFee
+
+      if (candidate < bestAmount) {
+        bestAmount = candidate
+        labels.length = 0
+        labels.push(`Kor kedvezmény (${ageThreshold}+ év)`)
+      }
+    })
+
+  return { amount: bestAmount, labels }
+}
+
+function getEarlyPaymentAdjustedFee(
+  year: number,
+  baseFee: number,
+  yearSetting: JarulekYearSetting | null,
+  discounts: JarulekDiscountRule[],
+  relevantPayments: JarulekPaymentLike[],
+) {
+  let bestAmount = baseFee
+  const labels: string[] = []
+
+  const defaultDiscountAmount = normalizeAmount(yearSetting?.jarulek_kedvezmenyes)
+  const defaultDeadline = parseMonthDay(year, yearSetting?.jarulek_hatarid)
+  if (defaultDiscountAmount > 0 && defaultDeadline) {
+    const paidByDeadline = sumPaymentsUntil(relevantPayments, defaultDeadline)
+    if (paidByDeadline >= defaultDiscountAmount && defaultDiscountAmount < bestAmount) {
+      bestAmount = defaultDiscountAmount
+      labels.length = 0
+      labels.push(`Kedvezményes határidő (${yearSetting?.jarulek_hatarid})`)
+    }
+  }
+
+  discounts
+    .filter((discount) => discount.tipus === 'idoszak' && discount.aktiv)
+    .forEach((discount) => {
+      const deadline = parseMonthDay(year, discount.hatarid)
+      if (!deadline) return
+
+      const candidate =
+        discount.kedv_osszeg != null
+          ? normalizeAmount(discount.kedv_osszeg)
+          : discount.szazalek != null
+            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
+            : 0
+
+      if (candidate <= 0) return
+
+      const paidByDeadline = sumPaymentsUntil(relevantPayments, deadline)
+      if (paidByDeadline >= candidate && candidate < bestAmount) {
+        bestAmount = candidate
+        labels.length = 0
+        labels.push(`Időszaki kedvezmény (${discount.hatarid})`)
+      }
+    })
+
+  return { amount: bestAmount, labels }
+}
+
+export function computeJarulekForMemberYear(params: {
+  member: JarulekMemberLike
+  year: number
+  currentYear: number
+  debtCalcMode: DebtCalcMode
+  yearSettings: Record<number, JarulekYearSetting>
+  discounts: JarulekDiscountRule[]
+  exemptions: JarulekExemption[]
+  payments: JarulekPaymentLike[]
+}) {
+  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions, payments } = params
+
+  if (isExemptForYear(member.id, member.familyId, exemptions, year)) {
+    return {
+      expected: 0,
+      paid: getRelevantPayments(payments, member.id, member.familyId, year).reduce((sum, item) => sum + normalizeAmount(item.osszeg), 0),
+      debt: 0,
+      appliedRules: ['Felmentett'],
+      usedYear: year,
+    } satisfies JarulekComputationResult
+  }
+
+  const { usedYear, setting } = getYearSetting(year, yearSettings, debtCalcMode, currentYear)
+  const baseFee = normalizeAmount(setting?.eves_jarulek)
+  const relevantPayments = getRelevantPayments(payments, member.id, member.familyId, year)
+  const paid = relevantPayments.reduce((sum, item) => sum + normalizeAmount(item.osszeg), 0)
+
+  if (baseFee <= 0) {
+    return {
+      expected: 0,
+      paid,
+      debt: 0,
+      appliedRules: [],
+      usedYear,
+    } satisfies JarulekComputationResult
+  }
+
+  const activeDiscounts = discounts.filter((discount) => discount.aktiv && discount.ev === year)
+  const ageAdjusted = getAgeAdjustedFee(member, year, baseFee, activeDiscounts)
+  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, ageAdjusted.amount, setting, activeDiscounts, relevantPayments)
+
+  const expected = Math.min(baseFee, ageAdjusted.amount, earlyAdjusted.amount)
+  const appliedRules = [...ageAdjusted.labels, ...earlyAdjusted.labels]
+
+  return {
+    expected,
+    paid,
+    debt: Math.max(0, expected - paid),
+    appliedRules,
+    usedYear,
+  } satisfies JarulekComputationResult
+}

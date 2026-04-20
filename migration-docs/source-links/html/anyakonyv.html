@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Anyakönyvek | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .table-row-hover:hover { background-color: #f1f5f9; cursor: pointer; }
+        .search-results { position: absolute; z-index: 1000; width: 100%; max-height: 200px; overflow-y: auto; display: none; }
+        .search-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; background: white; }
+        .search-item:hover { background: #f8f9fa; }
+    </style>
+    <!-- apexcharts, familytree: lazy betöltés igény szerint (lazy_libs.js) -->
+</head>
+<body>
+    <div class="page">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+            
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-12 col-md">
+                            <h2 class="page-title">Egyházi Anyakönyvek</h2>
+                            <div class="text-muted" id="ak-count"></div>
+                        </div>
+                        
+                        <div class="col-12 col-md-auto ms-auto d-flex flex-wrap gap-2 mt-2 mt-md-0">
+                            <div class="input-icon flex-grow-1" style="min-width: 200px;">
+                                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                <input type="text" id="search-ak" class="form-control" placeholder="Keresés..." oninput="filterAk()">
+                            </div>
+                            <button class="btn btn-success text-nowrap" onclick="exportAkToExcel()"><i class="ti ti-file-spreadsheet me-2"></i>Excel</button>
+                            <button class="btn btn-outline-secondary text-nowrap" onclick="window.print()"><i class="ti ti-printer me-2"></i>Nyomtatás</button>
+                            <button id="btn-dinamikus-uj" class="btn btn-primary text-nowrap shadow-sm">
+								<i class="ti ti-droplet me-2"></i>Új Bejegyzés
+							</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-body">
+                <div class="container-xl">
+                    <div class="card shadow-sm border-0">
+                        <div class="card-header border-0 pb-0 d-print-none">
+                            <ul class="nav nav-tabs nav-fill page-header-tab" id="ak-tabs">
+                                <li class="nav-item"><a href="#" class="nav-link active" onclick="loadAkData('attekinto')" data-bs-toggle="tab"><i class="ti ti-dashboard me-2"></i>Áttekintő</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('keresztseg')" data-bs-toggle="tab">Kereszteltek</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('konfirmalas')" data-bs-toggle="tab">Konfirmáltak</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('hazassag')" data-bs-toggle="tab">Házasultak</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('temetes')" data-bs-toggle="tab">Eltemetettek</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('bekoltozott')" data-bs-toggle="tab">Beköltözött</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('elkoltozott')" data-bs-toggle="tab">Elköltözött</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('attert')" data-bs-toggle="tab">Áttért</a></li>
+                                <li class="nav-item"><a href="#" class="nav-link" onclick="loadAkData('kitert')" data-bs-toggle="tab">Kitért</a></li>
+                            </ul>
+                        </div>
+                        
+                        <div class="card-body">
+                            <h3 class="card-title mb-4" id="ak-section-title">Anyakönyvi Adatok</h3>
+
+                            <div id="ak-dashboard-container" class="d-none row g-3"></div>
+                            
+                            <div id="ak-familytree-container" class="d-none" style="width: 100%; height: min(750px, 80vh); border: 2px solid #e6e8eb; border-radius: 8px; background: #fafbfc;"></div>
+                            
+                            <div id="ak-table-container">
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table table-striped table-hover">
+                                        <thead id="ak-thead"></thead>
+                                        <tbody id="ak-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modal-anyakonyv-placeholder"></div>
+    <div id="modal-konfirmalas-placeholder"></div>
+    <div id="modal-profile-placeholder"></div>
+    <div id="modal-congregation-placeholder"></div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    
+    <script src="js/dist/common.min.js?v=29"></script>
+    <script src="js/dist/anyakonyv.min.js?v=29"></script>
+
+    <script>
+        async function startApp() {
+            try {
+                const components = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/modal_anyakonyv.html'),
+                    fetchComponent('components/modal_konfirmalas.html'),
+                    fetchComponent('components/modal_profile.html'),
+                    fetchComponent('components/modal_congregation.html'),
+                    fetchComponent('components/modal_add_member.html')
+                ]);
+
+                document.getElementById('sidebar-placeholder').innerHTML = components[0];
+                document.getElementById('header-placeholder').innerHTML = components[1];
+                document.getElementById('modal-anyakonyv-placeholder').innerHTML = components[2];
+                document.getElementById('modal-konfirmalas-placeholder').innerHTML = components[3];
+                document.getElementById('modal-profile-placeholder').innerHTML = components[4];
+                document.getElementById('modal-congregation-placeholder').innerHTML = components[5];
+
+                const memberHolder = document.createElement('div');
+                memberHolder.id = 'modal-add-member-placeholder';
+                memberHolder.innerHTML = components[6];
+                document.body.appendChild(memberHolder);
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                // Indítjuk az Anyakönyvet!
+                if (typeof loadAkData === 'function') {
+                    await loadAkData('keresztseg'); 
+                } else {
+                    console.error("Kritikus hiba: A loadAkData funkció még mindig hiányzik!");
+                }
+                
+            } catch (err) { 
+                console.error("Hiba az oldal betöltésekor:", err); 
+            }
+        }
+        window.onload = startApp;
+    </script>
+</body>
+</html>

@@ -1,0 +1,374 @@
+'use client'
+
+import { useMemo, useTransition } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import {
+  AlertTriangle,
+  ArrowLeftCircle,
+  Clock,
+  Info,
+  Loader2,
+  RotateCcw,
+  Trash2,
+  TrashIcon,
+} from 'lucide-react'
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
+import {
+  emptyBin,
+  hardDelete,
+  listDeletedRecords,
+  RECYCLE_BIN_RETENTION_DAYS,
+  restoreRecord,
+  type DeletedRecordSummary,
+} from '@/lib/offline/recycle-bin-actions'
+import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
+
+/**
+ * Recycle Bin View — reusable Kuka oldal minden modulhoz.
+ *
+ * A modul oldaláról navigálsz ide, pl. /szemelyek/kuka.
+ *
+ * A komponens:
+ *  1. Listázza a soft-deleted rekordokat táblánként (accordion)
+ *  2. Minden soron: "Visszaállít" + "Végleges törlés" gomb
+ *  3. Globális "Kuka ürítése" (csak a 30+ napos sorokra) gomb
+ *  4. Figyelmezteti a user-t a retention szabályra (30 nap)
+ *
+ * Props:
+ *  - `module`: modul kulcs (pl. 'tagnyilvantartas')
+ *  - `tables`: a modul táblái (registry-ből)
+ *  - `labelBuilder`: opcionális ember-olvasható label generator táblánként
+ *  - `congregationId`: scope
+ *  - `backHref`: visszanavigáló link (pl. `/szemelyek`)
+ *  - `accentColor`: header szín (Tailwind color név, pl. 'emerald' vagy 'teal')
+ */
+
+export interface RecycleBinTableConfig {
+  dexieTable: string
+  label: string
+  labelBuilder?: (r: Record<string, unknown>) => string
+}
+
+export function RecycleBinView({
+  tables,
+  congregationId,
+  backHref,
+  backLabel,
+  moduleLabel,
+}: {
+  tables: RecycleBinTableConfig[]
+  congregationId: string | null
+  backHref: string
+  backLabel: string
+  moduleLabel: string
+}) {
+  const [isPending, startTransition] = useTransition()
+
+  // Minden tábla soft-deleted rekordjai, reaktívan a Dexie-ből
+  const allDeleted = useLiveQuery(async () => {
+    if (!congregationId) return [] as DeletedRecordSummary[]
+    const result: DeletedRecordSummary[] = []
+    for (const t of tables) {
+      try {
+        const rows = await listDeletedRecords(t.dexieTable, congregationId, {
+          labelBuilder: t.labelBuilder,
+          limit: 500,
+        })
+        result.push(...rows)
+      } catch (e) {
+        console.error('[kuka listDeletedRecords]', t.dexieTable, e)
+      }
+    }
+    return result
+  }, [congregationId, tables])
+
+  // Csoportosítás tábla szerint
+  const groupedByTable = useMemo(() => {
+    const map = new Map<string, DeletedRecordSummary[]>()
+    for (const r of allDeleted || []) {
+      const arr = map.get(r.table)
+      if (arr) arr.push(r)
+      else map.set(r.table, [r])
+    }
+    return map
+  }, [allDeleted])
+
+  const totalCount = allDeleted?.length || 0
+  const expiringCount =
+    allDeleted?.filter(
+      d => d.daysUntilPurge !== null && d.daysUntilPurge <= 3,
+    ).length || 0
+
+  function handleRestore(table: string, id: string | number) {
+    startTransition(async () => {
+      try {
+        await restoreRecord(table, id)
+        toast.success('Visszaállítva. A szinkronizáció elindult.')
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : 'Visszaállítás sikertelen.',
+        )
+      }
+    })
+  }
+
+  function handleHardDelete(
+    table: string,
+    id: string | number,
+    label: string,
+  ) {
+    if (
+      !confirm(
+        `⚠️ VÉGLEGES TÖRLÉS\n\nBiztosan véglegesen törlöd a következőt?\n\n  ${label}\n\nEzt a műveletet NEM lehet visszacsinálni!`,
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      try {
+        await hardDelete(table, id)
+        toast.success('Véglegesen törölve.')
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Törlés sikertelen.')
+      }
+    })
+  }
+
+  function handleEmptyBin(olderThanDays: number | null) {
+    const modifier = olderThanDays === null ? 'MINDENT' : `a 30+ napos sorokat`
+    if (
+      !confirm(
+        `⚠️ KUKA ÜRÍTÉS\n\nBiztosan VÉGLEGESEN törlöd ${modifier}?\n\nEzt a műveletet NEM lehet visszacsinálni!`,
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      try {
+        let total = 0
+        for (const t of tables) {
+          const { count } = await emptyBin(t.dexieTable, congregationId, {
+            olderThanDays: olderThanDays ?? 0,
+          })
+          total += count
+        }
+        toast.success(`${total} rekord véglegesen törölve.`)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Ürítés sikertelen.')
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Hero + vissza gomb */}
+      <div className="card-raised overflow-hidden">
+        <div className="flex items-center justify-between border-b border-red-100 bg-red-50/40 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <TrashIcon className="h-5 w-5 text-red-600" />
+            <h2 className="font-heading text-lg text-slate-800">
+              {moduleLabel} · Kuka
+            </h2>
+          </div>
+          <a
+            href={backHref}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <ArrowLeftCircle className="h-3.5 w-3.5" />
+            {backLabel}
+          </a>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 text-sm">
+              <div className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">
+                {totalCount} rekord a kukában
+              </div>
+              {expiringCount > 0 && (
+                <div className="rounded-full bg-red-100 px-3 py-1 font-semibold text-red-700">
+                  <AlertTriangle className="mr-1 inline h-3 w-3" />
+                  {expiringCount} hamar törlődik véglegesen
+                </div>
+              )}
+            </div>
+            {totalCount > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg border-amber-300 text-amber-700 hover:bg-amber-50"
+                  onClick={() =>
+                    handleEmptyBin(RECYCLE_BIN_RETENTION_DAYS)
+                  }
+                  disabled={isPending}
+                >
+                  <Clock className="mr-1 h-3.5 w-3.5" />
+                  {RECYCLE_BIN_RETENTION_DAYS}+ napos sorok ürítése
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={() => handleEmptyBin(null)}
+                  disabled={isPending}
+                >
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Teljes kuka ürítése
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-xs text-slate-700">
+            <Info className="mr-1 inline h-3.5 w-3.5 text-slate-500" />
+            A törölt rekordok <strong>{RECYCLE_BIN_RETENTION_DAYS} napig</strong>{' '}
+            itt maradnak. Ez idő alatt visszaállíthatók. Utána a szerver
+            automatikusan véglegesen törli őket.
+          </div>
+
+          {/* Standalone mód: a Kuka a Dexie cache-ből olvas, ami csak akkor
+              tartalmazza a törölt rekordokat, ha a Dexie populálódik (jelenleg
+              nem fut a Dexie sync-orchestrator standalone-ban). Tájékoztatjuk
+              a felhasználót, hogy a Kuka helyett a havi sync az aktuális. */}
+          {isStandaloneMode() && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5 text-amber-600" />
+              <strong>Offline csomag mód:</strong> A törölt rekordok a SQLite
+              fájlban vannak. A Kuka fel fog tölteni listát a következő
+              havi sync után.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Üres állapot */}
+      {totalCount === 0 && allDeleted !== undefined && (
+        <div className="card-raised p-10 text-center">
+          <TrashIcon className="mx-auto h-12 w-12 text-slate-300" />
+          <p className="mt-3 font-heading text-lg text-slate-600">
+            A kuka üres
+          </p>
+          <p className="mt-1 text-sm text-slate-400">
+            Nincs törölt rekord ebben a modulban.
+          </p>
+        </div>
+      )}
+
+      {/* Loading */}
+      {allDeleted === undefined && (
+        <div className="card-raised p-10 text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-slate-400" />
+          <p className="mt-2 text-sm text-slate-500">Betöltés...</p>
+        </div>
+      )}
+
+      {/* Csoportok táblánként */}
+      {totalCount > 0 &&
+        tables.map(tblConfig => {
+          const rows = groupedByTable.get(tblConfig.dexieTable)
+          if (!rows || rows.length === 0) return null
+
+          return (
+            <div
+              key={tblConfig.dexieTable}
+              className="card-raised overflow-hidden"
+            >
+              <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+                <h3 className="font-heading text-base text-slate-800">
+                  {tblConfig.label}{' '}
+                  <span className="text-sm font-normal text-slate-500">
+                    ({rows.length})
+                  </span>
+                </h3>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {rows.map(row => (
+                  <RecycleBinRowItem
+                    key={`${row.table}:${row.id}`}
+                    row={row}
+                    onRestore={() => handleRestore(row.table, row.id)}
+                    onHardDelete={() =>
+                      handleHardDelete(row.table, row.id, row.displayLabel)
+                    }
+                    disabled={isPending}
+                  />
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+    </div>
+  )
+}
+
+function RecycleBinRowItem({
+  row,
+  onRestore,
+  onHardDelete,
+  disabled,
+}: {
+  row: DeletedRecordSummary
+  onRestore: () => void
+  onHardDelete: () => void
+  disabled: boolean
+}) {
+  const deletedDate = row.deletedAt
+    ? new Date(row.deletedAt).toLocaleDateString('hu-HU')
+    : 'ismeretlen'
+  const isExpiring =
+    row.daysUntilPurge !== null && row.daysUntilPurge <= 3
+
+  return (
+    <li className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-slate-800">
+          {row.displayLabel}
+        </p>
+        <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-500">
+          <span>
+            <Clock className="mr-0.5 inline h-3 w-3" />
+            Törölve: {deletedDate}
+          </span>
+          {row.daysUntilPurge !== null && (
+            <span
+              className={
+                isExpiring
+                  ? 'font-semibold text-red-600'
+                  : 'text-slate-500'
+              }
+            >
+              {row.daysUntilPurge === 0
+                ? 'Ma törlődik véglegesen!'
+                : `${row.daysUntilPurge} nap múlva törlődik véglegesen`}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-lg border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+          onClick={onRestore}
+          disabled={disabled}
+        >
+          <RotateCcw className="mr-1 h-3 w-3" />
+          Visszaállítás
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-lg border-red-300 text-red-700 hover:bg-red-50"
+          onClick={onHardDelete}
+          disabled={disabled}
+        >
+          <Trash2 className="mr-1 h-3 w-3" />
+          Végleges
+        </Button>
+      </div>
+    </li>
+  )
+}

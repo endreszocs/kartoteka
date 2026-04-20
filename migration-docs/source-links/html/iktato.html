@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Iktató | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .stat-card { text-align: center; padding: 0.5rem; }
+        .stat-card .stat-value { font-size: 1.5rem; font-weight: bold; }
+        .stat-card .stat-label { font-size: 0.75rem; color: #667085; }
+        @media print {
+            .d-print-none { display: none !important; }
+            .card { border: none !important; box-shadow: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <h2 class="page-title"><i class="ti ti-mail-opened me-2"></i>M7 Lelkészi Hivatal Iktatója</h2>
+                            <div class="text-muted" id="iktato-info">Iratforgalom kezelése — iktatókönyv</div>
+                        </div>
+                        <div class="col-auto ms-auto d-flex gap-2">
+                            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modal-templates">
+                                <i class="ti ti-file-text me-2"></i>Sablonok
+                            </button>
+                            <button class="btn btn-primary" onclick="openIktatoModal()">
+                                <i class="ti ti-plus me-2"></i>Új Iktatás
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-body">
+                <div class="container-xl">
+
+                    <!-- Statisztika kártyák -->
+                    <div class="row g-3 mb-3 d-print-none">
+                        <div class="col-6 col-md-3">
+                            <div class="card shadow-sm border-0">
+                                <div class="stat-card">
+                                    <div class="stat-value text-dark" id="iktato-stat-total">0</div>
+                                    <div class="stat-label">Összes irat</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card shadow-sm border-0">
+                                <div class="stat-card">
+                                    <div class="stat-value text-blue" id="iktato-stat-incoming">0</div>
+                                    <div class="stat-label">Bejövő</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card shadow-sm border-0">
+                                <div class="stat-card">
+                                    <div class="stat-value text-green" id="iktato-stat-outgoing">0</div>
+                                    <div class="stat-label">Kimenő</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card shadow-sm border-0">
+                                <div class="stat-card">
+                                    <div class="stat-value text-yellow" id="iktato-stat-pending">0</div>
+                                    <div class="stat-label">Folyamatban</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Főtábla kártya -->
+                    <div class="card shadow-sm border-0">
+                        <div class="card-header border-0 pb-0 d-print-none">
+                            <div class="row g-2 w-100 align-items-center">
+                                <!-- Fül szűrők -->
+                                <div class="col-md-auto">
+                                    <ul class="nav nav-tabs card-header-tabs" data-bs-toggle="tabs" id="iktato-tabs">
+                                        <li class="nav-item"><a href="#" class="nav-link active" onclick="loadIktato('all')"><i class="ti ti-files me-1"></i>Összes</a></li>
+                                        <li class="nav-item"><a href="#" class="nav-link text-blue" onclick="loadIktato('incoming')"><i class="ti ti-mail-forward me-1"></i>Bejövő</a></li>
+                                        <li class="nav-item"><a href="#" class="nav-link text-green" onclick="loadIktato('outgoing')"><i class="ti ti-mail-share me-1"></i>Kimenő</a></li>
+                                    </ul>
+                                </div>
+                                <!-- Keresés + szűrők -->
+                                <div class="col-md ms-auto">
+                                    <div class="d-flex gap-2 justify-content-end">
+                                        <div class="input-icon" style="max-width:200px;">
+                                            <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                            <input type="text" class="form-control" placeholder="Keresés..." oninput="iktatoSearch(this.value)">
+                                        </div>
+                                        <select id="filter-bundle" class="form-select" style="width:auto;" onchange="loadIktato()">
+                                            <option value="">Minden csomó</option>
+                                            <option value="É.Á.">É.Á.</option>
+                                            <option value="F.Á.">F.Á.</option>
+                                            <option value="A.K.">A.K.</option>
+                                        </select>
+                                        <select id="iktato-year-select" class="form-select" style="width:auto;" onchange="loadIktato()">
+                                        </select>
+                                        <button class="btn btn-outline-warning btn-icon" onclick="printIktatokonyv()" title="Iktatókönyv nyomtatása">
+                                            <i class="ti ti-printer"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-vcenter card-table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th class="w-1">Szám</th>
+                                        <th style="width:85px;">Kelt</th>
+                                        <th>Tárgy</th>
+                                        <th>Küldő / Címzett</th>
+                                        <th>Csomó</th>
+                                        <th>Állapot</th>
+                                        <th>Irattári jel</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="iktato-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-iktato-placeholder"></div>
+    <div id="modal-templates-placeholder"></div>
+    <div id="modal-profile-placeholder"></div>
+    <div id="modal-congregation-placeholder"></div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/dist/common.min.js?v=17"></script>
+    <script src="js/dist/iktato.min.js?v=17"></script>
+
+    <script>
+        async function startApp() {
+            try {
+                var comps = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/modal_iktato.html'),
+                    fetchComponent('components/modal_templates.html'),
+                    fetchComponent('components/modal_profile.html'),
+                    fetchComponent('components/modal_congregation.html')
+                ]);
+                document.getElementById('sidebar-placeholder').innerHTML = comps[0];
+                document.getElementById('header-placeholder').innerHTML = comps[1];
+                document.getElementById('modal-iktato-placeholder').innerHTML = comps[2];
+                document.getElementById('modal-templates-placeholder').innerHTML = comps[3];
+                document.getElementById('modal-profile-placeholder').innerHTML = comps[4];
+                document.getElementById('modal-congregation-placeholder').innerHTML = comps[5];
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                _initIktatoYearSelect();
+                await loadIktato();
+            } catch (err) { console.error(err); }
+        }
+        window.onload = startApp;
+    </script>
+</body>
+</html>

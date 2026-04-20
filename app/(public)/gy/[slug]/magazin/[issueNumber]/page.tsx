@@ -1,0 +1,144 @@
+import { notFound } from 'next/navigation'
+import Link from 'next/link'
+import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
+import { loadPublishedMagazine, loadPublishedIssue } from '@/lib/public-site/magazine-loader'
+import { Download, ArrowLeft, Newspaper } from 'lucide-react'
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return ''
+  try {
+    return new Date(dateStr).toLocaleDateString('hu-HU', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  } catch {
+    return ''
+  }
+}
+
+export default async function IssueDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string; issueNumber: string }>
+}) {
+  const { slug, issueNumber } = await params
+  const decodedIssueNumber = decodeURIComponent(issueNumber)
+
+  const site = await loadPublicSiteBySlug(slug)
+  if (!site) notFound()
+
+  const magazineData = await loadPublishedMagazine(site.congregation_id)
+  if (!magazineData) notFound()
+
+  const issue = await loadPublishedIssue(magazineData.magazine.id, decodedIssueNumber)
+  if (!issue) notFound()
+
+  return (
+    <section className="public-section">
+      <div className="public-container">
+        {/* Back link */}
+        <Link
+          href={`/gy/${site.slug}/magazin`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium mb-8 group public-anim-fade-up"
+          style={{ color: 'var(--public-primary)' }}
+        >
+          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+          Vissza a magazin archívumhoz
+        </Link>
+
+        <article className="grid gap-10 lg:gap-16 md:grid-cols-[minmax(240px,360px)_1fr] items-start max-w-5xl mx-auto">
+          {/* Cover */}
+          <div className="mx-auto w-full public-anim-fade-up">
+            {issue.cover_image_url ? (
+              <img
+                src={issue.cover_image_url}
+                alt={issue.issue_number}
+                className="w-full rounded-[var(--public-radius)] shadow-2xl public-card"
+              />
+            ) : (
+              <div
+                className="aspect-[3/4] rounded-[var(--public-radius)] flex items-center justify-center shadow-2xl relative overflow-hidden public-card"
+                style={{
+                  background: `linear-gradient(135deg, var(--public-primary), var(--public-accent))`,
+                }}
+              >
+                <svg
+                  className="absolute inset-0 w-full h-full opacity-15"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <pattern
+                      id="issue-pattern"
+                      x="0"
+                      y="0"
+                      width="50"
+                      height="50"
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <circle cx="25" cy="25" r="1.5" fill="white" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#issue-pattern)" />
+                </svg>
+                <div className="relative flex flex-col items-center gap-3">
+                  <Newspaper className="w-14 h-14 text-white/40" />
+                  <span className="font-serif text-3xl text-white/90">
+                    {issue.issue_number}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tartalom */}
+          <div className="public-anim-fade-up public-delay-100">
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-widest mb-5"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--public-accent) 15%, transparent)',
+                color: 'var(--public-accent)',
+              }}
+            >
+              <Newspaper className="w-3.5 h-3.5" />
+              {magazineData.magazine.title} · {issue.issue_number}
+            </div>
+
+            <h1 className="mb-4" style={{ color: 'var(--public-ink)' }}>
+              {issue.title || `Lapszám ${issue.issue_number}`}
+            </h1>
+
+            {issue.published_at && (
+              <div
+                className="mb-6 text-sm font-medium"
+                style={{ color: 'var(--public-muted)' }}
+              >
+                Megjelent: {formatDate(issue.published_at)}
+              </div>
+            )}
+
+            {issue.notes && (
+              <div
+                className="public-prose text-base sm:text-lg mb-8"
+                style={{ color: 'var(--public-ink)' }}
+              >
+                <p>{issue.notes}</p>
+              </div>
+            )}
+
+            <a
+              href={issue.pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="public-btn public-btn-primary"
+            >
+              <Download className="w-5 h-5" />
+              PDF letöltése
+            </a>
+          </div>
+        </article>
+      </div>
+    </section>
+  )
+}

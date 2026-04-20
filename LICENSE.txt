@@ -1,0 +1,48 @@
+KARTOTEKA — Felhasználási feltételek
+=====================================
+
+Verzió 1.0 · 2026. április 15.
+
+A KARTOTEKA gyülekezeti nyilvántartó rendszer az Erdélyi Református
+Egyházkerület (EREK) tulajdona.
+
+1. JOGOSULTSÁG
+   - A KARTOTEKA-t kizárólag az EREK-hez tartozó gyülekezetek lelkészei
+     és általuk meghatalmazott személyek használhatják.
+   - A használat hivatalos REGISZTRÁCIÓ-hoz kötött.
+
+2. ADATTULAJDON
+   - A gyülekezeti adatok TELJES TULAJDONJOGA a gyülekezeté.
+   - Az EREK az adatokat csak biztonsági mentésként és technikai
+     támogatásként tárolja.
+
+3. SZEMÉLYES ADATOK (GDPR)
+   - A rendszer személyes adatokat kezel (nevek, CNP-k, telefonszámok,
+     pénzügyi adatok).
+   - A felhasználó (lelkész) köteles az EU GDPR rendelet és a román
+     adatvédelmi törvény szerint kezelni az adatokat.
+   - Az adatok harmadik félnek NEM ADHATÓK át (kivéve hivatalos
+     egyházi/állami megkeresés).
+
+4. STANDALONE TELEPÍTÉS
+   - A standalone Windows verzió a TELEPÍTÉSI GÉPHEZ KÖTÖTT.
+   - TILOS a telepített fájlokat más gépre másolni vagy továbbadni.
+   - Új gépre új telepítést kell kérni az esperesi hivataltól.
+
+5. FELELŐSSÉG
+   - Az EREK a rendszert "AS IS" módon biztosítja, garancia nélkül.
+   - Az adatvesztésért, hibás működésért az EREK nem vállal felelősséget.
+   - A felhasználó kötelessége a havi rendszerű biztonsági mentés.
+
+6. SZOFTVER FORRÁSKÓD
+   - A KARTOTEKA forráskódja az EREK tulajdona.
+   - Open source komponensek: lásd a `node_modules/` mappa megfelelő
+     LICENSE fájljait (Next.js MIT, Supabase Apache 2.0, stb.).
+
+7. TÁMOGATÁS
+   - support@kartoteka.erek.ro
+   - +40 740 XXX XXX (H-P 8:00-16:00)
+
+A telepítés folytatásával elfogadod a fenti feltételeket.
+
+— Erdélyi Református Egyházkerület

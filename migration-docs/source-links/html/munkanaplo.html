@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Munkanapló | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .table-row-hover:hover { background-color: #f1f5f9; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+            
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <h2 class="page-title">M3 Munkanapló és Lelkészi Jelentés</h2>
+                            <div class="text-muted" id="worklog-count">Lekérdezés...</div>
+                        </div>
+                        <div class="col-auto ms-auto d-flex gap-2">
+                            <div class="input-group w-auto">
+                                <input type="month" id="filter-month" class="form-control" onchange="loadWorklogs()" style="max-width:180px;">
+                                <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('filter-month').value=''; loadWorklogs();" title="Összes hónap megjelenítése"><i class="ti ti-filter-off"></i></button>
+                            </div>
+                            <button class="btn btn-outline-secondary" onclick="if(typeof printWorklog==='function') printWorklog()"><i class="ti ti-printer me-1"></i>Nyomtatás</button>
+                            <button class="btn btn-success" onclick="exportToExcel()"><i class="ti ti-file-spreadsheet me-2"></i>Excel Export</button>
+                            <button class="btn btn-primary" onclick="openWorklogModal()"><i class="ti ti-plus me-2"></i>Új bejegyzés</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-body">
+                <div class="container-xl">
+                    <div class="card">
+                        <div class="card-header border-0 pb-0">
+                            <ul class="nav nav-tabs page-header-tab" data-bs-toggle="tabs">
+                                <li class="nav-item"><a href="#tab-szolgalat" class="nav-link active" data-bs-toggle="tab" onclick="currentCategory='szolgalat'; renderTable()"><i class="ti ti-church me-2"></i>Igehirdetés</a></li>
+                                <li class="nav-item"><a href="#tab-latogatas" class="nav-link" data-bs-toggle="tab" onclick="currentCategory='latogatas'; renderTable()"><i class="ti ti-home-heart me-2"></i>Családlátogatás</a></li>
+                                <li class="nav-item"><a href="#tab-katekezis" class="nav-link" data-bs-toggle="tab" onclick="currentCategory='katekezis'; renderTable()"><i class="ti ti-school me-2"></i>Katekézis</a></li>
+                                <li class="nav-item ms-auto"><a href="#tab-jelentes" class="nav-link text-primary fw-bold" data-bs-toggle="tab" onclick="generateReport()"><i class="ti ti-report-analytics me-2"></i>Lelkészi Jelentés</a></li>
+                            </ul>
+                        </div>
+                        
+                        <div class="tab-content">
+                            <div class="tab-pane active show p-0" id="tab-szolgalat">
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table">
+                                        <thead><tr><th>Dátum / Jelleg</th><th>Ige / Téma</th><th>Helyszín</th><th>Jelenlét</th><th>Persely</th><th class="w-1"></th></tr></thead>
+                                        <tbody id="worklog-table-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-pane p-4" id="tab-jelentes">
+                                <div class="d-flex justify-content-between mb-4 d-print-none">
+                                    <h3 class="mb-0">Időszakos Lelkészi Jelentés</h3>
+                                    <button class="btn btn-outline-secondary" onclick="window.print()"><i class="ti ti-printer me-2"></i>Nyomtatás</button>
+                                </div>
+                                <div class="row g-3" id="report-content">
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modal-worklog-placeholder"></div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/dist/common.min.js?v=17"></script>
+    <script src="js/dist/munkanaplo.min.js?v=17"></script>
+
+    <script>
+        async function startApp() {
+            try {
+                const components = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/modal_worklog.html')
+                ]);
+                document.getElementById('sidebar-placeholder').innerHTML = components[0];
+                document.getElementById('header-placeholder').innerHTML = components[1];
+                document.getElementById('modal-worklog-placeholder').innerHTML = components[2];
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                // Alapértelmezett hónap beállítása
+                document.getElementById('filter-month').value = new Date().toISOString().slice(0, 7);
+                await loadWorklogs();
+            } catch (err) { console.error("Hiba az oldal betöltésekor:", err); }
+        }
+        window.onload = startApp;
+    </script>
+</body>
+</html>

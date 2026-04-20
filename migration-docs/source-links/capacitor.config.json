@@ -1,0 +1,21 @@
+{
+    "appId": "hu.erek.kartoteka",
+    "appName": "Kartotéka",
+    "webDir": "www",
+    "server": {
+        "androidScheme": "https",
+        "iosScheme": "https"
+    },
+    "plugins": {
+        "SplashScreen": {
+            "launchShowDuration": 2000,
+            "backgroundColor": "#0ca678",
+            "launchAutoHide": true,
+            "showSpinner": false
+        },
+        "StatusBar": {
+            "style": "DARK",
+            "backgroundColor": "#0ca678"
+        }
+    }
+}

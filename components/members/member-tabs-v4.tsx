@@ -1,0 +1,115 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+
+import { ColorTabs } from '@/components/ui/color-tabs'
+import type { EnrichedMember } from '@/lib/constants/members'
+import { DistrictsTab } from './districts-tab'
+import { FamiliesTab } from './families-tab-v2'
+import { OverviewTab } from './overview-tab'
+import { PersonsTab } from './persons-tab'
+import { PresbytersTab } from './presbyters-tab'
+import { VotersTab } from './voters-tab'
+
+interface MemberTabsV4Props {
+  initialMembers: EnrichedMember[]
+  paidPersonIds: number[]
+  paidFamilyIds: number[]
+  exemptPersonIds: number[]
+  exemptFamilyIds: number[]
+  personToFamilyMap: Record<number, number>
+  isGodMode: boolean
+}
+
+export function MemberTabsV4({
+  initialMembers,
+  paidPersonIds,
+  personToFamilyMap,
+  isGodMode,
+}: MemberTabsV4Props) {
+  const [members, setMembers] = useState(initialMembers)
+  const [activeTab, setActiveTab] = useState('overview')
+
+  const tabs = useMemo(
+    () => [
+      { value: 'overview', label: 'Áttekintés', color: 'blue' },
+      { value: 'persons', label: 'Személyek', color: 'emerald' },
+      { value: 'families', label: 'Családok', color: 'violet' },
+      { value: 'presbyters', label: 'Presbiterek', color: 'amber' },
+      { value: 'districts', label: 'Körzetek', color: 'cyan' },
+      { value: 'voters', label: 'Választók', color: 'pink' },
+    ],
+    [],
+  )
+
+  function handleMemberRemoved(id: number) {
+    setMembers((prev) => prev.filter((member) => member.id !== id))
+  }
+
+  function handleMemberUpdated(id: number, updates: Partial<EnrichedMember>) {
+    setMembers((prev) =>
+      prev.map((member) => (member.id === id ? { ...member, ...updates } : member)),
+    )
+  }
+
+  function handleRefresh(newMembers: EnrichedMember[]) {
+    setMembers(newMembers)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="card-raised relative overflow-hidden p-5 sm:p-6">
+        <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-amber-200/35 blur-3xl" />
+        <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-teal-200/30 blur-3xl" />
+
+        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">
+              Tagnyilvántartás
+            </p>
+            <h2 className="font-heading text-3xl text-slate-800">Közösségi áttekintés</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              A tagok, családok, körzetek és választói adatok egy helyen, letisztultan és
+              könnyen áttekinthetően.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+              {members.length} személy
+            </span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
+              {paidPersonIds.length} járulékfizető
+            </span>
+            {isGodMode && (
+              <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600 shadow-sm">
+                Rendszergazdai mód aktív
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ColorTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+
+      <div>
+        {activeTab === 'overview' && <OverviewTab members={members} />}
+        {activeTab === 'persons' && (
+          <PersonsTab
+            members={members}
+            paidPersonIds={paidPersonIds}
+            personToFamilyMap={personToFamilyMap}
+            isGodMode={isGodMode}
+            onMemberRemoved={handleMemberRemoved}
+            onMemberUpdated={handleMemberUpdated}
+            onRefresh={handleRefresh}
+          />
+        )}
+        {activeTab === 'families' && <FamiliesTab />}
+        {activeTab === 'presbyters' && <PresbytersTab />}
+        {activeTab === 'districts' && <DistrictsTab />}
+        {activeTab === 'voters' && <VotersTab />}
+      </div>
+    </div>
+  )
+}

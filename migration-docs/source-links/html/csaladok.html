@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>Családtár | Kartotéka</title>
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+</head>
+<body class="bg-light">
+    <div class="page">
+        <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+            <div class="container-fluid">
+                <h1 class="navbar-brand">KARTOTÉKA</h1>
+                <div class="collapse navbar-collapse" id="sidebar-menu">
+                    <ul class="navbar-nav pt-lg-3">
+                        <li class="nav-item"><a class="nav-link" href="dashboard.html"><span class="nav-link-icon"><i class="ti ti-dashboard"></i></span>Irányítópult</a></li>
+                        <li class="nav-item"><a class="nav-link" href="tagnyilvantartas.html"><span class="nav-link-icon"><i class="ti ti-users"></i></span>Tagnyilvántartás</a></li>
+                        <li class="nav-item active"><a class="nav-link" href="csaladok.html"><span class="nav-link-icon"><i class="ti ti-home-heart"></i></span>Családtár</a></li>
+                        <li class="nav-item"><a class="nav-link" href="penzugy.html"><span class="nav-link-icon"><i class="ti ti-coin"></i></span>Pénzügyek</a></li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <div class="page-wrapper">
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col"><h2 class="page-title">Családi Adattár</h2></div>
+                        <div class="col-auto ms-auto">
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modal-family">
+                                <i class="ti ti-plus me-2"></i> Új család alapítása
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-body">
+                <div class="container-xl">
+                    <div class="row row-cards" id="family-list">
+                        </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal modal-blur fade" id="modal-family" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content shadow border-0">
+                <form id="family-form">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Család és lakcím rögzítése</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Férfi (Családfő/Férj)</label>
+                                <select id="f-man" class="form-select"><option value="">Válassz...</option></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Nő (Feleség)</label>
+                                <select id="f-woman" class="form-select"><option value="">Válassz...</option></select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label">Utca</label>
+                                <select id="f-street" class="form-select" required></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Házszám</label>
+                                <input type="text" id="f-num" class="form-control" required>
+                            </div>
+                            <div class="col-md-3"><label class="form-label">Tömbház</label><input type="text" id="f-block" class="form-control"></div>
+                            <div class="col-md-3"><label class="form-label">Lépcsőház</label><input type="text" id="f-stair" class="form-control"></div>
+                            <div class="col-md-3"><label class="form-label">Emelet</label><input type="text" id="f-floor" class="form-control"></div>
+                            <div class="col-md-3"><label class="form-label">Ajtó</label><input type="text" id="f-app" class="form-control"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary ms-auto">Család létrehozása</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
+    <script>
+        const _supabase = supabase.createClient("https://bjytiawckbibqmtlezfl.supabase.co", "sb_publishable_0Z2aotsVWDw-MEC73ypTDQ_W1iqrDIK");
+
+        async function init() {
+            // Személyek betöltése a választáshoz
+            const { data: p } = await _supabase.from('szemely').select('id, nev').order('nev');
+            const manS = document.getElementById('f-man');
+            const womS = document.getElementById('f-woman');
+            p.forEach(s => {
+                manS.innerHTML += `<option value="${s.id}">${s.nev}</option>`;
+                womS.innerHTML += `<option value="${s.id}">${s.nev}</option>`;
+            });
+
+            loadFamilies();
+        }
+
+        async function loadFamilies() {
+            // Lekérjük a családokat a házastársak nevével
+            const { data, error } = await _supabase
+                .from('csalad')
+                .select('*, ferfi:id_ferfi(nev), no:id_no(nev)')
+                .eq('isaktiv', true);
+
+            const list = document.getElementById('family-list');
+            list.innerHTML = data.map(c => `
+                <div class="col-md-6 col-lg-4">
+                    <div class="card card-stacked">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-3">
+                                <span class="avatar bg-blue-lt"><i class="ti ti-home"></i></span>
+                                <div class="ms-3">
+                                    <div class="font-weight-medium">${c.ferfi?.nev || '-'} & ${c.no?.nev || '-'}</div>
+                                    <div class="text-muted small">${c.c_szam}. szám</div>
+                                </div>
+                            </div>
+                            <div class="text-muted">
+                                <i class="ti ti-map-pin me-1"></i> Utca ID: ${c.c_utcaid}
+                            </div>
+                        </div>
+                        <div class="card-footer text-end">
+                            <button class="btn btn-sm btn-ghost-primary">Tagok kezelése</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('family-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const entry = {
+                id_ferfi: document.getElementById('f-man').value || null,
+                id_no: document.getElementById('f-woman').value || null,
+                c_utcaid: 1, // Példa utca ID
+                c_szam: document.getElementById('f-num').value,
+                c_tombhaz: document.getElementById('f-block').value,
+                isaktiv: true
+            };
+            const { error } = await _supabase.from('csalad').insert([entry]);
+            if (!error) {
+                bootstrap.Modal.getInstance(document.getElementById('modal-family')).hide();
+                loadFamilies();
+            }
+        };
+
+        init();
+    </script>
+<script src="js/dist/common.min.js?v=24"></script>
+</body>
+</html>

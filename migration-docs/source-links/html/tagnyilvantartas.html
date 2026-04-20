@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Tagnyilvántartás | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .table-row-hover:hover { background-color: #f1f5f9; cursor: pointer; transition: background-color 0.2s; }
+        .highlight-tab { background-color: #fdf2f2 !important; border-bottom: 2px solid #d63939 !important; color: #d63939 !important; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <h2 class="page-title">Gyülekezeti Tagok és Családok</h2>
+                            <div class="text-muted" id="member-count">Lekérdezés...</div>
+                        </div>
+                        <div class="col-auto d-flex gap-2">
+                            <button id="btn-gender-check" class="btn btn-warning shadow-sm d-none" onclick="openGenderCheckModal()" title="Üres nem mezők ellenőrzése és javítása">
+                                <i class="ti ti-gender-bigender me-1"></i>Nem Ellenőrzése
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="sync-success-alert" class="container-xl" style="display:none;"></div>
+
+            <div class="page-body">
+                <div class="container-xl">
+                    <div class="card shadow-sm border-0">
+                        
+                        <div class="card-header border-bottom-0 pb-0 pt-3 d-flex justify-content-between align-items-center d-print-none">
+                            <ul class="nav nav-tabs page-header-tab border-0" id="main-tabs" data-bs-toggle="tabs">
+                                <li class="nav-item">
+                                    <a href="#tab-overview" class="nav-link active fw-bold text-dark px-4" data-bs-toggle="tab" onclick="switchMainTabs('overview')">
+                                        <i class="ti ti-chart-pie-2 me-2"></i>Áttekintés
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-szemelyek" class="nav-link fw-bold text-blue px-4" data-bs-toggle="tab" onclick="switchMainTabs('member')">
+                                        <i class="ti ti-users me-2"></i>Személyek
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-csaladok" class="nav-link fw-bold text-danger px-4" data-bs-toggle="tab" onclick="switchMainTabs('family'); if(typeof loadFamilies === 'function') loadFamilies()">
+                                        <i class="ti ti-home-heart me-2"></i>Családok
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-presbiterek" class="nav-link fw-bold text-warning px-4" data-bs-toggle="tab" onclick="switchMainTabs('presbiter'); if(typeof loadPresbiterek === 'function') loadPresbiterek()">
+                                        <i class="ti ti-user-star me-2"></i>Presbiterek
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-korzetek" class="nav-link fw-bold text-teal px-4" data-bs-toggle="tab" onclick="switchMainTabs('korzet'); if(typeof loadKorzetek === 'function') loadKorzetek()">
+                                        <i class="ti ti-map-pin me-2"></i>Körzetek
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-valasztok" class="nav-link fw-bold text-indigo px-4" data-bs-toggle="tab" onclick="switchMainTabs('valaszto'); if(typeof loadValasztok === 'function') { loadValasztok(); loadNevjegyzekStatus(); }">
+                                        <i class="ti ti-checklist me-2"></i>Választók
+                                    </a>
+                                </li>
+                            </ul>
+                            
+                            <div id="action-buttons-container" class="pb-2">
+                                <button id="btn-show-new-member" class="btn btn-primary shadow-sm fw-bold d-none" onclick="if(typeof resetToPreScreen === 'function') resetToPreScreen()" data-bs-toggle="modal" data-bs-target="#modal-add-member">
+                                    <i class="ti ti-user-plus me-2"></i>Új tag rögzítése
+                                </button>
+                                <button id="btn-show-new-family" class="btn btn-danger shadow-sm fw-bold d-none" onclick="if(typeof openFamilyModal === 'function') openFamilyModal()">
+                                    <i class="ti ti-home-plus me-2"></i>Új család létrehozása
+                                </button>
+                                <button id="btn-show-new-presbiter" class="btn btn-warning shadow-sm fw-bold d-none" onclick="if(typeof openPresbiterModal === 'function') openPresbiterModal()">
+                                    <i class="ti ti-user-star me-2"></i>Új Presbiter
+                                </button>
+                                <button id="btn-show-new-korzet" class="btn btn-teal shadow-sm fw-bold d-none" onclick="if(typeof openKorzetModal === 'function') openKorzetModal()">
+                                    <i class="ti ti-map-pin me-2"></i>Új Körzet
+                                </button>
+                                <button id="btn-print-korzetek" class="btn btn-outline-teal shadow-sm fw-bold d-none" onclick="if(typeof printAllKorzetek === 'function') printAllKorzetek()">
+                                    <i class="ti ti-printer me-2"></i>Körzetek Nyomtatása
+                                </button>
+                                <button id="btn-print-valasztok" class="btn btn-indigo shadow-sm fw-bold d-none" onclick="if(typeof printValasztok === 'function') printValasztok()">
+                                    <i class="ti ti-printer me-2"></i>Névjegyzék Nyomtatása
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-content border-top bg-white">
+                            
+                            <div class="tab-pane active show p-4 bg-light" id="tab-overview">
+                                <div class="row g-3">
+                                    <!-- 1. oszlop: Demográfia + Érdekességek -->
+                                    <div class="col-lg-4">
+                                        <div class="card shadow-sm border-0 border-top-wide border-primary h-100">
+                                            <div class="card-body">
+                                                <h3 class="card-title text-primary"><i class="ti ti-users-group me-2"></i>Gyülekezeti Demográfia</h3>
+                                                <div class="d-flex align-items-baseline gap-2 mb-3 mt-3">
+                                                    <div class="display-6 fw-bold text-primary" id="dash-total-members">0</div>
+                                                    <div class="text-muted">aktív tag</div>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <div class="d-flex justify-content-between mb-1">
+                                                        <span class="fw-bold text-blue" style="font-size:0.82rem;"><i class="ti ti-gender-male me-1"></i>Férfiak</span>
+                                                        <span class="text-muted" style="font-size:0.82rem;" id="dash-men-count">0</span>
+                                                    </div>
+                                                    <div class="progress progress-sm"><div id="dash-men-bar" class="progress-bar bg-blue" style="width:0%"></div></div>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <div class="d-flex justify-content-between mb-1">
+                                                        <span class="fw-bold text-pink" style="font-size:0.82rem;"><i class="ti ti-gender-female me-1"></i>Nők</span>
+                                                        <span class="text-muted" style="font-size:0.82rem;" id="dash-women-count">0</span>
+                                                    </div>
+                                                    <div class="progress progress-sm"><div id="dash-women-bar" class="progress-bar bg-pink" style="width:0%"></div></div>
+                                                </div>
+                                                <div class="row g-2 mb-3">
+                                                    <div class="col-6">
+                                                        <div class="p-2 bg-blue-lt rounded text-center">
+                                                            <div class="text-muted" style="font-size:0.68rem;text-transform:uppercase;font-weight:700;">Átlagéletkor</div>
+                                                            <div id="dash-avg-age"><span class="h3 text-blue mb-0">0</span></div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="p-2 bg-dark-lt rounded text-center">
+                                                            <div class="text-muted" style="font-size:0.68rem;text-transform:uppercase;font-weight:700;">Halálozási átlag</div>
+                                                            <div id="dash-avg-death"><span class="h3 text-dark mb-0">0</span></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <!-- Rekordok & Státuszok -->
+                                                <div id="dash-records" class="mb-3"></div>
+                                                <div id="dash-status-breakdown"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 2. oszlop: Korcsoportok + Előrejelzés -->
+                                    <div class="col-lg-4">
+                                        <div class="card shadow-sm border-0 border-top-wide border-success h-100">
+                                            <div class="card-body">
+                                                <h3 class="card-title text-success"><i class="ti ti-chart-bar me-2"></i>Korcsoportok</h3>
+                                                <table class="table table-sm table-borderless mt-2 mb-0">
+                                                    <tbody id="dash-age-groups">
+                                                        <tr><td>Betöltés alatt...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                                <div id="dash-age-forecast" class="mt-2"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 3. oszlop: Top 15 Nevek -->
+                                    <div class="col-lg-4 d-flex">
+                                        <div class="card shadow-sm border-0 border-top-wide border-warning w-100">
+                                            <div class="card-body d-flex flex-column">
+                                                <h3 class="card-title text-warning"><i class="ti ti-id-badge me-2"></i>Top 15 Nevek</h3>
+                                                <ul class="nav nav-pills nav-fill mb-2 mt-2" data-bs-toggle="tabs">
+                                                    <li class="nav-item"><a href="#dash-tab-famnames" class="nav-link active py-1" data-bs-toggle="tab" style="font-size:0.82rem;">Családnevek</a></li>
+                                                    <li class="nav-item"><a href="#dash-tab-firstnames" class="nav-link py-1" data-bs-toggle="tab" style="font-size:0.82rem;">Keresztnevek</a></li>
+                                                </ul>
+                                                <div class="tab-content flex-grow-1">
+                                                    <div class="tab-pane active show h-100" id="dash-tab-famnames">
+                                                        <div id="dash-top-fam-names"></div>
+                                                    </div>
+                                                    <div class="tab-pane h-100" id="dash-tab-firstnames">
+                                                        <div id="dash-top-first-names"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-pane p-3" id="tab-szemelyek">
+                                <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-light border rounded shadow-sm">
+                                    <div class="input-icon w-50">
+                                        <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                        <input type="text" id="member-search-input" class="form-control fw-bold" placeholder="Keresés név vagy lakcím alapján..." onkeyup="if(typeof filterAndSortMembers === 'function') filterAndSortMembers()">
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2 justify-content-end">
+                                        <select id="member-status-filter" class="form-select font-weight-bold w-auto" onchange="if(typeof filterAndSortMembers === 'function') filterAndSortMembers()">
+                                            <option value="aktív">Aktív gyülekezeti tagok</option>
+                                            <option value="meghalt">Elhunytak</option>
+                                            <option value="elköltözött">Elköltözöttek</option>
+                                            <option value="kitért">Kitértek</option>
+                                            <option value="mas_vallasu">Más vallásúak</option>
+                                            <option value="mind">Mindenki (szűrés nélkül)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <style>
+                                    .th-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+                                    .th-sortable:hover { background-color: #f1f5f9; }
+                                    .th-sortable .sort-icon { font-size: 0.85rem; vertical-align: middle; }
+                                </style>
+                                <div class="table-responsive border rounded shadow-sm">
+                                    <table class="table table-vcenter table-striped card-table table-hover mb-0">
+                                        <thead class="bg-white">
+                                            <tr>
+                                                <th class="th-sortable" onclick="sortByColumn('name')">Név és Lakcím <i id="sort-icon-name" class="ti ti-selector sort-icon text-muted"></i></th>
+                                                <th class="th-sortable" onclick="sortByColumn('age')">Életkor <i id="sort-icon-age" class="ti ti-selector sort-icon text-muted"></i></th>
+                                                <th class="th-sortable" onclick="sortByColumn('birth')">Születési dátum <i id="sort-icon-birth" class="ti ti-selector sort-icon text-muted"></i></th>
+                                                <th class="th-sortable" onclick="sortByColumn('address')">Helység (Hol lakik) <i id="sort-icon-address" class="ti ti-selector sort-icon text-muted"></i></th>
+                                                <th class="th-sortable" onclick="sortByColumn('job')">Foglalkozás <i id="sort-icon-job" class="ti ti-selector sort-icon text-muted"></i></th>
+                                                <th>Státusz / Rendezettség</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="member-list-body">
+                                            <tr><td colspan="6" class="text-center py-4"><div class="spinner-border text-primary"></div></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- PRESBITEREK FÜL -->
+                            <div class="tab-pane p-3" id="tab-presbiterek">
+                                <div class="table-responsive border rounded shadow-sm">
+                                    <table class="table table-vcenter table-striped card-table table-hover mb-0">
+                                        <thead class="bg-white">
+                                            <tr>
+                                                <th>Presbiter neve</th>
+                                                <th>Tisztség</th>
+                                                <th>Körzet(ek)</th>
+                                                <th>Életkor</th>
+                                                <th class="text-end">Műveletek</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="presbiter-tbody">
+                                            <tr><td colspan="5" class="text-center py-5 text-muted">Betöltés...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- KÖRZETEK FÜL -->
+                            <div class="tab-pane p-3" id="tab-korzetek">
+                                <!-- Körzet nélküli családok figyelmeztetés -->
+                                <div id="korzet-unassigned-bar" class="alert alert-warning d-flex align-items-center gap-3 mb-3" style="display:none !important;">
+                                    <i class="ti ti-alert-triangle fs-2"></i>
+                                    <div>
+                                        <strong id="korzet-unassigned-count">0</strong> család nincs körzetbe sorolva.
+                                        <button class="btn btn-sm btn-outline-warning ms-2" onclick="showUnassignedFamilies()">
+                                            <i class="ti ti-list me-1"></i>Listázás
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive border rounded shadow-sm">
+                                    <table class="table table-vcenter table-striped card-table table-hover mb-0">
+                                        <thead class="bg-white">
+                                            <tr>
+                                                <th>Körzet neve</th>
+                                                <th>Presbiteri felelős(ök)</th>
+                                                <th>Hozzárendelt családok</th>
+                                                <th>Státusz</th>
+                                                <th class="text-end">Műveletek</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="korzet-tbody">
+                                            <tr><td colspan="5" class="text-center py-5 text-muted">Betöltés...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- VÁLASZTÓK NÉVJEGYZÉKE FÜL -->
+                            <div class="tab-pane p-3" id="tab-valasztok">
+                                <!-- Hitelesítési állapot -->
+                                <div id="nevjegyzek-status-bar"></div>
+                                <!-- Összefoglaló sáv -->
+                                <div class="row g-3 mb-3">
+                                    <div class="col-md-3">
+                                        <div class="card card-sm bg-indigo-lt border-0">
+                                            <div class="card-body d-flex align-items-center gap-3">
+                                                <div class="avatar bg-indigo text-white"><i class="ti ti-users"></i></div>
+                                                <div><div class="text-muted small">Összes választó</div><div class="fw-bold fs-3" id="val-total">-</div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card card-sm bg-blue-lt border-0">
+                                            <div class="card-body d-flex align-items-center gap-3">
+                                                <div class="avatar bg-blue text-white"><i class="ti ti-gender-male"></i></div>
+                                                <div><div class="text-muted small">Férfi választók</div><div class="fw-bold fs-3" id="val-male">-</div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card card-sm bg-pink-lt border-0">
+                                            <div class="card-body d-flex align-items-center gap-3">
+                                                <div class="avatar bg-pink text-white"><i class="ti ti-gender-female"></i></div>
+                                                <div><div class="text-muted small">Női választók</div><div class="fw-bold fs-3" id="val-female">-</div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card card-sm bg-green-lt border-0">
+                                            <div class="card-body d-flex align-items-center gap-3">
+                                                <div class="avatar bg-green text-white"><i class="ti ti-book"></i></div>
+                                                <div><div class="text-muted small">Konfirmáltak</div><div class="fw-bold fs-3" id="val-konfirmalt">-</div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Kánoni jogszabályi mechanika -->
+                                <div class="alert alert-light border mb-3 small" style="line-height:1.6;">
+                                    <div class="d-flex align-items-start gap-2">
+                                        <i class="ti ti-gavel text-indigo fs-2 mt-1"></i>
+                                        <div>
+                                            <strong class="text-indigo">Választói névjegyzék mechanikája</strong> <span class="text-muted">(EREK Kánon 37. kánon)</span>
+                                            <ul class="mb-1 mt-1 ps-3">
+                                                <li>A választói névjegyzékbe kerül minden <strong>konfirmált, 18. életévét betöltött</strong> egyháztag, aki az egyházközség területén lakik.</li>
+                                                <li>Feltétel: az <strong>egyházfenntartói járulékot</strong> (101.01) legalább az <strong>előző év december 31-ig</strong> befizette.</li>
+                                                <li><strong>Május 15-ig</strong> a presbitérium elkészíti és közszemlére teszi a névjegyzéket.</li>
+                                                <li><strong>Május 15-23.</strong> között az egyháztagok megtekinthetik a névjegyzéket.</li>
+                                                <li><strong>Május 23-ig</strong> a felszólamlásokat a presbitérium elbírálja.</li>
+                                                <li><strong>Június 3-ig</strong> az espereshez történő fellebbezés.</li>
+                                                <li><strong>Június 5-ig</strong> a presbitérium felterjeszti az esperesnek hitelesítésre.</li>
+                                                <li><strong>Június 30-ig</strong> az esperes és az egyházmegyei tanács hitelesíti a névjegyzéket.</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Szűrők -->
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-3 bg-light border rounded shadow-sm">
+                                    <div class="input-icon" style="width:220px;">
+                                        <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                        <input type="text" id="val-search" class="form-control" placeholder="Keresés név alapján..." onkeyup="filterValasztok()">
+                                    </div>
+                                    <select id="val-filter-korzet" class="form-select" style="width:160px;" onchange="filterValasztok()">
+                                        <option value="">Minden körzet</option>
+                                    </select>
+                                    <select id="val-filter-nem" class="form-select" style="width:130px;" onchange="filterValasztok()">
+                                        <option value="">Mindkét nem</option>
+                                        <option value="ferfi">Férfi</option>
+                                        <option value="no">Nő</option>
+                                    </select>
+                                    <select id="val-filter-jarulek" class="form-select" style="width:190px;" onchange="filterValasztok()">
+                                        <option value="fizeto">Járulékot fizetők</option>
+                                        <option value="nem_fizeto">Nem fizetők</option>
+                                        <option value="mind">Mindenki (18+)</option>
+                                    </select>
+                                    <select id="val-filter-jarulek-ev" class="form-select" style="width:200px;" onchange="filterValasztok()">
+                                    </select>
+                                    <select id="val-sort" class="form-select" style="width:160px;" onchange="filterValasztok()">
+                                        <option value="name_asc">Név (A-Z)</option>
+                                        <option value="name_desc">Név (Z-A)</option>
+                                        <option value="age_asc">Kor (fiatal → idős)</option>
+                                        <option value="age_desc">Kor (idős → fiatal)</option>
+                                        <option value="address">Cím szerint</option>
+                                    </select>
+                                    <span class="badge bg-indigo-lt text-indigo fs-5" id="val-filtered-count"></span>
+                                </div>
+
+                                <!-- Táblázat -->
+                                <div class="table-responsive border rounded shadow-sm">
+                                    <table class="table table-sm table-vcenter table-striped table-hover mb-0">
+                                        <thead class="bg-white">
+                                            <tr>
+                                                <th style="width:50px;">S.sz.</th>
+                                                <th>Választó neve</th>
+                                                <th>Foglalkozás</th>
+                                                <th>Lakcím</th>
+                                                <th>Lakhelye</th>
+                                                <th>Kor</th>
+                                                <th>Körzet</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="val-tbody">
+                                            <tr><td colspan="7" class="text-center py-5 text-muted">Betöltés...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="tab-pane p-3" id="tab-csaladok">
+                                <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-light border rounded shadow-sm">
+                                    <div class="input-icon w-50">
+                                        <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                        <input type="text" id="family-search-input" class="form-control fw-bold" placeholder="Keresés családnév, utca vagy házszám alapján..." onkeyup="if(typeof filterFamilies === 'function') filterFamilies()">
+                                    </div>
+                                    <div class="d-flex align-items-center w-25 justify-content-end">
+                                        <i class="ti ti-sort-ascending text-muted me-2 fs-3"></i>
+                                        <select id="family-sort-select" class="form-select font-weight-bold" onchange="if(typeof sortFamilies === 'function') sortFamilies()">
+                                            <option value="name_asc">Férj neve (A-Z)</option>
+                                            <option value="name_desc">Férj neve (Z-A)</option>
+                                            <option value="address_asc">Lakcím (Utca)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive border rounded shadow-sm">
+                                    <table class="table table-vcenter table-striped card-table table-hover mb-0">
+                                        <thead class="bg-white">
+                                            <tr>
+                                                <th>Család (Férj és Feleség)</th>
+                                                <th>Közös Lakcím</th>
+                                                <th>Státusz</th>
+                                                <th class="text-end">Műveletek</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="family-list-body">
+                                            <tr><td colspan="4" class="text-center py-4"><div class="spinner-border text-danger"></div></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Családfa nézet -->
+                                <div id="family-tree-view" class="mt-3" style="display:none;">
+                                    <div class="card border-0 shadow-sm">
+                                        <div class="card-header d-flex align-items-center justify-content-between bg-primary-lt">
+                                            <h4 class="m-0 text-primary"><i class="ti ti-binary-tree-2 me-2"></i>Családfa — <span id="ft-family-name"></span></h4>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span class="badge bg-primary-lt text-primary" id="ft-badge">Betöltés...</span>
+                                                <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('family-tree-view').style.display='none'">
+                                                    <i class="ti ti-x me-1"></i>Bezárás
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="card-body p-0">
+                                            <div id="ft-container" style="height: 550px; width: 100%;"></div>
+                                        </div>
+                                        <div class="card-footer d-flex flex-wrap align-items-center gap-3 bg-light" style="font-size:0.75rem;">
+                                            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;background:#1565C0;border-radius:3px;"></span> Férfi</span>
+                                            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;background:#AD1457;border-radius:3px;"></span> Nő</span>
+                                            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;background:#9e9e9e;border-radius:3px;opacity:0.5;"></span> Elhunyt</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div><!-- /page-wrapper -->
+    </div><!-- /page -->
+
+    <div id="modal-add-placeholder"></div>
+    <div id="modal-details-placeholder"></div>
+    <div id="modal-edit-placeholder"></div>
+    <div id="modal-profile-placeholder"></div>
+    <div id="modal-congregation-placeholder"></div>
+    <div id="modal-add-family-placeholder"></div>
+    <div id="remove-member-container"></div>
+    <div id="modal-family-details-placeholder"></div>
+    <div id="modal-mass-import-placeholder"></div>
+    <div id="modal-presbiter-placeholder"></div>
+    <div id="modal-korzet-placeholder"></div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+        <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body"><i class="ti ti-check me-2"></i> Sikeres mentés az adatbázisba!</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/dist/common.min.js?v=28"></script>
+    <script src="js/dist/tagnyilvantartas.min.js?v=28"></script>
+    
+    <script>
+        async function startApp() {
+            try {
+                const components = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/modal_add_member.html'),
+                    fetchComponent('components/modal_details.html'),
+                    fetchComponent('components/modal_edit_member.html'),
+                    fetchComponent('components/modal_profile.html'),
+                    fetchComponent('components/modal_congregation.html'),
+                    fetchComponent('components/modal_add_family.html'),
+                    fetchComponent('components/modal_remove_member.html'),
+                    fetchComponent('components/modal_mass_import.html'),
+                    fetchComponent('components/modal_family_details.html'),
+                    fetchComponent('components/modal_presbiter.html'),
+                    fetchComponent('components/modal_korzet.html')
+                ]);
+
+                document.getElementById('sidebar-placeholder').innerHTML = components[0];
+                document.getElementById('header-placeholder').innerHTML = components[1];
+                document.getElementById('modal-add-placeholder').innerHTML = components[2];
+                document.getElementById('modal-details-placeholder').innerHTML = components[3];
+                document.getElementById('modal-edit-placeholder').innerHTML = components[4];
+                document.getElementById('modal-profile-placeholder').innerHTML = components[5];
+                document.getElementById('modal-congregation-placeholder').innerHTML = components[6];
+                document.getElementById('modal-add-family-placeholder').innerHTML = components[7];
+                document.getElementById('remove-member-container').innerHTML = components[8];
+                document.getElementById('modal-mass-import-placeholder').innerHTML = components[9];
+
+                const famPlaceholder = document.getElementById('modal-family-details-placeholder');
+                if(famPlaceholder) famPlaceholder.innerHTML = components[10];
+                const presbPlaceholder = document.getElementById('modal-presbiter-placeholder');
+                if(presbPlaceholder) presbPlaceholder.innerHTML = components[11];
+                const korzetPlaceholder = document.getElementById('modal-korzet-placeholder');
+                if(korzetPlaceholder) korzetPlaceholder.innerHTML = components[12];
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                await loadLookupData();
+                if (typeof setupLookupListeners === 'function') setupLookupListeners();
+                await loadMembers();
+
+                // Ha más oldalról lett ide irányítva a Tömeges Import miatt
+                if (sessionStorage.getItem('open_mass_import') === '1') {
+                    sessionStorage.removeItem('open_mass_import');
+                    setTimeout(() => { if (typeof openMassImportModal === 'function') openMassImportModal(); }, 500);
+                }
+
+                const addForm = document.getElementById('member-registration-form');
+                if (addForm && typeof handleFormSubmit === 'function') {
+                    addForm.onsubmit = handleFormSubmit;
+                }
+
+                // Gombok kezdő állapota — overview fülnél minden rejtve
+                switchMainTabs('overview');
+            } catch (err) { console.error("Hiba az oldal betöltésekor:", err); }
+        }
+        window.onload = startApp;
+    </script>
+    <!-- ===== NEM-ELLENŐRZÉS MODAL (Szuperadmin God Mode) ===== -->
+    <div class="modal modal-blur fade" id="modal-gender-check" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-warning-lt">
+                    <h5 class="modal-title fw-bold"><i class="ti ti-gender-bigender me-2"></i>Nem mező ellenőrzése és javítása</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="gender-check-stats" class="mb-3"></div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-vcenter table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Teljes név</th>
+                                    <th>Keresztnév</th>
+                                    <th>Jelenlegi nem</th>
+                                    <th>Névből javasolt</th>
+                                    <th>Beállítandó</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gender-check-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <span class="text-muted me-auto" id="gender-check-footer-info"></span>
+                    <button class="btn btn-success" onclick="saveGenderFixes()">
+                        <i class="ti ti-device-floppy me-2"></i>Kijelöltek mentése
+                    </button>
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Mégse</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nem-ellenőrzés és választói névjegyzék logika: tagnyilvantartas.min.js -->
+
+    <!-- ===== VÁLASZTÓK NÉVJEGYZÉKE MODAL ===== -->
+    <div class="modal modal-blur fade" id="modal-electoral-roll" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold"><i class="ti ti-list-check me-2"></i>Választók Névjegyzéke</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3 mb-3 p-2 bg-light rounded border">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Vonatkozási év *</label>
+                            <select id="er-year" class="form-select"></select>
+                            <div class="form-text">Az egyházfenntartói befizetés éve</div>
+                        </div>
+                        <div class="col-12 border-top pt-2 mt-1">
+                            <div class="fw-bold text-muted mb-2"><i class="ti ti-pen me-1"></i>Aláírók</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Lelkész</label>
+                            <input type="text" id="er-sign-lelkesz" class="form-control" placeholder="Lelkész neve...">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Gondnok</label>
+                            <input type="text" id="er-sign-gondnok" class="form-control" placeholder="Gondnok neve...">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Presbiter 1.</label>
+                            <input type="text" id="er-sign-presb1" class="form-control" placeholder="Presbiter neve...">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Presbiter 2.</label>
+                            <input type="text" id="er-sign-presb2" class="form-control" placeholder="Presbiter neve...">
+                        </div>
+                    </div>
+                    <div id="er-preview-container"></div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-link link-secondary" data-bs-dismiss="modal">Mégse</button>
+                    <button type="button" class="btn btn-primary" id="er-btn-generate" onclick="generateElectoralRoll()">
+                        <i class="ti ti-search me-1"></i>Névjegyzék lekérdezése
+                    </button>
+                    <button type="button" class="btn btn-success d-none" id="er-btn-print" onclick="printElectoralRoll()">
+                        <i class="ti ti-printer me-1"></i>Nyomtatás / PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Választók névjegyzéke és switchMainTabs logika: tagnyilvantartas.min.js -->
+</body>
+</html>

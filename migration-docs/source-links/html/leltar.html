@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <title>Vagyonleltár | Kartotéka</title>
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    
+    <!-- html2pdf, xlsx, zxing: lazy betöltés igény szerint (lazy_libs.js) -->
+    
+    <script>var activeCongregationId = null;</script>
+    
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .blur-background { filter: blur(4px); pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div class="page" id="main-page-content">
+        <div id="sidebar-placeholder"></div>
+        
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+            
+            <div class="page-body mt-3">
+                <div id="leltar-lista-placeholder"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-mass-import-placeholder"></div> 
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/dist/common.min.js?v=17"></script>
+    <script src="js/dist/leltar.min.js?v=17"></script>
+
+    <script>
+        async function startApp() {
+            try {
+                // Betöltjük a menüt, a fejlécet, és a felugró ablakokat
+                const components = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/leltar_lista.html'),
+                    fetchComponent('components/modal_mass_import.html')
+                ]);
+
+                document.getElementById('sidebar-placeholder').innerHTML = components[0];
+                document.getElementById('header-placeholder').innerHTML = components[1];
+                document.getElementById('leltar-lista-placeholder').innerHTML = components[2];
+                document.getElementById('modal-mass-import-placeholder').innerHTML = components[3];
+                
+                // Inicializáljuk a rendszert és a jogosultságokat
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+                
+                // 🚨 GOLYÓÁLLÓ GYÜLEKEZET AZONOSÍTÓ (Megakadályozza a null hibát)
+                let currentId = window.activeCongregationId || localStorage.getItem('congregation_id') || localStorage.getItem('activeCongregationId');
+                
+                if (!currentId) {
+                    // Ha a memóriában nem található, kőkeményen kiolvassuk az adatbázisból!
+                    const { data: { user } } = await _supabase.auth.getUser();
+                    if (user) {
+                        const { data: prof } = await _supabase.from('profiles').select('congregation_id').eq('id', user.id).single();
+                        if (prof && prof.congregation_id) {
+                            currentId = prof.congregation_id;
+                            localStorage.setItem('activeCongregationId', currentId);
+                        }
+                    }
+                }
+                
+                // Véglegesítjük a globális változót minden modul számára!
+                activeCongregationId = currentId;
+                window.activeCongregationId = currentId;
+
+                // Ha még ezek után is üres lenne, megállítjuk a programot, hogy ne dobjon hibaüzenetet a háttérben
+                if (!activeCongregationId) {
+                    document.getElementById('leltar-list-body').innerHTML = '<tr><td colspan="7" class="text-center p-5 text-danger fw-bold"><i class="ti ti-alert-triangle fs-1 d-block mb-2"></i>Kritikus hiba: Nem található a gyülekezet azonosítója! Kérem, jelentkezzen be újra!</td></tr>';
+                    return;
+                }
+                
+                // Indulhat a Leltár motor (Ami így már azonnal le fogja cserélni a pörgő karikát az adatokra)
+                if (typeof window.initLeltar === 'function') {
+                    await window.initLeltar();
+                }
+                
+            } catch (err) { 
+                console.error("Kritikus hiba az oldal betöltésekor:", err); 
+            }
+        }
+        
+        window.onload = startApp;
+    </script>
+</body>
+</html>

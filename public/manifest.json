@@ -1,0 +1,54 @@
+{
+  "name": "KARTOTEKA — Egyházi Nyilvántartás",
+  "short_name": "KARTOTEKA",
+  "description": "Erdélyi Református Egyházkerület offline-first digitális nyilvántartási rendszere",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#1e1b4b",
+  "lang": "hu",
+  "dir": "ltr",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/EREK.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/EREK.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/kartoteka-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Tagnyilvántartás",
+      "short_name": "Tagok",
+      "url": "/tagnyilvantartas",
+      "icons": [{ "src": "/EREK.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Pénzügy",
+      "short_name": "Pénzügy",
+      "url": "/penzugy",
+      "icons": [{ "src": "/EREK.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Anyakönyv",
+      "short_name": "Anyakönyv",
+      "url": "/anyakonyv",
+      "icons": [{ "src": "/EREK.png", "sizes": "192x192" }]
+    }
+  ]
+}

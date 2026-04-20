@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Irányítópult | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f0f4f8; }
+
+        .dash-hero {
+            background: linear-gradient(135deg, #1a56db 0%, #3b82f6 60%, #60a5fa 100%);
+            padding: 28px 0 22px;
+        }
+        .dash-hero .greeting { font-size: 1.65rem; font-weight: 700; color: #fff; margin-bottom: 2px; }
+        .dash-hero .subtext { color: rgba(255,255,255,0.75); font-size: 0.95rem; }
+        .dash-hero .date-badge { background: rgba(255,255,255,0.18); border-radius: 8px; padding: 6px 14px; color: #fff; font-size: 0.9rem; backdrop-filter: blur(4px); }
+
+        .kpi-card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); transition: transform 0.18s, box-shadow 0.18s; }
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+        .kpi-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+
+        .section-card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+
+        .celebrant-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8fafc; border-left: 4px solid #3b82f6; transition: background 0.15s; }
+        .celebrant-item:hover { background: #eff6ff; }
+        .celebrant-item.nameday { border-left-color: #10b981; }
+        .celebrant-name { font-weight: 600; color: #1e293b; font-size: 0.92rem; }
+        .celebrant-badge { margin-left: auto; font-size: 0.78rem; padding: 2px 8px; border-radius: 20px; font-weight: 600; white-space: nowrap; }
+
+        .upcoming-item { display: flex; align-items: center; padding: 8px 14px; gap: 12px; border-bottom: 1px solid #f1f5f9; }
+        .upcoming-item:last-child { border-bottom: none; }
+        .upcoming-date-badge { min-width: 42px; height: 42px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; background: #eff6ff; color: #1d4ed8; }
+        .upcoming-date-badge .day { font-size: 1.1rem; line-height: 1; }
+
+        .quick-action-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 8px; border-radius: 12px; border: 2px solid transparent; text-decoration: none; transition: all 0.18s; cursor: pointer; }
+        .quick-action-btn:hover { border-color: currentColor; transform: translateY(-2px); }
+        .quick-action-btn .qa-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 8px; }
+        .quick-action-btn .qa-label { font-size: 0.8rem; font-weight: 600; text-align: center; }
+
+        .activity-item { display: flex; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
+        .activity-item:last-child { border-bottom: none; }
+        .activity-dot { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; margin-top: 6px; flex-shrink: 0; }
+
+        .program-tab-btn { display: none; } /* hónap fülek elrejtve — nyilakkal navigálunk */
+
+        .stat-mini { text-align: center; padding: 10px; }
+        .stat-mini .val { font-size: 1.4rem; font-weight: 700; }
+        .stat-mini .lbl { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+        /* ── Mini naptár rács (col-lg-4, reszponzív) ── */
+        .prog-cal-wrap { overflow: hidden; width: 100%; }
+        .prog-cal { display: grid; grid-template-columns: repeat(7, 1fr); user-select: none; table-layout: fixed; }
+        .prog-cal-header { text-align: center; font-size: 0.6rem; font-weight: 700; color: #94a3b8; padding: 2px 0; overflow: hidden; }
+        .prog-cal-cell { display: flex; align-items: center; justify-content: center; padding: 2px 0; }
+        .prog-cal-day {
+            text-align: center; cursor: pointer; border-radius: 50%;
+            width: 26px; height: 26px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.72rem; color: #475569; transition: all 0.12s; position: relative;
+        }
+        .prog-cal-day:hover { background: #e0f2fe; }
+        .prog-cal-day.empty { visibility: hidden; cursor: default; }
+        .prog-cal-day.today { background: #0ca678; color: #fff; font-weight: 700; }
+        .prog-cal-day.today:hover { background: #099268; }
+        .prog-cal-day.past { color: #c0c8d0; }
+        .prog-cal-day.sunday { color: #dc2626; font-weight: 600; }
+        .prog-cal-day.sunday.past { color: #f0a0a0; }
+        .prog-cal-day.today.sunday { color: #fff; }
+        .prog-cal-dots {
+            position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 2px;
+        }
+        .prog-cal-dots span {
+            width: 4px; height: 4px; border-radius: 50%; display: block;
+        }
+        .prog-cal-day.today .prog-cal-dots span { opacity: 0.8; }
+
+        /* Mini lista elemek */
+        .prog-mini-item {
+            display: flex; align-items: center; gap: 6px; padding: 4px 0;
+            border-bottom: 1px solid #f1f5f9; font-size: 0.78rem; cursor: pointer;
+        }
+        .prog-mini-item:last-child { border-bottom: none; }
+        .prog-mini-item:hover { background: #f8fafc; border-radius: 4px; }
+        .prog-mini-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .prog-mini-date { color: #94a3b8; font-size: 0.7rem; min-width: 28px; font-weight: 600; }
+        .prog-mini-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1e293b; }
+        .prog-mini-title.done { text-decoration: line-through; color: #94a3b8; }
+        .prog-mini-time { color: #94a3b8; font-size: 0.68rem; }
+
+        /* Emoji picker */
+        .emoji-picker {
+            position: absolute; top: 100%; right: 0; z-index: 1050;
+            background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 8px; width: 260px;
+        }
+        .emoji-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 200px; overflow-y: auto; }
+        .emoji-pick-btn {
+            width: 28px; height: 28px; border: none; background: transparent; border-radius: 4px;
+            font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: background 0.1s;
+        }
+        .emoji-pick-btn:hover { background: #e0f2fe; }
+
+        /* Típus pont — inline style-t használunk a _progColor() alapján */
+
+        .scrollable-panel { max-height: 360px; overflow-y: auto; }
+        .scrollable-panel::-webkit-scrollbar { width: 4px; }
+        .scrollable-panel::-webkit-scrollbar-track { background: transparent; }
+        .scrollable-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div id="sidebar-placeholder"></div>
+    <div class="page-wrapper">
+        <div id="header-placeholder"></div>
+
+        <!-- HERO BANNER -->
+        <div class="dash-hero d-print-none">
+            <div class="container-xl">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <div class="subtext mb-1" id="dash-date-line">Betöltés...</div>
+                        <div class="greeting" id="dash-greeting">Üdvözöljük!</div>
+                        <div class="subtext mt-1" id="dash-congregation-line"></div>
+                    </div>
+                    <div class="col-auto d-none d-md-block">
+                        <div class="date-badge" id="dash-today-names"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-body pt-4">
+            <div class="container-xl">
+
+                <!-- ===== KPI KÁRTYÁK ===== -->
+                <div class="row g-3 mb-4">
+                    <div class="col-6 col-lg-3">
+                        <div class="card kpi-card">
+                            <div class="card-body d-flex align-items-center gap-3 p-3">
+                                <div class="kpi-icon bg-blue-lt text-blue"><i class="ti ti-users"></i></div>
+                                <div>
+                                    <div class="h2 mb-0 fw-bold" id="kpi-active-members">—</div>
+                                    <div class="text-muted small">Aktív tag</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card kpi-card">
+                            <div class="card-body d-flex align-items-center gap-3 p-3">
+                                <div class="kpi-icon bg-red-lt text-red"><i class="ti ti-home-heart"></i></div>
+                                <div>
+                                    <div class="h2 mb-0 fw-bold" id="kpi-families">—</div>
+                                    <div class="text-muted small">Nyilvántartott család</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card kpi-card">
+                            <div class="card-body d-flex align-items-center gap-3 p-3">
+                                <div class="kpi-icon bg-green-lt text-green"><i class="ti ti-coin"></i></div>
+                                <div>
+                                    <div class="h2 mb-0 fw-bold" id="kpi-month-income">—</div>
+                                    <div class="text-muted small">Havi bevétel (RON)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card kpi-card">
+                            <div class="card-body d-flex align-items-center gap-3 p-3">
+                                <div class="kpi-icon bg-orange-lt text-orange"><i class="ti ti-calendar-event"></i></div>
+                                <div>
+                                    <div class="h2 mb-0 fw-bold" id="kpi-week-events">—</div>
+                                    <div class="text-muted small">Szolgálat e héten</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== KÖSZÖNTŐK + KÖVETKEZŐ 14 NAP + PROGRAMSZERVEZŐ ===== -->
+                <div class="row g-3 mb-4">
+
+                    <!-- MA KÖSZÖNTJÜK -->
+                    <div class="col-lg-4">
+                        <div class="card section-card h-100">
+                            <div class="card-header border-0 pb-0 pt-3">
+                                <h3 class="card-title mb-0"><i class="ti ti-gift me-2 text-blue"></i>Ma köszöntjük</h3>
+                            </div>
+                            <div class="card-body pt-2 scrollable-panel">
+                                <div class="text-uppercase text-muted fw-bold mb-2" style="font-size:0.72rem; letter-spacing:1px;">🎂 Születésnaposok</div>
+                                <div id="list-birthdays"><div class="text-muted small">Betöltés...</div></div>
+                                <div class="text-uppercase text-muted fw-bold mb-2 mt-3" style="font-size:0.72rem; letter-spacing:1px;">💐 Névnaposok</div>
+                                <div id="list-namedays"><div class="text-muted small">Betöltés...</div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KÖVETKEZŐ 7 NAP SZÜLETÉSNAPJAI -->
+                    <div class="col-lg-4">
+                        <div class="card section-card h-100">
+                            <div class="card-header border-0 pb-0 pt-3 d-flex align-items-center justify-content-between">
+                                <h3 class="card-title mb-0"><i class="ti ti-calendar-stats me-2 text-orange"></i>Következő 14 nap</h3>
+                                <span class="badge bg-orange-lt text-orange" id="upcoming-count-badge">...</span>
+                            </div>
+                            <div class="card-body p-0 scrollable-panel" id="list-upcoming-birthdays">
+                                <div class="text-muted small p-3">Betöltés...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GYÜLEKEZETI PROGRAMSZERVEZŐ -->
+                    <div class="col-lg-4">
+                        <div class="card section-card h-100 d-flex flex-column">
+                            <!-- Fejléc: cím + hónap navigáció -->
+                            <div class="card-header border-0 pb-0 pt-2 px-3">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <span style="font-size:0.85rem;font-weight:600"><i class="ti ti-calendar-event me-1 text-teal"></i>Programok</span>
+                                    <div class="d-flex align-items-center gap-0">
+                                        <button class="btn btn-ghost-secondary btn-icon" style="width:24px;height:24px" onclick="progNavMonth(-1)" title="Előző"><i class="ti ti-chevron-left" style="font-size:0.8rem"></i></button>
+                                        <span class="fw-bold text-nowrap" id="prog-month-label" style="font-size:0.75rem"></span>
+                                        <button class="btn btn-ghost-secondary btn-icon" style="width:24px;height:24px" onclick="progNavMonth(1)" title="Következő"><i class="ti ti-chevron-right" style="font-size:0.8rem"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Mini naptár rács -->
+                            <div class="px-2 pt-2" id="program-calendar-view" style="overflow:hidden">
+                                <div id="program-calendar-grid"></div>
+                            </div>
+                            <!-- Közelgő programok lista -->
+                            <div class="flex-grow-1 px-3 pt-1 pb-0" style="overflow-y:auto;max-height:160px" id="program-list-view">
+                                <div class="text-muted small text-center py-2">Betöltés...</div>
+                            </div>
+                            <!-- Lábléc gombok -->
+                            <div class="card-footer border-0 pt-0 pb-2 px-3 d-flex gap-1 justify-content-end flex-wrap">
+                                <button class="btn btn-sm btn-outline-purple" onclick="printEvesTermezo()" style="font-size:0.68rem;padding:1px 6px">
+                                    <i class="ti ti-printer me-1"></i>Éves terv
+                                </button>
+                                <button class="btn btn-sm btn-outline-teal" onclick="openBatchEntry()" style="font-size:0.68rem;padding:1px 6px">
+                                    <i class="ti ti-table me-1"></i>Gyors bevitel
+                                </button>
+                                <button class="btn btn-sm btn-teal" onclick="openProgramModal()" style="font-size:0.68rem;padding:1px 6px">
+                                    <i class="ti ti-plus me-1"></i>Új program
+                                </button>
+                            </div>
+                            <!-- Motiváló üzenet, ha üres -->
+                            <div class="card-footer border-0 pt-0 d-none" id="program-empty-inspire">
+                                <div class="text-center py-2">
+                                    <div class="mb-1" style="font-size:1.2rem">🕊️</div>
+                                    <p class="text-muted mb-0" style="font-size:0.72rem;font-style:italic">
+                                        „Ahol ketten vagy hárman összegyűlnek..." <b>(Mt 18:20)</b>
+                                    </p>
+                                </div>
+                            </div>
+                            <!-- Rejtett elemek a JS kompatibilitáshoz -->
+                            <div class="d-none" id="program-month-tabs"></div>
+                            <select class="d-none" id="dash-program-year"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== GRAFIKONOK ===== -->
+                <div class="row g-3 mb-4">
+                    <div class="col-lg-8">
+                        <div class="card section-card">
+                            <div class="card-header border-0 pb-0 pt-3">
+                                <h3 class="card-title mb-0"><i class="ti ti-chart-bar me-2 text-green"></i>Havi Bevételek és Kiadások — utolsó 8 hónap</h3>
+                            </div>
+                            <div class="card-body pt-2">
+                                <div id="chart-monthly-income" style="min-height: 220px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="card section-card h-100">
+                            <div class="card-header border-0 pb-0 pt-3">
+                                <h3 class="card-title mb-0"><i class="ti ti-chart-donut me-2 text-purple"></i>Korcsoport-megoszlás</h3>
+                            </div>
+                            <div class="card-body pt-2">
+                                <div id="chart-age-groups" style="min-height: 220px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== FRISS BEJEGYZÉSEK (lentebb) ===== -->
+                <div class="row g-3 mb-4">
+                    <div class="col-12">
+                        <div class="card section-card">
+                            <div class="card-header border-0 pb-0 pt-3">
+                                <h3 class="card-title mb-0"><i class="ti ti-history me-2 text-muted"></i>Friss bejegyzések</h3>
+                            </div>
+                            <div class="scrollable-panel" id="list-recent-activity" style="max-height:180px">
+                                <div class="text-muted small p-3">Betöltés...</div>
+                            </div>
+                            <div class="card-footer border-0 pt-0">
+                                <a href="munkanaplo.html" class="btn btn-sm btn-ghost-primary w-100">Összes megtekintése</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== STATISZTIKA ÖSSZEFOGLALŐ (alul) ===== -->
+                <div class="row g-3 mb-4">
+                    <div class="col-12">
+                        <div class="card section-card">
+                            <div class="card-body">
+                                <div class="row g-0 text-center" id="dash-stats-bar">
+                                    <div class="col stat-mini border-end"><div class="val text-blue" id="stat-men">—</div><div class="lbl">Férfi tag</div></div>
+                                    <div class="col stat-mini border-end"><div class="val text-pink" id="stat-women">—</div><div class="lbl">Nő tag</div></div>
+                                    <div class="col stat-mini border-end"><div class="val text-teal" id="stat-children">—</div><div class="lbl">Gyermek (–18)</div></div>
+                                    <div class="col stat-mini border-end"><div class="val text-orange" id="stat-avg-age">—</div><div class="lbl">Átlagéletkor</div></div>
+                                    <div class="col stat-mini border-end"><div class="val text-green" id="stat-payers-year">—</div><div class="lbl">Befizető idén</div></div>
+                                    <div class="col stat-mini border-end"><div class="val text-purple" id="stat-presbiterek">—</div><div class="lbl">Presbiter</div></div>
+                                    <div class="col stat-mini"><div class="val text-dark" id="stat-balance">—</div><div class="lbl">Kassza egyenleg</div></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modal-profile-placeholder"></div>
+<div id="modal-congregation-placeholder"></div>
+
+<!-- ═══ PROGRAM SZERVEZŐ MODAL ═══ -->
+<div class="modal modal-blur fade" id="modal-program" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-md">
+        <div class="modal-content">
+            <div class="modal-header bg-teal text-white">
+                <div>
+                    <h5 class="modal-title" id="modal-program-title"><i class="ti ti-calendar-plus me-2"></i>Új program</h5>
+                    <div class="small opacity-75">Tervezd meg a gyülekezeted programját!</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="prog-edit-id" value="">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="ti ti-pencil me-1 text-teal"></i>Program neve</label>
+                        <input type="text" id="prog-cim" class="form-control" placeholder="pl. Ökumenikus istentisztelet" required autofocus>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-calendar me-1 text-teal"></i>Kezdés</label>
+                        <div class="row g-2">
+                            <div class="col-7"><input type="date" id="prog-datum" class="form-control" required></div>
+                            <div class="col-5"><input type="time" id="prog-ido-kezdes" class="form-control"></div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-calendar-event me-1 text-teal"></i>Befejezés <span class="text-muted fw-normal">(többnapos)</span></label>
+                        <div class="row g-2">
+                            <div class="col-7"><input type="date" id="prog-datum-vege" class="form-control"></div>
+                            <div class="col-5"><input type="time" id="prog-ido-befejezes" class="form-control"></div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-tag me-1 text-teal"></i>Típus</label>
+                        <select id="prog-tipus" class="form-select" onchange="toggleEgyediTipus()">
+                            <option value="istentisztelet">⛪ Istentisztelet</option>
+                            <option value="bibliaora">📖 Bibliaóra</option>
+                            <option value="imaora">🙏 Imaóra</option>
+                            <option value="ifjusagi">🎯 Ifjúsági alkalom</option>
+                            <option value="gyerekprogram">🧒 Gyerekprogram</option>
+                            <option value="konferencia">🎤 Konferencia</option>
+                            <option value="hangverseny">🎵 Hangverseny</option>
+                            <option value="kozossegi">🤝 Közösségi alkalom</option>
+                            <option value="presbiteri">📋 Presbiteri gyűlés</option>
+                            <option value="latogatas">🏠 Családlátogatás</option>
+                            <option value="unnep">🎄 Ünnep</option>
+                            <option value="tabor">⛺ Tábor</option>
+                            <option value="evangelizacio">📣 Evangélizáció</option>
+                            <option value="diakoniai">❤️ Diakóniai szolgálat</option>
+                            <option value="noszovetseg">🌸 Nőszövetség</option>
+                            <option value="egyeb">📌 Egyéb...</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-map-pin me-1 text-teal"></i>Helyszín</label>
+                        <input type="text" id="prog-helyszin" class="form-control" placeholder="pl. Templom, Gyülekezeti terem">
+                    </div>
+                    <!-- Egyéb típus: egyedi név + emoji picker -->
+                    <div class="col-sm-8 d-none" id="prog-egyedi-tipus-row">
+                        <label class="form-label fw-bold"><i class="ti ti-pencil me-1 text-orange"></i>Egyedi típusnév</label>
+                        <input type="text" id="prog-egyedi-tipus" class="form-control" placeholder="pl. Esperesi vizitáció">
+                    </div>
+                    <div class="col-sm-4 d-none" id="prog-egyedi-emoji-row">
+                        <label class="form-label fw-bold">Emoji</label>
+                        <div class="position-relative">
+                            <div class="input-group">
+                                <input type="text" id="prog-egyedi-emoji" class="form-control text-center" placeholder="📌" maxlength="4" style="font-size:1.3rem" readonly>
+                                <button type="button" class="btn btn-outline-secondary" onclick="toggleEmojiPicker()" title="Emoji választó">
+                                    <i class="ti ti-mood-smile"></i>
+                                </button>
+                            </div>
+                            <div class="emoji-picker d-none" id="emoji-picker-panel">
+                                <div class="emoji-picker-grid" id="emoji-picker-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-flag me-1 text-teal"></i>Fontosság</label>
+                        <select id="prog-prioritas" class="form-select">
+                            <option value="alacsony">Alacsony</option>
+                            <option value="normal" selected>Normál</option>
+                            <option value="fontos">Fontos</option>
+                            <option value="kiemelt">Kiemelt</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-bold"><i class="ti ti-repeat me-1 text-teal"></i>Ismétlődés</label>
+                        <select id="prog-ismetlodes" class="form-select">
+                            <option value="">Nem ismétlődik</option>
+                            <option value="heti">Heti</option>
+                            <option value="ketheti">Kétheti</option>
+                            <option value="havi">Havi</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="ti ti-notes me-1 text-teal"></i>Megjegyzés <span class="text-muted fw-normal">(opcionális)</span></label>
+                        <textarea id="prog-megjegyzes" class="form-control" rows="2" placeholder="Bármilyen fontos részlet..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Mégse</button>
+                <button type="button" class="btn btn-teal" id="btn-save-program" onclick="saveProgram()">
+                    <i class="ti ti-device-floppy me-1"></i>Mentés
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ GYORS BEVITEL MODAL (táblázatos) ═══ -->
+<div class="modal modal-blur fade" id="modal-batch-program" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-full-width" style="max-width:95vw">
+        <div class="modal-content">
+            <div class="modal-header bg-teal text-white">
+                <div>
+                    <h5 class="modal-title"><i class="ti ti-table me-2"></i>Gyors bevitel — Programok táblázatos rögzítése</h5>
+                    <div class="small opacity-75">Tölts ki annyi sort, amennyit szeretnél, majd mentsd el egyszerre!</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-2" style="max-height:70vh;overflow-y:auto;">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-0" id="batch-table">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width:32px">#</th>
+                                <th style="min-width:200px">Program neve <span class="text-danger">*</span></th>
+                                <th style="width:130px">Kezdő dátum <span class="text-danger">*</span></th>
+                                <th style="width:130px">Záró dátum</th>
+                                <th style="width:90px">Kezdés</th>
+                                <th style="width:90px">Vége</th>
+                                <th style="width:160px">Típus</th>
+                                <th style="min-width:130px">Helyszín</th>
+                                <th style="width:110px">Fontosság</th>
+                                <th style="width:120px">Ismétlődés</th>
+                                <th style="width:40px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="batch-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <div>
+                    <button type="button" class="btn btn-outline-teal" onclick="addBatchRow()">
+                        <i class="ti ti-row-insert-bottom me-1"></i>Új sor
+                    </button>
+                    <button type="button" class="btn btn-outline-info ms-1" onclick="addBatchRows(5)">
+                        <i class="ti ti-rows me-1"></i>+5 sor
+                    </button>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small" id="batch-row-count"></span>
+                    <button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Mégse</button>
+                    <button type="button" class="btn btn-teal" id="btn-save-batch" onclick="saveBatchPrograms()">
+                        <i class="ti ti-device-floppy me-1"></i>Összes mentése
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="../assets/vendor/supabase/supabase.min.js"></script>
+<script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="js/dist/common.min.js?v=17"></script>
+<script src="js/dist/dashboard.min.js?v=17"></script>
+
+<script>
+    async function startApp() {
+        try {
+            var comps = await Promise.all([
+                fetchComponent('components/sidebar.html'),
+                fetchComponent('components/header.html')
+            ]);
+            document.getElementById('sidebar-placeholder').innerHTML = comps[0];
+            document.getElementById('header-placeholder').innerHTML = comps[1];
+
+            // Modálok lazy betöltése — csak első megnyitáskor
+            lazyLoadModal('components/modal_profile.html', 'modal-profile-placeholder');
+            lazyLoadModal('components/modal_congregation.html', 'modal-congregation-placeholder');
+
+            if (typeof initHeaderData === 'function') await initHeaderData();
+            await loadDashboardData();
+        } catch (err) { console.error(err); }
+        if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+    }
+    window.onload = startApp;
+</script>
+</body>
+</html>

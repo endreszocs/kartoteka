@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Sírhelyek | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+        .sirhely-card { transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
+        .sirhely-card:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .status-szabad { border-left: 3px solid #2fb344; }
+        .status-foglalt { border-left: 3px solid #206bc4; }
+        .status-lejart { border-left: 3px solid #f76707; }
+        .status-zart { border-left: 3px solid #d63939; }
+        .status-fenntartott { border-left: 3px solid #ae3ec9; }
+        .temeto-card { border-left: 4px solid #667085; }
+        .parcella-header { background: #f8f9fa; border-radius: 6px; padding: 0.5rem 1rem; margin-bottom: 0.5rem; }
+        @media print { .d-print-none { display: none !important; } }
+    </style>
+</head>
+<body>
+    <div class="page" id="main-page-content">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <h2 class="page-title"><i class="ti ti-cross me-2"></i>Temetői Nyilvántartás</h2>
+                            <div class="text-muted" id="sirhely-info">Sírhelyek, bérlések és elhunyt személyek kezelése</div>
+                        </div>
+                        <div class="col-auto ms-auto d-flex gap-2">
+                            <button class="btn btn-outline-secondary" onclick="openTemetoModal()">
+                                <i class="ti ti-map-pin me-1"></i>Temetők
+                            </button>
+                            <button class="btn btn-primary" onclick="openSirhelyModal()">
+                                <i class="ti ti-plus me-1"></i>Új Sírhely
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page-body">
+                <div class="container-xl">
+
+                    <!-- Szűrők + Összesítő -->
+                    <div class="row g-3 mb-3 d-print-none">
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">Temető</label>
+                            <select id="sh-filter-temeto" class="form-select" onchange="loadSirhelyek()">
+                                <option value="">Összes temető</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small text-muted">Állapot</label>
+                            <select id="sh-filter-allapot" class="form-select" onchange="loadSirhelyek()">
+                                <option value="">Mind</option>
+                                <option value="szabad">Szabad</option>
+                                <option value="foglalt">Foglalt</option>
+                                <option value="lejart">Lejárt</option>
+                                <option value="zart">Zárt</option>
+                                <option value="fenntartott">Fenntartott</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">Keresés</label>
+                            <div class="input-icon">
+                                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                <input type="text" id="sh-search" class="form-control" placeholder="Név, parcella, sor..." oninput="loadSirhelyek()">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Összesítő</label>
+                            <div class="d-flex gap-2" id="sh-stats">
+                                <span class="badge bg-secondary-lt px-2 py-1" id="sh-stat-total">0 sírhely</span>
+                                <span class="badge bg-green-lt px-2 py-1" id="sh-stat-szabad">0 szabad</span>
+                                <span class="badge bg-blue-lt px-2 py-1" id="sh-stat-foglalt">0 foglalt</span>
+                                <span class="badge bg-orange-lt px-2 py-1" id="sh-stat-lejart">0 lejárt</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Nézet választó -->
+                    <div class="d-flex justify-content-between align-items-center mb-3 d-print-none">
+                        <ul class="nav nav-tabs" data-bs-toggle="tabs" id="sh-view-tabs">
+                            <li class="nav-item"><a href="#" class="nav-link active" onclick="setSirhelyView('table')"><i class="ti ti-list me-1"></i>Táblázat</a></li>
+                            <li class="nav-item"><a href="#" class="nav-link" onclick="setSirhelyView('cards')"><i class="ti ti-layout-grid me-1"></i>Kártyák</a></li>
+                        </ul>
+                        <button class="btn btn-outline-warning btn-sm" onclick="exportSirhelyek()"><i class="ti ti-download me-1"></i>Export</button>
+                    </div>
+
+                    <!-- Táblázat nézet -->
+                    <div class="card shadow-sm border-0" id="sh-table-view">
+                        <div class="table-responsive">
+                            <table class="table table-vcenter card-table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Temető</th>
+                                        <th>Parcella / Sor / Szám</th>
+                                        <th>Típus</th>
+                                        <th>Állapot</th>
+                                        <th>Bérlő / Elhunyt</th>
+                                        <th>Bérlés lejárat</th>
+                                        <th class="w-1 d-print-none"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sh-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Kártya nézet -->
+                    <div id="sh-cards-view" class="d-none">
+                        <div class="row g-3" id="sh-cards-container"></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal placeholderek -->
+    <div id="modal-temeto-placeholder"></div>
+    <div id="modal-sirhely-placeholder"></div>
+    <div id="modal-berles-placeholder"></div>
+    <div id="modal-elhunyt-placeholder"></div>
+    <div id="modal-profile-placeholder"></div>
+    <div id="modal-congregation-placeholder"></div>
+
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+
+    <script src="js/dist/common.min.js?v=17"></script>
+    <script src="js/dist/sirhelyek.min.js?v=17"></script>
+
+    <script>
+        var activeCongregationId = null;
+
+        async function startApp() {
+            try {
+                var comps = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/modal_temeto.html'),
+                    fetchComponent('components/modal_sirhely.html'),
+                    fetchComponent('components/modal_berles.html'),
+                    fetchComponent('components/modal_elhunyt.html'),
+                    fetchComponent('components/modal_profile.html'),
+                    fetchComponent('components/modal_congregation.html')
+                ]);
+                document.getElementById('sidebar-placeholder').innerHTML = comps[0];
+                document.getElementById('header-placeholder').innerHTML = comps[1];
+                document.getElementById('modal-temeto-placeholder').innerHTML = comps[2];
+                document.getElementById('modal-sirhely-placeholder').innerHTML = comps[3];
+                document.getElementById('modal-berles-placeholder').innerHTML = comps[4];
+                document.getElementById('modal-elhunyt-placeholder').innerHTML = comps[5];
+                document.getElementById('modal-profile-placeholder').innerHTML = comps[6];
+                document.getElementById('modal-congregation-placeholder').innerHTML = comps[7];
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                // Gyülekezet ID
+                var u = await _supabase.auth.getUser();
+                if (u.data && u.data.user) {
+                    var pRes = await _supabase.from('profiles').select('congregation_id').eq('id', u.data.user.id).single();
+                    if (pRes.data) activeCongregationId = pRes.data.congregation_id;
+                }
+
+                if (activeCongregationId) {
+                    await loadTemetok();
+                    await loadSirhelyek();
+                }
+            } catch (err) { console.error('Sírhelyek init hiba:', err); }
+        }
+        window.onload = startApp;
+    </script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+'use client'
+
+import { useEffect, useState, useMemo } from 'react'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { getVoters, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { Users, User, UserRound, GraduationCap, CheckCircle, Printer, Send } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
+import { VoterPrintDialog } from '@/components/members/voter-print-dialog'
+import { toast } from 'sonner'
+
+export function VotersTab() {
+  const [voters, setVoters] = useState<VoterRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [jarulekFilter, setJarulekFilter] = useState('fizeto')
+  const [nemFilter, setNemFilter] = useState('')
+  const [korzetFilter, setKorzetFilter] = useState('')
+  const [printOpen, setPrintOpen] = useState(false)
+
+  const currentYear = new Date().getFullYear()
+
+  useEffect(() => {
+    getVoters().then(data => { setVoters(data); setLoading(false) })
+  }, [])
+
+  const korzetOptions = useMemo(() => {
+    const names = new Set(voters.map(v => v.korzet_nev).filter(Boolean))
+    return [...names].sort()
+  }, [voters])
+
+  const filtered = useMemo(() => {
+    return voters.filter(v => {
+      if (search && !v.nev.toLowerCase().includes(search.toLowerCase())) return false
+      if (nemFilter === 'ferfi' && !v.ferfi) return false
+      if (nemFilter === 'no' && v.ferfi) return false
+      if (jarulekFilter === 'fizeto' && !v.jarulekFizeto) return false
+      if (jarulekFilter === 'nem_fizeto' && v.jarulekFizeto) return false
+      if (korzetFilter === 'none' && v.korzet_nev) return false
+      if (korzetFilter === 'none' && !v.korzet_nev) return true
+      if (korzetFilter && korzetFilter !== 'none' && v.korzet_nev !== korzetFilter) return false
+      return true
+    })
+  }, [voters, search, nemFilter, jarulekFilter, korzetFilter])
+
+  const fizetoCount = voters.filter(v => v.jarulekFizeto).length
+  const maleCount = voters.filter(v => v.jarulekFizeto && v.ferfi).length
+  const femaleCount = voters.filter(v => v.jarulekFizeto && !v.ferfi).length
+  const konfirmaltCount = voters.filter(v => v.jarulekFizeto && v.konfirmalt).length
+
+  return (
+    <div className="space-y-4">
+      {/* KPI kártyák */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={fizetoCount} label="Összes választó" />
+        <KpiCard icon={<User className="w-5 h-5" />} gradient="from-blue-400 to-blue-500" value={maleCount} label="Férfi" />
+        <KpiCard icon={<UserRound className="w-5 h-5" />} gradient="from-pink-500 to-rose-500" value={femaleCount} label="Nő" />
+        <KpiCard icon={<GraduationCap className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={konfirmaltCount} label="Konfirmált" />
+      </div>
+
+      {/* Műveletek */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50"
+          onClick={() => setPrintOpen(true)}
+          disabled={loading || voters.length === 0}
+        >
+          <Printer className="mr-1 size-3.5" />
+          Nyomtatási központ
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          onClick={async () => {
+            if (!confirm('Beküldöd a választók névjegyzékét az egyházmegyének?')) return
+            const year = new Date().getFullYear()
+            const snapshot = { voterCount: filtered.length, year }
+            const result = await submitDocument('valasztok_nevjegyzeke', year, snapshot)
+            if ('error' in result && result.error) toast.error(result.error)
+            else toast.success('Választók névjegyzéke beküldve az egyházmegyének!')
+          }}
+        >
+          <Send className="mr-1 size-3.5" />
+          Beküldés egyházmegyének
+        </Button>
+      </div>
+
+      {/* Szűrők */}
+      <div className="card-raised flex flex-wrap items-center gap-2 p-3 sm:gap-3 sm:p-4">
+        <Input placeholder="Keresés név alapján..." value={search} onChange={e => setSearch(e.target.value)} className="w-full sm:w-56 rounded-lg" />
+        <select value={jarulekFilter} onChange={e => setJarulekFilter(e.target.value)} className="rounded-lg border border-white/70 bg-white/80 px-3 py-2 text-sm shadow-sm">
+          <option value="fizeto">Járulékfizetők</option>
+          <option value="nem_fizeto">Nem fizetők</option>
+          <option value="mind">Mindenki (18+)</option>
+        </select>
+        <select value={nemFilter} onChange={e => setNemFilter(e.target.value)} className="rounded-lg border border-white/70 bg-white/80 px-3 py-2 text-sm shadow-sm">
+          <option value="">Minden nem</option>
+          <option value="ferfi">Férfi</option>
+          <option value="no">Nő</option>
+        </select>
+        <select value={korzetFilter} onChange={e => setKorzetFilter(e.target.value)} className="rounded-lg border border-white/70 bg-white/80 px-3 py-2 text-sm shadow-sm">
+          <option value="">Minden körzet</option>
+          {korzetOptions.map(k => <option key={k} value={k}>{k}</option>)}
+          <option value="none">Körzet nélküli</option>
+        </select>
+        <span className="text-sm text-slate-400">{filtered.length} fő</span>
+      </div>
+
+      {/* Lista */}
+      {loading ? (
+        <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Betöltés...</div>
+      ) : filtered.length === 0 ? (
+        <div className="card-raised p-8 text-center">
+          <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500">Nincs a szűrésnek megfelelő választó.</p>
+        </div>
+      ) : (
+        <div className="card-raised overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-white/60 bg-white/60">
+                <tr>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500 w-8">#</th>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500">Név</th>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden md:table-cell">Kor</th>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">Foglalkozás</th>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden md:table-cell">Lakcím</th>
+                  <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">Körzet</th>
+                  <th className="p-2.5 text-center text-xs font-medium text-slate-500">Konf.</th>
+                  <th className="p-2.5 text-center text-xs font-medium text-slate-500">Járulék</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/60">
+                {filtered.map((v, i) => (
+                  <tr key={v.id} className="transition-colors hover:bg-secondary/55">
+                    <td className="p-2.5 text-slate-400 text-xs">{i + 1}</td>
+                    <td className="p-2.5">
+                      <span className={`inline-flex items-center gap-1 font-medium ${v.ferfi ? 'text-blue-700' : 'text-pink-700'}`}>
+                        {v.ferfi ? '♂' : '♀'} {v.nev}
+                      </span>
+                    </td>
+                    <td className="p-2.5 hidden md:table-cell text-slate-500">{v.age} év</td>
+                    <td className="p-2.5 hidden lg:table-cell text-slate-400">{v.foglalkozas || '—'}</td>
+                    <td className="p-2.5 hidden md:table-cell text-slate-400 text-xs">{v.lakhely}, {v.lakcim}</td>
+                    <td className="p-2.5 hidden lg:table-cell">{v.korzet_nev ? <Badge variant="outline" className="text-[10px] border-cyan-200 text-cyan-700">{v.korzet_nev}</Badge> : <span className="text-slate-300">—</span>}</td>
+                    <td className="p-2.5 text-center">{v.konfirmalt ? <CheckCircle className="w-4 h-4 text-emerald-500 mx-auto" /> : <span className="text-slate-300">—</span>}</td>
+                    <td className="p-2.5 text-center">
+                      {v.jarulekFizeto
+                        ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">{v.jarulekMaxEv}</Badge>
+                        : <span className="text-xs text-red-400">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Nyomtatási központ */}
+      <VoterPrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        voters={voters}
+        currentYear={currentYear}
+      />
+    </div>
+  )
+}
+
+function KpiCard({ icon, gradient, value, label }: { icon: React.ReactNode; gradient: string; value: number; label: string }) {
+  return (
+    <div className="card-raised p-4 flex items-center gap-3">
+      <div className={`icon-raised w-10 h-10 bg-gradient-to-br ${gradient} shrink-0`}>
+        <span className="text-white">{icon}</span>
+      </div>
+      <div>
+        <p className="text-xl font-bold text-slate-800 leading-tight">{value.toLocaleString('hu')}</p>
+        <p className="text-[11px] text-slate-400">{label}</p>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Rendszergazda | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #0f172a; }
+        .page-body { background-color: #f1f5f9; min-height: calc(100vh - 140px); }
+        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.04); border: none; border-radius: 12px; }
+        .admin-header { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); }
+        .kpi-card { border-radius: 12px; transition: transform 0.15s, box-shadow 0.15s; cursor: default; }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+        .nav-tabs .nav-link { color: #64748b; font-weight: 600; padding: 0.85rem 1.2rem; border: none; border-bottom: 3px solid transparent; }
+        .nav-tabs .nav-link.active { color: #4338ca; border-bottom-color: #4338ca; background: transparent; }
+        .nav-tabs .nav-link:hover:not(.active) { color: #334155; border-bottom-color: #cbd5e1; }
+        .cong-card { transition: all 0.2s; border-left: 4px solid transparent; }
+        .cong-card:hover { border-left-color: #4338ca; background: #f8fafc; }
+        .badge-urgency-surgos { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .badge-urgency-kozepes { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .badge-urgency-alacsony { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        .quality-ok { color: #16a34a; }
+        .quality-warn { color: #d97706; }
+        .quality-error { color: #dc2626; }
+        .stat-ring { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 700; }
+        .search-highlight { background: #fef08a; padding: 0 2px; border-radius: 2px; }
+        .tab-content > .tab-pane { padding: 1.5rem 0; }
+        @media (max-width: 768px) {
+            .nav-tabs .nav-link { padding: 0.6rem 0.8rem; font-size: 0.85rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <!-- ═══ FEJLÉC ═══ -->
+        <header class="admin-header py-3">
+            <div class="container-xl">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="stat-ring bg-danger text-white" style="width:52px;height:52px;font-size:1.4rem;">
+                                <i class="ti ti-shield-lock"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-white mb-0 fs-2 fw-bold">Rendszergazda</h1>
+                                <div class="text-white opacity-75 small">Kartotéka &mdash; Teljes rendszer-felügyelet</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-auto d-flex gap-2 align-items-center flex-wrap">
+                        <a href="dashboard.html" class="btn btn-ghost-light btn-sm">
+                            <i class="ti ti-home me-1"></i>Saját Gyülekezet
+                        </a>
+                        <a href="dashboard_kerulet.html" class="btn btn-ghost-light btn-sm">
+                            <i class="ti ti-building-church me-1"></i>Kerületi Központ
+                        </a>
+                        <a href="#" onclick="signOut()" class="btn btn-ghost-danger btn-sm">
+                            <i class="ti ti-logout me-1"></i>Kilépés
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="page-wrapper">
+            <!-- ═══ KPI KÁRTYÁK ═══ -->
+            <div class="container-xl" style="margin-top:16px; position:relative; z-index:10;">
+                <div class="row g-3">
+                    <div class="col-6 col-lg">
+                        <div class="card kpi-card bg-white">
+                            <div class="card-body py-3 px-3">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="stat-ring bg-indigo-lt text-indigo"><i class="ti ti-building-church"></i></div>
+                                    <div>
+                                        <div class="fs-2 fw-bold text-dark" id="kpi-congregations">-</div>
+                                        <div class="text-muted small">Gyülekezet</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="card kpi-card bg-white">
+                            <div class="card-body py-3 px-3">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="stat-ring bg-blue-lt text-blue"><i class="ti ti-users"></i></div>
+                                    <div>
+                                        <div class="fs-2 fw-bold text-dark" id="kpi-users">-</div>
+                                        <div class="text-muted small">Felhasználó</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="card kpi-card bg-white">
+                            <div class="card-body py-3 px-3">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="stat-ring bg-green-lt text-green"><i class="ti ti-user-check"></i></div>
+                                    <div>
+                                        <div class="fs-2 fw-bold text-dark" id="kpi-members">-</div>
+                                        <div class="text-muted small">Egyháztag</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="card kpi-card bg-white">
+                            <div class="card-body py-3 px-3">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="stat-ring bg-orange-lt text-orange"><i class="ti ti-headset"></i></div>
+                                    <div>
+                                        <div class="fs-2 fw-bold text-dark" id="kpi-support">-</div>
+                                        <div class="text-muted small">Nyitott jegy</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg">
+                        <div class="card kpi-card bg-white" style="cursor:pointer" onclick="goToDataQuality()" title="Kattints az adathibák megtekintéséhez">
+                            <div class="card-body py-3 px-3">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="stat-ring bg-red-lt text-red"><i class="ti ti-alert-triangle"></i></div>
+                                    <div>
+                                        <div class="fs-2 fw-bold text-dark" id="kpi-errors">-</div>
+                                        <div class="text-muted small">Adathiba</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ FÜLEK ═══ -->
+            <div class="page-body pt-3">
+                <div class="container-xl">
+                    <ul class="nav nav-tabs border-0 mb-3" id="admin-tabs" data-bs-toggle="tabs">
+                        <li class="nav-item">
+                            <a href="#tab-overview" class="nav-link active" data-bs-toggle="tab">
+                                <i class="ti ti-layout-dashboard me-2"></i>Áttekintés
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#tab-congregations" class="nav-link" data-bs-toggle="tab" onclick="loadCongregations()">
+                                <i class="ti ti-building-church me-2"></i>Gyülekezetek
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#tab-users" class="nav-link" data-bs-toggle="tab" onclick="loadAllUsers()">
+                                <i class="ti ti-users-cog me-2"></i>Felhasználók
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#tab-support" class="nav-link" data-bs-toggle="tab" onclick="loadSupportTickets()">
+                                <i class="ti ti-headset me-2"></i>Support
+                                <span class="badge bg-orange ms-1 d-none" id="support-badge-count"></span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#tab-quality" class="nav-link" data-bs-toggle="tab" onclick="loadDataQuality()">
+                                <i class="ti ti-checklist me-2"></i>Adatminőség
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#tab-import" class="nav-link" data-bs-toggle="tab" onclick="initRemoteImport()">
+                                <i class="ti ti-upload me-2"></i>Import
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 1: ÁTTEKINTÉS                             -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane active show" id="tab-overview">
+                            <div class="row g-3">
+                                <!-- Egyházmegyék összesítő -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-indigo-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-map-2 me-2"></i>Egyházmegyék</h3>
+                                        </div>
+                                        <div class="table-responsive" style="max-height:400px;">
+                                            <table class="table table-vcenter card-table table-hover mb-0">
+                                                <thead><tr><th>Név</th><th class="text-end">Gyülekezetek</th><th class="text-end">Tagok</th></tr></thead>
+                                                <tbody id="overview-dioceses"><tr><td colspan="3" class="text-center py-3">Betöltés...</td></tr></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Sürgős teendők -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-warning-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-urgent me-2"></i>Sürgős Teendők</h3>
+                                        </div>
+                                        <div class="card-body p-0" id="overview-urgent" style="max-height:400px; overflow-y:auto;">
+                                            <div class="text-center py-4 text-muted">Betöltés...</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Legutóbbi support üzenetek -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-orange-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-messages me-2"></i>Legutóbbi Üzenetek</h3>
+                                        </div>
+                                        <div class="card-body p-0" id="overview-messages" style="max-height:400px; overflow-y:auto;">
+                                            <div class="text-center py-4 text-muted">Betöltés...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Aktív hozzáférés-kérések -->
+                            <div class="row g-3 mt-1">
+                                <div class="col-12">
+                                    <div class="card">
+                                        <div class="card-header bg-red-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-lock-access me-2"></i>Hozzáférés-kérések</h3>
+                                        </div>
+                                        <div class="card-body" id="access-requests-list">
+                                            <div class="text-center py-3 text-muted">Betöltés...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Gyülekezeti rangsor -->
+                            <div class="row g-3 mt-1">
+                                <div class="col-lg-6">
+                                    <div class="card">
+                                        <div class="card-header bg-green-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-chart-bar me-2"></i>Legnagyobb Gyülekezetek</h3>
+                                        </div>
+                                        <div class="card-body p-0">
+                                            <div class="table-responsive">
+                                                <table class="table table-vcenter card-table table-hover mb-0">
+                                                    <thead><tr><th>#</th><th>Gyülekezet</th><th>Egyházmegye</th><th class="text-end">Tagszám</th></tr></thead>
+                                                    <tbody id="overview-top-congregations"><tr><td colspan="4" class="text-center py-3">Betöltés...</td></tr></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="card">
+                                        <div class="card-header bg-cyan-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-activity me-2"></i>Rendszer Állapot</h3>
+                                        </div>
+                                        <div class="card-body" id="overview-system-status">
+                                            <div class="text-center py-3 text-muted">Betöltés...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 2: GYÜLEKEZETEK                           -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane" id="tab-congregations">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="row w-100 g-2 align-items-center">
+                                        <div class="col-md-5">
+                                            <div class="input-icon">
+                                                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                                <input type="text" id="cong-search" class="form-control" placeholder="Gyülekezet keresése..." onkeyup="filterCongregations()">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <select id="cong-diocese-filter" class="form-select" onchange="filterCongregations()">
+                                                <option value="">Minden egyházmegye</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <select id="cong-sort" class="form-select" onchange="filterCongregations()">
+                                                <option value="name">Név szerint</option>
+                                                <option value="members_desc">Tagszám (csökkenő)</option>
+                                                <option value="members_asc">Tagszám (növekvő)</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2 text-end">
+                                            <span class="text-muted small" id="cong-count-display">0 gyülekezet</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table table-hover mb-0">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th>Gyülekezet</th>
+                                                <th>Egyházmegye</th>
+                                                <th>Lelkész</th>
+                                                <th class="text-center">Tagszám</th>
+                                                <th class="text-center">Adatminőség</th>
+                                                <th class="text-end">Műveletek</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="cong-tbody">
+                                            <tr><td colspan="6" class="text-center py-5">Betöltés...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 3: FELHASZNÁLÓK                           -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane" id="tab-users">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <div class="card bg-warning-lt border-0">
+                                        <div class="card-body py-3 text-center">
+                                            <div class="fs-2 fw-bold" id="users-pending-count">0</div>
+                                            <div class="text-muted small">Várakozó regisztráció</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-green-lt border-0">
+                                        <div class="card-body py-3 text-center">
+                                            <div class="fs-2 fw-bold" id="users-active-count">0</div>
+                                            <div class="text-muted small">Aktív fiók</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-blue-lt border-0">
+                                        <div class="card-body py-3 text-center">
+                                            <div class="fs-2 fw-bold" id="users-pastor-count">0</div>
+                                            <div class="text-muted small">Lelkipásztor</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-purple-lt border-0">
+                                        <div class="card-body py-3 text-center">
+                                            <div class="fs-2 fw-bold" id="users-esperes-count">0</div>
+                                            <div class="text-muted small">Esperes / Admin</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Várakozó regisztrációk -->
+                            <div class="card mb-3" id="pending-section">
+                                <div class="card-header bg-warning-lt">
+                                    <h3 class="card-title fw-bold"><i class="ti ti-user-plus me-2"></i>Várakozó Regisztrációk</h3>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table">
+                                        <thead><tr><th>Név & E-mail</th><th>Gyülekezet</th><th>Egyházmegye</th><th class="text-end">Művelet</th></tr></thead>
+                                        <tbody id="pending-users-tbody"><tr><td colspan="4" class="text-center py-3">Betöltés...</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Aktív felhasználók -->
+                            <div class="card">
+                                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                                    <h3 class="card-title fw-bold"><i class="ti ti-users me-2"></i>Aktív Felhasználók</h3>
+                                    <div class="input-icon" style="max-width:300px;">
+                                        <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                        <input type="text" id="user-search" class="form-control form-control-sm" placeholder="Keresés..." onkeyup="filterUsers()">
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table table-hover mb-0">
+                                        <thead><tr><th>Felhasználó</th><th>Gyülekezet</th><th>Szerepkör</th><th>Egyházmegye</th><th class="text-end">Művelet</th></tr></thead>
+                                        <tbody id="active-users-tbody"><tr><td colspan="5" class="text-center py-3">Betöltés...</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 4: SUPPORT JEGYEK                        -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane" id="tab-support">
+                            <!-- Szűrők -->
+                            <div class="card mb-3">
+                                <div class="card-body py-2">
+                                    <div class="row g-2 align-items-center">
+                                        <div class="col-md-3">
+                                            <select id="support-filter-status" class="form-select form-select-sm" onchange="filterSupportTickets()">
+                                                <option value="">Minden státusz</option>
+                                                <option value="new" selected>Új (olvasatlan)</option>
+                                                <option value="read">Olvasott</option>
+                                                <option value="replied">Megválaszolt</option>
+                                                <option value="closed">Lezárt</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <select id="support-filter-urgency" class="form-select form-select-sm" onchange="filterSupportTickets()">
+                                                <option value="">Minden sürgősség</option>
+                                                <option value="surgos">Sürgős</option>
+                                                <option value="kozepes">Közepes</option>
+                                                <option value="alacsony">Alacsony</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <select id="support-filter-category" class="form-select form-select-sm" onchange="filterSupportTickets()">
+                                                <option value="">Minden kategória</option>
+                                                <option value="hiba">Hibabejelentés</option>
+                                                <option value="fejlesztes">Fejlesztési javaslat</option>
+                                                <option value="kiegeszites">Kiegészítés</option>
+                                                <option value="kerdes">Kérdés</option>
+                                                <option value="egyeb">Egyéb</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="input-icon">
+                                                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+                                                <input type="text" id="support-search" class="form-control form-control-sm" placeholder="Keresés..." onkeyup="filterSupportTickets()">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-2 text-end">
+                                            <span class="text-muted small" id="support-count-display">0 jegy</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Jegy lista -->
+                            <div class="card">
+                                <div class="table-responsive">
+                                    <table class="table table-vcenter card-table table-hover mb-0">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th style="width:3rem;"></th>
+                                                <th>Feladó & Tárgy</th>
+                                                <th>Kategória</th>
+                                                <th>Modul</th>
+                                                <th>Sürgősség</th>
+                                                <th>Dátum</th>
+                                                <th class="text-end">Művelet</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="support-tbody"><tr><td colspan="7" class="text-center py-5">Betöltés...</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 5: ADATMINŐSÉG                            -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane" id="tab-quality">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-4">
+                                    <select id="quality-cong-select" class="form-select" onchange="runQualityCheck()">
+                                        <option value="all">Minden gyülekezet összesítve</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-primary w-100" onclick="runQualityCheck()">
+                                        <i class="ti ti-refresh me-2"></i>Ellenőrzés Futtatása
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Összesítő kártyák -->
+                            <div class="row g-3 mb-3" id="quality-summary-cards">
+                                <div class="col text-center">
+                                    <div class="card py-3">
+                                        <div class="fs-2 fw-bold" id="q-missing-cnp">-</div>
+                                        <div class="text-muted small">Hiányzó CNP</div>
+                                    </div>
+                                </div>
+                                <div class="col text-center">
+                                    <div class="card py-3">
+                                        <div class="fs-2 fw-bold" id="q-missing-gender">-</div>
+                                        <div class="text-muted small">Hiányzó Nem</div>
+                                    </div>
+                                </div>
+                                <div class="col text-center">
+                                    <div class="card py-3">
+                                        <div class="fs-2 fw-bold" id="q-missing-birth">-</div>
+                                        <div class="text-muted small">Hiányzó Szül.dátum</div>
+                                    </div>
+                                </div>
+                                <div class="col text-center">
+                                    <div class="card py-3">
+                                        <div class="fs-2 fw-bold" id="q-missing-address">-</div>
+                                        <div class="text-muted small">Hiányzó Lakcím</div>
+                                    </div>
+                                </div>
+                                <div class="col text-center">
+                                    <div class="card py-3">
+                                        <div class="fs-2 fw-bold" id="q-duplicates">-</div>
+                                        <div class="text-muted small">Lehetséges duplikátum</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Részletes eredmények -->
+                            <div class="card">
+                                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                                    <h3 class="card-title fw-bold"><i class="ti ti-list-check me-2"></i>Részletes Eredmények</h3>
+                                    <div class="btn-group" id="quality-type-filter">
+                                        <button class="btn btn-sm btn-outline-secondary active" onclick="filterQualityResults('all', this)">Mind</button>
+                                        <button class="btn btn-sm btn-outline-danger" onclick="filterQualityResults('cnp', this)">CNP</button>
+                                        <button class="btn btn-sm btn-outline-warning" onclick="filterQualityResults('gender', this)">Nem</button>
+                                        <button class="btn btn-sm btn-outline-info" onclick="filterQualityResults('birth', this)">Szül.dátum</button>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="filterQualityResults('address', this)">Lakcím</button>
+                                        <button class="btn btn-sm btn-outline-dark" onclick="filterQualityResults('duplicate', this)">Duplikátum</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+                                    <table class="table table-vcenter card-table table-hover mb-0">
+                                        <thead class="bg-white" style="position:sticky;top:0;z-index:1;">
+                                            <tr>
+                                                <th>Típus</th>
+                                                <th>Személy</th>
+                                                <th>Gyülekezet</th>
+                                                <th>Részletek</th>
+                                                <th class="text-end">Művelet</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="quality-results-tbody"><tr><td colspan="5" class="text-center py-5 text-muted">Válasszon gyülekezetet és futtassa az ellenőrzést</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <!-- FÜL 6: TÁVOLI IMPORT                          -->
+                        <!-- ═══════════════════════════════════════════════ -->
+                        <div class="tab-pane" id="tab-import">
+                            <div class="row g-3">
+                                <div class="col-lg-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-indigo-lt">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-settings me-2"></i>Import Beállítások</h3>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Cél Gyülekezet</label>
+                                                <select id="import-cong-select" class="form-select">
+                                                    <option value="">-- Válasszon gyülekezetet --</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Import Típus</label>
+                                                <select id="import-type-select" class="form-select">
+                                                    <option value="">-- Válasszon típust --</option>
+                                                    <option value="tagok">Tagnyilvántartás (személyek)</option>
+                                                    <option value="befizetes">Bevételek (befizetes)</option>
+                                                    <option value="kiadas">Kiadások</option>
+                                                    <option value="anyakonyv">Anyakönyv</option>
+                                                    <option value="leltar">Leltár</option>
+                                                    <option value="munkanaplo">Munkanapló</option>
+                                                    <option value="iktato">Iktató</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold">Excel Fájl</label>
+                                                <input type="file" id="import-file" class="form-control" accept=".xlsx,.xls,.csv">
+                                            </div>
+                                            <button class="btn btn-primary w-100" onclick="startRemoteImport()" id="btn-start-import" disabled>
+                                                <i class="ti ti-upload me-2"></i>Import Indítása
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-8">
+                                    <!-- Import napló -->
+                                    <div class="card h-100">
+                                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                                            <h3 class="card-title fw-bold"><i class="ti ti-file-analytics me-2"></i>Import Előnézet & Napló</h3>
+                                            <span class="badge bg-secondary" id="import-status-badge">Várakozás</span>
+                                        </div>
+                                        <div class="card-body" id="import-preview" style="max-height:500px; overflow-y:auto;">
+                                            <div class="text-center py-5 text-muted">
+                                                <i class="ti ti-upload" style="font-size:3rem;"></i>
+                                                <p class="mt-2">Válasszon gyülekezetet, típust és töltsön fel Excel fájlt</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- /tab-content -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ SUPPORT VÁLASZ MODAL ═══ -->
+    <div class="modal modal-blur fade" id="modal-support-reply" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-indigo text-white">
+                    <div>
+                        <h5 class="modal-title"><i class="ti ti-message-reply me-2"></i>Support Jegy</h5>
+                        <div class="small opacity-75" id="reply-modal-subtitle"></div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="reply-original-message" class="mb-3"></div>
+                    <hr>
+                    <div id="reply-existing" class="mb-3 d-none"></div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Válasz üzenet</label>
+                        <textarea id="reply-text" class="form-control" rows="4" placeholder="Írja be a választ..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Mégse</button>
+                    <button type="button" class="btn btn-outline-dark" onclick="closeSupportTicket()">
+                        <i class="ti ti-circle-check me-1"></i>Lezárás
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="sendSupportReply()">
+                        <i class="ti ti-send me-1"></i>Válasz Küldése
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ GYÜLEKEZET RÉSZLETEK MODAL ═══ -->
+    <div class="modal modal-blur fade" id="modal-cong-details" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-indigo text-white">
+                    <h5 class="modal-title"><i class="ti ti-building-church me-2"></i><span id="cong-detail-name">Gyülekezet</span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="cong-detail-body">
+                    <div class="text-center py-4 text-muted">Betöltés...</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Bezárás</button>
+                    <button type="button" class="btn btn-primary" id="btn-enter-congregation">
+                        <i class="ti ti-door-enter me-1"></i>Belépés ebbe a gyülekezetbe
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ HOZZÁFÉRÉS-KÉRÉS MODAL ═══ -->
+    <div class="modal modal-blur fade" id="modal-access-request" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning-lt">
+                    <h5 class="modal-title"><i class="ti ti-lock-access me-2"></i>Hozzáférés kérése</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info py-2">
+                        <i class="ti ti-info-circle me-1"></i>
+                        A <strong id="access-request-cong-name">-</strong> gyülekezet lelkésze értesítést kap, és jóvá kell hagynia a belépést.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Miért szükséges a hozzáférés? <span class="text-danger">*</span></label>
+                        <textarea id="access-request-reason" class="form-control" rows="3" placeholder="Pl.: Adatjavítás a support jegy (#123) alapján, Pénzügyi ellenőrzés, Rendszerfrissítés tesztelése..."></textarea>
+                        <div class="form-hint">A lelkész látni fogja az indoklást.</div>
+                    </div>
+                    <div class="alert alert-danger py-2 d-none" id="access-request-error"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost-secondary" data-bs-dismiss="modal">Mégsem</button>
+                    <button type="button" class="btn btn-warning" id="btn-send-access-request">
+                        <i class="ti ti-send me-1"></i>Kérés küldése
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ SZKRIPTEK ═══ -->
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/supabase_config.js"></script>
+    <script src="js/session_cache.js"></script>
+    <script src="js/auth_roles.js"></script>
+    <script src="js/admin_api.js"></script>
+    <script>
+        window.onload = async function() {
+            const ok = await adminSecurityCheck();
+            if (!ok) return;
+            await loadAdminOverview();
+        };
+    </script>
+</body>
+</html>

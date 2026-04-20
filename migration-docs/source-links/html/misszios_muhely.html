@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8"/><title>Missziós Műhely | Kartotéka</title>
+    <meta name="theme-color" content="#0ca678">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/images/icon-192.png">
+    <link rel="icon" href="../assets/images/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
+    <link rel="stylesheet" href="../assets/vendor/tabler-icons/tabler-icons.min.css">
+    <style>
+        @import url('../assets/vendor/inter/inter.css');
+        :root { --tblr-font-sans-serif: 'Inter Var', sans-serif; }
+        body { font-family: var(--tblr-font-sans-serif); background-color: #f6f8fb; }
+
+        /* Kategória chip-ek */
+        .mm-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 12px; border-radius: 20px; font-size: 0.8rem;
+            cursor: pointer; transition: all 0.2s; border: 1px solid #dee2e6;
+            background: #fff; color: #495057; white-space: nowrap;
+        }
+        .mm-chip:hover { border-color: #206bc4; color: #206bc4; }
+        .mm-chip.active { background: #206bc4; color: #fff; border-color: #206bc4; }
+
+        /* Kártya grid */
+        .mm-card { transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+        .mm-card:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+
+        /* Csillag értékelés */
+        .mm-stars { display: inline-flex; gap: 2px; }
+        .mm-stars .ti { font-size: 14px; color: #f59f00; }
+        .mm-stars .ti.empty { color: #dee2e6; }
+
+        /* Szavazás gombok */
+        .mm-vote-btn { transition: all 0.2s; }
+        .mm-vote-btn:hover { transform: scale(1.05); }
+        .mm-vote-btn.voted { font-weight: 700; }
+
+        /* Státusz badge-ek */
+        .badge-uj { background: #206bc4; }
+        .badge-szavazas { background: #f59f00; color: #000; }
+        .badge-kozos_munka { background: #2fb344; }
+        .badge-megvalosult { background: #0ca678; }
+        .badge-archivalt { background: #667382; }
+        .badge-piszkozat { background: #adb5bd; }
+
+        /* Szint színek */
+        .szint-ujonc { color: #adb5bd; }
+        .szint-szolgalattevo { color: #206bc4; }
+        .szint-lelkes { color: #f59f00; }
+        .szint-tapasztalt { color: #f76707; }
+        .szint-kozossegepito { color: #ae3ec9; }
+        .szint-bajnok { color: #d63939; }
+
+        /* Statisztika sáv */
+        .mm-stat-card { border-left: 3px solid; }
+
+        /* Formátum ikonok */
+        .fmt-pdf { color: #d63939; }
+        .fmt-docx { color: #206bc4; }
+        .fmt-pptx { color: #f76707; }
+        .fmt-video { color: #ae3ec9; }
+        .fmt-link { color: #0ca678; }
+        .fmt-csomag { color: #f59f00; }
+
+        /* Közös munka progress */
+        .mm-progress-bar { height: 8px; border-radius: 4px; }
+
+        /* Animáció — jelvény elnyerés */
+        @keyframes mm-badge-pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .mm-badge-new { animation: mm-badge-pulse 0.6s ease-in-out 3; }
+
+        /* Tab counter badge */
+        .mm-tab-count {
+            font-size: 0.7rem; padding: 1px 6px; border-radius: 10px;
+            background: #206bc4; color: #fff; margin-left: 6px; vertical-align: middle;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .mm-chip { font-size: 0.75rem; padding: 3px 8px; }
+            .mm-header-actions { flex-wrap: wrap; gap: 6px !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div id="sidebar-placeholder"></div>
+        <div class="page-wrapper">
+            <div id="header-placeholder"></div>
+
+            <!-- ══════ OLDAL FEJLÉC ══════ -->
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <h2 class="page-title">
+                                <i class="ti ti-bulb text-yellow me-2"></i>Missziós Műhely
+                            </h2>
+                            <div class="text-muted">Erdélyi református lelkészek segédanyag- és ötletmegosztó platformja</div>
+                        </div>
+                        <div class="col-auto ms-auto d-flex gap-2 mm-header-actions">
+                            <button class="btn btn-outline-warning" onclick="MmGamification.openJelvenyModal()">
+                                <i class="ti ti-award me-1"></i>Jelvényeim
+                                <span class="badge bg-yellow text-dark ms-1" id="mm-jelveny-count">0</span>
+                            </button>
+                            <button class="btn btn-outline-primary" onclick="MmApi.openSegedanyagModal()">
+                                <i class="ti ti-upload me-1"></i>Új segédanyag
+                            </button>
+                            <button class="btn btn-primary" onclick="MmOtletek.openOtletModal()">
+                                <i class="ti ti-bulb me-1"></i>Új ötlet
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════ STATISZTIKA SÁV ══════ -->
+            <div class="page-body pt-0">
+                <div class="container-xl">
+                    <div class="row g-3 mb-3" id="mm-stats-row">
+                        <div class="col-6 col-md-3">
+                            <div class="card mm-stat-card" style="border-left-color: #206bc4;">
+                                <div class="card-body py-2 px-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3"><i class="ti ti-file-text text-primary" style="font-size:1.5rem;"></i></div>
+                                        <div>
+                                            <div class="text-muted small">Segédanyagok</div>
+                                            <div class="fw-bold fs-4" id="mm-stat-segedanyag">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card mm-stat-card" style="border-left-color: #f59f00;">
+                                <div class="card-body py-2 px-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3"><i class="ti ti-bulb text-yellow" style="font-size:1.5rem;"></i></div>
+                                        <div>
+                                            <div class="text-muted small">Aktív ötletek</div>
+                                            <div class="fw-bold fs-4" id="mm-stat-otlet">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card mm-stat-card" style="border-left-color: #2fb344;">
+                                <div class="card-body py-2 px-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3"><i class="ti ti-users-group text-green" style="font-size:1.5rem;"></i></div>
+                                        <div>
+                                            <div class="text-muted small">Közös projektek</div>
+                                            <div class="fw-bold fs-4" id="mm-stat-kozos">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="card mm-stat-card" style="border-left-color: #ae3ec9;">
+                                <div class="card-body py-2 px-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="me-3"><i class="ti ti-trophy text-purple" style="font-size:1.5rem;"></i></div>
+                                        <div>
+                                            <div class="text-muted small">Összpontszámom</div>
+                                            <div class="fw-bold fs-4" id="mm-stat-pont">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══════ FÜLEK ══════ -->
+                    <div class="card">
+                        <div class="card-header border-0 pb-0">
+                            <ul class="nav nav-tabs page-header-tab" data-bs-toggle="tabs" id="mm-tabs">
+                                <li class="nav-item">
+                                    <a href="#tab-segedanyagok" class="nav-link active" data-bs-toggle="tab" onclick="MmApi.switchTab('segedanyagok')">
+                                        <i class="ti ti-file-text me-2"></i>Segédanyag-tár
+                                        <span class="mm-tab-count" id="mm-tab-count-seg">0</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-otletek" class="nav-link" data-bs-toggle="tab" onclick="MmApi.switchTab('otletek')">
+                                        <i class="ti ti-bulb me-2"></i>Ötletműhely
+                                        <span class="mm-tab-count" id="mm-tab-count-otlet" style="background:#f59f00;">0</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="#tab-kozos-munka" class="nav-link" data-bs-toggle="tab" onclick="MmApi.switchTab('kozos')">
+                                        <i class="ti ti-users-group me-2"></i>Közös projektek
+                                        <span class="mm-tab-count" id="mm-tab-count-kozos" style="background:#2fb344;">0</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item ms-auto">
+                                    <a href="#tab-ranglista" class="nav-link text-warning fw-bold" data-bs-toggle="tab" onclick="MmApi.switchTab('ranglista')">
+                                        <i class="ti ti-trophy me-2"></i>Ranglista
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="tab-content">
+                            <!-- 1. fül: Segédanyag-tár -->
+                            <div class="tab-pane active show" id="tab-segedanyagok">
+                                <div id="mm-segedanyag-lista-placeholder"></div>
+                            </div>
+
+                            <!-- 2. fül: Ötletműhely -->
+                            <div class="tab-pane" id="tab-otletek">
+                                <div id="mm-otlet-lista-placeholder"></div>
+                            </div>
+
+                            <!-- 3. fül: Közös projektek -->
+                            <div class="tab-pane" id="tab-kozos-munka">
+                                <div id="mm-kozos-munka-content" class="p-4">
+                                    <div class="text-center text-muted py-5">
+                                        <i class="ti ti-loader-2 ti-spin" style="font-size:2rem;"></i>
+                                        <div class="mt-2">Betöltés...</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 4. fül: Ranglista -->
+                            <div class="tab-pane" id="tab-ranglista">
+                                <div id="mm-ranglista-content" class="p-4">
+                                    <div class="text-center text-muted py-5">
+                                        <i class="ti ti-loader-2 ti-spin" style="font-size:2rem;"></i>
+                                        <div class="mt-2">Betöltés...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════ MODAL PLACEHOLDER-EK ══════ -->
+    <div id="mm-modal-segedanyag-placeholder"></div>
+    <div id="mm-modal-otlet-placeholder"></div>
+    <div id="mm-modal-kozos-munka-placeholder"></div>
+    <div id="mm-modal-jelveny-placeholder"></div>
+
+    <!-- ══════ SCRIPTEK ══════ -->
+    <script src="../assets/vendor/supabase/supabase.min.js"></script>
+    <script src="../assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="js/dist/common.min.js?v=17"></script>
+    <script src="js/dist/misszios.min.js?v=17"></script>
+
+    <script>
+        async function startApp() {
+            try {
+                var components = await Promise.all([
+                    fetchComponent('components/sidebar.html'),
+                    fetchComponent('components/header.html'),
+                    fetchComponent('components/mm_segedanyag_lista.html'),
+                    fetchComponent('components/mm_otlet_lista.html'),
+                    fetchComponent('components/modal_segedanyag.html'),
+                    fetchComponent('components/modal_otlet.html'),
+                    fetchComponent('components/modal_kozos_munka.html'),
+                    fetchComponent('components/modal_jelveny.html')
+                ]);
+
+                document.getElementById('sidebar-placeholder').innerHTML = components[0];
+                document.getElementById('header-placeholder').innerHTML = components[1];
+                document.getElementById('mm-segedanyag-lista-placeholder').innerHTML = components[2];
+                document.getElementById('mm-otlet-lista-placeholder').innerHTML = components[3];
+                document.getElementById('mm-modal-segedanyag-placeholder').innerHTML = components[4];
+                document.getElementById('mm-modal-otlet-placeholder').innerHTML = components[5];
+                document.getElementById('mm-modal-kozos-munka-placeholder').innerHTML = components[6];
+                document.getElementById('mm-modal-jelveny-placeholder').innerHTML = components[7];
+
+                if (typeof initHeaderData === 'function') await initHeaderData();
+                if (typeof applySidebarRoles === 'function') await applySidebarRoles();
+
+                // Missziós Műhely inicializálás
+                if (typeof MmApi !== 'undefined' && typeof MmApi.init === 'function') {
+                    await MmApi.init();
+                }
+            } catch (err) {
+                console.error('Missziós Műhely betöltési hiba:', err);
+            }
+        }
+        window.onload = startApp;
+    </script>
+</body>
+</html>

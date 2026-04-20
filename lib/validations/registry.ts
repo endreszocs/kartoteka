@@ -1,0 +1,73 @@
+import { z } from 'zod'
+import { MOVEMENT_TYPES } from '@/lib/constants/registry'
+
+export const baptismSchema = z.object({
+  id: z.number().optional(),
+  id_szemely: z.number({ message: 'Válasszon személyt' }),
+  datum: z.string().min(1, 'A dátum kötelező'),
+  okirat: z.string().min(1, 'Az okiratszám kötelező'),
+  helyid: z.number().nullable().optional(),
+  lelkeszneve: z.string().nullable().optional(),
+  keresztszulok: z.string().nullable().optional(),
+  alapige: z.string().nullable().optional(),
+  apjaneve: z.string().nullable().optional(),
+  anyjaneve: z.string().nullable().optional(),
+  id_apja_cnp: z.string().nullable().optional(),
+  id_anyja_cnp: z.string().nullable().optional(),
+  apa_vallas: z.string().nullable().optional(),
+  anya_vallas: z.string().nullable().optional(),
+  anya_leanyneve: z.string().nullable().optional(),
+  munkanaploba: z.boolean().default(false),
+  megjegyzes: z.string().nullable().optional(),
+})
+export type BaptismInput = z.infer<typeof baptismSchema>
+
+export const confirmationBatchSchema = z.object({
+  datum: z.string().min(1, 'A dátum kötelező'),
+  lelkeszneve: z.string().nullable().optional(),
+  megjegyzes: z.string().nullable().optional(),
+  munkanaploba: z.boolean().default(false),
+  candidates: z.array(z.number()).min(1, 'Minimum 1 konfirmandus szükséges'),
+})
+export type ConfirmationBatchInput = z.infer<typeof confirmationBatchSchema>
+
+export const marriageSchema = z.object({
+  id: z.number().optional(),
+  id_ferfi: z.number({ message: 'Válasszon vőlegényt' }),
+  id_no: z.number({ message: 'Válasszon menyasszonyt' }),
+  datum: z.string().min(1, 'A dátum kötelező'),
+  hlevel: z.string().min(1, 'A házassági levél száma kötelező'),
+  lelkeszneve: z.string().nullable().optional(),
+  tanuk: z.string().nullable().optional(),
+  helyid: z.number().nullable().optional(),
+  megjegyzes: z.string().nullable().optional(),
+  munkanaploba: z.boolean().default(false),
+})
+export type MarriageInput = z.input<typeof marriageSchema>
+
+export const burialSchema = z.object({
+  id: z.number().optional(),
+  id_szemely: z.number({ message: 'Válasszon személyt' }),
+  hdatum: z.string().min(1, 'A halál dátuma kötelező'),
+  tdatum: z.string().min(1, 'A temetés dátuma kötelező'),
+  hoka: z.string().nullable().optional(),
+  hhelyid: z.number().nullable().optional(),
+  thelyid: z.number().nullable().optional(),
+  lelkeszneve: z.string().nullable().optional(),
+  munkanaploba: z.boolean().default(false),
+  megjegyzes: z.string().nullable().optional(),
+})
+export type BurialInput = z.infer<typeof burialSchema>
+
+export const movementSchema = z.object({
+  id: z.number().optional(),
+  tipus: z.enum(MOVEMENT_TYPES),
+  id_szemely: z.number({ message: 'Válasszon személyt' }),
+  datum: z.string().min(1, 'A dátum kötelező'),
+  helyid: z.number().nullable().optional(),
+  felekezet: z.string().nullable().optional(),
+  igazolas: z.string().nullable().optional(),
+  kulfoldre: z.boolean().optional(),
+  megjegyzes: z.string().nullable().optional(),
+})
+export type MovementInput = z.infer<typeof movementSchema>
