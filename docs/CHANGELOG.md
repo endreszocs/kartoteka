@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.3: SQLCipher-kulcs OS-szintű titkos tárolóban (Credential Manager)
+
+<!-- key: 2026-04-23-m2-3-os-keyring -->
+<!-- category: security -->
+<!-- version: 1.15.9 -->
+<!-- targets: fejlesztő -->
+
+### 🔑 A kulcs már nem a bináris-ben — Windows Credential Manager (DPAPI)
+
+**A webes működést nem érinti**, a desktop user-flow változatlan.
+
+**Biztonsági előrelépés az M2.2-höz képest:**
+- Az M2.2-ig a SQLCipher-kulcs egy **statikus konstans** (`DEV_DB_KEY`) volt a Rust kódban — bárki, aki reverse-engineer-eli a `.exe`-t, megkapta.
+- Az M2.3-tól a kulcs az **OS-szintű titkos tárolóban** él (Windows Credential Manager / macOS Keychain / Linux Secret Service). Windows-on a DPAPI titkosítja a bejelentkezett user adataival.
+
+**A fenyegetési modell most:**
+| Forgatókönyv | M2.2 (statikus kulcs) | M2.3 (OS keyring) |
+|---|---|---|
+| Bejelentkezett user + fizikai hozzáférés | ❌ DB olvasható | ❌ DB olvasható |
+| Kilopott eszköz / kilopott DB fájl (nincs Windows-login) | ❌ kulcs a binárisban visszafejthető | ✅ **kulcs nélkül visszafejthetetlen** |
+| Másik Windows-user ugyanazon a gépen | ❌ ugyanaz a bináris, ugyanaz a kulcs | ✅ **DPAPI per-user: másik user nem fér hozzá** |
+| Reverse-engineered .exe | ❌ kulcs a bin-ben | ✅ **csak a keyring-logika, a kulcs nem** |
+
+**Mit NEM véd még (M2.6-ra hagyva):**
+- Malware ugyanabban a user-kontextusban root-joggal — ellene csak user-jelszó-alapú derived key segíthet.
+- User-profil törlés (pl. Windows újratelepítés) → kulcs elvész, DB visszanyerhetetlen. A **backup/restore** külön feladat (M2.5).
+
+**Technikailag:**
+- Új Rust crate-ek: `keyring v3`, `rand v0.8`, `hex v0.4` — mind **pure-Rust**, semmi új C-build. Cargo check **8 mp** inkrementálisan.
+- A `db.rs`-ben új `load_or_create_db_key()`:
+  - Első indítás: generál egy kriptográfiailag biztonságos 32-byte kulcsot, elmenti a Credential Manager-be (`service=kartoteka-desktop`, `user=sqlcipher-db-key`)
+  - Subsequent: olvassa a Credential Manager-ből
+- A kulcs a SQLCipher-nek **raw hex-key formátum**ban (`x'...'` 64 hex-karakterrel) — elkerüli a KDF-lassulást és minden indulásnál ugyanaz a bájt-szekvencia.
+- `PRAGMA key = "x'...'"` raw execute-tel (a `pragma_update` idézőjel-escape-jét kikerülve).
+
+**⚠ Endre gépén egy kézi törlésre szükség van:**
+
+Ha már futtattad az M2.2-es Tauri dev-et, van egy DB fájlod a régi DEV_DB_KEY-vel titkosítva. Az M2.3-as app új kulccsal próbálja nyitni → sanity-check hiba. Töröld:
+
+```powershell
+Remove-Item "$env:APPDATA\com.erek.kartoteka\kartoteka.db"
+```
+
+Utána újra `npm run desktop:dev` → új kulcs generálódik, a DB újra inicializálódik.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 8 mp inkrementális (új deps: keyring, rand, zeroize, hex)
+- ✅ `npm run desktop:build` (Vite prod): **2116 modul** (+1 ErrorBoundary), 3.36s
+
+**Következő (M2.4)**: pull-sync — az első "éles" domain tábla (pl. `members`) Supabase → SQLite tükrözése.
+
+---
+
 ## [2026-04-23] — M2.2: SQLCipher-titkosított lokális DB (rusqlite + saját commands)
 
 <!-- key: 2026-04-23-m2-2-sqlcipher -->

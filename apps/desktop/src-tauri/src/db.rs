@@ -1,29 +1,47 @@
-// Kartotéka Desktop — SQLCipher adatbázis-réteg (M2.2).
+// Kartotéka Desktop — SQLCipher adatbázis-réteg.
 //
-// Ez a modul:
-//   1. Megnyit egy SQLCipher-titkosított SQLite fájlt az app-data mappában
-//      (`%APPDATA%\com.erek.kartoteka\kartoteka.db`)
-//   2. Lefuttatja a séma-migrációkat (PRAGMA user_version alapján)
-//   3. Két `#[tauri::command]`-ot exportál a TS oldalnak:
-//        - `db_execute(sql, params)` → DDL/DML, visszaadja az érintett sorok számát
-//        - `db_select(sql, params)`  → SELECT, visszaad egy Vec<JsonObject>-ot
+// M2.1 : sima SQLite (tauri-plugin-sql) — eltávolítva
+// M2.2 : SQLCipher + saját rusqlite commands + statikus DEV kulcs
+// M2.3 : a DB-kulcs a Windows Credential Manager-ben él, per-user (DPAPI) ← MOST
+// M2.4+: pull-sync + outbox + konfliktus-kezelés
 //
-// Állapot: a `DbState`-et `tauri::manage()` tartalmazza. Egy globális, mutexelt
-// kapcsolat — alkalmazás-szintű DB egyszerre egy query. Későbbi optimalizáció
-// (r2d2 pool, read/write separation) M2.4-nél jöhet, ha kell.
+// ## Biztonsági modell (M2.3)
 //
-// ⚠️ Biztonság: jelenleg a DB-kulcs **statikus fejlesztői kulcs** (`DEV_DB_KEY`
-// konstans). Ez NEM production-safe. M2.3-ban a kulcs a Stronghold kulcstárból
-// jön (user-jelszóból derivált). Addig minden titkosítás "nominálisan titkosított"
-// — a bináris visszafejthető, ha a támadó hozzáfér a kliens-kódhoz.
+// - A SQLCipher-titkosított DB megnyitásához szükséges 256-bit kulcs egy
+//   kriptográfiailag biztonságos véletlen érték, amit **első indításkor**
+//   generálunk és az **OS-szintű titkos storage**-be mentünk el (Windows
+//   Credential Manager / macOS Keychain / Linux Secret Service).
+// - Ez azt jelenti: a kulcs **nem a bináris-ben** van (mint M2.2-ben volt).
+//   Egy támadó, aki reverse-engineer-eli a .exe-t, NEM kapja meg a kulcsot.
+// - A Credential Manager a bejelentkezett Windows-user adatait DPAPI-val
+//   titkosítja — másik user (vagy másik gép) Windows-login nélkül NEM
+//   olvashatja.
+// - Így a fenyegetési modell:
+//    * Bejelentkezett user + fizikai hozzáférés = DB olvasható (ez OK, a
+//      user szabadon használja az app-ot)
+//    * Kilopott eszköz / kilopott DB fájl + NINCS Windows-login = DB
+//      visszafejthetetlen
+//    * Másik Windows-user ugyanazon a gépen = NEM fér hozzá
+//
+// ## Mit NEM véd az M2.3 (M2.4+ fogja kezelni)
+//
+// - Malware a jelenlegi user kontextusban: ha root-joggal fut a támadó
+//   saját Windows-loginján, a Credential Manager megnyitható. Ez ellen
+//   csak user-jelszó-alapú derived key véd (későbbi M2.6 lehet).
+// - Backup / restore: ha a user elveszti a profilját (Windows újratelepítés),
+//   a DB-kulcs is elvész → a DB többé nem nyitható. Ennek a backup-ja
+//   külön feladat.
 
+use rand::RngCore;
 use rusqlite::{params_from_iter, Connection, OpenFlags};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
-/// M2.2 statikus dev-kulcs — M2.3-ban Stronghold-ból érkezik.
-const DEV_DB_KEY: &str = "kartoteka-dev-key-m2.2-2026";
+// A Credential Manager entry koordinátái. A `keyring::Entry::new(service, user)`
+// ezzel a kombóval hozza fel a titkot.
+const KEYRING_SERVICE: &str = "kartoteka-desktop";
+const KEYRING_USER: &str = "sqlcipher-db-key";
 
 /// Globális DB-állapot — Option, mert az `open` még nem futott le alkalmazás-indulás előtt.
 pub struct DbState {
@@ -44,6 +62,33 @@ impl Default for DbState {
     }
 }
 
+/// Lekéri a SQLCipher-kulcsot az OS-szintű keyringből. Ha még nincs, generál
+/// egy új kriptográfiailag biztonságos 32-byte kulcsot és elmenti.
+///
+/// A visszaadott string egy 64-karakteres hex-érték, amit a SQLCipher-nek
+/// `PRAGMA key = "x'...'";` formában adunk át (a `rusqlite` `pragma_update`
+/// automatikusan idézőjelezi).
+fn load_or_create_db_key() -> Result<String, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .map_err(|e| format!("Keyring entry létrehozás sikertelen: {e}"))?;
+
+    match entry.get_password() {
+        Ok(existing) => Ok(existing),
+        Err(keyring::Error::NoEntry) => {
+            // Első indítás — generáljunk egy új kulcsot és mentsük le.
+            let mut buf = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut buf);
+            let hex_key = hex::encode(buf);
+            entry
+                .set_password(&hex_key)
+                .map_err(|e| format!("Keyring kulcs mentés sikertelen: {e}"))?;
+            eprintln!("[Kartotéka] Új SQLCipher kulcs generálva és a Credential Managerbe mentve.");
+            Ok(hex_key)
+        }
+        Err(e) => Err(format!("Keyring olvasás sikertelen: {e}")),
+    }
+}
+
 /// Megnyitja a DB-t (létrehozza, ha nincs), beállítja a SQLCipher kulcsot, és
 /// lefuttatja a pending migrációkat. A `setup()` belőle hívódik, nem
 /// felhasználó-indítottan.
@@ -53,7 +98,6 @@ pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, String> {
         .app_data_dir()
         .map_err(|e| format!("Nem sikerült lekérni az app-data könyvtárat: {e}"))?;
 
-    // Hozzuk létre a könyvtárat, ha még nincs
     std::fs::create_dir_all(&app_data)
         .map_err(|e| format!("Az app-data könyvtár létrehozása sikertelen: {e}"))?;
 
@@ -67,25 +111,35 @@ pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, String> {
     )
     .map_err(|e| format!("DB megnyitás sikertelen ({}): {e}", db_path.display()))?;
 
-    // SQLCipher kulcs. A `pragma_update` a string értéket escape-elve adja át a
-    // SQLCipher-nek (`PRAGMA key = 'kartoteka-dev-key-m2.2-2026'`).
-    conn.pragma_update(None, "key", DEV_DB_KEY)
-        .map_err(|e| format!("SQLCipher PRAGMA key sikertelen: {e}"))?;
+    // M2.3 — kulcs a Credential Managerből (vagy új, ha első indítás).
+    let db_key = load_or_create_db_key()?;
 
-    // Ellenőrző olvasás: ha a kulcs rossz (pl. az M2.1-es sima SQLite fájl),
-    // a `SELECT count(*) FROM sqlite_master` panaszkodni fog.
+    // `PRAGMA key` — SQLCipher "raw hex key" formátum: `x'...'` 64 hex-karakterrel.
+    // A rusqlite `pragma_update` automatikusan idézőjelezi a value-t, ami miatt
+    // itt a `x'...'` formát kézzel kell összeraknunk és raw execute-tal küldeni,
+    // különben a SQLCipher passphrase-nek veszi és KDF-et futtat rá (lassabb és
+    // más eredmény).
+    let raw_key_pragma = format!("PRAGMA key = \"x'{db_key}'\";");
+    conn.execute_batch(&raw_key_pragma)
+        .map_err(|e| format!("SQLCipher raw key PRAGMA sikertelen: {e}"))?;
+
+    // Sanity-check: ha a kulcs rossz (pl. a régi M2.2-es DEV_DB_KEY-vel titkosított
+    // DB-t próbáljuk megnyitni az új kulccsal), a sqlite_master olvasás `SQLITE_NOTADB`-t ad.
     let _sanity: i64 = conn
         .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))
-        .map_err(|e| format!("SQLCipher sanity-check sikertelen (rossz kulcs?): {e}"))?;
+        .map_err(|e| format!(
+            "SQLCipher sanity-check sikertelen — nem megfelelő kulcs? \
+             Ha M2.2-es DEV-kulccsal készült DB-je van, törölje a \
+             {} fájlt és indítsa újra. Hiba: {e}",
+            db_path.display(),
+        ))?;
 
     run_migrations(&conn)?;
 
     Ok(conn)
 }
 
-/// Verzió-alapú migráció `PRAGMA user_version` alapján. Minden új séma-verzió
-/// kap egy `if current < N { ... PRAGMA user_version = N; }` blokkot. A
-/// korábbi blokkokat **soha nem** módosítjuk.
+/// Verzió-alapú migráció `PRAGMA user_version` alapján.
 fn run_migrations(conn: &Connection) -> Result<(), String> {
     let current: i32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -155,7 +209,6 @@ pub fn db_execute(
 }
 
 /// Futtat egy SELECT-et és visszaadja a sorokat objektumok listájaként.
-/// Minden sor egy `{ "col1": value1, "col2": value2, ... }` JSON objektum.
 #[tauri::command]
 pub fn db_select(
     state: State<'_, DbState>,
@@ -218,7 +271,6 @@ fn json_to_sql(v: &JsonValue) -> rusqlite::types::Value {
             }
         }
         JsonValue::String(s) => Value::Text(s.clone()),
-        // Array / Object — stringify JSON-ként tároljuk
         _ => Value::Text(v.to_string()),
     }
 }
