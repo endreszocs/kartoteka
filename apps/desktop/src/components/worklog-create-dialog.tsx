@@ -23,7 +23,12 @@ import {
   Label,
 } from '@kartoteka/ui'
 
-import { createWorklogEntry, type WorklogInput } from '../lib/sync'
+import {
+  createWorklogEntry,
+  updateWorklogEntry,
+  type WorklogInput,
+  type WorklogLocalRow,
+} from '../lib/sync'
 
 // A web `lib/constants/worklog.ts` másolata — forrás: apps/web/lib/constants/worklog.ts
 const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
@@ -54,11 +59,28 @@ export interface WorklogCreateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   userId: string
+  /**
+   * Ha `null` vagy undefined → új bejegyzés létrehozása.
+   * Ha `WorklogLocalRow` → szerkesztés (revision-check konfliktus-kezeléssel).
+   */
+  editEntry?: WorklogLocalRow | null
   /** Hívó jelez sikert — a MunkanaploPage ebben frissíti a listát. */
-  onSuccess: (result: { id: number | null; queuedToOutbox: boolean }) => void
+  onSuccess: (result: {
+    id: number | null
+    queuedToOutbox: boolean
+    conflict?: boolean
+    isEdit?: boolean
+  }) => void
 }
 
-export function WorklogCreateDialog({ open, onOpenChange, userId, onSuccess }: WorklogCreateDialogProps) {
+export function WorklogCreateDialog({
+  open,
+  onOpenChange,
+  userId,
+  editEntry,
+  onSuccess,
+}: WorklogCreateDialogProps) {
+  const isEdit = Boolean(editEntry)
   const [category, setCategory] = useState<WorklogCategory>('szolgalat')
   const [idopont, setIdopont] = useState('')
   const [jellege, setJellege] = useState('')
@@ -77,25 +99,46 @@ export function WorklogCreateDialog({ open, onOpenChange, userId, onSuccess }: W
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Dialog megnyitásakor a mezőket alapértelmezettre állítjuk
+  // Dialog megnyitásakor a mezőket alapértelmezettre (create) vagy a szerkesztett
+  // bejegyzés adataira (edit) állítjuk
   useEffect(() => {
     if (!open) return
-    setCategory('szolgalat')
-    setIdopont(new Date().toISOString().slice(0, 10))
-    setJellege('')
-    setCim('')
-    setBibliaolvasas('')
-    setAlapige('')
-    setEnekek('')
-    setSzolgalt('')
-    setFerfi(0)
-    setNo(0)
-    setGyermek(0)
-    setPersely(0)
-    setDu(false)
-    setMegjegyzes('')
+    if (editEntry) {
+      // Edit mód — pre-fill
+      const cat = (editEntry.kategoria ?? 'szolgalat') as WorklogCategory
+      setCategory(WORKLOG_TYPES[cat] ? cat : 'szolgalat')
+      setIdopont(editEntry.idopont ?? new Date().toISOString().slice(0, 10))
+      setJellege(editEntry.jellege ?? '')
+      setCim(editEntry.cim ?? '')
+      setBibliaolvasas(editEntry.bibliaolvasas ?? '')
+      setAlapige(editEntry.alapige ?? '')
+      setEnekek(editEntry.enekek ?? '')
+      setSzolgalt(editEntry.szolgalt ?? '')
+      setFerfi(editEntry.jelenlet_ferfi ?? 0)
+      setNo(editEntry.jelenlet_no ?? 0)
+      setGyermek(editEntry.jelenlet_gyermek ?? 0)
+      setPersely(editEntry.persely ?? 0)
+      setDu(editEntry.du === 1)
+      setMegjegyzes(editEntry.megjegyzes ?? '')
+    } else {
+      // Create mód — default értékek
+      setCategory('szolgalat')
+      setIdopont(new Date().toISOString().slice(0, 10))
+      setJellege('')
+      setCim('')
+      setBibliaolvasas('')
+      setAlapige('')
+      setEnekek('')
+      setSzolgalt('')
+      setFerfi(0)
+      setNo(0)
+      setGyermek(0)
+      setPersely(0)
+      setDu(false)
+      setMegjegyzes('')
+    }
     setError(null)
-  }, [open])
+  }, [open, editEntry])
 
   async function handleSubmit() {
     if (!idopont || !jellege) {
@@ -121,12 +164,39 @@ export function WorklogCreateDialog({ open, onOpenChange, userId, onSuccess }: W
         megjegyzes: megjegyzes || null,
         du,
       }
-      const res = await createWorklogEntry(userId, input)
-      if (res.error) {
-        setError(res.error)
+
+      if (editEntry) {
+        // Edit mód — conditional update revision-checkel
+        const res = await updateWorklogEntry(userId, editEntry.id, input, editEntry.revision)
+        if (res.error) {
+          setError(res.error)
+        } else if (res.conflict) {
+          setError(
+            'Konfliktus: a bejegyzés időközben megváltozott (másik eszközről vagy webről). ' +
+              'A lokális cache-t frissítettük — nézd át a mezőket és próbáld újra.',
+          )
+        } else {
+          onSuccess({
+            id: editEntry.id,
+            queuedToOutbox: res.queuedToOutbox,
+            conflict: false,
+            isEdit: true,
+          })
+          onOpenChange(false)
+        }
       } else {
-        onSuccess({ id: res.id, queuedToOutbox: res.queuedToOutbox })
-        onOpenChange(false)
+        // Create mód
+        const res = await createWorklogEntry(userId, input)
+        if (res.error) {
+          setError(res.error)
+        } else {
+          onSuccess({
+            id: res.id,
+            queuedToOutbox: res.queuedToOutbox,
+            isEdit: false,
+          })
+          onOpenChange(false)
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ismeretlen hiba történt.')
@@ -141,7 +211,9 @@ export function WorklogCreateDialog({ open, onOpenChange, userId, onSuccess }: W
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-heading text-xl">Új munkanapló-bejegyzés</DialogTitle>
+          <DialogTitle className="font-heading text-xl">
+            {isEdit ? 'Munkanapló-bejegyzés szerkesztése' : 'Új munkanapló-bejegyzés'}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {/* Kategória + típus */}

@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { BookOpen, ClipboardList, Plus, Search } from 'lucide-react'
+import { BookOpen, ClipboardList, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 
 import {
   Button,
@@ -25,6 +25,7 @@ import { WorklogCreateDialog } from '../components/worklog-create-dialog'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
+  deleteWorklogEntry,
   getLastPullWorklogIso,
   getLocalWorklogCount,
   getLocalWorklogOfOwnCongregation,
@@ -42,9 +43,11 @@ export function MunkanaploPage() {
   const [pullError, setPullError] = useState<string | null>(null)
   const [pullResult, setPullResult] = useState<string | null>(null)
 
-  // M9 — create dialog state + success banner
+  // M9 — create/edit dialog state + success banner + delete handling
   const [createOpen, setCreateOpen] = useState(false)
+  const [editingEntry, setEditingEntry] = useState<WorklogLocalRow | null>(null)
   const [createBanner, setCreateBanner] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   // Auth
   useEffect(() => {
@@ -82,6 +85,61 @@ export function MunkanaploPage() {
       mounted = false
     }
   }, [user, search])
+
+  // M9 — edit handler: dialog megnyitása pre-filled módban
+  const handleEdit = useCallback((entry: WorklogLocalRow) => {
+    setEditingEntry(entry)
+    setCreateOpen(true)
+  }, [])
+
+  // M9 — delete handler: confirm + soft-delete + lista frissítés
+  const handleDelete = useCallback(
+    async (entry: WorklogLocalRow) => {
+      if (!user) return
+      const title = entry.cim || '(nincs cím)'
+      const datum = entry.idopont ?? 'ismeretlen dátum'
+      const ok = window.confirm(
+        `Biztosan törlöd a következő bejegyzést?\n\n` +
+          `${datum} — ${entry.jellege ?? ''}: ${title}\n\n` +
+          `A bejegyzés áthelyezésre kerül a kukába (soft-delete). ` +
+          `A rendszergazda visszaállíthatja később.`,
+      )
+      if (!ok) return
+
+      setDeletingId(entry.id)
+      try {
+        const res = await deleteWorklogEntry(user.id, entry.id, entry.revision)
+        if (res.conflict) {
+          setCreateBanner(
+            '⚠ Konfliktus: a bejegyzés időközben megváltozott (másik eszközről vagy webről). ' +
+              'A lista frissítésre került — próbáld újra.',
+          )
+        } else if (res.queuedToOutbox) {
+          setCreateBanner(
+            '✓ Törlés mentve offline — a következő online-kapcsolatnál szinkronizálódik.',
+          )
+        } else {
+          setCreateBanner(`✓ Bejegyzés (id: ${entry.id}) törölve.`)
+        }
+        setTimeout(() => setCreateBanner(null), 5000)
+
+        // Lista frissítés
+        const [rows, count] = await Promise.all([
+          getLocalWorklogOfOwnCongregation(user.id, {
+            search: search.trim() || undefined,
+          }),
+          getLocalWorklogCount(user.id),
+        ])
+        setEntries(rows)
+        setEntryCount(count)
+      } catch (err) {
+        setCreateBanner(`✗ Törlés-hiba: ${errorMessage(err)}`)
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [user, search],
+  )
 
   const handlePull = useCallback(
     async (mode: 'delta' | 'full') => {
@@ -247,16 +305,40 @@ export function MunkanaploPage() {
                         {e.szolgalt && <span className="text-muted-foreground">— {e.szolgalt}</span>}
                       </CardDescription>
                     </div>
-                    {e.jelenlet_osszesen > 0 && (
-                      <div className="shrink-0 rounded-xl border border-border bg-muted/30 px-3 py-1.5 text-center">
-                        <div className="font-heading text-xl text-foreground">
-                          {e.jelenlet_osszesen}
+                    <div className="flex shrink-0 items-start gap-2">
+                      {e.jelenlet_osszesen > 0 && (
+                        <div className="rounded-xl border border-border bg-muted/30 px-3 py-1.5 text-center">
+                          <div className="font-heading text-xl text-foreground">
+                            {e.jelenlet_osszesen}
+                          </div>
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            jelenlét
+                          </div>
                         </div>
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          jelenlét
-                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(e)}
+                          disabled={deletingId === e.id}
+                          title="Szerkesztés"
+                          aria-label={`Bejegyzés szerkesztése: ${e.cim ?? ''}`}
+                          className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-white text-slate-600 transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(e)}
+                          disabled={deletingId === e.id}
+                          title="Törlés (kukába)"
+                          aria-label={`Bejegyzés törlése: ${e.cim ?? ''}`}
+                          className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-white text-slate-500 transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
@@ -331,18 +413,28 @@ export function MunkanaploPage() {
         )}
       </div>
 
-      {/* M9 — új bejegyzés dialog */}
+      {/* M9 — create / edit dialog */}
       {user && (
         <WorklogCreateDialog
           open={createOpen}
-          onOpenChange={setCreateOpen}
+          onOpenChange={(open) => {
+            setCreateOpen(open)
+            // Dialog-zárás után ürítsük az editingEntry-t — a következő
+            // "Új bejegyzés" kattintás így tisztán create módban nyit
+            if (!open) setEditingEntry(null)
+          }}
           userId={user.id}
-          onSuccess={async ({ id, queuedToOutbox }) => {
-            // Siker-banner beállítása
+          editEntry={editingEntry}
+          onSuccess={async ({ id, queuedToOutbox, isEdit }) => {
+            // Siker-banner
             if (queuedToOutbox) {
               setCreateBanner(
-                '✓ Mentve offline — a következő online-kapcsolatnál szinkronizálódik.',
+                isEdit
+                  ? '✓ Módosítás mentve offline — a következő online-kapcsolatnál szinkronizálódik.'
+                  : '✓ Új bejegyzés mentve offline — a következő online-kapcsolatnál szinkronizálódik.',
               )
+            } else if (isEdit) {
+              setCreateBanner(`✓ Bejegyzés (id: ${id}) frissítve.`)
             } else {
               setCreateBanner(
                 id
@@ -350,7 +442,6 @@ export function MunkanaploPage() {
                   : '✓ Bejegyzés rögzítve.',
               )
             }
-            // 5 mp után elhalványítjuk
             setTimeout(() => setCreateBanner(null), 5000)
 
             // Lista újratöltése a cache-ből

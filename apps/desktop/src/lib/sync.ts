@@ -1709,6 +1709,114 @@ export async function createWorklogEntry(
 }
 
 /**
+ * Munkanapló-bejegyzés frissítése (részleges patch).
+ *
+ * Optimistic-concurrency: conditional Supabase UPDATE `.eq('revision', expected)`.
+ * Ha a szerver-oldali revision eltér (másik eszközről, webes admin), 0 sor
+ * frissül → konfliktus → re-pull.
+ *
+ * A `createWorklogEntry` párja, de id-val és revision-nel.
+ * A patch mezők a `WorklogInput` subset-je (ami változott — a többi marad).
+ */
+export async function updateWorklogEntry(
+  userId: string,
+  entryId: number,
+  patch: Partial<WorklogInput>,
+  expectedRevision: number,
+): Promise<{ queuedToOutbox: boolean; conflict: boolean; newRevision?: number; error?: string }> {
+  if (Object.keys(patch).length === 0) {
+    return { queuedToOutbox: false, conflict: false }
+  }
+
+  // jelenlet_osszesen auto-kalkuláció, ha bármelyik jelenlet-mező változott
+  const jelenletChanged =
+    patch.jelenlet_ferfi !== undefined ||
+    patch.jelenlet_no !== undefined ||
+    patch.jelenlet_gyermek !== undefined
+
+  const effectivePatch: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) effectivePatch[key] = value
+  }
+
+  if (jelenletChanged) {
+    // Lokálisan olvassuk a jelenlegi értékeket, hogy a teljes összeget újraszámolhassuk
+    const currentRows = await dbSelect<{
+      jelenlet_ferfi: number | null
+      jelenlet_no: number | null
+      jelenlet_gyermek: number | null
+    }>(
+      `SELECT jelenlet_ferfi, jelenlet_no, jelenlet_gyermek
+         FROM munkanaplo_local WHERE id = ?1`,
+      [entryId],
+    )
+    const current = currentRows[0]
+    if (current) {
+      const ferfi = patch.jelenlet_ferfi ?? current.jelenlet_ferfi ?? 0
+      const no = patch.jelenlet_no ?? current.jelenlet_no ?? 0
+      const gyermek = patch.jelenlet_gyermek ?? current.jelenlet_gyermek ?? 0
+      effectivePatch.jelenlet_osszesen = (ferfi ?? 0) + (no ?? 0) + (gyermek ?? 0)
+    }
+  }
+
+  // 1. Optimistic local UPDATE
+  const setClauses: string[] = []
+  const params: (string | number | null)[] = []
+  let idx = 1
+  for (const [key, value] of Object.entries(effectivePatch)) {
+    // SQLite: boolean → INTEGER (0/1), más mezők direkt
+    const sqlValue =
+      typeof value === 'boolean' ? (value ? 1 : 0) : (value as string | number | null)
+    setClauses.push(`${key} = ?${idx++}`)
+    params.push(sqlValue)
+  }
+  params.push(entryId)
+  await dbExecute(
+    `UPDATE munkanaplo_local SET ${setClauses.join(', ')}, synced_at = datetime('now')
+      WHERE id = ?${idx}`,
+    params,
+  )
+
+  // 2. Online conditional UPDATE
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('munkanaplo')
+        .update(effectivePatch)
+        .eq('id', entryId)
+        .eq('revision', expectedRevision)
+        .select('revision, updated_at')
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        // Konfliktus → re-pull a lokális cache-be
+        await pullWorklogOfOwnCongregation(userId, 'delta')
+        return { queuedToOutbox: false, conflict: true }
+      }
+
+      const srv = data[0] as { revision: number; updated_at: string }
+      // Frissítsük a lokális revision-t
+      await dbExecute(
+        `UPDATE munkanaplo_local SET revision = ?1, updated_at = ?2 WHERE id = ?3`,
+        [srv.revision, srv.updated_at, entryId],
+      )
+      return { queuedToOutbox: false, conflict: false, newRevision: srv.revision }
+    } catch {
+      // Fall through outboxra
+    }
+  }
+
+  // 3. Offline vagy hiba — outbox
+  await enqueueOutbox('update', 'munkanaplo', String(entryId), {
+    patch: effectivePatch,
+    expected_revision: expectedRevision,
+  })
+  return { queuedToOutbox: true, conflict: false }
+}
+
+/**
  * Soft-delete: a `munkanaplo.deleted` mezőt igazra állítja. Konfliktus-kezelés
  * ugyanúgy, mint az `updateOwnProfile`-nál (conditional `revision`-check).
  */
