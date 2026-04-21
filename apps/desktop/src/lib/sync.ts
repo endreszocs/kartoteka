@@ -25,6 +25,7 @@
  *   - User-jelszó-alapú derived kulcs
  */
 
+import { errorMessage } from './error'
 import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect, getSetting, setSetting } from './local-db'
 
@@ -375,7 +376,7 @@ export async function processOutbox(): Promise<{
       await dbExecute(`UPDATE outbox SET status = 'sent' WHERE id = ?1`, [row.id])
       stats.sent++
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'ismeretlen hiba'
+      const msg = errorMessage(err)
       await markOutboxFailed(row.id, msg, row.retry_count + 1)
       stats.failed++
     }

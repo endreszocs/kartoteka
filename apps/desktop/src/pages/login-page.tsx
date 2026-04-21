@@ -12,6 +12,7 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 
 /**
@@ -51,7 +52,7 @@ export function LoginPage() {
 
       navigate('/', { replace: true })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Ismeretlen hiba'
+      const msg = errorMessage(err)
       setError(`Nem sikerült csatlakozni a rendszerhez: ${msg}`)
     } finally {
       setLoading(false)

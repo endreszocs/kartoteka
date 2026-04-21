@@ -13,6 +13,7 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
   getAllSettings,
@@ -97,7 +98,7 @@ export function DashboardPage() {
     let mounted = true
     refreshLocalDb().catch((err: unknown) => {
       if (!mounted) return
-      const msg = err instanceof Error ? err.message : 'ismeretlen hiba'
+      const msg = errorMessage(err)
       setDbError(msg)
       setDbAvailable(false)
     })
@@ -164,7 +165,7 @@ export function DashboardPage() {
       await setSetting('last_ping', new Date().toISOString())
       await refreshLocalDb()
     } catch (err: unknown) {
-      setDbError(err instanceof Error ? err.message : 'ismeretlen hiba')
+      setDbError(errorMessage(err))
     } finally {
       setPinging(false)
     }
@@ -184,7 +185,7 @@ export function DashboardPage() {
       setNameDraft(row?.full_name ?? '')
       await refreshLocalDb()
     } catch (err: unknown) {
-      setPullError(err instanceof Error ? err.message : 'ismeretlen hiba')
+      setPullError(errorMessage(err))
     } finally {
       setPulling(false)
     }
@@ -231,7 +232,7 @@ export function DashboardPage() {
           )
         }
       } catch (err: unknown) {
-        setSaveError(err instanceof Error ? err.message : 'ismeretlen hiba')
+        setSaveError(errorMessage(err))
       } finally {
         setSaving(false)
       }
