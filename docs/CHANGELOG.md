@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M8: Munkanapló offline lista + zöld ikon + card-raised polish
+
+<!-- key: 2026-04-23-m8-worklog-sync-plus-polish -->
+<!-- category: feature -->
+
+### 📔 Munkanapló offline (M8)
+
+A lelkészi munkanapló (istentisztelet, látogatás, alkalom-jegyzőkönyv) mostantól offline is elérhető a desktop kliensen. 4-rétegű port az eddig kialakult minta szerint:
+
+- **M8.0** SQL migráció (`2026-04-23-m8-0-munkanaplo-triggers.sql`) — `tg_munkanaplo_bump_revision` trigger + 3 index (revision/updated_at már létezett a sémában)
+- **M8.1** Rust v6 migráció — `munkanaplo_local` SQLite tábla 22 oszloppal, 3 index
+- **M8.2** TS sync (`pullWorklogOfOwnCongregation`, `getLocalWorklogOfOwnCongregation`, diagnosztika)
+- **M8.3** Új oldal: `/munkanaplo` route → `MunkanaploPage` — keresőbox (cím / alapige / bibliaolvasás / szolgáló / megjegyzés) + időpont-szerinti lista kártyás elrendezésben, jelenlét-számok, persely, énekek.
+
+### 🟢 Új zöld Kartotéka ikon
+
+A desktop-app ikonja cserélve: `icon/Kartoteka-icon-green.png` (1375×1375) → `tauri icon` generátor futtatva. Az összes méret frissítve: 32×32, 64×64, 128×128, 128×128@2x, Windows `icon.ico` (multi-size), macOS `icon.icns`, Windows Store Square logók (7 méret), Android mipmap-ok.
+
+### ✨ card-raised polish
+
+A desktop dashboard 9 Card-ja mostantól a web-app premium `card-raised` signature class-t használja (gradient háttér + backdrop-blur + tripla elevation box-shadow + hover transform). A közös CSS a `packages/ui/src/kartoteka.css`-ben van, mindkét kliens egyszerre importálja — 100% egyezés.
+
+---
+
 ## [2026-04-23] — M7: Tagnyilvántartás offline lista (szemely pull-sync + keresés)
 
 <!-- key: 2026-04-23-m7-members-sync -->

@@ -1307,3 +1307,273 @@ export async function getLastPullMembersIso(userId: string): Promise<string | nu
   if (!profile?.congregation_id) return null
   return getSetting(memberLastPullKey(profile.congregation_id))
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// M8 — MUNKANAPLO (lelkészi napló) PULL-SYNC
+// ═════════════════════════════════════════════════════════════════════════
+// A lelkész napi szolgálat-nyilvántartása: istentiszteletek, látogatások,
+// alapigék, jelenlét-számok, persely. Offline is kereshető / böngészhető.
+//
+// A Supabase-oldali M8.0 migráció adja hozzá a BEFORE UPDATE trigger-t
+// (`munkanaplo.revision` + `updated_at` oszlopok már léteztek a sémában).
+
+export interface WorklogLocalRow {
+  id: number
+  idopont: string | null
+  jellege: string | null
+  id_jellege: string | null
+  bibliaolvasas: string | null
+  alapige: string | null
+  cim: string | null
+  enekek: string | null
+  jelenlet_ferfi: number | null
+  jelenlet_no: number | null
+  jelenlet_gyermek: number | null
+  jelenlet_osszesen: number
+  szolgalt: string | null
+  persely: number | null
+  megjegyzes: string | null
+  mediapath: string | null
+  kategoria: string | null
+  /** SQLite INTEGER (0/1). */
+  du: number
+  congregation_id: string | null
+  revision: number
+  updated_at: string | null
+  synced_at: string
+}
+
+interface WorklogSupabaseRow {
+  id: number
+  idopont: string | null
+  jellege: string | null
+  id_jellege: string | null
+  bibliaolvasas: string | null
+  alapige: string | null
+  cim: string | null
+  enekek: string | null
+  jelenlet_ferfi: number | null
+  jelenlet_no: number | null
+  jelenlet_gyermek: number | null
+  jelenlet_osszesen: number
+  szolgalt: string | null
+  persely: number | null
+  megjegyzes: string | null
+  mediapath: string | null
+  kategoria: string | null
+  du: boolean | null
+  congregation_id: string | null
+  revision?: number
+  updated_at?: string
+}
+
+const WORKLOG_SELECT_COLS =
+  'id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek, ' +
+  'jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, ' +
+  'szolgalt, persely, megjegyzes, mediapath, kategoria, du, ' +
+  'congregation_id, revision, updated_at'
+
+const LAST_PULL_WORKLOG_KEY_PREFIX = 'sync:worklog:last_pull:'
+
+function worklogLastPullKey(congregationId: string): string {
+  return `${LAST_PULL_WORKLOG_KEY_PREFIX}${congregationId}`
+}
+
+/**
+ * Letölti a bejelentkezett user gyülekezetének munkanapló-bejegyzéseit.
+ * Delta-sync `updated_at > last_pull` alapon, ugyanúgy, mint a tagok.
+ */
+export async function pullWorklogOfOwnCongregation(
+  userId: string,
+  mode: 'delta' | 'full' = 'delta',
+): Promise<{
+  pulledRows: number
+  mode: 'delta' | 'full' | 'full-initial' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+
+  // 1. congregation_id
+  let congregationId: string | null = null
+  const localProfile = await getLocalOwnProfile(userId)
+  if (localProfile?.congregation_id) {
+    congregationId = localProfile.congregation_id
+  } else {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('congregation_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileError) {
+      throw new Error(`Supabase profile-lookup hiba: ${profileError.message}`)
+    }
+    congregationId = profile?.congregation_id ?? null
+  }
+
+  if (!congregationId) {
+    const now = new Date().toISOString()
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: now }
+  }
+
+  // 2. delta vs. full
+  const lastPullKey = worklogLastPullKey(congregationId)
+  const lastPull = mode === 'delta' ? await getSetting(lastPullKey) : null
+  const effectiveMode: 'delta' | 'full' | 'full-initial' =
+    mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
+
+  // 3. Query
+  let query = supabase
+    .from('munkanaplo')
+    .select(WORKLOG_SELECT_COLS)
+    .eq('congregation_id', congregationId)
+    .order('updated_at', { ascending: true })
+
+  if (effectiveMode === 'delta' && lastPull) {
+    query = query.gt('updated_at', lastPull)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    throw new Error(`Supabase pullWorklog hiba: ${error.message}`)
+  }
+
+  const rows = (data ?? []) as unknown as WorklogSupabaseRow[]
+
+  // 4. Upsert soronként
+  for (const row of rows) {
+    await dbExecute(
+      `INSERT INTO munkanaplo_local
+         (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
+          jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
+          szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+          congregation_id, revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+          ?9, ?10, ?11, ?12,
+          ?13, ?14, ?15, ?16, ?17, ?18,
+          ?19, ?20, ?21, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         idopont = excluded.idopont,
+         jellege = excluded.jellege,
+         id_jellege = excluded.id_jellege,
+         bibliaolvasas = excluded.bibliaolvasas,
+         alapige = excluded.alapige,
+         cim = excluded.cim,
+         enekek = excluded.enekek,
+         jelenlet_ferfi = excluded.jelenlet_ferfi,
+         jelenlet_no = excluded.jelenlet_no,
+         jelenlet_gyermek = excluded.jelenlet_gyermek,
+         jelenlet_osszesen = excluded.jelenlet_osszesen,
+         szolgalt = excluded.szolgalt,
+         persely = excluded.persely,
+         megjegyzes = excluded.megjegyzes,
+         mediapath = excluded.mediapath,
+         kategoria = excluded.kategoria,
+         du = excluded.du,
+         congregation_id = excluded.congregation_id,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = excluded.synced_at`,
+      [
+        row.id,
+        row.idopont,
+        row.jellege,
+        row.id_jellege,
+        row.bibliaolvasas,
+        row.alapige,
+        row.cim,
+        row.enekek,
+        row.jelenlet_ferfi,
+        row.jelenlet_no,
+        row.jelenlet_gyermek,
+        row.jelenlet_osszesen ?? 0,
+        row.szolgalt,
+        row.persely,
+        row.megjegyzes,
+        row.mediapath,
+        row.kategoria,
+        row.du ? 1 : 0,
+        row.congregation_id,
+        row.revision ?? 0,
+        row.updated_at ?? null,
+      ],
+    )
+  }
+
+  // 5. last_pull frissítés
+  let newLastPull = lastPull ?? new Date(0).toISOString()
+  for (const row of rows) {
+    if (row.updated_at && row.updated_at > newLastPull) {
+      newLastPull = row.updated_at
+    }
+  }
+  if (rows.length > 0) {
+    await setSetting(lastPullKey, newLastPull)
+  } else if (!lastPull) {
+    await setSetting(lastPullKey, new Date().toISOString())
+  }
+
+  return {
+    pulledRows: rows.length,
+    mode: effectiveMode,
+    lastPullIso: newLastPull,
+  }
+}
+
+/**
+ * Lokálisan cache-elt munkanapló-bejegyzések.
+ * Rendezés: `idopont DESC` — legutóbbi bejegyzések felül.
+ */
+export async function getLocalWorklogOfOwnCongregation(
+  userId: string,
+  options?: { search?: string; limit?: number },
+): Promise<WorklogLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+
+  const conditions: string[] = ['congregation_id = ?1']
+  const params: (string | number)[] = [profile.congregation_id]
+  let idx = 2
+
+  if (options?.search) {
+    conditions.push(
+      `(cim LIKE ?${idx} OR alapige LIKE ?${idx} OR bibliaolvasas LIKE ?${idx} OR szolgalt LIKE ?${idx} OR megjegyzes LIKE ?${idx})`,
+    )
+    params.push(`%${options.search}%`)
+    idx++
+  }
+
+  const limit = options?.limit ?? 200
+  params.push(limit)
+
+  const where = conditions.join(' AND ')
+  return dbSelect<WorklogLocalRow>(
+    `SELECT id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
+            jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
+            szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+            congregation_id, revision, updated_at, synced_at
+       FROM munkanaplo_local
+      WHERE ${where}
+      ORDER BY COALESCE(idopont, '') DESC, id DESC
+      LIMIT ?${idx}`,
+    params,
+  )
+}
+
+/** Munkanapló-bejegyzések száma a saját gyülekezetre. */
+export async function getLocalWorklogCount(userId: string): Promise<number> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return 0
+  const rows = await dbSelect<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM munkanaplo_local WHERE congregation_id = ?1`,
+    [profile.congregation_id],
+  )
+  return rows[0]?.count ?? 0
+}
+
+/** Utolsó worklog-pull ISO-ideje. */
+export async function getLastPullWorklogIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(worklogLastPullKey(profile.congregation_id))
+}

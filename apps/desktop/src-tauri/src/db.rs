@@ -420,8 +420,65 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v5 migráció (szemely_local) sikertelen: {e}"))?;
     }
 
+    if current < 6 {
+        // M8.1 — munkanaplo_local: a Supabase `munkanaplo` tábla lokális tükörképe.
+        //
+        // A lelkész napi munkakönyve (istentisztelet, látogatás, szolgálat)
+        // offline is elérhető. A szerver-oldali migráció
+        // (2026-04-23-m8-0-munkanaplo-triggers.sql) hozzáadja a trigger-t
+        // (a revision/updated_at oszlopok már léteztek).
+        //
+        // Típus-mapping (mint a korábbi fázisokban):
+        //   - integer → INTEGER
+        //   - numeric → REAL
+        //   - boolean → INTEGER (0/1)
+        //   - date → TEXT (ISO 'YYYY-MM-DD')
+        //   - timestamptz → TEXT (ISO 8601)
+        //   - uuid → TEXT
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS munkanaplo_local (
+                id                  INTEGER PRIMARY KEY,
+                idopont             TEXT,              -- ISO date
+                jellege             TEXT,              -- istentisztelet / látogatás / egyéb
+                id_jellege          TEXT,              -- szabad-szöveges alkategória
+                bibliaolvasas       TEXT,              -- pl. 'Jn 3,16'
+                alapige             TEXT,              -- a prédikáció alapigéje
+                cim                 TEXT,              -- a szolgálat címe
+                enekek              TEXT,              -- énekek (comma-separated)
+                jelenlet_ferfi      INTEGER,
+                jelenlet_no         INTEGER,
+                jelenlet_gyermek    INTEGER,
+                jelenlet_osszesen   INTEGER NOT NULL DEFAULT 0,
+                szolgalt            TEXT,              -- a szolgáló lelkész neve
+                persely             REAL,              -- RON
+                megjegyzes          TEXT,
+                mediapath           TEXT,
+                kategoria           TEXT DEFAULT 'szolgalat',
+                du                  INTEGER NOT NULL DEFAULT 0, -- délután (0/1)
+                congregation_id     TEXT,              -- uuid
+                revision            INTEGER NOT NULL DEFAULT 0,
+                updated_at          TEXT,
+                synced_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_munkanaplo_local_congregation
+                ON munkanaplo_local(congregation_id);
+            CREATE INDEX IF NOT EXISTS idx_munkanaplo_local_idopont
+                ON munkanaplo_local(idopont DESC);
+            CREATE INDEX IF NOT EXISTS idx_munkanaplo_local_updated_at
+                ON munkanaplo_local(updated_at);
+
+            PRAGMA user_version = 6;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v6 migráció (munkanaplo_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 6 { ... PRAGMA user_version = 6; }
+    // if current < 7 { ... PRAGMA user_version = 7; }
 
     Ok(())
 }

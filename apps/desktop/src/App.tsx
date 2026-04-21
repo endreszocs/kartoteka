@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
 import { DashboardPage } from './pages/dashboard-page'
+import { MunkanaploPage } from './pages/munkanaplo-page'
 import { PlaceholderPage } from './pages/placeholder-page'
 
 /**
@@ -28,6 +29,7 @@ function App() {
         <Route element={<AuthGate />}>
           <Route index element={<DashboardPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/munkanaplo" element={<MunkanaploPage />} />
           <Route path="*" element={<PlaceholderPage />} />
         </Route>
       </Routes>
