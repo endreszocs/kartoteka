@@ -1207,16 +1207,22 @@ export async function pullMembersOfOwnCongregation(
 }
 
 /**
- * A user saját gyülekezetének **összes** lokálisan cache-elt tagja.
+ * A user saját gyülekezetének lokálisan cache-elt tagjai.
  *
- * Alapértelmezésben csak az `isvisible = 1 AND meghalt = 0` aktív tagokat
- * adja vissza — a temetettek / rejtettek külön paraméterrel kérhetők.
+ * Alapértelmezés:
+ *   - **MINDENKIT mutat**, aki nem halt meg (`meghalt = 0`)
+ *   - Az `isvisible` szerint **NEM szűr alapból** — a legacy Kartotéka
+ *     adatokban sokszor `false` az alapérték (pl. adminisztratív jelzés),
+ *     de a lelkész így is látni akarja őket. Ezt csak akkor szűrjük,
+ *     ha `options.onlyVisible = true` explicit kérés van rá.
+ *
+ * Keresés: LIKE `%search%` mezőkön: csaladnev, k_nev, ferjk_nev, cnp.
  *
  * Rendezés: `csaladnev ASC, k_nev ASC` — ábécé-sorrend a UI-nak.
  */
 export async function getLocalMembersOfOwnCongregation(
   userId: string,
-  options?: { includeDeceased?: boolean; includeHidden?: boolean; search?: string },
+  options?: { includeDeceased?: boolean; onlyVisible?: boolean; search?: string },
 ): Promise<MemberLocalRow[]> {
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return []
@@ -1228,11 +1234,12 @@ export async function getLocalMembersOfOwnCongregation(
   if (!options?.includeDeceased) {
     conditions.push('meghalt = 0')
   }
-  if (!options?.includeHidden) {
+  if (options?.onlyVisible) {
+    // Csak kéretlenül (opt-in) szűrünk isvisible-re — a legacy adatoknál
+    // sok false-érték van, amit a lelkész látni akar
     conditions.push('isvisible = 1')
   }
   if (options?.search) {
-    // Egyszerű LIKE-keresés név + CNP mezőkön
     conditions.push(
       `(csaladnev LIKE ?${idx} OR k_nev LIKE ?${idx} OR ferjk_nev LIKE ?${idx} OR cnp LIKE ?${idx})`,
     )
@@ -1256,17 +1263,42 @@ export async function getLocalMembersOfOwnCongregation(
   )
 }
 
-/** Hány lokálisan cache-elt tag van a saját gyülekezetben (aktív). */
-export async function getLocalMemberCount(userId: string): Promise<number> {
+/**
+ * Tag-diagnosztika a saját gyülekezet lokális cache-éről.
+ * Visszaadja:
+ *   - `total` : minden cache-elt sor
+ *   - `living` : csak élő (meghalt = 0)
+ *   - `visible` : csak élő + isvisible = 1
+ * Hasznos a UI-ban: megmutatja, mit szűr az adott checkbox-kombináció.
+ */
+export async function getLocalMemberCounts(userId: string): Promise<{
+  total: number
+  living: number
+  visible: number
+}> {
   const profile = await getLocalOwnProfile(userId)
-  if (!profile?.congregation_id) return 0
+  if (!profile?.congregation_id) return { total: 0, living: 0, visible: 0 }
 
-  const rows = await dbSelect<{ count: number }>(
-    `SELECT COUNT(*) AS count FROM szemely_local
-      WHERE congregation_id = ?1 AND meghalt = 0 AND isvisible = 1`,
+  const rows = await dbSelect<{ total: number; living: number; visible: number }>(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN meghalt = 0 THEN 1 ELSE 0 END) AS living,
+       SUM(CASE WHEN meghalt = 0 AND isvisible = 1 THEN 1 ELSE 0 END) AS visible
+     FROM szemely_local
+     WHERE congregation_id = ?1`,
     [profile.congregation_id],
   )
-  return rows[0]?.count ?? 0
+  return {
+    total: rows[0]?.total ?? 0,
+    living: rows[0]?.living ?? 0,
+    visible: rows[0]?.visible ?? 0,
+  }
+}
+
+/** @deprecated Használd a `getLocalMemberCounts`-t — gazdagabb info */
+export async function getLocalMemberCount(userId: string): Promise<number> {
+  const counts = await getLocalMemberCounts(userId)
+  return counts.living
 }
 
 /** Utolsó member-pull a user gyülekezetére — null, ha még nem futott. */

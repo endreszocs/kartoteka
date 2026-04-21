@@ -89,6 +89,14 @@ Az M6 a saját gyülekezet **egy** sorát szinkronizálta. Az M7 az első **sok-
 2. **Desktop**: a v5 migráció auto-fut (új `szemely_local` tábla jön létre a lokális SQLCipher-ben)
 3. **Teszt**: Dashboard → „Gyülekezet tagjai" Card → **Full Pull** gomb → a tagok megjelennek
 
+### 🐛 Fix ugyanezen a napon — `isvisible` default filter túl szigorú volt
+
+Első tesztnél: **Full Pull: 616 tag frissítve**, de **0 tag a listában**. Ok: a default szűrő `isvisible = 1`-re is megszűrt, de a legacy Kartotéka adatokban sok a `isvisible = false` (admin-jelzés, de a lelkész látni akarja).
+
+**Javítás**: a default szűrőből kivéve az `isvisible = 1`-et — csak `meghalt = 0` marad alapértelmezésben. Új opt-in checkbox: „Csak nyilvántartásban láthatók (`isvisible=1`)". Ha a lelkész ezt bekapcsolja, visszakapja a régi viselkedést.
+
+**Diagnosztika**: új `getLocalMemberCounts()` — a UI most mutat 4 számot: lokálisan cache-elve / élő / élő+látható / szűrőben most. Így bármikor látszik, mi a hatása egy szűrő-beállításnak.
+
 ---
 
 ## [2026-04-23] — M6: Gyülekezet-adatok offline elérhetősége (congregations pull-sync)

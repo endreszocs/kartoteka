@@ -45,6 +45,7 @@ import {
   getLastPullCongregationIso,
   getLastPullIso,
   getLastPullMembersIso,
+  getLocalMemberCounts,
   getLocalMembersOfOwnCongregation,
   getLocalOwnCongregation,
   getLocalOwnProfile,
@@ -91,6 +92,12 @@ export function DashboardPage() {
   const [members, setMembers] = useState<MemberLocalRow[]>([])
   const [memberSearch, setMemberSearch] = useState('')
   const [memberIncludeDeceased, setMemberIncludeDeceased] = useState(false)
+  const [memberOnlyVisible, setMemberOnlyVisible] = useState(false)
+  const [memberCounts, setMemberCounts] = useState<{
+    total: number
+    living: number
+    visible: number
+  } | null>(null)
   const [lastPullMembers, setLastPullMembers] = useState<string | null>(null)
   const [pullingMembers, setPullingMembers] = useState(false)
   const [pullMembersError, setPullMembersError] = useState<string | null>(null)
@@ -257,12 +264,18 @@ export function DashboardPage() {
   useEffect(() => {
     if (!user || !dbAvailable) return
     let mounted = true
-    getLocalMembersOfOwnCongregation(user.id, {
-      search: memberSearch.trim() || undefined,
-      includeDeceased: memberIncludeDeceased,
-    })
-      .then((rows) => {
-        if (mounted) setMembers(rows)
+    Promise.all([
+      getLocalMembersOfOwnCongregation(user.id, {
+        search: memberSearch.trim() || undefined,
+        includeDeceased: memberIncludeDeceased,
+        onlyVisible: memberOnlyVisible,
+      }),
+      getLocalMemberCounts(user.id),
+    ])
+      .then(([rows, counts]) => {
+        if (!mounted) return
+        setMembers(rows)
+        setMemberCounts(counts)
       })
       .catch(() => {
         // csendes
@@ -270,7 +283,7 @@ export function DashboardPage() {
     return () => {
       mounted = false
     }
-  }, [user, dbAvailable, memberSearch, memberIncludeDeceased])
+  }, [user, dbAvailable, memberSearch, memberIncludeDeceased, memberOnlyVisible])
 
   // M3.3 — eszköz-bind: FÜGGETLEN a lokális DB állapotától.
   useEffect(() => {
@@ -427,18 +440,23 @@ export function DashboardPage() {
               : `${modeLabel} pull: ${res.pulledRows} tag frissítve.`,
           )
         }
-        const rows = await getLocalMembersOfOwnCongregation(user.id, {
-          search: memberSearch.trim() || undefined,
-          includeDeceased: memberIncludeDeceased,
-        })
+        const [rows, counts] = await Promise.all([
+          getLocalMembersOfOwnCongregation(user.id, {
+            search: memberSearch.trim() || undefined,
+            includeDeceased: memberIncludeDeceased,
+            onlyVisible: memberOnlyVisible,
+          }),
+          getLocalMemberCounts(user.id),
+        ])
         setMembers(rows)
+        setMemberCounts(counts)
       } catch (err: unknown) {
         setPullMembersError(errorMessage(err))
       } finally {
         setPullingMembers(false)
       }
     },
-    [user, memberSearch, memberIncludeDeceased],
+    [user, memberSearch, memberIncludeDeceased, memberOnlyVisible],
   )
 
   const handleSave = useCallback(
@@ -978,29 +996,61 @@ export function DashboardPage() {
             )}
 
             {/* Kereső + szűrők */}
-            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/20 p-3">
-              <div className="min-w-[200px] flex-1 space-y-1">
-                <Label htmlFor="member-search">Keresés (név vagy CNP)</Label>
-                <Input
-                  id="member-search"
-                  type="search"
-                  value={memberSearch}
-                  onChange={(e) => setMemberSearch(e.currentTarget.value)}
-                  placeholder="pl. Kovács vagy 1850..."
-                />
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[200px] flex-1 space-y-1">
+                  <Label htmlFor="member-search">Keresés (név vagy CNP)</Label>
+                  <Input
+                    id="member-search"
+                    type="search"
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.currentTarget.value)}
+                    placeholder="pl. Kovács vagy 1850..."
+                  />
+                </div>
+                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={memberIncludeDeceased}
+                      onChange={(e) => setMemberIncludeDeceased(e.currentTarget.checked)}
+                      className="size-4"
+                    />
+                    Elhunytakat is mutassa
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={memberOnlyVisible}
+                      onChange={(e) => setMemberOnlyVisible(e.currentTarget.checked)}
+                      className="size-4"
+                    />
+                    Csak nyilvántartásban láthatók (<code>isvisible=1</code>)
+                  </label>
+                </div>
               </div>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={memberIncludeDeceased}
-                  onChange={(e) => setMemberIncludeDeceased(e.currentTarget.checked)}
-                  className="size-4"
-                />
-                Elhunytakat is mutassa
-              </label>
-              <div className="text-xs text-muted-foreground">
-                <strong className="text-foreground">{members.length}</strong> tag a listában
-              </div>
+
+              {/* Diagnosztikai sáv — látjuk, hogy melyik szűrő mit tesz */}
+              {memberCounts && (
+                <div className="flex flex-wrap items-center gap-4 border-t border-border pt-2 text-xs text-muted-foreground">
+                  <span>
+                    Lokálisan cache-elve:{' '}
+                    <strong className="text-foreground">{memberCounts.total}</strong>
+                  </span>
+                  <span>
+                    Élő (<code>meghalt=0</code>):{' '}
+                    <strong className="text-foreground">{memberCounts.living}</strong>
+                  </span>
+                  <span>
+                    Élő + látható:{' '}
+                    <strong className="text-foreground">{memberCounts.visible}</strong>
+                  </span>
+                  <span className="ml-auto">
+                    Listában most:{' '}
+                    <strong className="text-foreground">{members.length}</strong>
+                  </span>
+                </div>
+              )}
             </div>
 
             {members.length > 0 ? (
