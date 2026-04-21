@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { BookOpen, ClipboardList, Search } from 'lucide-react'
+import { BookOpen, ClipboardList, Plus, Search } from 'lucide-react'
 
 import {
   Button,
@@ -21,6 +21,7 @@ import {
 } from '@kartoteka/ui'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
+import { WorklogCreateDialog } from '../components/worklog-create-dialog'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
@@ -40,6 +41,10 @@ export function MunkanaploPage() {
   const [pulling, setPulling] = useState(false)
   const [pullError, setPullError] = useState<string | null>(null)
   const [pullResult, setPullResult] = useState<string | null>(null)
+
+  // M9 — create dialog state + success banner
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createBanner, setCreateBanner] = useState<string | null>(null)
 
   // Auth
   useEffect(() => {
@@ -142,11 +147,26 @@ export function MunkanaploPage() {
             >
               {pulling ? 'Pull…' : 'Delta Pull'}
             </Button>
-            <Button onClick={() => handlePull('full')} disabled={!user || pulling}>
+            <Button
+              variant="outline"
+              onClick={() => handlePull('full')}
+              disabled={!user || pulling}
+            >
               {pulling ? 'Pull…' : 'Full Pull'}
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} disabled={!user}>
+              <Plus className="mr-1.5 size-4" />
+              Új bejegyzés
             </Button>
           </div>
         </div>
+
+        {/* Create-success banner */}
+        {createBanner && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+            {createBanner}
+          </div>
+        )}
 
         {/* Pull eredmény / hiba */}
         {pullResult && (
@@ -310,6 +330,41 @@ export function MunkanaploPage() {
           </Card>
         )}
       </div>
+
+      {/* M9 — új bejegyzés dialog */}
+      {user && (
+        <WorklogCreateDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          userId={user.id}
+          onSuccess={async ({ id, queuedToOutbox }) => {
+            // Siker-banner beállítása
+            if (queuedToOutbox) {
+              setCreateBanner(
+                '✓ Mentve offline — a következő online-kapcsolatnál szinkronizálódik.',
+              )
+            } else {
+              setCreateBanner(
+                id
+                  ? `✓ Bejegyzés rögzítve (id: ${id}). A lista frissítésre került.`
+                  : '✓ Bejegyzés rögzítve.',
+              )
+            }
+            // 5 mp után elhalványítjuk
+            setTimeout(() => setCreateBanner(null), 5000)
+
+            // Lista újratöltése a cache-ből
+            const [rows, count] = await Promise.all([
+              getLocalWorklogOfOwnCongregation(user.id, {
+                search: search.trim() || undefined,
+              }),
+              getLocalWorklogCount(user.id),
+            ])
+            setEntries(rows)
+            setEntryCount(count)
+          }}
+        />
+      )}
     </DesktopShell>
   )
 }

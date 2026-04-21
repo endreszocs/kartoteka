@@ -477,8 +477,26 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v6 migráció (munkanaplo_local) sikertelen: {e}"))?;
     }
 
+    if current < 7 {
+        // M9 — `deleted` oszlop a `munkanaplo_local`-ra (soft-delete támogatás).
+        //
+        // A Supabase-oldali `munkanaplo.deleted` oszlop már létezik (a web
+        // `actions.ts` és a `WorklogEntry` TypeScript-interfész bizonyítja),
+        // csak a kliens-tükör nem tartalmazta eddig. Ezzel most a kliens is
+        // tudja a soft-delete-et → nem mutat törölt bejegyzéseket.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE munkanaplo_local ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+            PRAGMA user_version = 7;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v7 migráció (munkanaplo_local.deleted) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 7 { ... PRAGMA user_version = 7; }
+    // if current < 8 { ... PRAGMA user_version = 8; }
 
     Ok(())
 }

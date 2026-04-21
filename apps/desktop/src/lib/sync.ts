@@ -1337,6 +1337,8 @@ export interface WorklogLocalRow {
   kategoria: string | null
   /** SQLite INTEGER (0/1). */
   du: number
+  /** SQLite INTEGER (0/1). Soft-delete flag — a UI-ban rejtjük. */
+  deleted: number
   congregation_id: string | null
   revision: number
   updated_at: string | null
@@ -1362,6 +1364,7 @@ interface WorklogSupabaseRow {
   mediapath: string | null
   kategoria: string | null
   du: boolean | null
+  deleted: boolean | null
   congregation_id: string | null
   revision?: number
   updated_at?: string
@@ -1370,7 +1373,7 @@ interface WorklogSupabaseRow {
 const WORKLOG_SELECT_COLS =
   'id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek, ' +
   'jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, ' +
-  'szolgalt, persely, megjegyzes, mediapath, kategoria, du, ' +
+  'szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted, ' +
   'congregation_id, revision, updated_at'
 
 const LAST_PULL_WORKLOG_KEY_PREFIX = 'sync:worklog:last_pull:'
@@ -1445,13 +1448,13 @@ export async function pullWorklogOfOwnCongregation(
       `INSERT INTO munkanaplo_local
          (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
           jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-          szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+          szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
           congregation_id, revision, updated_at, synced_at)
        VALUES
          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
           ?9, ?10, ?11, ?12,
-          ?13, ?14, ?15, ?16, ?17, ?18,
-          ?19, ?20, ?21, datetime('now'))
+          ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+          ?20, ?21, ?22, datetime('now'))
        ON CONFLICT(id) DO UPDATE SET
          idopont = excluded.idopont,
          jellege = excluded.jellege,
@@ -1470,6 +1473,7 @@ export async function pullWorklogOfOwnCongregation(
          mediapath = excluded.mediapath,
          kategoria = excluded.kategoria,
          du = excluded.du,
+         deleted = excluded.deleted,
          congregation_id = excluded.congregation_id,
          revision = excluded.revision,
          updated_at = excluded.updated_at,
@@ -1493,6 +1497,7 @@ export async function pullWorklogOfOwnCongregation(
         row.mediapath,
         row.kategoria,
         row.du ? 1 : 0,
+        row.deleted ? 1 : 0,
         row.congregation_id,
         row.revision ?? 0,
         row.updated_at ?? null,
@@ -1523,10 +1528,14 @@ export async function pullWorklogOfOwnCongregation(
 /**
  * Lokálisan cache-elt munkanapló-bejegyzések.
  * Rendezés: `idopont DESC` — legutóbbi bejegyzések felül.
+ *
+ * Alapértelmezésben **a soft-delete-elt** sorokat (deleted=1) **kizárjuk**.
+ * Ha a hívó kifejezetten kéri (pl. archív nézet), használhatja az
+ * `includeDeleted: true` opciót.
  */
 export async function getLocalWorklogOfOwnCongregation(
   userId: string,
-  options?: { search?: string; limit?: number },
+  options?: { search?: string; limit?: number; includeDeleted?: boolean },
 ): Promise<WorklogLocalRow[]> {
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return []
@@ -1534,6 +1543,10 @@ export async function getLocalWorklogOfOwnCongregation(
   const conditions: string[] = ['congregation_id = ?1']
   const params: (string | number)[] = [profile.congregation_id]
   let idx = 2
+
+  if (!options?.includeDeleted) {
+    conditions.push('deleted = 0')
+  }
 
   if (options?.search) {
     conditions.push(
@@ -1550,7 +1563,7 @@ export async function getLocalWorklogOfOwnCongregation(
   return dbSelect<WorklogLocalRow>(
     `SELECT id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
             jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-            szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+            szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
             congregation_id, revision, updated_at, synced_at
        FROM munkanaplo_local
       WHERE ${where}
@@ -1576,4 +1589,166 @@ export async function getLastPullWorklogIso(userId: string): Promise<string | nu
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return null
   return getSetting(worklogLastPullKey(profile.congregation_id))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// M9 — WRITE operations (munkanaplo)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Input a `createWorklogEntry` / `updateWorklogEntry` számára. */
+export interface WorklogInput {
+  idopont: string // ISO 'YYYY-MM-DD'
+  jellege: string
+  kategoria?: 'szolgalat' | 'katekezis' | 'latogatas' | null
+  cim?: string | null
+  bibliaolvasas?: string | null
+  alapige?: string | null
+  enekek?: string | null
+  szolgalt?: string | null
+  jelenlet_ferfi?: number | null
+  jelenlet_no?: number | null
+  jelenlet_gyermek?: number | null
+  persely?: number | null
+  megjegyzes?: string | null
+  du?: boolean
+}
+
+export interface WorklogCreateResult {
+  id: number | null // server id, only if online
+  queuedToOutbox: boolean
+  error?: string
+}
+
+/**
+ * Új munkanapló-bejegyzés létrehozása.
+ *
+ * Flow:
+ *   - congregation_id kinyerése a user profile-ból
+ *   - `jelenlet_osszesen` auto-kalkuláció (férfi+nő+gyermek)
+ *   - Online → Supabase INSERT, utána a munkanapló lokális delta-pull
+ *   - Offline / hiba → outbox (`op: 'insert'`, `target_table: 'munkanaplo'`)
+ *
+ * A web `saveWorklog` action-jét tükrözi — `deleted: false` + `congregation_id`
+ * automatikusan. A `jelenlet_osszesen` NOT NULL kényszer miatt mindig számított.
+ */
+export async function createWorklogEntry(
+  userId: string,
+  input: WorklogInput,
+): Promise<WorklogCreateResult> {
+  if (!input.idopont) {
+    return { id: null, queuedToOutbox: false, error: 'A dátum kötelező.' }
+  }
+  if (!input.jellege) {
+    return { id: null, queuedToOutbox: false, error: 'A típus kötelező.' }
+  }
+
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) {
+    return {
+      id: null,
+      queuedToOutbox: false,
+      error: 'Nincs gyülekezet hozzárendelve a profilhoz.',
+    }
+  }
+
+  const jelenletOsszesen =
+    (input.jelenlet_ferfi ?? 0) + (input.jelenlet_no ?? 0) + (input.jelenlet_gyermek ?? 0)
+
+  // Az insert-rekord a Supabase-szerver oldalára, egyezik a web `saveWorklog`-gal.
+  const record: Record<string, unknown> = {
+    idopont: input.idopont,
+    jellege: input.jellege,
+    kategoria: input.kategoria ?? 'szolgalat',
+    cim: input.cim ?? null,
+    bibliaolvasas: input.bibliaolvasas ?? null,
+    alapige: input.alapige ?? null,
+    enekek: input.enekek ?? null,
+    szolgalt: input.szolgalt ?? null,
+    jelenlet_ferfi: input.jelenlet_ferfi ?? null,
+    jelenlet_no: input.jelenlet_no ?? null,
+    jelenlet_gyermek: input.jelenlet_gyermek ?? null,
+    jelenlet_osszesen: jelenletOsszesen,
+    persely: input.persely ?? null,
+    megjegyzes: input.megjegyzes ?? null,
+    du: input.du ?? false,
+    deleted: false,
+    congregation_id: profile.congregation_id,
+  }
+
+  // Online attempt
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('munkanaplo')
+        .insert([record])
+        .select('id')
+        .single()
+      if (error) throw error
+      const newId = (data as { id: number }).id
+
+      // Delta-pull, hogy az új sor a lokális cache-be kerüljön a trigger-
+      // által kitöltött revision/updated_at értékekkel együtt
+      try {
+        await pullWorklogOfOwnCongregation(userId, 'delta')
+      } catch {
+        // A pull-hiba nem kritikus: a sor létrejött a szerveren; a következő
+        // sync lehozza. A user látja a sikert a visszatérési ID-ban.
+      }
+
+      return { id: newId, queuedToOutbox: false }
+    } catch (err) {
+      // Supabase-hiba → fallback outboxra (pl. jogosultság, hálózat-megszakadás)
+      // A user így nem veszti el az adatot — offline-tól nem különbözik.
+    }
+  }
+
+  // Offline vagy sikertelen online → outbox
+  await enqueueOutbox('insert', 'munkanaplo', null, record)
+  return { id: null, queuedToOutbox: true }
+}
+
+/**
+ * Soft-delete: a `munkanaplo.deleted` mezőt igazra állítja. Konfliktus-kezelés
+ * ugyanúgy, mint az `updateOwnProfile`-nál (conditional `revision`-check).
+ */
+export async function deleteWorklogEntry(
+  userId: string,
+  entryId: number,
+  expectedRevision: number,
+): Promise<{ queuedToOutbox: boolean; conflict: boolean; error?: string }> {
+  // Optimistic local — azonnali eltűnés a listából
+  await dbExecute(
+    `UPDATE munkanaplo_local SET deleted = 1 WHERE id = ?1`,
+    [entryId],
+  )
+
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('munkanaplo')
+        .update({ deleted: true })
+        .eq('id', entryId)
+        .eq('revision', expectedRevision)
+        .select('revision')
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        // Konfliktus: a szerver-oldali revision eltér → re-pull
+        await pullWorklogOfOwnCongregation(userId, 'delta')
+        return { queuedToOutbox: false, conflict: true }
+      }
+      return { queuedToOutbox: false, conflict: false }
+    } catch {
+      // Fall through az outboxra
+    }
+  }
+
+  await enqueueOutbox('update', 'munkanaplo', String(entryId), {
+    patch: { deleted: true },
+    expected_revision: expectedRevision,
+  })
+  return { queuedToOutbox: true, conflict: false }
 }
