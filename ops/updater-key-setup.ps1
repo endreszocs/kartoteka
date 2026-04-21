@@ -6,121 +6,115 @@
 # eljut a lelkesz gepere.
 #
 # Futtatas (egyszeri):
+#   cd "D:\Egyházi APP\KARTOTEKA"
 #   .\ops\updater-key-setup.ps1
 #
 # A script:
-#   1. Ellenorzi, hogy a `cargo tauri signer generate` parancs elerheto-e
-#   2. Letrehoz egy kulcsparot (privat kulcs password-del vedve)
-#   3. A PFX-szeru logikaval: a privat kulcs `ops/updater-private.key`-be,
-#      a publikus string `tauri.conf.json` plugins.updater.pubkey-jebe
-#   4. Kiirja a kovetkezo lepeseket
+#   1. Ellenorzi, van-e mar kulcs (ha igen, felajanlja az ujrahasznalast)
+#   2. Letrehoz egy kulcsparot (a Tauri CLI signer-en keresztul)
+#   3. A privat kulcs `ops/updater-private.key`-be kerul (gitignore-olt)
+#   4. A publikus kulcs `ops/updater-private.key.pub`-ba + kiirva konzolra
+#   5. Endre kimasolja a pubkey-t es elkuldi Claude-nak, aki a
+#      tauri.conf.json-t frissiti.
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
 
-# Feltetelek
-$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-
 $privateKeyPath = Join-Path $PSScriptRoot "updater-private.key"
+$pubKeyPath = "$privateKeyPath.pub"
 $keyPassword = "kartoteka-updater-dev-2026"  # fejlesztoi; cseréld le production elott
+$desktopDir = Resolve-Path (Join-Path $PSScriptRoot "..\apps\desktop")
 
 # ----------------------------------------------------------------------------
 # 1. Letezik-e mar a kulcs?
 # ----------------------------------------------------------------------------
 if (Test-Path $privateKeyPath) {
     Write-Host "[!] Privat kulcs mar letezik: $privateKeyPath" -ForegroundColor Yellow
-    $reuse = Read-Host "Hasznaljam ezt? (y/n)"
-    if ($reuse -ne "n") {
-        Write-Host "OK - letezo kulcsot hasznalok." -ForegroundColor Cyan
+    if (Test-Path $pubKeyPath) {
         Write-Host ""
-        Write-Host "A publikus kulcsot lekerdezd ezzel a paranccsal:" -ForegroundColor Cyan
-        Write-Host "  cargo tauri signer pubkey --key `"$privateKeyPath`" --password `"$keyPassword`""
+        Write-Host "Meglevo pubkey tartalma:" -ForegroundColor Cyan
+        Write-Host "========================================================================"
+        Get-Content $pubKeyPath -Raw
+        Write-Host "========================================================================"
+        Write-Host ""
+    }
+    $reuse = Read-Host "Ujrahasznalom? (y = igen / n = ujat generaljak)"
+    if ($reuse -eq "n") {
+        Write-Host "Uj kulcs generalasa..." -ForegroundColor Cyan
+        Remove-Item $privateKeyPath -Force
+        if (Test-Path $pubKeyPath) { Remove-Item $pubKeyPath -Force }
+    } else {
+        Write-Host "OK - Meglevo kulcsot hasznalok. A pubkey fent van kiirva." -ForegroundColor Green
         exit 0
     }
-    Remove-Item $privateKeyPath -Force
 }
 
 # ----------------------------------------------------------------------------
-# 2. Kulcspar generalas
-#    cargo tauri signer generate -w <path>
-#    (a jelszot env-valtoaban adjuk at, hogy ne interaktivan kerdezze)
+# 2. Kulcspar generalas a Tauri CLI-vel
+#    `npx @tauri-apps/cli signer generate` a parancs. Environment-bol adjuk
+#    at a jelszot a `TAURI_KEY_PASSWORD`-ben, hogy interaktivitast elkerulok.
 # ----------------------------------------------------------------------------
 Write-Host "Ed25519 kulcspar generalasa..." -ForegroundColor Cyan
-Write-Host "  Privat kulcs: $privateKeyPath" -ForegroundColor Gray
+Write-Host "  Privat kulcs helye: $privateKeyPath" -ForegroundColor Gray
 Write-Host "  Jelszo: $keyPassword" -ForegroundColor Gray
 Write-Host ""
 
-# `cargo tauri signer generate` interaktiv, de environment-bol is megeszi
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $keyPassword
-$output = & cargo tauri signer generate -w $privateKeyPath 2>&1
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $null
+$env:TAURI_KEY_PASSWORD = $keyPassword
 
-Write-Host $output
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[FAIL] cargo tauri signer generate sikertelen" -ForegroundColor Red
-    Write-Host "Tipp: telepitve van-e a tauri-cli? Ellenorizd:" -ForegroundColor Yellow
-    Write-Host "  cargo install tauri-cli --version '^2' --locked"
+Push-Location $desktopDir
+try {
+    & npx --yes @tauri-apps/cli signer generate -w $privateKeyPath --ci
+    $exitCode = $LASTEXITCODE
+} finally {
+    Pop-Location
+    $env:TAURI_KEY_PASSWORD = $null
+}
+
+if ($exitCode -ne 0) {
+    Write-Host ""
+    Write-Host "[FAIL] A signer generate sikertelen (exit $exitCode)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Tippek:" -ForegroundColor Yellow
+    Write-Host "  1. A @tauri-apps/cli telepitett-e?" -ForegroundColor Yellow
+    Write-Host "     cd apps\desktop; npx @tauri-apps/cli --version"
+    Write-Host ""
+    Write-Host "  2. Probald a --ci flag nelkul (interaktiv modban):" -ForegroundColor Yellow
+    Write-Host "     cd apps\desktop"
+    Write-Host "     npx @tauri-apps/cli signer generate -w ..\..\ops\updater-private.key"
+    Write-Host ""
     exit 1
 }
 
 # ----------------------------------------------------------------------------
-# 3. Publikus kulcs kinyeres
+# 3. Publikus kulcs ellenorzes + kiiras
 # ----------------------------------------------------------------------------
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $keyPassword
-$pubKey = & cargo tauri signer sign --key $privateKeyPath --no-confirm --help 2>&1 |
-    Select-String -Pattern "dW50cnVzdGVkIGNvbW1lbnQ" | Select-Object -First 1
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $null
-
-# Alternativa: a publikus kulcs a privat kulcs fajl melle, `<name>.pub` neven
-$pubKeyPath = "$privateKeyPath.pub"
-if (Test-Path $pubKeyPath) {
-    $pubKeyContent = Get-Content $pubKeyPath -Raw
-    Write-Host ""
-    Write-Host "========================================================================" -ForegroundColor Cyan
-    Write-Host "Publikus kulcs tartalma ($pubKeyPath):" -ForegroundColor Cyan
-    Write-Host "========================================================================" -ForegroundColor Cyan
-    Write-Host $pubKeyContent
-    Write-Host ""
-    Write-Host "Kovetkezo lepes - apps/desktop/src-tauri/tauri.conf.json:" -ForegroundColor Cyan
-    Write-Host "  Keresd a 'UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT' stringet,"
-    Write-Host "  cserled a fenti pubkey tartalmara (az 'untrusted comment'-es resz"
-    Write-Host "  MINDEN soraval egyben, soremelesek NELKUL — egy string-be)."
-    Write-Host ""
-} else {
-    Write-Host "[!] A publikus kulcs fajl ($pubKeyPath) nem jott letre." -ForegroundColor Yellow
-    Write-Host "    Futtasd manualisan: cargo tauri signer sign --help"
+if (-not (Test-Path $pubKeyPath)) {
+    Write-Host "[FAIL] A publikus kulcs fajl ($pubKeyPath) nem jott letre." -ForegroundColor Red
+    exit 1
 }
 
-# ----------------------------------------------------------------------------
-# 4. Emlekezteto
-# ----------------------------------------------------------------------------
-Write-Host "========================================================================" -ForegroundColor Yellow
-Write-Host "BIZTONSAGI JEGYZETEK" -ForegroundColor Yellow
-Write-Host "========================================================================" -ForegroundColor Yellow
+$pubKeyContent = Get-Content $pubKeyPath -Raw
+
 Write-Host ""
+Write-Host "========================================================================" -ForegroundColor Green
+Write-Host "GENERALAS SIKERES" -ForegroundColor Green
+Write-Host "========================================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "Privat kulcs: $privateKeyPath" -ForegroundColor Gray
+Write-Host "Publikus kulcs: $pubKeyPath" -ForegroundColor Gray
+Write-Host ""
+Write-Host "========================================================================" -ForegroundColor Cyan
+Write-Host "PUBLIKUS KULCS (kuld el Claude-nak, a tauri.conf.json-be keruI):" -ForegroundColor Cyan
+Write-Host "========================================================================" -ForegroundColor Cyan
+Write-Host $pubKeyContent
+Write-Host "========================================================================" -ForegroundColor Cyan
+
+Write-Host ""
+Write-Host "BIZTONSAGI JEGYZETEK:" -ForegroundColor Yellow
 Write-Host "  - A privat kulcs ($privateKeyPath) SOSEM kerulhet a repoba."
-Write-Host "    A .gitignore mar tartalmazza az ops/*.key patterst."
-Write-Host ""
-Write-Host "  - A privat kulcs JELSZAVA: $keyPassword"
+Write-Host "    (ops/*.key pattern mar gitignore-olt)"
+Write-Host "  - Privat kulcs JELSZAVA: $keyPassword"
 Write-Host "    Cselerd le production elott! Tarold biztonsagos helyen (pl. 1Password)."
-Write-Host ""
-Write-Host "  - Build-kor a TAURI_SIGNING_PRIVATE_KEY_PASSWORD env-valtozot kell"
-Write-Host "    beallitani, hogy a bundler hasznalja a privat kulcsot:"
-Write-Host ""
-Write-Host '      $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content ops\updater-private.key -Raw' -ForegroundColor Gray
-Write-Host "      `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = `"$keyPassword`"" -ForegroundColor Gray
-Write-Host '      npm run desktop:build' -ForegroundColor Gray
-Write-Host ""
-Write-Host "  - A MANIFEST-et kezzel epited, pl:"
-Write-Host ""
-Write-Host '      {'
-Write-Host '        "version": "0.2.0",'
-Write-Host '        "notes": "...",'
-Write-Host '        "pub_date": "2026-05-15T12:00:00Z",'
-Write-Host '        "platforms": {'
-Write-Host '          "windows-x86_64": {'
-Write-Host '            "signature": "<tauri signer sign kimenete>",'
-Write-Host '            "url": "https://updates.kartoteka.hu/windows-x86_64/0.2.0"'
-Write-Host '          }'
-Write-Host '        }'
-Write-Host '      }'
+Write-Host "  - Release build-kor az env-valtozok kellenek:"
+Write-Host "      `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $privateKeyPath -Raw"
+Write-Host "      `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = `"$keyPassword`""

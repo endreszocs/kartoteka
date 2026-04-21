@@ -27,9 +27,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5RjVEREE0MjgyNDVDNzgKUldSNFhDUW9wTjMxZWJHM091RWZteWNOell3aTBERWhCK0czaWxNM050NUYrODYvMW1vT3hqa0cK",
       "endpoints": [
-        "https://updates.kartoteka.hu/{{target}}/{{arch}}/{{current_version}}"
+        "https://bjytiawckbibqmtlezfl.supabase.co/storage/v1/object/public/updater/{{target}}-{{arch}}/latest.json"
       ]
     }
   },
