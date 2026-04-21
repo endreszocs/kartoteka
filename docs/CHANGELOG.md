@@ -23,6 +23,68 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M3.2: Aláírt MSI + NSIS bundle (self-signed code-sign cert)
+
+<!-- key: 2026-04-23-m3-2-self-signed -->
+<!-- category: security -->
+<!-- version: 1.15.15 -->
+<!-- targets: fejlesztő -->
+
+### 🔏 A Windows installer bundle-k most már **digitálisan aláírtak**
+
+**A webes működést nem érinti.** Az M3.1-es bundle-k még `Unknown publisher`-rel kerültek ki. Az M3.2 óta mindent aláír a Tauri bundler (`signtool.exe`) egy self-signed code-sign cert-tel, és a timestamp is rákerül (DigiCert TSA) — így az aláírás **a cert lejárta után is érvényes marad**.
+
+**Mit csináltunk:**
+
+1. **`ops/code-sign-setup.ps1` futtatása** (Endre egyszer):
+   - Self-signed cert generálása: RSA-2048, SHA-256, 3 év érvényesség
+   - Subject: `CN=EREK Kartoteka Developer, O=Baratosi Reformatus Egyhazkozseg, C=RO`
+   - PFX export: `ops/kartoteka-codesign.pfx` (gitignore-olt)
+   - Registrálás mindhárom cert-store-ba: `CurrentUser\My` (a privát-kulcshoz), `TrustedPublisher` (SmartScreen belső-gép), `Root` (Get-AuthenticodeSignature `Valid`)
+   - Thumbprint: `F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3`
+
+2. **`tauri.conf.json` bővítés** — `bundle.windows` szekció:
+   ```json
+   {
+     "certificateThumbprint": "F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3",
+     "digestAlgorithm": "sha256",
+     "timestampUrl": "http://timestamp.digicert.com"
+   }
+   ```
+
+3. **Újra build** (inkrementális, pár perc):
+   ```bash
+   npm run desktop:build
+   ```
+   A Tauri `signtool.exe` automatikusan aláírt:
+   - `Kartotéka_0.1.0_x64_en-US.msi` (5.34 MB)
+   - `Kartotéka_0.1.0_x64-setup.exe` (3.89 MB)
+   - 3 NSIS plugin-DLL (System, nsDialogs, nsis_tauri_utils)
+   - Timestamp: DigiCert TSA (érvényes 2036-ig)
+
+**Verify (`Get-AuthenticodeSignature`):**
+- ✅ Signer: `CN=EREK Kartoteka Developer, …`
+- ✅ Thumbprint match
+- ✅ TimeStamper: `DigiCert SHA256 RSA4096 Timestamp Responder 2025 1`
+- ✅ Status: **Valid** (miután a cert a Trusted Root-ba került)
+
+**⚠ Fontos tisztázás — a lelkészi gépekre mi vonatkozik:**
+
+A Windows **SmartScreen** a **globális reputation-szolgáltatást** kérdezi — nem a helyi trust store-t. Egy self-signed cert-nek **nincs reputation**-je → SmartScreen warning (`Unknown publisher`) a **lelkész gépén** **továbbra is megjelenik**.
+
+| Cert típus | Fejlesztői gép (helyi) | Lelkészi gép (reputation) | Cost |
+|---|---|---|---|
+| Self-signed (M3.2) | ✅ Valid | ⚠ Unknown publisher | ingyenes |
+| **Azure Trusted Signing** (M5) | ✅ Valid | ✅ **Nincs warning** | $9.99/hó |
+| DigiCert EV | ✅ Valid | ✅ Instant-reputation | ~$300/év |
+| SignPath (OSS) | ✅ Valid | ✅ (OSS projektre ingyenes) | ingyenes OSS-re |
+
+Most self-signed-del maradunk — **MVP-alpha-bétára** (Endre és pár tesztelő) elég. Az M5 előtt átlépünk Azure Trusted Signing-re, mielőtt az egész EREK-elnökségnek szétosztjuk.
+
+**Következő (M3.3)**: eszköz-bind — a kliens első indításkor regisztrálja magát a Supabase `user_devices` táblába (device_fingerprint + Ed25519 public_key). Ez az alap a jövőbeli „admin eszköz-revoke" funkcióhoz.
+
+---
+
 ## [2026-04-23] — M3.1: Első Kartotéka MSI + NSIS installer bundle
 
 <!-- key: 2026-04-23-m3-1-first-bundle -->

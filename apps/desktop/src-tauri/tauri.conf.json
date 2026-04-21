@@ -38,6 +38,11 @@
     "copyright": "© Barátosi Református Egyházközség / EREK — 2026",
     "publisher": "EREK Kartotéka",
     "shortDescription": "Egyházi adminisztrációs rendszer",
-    "longDescription": "A Kartotéka egy egyházi adminisztrációs rendszer, amely lehetővé teszi a gyülekezetek tagnyilvántartásának, pénzügyi ügyintézésének, anyakönyvvezetésének és további funkcióinak egységes kezelését."
+    "longDescription": "A Kartotéka egy egyházi adminisztrációs rendszer, amely lehetővé teszi a gyülekezetek tagnyilvántartásának, pénzügyi ügyintézésének, anyakönyvvezetésének és további funkcióinak egységes kezelését.",
+    "windows": {
+      "certificateThumbprint": "F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    }
   }
 }
