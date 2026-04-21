@@ -44,3 +44,10 @@ export * from './components/separator'
 export * from './components/sheet'
 export * from './components/tabs'
 export * from './components/textarea'
+
+// ─────────────────────────────────────────────────────────────────────────
+// Layout — platform-agnosztikus dashboard-shell (sidebar + header)
+// ─────────────────────────────────────────────────────────────────────────
+export * from './layout/kartoteka-sidebar'
+export * from './layout/kartoteka-header'
+export * from './layout/kartoteka-shell'

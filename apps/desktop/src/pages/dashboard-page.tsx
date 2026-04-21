@@ -13,6 +13,8 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { DesktopShell } from '../lib/shell/desktop-shell'
+
 import {
   checkDeviceRevokeState,
   ensureDeviceRegistered,
@@ -68,7 +70,6 @@ import {
  */
 export function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
-  const [signingOut, setSigningOut] = useState(false)
 
   const [dbAvailable, setDbAvailable] = useState<boolean | null>(null)
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null)
@@ -596,25 +597,16 @@ export function DashboardPage() {
     }
   }, [updateCheck])
 
-  async function handleSignOut() {
-    setSigningOut(true)
-    try {
-      const supabase = getDesktopSupabase()
-      await supabase.auth.signOut()
-      navigate('/login', { replace: true })
-    } finally {
-      setSigningOut(false)
-    }
-  }
-
   return (
-    <main className="min-h-screen bg-background p-6">
-      <div className="mx-auto max-w-4xl space-y-4">
+    <DesktopShell>
+      <div className="mx-auto max-w-5xl space-y-4">
         <Card>
           <CardHeader>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <CardTitle>Üdvözöllek a Kartotékában!</CardTitle>
+                <CardTitle className="font-heading text-2xl">
+                  Üdvözöllek a Kartotékában!
+                </CardTitle>
                 <CardDescription>
                   {user ? `Bejelentkezve: ${user.email}` : 'Felhasználó betöltése…'}
                 </CardDescription>
@@ -624,14 +616,11 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              M1.5–M2.6 fejlesztői verzió. Pull + push sync konfliktus-kezeléssel,
-              lokális SQLCipher tárolással, OS-szintű kulcs-kezeléssel.
+              Fejlesztői dashboard (M2.4–M7): pull + push sync, konfliktus-kezelés,
+              SQLCipher titkosítás, eszköz-regisztráció, updater, gyülekezet és
+              tag-szinkron. A UI a közös `@kartoteka/ui` design-rendszert használja,
+              ugyanazzal a megjelenéssel, mint a webes kliens.
             </p>
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={handleSignOut} disabled={signingOut}>
-                {signingOut ? 'Kijelentkezés…' : 'Kijelentkezés'}
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
@@ -1555,7 +1544,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-    </main>
+    </DesktopShell>
   )
 }
 
