@@ -253,8 +253,69 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v3 migráció (profiles_local revision/updated_at) sikertelen: {e}"))?;
     }
 
+    if current < 4 {
+        // M6.2 — congregations_local: a Supabase `congregations` tábla lokális tükörképe.
+        // A lelkészek a saját gyülekezet-adataikat offline is látják (név, IBAN, járulék,
+        // elérhetőség, logó-URL stb.), és a későbbi fázisokban módosíthatják is.
+        //
+        // Oszlop-választás elve: a desktop UI által **megjelenített** és
+        // **szerkeszthető** mezők kerülnek be. ROI-specifikus (TVA, e-factura)
+        // és címhierarchia-join (adrlocality_id, adrstreet_id) mezők KIHAGYVA
+        // — ezek későbbi fázisban kerülhetnek be, ha az offline használat igényli.
+        //
+        // Típusok:
+        //   - uuid → TEXT (SQLite-ban nincs uuid típus)
+        //   - numeric → REAL (SQLite)
+        //   - boolean → INTEGER (0/1)
+        //   - timestamptz → TEXT (ISO 8601 string, ahogy a Supabase adja)
+        //
+        // A Supabase-oldali M6.1 migráció (2026-04-23-m6-1-congregations-revision.sql)
+        // hozzáadja a `revision` + `updated_at` oszlopokat a congregations táblához
+        // és a BEFORE UPDATE triggert — enélkül a conditional-update konfliktus-
+        // kezelés nem működik.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS congregations_local (
+                id                    TEXT PRIMARY KEY,       -- uuid
+                name                  TEXT NOT NULL,
+                nev_hu                TEXT,
+                nev_ro                TEXT,
+                nev_en                TEXT,
+                district              TEXT,
+                egyhazmegye           TEXT,
+                diocese_id            TEXT,                   -- uuid
+                adoszam               TEXT,
+                cim                   TEXT,
+                email                 TEXT,
+                telefon               TEXT,
+                web                   TEXT,
+                varos                 TEXT,
+                megye                 TEXT,
+                iranyitoszam          TEXT,
+                iban                  TEXT,
+                bank                  TEXT,
+                eves_jarulek          REAL,
+                jarulek_kedvezmenyes  REAL,
+                jarulek_hatarid       TEXT,
+                cimer_url             TEXT,
+                public_slug           TEXT,
+                public_site_enabled   INTEGER NOT NULL DEFAULT 0,  -- 0/1 boolean
+                revision              INTEGER NOT NULL DEFAULT 0,
+                updated_at            TEXT,
+                synced_at             TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_congregations_local_updated_at
+                ON congregations_local(updated_at);
+            PRAGMA user_version = 4;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v4 migráció (congregations_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 4 { ... PRAGMA user_version = 4; }
+    // if current < 5 { ... PRAGMA user_version = 5; }
 
     Ok(())
 }

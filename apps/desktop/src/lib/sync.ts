@@ -19,10 +19,15 @@
  *   - Konfliktus esetén automatikus re-pull + `conflict: true` visszajelzés
  *   - Retry-helper: getFailedOutboxRows / retryOutboxRow / dismissOutboxRow
  *
- * ## M2.7+ (még hátralevő)
- *   - Több domain-tábla (members, finance, …)
- *   - Delta-sync (updated_at > last_pull)
- *   - User-jelszó-alapú derived kulcs
+ * ## M6 (congregations pull-sync, első domain-tábla)
+ *   - pullOwnCongregation(userId)      — Supabase → congregations_local (a user saját gyülekezete)
+ *   - getLocalOwnCongregation(userId)  — offline olvasás
+ *   - getLastPullCongregationIso()     — utolsó sync-idő info
+ *
+ * ## M7+ (még hátralevő)
+ *   - Congregations write-sync (updateOwnCongregation, admin-only)
+ *   - További domain-táblák (members/szemely, finance, liturgia, …)
+ *   - User-jelszó-alapú derived kulcs (defense-in-depth)
  */
 
 import { errorMessage } from './error'
@@ -567,4 +572,268 @@ export async function retryOutboxRow(id: number): Promise<void> {
 /** Végleg törli a failed sort (pl. a user megszavazta, hogy szemétbe). */
 export async function dismissOutboxRow(id: number): Promise<void> {
   await dbExecute(`DELETE FROM outbox WHERE id = ?1`, [id])
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// M6 — CONGREGATIONS PULL-SYNC
+// ═════════════════════════════════════════════════════════════════════════
+// A lelkészek saját gyülekezete a leggyakrabban olvasott adat a profil után.
+// Kezdésként csak PULL (olvasás Supabase-ből lokális cache-be) — az update
+// (IBAN, telefon, járulék-változtatás) admin-privilégium, későbbi fázisban
+// jön. A pull-ciklus logikája megegyezik a profiles mintával: `.maybeSingle()`
+// + ON CONFLICT upsert + LAST_PULL_CONGREGATION_KEY high-water mark.
+//
+// A Supabase-oldali M6.1 migráció (2026-04-23-m6-1-congregations-revision.sql)
+// hozzáadja a congregations.revision és congregations.updated_at oszlopokat,
+// így már ebben a fázisban is készül a mező a jövőbeli conditional-update-re.
+
+/**
+ * A `congregations` és `congregations_local` közös, szinkronizált oszlopai.
+ *
+ * TS-oldali típusok:
+ *   - `public_site_enabled` : SQLite INTEGER (0/1), TS-ben number —
+ *      a UI-ban `row.public_site_enabled === 1` hasonlítással boolean-ná.
+ *   - `eves_jarulek`, `jarulek_kedvezmenyes` : numeric → REAL → number
+ *   - minden uuid oszlop TEXT (string)
+ */
+export interface CongregationLocalRow {
+  id: string
+  name: string
+  nev_hu: string | null
+  nev_ro: string | null
+  nev_en: string | null
+  district: string | null
+  egyhazmegye: string | null
+  diocese_id: string | null
+  adoszam: string | null
+  cim: string | null
+  email: string | null
+  telefon: string | null
+  web: string | null
+  varos: string | null
+  megye: string | null
+  iranyitoszam: string | null
+  iban: string | null
+  bank: string | null
+  eves_jarulek: number | null
+  jarulek_kedvezmenyes: number | null
+  jarulek_hatarid: string | null
+  cimer_url: string | null
+  public_slug: string | null
+  /** SQLite INTEGER (0/1). UI-ban `=== 1`-gyel boolean-ra konvertálandó. */
+  public_site_enabled: number
+  revision: number
+  updated_at: string | null
+  synced_at: string
+}
+
+const LAST_PULL_CONGREGATION_KEY = 'sync:congregations:last_pull'
+
+/**
+ * Letölti a bejelentkezett user saját gyülekezetét a Supabase-ből a lokális
+ * `congregations_local` cache-be.
+ *
+ * Lépések:
+ *   1. A user `congregation_id`-jét lokálisan olvassuk (gyors), és ha nincs
+ *      lokális profil még, akkor Supabase-ből kérjük le.
+ *   2. Ha a user-nek nincs gyülekezete (pl. nem lelkész, vagy még nincs
+ *      hozzárendelve), visszatérünk `pulledRows: 0`-val.
+ *   3. A `congregations` táblából a teljes sor jön vissza (az RLS szűr, hogy
+ *      csak a saját gyülekezetet kaphatja meg a user — később bővítendő
+ *      többgyülekezet-hozzáféréses esetekre).
+ *   4. ON CONFLICT upsert a lokális `congregations_local`-be.
+ *
+ * Online-only függvény — hívás előtt nem ellenőrzi az `isOnline()`-t, mert
+ * a híváslánc (pl. `connectionHealth`) már megteheti. Hiba esetén dobál.
+ */
+export async function pullOwnCongregation(userId: string): Promise<PullResult> {
+  const supabase = getDesktopSupabase()
+
+  // 1. A user gyülekezet-id-je — előbb lokálisan (már cache-elt profil)
+  let congregationId: string | null = null
+  const localProfile = await getLocalOwnProfile(userId)
+  if (localProfile?.congregation_id) {
+    congregationId = localProfile.congregation_id
+  } else {
+    // Ha nincs lokális profil vagy nincs congregation_id, kérdezzük meg a szervert.
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('congregation_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileError) {
+      throw new Error(`Supabase profile-lookup hiba: ${profileError.message}`)
+    }
+    congregationId = profile?.congregation_id ?? null
+  }
+
+  if (!congregationId) {
+    // A user-nek nincs gyülekezete — ez érvényes állapot (pl. super-admin).
+    const now = new Date().toISOString()
+    await setSetting(LAST_PULL_CONGREGATION_KEY, now)
+    return { pulledRows: 0, lastPullIso: now }
+  }
+
+  // 2. A gyülekezet-sor letöltése
+  const { data, error } = await supabase
+    .from('congregations')
+    .select(
+      'id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id, ' +
+        'adoszam, cim, email, telefon, web, varos, megye, iranyitoszam, ' +
+        'iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, ' +
+        'cimer_url, public_slug, public_site_enabled, revision, updated_at',
+    )
+    .eq('id', congregationId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Supabase pullOwnCongregation hiba: ${error.message}`)
+  }
+  if (!data) {
+    // A congregation_id mutat valahova, de az RLS / törlés miatt nem jön sor.
+    return { pulledRows: 0, lastPullIso: new Date().toISOString() }
+  }
+
+  // 3. Upsert a lokális cache-be.
+  //
+  // A Supabase `.select()` string itt hosszabb, mint a Supabase type-inference
+  // átláthatósági küszöbe, ezért a `data` típus `GenericStringError` lehet
+  // TS-ben, hiába sikeres a hívás futás közben. Egyszeri `unknown`-on át cast
+  // kell — a mezőknek a valódi Postgres-oldali típusokkal kell egyeznie.
+  const row = data as unknown as {
+    id: string
+    name: string
+    nev_hu: string | null
+    nev_ro: string | null
+    nev_en: string | null
+    district: string | null
+    egyhazmegye: string | null
+    diocese_id: string | null
+    adoszam: string | null
+    cim: string | null
+    email: string | null
+    telefon: string | null
+    web: string | null
+    varos: string | null
+    megye: string | null
+    iranyitoszam: string | null
+    iban: string | null
+    bank: string | null
+    eves_jarulek: number | null
+    jarulek_kedvezmenyes: number | null
+    jarulek_hatarid: string | null
+    cimer_url: string | null
+    public_slug: string | null
+    public_site_enabled: boolean | null
+    // Ha az M6.1 migráció még nem futott, ezek hiányoznak
+    revision?: number
+    updated_at?: string
+  }
+
+  await dbExecute(
+    `INSERT INTO congregations_local
+       (id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id,
+        adoszam, cim, email, telefon, web, varos, megye, iranyitoszam,
+        iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid,
+        cimer_url, public_slug, public_site_enabled,
+        revision, updated_at, synced_at)
+     VALUES
+       (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+        ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+        ?17, ?18, ?19, ?20, ?21,
+        ?22, ?23, ?24,
+        ?25, ?26, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       nev_hu = excluded.nev_hu,
+       nev_ro = excluded.nev_ro,
+       nev_en = excluded.nev_en,
+       district = excluded.district,
+       egyhazmegye = excluded.egyhazmegye,
+       diocese_id = excluded.diocese_id,
+       adoszam = excluded.adoszam,
+       cim = excluded.cim,
+       email = excluded.email,
+       telefon = excluded.telefon,
+       web = excluded.web,
+       varos = excluded.varos,
+       megye = excluded.megye,
+       iranyitoszam = excluded.iranyitoszam,
+       iban = excluded.iban,
+       bank = excluded.bank,
+       eves_jarulek = excluded.eves_jarulek,
+       jarulek_kedvezmenyes = excluded.jarulek_kedvezmenyes,
+       jarulek_hatarid = excluded.jarulek_hatarid,
+       cimer_url = excluded.cimer_url,
+       public_slug = excluded.public_slug,
+       public_site_enabled = excluded.public_site_enabled,
+       revision = excluded.revision,
+       updated_at = excluded.updated_at,
+       synced_at = excluded.synced_at`,
+    [
+      row.id,
+      row.name,
+      row.nev_hu,
+      row.nev_ro,
+      row.nev_en,
+      row.district,
+      row.egyhazmegye,
+      row.diocese_id,
+      row.adoszam,
+      row.cim,
+      row.email,
+      row.telefon,
+      row.web,
+      row.varos,
+      row.megye,
+      row.iranyitoszam,
+      row.iban,
+      row.bank,
+      row.eves_jarulek,
+      row.jarulek_kedvezmenyes,
+      row.jarulek_hatarid,
+      row.cimer_url,
+      row.public_slug,
+      // boolean → INTEGER (0/1)
+      row.public_site_enabled ? 1 : 0,
+      // Fallback, ha az M6.1 migráció még nem futott
+      row.revision ?? 0,
+      row.updated_at ?? null,
+    ],
+  )
+
+  const now = new Date().toISOString()
+  await setSetting(LAST_PULL_CONGREGATION_KEY, now)
+  return { pulledRows: 1, lastPullIso: now }
+}
+
+/**
+ * Offline olvasás: a user saját gyülekezet-sorát a lokális cache-ből.
+ *
+ * Először a profile-ból olvasa a congregation_id-t (lokális), majd a
+ * congregations_local-ból a sort. Ha a user profil nincs cache-elve vagy
+ * nincs congregation_id-je, null-t ad.
+ */
+export async function getLocalOwnCongregation(
+  userId: string,
+): Promise<CongregationLocalRow | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+
+  const rows = await dbSelect<CongregationLocalRow>(
+    `SELECT id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id,
+            adoszam, cim, email, telefon, web, varos, megye, iranyitoszam,
+            iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid,
+            cimer_url, public_slug, public_site_enabled,
+            revision, updated_at, synced_at
+       FROM congregations_local
+      WHERE id = ?1`,
+    [profile.congregation_id],
+  )
+  return rows[0] ?? null
+}
+
+/** Utolsó sikeres congregations-pull ISO-ideje (settings). */
+export async function getLastPullCongregationIso(): Promise<string | null> {
+  return getSetting(LAST_PULL_CONGREGATION_KEY)
 }

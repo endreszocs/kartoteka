@@ -23,6 +23,64 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M6: Gyülekezet-adatok offline elérhetősége (congregations pull-sync)
+
+<!-- key: 2026-04-23-m6-congregations-sync -->
+<!-- category: feature -->
+<!-- version: desktop M6 (SQL migráció + kliens kód, release nélkül) -->
+<!-- targets: fejlesztő, lelkészek (közvetve — a későbbi release-nél látják) -->
+
+### 📖 A Tauri-kliens most offline is megjeleníti a gyülekezet-adatokat
+
+Az M2.4–M2.6 fázisban a saját profil szinkronizáció működött (olvasás + írás + konfliktus-kezelés). Az M6-tal ez a minta kiterjed az **első domain-táblára**: a gyülekezetekre. A lelkész most a desktop app-ban látja a **saját gyülekezete** minden releváns adatát **internet nélkül is**.
+
+**Mi jelenik meg:**
+- Név (kánoni + magyar + román), egyházkerület, egyházmegye, adószám
+- Elérhetőség: cím, város, megye, irányítószám, e-mail, telefon, weboldal
+- Pénzügyi: IBAN, bank, éves járulék, kedvezményes járulék, járulék-határidő
+- Publikus oldal: slug (`/gy/...`), aktív-e
+- Címer/logó (ha van `cimer_url`)
+- Sync-metaadatok: `revision`, `updated_at`, `synced_at`
+
+### Implementáció — két oldal
+
+**1. Supabase backend** (`migration-docs/sql/2026-04-23-m6-1-congregations-revision.sql`):
+- `ALTER TABLE congregations ADD COLUMN revision bigint NOT NULL DEFAULT 0`
+- `ALTER TABLE congregations ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now()`
+- `BEFORE UPDATE trigger tg_congregations_bump_revision` — minden UPDATE-nél revision++ és updated_at := now()
+- `idx_congregations_updated_at` index a delta-sync-hez
+- Idempotens SQL (IF NOT EXISTS + DROP TRIGGER IF EXISTS), újrafuttatható
+
+**2. Desktop kliens**:
+- **Rust** (`apps/desktop/src-tauri/src/db.rs`): új v4 migráció → `congregations_local` SQLite tábla 27 oszloppal (uuid→TEXT, numeric→REAL, boolean→INTEGER 0/1, timestamptz→TEXT). SQLCipher-rel titkosítva, mint a többi adat.
+- **TS sync layer** (`apps/desktop/src/lib/sync.ts`):
+  - `CongregationLocalRow` interface (27 mező)
+  - `pullOwnCongregation(userId)` — profiles.congregation_id-n keresztül fetch + ON CONFLICT upsert
+  - `getLocalOwnCongregation(userId)` — offline olvasás
+  - `getLastPullCongregationIso()` — last pull timestamp
+- **UI** (`apps/desktop/src/pages/dashboard-page.tsx`): új „Saját gyülekezet — offline nézet" Card, 4 szekcióra osztva (alapadatok, elérhetőség, pénzügyi, publikus oldal) + logó-előnézet, ha van `cimer_url`.
+
+### Mit NEM tartalmaz ez a fázis (scope)
+
+- **Írás** (update) — az admin-privilégium; későbbi fázisban jön
+- **Több gyülekezet** egy user-hez (dual-role esetek) — egyelőre a `profiles.congregation_id` single-value mező alapján dolgozunk
+- **TVA / e-factura oszlopok** — a komplex ROI-specifikus mezők kimaradnak, mert ezek admin-kezelt adatok
+- **adrlocality_id / adrstreet_id** FK-olt cím-hierarchia — a `cim`/`varos`/`iranyitoszam` string-mezők egyelőre elegendők a desktop UI-n
+
+### Verifikáció
+
+- `npx tsc --noEmit` : 0 hiba
+- `cargo check` : OK (a v4 migráció szintaktikailag érvényes, a teljes `desktop` crate fordul)
+- Az SQL migráció végén futtatható `SELECT`-ek (4a–4f): az oszlopok + trigger + index + sample-sorok egy lépésben ellenőrizhetők a Supabase Studio-ban
+
+### Futtatás
+
+1. **Supabase oldal**: Studio SQL Editor → `2026-04-23-m6-1-congregations-revision.sql` futtatása (1× elég, idempotens)
+2. **Desktop oldal**: a következő `npm run desktop:dev` vagy release-build automatikusan futtatja a v4 migrációt a lokális SQLCipher-en
+3. **Teszt**: Dashboard → „Saját gyülekezet" Card → „Pull gyülekezet" gomb
+
+---
+
 ## [2026-04-23] — v0.2.0: Első publikált Kartotéka release (auto-updater élesben)
 
 <!-- key: 2026-04-23-v0-2-0-first-release -->

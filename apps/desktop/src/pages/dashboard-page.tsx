@@ -42,14 +42,18 @@ import {
   getAllLocalProfiles,
   getFailedOutboxRows,
   getLastPullAllIso,
+  getLastPullCongregationIso,
   getLastPullIso,
+  getLocalOwnCongregation,
   getLocalOwnProfile,
   isOnline,
   processOutbox,
   pullAllProfiles,
+  pullOwnCongregation,
   pullOwnProfile,
   retryOutboxRow,
   updateOwnProfile,
+  type CongregationLocalRow,
   type OutboxRow,
   type ProfileLocalRow,
 } from '../lib/sync'
@@ -72,6 +76,12 @@ export function DashboardPage() {
   const [lastPull, setLastPull] = useState<string | null>(null)
   const [pulling, setPulling] = useState(false)
   const [pullError, setPullError] = useState<string | null>(null)
+
+  // M6 — congregations sync state
+  const [localCongregation, setLocalCongregation] = useState<CongregationLocalRow | null>(null)
+  const [lastPullCongregation, setLastPullCongregation] = useState<string | null>(null)
+  const [pullingCongregation, setPullingCongregation] = useState(false)
+  const [pullCongregationError, setPullCongregationError] = useState<string | null>(null)
 
   const [phoneDraft, setPhoneDraft] = useState('')
   const [nameDraft, setNameDraft] = useState('')
@@ -128,11 +138,12 @@ export function DashboardPage() {
       return
     }
 
-    const [rows, stats, lastIso, lastAllIso, failed, all] = await Promise.all([
+    const [rows, stats, lastIso, lastAllIso, lastCgIso, failed, all] = await Promise.all([
       getAllSettings(),
       getOutboxStats(),
       getLastPullIso(),
       getLastPullAllIso(),
+      getLastPullCongregationIso(),
       getFailedOutboxRows(),
       getAllLocalProfiles(),
     ])
@@ -140,6 +151,7 @@ export function DashboardPage() {
     setOutbox(stats)
     setLastPull(lastIso)
     setLastPullAll(lastAllIso)
+    setLastPullCongregation(lastCgIso)
     setFailedRows(failed)
     setAllProfiles(all)
     setDbAvailable(true)
@@ -185,6 +197,16 @@ export function DashboardPage() {
         setLocalProfile(row)
         setPhoneDraft(row?.phone ?? '')
         setNameDraft(row?.full_name ?? '')
+      })
+      .catch(() => {
+        // csendes
+      })
+
+    // M6 — saját gyülekezet lokális betöltése (ha cache-elve van)
+    getLocalOwnCongregation(user.id)
+      .then((row) => {
+        if (!mounted) return
+        setLocalCongregation(row)
       })
       .catch(() => {
         // csendes
@@ -316,6 +338,24 @@ export function DashboardPage() {
       setPullError(errorMessage(err))
     } finally {
       setPulling(false)
+    }
+  }, [user, refreshLocalDb])
+
+  // M6 — saját gyülekezet pull (Supabase → congregations_local)
+  const handlePullCongregation = useCallback(async () => {
+    if (!user) return
+    setPullingCongregation(true)
+    setPullCongregationError(null)
+    try {
+      const res = await pullOwnCongregation(user.id)
+      setLastPullCongregation(res.lastPullIso)
+      const row = await getLocalOwnCongregation(user.id)
+      setLocalCongregation(row)
+      await refreshLocalDb()
+    } catch (err: unknown) {
+      setPullCongregationError(errorMessage(err))
+    } finally {
+      setPullingCongregation(false)
     }
   }, [user, refreshLocalDb])
 
@@ -595,6 +635,208 @@ export function DashboardPage() {
             ) : (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 Még nincs lokálisan cache-elt profil-sor. Kattints a „Pull profil" gombra.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* — Saját gyülekezet (M6 — első domain-tábla sync) — */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Saját gyülekezet — offline nézet</CardTitle>
+            <CardDescription>
+              Az M6 fázis az első domain-tábla szinkronizáció a profil után.
+              A gyülekezet-adatokat (név, IBAN, járulék, elérhetőség, logó)
+              a kliens Supabase-ből tölti le, és SQLCipher-rel titkosítva
+              eltárolja. Offline is látható. A módosítás admin-privilégium —
+              későbbi fázisban.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">
+                Utolsó pull:{' '}
+                {lastPullCongregation ? (
+                  <span className="font-mono">{lastPullCongregation}</span>
+                ) : (
+                  <em>még nem futott</em>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                onClick={handlePullCongregation}
+                disabled={!user || pullingCongregation}
+              >
+                {pullingCongregation ? 'Pull…' : 'Pull gyülekezet'}
+              </Button>
+            </div>
+
+            {pullCongregationError && (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                Pull hiba: {pullCongregationError}
+              </div>
+            )}
+
+            {localCongregation ? (
+              <div className="space-y-3">
+                {/* Logó, ha van */}
+                {localCongregation.cimer_url && (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-muted/20 p-3">
+                    <img
+                      src={localCongregation.cimer_url}
+                      alt="Gyülekezet címer"
+                      className="h-16 w-16 rounded-md object-contain bg-white"
+                      onError={(e) => {
+                        // Ha a logó-URL nem érhető el (offline, 404), rejtsük el
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                    <div>
+                      <p className="font-heading text-lg text-foreground">
+                        {localCongregation.nev_hu ?? localCongregation.name}
+                      </p>
+                      {localCongregation.nev_ro && localCongregation.nev_ro !== localCongregation.nev_hu && (
+                        <p className="text-xs text-muted-foreground">
+                          {localCongregation.nev_ro}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Alapadatok */}
+                <div className="rounded-md border border-border">
+                  <table className="w-full text-left">
+                    <tbody>
+                      <ProfileRow label="ID" value={localCongregation.id} mono />
+                      <ProfileRow label="Név (kánoni)" value={localCongregation.name} />
+                      <ProfileRow label="Név (magyar)" value={localCongregation.nev_hu} />
+                      <ProfileRow label="Név (román)" value={localCongregation.nev_ro} />
+                      <ProfileRow label="Egyházkerület" value={localCongregation.district} />
+                      <ProfileRow label="Egyházmegye" value={localCongregation.egyhazmegye} />
+                      <ProfileRow label="Adószám" value={localCongregation.adoszam} mono />
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Elérhetőség */}
+                <div>
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">
+                    Elérhetőség
+                  </p>
+                  <div className="rounded-md border border-border">
+                    <table className="w-full text-left">
+                      <tbody>
+                        <ProfileRow label="Cím" value={localCongregation.cim} />
+                        <ProfileRow label="Város" value={localCongregation.varos} />
+                        <ProfileRow label="Megye" value={localCongregation.megye} />
+                        <ProfileRow label="Irányítószám" value={localCongregation.iranyitoszam} mono />
+                        <ProfileRow label="E-mail" value={localCongregation.email} />
+                        <ProfileRow label="Telefon" value={localCongregation.telefon} />
+                        <ProfileRow label="Weboldal" value={localCongregation.web} />
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Pénzügyi */}
+                <div>
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">
+                    Pénzügyi adatok
+                  </p>
+                  <div className="rounded-md border border-border">
+                    <table className="w-full text-left">
+                      <tbody>
+                        <ProfileRow label="IBAN" value={localCongregation.iban} mono />
+                        <ProfileRow label="Bank" value={localCongregation.bank} />
+                        <ProfileRow
+                          label="Éves járulék"
+                          value={
+                            localCongregation.eves_jarulek !== null
+                              ? `${localCongregation.eves_jarulek} RON`
+                              : null
+                          }
+                        />
+                        <ProfileRow
+                          label="Kedvezményes járulék"
+                          value={
+                            localCongregation.jarulek_kedvezmenyes !== null
+                              ? `${localCongregation.jarulek_kedvezmenyes} RON`
+                              : null
+                          }
+                        />
+                        <ProfileRow
+                          label="Járulék-határidő"
+                          value={localCongregation.jarulek_hatarid}
+                          mono
+                        />
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Publikus oldal */}
+                <div>
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">
+                    Publikus gyülekezeti oldal
+                  </p>
+                  <div className="rounded-md border border-border">
+                    <table className="w-full text-left">
+                      <tbody>
+                        <ProfileRow
+                          label="Aktív"
+                          value={
+                            localCongregation.public_site_enabled === 1
+                              ? '✅ Igen'
+                              : '— Nem —'
+                          }
+                        />
+                        <ProfileRow
+                          label="Slug (URL)"
+                          value={
+                            localCongregation.public_slug
+                              ? `/gy/${localCongregation.public_slug}`
+                              : null
+                          }
+                          mono
+                        />
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Sync-metadata */}
+                <div className="rounded-md border border-border bg-muted/20">
+                  <table className="w-full text-left">
+                    <tbody>
+                      <ProfileRow
+                        label="Revision"
+                        value={String(localCongregation.revision)}
+                        mono
+                      />
+                      <ProfileRow
+                        label="Supabase updated_at"
+                        value={localCongregation.updated_at}
+                        mono
+                      />
+                      <ProfileRow
+                        label="Lokálisan synced"
+                        value={localCongregation.synced_at}
+                        mono
+                      />
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Még nincs lokálisan cache-elt gyülekezet-sor. Kattints a
+                „Pull gyülekezet" gombra az első letöltéshez. (Ha a profilodhoz
+                nincs gyülekezet hozzárendelve — pl. super-admin vagy —, ez a
+                mező üresen marad.)
               </p>
             )}
           </CardContent>
