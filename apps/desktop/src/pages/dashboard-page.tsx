@@ -14,6 +14,7 @@ import {
 } from '@kartoteka/ui'
 
 import {
+  checkDeviceRevokeState,
   ensureDeviceRegistered,
   getDeviceInfo,
   getMyDevices,
@@ -198,9 +199,7 @@ export function DashboardPage() {
     }
   }, [user, dbAvailable, refreshLocalDb])
 
-  // M3.3 — eszköz-bind: FÜGGETLEN a lokális DB állapotától (csak a Tauri-invoke
-  // + Supabase-hez fér). Így ha a DB nem nyílik, az eszköz-info + regisztráció
-  // akkor is lefut.
+  // M3.3 — eszköz-bind: FÜGGETLEN a lokális DB állapotától.
   useEffect(() => {
     if (!user) return
     let mounted = true
@@ -232,6 +231,50 @@ export function DashboardPage() {
       mounted = false
     }
   }, [user])
+
+  // M4 — revoke-detektor: ha az admin web-oldalról visszavonja az eszközt,
+  // a kliens észleli, üzenetet mutat és automatikus kijelentkezés.
+  // 30 sec periodikus ellenőrzés + mount-induláskor egy azonnali.
+  useEffect(() => {
+    if (!user) return
+    let mounted = true
+    let interval: number | null = null
+
+    async function check() {
+      const status = await checkDeviceRevokeState(user!.id)
+      if (!mounted || !status.known) return
+
+      if (status.revoked) {
+        const reason = status.reason ?? 'A rendszergazda nem adott meg indokot.'
+        alert(
+          'Ezt az eszközt a rendszergazda visszavonta.\n\n' +
+            'Indok: ' +
+            reason +
+            '\n\nA kliens automatikusan kijelentkezik.',
+        )
+        try {
+          const supabase = getDesktopSupabase()
+          await supabase.auth.signOut()
+        } catch {
+          // csendes: akkor is redirect
+        }
+        navigate('/login', { replace: true })
+      }
+    }
+
+    // Azonnali ellenőrzés (bejelentkezés után rögtön)
+    void check()
+
+    // 30 mp-es periodikus ellenőrzés
+    interval = window.setInterval(() => {
+      void check()
+    }, 30_000)
+
+    return () => {
+      mounted = false
+      if (interval !== null) window.clearInterval(interval)
+    }
+  }, [user, navigate])
 
   async function handlePing() {
     setPinging(true)

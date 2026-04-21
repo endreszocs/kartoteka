@@ -117,6 +117,59 @@ export async function ensureDeviceRegistered(
   }
 }
 
+/**
+ * Gyors lekérdezés: revoked-e a jelenlegi eszköz a Supabase-ben?
+ *
+ * A hardware-fingerprint + user_id alapján keresi a sort. Három kimenet:
+ *   - `{ known: true, revoked: false, ... }` — aktív, minden rendben
+ *   - `{ known: true, revoked: true, reason, revokedAt }` — az admin visszavonta
+ *   - `{ known: false }` — még nincs regisztrálva (pl. az `ensureDeviceRegistered`
+ *     még nem futott), vagy a Supabase nem elérhető
+ *
+ * Ezt a Dashboard periodikusan (pl. 30 sec) hívja. Ha `revoked === true`,
+ * sign-out kell + a user értesítése, hogy a gépet letiltották.
+ */
+export interface DeviceRevokeStatus {
+  known: boolean
+  revoked: boolean
+  reason?: string | null
+  revokedAt?: string | null
+  deviceRowId?: string | null
+}
+
+export async function checkDeviceRevokeState(userId: string): Promise<DeviceRevokeStatus> {
+  try {
+    const info = await getDeviceInfo()
+    const supabase = getDesktopSupabase()
+    const { data, error } = await supabase
+      .from('user_devices')
+      .select('id, revoked, revoke_reason, revoked_at')
+      .eq('user_id', userId)
+      .eq('device_fingerprint', info.fingerprint)
+      .maybeSingle()
+
+    if (error || !data) {
+      return { known: false, revoked: false }
+    }
+
+    const row = data as {
+      id: string
+      revoked: boolean
+      revoke_reason: string | null
+      revoked_at: string | null
+    }
+    return {
+      known: true,
+      revoked: row.revoked,
+      reason: row.revoke_reason,
+      revokedAt: row.revoked_at,
+      deviceRowId: row.id,
+    }
+  } catch {
+    return { known: false, revoked: false }
+  }
+}
+
 /** Lekéri a user összes eszközét a Supabase-ről. */
 export async function getMyDevices(userId: string): Promise<RegisteredDevice[]> {
   const supabase = getDesktopSupabase()

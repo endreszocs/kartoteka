@@ -23,6 +23,65 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M4: Admin revoke + desktop auto-logout
+
+<!-- key: 2026-04-23-m4-admin-revoke -->
+<!-- category: security -->
+<!-- version: 1.15.17 -->
+<!-- targets: fejlesztő, rendszergazda, lelkészek (közvetve) -->
+
+### 🚫 Az admin bármikor visszavonhatja egy eszköz hozzáférését
+
+**A webes oldali admin felület már az M0-ban elkészült** (`devices-licenses-tab.tsx`), csak most vált élessé az M3.3 eszköz-bind bevezetésével. Az M4 a **desktop-oldali detektálást** adja hozzá: ha az admin a web-ről revoke-ol egy eszközt, a kliens 30 másodpercen belül észleli és automatikusan kijelentkezik.
+
+**Webes admin felület** (`/admin/devices-licenses`):
+- Három sub-tab: **Eszközök, Licencek, Napló**
+- **Eszközök** tab:
+  - Táblázat: Felhasználó (email + név), Eszköz (név + fingerprint), Platform, Regisztrálva, Utolsó aktivitás, Státusz, Művelet
+  - **Revoke gomb** → kötelező indoklás → UPDATE `revoked = true, revoked_by, revoked_at, revoke_reason`
+  - Auto-audit: `audit_log.action = 'device.revoke'` → azonnal bekerül a Napló-fülbe
+
+**Desktop kliens — új detektor** (`apps/desktop/src/lib/device.ts`):
+- `checkDeviceRevokeState(userId)` — Supabase SELECT a saját eszközre (user_id + fingerprint)
+- Visszatérés: `{ known, revoked, reason, revokedAt, deviceRowId }`
+- Hibatűrő: ha a Supabase nem elérhető, `known: false` — a kliens nem jelentkezik ki tévedésből
+
+**Dashboard integráció**:
+- Új useEffect login után: **azonnali** ellenőrzés + **30 másodperces periodikus poll**
+- Ha `revoked === true`:
+  1. `alert(...)` a user-nek — a revoke indoklása kiírva
+  2. `supabase.auth.signOut()`
+  3. `navigate('/login', { replace: true })`
+
+**Biztonsági modell:**
+- Az admin revoke-ot nem tudja bypass-olni a kliens (RLS + server-oldali check)
+- A desktop-oldali polling csak **UX-javítás** — a user egyébként is sign-out-ra kényszerül, amint a Supabase auth-session-je elévül
+- A revoke **audit-trail**-elt: `audit_log` táblába kerül `action='device.revoke'` + metadata (reason)
+
+**Kipróbálási forgatókönyv:**
+1. Desktop: `npm run desktop:dev` → login → „Ez az eszköz" kártyán látszik, hogy aktív
+2. Böngésző: `/admin` → Eszközök tab → saját eszköz → Revoke → indoklás („teszt")
+3. Desktop: 30 mp-en belül **alert** jelenik meg: „Ezt az eszközt a rendszergazda visszavonta. Indok: teszt. A kliens automatikusan kijelentkezik."
+4. Az alert után: login-oldalra redirect
+5. Ha újra bejelentkezne, a Dashboard azonnal detektálja a revoke-ot és megint kidobja
+6. Admin a web-en **Restore** (ha majd hozzáadjuk — most manual UPDATE a Studio-ban: `UPDATE user_devices SET revoked = false WHERE id = '…'`)
+
+**Mi nem része az M4-nek (későbbi):**
+- **Soft-restore gomb** az admin UI-n (most csak revoke van)
+- **Tömeges revoke**: az összes user eszköze egy lépésben (pl. ha a user maga is revokolódott)
+- **Email-értesítés a user-nek** a revoke-ról (a user már látja az alert-et, de email is jó lenne)
+- **Gépen-aktív revoke**: jelenleg 30 sec polling a leggyorsabb. Supabase Realtime subscription-nel (`postgres_changes`) pillanatnyi lehetne — későbbi optimalizáció
+- **Eszköz-átnevezés** (device_name frissítés) — szép UX, de nem biztonsági
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build`: 516 kB JS (+1 kB polling glue), 57 kB CSS, 3.40 s
+- Web-oldal nem változott (az M0 óta már tesztelt)
+
+**Ezzel az M4 teljes**. A teljes szakértő-ajánlás V4 szinte teljes — a hátralevő M5 (auto-updater), M6 (béta-tesztelés) már üzemeltetési fázisok.
+
+---
+
 ## [2026-04-23] — M3.3: Eszköz-bind — Ed25519 keypair + user_devices regisztráció
 
 <!-- key: 2026-04-23-m3-3-device-bind -->
