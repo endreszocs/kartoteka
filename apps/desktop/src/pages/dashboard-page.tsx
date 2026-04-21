@@ -600,7 +600,7 @@ export function DashboardPage() {
   return (
     <DesktopShell>
       <div className="mx-auto max-w-5xl space-y-4">
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -625,7 +625,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Saját profil + szerkesztés (M2.4 + M2.5 + M2.6) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Saját profil — offline-first</CardTitle>
             <CardDescription>
@@ -730,7 +730,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Saját gyülekezet (M6 — első domain-tábla sync) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Saját gyülekezet — offline nézet</CardTitle>
             <CardDescription>
@@ -932,7 +932,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Gyülekezet tagjai (M7 — szemely sync) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Gyülekezet tagjai — offline lista</CardTitle>
             <CardDescription>
@@ -1116,7 +1116,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Minden profil (M2.7 delta-sync demo) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Összes profil — delta-sync</CardTitle>
             <CardDescription>
@@ -1206,7 +1206,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Outbox + konfliktusok (M2.5 + M2.6) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Outbox — offline írások + konfliktusok</CardTitle>
             <CardDescription>
@@ -1292,7 +1292,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Frissítés (M5) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Frissítés</CardTitle>
             <CardDescription>
@@ -1357,7 +1357,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Eszköz-bind (M3.3) — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Ez az eszköz</CardTitle>
             <CardDescription>
@@ -1451,7 +1451,7 @@ export function DashboardPage() {
         </Card>
 
         {/* — Lokális adatbázis — */}
-        <Card>
+        <Card className="card-raised border-0">
           <CardHeader>
             <CardTitle>Lokális adatbázis</CardTitle>
             <CardDescription>
