@@ -23,6 +23,73 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.6: Konfliktus-kezelés (revision + updated_at)
+
+<!-- key: 2026-04-23-m2-6-conflict -->
+<!-- category: feature -->
+<!-- version: 1.15.12 -->
+<!-- targets: fejlesztő, lelkészek (közvetve) -->
+
+### 🔀 A profil-szerkesztés most már **konfliktusbiztos** — ugyanazt a sort két eszközről nem lehet véletlenül felülírni
+
+**A webes működést nem érinti közvetlenül**, de ⚠️ **egy új Supabase SQL-migrációt kell futtatni**.
+
+**⚠ KÉZI LÉPÉS ENDRÉNEK**: Supabase Studio SQL Editor-ban futtasd le az alábbi fájlt:
+
+```
+migration-docs/sql/2026-04-23-m2-6-profiles-revision.sql
+```
+
+Ez hozzáadja a `profiles`-hoz a `revision bigint` + `updated_at timestamptz` oszlopokat + egy `BEFORE UPDATE trigger`-t, ami automatikusan inkrementálja a revision-t minden íráskor.
+
+**Mit csinál a konfliktus-kezelés:**
+
+1. A kliens minden mentésnél **feljegyzi** a saját cache-ben lévő `revision`-t (pl. 5).
+2. A Supabase UPDATE egy **conditional WHERE** záradékkal megy: `WHERE id = auth.uid() AND revision = 5`.
+3. Ha a szerver-oldali sor időközben valaki más által módosítódott (pl. webes felületről), a revision már 6. → a WHERE nem matchel → **0 sor frissül**.
+4. A kliens ezt érzékeli, és:
+   - **Online**: re-pull-olja a sort (a webes változatot) + figyelmezteti a user-t: „A szerveren időközben megváltozott, nézd át a mezőket"
+   - **Offline** (outbox): a sor `failed` marad `last_error='conflict: a szerver-oldali revision eltér'`-rel, a user retry-olhatja vagy elvetheti
+
+**Új UI elemek a Dashboard-on:**
+- A profil-táblában most látszik a `revision` + `updated_at`
+- Konfliktus-banner: ⚠ amber-színű figyelmeztetés a form alatt
+- **„Hibás / konfliktusos sorok" tábla** az Outbox kártyában — minden failed sorhoz „Újrapróba" és „Elvetés" gomb
+
+**Új TS API** (`apps/desktop/src/lib/sync.ts`):
+- `updateOwnProfile` most `{ queuedToOutbox, conflict, newRevision? }`-t ad vissza
+- `processOutbox` visszaadja a `conflicts` számot is
+- Új exportok: `getFailedOutboxRows()`, `retryOutboxRow(id)`, `dismissOutboxRow(id)`
+- **Outbox payload új formája**: `{ patch, expected_revision }` (legacy-kompatibilis: ha a payload csak patch, unconditional update megy)
+
+**Új Rust v3 migráció** (`apps/desktop/src-tauri/src/db.rs`):
+```sql
+ALTER TABLE profiles_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles_local ADD COLUMN updated_at TEXT;
+PRAGMA user_version = 3;
+```
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 32 s (v3 migráció új ALTER-ek, minden más cache-elt)
+- ✅ `npm run desktop:build`: 505 kB JS, 57 kB CSS, 3.18 s
+
+**Kipróbálás (miután az SQL migráció lefutott):**
+1. `npm run desktop:dev` → login → Pull profil → a „Revision: 0" látható
+2. Módosítsd a telefont → Mentés → „új revision: 1" üzenet
+3. **Konfliktus szimulálás**: Supabase Studio-ban manuálisan UPDATE-eld a sort (pl. `SET phone = 'valami'`). Vagy a webes felületen módosítsd.
+4. Most a desktop-on próbáld menteni az új értéket → ⚠ amber-banner: „A szerveren időközben megváltozott…"
+5. A lokális cache frissült a szerver-változatra, újra mentheted ha akarod.
+
+**Mit nem csináltunk még (M2.7+):**
+- Delta-sync (`updated_at > last_pull`) — az infrastruktúra most már kész hozzá, csak a kliens-oldali query kell hozzá
+- Több domain-tábla (members, finance, anyakonyv stb.) — minden egyes esetben egy hasonló SQL-migráció ajánlott (revision + updated_at + trigger), de azok külön-külön jönnek
+- Kimerítő retry-policy (exponential backoff) — most 1 retry-gomb van a failed sorokon
+
+**Következő (M2.7)**: fázis-záró csomag — több domain-tábla (pl. a `presbiter`, ami már készen van a séma-oldaltól). Vagy ha Endre inkább a M3-ra akar ugrani (updater + code-signing), azt is mérlegelhetjük.
+
+---
+
 ## [2026-04-23] — M2.5: Push-sync — offline írás + outbox drain (saját profil)
 
 <!-- key: 2026-04-23-m2-5-outbox-push -->

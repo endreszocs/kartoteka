@@ -22,20 +22,21 @@ import {
   type SettingRow,
 } from '../lib/local-db'
 import {
+  dismissOutboxRow,
+  getFailedOutboxRows,
   getLastPullIso,
   getLocalOwnProfile,
   isOnline,
   processOutbox,
   pullOwnProfile,
+  retryOutboxRow,
   updateOwnProfile,
+  type OutboxRow,
   type ProfileLocalRow,
 } from '../lib/sync'
 
 /**
- * Dashboard — M2.5-tel bővítve push-sync demóval:
- *   - „Saját profil" kártya: telefon/név frissítés (optimistic + outbox)
- *   - „Outbox" státusz + manual „Szinkronizálás most" gomb
- *   - Auto-drain login után (egyszer mount-kor)
+ * Dashboard — M2.5 + M2.6 push-sync + konfliktus-kezelés demo.
  */
 export function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
@@ -57,9 +58,11 @@ export function DashboardPage() {
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null)
 
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [failedRows, setFailedRows] = useState<OutboxRow[]>([])
   const [onlineState, setOnlineState] = useState<boolean | null>(null)
 
   const navigate = useNavigate()
@@ -76,16 +79,17 @@ export function DashboardPage() {
     }
   }, [])
 
-  // Lokális DB állapot lekérés
   const refreshLocalDb = useCallback(async () => {
-    const [rows, stats, lastIso] = await Promise.all([
+    const [rows, stats, lastIso, failed] = await Promise.all([
       getAllSettings(),
       getOutboxStats(),
       getLastPullIso(),
+      getFailedOutboxRows(),
     ])
     setSettings(rows)
     setOutbox(stats)
     setLastPull(lastIso)
+    setFailedRows(failed)
     setDbAvailable(true)
   }, [])
 
@@ -102,7 +106,6 @@ export function DashboardPage() {
     }
   }, [refreshLocalDb])
 
-  // Online/offline detektor
   useEffect(() => {
     let mounted = true
     isOnline().then((v) => {
@@ -135,13 +138,12 @@ export function DashboardPage() {
         // csendes
       })
 
-    // Auto-drain: mount-kor egyszer
     processOutbox()
       .then((stats) => {
         if (!mounted) return
         if (stats.attempted > 0) {
           setSyncResult(
-            `Auto-sync: ${stats.sent} kiküldve, ${stats.failed} hiba, ${stats.attempted} próba.`,
+            `Auto-sync: ${stats.sent} kiküldve, ${stats.conflicts} konfliktus, ${stats.failed - stats.conflicts} egyéb hiba, ${stats.attempted} próba.`,
           )
           refreshLocalDb()
         }
@@ -172,6 +174,7 @@ export function DashboardPage() {
     if (!user) return
     setPulling(true)
     setPullError(null)
+    setConflictNotice(null)
     try {
       const res = await pullOwnProfile(user.id)
       setLastPull(res.lastPullIso)
@@ -194,6 +197,7 @@ export function DashboardPage() {
       setSaving(true)
       setSaveMsg(null)
       setSaveError(null)
+      setConflictNotice(null)
       try {
         const patch: { phone?: string | null; full_name?: string | null } = {}
         if (phoneDraft !== (localProfile?.phone ?? '')) patch.phone = phoneDraft || null
@@ -204,15 +208,28 @@ export function DashboardPage() {
           return
         }
 
-        const { queuedToOutbox } = await updateOwnProfile(user.id, patch)
+        const res = await updateOwnProfile(user.id, patch)
         const row = await getLocalOwnProfile(user.id)
         setLocalProfile(row)
+        setPhoneDraft(row?.phone ?? '')
+        setNameDraft(row?.full_name ?? '')
         await refreshLocalDb()
-        setSaveMsg(
-          queuedToOutbox
-            ? 'Elmentve offline — a szerverrel a következő online-csatlakozáskor szinkronizálódik.'
-            : 'Elmentve a szerverre és lokálisan.',
-        )
+
+        if (res.conflict) {
+          setConflictNotice(
+            'Konfliktus: a szerveren időközben megváltozott a profil (másik eszközről vagy a webes felületről). A lokális cache-t frissítettük a szerver-változattal. Ellenőrizd a mezőket, és ha szeretnéd, mentsd újra.',
+          )
+        } else if (res.queuedToOutbox) {
+          setSaveMsg(
+            'Elmentve offline — a szerverrel a következő online-csatlakozáskor szinkronizálódik.',
+          )
+        } else {
+          setSaveMsg(
+            `Elmentve a szerverre és lokálisan${
+              res.newRevision !== undefined ? ` (új revision: ${res.newRevision})` : ''
+            }.`,
+          )
+        }
       } catch (err: unknown) {
         setSaveError(err instanceof Error ? err.message : 'ismeretlen hiba')
       } finally {
@@ -230,13 +247,33 @@ export function DashboardPage() {
       setSyncResult(
         stats.attempted === 0
           ? 'Nincs függő outbox-sor (vagy offline vagy).'
-          : `${stats.sent} kiküldve, ${stats.failed} hiba, ${stats.attempted} próba.`,
+          : `${stats.sent} kiküldve, ${stats.conflicts} konfliktus, ${stats.failed - stats.conflicts} egyéb hiba, ${stats.attempted} próba.`,
       )
       await refreshLocalDb()
+      if (user) {
+        const row = await getLocalOwnProfile(user.id)
+        setLocalProfile(row)
+      }
     } finally {
       setSyncing(false)
     }
-  }, [refreshLocalDb])
+  }, [refreshLocalDb, user])
+
+  const handleRetry = useCallback(
+    async (id: number) => {
+      await retryOutboxRow(id)
+      await refreshLocalDb()
+    },
+    [refreshLocalDb],
+  )
+
+  const handleDismiss = useCallback(
+    async (id: number) => {
+      await dismissOutboxRow(id)
+      await refreshLocalDb()
+    },
+    [refreshLocalDb],
+  )
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -266,10 +303,9 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              M1.5–M2.5 fejlesztői verzió. Pull+push sync a saját profilra, lokális
-              SQLCipher tárolással és OS-szintű kulcs-kezeléssel.
+              M1.5–M2.6 fejlesztői verzió. Pull + push sync konfliktus-kezeléssel,
+              lokális SQLCipher tárolással, OS-szintű kulcs-kezeléssel.
             </p>
-
             <div className="flex justify-end">
               <Button variant="outline" onClick={handleSignOut} disabled={signingOut}>
                 {signingOut ? 'Kijelentkezés…' : 'Kijelentkezés'}
@@ -278,13 +314,14 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* — Saját profil + szerkesztés (M2.4 pull + M2.5 push) — */}
+        {/* — Saját profil + szerkesztés (M2.4 + M2.5 + M2.6) — */}
         <Card>
           <CardHeader>
             <CardTitle>Saját profil — offline-first</CardTitle>
             <CardDescription>
-              Pull: Supabase → lokális cache. Save: optimisztikus lokális írás + azonnali
-              Supabase-update (online) vagy outbox (offline).
+              Pull + mentés (optimistic) + konfliktus-kezelés (revision-check). Próbáld
+              ki: módosítsd webes felületen, majd próbálj innen is menteni ugyanarra
+              az adatra — konfliktust kapsz.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
@@ -303,10 +340,7 @@ export function DashboardPage() {
             </div>
 
             {pullError && (
-              <div
-                role="alert"
-                className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
+              <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 Pull hiba: {pullError}
               </div>
             )}
@@ -320,16 +354,10 @@ export function DashboardPage() {
                       <ProfileRow label="Email" value={localProfile.email} />
                       <ProfileRow label="Szerepkör" value={localProfile.role} />
                       <ProfileRow label="Státusz" value={localProfile.status} />
-                      <ProfileRow
-                        label="Gyülekezet (id)"
-                        value={localProfile.congregation_id}
-                        mono
-                      />
-                      <ProfileRow
-                        label="Synced at (lokális)"
-                        value={localProfile.synced_at}
-                        mono
-                      />
+                      <ProfileRow label="Gyülekezet (id)" value={localProfile.congregation_id} mono />
+                      <ProfileRow label="Revision" value={String(localProfile.revision)} mono />
+                      <ProfileRow label="Updated at" value={localProfile.updated_at} mono />
+                      <ProfileRow label="Synced at" value={localProfile.synced_at} mono />
                     </tbody>
                   </table>
                 </div>
@@ -359,16 +387,19 @@ export function DashboardPage() {
                     />
                   </div>
 
+                  {conflictNotice && (
+                    <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      ⚠ {conflictNotice}
+                    </div>
+                  )}
+
                   {saveMsg && (
                     <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
                       {saveMsg}
                     </div>
                   )}
                   {saveError && (
-                    <div
-                      role="alert"
-                      className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                    >
+                    <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                       Mentési hiba: {saveError}
                     </div>
                   )}
@@ -382,20 +413,20 @@ export function DashboardPage() {
               </>
             ) : (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                Még nincs lokálisan cache-elt profil-sor. Kattints a „Pull profil" gombra a
-                szinkronizáláshoz.
+                Még nincs lokálisan cache-elt profil-sor. Kattints a „Pull profil" gombra.
               </p>
             )}
           </CardContent>
         </Card>
 
-        {/* — Outbox + manuális sync (M2.5) — */}
+        {/* — Outbox + konfliktusok (M2.5 + M2.6) — */}
         <Card>
           <CardHeader>
-            <CardTitle>Outbox — offline írások</CardTitle>
+            <CardTitle>Outbox — offline írások + konfliktusok</CardTitle>
             <CardDescription>
-              Ha a mentés offline futott, itt várnak a sorok a következő szinkronra.
-              Bejelentkezéskor automatikusan fut egy drain, manuálisan is elindítható.
+              A függő sorokat bejelentkezéskor és manuálisan is elküldjük. A
+              konfliktusos (failed) sorok alatt külön listában láthatók — retry vagy
+              elvetés lehetőségekkel.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
@@ -417,16 +448,69 @@ export function DashboardPage() {
                 {syncing ? 'Szinkronizálás…' : 'Szinkronizálás most'}
               </Button>
             </div>
+
+            {failedRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground">
+                  Hibás / konfliktusos sorok ({failedRows.length})
+                </p>
+                <div className="rounded-md border border-border">
+                  <table className="w-full text-left">
+                    <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">Op</th>
+                        <th className="px-3 py-2">Tábla</th>
+                        <th className="px-3 py-2">Hiba</th>
+                        <th className="px-3 py-2">Retry</th>
+                        <th className="px-3 py-2">Műveletek</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failedRows.map((r) => (
+                        <tr key={r.id} className="border-t border-border">
+                          <td className="px-3 py-2 font-mono text-xs">{r.op}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{r.target_table}</td>
+                          <td
+                            className="max-w-xs truncate px-3 py-2 text-xs text-destructive"
+                            title={r.last_error ?? ''}
+                          >
+                            {r.last_error ?? '—'}
+                          </td>
+                          <td className="px-3 py-2 text-xs">{r.retry_count}</td>
+                          <td className="px-3 py-2 text-xs">
+                            <div className="flex gap-1">
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => handleRetry(r.id)}
+                              >
+                                Újrapróba
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="destructive"
+                                onClick={() => handleDismiss(r.id)}
+                              >
+                                Elvetés
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* — Lokális adatbázis (M2.1 → M2.3 óta SQLCipher) — */}
+        {/* — Lokális adatbázis — */}
         <Card>
           <CardHeader>
             <CardTitle>Lokális adatbázis</CardTitle>
             <CardDescription>
-              SQLCipher-titkosított SQLite, kulcs a Windows Credential Manager-ben
-              (DPAPI per-user)
+              SQLCipher + Credential Manager (DPAPI per-user)
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
@@ -438,9 +522,8 @@ export function DashboardPage() {
               <div className="rounded-md border border-border bg-muted/40 p-3 text-muted-foreground">
                 <p className="font-medium text-foreground">Lokális DB nem elérhető</p>
                 <p className="mt-1 text-xs">
-                  Ez akkor normális, ha a frontendet sima böngészőben nyitod meg
-                  (Vite dev, port 1420). A Rust-oldali plugin csak a natív ablakban
-                  aktív. Indítsd úgy: <code>npm run desktop:dev</code>.
+                  A Rust-plugin csak natív Tauri-ablakban aktív. Indítsd:{' '}
+                  <code>npm run desktop:dev</code>.
                 </p>
                 {dbError && (
                   <p className="mt-1 font-mono text-xs text-destructive">{dbError}</p>
@@ -482,9 +565,8 @@ export function DashboardPage() {
 
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">
-                    A „Ping" gomb beír egy <code>last_ping</code> értéket a lokális
-                    <code> settings</code> táblába — demonstrálja, hogy a DB
-                    olvasható és írható.
+                    A „Ping" gomb beír egy <code>last_ping</code> értéket, demonstrálja
+                    az írást.
                   </p>
                   <Button variant="outline" onClick={handlePing} disabled={pinging}>
                     {pinging ? 'Ping…' : 'Ping local DB'}
@@ -544,9 +626,7 @@ function OnlineBadge({ online }: { online: boolean | null }) {
       }`}
       title={online ? 'Kapcsolat él' : 'Nincs internet'}
     >
-      <span
-        className={`size-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-amber-500'}`}
-      />
+      <span className={`size-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-amber-500'}`} />
       {online ? 'Online' : 'Offline'}
     </span>
   )

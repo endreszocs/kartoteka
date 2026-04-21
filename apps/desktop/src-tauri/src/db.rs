@@ -177,15 +177,6 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 
     if current < 2 {
         // M2.4 — profiles_local: a Supabase `profiles` tábla lokális tükörképe.
-        // Az M2.4 egyelőre csak a bejelentkezett user saját profilját szinkronizálja
-        // (1 sor), mert a Supabase `profiles` tábla **még nincs** `updated_at` +
-        // `revision` oszlopokkal ellátva. Ahhoz egy külön séma-migráció kell
-        // a webes oldalon; addig a `pullOwnProfile()` full-pull-t csinál saját
-        // user-re.
-        //
-        // Az oszlop-séma követi a Supabase-vel: változás esetén a jövőbeli
-        // `v3` migráció hozzáad oszlopokat (ALTER TABLE), nem módosítja a
-        // meglévő verzió-szöveget.
         conn.execute_batch(
             r#"
             BEGIN;
@@ -210,8 +201,30 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v2 migráció (profiles_local) sikertelen: {e}"))?;
     }
 
+    if current < 3 {
+        // M2.6 — revision + updated_at a profiles_local-ra, az optimistic-concurrency
+        // konfliktus-kezeléshez. A Supabase-oldali `profiles` táblán a
+        // 2026-04-23-m2-6-profiles-revision.sql migráció hozzáadja ezeket
+        // az oszlopokat + egy BEFORE UPDATE triggert, ami inkrementálja a
+        // revision-t minden írásnál.
+        //
+        // A kliens-oldali `profiles_local.revision` a pull-skor kerül friss
+        // értékre, és a `processOutbox` / `updateOwnProfile` conditional-updateb\u0151l
+        // tudja, konfliktusos-e a kliens-adat.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE profiles_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE profiles_local ADD COLUMN updated_at TEXT;
+            PRAGMA user_version = 3;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v3 migráció (profiles_local revision/updated_at) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 3 { ... PRAGMA user_version = 3; }
+    // if current < 4 { ... PRAGMA user_version = 4; }
 
     Ok(())
 }
