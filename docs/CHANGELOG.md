@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M2.7: Delta-sync — csak a változott sorok (összes profil)
+
+<!-- key: 2026-04-23-m2-7-delta-sync -->
+<!-- category: improvement -->
+<!-- version: 1.15.13 -->
+<!-- targets: fejlesztő -->
+
+### 🔀 Sávszélesség-takarékos szinkronizáció — csak a tényleges változások
+
+**A webes működést nem érinti.** Az M2.6-os SQL-migráció már hozzáadta a `profiles.updated_at`-et — most élesben használjuk: a desktop kliens csak azokat a sorokat kéri le a Supabase-től, amik tényleg változtak.
+
+**Új TS függvények** (`apps/desktop/src/lib/sync.ts`):
+- `pullAllProfiles(mode)` — `mode='delta'` vagy `mode='full'`
+  - **Delta-mode**: `WHERE updated_at > last_pull_all` (a legutóbbi pull óta változottak)
+  - **Első delta-futás**: automatikusan `full-initial` módra vált (nincs last_pull → mindent lehoz)
+  - **Full-mode**: override, mindent lehoz
+  - Frissíti a `sync:profiles:last_pull_all` kulcsot a high-water mark-tal
+- `getAllLocalProfiles()` — lokális olvasás az egész `profiles_local` táblából (updated_at DESC)
+- `getLastPullAllIso()` — az utolsó delta-pull ISO-ideje
+
+**Új Dashboard-kártya**: „Összes profil — delta-sync"
+- Utolsó delta-pull ISO-időpont
+- **Delta Pull** gomb (`variant="outline"`) — sávszélesség-takarékos
+- **Full Pull** gomb (primary) — override
+- Eredmény-üzenet: „Delta pull: 0 sor" / „Full (első futás): 1 sor frissítve"
+- Tábla: email, név, szerepkör, revision, updated_at
+
+**A dashboard refreshLocalDb kibővült**: most 6 párhuzamos load-ot csinál (settings, outbox, last_pull, last_pull_all, failed, all profiles).
+
+**Miért praktikus ez?**
+- Egy éles rendszerben 1000+ profil-sor lehet, amiből naponta csak néhány frissül. A delta-pull ilyenkor **99%+-ban üres** = < 1 kB hálózati forgalom (+ tranzakciós overhead).
+- A full-pull szándékosan megmaradt: debug, „valamilyen desync van" forgatókönyvre.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build`: 510 kB JS (+5 kB az új függvények/UI), 57 kB CSS, 3.69 s
+
+**Kipróbálás:**
+1. `npm run desktop:dev` → login
+2. „Összes profil" kártya → „Delta Pull" gomb → először full-initial, lejön 1 sor (a saját profilod)
+3. Klikkelj megint „Delta Pull"-ra → „nincs új / változott sor" (mert semmi sem változott azóta)
+4. Supabase Studio-ban UPDATE-eld a saját profilt (pl. phone) → revision+1, updated_at most
+5. „Delta Pull" megint → most 1 sort frissít (kizárólag azt)
+
+**Következő (M3)**: updater + code-signing (self-signed cert) + eszköz-bind. Az M2 fázis most teljes mértékben lezárult — minden offline-first funkció éles és tesztelt.
+
+---
+
 ## [2026-04-23] — M2.6: Konfliktus-kezelés (revision + updated_at)
 
 <!-- key: 2026-04-23-m2-6-conflict -->

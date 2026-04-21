@@ -24,11 +24,14 @@ import {
 } from '../lib/local-db'
 import {
   dismissOutboxRow,
+  getAllLocalProfiles,
   getFailedOutboxRows,
+  getLastPullAllIso,
   getLastPullIso,
   getLocalOwnProfile,
   isOnline,
   processOutbox,
+  pullAllProfiles,
   pullOwnProfile,
   retryOutboxRow,
   updateOwnProfile,
@@ -66,6 +69,12 @@ export function DashboardPage() {
   const [failedRows, setFailedRows] = useState<OutboxRow[]>([])
   const [onlineState, setOnlineState] = useState<boolean | null>(null)
 
+  const [allProfiles, setAllProfiles] = useState<ProfileLocalRow[]>([])
+  const [lastPullAll, setLastPullAll] = useState<string | null>(null)
+  const [pullingAll, setPullingAll] = useState(false)
+  const [pullAllResult, setPullAllResult] = useState<string | null>(null)
+  const [pullAllError, setPullAllError] = useState<string | null>(null)
+
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -81,16 +90,20 @@ export function DashboardPage() {
   }, [])
 
   const refreshLocalDb = useCallback(async () => {
-    const [rows, stats, lastIso, failed] = await Promise.all([
+    const [rows, stats, lastIso, lastAllIso, failed, all] = await Promise.all([
       getAllSettings(),
       getOutboxStats(),
       getLastPullIso(),
+      getLastPullAllIso(),
       getFailedOutboxRows(),
+      getAllLocalProfiles(),
     ])
     setSettings(rows)
     setOutbox(stats)
     setLastPull(lastIso)
+    setLastPullAll(lastAllIso)
     setFailedRows(failed)
+    setAllProfiles(all)
     setDbAvailable(true)
   }, [])
 
@@ -238,6 +251,28 @@ export function DashboardPage() {
       }
     },
     [user, phoneDraft, nameDraft, localProfile, refreshLocalDb],
+  )
+
+  const handlePullAll = useCallback(
+    async (mode: 'delta' | 'full') => {
+      setPullingAll(true)
+      setPullAllError(null)
+      setPullAllResult(null)
+      try {
+        const res = await pullAllProfiles(mode)
+        setPullAllResult(
+          res.pulledRows === 0
+            ? `${res.mode === 'delta' ? 'Delta' : 'Full'} pull: nincs új / változott sor (${res.mode}).`
+            : `${res.mode === 'delta' ? 'Delta' : res.mode === 'full-initial' ? 'Full (első futás)' : 'Full'} pull: ${res.pulledRows} sor frissítve.`,
+        )
+        await refreshLocalDb()
+      } catch (err: unknown) {
+        setPullAllError(errorMessage(err))
+      } finally {
+        setPullingAll(false)
+      }
+    },
+    [refreshLocalDb],
   )
 
   const handleManualSync = useCallback(async () => {
@@ -415,6 +450,96 @@ export function DashboardPage() {
             ) : (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 Még nincs lokálisan cache-elt profil-sor. Kattints a „Pull profil" gombra.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* — Minden profil (M2.7 delta-sync demo) — */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Összes profil — delta-sync</CardTitle>
+            <CardDescription>
+              M2.7 — delta-pull a Supabase <code>profiles</code> táblára.
+              A „Delta" gomb csak az utolsó pull óta változott sorokat hozza
+              (<code>updated_at &gt; last_pull</code>), így sávszélesség-
+              takarékos. A „Full" gomb az összeset.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">
+                Utolsó delta-pull:{' '}
+                {lastPullAll ? (
+                  <span className="font-mono">{lastPullAll}</span>
+                ) : (
+                  <em>még nem futott</em>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handlePullAll('delta')}
+                  disabled={pullingAll}
+                >
+                  {pullingAll ? 'Pull…' : 'Delta Pull'}
+                </Button>
+                <Button onClick={() => handlePullAll('full')} disabled={pullingAll}>
+                  {pullingAll ? 'Pull…' : 'Full Pull'}
+                </Button>
+              </div>
+            </div>
+
+            {pullAllResult && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
+                {pullAllResult}
+              </div>
+            )}
+            {pullAllError && (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                Pull hiba: {pullAllError}
+              </div>
+            )}
+
+            {allProfiles.length > 0 ? (
+              <div className="rounded-md border border-border">
+                <table className="w-full text-left">
+                  <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">Email</th>
+                      <th className="px-3 py-2">Név</th>
+                      <th className="px-3 py-2">Szerepkör</th>
+                      <th className="px-3 py-2">Rev</th>
+                      <th className="px-3 py-2">Updated at</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allProfiles.map((p) => (
+                      <tr key={p.id} className="border-t border-border">
+                        <td
+                          className="max-w-xs truncate px-3 py-2 font-mono text-xs"
+                          title={p.email ?? ''}
+                        >
+                          {p.email ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs">{p.full_name ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs">{p.role ?? '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{p.revision}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                          {p.updated_at ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Még nincs lokálisan cache-elt profil-sor. Kattints a „Full Pull"
+                gombra az első letöltéshez.
               </p>
             )}
           </CardContent>

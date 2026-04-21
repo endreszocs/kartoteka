@@ -55,6 +55,7 @@ export interface PullResult {
 }
 
 const LAST_PULL_KEY = 'sync:profiles:last_pull'
+const LAST_PULL_ALL_KEY = 'sync:profiles:last_pull_all'
 
 export async function pullOwnProfile(userId: string): Promise<PullResult> {
   const supabase = getDesktopSupabase()
@@ -130,6 +131,131 @@ export async function getLocalOwnProfile(userId: string): Promise<ProfileLocalRo
 
 export async function getLastPullIso(): Promise<string | null> {
   return getSetting(LAST_PULL_KEY)
+}
+
+export async function getLastPullAllIso(): Promise<string | null> {
+  return getSetting(LAST_PULL_ALL_KEY)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// M2.7 — delta-pull az összes látható profilra
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * Letölti az összes, a bejelentkezett user által látható profilt a Supabase-ből
+ * a lokális `profiles_local` táblába.
+ *
+ * A kliens a `sync:profiles:last_pull_all` kulcsot használja a delta-határhoz.
+ * Ha `mode === 'delta'`:
+ *   - Első hívásnál (nincs last_pull_all) → **full** pull fut automatikusan
+ *   - Utána csak `WHERE updated_at > last_pull_all` — így a változatlan sorokat
+ *     NEM hozza újra, sávszélesség-takarékos
+ * Ha `mode === 'full'`:
+ *   - Mindig az összes sort hozza (függetlenül a last_pull-tól)
+ *   - A last_pull_all-t is a legújabb updated_at-ra frissíti
+ *
+ * Az RLS a szerver-oldalon szűr: a user csak a számára látható sorokat kapja
+ * (jelenleg `profiles_read`/`profiles_read_all` minden authenticated user-t
+ * enged SELECT-ben — más RLS esetén a szűrés máshol történik).
+ */
+export async function pullAllProfiles(
+  mode: 'delta' | 'full' = 'delta',
+): Promise<{ pulledRows: number; mode: 'delta' | 'full' | 'full-initial'; lastPullIso: string }> {
+  const supabase = getDesktopSupabase()
+  const lastPullAll = mode === 'delta' ? await getLastPullAllIso() : null
+  const effectiveMode: 'delta' | 'full' | 'full-initial' =
+    mode === 'full' ? 'full' : lastPullAll ? 'delta' : 'full-initial'
+
+  let query = supabase
+    .from('profiles')
+    .select(
+      'id, email, full_name, phone, role, status, congregation_id, diocese_id, district_id, revision, updated_at',
+    )
+    .order('updated_at', { ascending: true })
+
+  if (effectiveMode === 'delta' && lastPullAll) {
+    query = query.gt('updated_at', lastPullAll)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    throw new Error(`Supabase delta-pull hiba: ${error.message}`)
+  }
+
+  const rows = data ?? []
+  for (const row of rows) {
+    await dbExecute(
+      `INSERT INTO profiles_local
+         (id, email, full_name, phone, role, status,
+          congregation_id, diocese_id, district_id,
+          revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, ?4, ?5, ?6,
+          ?7, ?8, ?9,
+          ?10, ?11, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         email = excluded.email,
+         full_name = excluded.full_name,
+         phone = excluded.phone,
+         role = excluded.role,
+         status = excluded.status,
+         congregation_id = excluded.congregation_id,
+         diocese_id = excluded.diocese_id,
+         district_id = excluded.district_id,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = excluded.synced_at`,
+      [
+        (row as { id: string }).id,
+        (row as { email: string | null }).email,
+        (row as { full_name: string | null }).full_name,
+        (row as { phone: string | null }).phone,
+        (row as { role: string | null }).role,
+        (row as { status: string | null }).status,
+        (row as { congregation_id: string | null }).congregation_id,
+        (row as { diocese_id: string | null }).diocese_id,
+        (row as { district_id: string | null }).district_id,
+        (row as { revision?: number }).revision ?? 0,
+        (row as { updated_at?: string }).updated_at ?? null,
+      ],
+    )
+  }
+
+  // A last_pull_all értékét akkor frissítjük, ha valóban volt új sor
+  // (így egy üres delta nem változtatja meg a high-water markot).
+  // Különben a nem-változó sorokra sosem frissülne a last_pull_all, és
+  // mindig az első full-pull idejétől kezdődne a delta — ami még okosabb,
+  // mert biztosítja, hogy ha egy sor időközben visszaállt, újra meglátjuk.
+  //
+  // Kompromisszum: a legújabb kapott sor `updated_at`-jét vesszük. Ha
+  // semmi sor, marad a régi last_pull.
+  let newLastPull = lastPullAll ?? new Date(0).toISOString()
+  for (const row of rows) {
+    const u = (row as { updated_at?: string }).updated_at
+    if (u && u > newLastPull) newLastPull = u
+  }
+  if (rows.length > 0) {
+    await setSetting(LAST_PULL_ALL_KEY, newLastPull)
+  } else if (!lastPullAll) {
+    // Első futás és nincs sem semmi — mégis rögzítjük, hogy legalább "futott"
+    await setSetting(LAST_PULL_ALL_KEY, new Date().toISOString())
+  }
+
+  return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newLastPull }
+}
+
+/**
+ * Minden lokálisan cache-elt profil-sor olvasása.
+ * Rendezés: updated_at DESC (legfrissebb változás fönt).
+ */
+export async function getAllLocalProfiles(): Promise<ProfileLocalRow[]> {
+  return dbSelect<ProfileLocalRow>(
+    `SELECT id, email, full_name, phone, role, status,
+            congregation_id, diocese_id, district_id,
+            revision, updated_at, synced_at
+       FROM profiles_local
+      ORDER BY COALESCE(updated_at, synced_at) DESC`,
+  )
 }
 
 // ═════════════════════════════════════════════════════════════════════════
