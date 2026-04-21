@@ -23,6 +23,92 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M5: Auto-updater skeleton (tauri-plugin-updater)
+
+<!-- key: 2026-04-23-m5-updater-skeleton -->
+<!-- category: improvement -->
+<!-- version: 1.15.19 -->
+<!-- targets: fejlesztő -->
+
+### ⬆️ A Kartotéka desktop most már **képes saját magát frissíteni**
+
+**Skeleton-setup**: a kód kész, a host-oldal (manifest URL + új verzió feltöltése) még nem — ez az első éles verzió-release előtt kerül beállításra. Addig a gomb „Ellenőrzés" hibát fog dobni (placeholder pubkey).
+
+**Új Rust dep**:
+- `tauri-plugin-updater v2` (hozza: `reqwest`, `hyper-rustls` — mind pure-Rust)
+
+**Új npm dep**:
+- `@tauri-apps/plugin-updater v2`
+
+**Új Tauri capability**: `updater:default` a `capabilities/default.json`-ben
+
+**`tauri.conf.json` frissítés:**
+```json
+{
+  "plugins": {
+    "updater": {
+      "pubkey": "UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT",
+      "endpoints": [
+        "https://updates.kartoteka.hu/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
+  "bundle": {
+    "createUpdaterArtifacts": true,
+    ...
+  }
+}
+```
+
+A `createUpdaterArtifacts: true` azt jelenti, hogy a `npm run desktop:build` mostantól generál egy **`.nsis.zip`** fájlt is az MSI + NSIS EXE mellé — ezt tölti le az auto-updater.
+
+**Új TS modul** (`apps/desktop/src/lib/updater.ts`):
+- `checkForUpdates()` → `{ available, version, releaseDate, notes, error, handle }`
+- `downloadAndInstall(handle, onProgress)` → `{ success, error }`
+
+**Dashboard bővítés**: új **„Frissítés"** kártya a lap tetején:
+- „Ellenőrzés" gomb — ellenőrzi, van-e új verzió
+- Ha van: megjelenik a verzió-szám + release dátum + release notes (ha a manifest tartalmazza)
+- „Letöltés és telepítés" gomb — progress-kiírás (X%), telepítés után az app restart-ol
+
+**Új PS script** (`ops/updater-key-setup.ps1`):
+- Ed25519 kulcspár generálás a `cargo tauri signer generate` paranccsal
+- A privát kulcs `ops/updater-private.key`-be kerül (gitignore-olt)
+- A publikus kulcs `.pub` fájlba és kiírva — Endre bemásolja a `tauri.conf.json`-be, felülírva a `UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT`-et
+
+**Host-döntés — még Endre előtt**:
+
+Az auto-updater egy **aláírt JSON manifest**-et kér egy HTTP endpoint-ról. Két népszerű host:
+
+| Opció | Előny | Hátrány |
+|---|---|---|
+| **GitHub Releases** | Ingyenes, verzió-kezelés benne, CI-integráció könnyű | Nyilvános URL (bár privát repo is megy tokennel) |
+| **Supabase Storage** | Már van Supabase account, EU-hosting, GDPR-biztos | Signed URL-ek kicsit bonyolultabbak |
+| **Saját CDN / kartoteka.hu** | Teljes kontroll | Üzemeltetési költség (~$5/hó) |
+
+**Javaslat**: **Supabase Storage** (EU-szervereken, már része az infrastruktúránknak). Egy privát bucket, signed URL-lel a manifest-hez.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 40 s (új reqwest + hyper-rustls crate-ek, mind pure-Rust)
+- ✅ `npm run desktop:build` (Vite): 521 kB JS (+6 kB updater.ts + UI), 57 kB CSS, 5.19 s
+
+**Következő lépések Endre felé (amikor új release kell):**
+
+1. **Egyszer**: futtasd az `ops/updater-key-setup.ps1`-et → Ed25519 keypair generálódik
+2. Másold a publikus kulcsot a `tauri.conf.json`-be
+3. Dönts a host-ról (Supabase Storage a javaslatom)
+4. A `npm run desktop:build` előtt:
+   ```powershell
+   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content ops\updater-private.key -Raw
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "kartoteka-updater-dev-2026"
+   npm run desktop:build
+   ```
+5. Az output `.nsis.zip`-et + az aláírás-hash-t tedd a host-ra, a manifest-et generáld le
+6. Az appban a „Frissítés / Ellenőrzés" gombra kattintva a kliens letölti
+
+---
+
 ## [2026-04-23] — M4.1 + M4.2: Restore-gomb + revoke/restore email-értesítés
 
 <!-- key: 2026-04-23-m4-polish -->

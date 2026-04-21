@@ -25,7 +25,16 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT",
+      "endpoints": [
+        "https://updates.kartoteka.hu/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
     "icon": [

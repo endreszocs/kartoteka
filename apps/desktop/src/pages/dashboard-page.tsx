@@ -24,6 +24,11 @@ import {
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
+  checkForUpdates,
+  downloadAndInstall,
+  type UpdateCheckResult,
+} from '../lib/updater'
+import {
   getAllSettings,
   getDbStatus,
   getOutboxStats,
@@ -90,6 +95,11 @@ export function DashboardPage() {
   const [myDevices, setMyDevices] = useState<RegisteredDevice[]>([])
   const [deviceRegMsg, setDeviceRegMsg] = useState<string | null>(null)
   const [deviceError, setDeviceError] = useState<string | null>(null)
+
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null)
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
 
   const navigate = useNavigate()
 
@@ -416,6 +426,36 @@ export function DashboardPage() {
     [refreshLocalDb],
   )
 
+  const handleCheckUpdate = useCallback(async () => {
+    setUpdateMsg(null)
+    setUpdateProgress(null)
+    const res = await checkForUpdates()
+    setUpdateCheck(res)
+    if (res.error) {
+      setUpdateMsg(`Ellenőrzés hiba: ${res.error}`)
+    } else if (!res.available) {
+      setUpdateMsg('A legfrissebb verzió fut.')
+    }
+  }, [])
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!updateCheck?.handle) return
+    setUpdating(true)
+    setUpdateProgress(0)
+    setUpdateMsg('Letöltés…')
+    const res = await downloadAndInstall(updateCheck.handle, (downloaded, total) => {
+      if (total) {
+        setUpdateProgress(Math.round((downloaded / total) * 100))
+      }
+    })
+    if (res.success) {
+      setUpdateMsg('Telepítve — az app most újraindul.')
+    } else {
+      setUpdateMsg(`Telepítési hiba: ${res.error}`)
+      setUpdating(false)
+    }
+  }, [updateCheck])
+
   async function handleSignOut() {
     setSigningOut(true)
     try {
@@ -731,6 +771,71 @@ export function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* — Frissítés (M5) — */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Frissítés</CardTitle>
+            <CardDescription>
+              Tauri auto-updater. A kliens Ed25519-aláírt manifesttel hitelesíti
+              az új verziót, mielőtt letölti. M5-ben a pubkey még placeholder —
+              éles release előtt a <code>ops/updater-key-setup.ps1</code> script
+              generálja a kulcsot, és a pubkey a <code>tauri.conf.json</code>-be
+              kerül.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                {updateCheck?.available ? (
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Új verzió: {updateCheck.version}
+                    </p>
+                    {updateCheck.releaseDate && (
+                      <p className="text-xs text-muted-foreground">
+                        Kiadás dátuma: {updateCheck.releaseDate}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Ellenőrzéssel tudod megnézni, van-e új verzió.
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleCheckUpdate} disabled={updating}>
+                  Ellenőrzés
+                </Button>
+                {updateCheck?.available && (
+                  <Button onClick={handleInstallUpdate} disabled={updating}>
+                    {updating
+                      ? updateProgress !== null
+                        ? `Letöltés ${updateProgress}%`
+                        : 'Letöltés…'
+                      : 'Letöltés és telepítés'}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {updateCheck?.notes && (
+              <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
+                <p className="mb-1 font-medium text-foreground">Release notes</p>
+                <p className="whitespace-pre-wrap text-muted-foreground">
+                  {updateCheck.notes}
+                </p>
+              </div>
+            )}
+
+            {updateMsg && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+                {updateMsg}
               </div>
             )}
           </CardContent>
