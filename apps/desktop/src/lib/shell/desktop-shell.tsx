@@ -20,6 +20,7 @@ import type { User } from '@supabase/supabase-js'
 
 import { KartotekaShell } from '@kartoteka/ui'
 
+import { SettingsDialog } from '../../components/settings-dialog'
 import { getDesktopSupabase } from '../supabase'
 import { getDbStatus } from '../local-db'
 import {
@@ -43,6 +44,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<ProfileLocalRow | null>(null)
   const [congregation, setCongregation] = useState<CongregationLocalRow | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Supabase auth session betöltése
   useEffect(() => {
@@ -168,26 +170,41 @@ export function DesktopShell({ children }: DesktopShellProps) {
   }
 
   return (
-    <KartotekaShell
-      Link={DesktopLink}
-      currentPath={location.pathname}
-      logoSrc="/EREK.png"
-      profile={effectiveProfile}
-      congregationId={profile?.congregation_id ?? null}
-      congregationName={congregation?.nev_hu ?? congregation?.name ?? null}
-      congregationLogo={congregation?.cimer_url ?? null}
-      isMasterAdmin={isMasterAdmin}
-      isAdmin={isAdmin}
-      isEgyhazkeruletiAdmin={isEgyhazkeruletiAdmin}
-      isEsperes={isEsperes}
-      isKonyvelo={isKonyvelo}
-      isSzamvevo={isSzamvevo}
-      hasCongregation={hasCongregation}
-      isGodMode={false}
-      activeScope={hasCongregation ? 'congregation' : null}
-      onSignOut={handleSignOut}
-    >
-      {children}
-    </KartotekaShell>
+    <>
+      <KartotekaShell
+        Link={DesktopLink}
+        currentPath={location.pathname}
+        logoSrc="/EREK.png"
+        profile={effectiveProfile}
+        congregationId={profile?.congregation_id ?? null}
+        congregationName={congregation?.nev_hu ?? congregation?.name ?? null}
+        congregationLogo={congregation?.cimer_url ?? null}
+        isMasterAdmin={isMasterAdmin}
+        isAdmin={isAdmin}
+        isEgyhazkeruletiAdmin={isEgyhazkeruletiAdmin}
+        isEsperes={isEsperes}
+        isKonyvelo={isKonyvelo}
+        isSzamvevo={isSzamvevo}
+        hasCongregation={hasCongregation}
+        isGodMode={false}
+        activeScope={hasCongregation ? 'congregation' : null}
+        onSignOut={handleSignOut}
+        onOpenSettings={() => setSettingsOpen(true)}
+      >
+        {children}
+      </KartotekaShell>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        userEmail={effectiveProfile.email}
+        publicSiteUrl={
+          congregation?.public_slug
+            ? `https://kartoteka.erek.ro/gy/${congregation.public_slug}`
+            : null
+        }
+        publicSiteEnabled={congregation?.public_site_enabled === 1}
+      />
+    </>
   )
 }

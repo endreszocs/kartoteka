@@ -20,7 +20,6 @@ import {
   Building2,
   Castle,
   ChevronLeft,
-  ChevronRight,
   ClipboardList,
   FileText,
   Handshake,
@@ -348,17 +347,17 @@ function SidebarNav({
           >
             <div
               className={cn(
-                'flex size-11 items-center justify-center rounded-[1rem] [@media(max-height:1040px)]:size-10 [@media(max-height:820px)]:size-9',
+                'flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-[1rem] [@media(max-height:1040px)]:size-10 [@media(max-height:820px)]:size-9',
                 collapsed && 'size-10',
               )}
             >
-              {/* Next.js `<Image>` helyett sima `<img>` — mindkét platform elfogadja. */}
+              {/* Next.js `<Image>` helyett sima `<img>` — mindkét platform elfogadja.
+                  `size-9` (36px) + object-contain = a logó biztosan nem lóg ki,
+                  a 2px padding az ikonkeret belsejében kerekít + árnyékot ad. */}
               <img
                 src={logoSrc}
                 alt="Kartotéka"
-                width={38}
-                height={38}
-                className="object-contain drop-shadow-[0_10px_16px_rgba(0,0,0,0.22)]"
+                className="size-9 object-contain drop-shadow-[0_10px_16px_rgba(0,0,0,0.22)]"
               />
             </div>
 
@@ -381,11 +380,11 @@ function SidebarNav({
               </>
             )}
 
-            {collapsed && allowCollapse && (
-              <div className="absolute bottom-2 right-2 flex size-6 items-center justify-center rounded-full bg-white/12 text-white/78">
-                <ChevronRight className="size-3.5" />
-              </div>
-            )}
+            {/* Collapsed állapotban a brand-card közepét foglalja el a logó,
+                és a kinyitást a card-ra kattintás intézi. A korábbi "phantom
+                dot" (bg-white/12 kör) ChevronRight indikátor el lett távolítva,
+                mert collapsed módban zavaró. Az aria-label a `button`-on
+                elegendő az accessibility-hez. */}
           </button>
         </div>
 

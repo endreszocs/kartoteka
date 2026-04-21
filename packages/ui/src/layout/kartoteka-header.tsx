@@ -24,6 +24,7 @@ import {
   HelpCircle,
   LogOut,
   Menu,
+  Settings,
   Sparkles,
   User,
 } from 'lucide-react'
@@ -62,6 +63,8 @@ export interface KartotekaHeaderProps {
   onOpenCongregation?: () => void
   /** Help-panel megnyitás (opcionális — később saját Dialog). */
   onOpenHelp?: () => void
+  /** Beállítások dialog megnyitás (opcionális). */
+  onOpenSettings?: () => void
   /** Mobile-menu toggle — a parent state-et módosít. */
   onToggleMobileMenu: () => void
 }
@@ -90,6 +93,7 @@ export function KartotekaHeader({
   onOpenProfile,
   onOpenCongregation,
   onOpenHelp,
+  onOpenSettings,
   onToggleMobileMenu,
 }: KartotekaHeaderProps) {
   const [signingOut, setSigningOut] = useState(false)
@@ -200,6 +204,13 @@ export function KartotekaHeader({
                 </DropdownMenuItem>
               )}
               {(onOpenProfile || onOpenCongregation) && <DropdownMenuSeparator />}
+              {onOpenSettings && (
+                <DropdownMenuItem onClick={onOpenSettings} className="gap-3 rounded-xl py-2.5">
+                  <Settings className="size-4 text-primary/70" />
+                  Beállítások
+                </DropdownMenuItem>
+              )}
+              {onOpenSettings && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 onClick={handleSignOut}
                 disabled={signingOut}

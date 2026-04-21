@@ -55,6 +55,7 @@ export interface KartotekaShellProps {
   onOpenProfile?: () => void
   onOpenCongregation?: () => void
   onOpenHelp?: () => void
+  onOpenSettings?: () => void
 
   /** Opcionális banner slot a header alá (god-mode, setup-prompt stb.). */
   banners?: ReactNode
@@ -87,6 +88,7 @@ export function KartotekaShell({
   onOpenProfile,
   onOpenCongregation,
   onOpenHelp,
+  onOpenSettings,
   banners,
   children,
 }: KartotekaShellProps) {
@@ -124,6 +126,7 @@ export function KartotekaShell({
           onOpenProfile={onOpenProfile}
           onOpenCongregation={onOpenCongregation}
           onOpenHelp={onOpenHelp}
+          onOpenSettings={onOpenSettings}
           onToggleMobileMenu={() => setMobileOpen((prev) => !prev)}
         />
 
