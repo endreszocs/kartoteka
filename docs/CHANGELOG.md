@@ -23,6 +23,67 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M3.1: Első Kartotéka MSI + NSIS installer bundle
+
+<!-- key: 2026-04-23-m3-1-first-bundle -->
+<!-- category: improvement -->
+<!-- version: 1.15.14 -->
+<!-- targets: fejlesztő -->
+
+### 📦 A desktop kliens már telepíthető MSI + NSIS csomagra
+
+**A webes működést nem érinti.** Ez a M3 (production-deploy) fázis első lépése: a Tauri desktop kliens most már **telepíthető Windows-installer csomaggá** összeállítható.
+
+**Generált bundle-k** (első release build, ~25 perc):
+
+| Installer | Méret | Használat |
+|---|---|---|
+| `Kartotéka_0.1.0_x64_en-US.msi` | **5.4 MB** | Enterprise-deploy (Group Policy, SCCM), csendes telepítés (`/quiet`) |
+| `Kartotéka_0.1.0_x64-setup.exe` | **3.9 MB** | Felhasználóbarát wizard, modern Windows-telepítő |
+
+Output-útvonal: `C:\kartoteka-target\release\bundle\{msi|nsis}\` (a target-dir az M2.2 óta ASCII-úton a non-ASCII path-encoding-bug elkerülésére).
+
+**Egyedi EREK-ikon felhasználva** — a `icon/icon.png` (templom + csillag sötétkék háttéren) minden méret-változatban generálva:
+- Windows: 32x32, 128x128, 128x128@2x, Square*Logo, icon.ico
+- macOS: icon.icns
+- iOS + Android: teljes méretkészlet
+
+A Tauri `npx tauri icon` parancs intézte egyben.
+
+**Fájlnevek magyar ékezettel** (`Kartotéka`) — a Tauri `productName: "Kartotéka"` configból jön, a bundler megfelelően Unicode-kezeli.
+
+**Build environment:**
+- `cargo build --release` (első futás ~15-20 perc release-optimalizálásért)
+- WiX Toolset → MSI
+- NSIS 3.11 (Tauri automatikus letöltés) → EXE
+- Minden a `C:\kartoteka-target` cache alatt (a subsequent build-ek pár perces inkrementálisak)
+
+**Nem aláírt csomagok** — a Windows SmartScreen „Unknown publisher" warningot fog mutatni telepítéskor. A következő lépés (**M3.2**) javítja.
+
+**Előkészítve az M3.2-hez:**
+- `ops/code-sign-setup.ps1` — PowerShell script, ami self-signed code-sign cert-et generál (3 év érvényességgel), PFX-be exportál, a Trusted Publishers store-ba regisztrál, és kiírja a thumbprint-et a `tauri.conf.json`-be másoláshoz
+- `.gitignore` bővítés: `ops/*.pfx`, `apps/desktop/src-tauri/target/`, `.p12/.key/.pem` fájlok
+
+**Kipróbálási lehetőség (a lelkészi élmény előképe):**
+
+```powershell
+# 1. A telepítő futtatása
+Start-Process "C:\kartoteka-target\release\bundle\nsis\Kartotéka_0.1.0_x64-setup.exe"
+
+# 2. SmartScreen ("Unknown publisher") → "More info" → "Run anyway"
+# 3. Wizard végigvezetésével a Kartotéka telepítődik a Start menübe
+# 4. Indítás a Start menüből → ugyanaz a dashboard, mint npm run desktop:dev
+#    (ugyanarra a SQLCipher DB-re mutat + Credential Manager kulcs)
+```
+
+**M3 haladás:**
+- ✅ M3.1 Első MSI + NSIS bundle
+- ⏳ M3.2 Self-signed code-sign cert + aláírt MSI
+- ⏳ M3.3 Eszköz-bind (Supabase `user_devices` regisztráció)
+- ⏳ M3.4 Updater plugin + aláírt manifest
+
+---
+
 ## [2026-04-23] — M2.7: Delta-sync — csak a változott sorok (összes profil)
 
 <!-- key: 2026-04-23-m2-7-delta-sync -->
