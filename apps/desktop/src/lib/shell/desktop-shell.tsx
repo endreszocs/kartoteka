@@ -21,8 +21,15 @@ import type { User } from '@supabase/supabase-js'
 import { KartotekaShell } from '@kartoteka/ui'
 
 import { getDesktopSupabase } from '../supabase'
-import { getLocalOwnProfile, getLocalOwnCongregation } from '../sync'
-import type { ProfileLocalRow, CongregationLocalRow } from '../sync'
+import { getDbStatus } from '../local-db'
+import {
+  getLocalOwnCongregation,
+  getLocalOwnProfile,
+  pullOwnCongregation,
+  pullOwnProfile,
+  type CongregationLocalRow,
+  type ProfileLocalRow,
+} from '../sync'
 import { DesktopLink } from './router-link'
 
 interface DesktopShellProps {
@@ -54,24 +61,62 @@ export function DesktopShell({ children }: DesktopShellProps) {
     }
   }, [])
 
-  // Lokális profil + gyülekezet betöltése
+  // Lokális profil + gyülekezet betöltése — auto-pull, ha nincs cache-elve
   useEffect(() => {
     if (!user) return
     let mounted = true
-    getLocalOwnProfile(user.id)
-      .then((p) => {
-        if (mounted) setProfile(p)
-      })
-      .catch(() => {
-        // csendes — offline/DB nem nyitott
-      })
-    getLocalOwnCongregation(user.id)
-      .then((c) => {
-        if (mounted) setCongregation(c)
-      })
-      .catch(() => {
-        // csendes
-      })
+
+    async function loadOrPull() {
+      if (!user) return
+
+      // 1. Várunk, amíg a SQLCipher DB megnyílik (max ~3 mp, 150 ms lépésekkel)
+      let dbReady = false
+      for (let i = 0; i < 20; i++) {
+        const status = await getDbStatus().catch(() => null)
+        if (status?.opened) {
+          dbReady = true
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+      if (!mounted || !dbReady) return
+
+      // 2. Lokális cache olvasás
+      const [localP, localC] = await Promise.all([
+        getLocalOwnProfile(user.id).catch(() => null),
+        getLocalOwnCongregation(user.id).catch(() => null),
+      ])
+      if (!mounted) return
+      setProfile(localP)
+      setCongregation(localC)
+
+      // 3. Auto-pull, ha valamelyik hiányzik (első indítás / Ctrl+R)
+      const needsProfilePull = !localP
+      const needsCongregationPull = !localC
+      if (!needsProfilePull && !needsCongregationPull) return
+
+      try {
+        if (needsProfilePull) {
+          await pullOwnProfile(user.id)
+        }
+        if (needsCongregationPull) {
+          await pullOwnCongregation(user.id)
+        }
+        // 4. Frissített cache olvasás
+        const [freshP, freshC] = await Promise.all([
+          getLocalOwnProfile(user.id),
+          getLocalOwnCongregation(user.id),
+        ])
+        if (!mounted) return
+        setProfile(freshP)
+        setCongregation(freshC)
+      } catch {
+        // Offline vagy hálózati hiba — a user manuálisan pull-hat majd
+        // a DashboardPage Pull-gombjaival. A sidebar a korábbi cache-t mutatja.
+      }
+    }
+
+    void loadOrPull()
     return () => {
       mounted = false
     }
