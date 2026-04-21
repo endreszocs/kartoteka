@@ -23,6 +23,90 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M4.1 + M4.2: Restore-gomb + revoke/restore email-értesítés
+
+<!-- key: 2026-04-23-m4-polish -->
+<!-- category: improvement -->
+<!-- version: 1.15.18 -->
+<!-- targets: rendszergazda, lelkészek -->
+
+### 🔄 Az admin feloldhatja a revoke-ot, és minden átkapcsolásról email megy a user-nek
+
+**Az M4 két hiányzó darabját pótolja:**
+1. A revoke-olt eszközök **visszaállíthatók** a web admin UI-ról (eddig csak manuális SQL UPDATE)
+2. Mind a revoke-ról, mind a restore-ról **automatikus email** megy a user-nek (Brevo-n át)
+
+**Új server action** (`apps/web/app/(dashboard)/admin/devices-licenses-actions.ts`):
+- `restoreDevice({ id })` — `UPDATE revoked=false, revoked_by=null, revoked_at=null, revoke_reason=null`
+- Biztonsági check: már visszaállított eszközt nem dupla-state-elünk
+- Audit-log: `action='device.restore'`
+- Email: `deviceRestoredEmail` (emerald színű, „Eszköz újra aktív")
+
+**revokeDevice action bővítve**:
+- A revoke előtt lekéri a user-info-t (`profiles.email, full_name`) és az eszköz-nevet
+- Revoke után `deviceRevokedEmail` — rose/destruktív színű template, benne: eszköznév, platform, időpont, indok
+- Ha az email-küldés hibára fut, a revoke-ot attól nem görgetjük vissza (a security fontosabb)
+
+**Új email-sablonok** (`apps/web/lib/email/templates/device-revoke.ts`):
+- `deviceRevokedEmail({ email, fullName, deviceName, platform, reason, revokedAtIso })`
+- `deviceRestoredEmail({ email, fullName, deviceName, platform, restoredAtIso })`
+- Stílus: ugyanaz mint az access-request template-ek (max-width: 600px, Cormorant Garamond cím, colored accent badge)
+- Hangvétel: egyházi-pásztori, „Áldott napot kíván"-zárlattal
+
+**UI bővítés** (`apps/web/components/admin/devices-licenses-tab.tsx`):
+- A **revoke-olt sorokon** most a piros „Revoke" helyett zöld „Visszaállít" gomb jelenik meg
+- A gomb `title` attribútuma a revoke indoklását mutatja hover-en (tooltip)
+- Megerősítés: confirm() dialog a restore előtt is (UX-biztonság)
+- Toast-okban jelezve, hogy a user email-ben értesítve
+
+**Új audit-action label** a shared.ts-ben:
+- `'device.restore': 'Eszköz visszaállítva'` (a Napló-fülben magyarul jelenik meg)
+
+**Teljes revoke/restore flow most:**
+
+```
+[Admin a web-en klikkel Revoke]
+    ↓
+UPDATE user_devices SET revoked = true, revoke_reason, ...
+    ↓
+INSERT audit_log (device.revoke, metadata = { reason })
+    ↓
+sendEmail(deviceRevokedEmail) → Brevo → user inbox
+    ↓
+[Desktop kliens 30 mp-en belül észleli — M4 core]
+    ↓
+alert() + signOut() + redirect /login
+```
+
+```
+[Admin klikkel Visszaállít]
+    ↓
+UPDATE revoked = false, revoke_* = null
+    ↓
+INSERT audit_log (device.restore)
+    ↓
+sendEmail(deviceRestoredEmail) → user inbox
+    ↓
+[A user újra bejelentkezhet az eszközön]
+```
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/web): 0 hiba
+- ✅ `npm run build` (Next.js prod): SUCCESS, 50+ route generált
+
+**Kipróbálás:**
+1. Desktop-on login → „Ez az eszköz" aktív
+2. Web-en `/admin` → Eszközök → **Revoke** → indoklás
+3. Email érkezik (nézd a Brevo log-ot vagy az inboxot)
+4. Desktop 30 mp-en belül kijelentkezik
+5. Web-en **Visszaállít** → confirm dialog → megerősítés
+6. Újabb email (restored)
+7. Desktop: újra login működik
+
+Ezzel az M4 minden része **teljes + éles**. Az M0.5-ben lerakott devices-licenses UI minden funkcióját használjuk, és az email-flow teljes.
+
+---
+
 ## [2026-04-23] — M4: Admin revoke + desktop auto-logout
 
 <!-- key: 2026-04-23-m4-admin-revoke -->

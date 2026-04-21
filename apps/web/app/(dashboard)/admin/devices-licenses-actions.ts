@@ -1,12 +1,14 @@
 'use server'
 
 /**
- * Admin → Devices + Licenses + Audit-log server actions (M0.5).
+ * Admin → Devices + Licenses + Audit-log server actions (M0.5 + M4.2).
  */
 
 import { revalidatePath } from 'next/cache'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { sendEmail } from '@/lib/email/send'
+import { deviceRestoredEmail, deviceRevokedEmail } from '@/lib/email/templates/device-revoke'
 
 async function requireAdmin() {
   const access = await getEffectiveAccessContext()
@@ -60,25 +62,136 @@ export async function revokeDevice(input: { id: string; reason: string }) {
   if (!input.reason || !input.reason.trim()) {
     return { error: 'Indoklás kötelező a revoke-hoz.' }
   }
+  const reason = input.reason.trim()
 
-  const { error } = await ctx.supabase
+  // 1. Sor lekérése a revoke előtt — kelleni fog az email-hez
+  //    (user_id, device_name, platform + csatolt email/full_name)
+  const { data: before, error: readErr } = await ctx.supabase
+    .from('user_devices')
+    .select('user_id, device_name, platform, revoked, profiles!user_id(email, full_name)')
+    .eq('id', input.id)
+    .maybeSingle()
+
+  if (readErr) return { error: readErr.message }
+  if (!before) return { error: 'Az eszköz nem található.' }
+
+  const row = before as unknown as {
+    user_id: string
+    device_name: string | null
+    platform: string
+    revoked: boolean
+    profiles: { email?: string | null; full_name?: string | null } | null
+  }
+
+  if (row.revoked) {
+    return { error: 'Az eszköz már vissza van vonva.' }
+  }
+
+  // 2. Revoke a DB-ben
+  const revokedAtIso = new Date().toISOString()
+  const { error: updErr } = await ctx.supabase
     .from('user_devices')
     .update({
       revoked: true,
       revoked_by: ctx.userId,
-      revoked_at: new Date().toISOString(),
-      revoke_reason: input.reason.trim(),
+      revoked_at: revokedAtIso,
+      revoke_reason: reason,
     })
     .eq('id', input.id)
 
-  if (error) return { error: error.message }
+  if (updErr) return { error: updErr.message }
 
   await ctx.supabase.rpc('log_audit_event', {
     p_action: 'device.revoke',
     p_target_table: 'user_devices',
     p_target_id: input.id,
-    p_metadata: { reason: input.reason },
+    p_metadata: { reason },
   })
+
+  // 3. Értesítő email a user-nek (nem-blokkoló: ha az email hibázik, a revoke
+  //    attól még érvényben marad — az admin látja a hibát, de a revoke priority).
+  if (row.profiles?.email) {
+    const emailRes = await sendEmail(
+      deviceRevokedEmail({
+        email: row.profiles.email,
+        fullName: row.profiles.full_name ?? null,
+        deviceName: row.device_name,
+        platform: row.platform,
+        reason,
+        revokedAtIso,
+      }),
+    )
+    if (!emailRes.success) {
+      console.error('[revoke-device] email hiba:', emailRes.error)
+    }
+  }
+
+  revalidatePath('/admin')
+  return {}
+}
+
+export async function restoreDevice(input: { id: string }) {
+  const ctx = await requireAdmin()
+  if ('error' in ctx) return { error: ctx.error }
+
+  // 1. Sor lekérése (kell az email-hez)
+  const { data: before, error: readErr } = await ctx.supabase
+    .from('user_devices')
+    .select('user_id, device_name, platform, revoked, profiles!user_id(email, full_name)')
+    .eq('id', input.id)
+    .maybeSingle()
+
+  if (readErr) return { error: readErr.message }
+  if (!before) return { error: 'Az eszköz nem található.' }
+
+  const row = before as unknown as {
+    user_id: string
+    device_name: string | null
+    platform: string
+    revoked: boolean
+    profiles: { email?: string | null; full_name?: string | null } | null
+  }
+
+  if (!row.revoked) {
+    return { error: 'Az eszköz nincs visszavont állapotban.' }
+  }
+
+  // 2. Restore (revoked = false, a metaadatokat töröljük)
+  const restoredAtIso = new Date().toISOString()
+  const { error: updErr } = await ctx.supabase
+    .from('user_devices')
+    .update({
+      revoked: false,
+      revoked_by: null,
+      revoked_at: null,
+      revoke_reason: null,
+    })
+    .eq('id', input.id)
+
+  if (updErr) return { error: updErr.message }
+
+  await ctx.supabase.rpc('log_audit_event', {
+    p_action: 'device.restore',
+    p_target_table: 'user_devices',
+    p_target_id: input.id,
+    p_metadata: { restored_at: restoredAtIso },
+  })
+
+  // 3. Email a user-nek
+  if (row.profiles?.email) {
+    const emailRes = await sendEmail(
+      deviceRestoredEmail({
+        email: row.profiles.email,
+        fullName: row.profiles.full_name ?? null,
+        deviceName: row.device_name,
+        platform: row.platform,
+        restoredAtIso,
+      }),
+    )
+    if (!emailRes.success) {
+      console.error('[restore-device] email hiba:', emailRes.error)
+    }
+  }
 
   revalidatePath('/admin')
   return {}

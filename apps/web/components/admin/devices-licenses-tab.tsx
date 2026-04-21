@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Monitor, Key, ScrollText, RefreshCw, XCircle, CheckCircle2, Info,
-  Calendar, User,
+  Calendar, User, RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -27,6 +27,7 @@ import {
   listLicenses,
   listAuditLog,
   revokeDevice,
+  restoreDevice,
 } from '@/app/(dashboard)/admin/devices-licenses-actions'
 import {
   auditActionLabel,
@@ -94,7 +95,21 @@ export function DevicesLicensesTab() {
     const r = await revokeDevice({ id: device.id, reason: reason.trim() })
     if (r.error) toast.error(r.error)
     else {
-      toast.success('Eszköz visszavonva.')
+      toast.success('Eszköz visszavonva — a user email-ben értesítve.')
+      void refresh()
+    }
+  }
+
+  async function handleRestore(device: UserDevice) {
+    const ok = confirm(
+      `Biztosan feloldod a(z) "${device.device_name || device.platform}" eszköz visszavonását ${device.user_email || device.user_id} számára?\n\nA user email-ben értesítést kap, és ismét bejelentkezhet ezzel az eszközzel.`,
+    )
+    if (!ok) return
+
+    const r = await restoreDevice({ id: device.id })
+    if (r.error) toast.error(r.error)
+    else {
+      toast.success('Eszköz visszaállítva — a user email-ben értesítve.')
       void refresh()
     }
   }
@@ -161,7 +176,9 @@ export function DevicesLicensesTab() {
       {/* ─── Tartalom ─── */}
       <div className="card-raised p-5">
         {loading && <div className="py-8 text-center text-sm text-slate-400">Betöltés…</div>}
-        {!loading && subTab === 'devices' && <DevicesList devices={devices} onRevoke={handleRevoke} />}
+        {!loading && subTab === 'devices' && (
+          <DevicesList devices={devices} onRevoke={handleRevoke} onRestore={handleRestore} />
+        )}
         {!loading && subTab === 'licenses' && <LicensesList licenses={licenses} />}
         {!loading && subTab === 'audit' && <AuditLogList audit={auditLog} />}
       </div>
@@ -207,7 +224,15 @@ function SubTabButton({
 // Devices list
 // ─────────────────────────────────────────────────────────────────────────
 
-function DevicesList({ devices, onRevoke }: { devices: UserDevice[]; onRevoke: (d: UserDevice) => void }) {
+function DevicesList({
+  devices,
+  onRevoke,
+  onRestore,
+}: {
+  devices: UserDevice[]
+  onRevoke: (d: UserDevice) => void
+  onRestore: (d: UserDevice) => void
+}) {
   if (devices.length === 0) {
     return (
       <EmptyState
@@ -264,7 +289,17 @@ function DevicesList({ devices, onRevoke }: { devices: UserDevice[]; onRevoke: (
                 )}
               </td>
               <td className="p-3 text-right">
-                {!d.revoked && (
+                {d.revoked ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onRestore(d)}
+                    className="rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 gap-1"
+                    title={d.revoke_reason ? `Visszavonás oka: ${d.revoke_reason}` : undefined}
+                  >
+                    <RotateCcw className="size-3" /> Visszaállít
+                  </Button>
+                ) : (
                   <Button
                     size="sm"
                     variant="outline"

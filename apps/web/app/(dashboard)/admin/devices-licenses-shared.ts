@@ -58,6 +58,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'access_request.reject': 'Hozzáférés elutasítva',
   'device.register': 'Eszköz regisztrálva',
   'device.revoke': 'Eszköz visszavonva',
+  'device.restore': 'Eszköz visszaállítva',
   'license.issue': 'Licenc kibocsátva',
   'license.revoke': 'Licenc visszavonva',
   'document.upload': 'Dokumentum feltöltve',
