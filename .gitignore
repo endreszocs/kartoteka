@@ -32,3 +32,18 @@ Thumbs.db
 migration-docs/data/adr-seed/*.zip
 migration-docs/data/adr-seed/*.xls
 migration-docs/data/adr-seed/_unpacked/
+
+# ─────────────────────────────────────────────────────────────
+# Tauri desktop — build output-ok + signing artifactok (M3+)
+# A cargo build `C:\kartoteka-target`-be ment (.cargo/config.toml miatt),
+# de ha lokális target/ valamiért létrejön, ne commitoljuk.
+# ─────────────────────────────────────────────────────────────
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+
+# Code-signing certificates — saját-privát kulcsok, NE kerüljenek a repóba
+ops/*.pfx
+ops/*.p12
+ops/*.key
+ops/*.pem
+*.pfx

@@ -1,0 +1,54 @@
+[package]
+name = "desktop"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+# M2.2 — SQLCipher-titkosított SQLite saját Tauri commands-kel.
+# A `bundled-sqlcipher-vendored-openssl` feature-rel **SEM** az SQLCipher-t,
+# **SEM** az OpenSSL-t nem igényli a system-ből — mindkettő C-forrása a
+# `libsqlite3-sys` + `openssl-src` crate-ben van, magától fordul.
+# Első cargo build 15-25 perc (Windows MSVC-n kb. 4 GB RAM + 2 GB disk),
+# inkrementális utána ~pár másodperc.
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# M2.3 — SQLCipher kulcs-tárolás OS-szintű titkos storage-ben.
+# Windows: Credential Manager (DPAPI), macOS: Keychain, Linux: Secret Service.
+# A `keyring` crate pure-Rust (windows-rs bindings alatta), tehát NEM hoz újabb
+# C-build-függőségeket (libsodium/OpenSSL stb.).
+keyring = "3"
+# SQLCipher-kulcs generáláshoz: kriptográfiailag biztonságos RNG.
+rand = "0.8"
+hex = "0.4"
+# M3.3 — eszköz-bind.
+# `machine-uid`: pure-Rust hardware-fingerprint (Win registry MachineGuid,
+#                macOS IOPlatformUUID, Linux /etc/machine-id).
+# `ed25519-dalek`: keypair + signing (a Rust-kripto-standard; pure-Rust,
+#                  nincs OpenSSL dependency — kis C-build).
+# `base64`: public-key szerializálás a Supabase-re küldéshez.
+machine-uid = "0.5"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
+# M5 — auto-updater plugin.
+# Ed25519-aláírt manifest JSON-t hitelesít + lehúzza az új MSI/NSIS-t.
+# A `tauri-plugin-updater` pure-Rust a végén (az aláírás-ellenőrzéshez
+# a már behozott ed25519-dalek is elég).
+tauri-plugin-updater = "2"
+

@@ -23,6 +23,958 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M5: Auto-updater skeleton (tauri-plugin-updater)
+
+<!-- key: 2026-04-23-m5-updater-skeleton -->
+<!-- category: improvement -->
+<!-- version: 1.15.19 -->
+<!-- targets: fejlesztő -->
+
+### ⬆️ A Kartotéka desktop most már **képes saját magát frissíteni**
+
+**Skeleton-setup**: a kód kész, a host-oldal (manifest URL + új verzió feltöltése) még nem — ez az első éles verzió-release előtt kerül beállításra. Addig a gomb „Ellenőrzés" hibát fog dobni (placeholder pubkey).
+
+**Új Rust dep**:
+- `tauri-plugin-updater v2` (hozza: `reqwest`, `hyper-rustls` — mind pure-Rust)
+
+**Új npm dep**:
+- `@tauri-apps/plugin-updater v2`
+
+**Új Tauri capability**: `updater:default` a `capabilities/default.json`-ben
+
+**`tauri.conf.json` frissítés:**
+```json
+{
+  "plugins": {
+    "updater": {
+      "pubkey": "UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT",
+      "endpoints": [
+        "https://updates.kartoteka.hu/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
+  "bundle": {
+    "createUpdaterArtifacts": true,
+    ...
+  }
+}
+```
+
+A `createUpdaterArtifacts: true` azt jelenti, hogy a `npm run desktop:build` mostantól generál egy **`.nsis.zip`** fájlt is az MSI + NSIS EXE mellé — ezt tölti le az auto-updater.
+
+**Új TS modul** (`apps/desktop/src/lib/updater.ts`):
+- `checkForUpdates()` → `{ available, version, releaseDate, notes, error, handle }`
+- `downloadAndInstall(handle, onProgress)` → `{ success, error }`
+
+**Dashboard bővítés**: új **„Frissítés"** kártya a lap tetején:
+- „Ellenőrzés" gomb — ellenőrzi, van-e új verzió
+- Ha van: megjelenik a verzió-szám + release dátum + release notes (ha a manifest tartalmazza)
+- „Letöltés és telepítés" gomb — progress-kiírás (X%), telepítés után az app restart-ol
+
+**Új PS script** (`ops/updater-key-setup.ps1`):
+- Ed25519 kulcspár generálás a `cargo tauri signer generate` paranccsal
+- A privát kulcs `ops/updater-private.key`-be kerül (gitignore-olt)
+- A publikus kulcs `.pub` fájlba és kiírva — Endre bemásolja a `tauri.conf.json`-be, felülírva a `UPDATER_PUBKEY_PLACEHOLDER_BYGENSCRIPT`-et
+
+**Host-döntés — még Endre előtt**:
+
+Az auto-updater egy **aláírt JSON manifest**-et kér egy HTTP endpoint-ról. Két népszerű host:
+
+| Opció | Előny | Hátrány |
+|---|---|---|
+| **GitHub Releases** | Ingyenes, verzió-kezelés benne, CI-integráció könnyű | Nyilvános URL (bár privát repo is megy tokennel) |
+| **Supabase Storage** | Már van Supabase account, EU-hosting, GDPR-biztos | Signed URL-ek kicsit bonyolultabbak |
+| **Saját CDN / kartoteka.hu** | Teljes kontroll | Üzemeltetési költség (~$5/hó) |
+
+**Javaslat**: **Supabase Storage** (EU-szervereken, már része az infrastruktúránknak). Egy privát bucket, signed URL-lel a manifest-hez.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 40 s (új reqwest + hyper-rustls crate-ek, mind pure-Rust)
+- ✅ `npm run desktop:build` (Vite): 521 kB JS (+6 kB updater.ts + UI), 57 kB CSS, 5.19 s
+
+**Következő lépések Endre felé (amikor új release kell):**
+
+1. **Egyszer**: futtasd az `ops/updater-key-setup.ps1`-et → Ed25519 keypair generálódik
+2. Másold a publikus kulcsot a `tauri.conf.json`-be
+3. Dönts a host-ról (Supabase Storage a javaslatom)
+4. A `npm run desktop:build` előtt:
+   ```powershell
+   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content ops\updater-private.key -Raw
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "kartoteka-updater-dev-2026"
+   npm run desktop:build
+   ```
+5. Az output `.nsis.zip`-et + az aláírás-hash-t tedd a host-ra, a manifest-et generáld le
+6. Az appban a „Frissítés / Ellenőrzés" gombra kattintva a kliens letölti
+
+---
+
+## [2026-04-23] — M4.1 + M4.2: Restore-gomb + revoke/restore email-értesítés
+
+<!-- key: 2026-04-23-m4-polish -->
+<!-- category: improvement -->
+<!-- version: 1.15.18 -->
+<!-- targets: rendszergazda, lelkészek -->
+
+### 🔄 Az admin feloldhatja a revoke-ot, és minden átkapcsolásról email megy a user-nek
+
+**Az M4 két hiányzó darabját pótolja:**
+1. A revoke-olt eszközök **visszaállíthatók** a web admin UI-ról (eddig csak manuális SQL UPDATE)
+2. Mind a revoke-ról, mind a restore-ról **automatikus email** megy a user-nek (Brevo-n át)
+
+**Új server action** (`apps/web/app/(dashboard)/admin/devices-licenses-actions.ts`):
+- `restoreDevice({ id })` — `UPDATE revoked=false, revoked_by=null, revoked_at=null, revoke_reason=null`
+- Biztonsági check: már visszaállított eszközt nem dupla-state-elünk
+- Audit-log: `action='device.restore'`
+- Email: `deviceRestoredEmail` (emerald színű, „Eszköz újra aktív")
+
+**revokeDevice action bővítve**:
+- A revoke előtt lekéri a user-info-t (`profiles.email, full_name`) és az eszköz-nevet
+- Revoke után `deviceRevokedEmail` — rose/destruktív színű template, benne: eszköznév, platform, időpont, indok
+- Ha az email-küldés hibára fut, a revoke-ot attól nem görgetjük vissza (a security fontosabb)
+
+**Új email-sablonok** (`apps/web/lib/email/templates/device-revoke.ts`):
+- `deviceRevokedEmail({ email, fullName, deviceName, platform, reason, revokedAtIso })`
+- `deviceRestoredEmail({ email, fullName, deviceName, platform, restoredAtIso })`
+- Stílus: ugyanaz mint az access-request template-ek (max-width: 600px, Cormorant Garamond cím, colored accent badge)
+- Hangvétel: egyházi-pásztori, „Áldott napot kíván"-zárlattal
+
+**UI bővítés** (`apps/web/components/admin/devices-licenses-tab.tsx`):
+- A **revoke-olt sorokon** most a piros „Revoke" helyett zöld „Visszaállít" gomb jelenik meg
+- A gomb `title` attribútuma a revoke indoklását mutatja hover-en (tooltip)
+- Megerősítés: confirm() dialog a restore előtt is (UX-biztonság)
+- Toast-okban jelezve, hogy a user email-ben értesítve
+
+**Új audit-action label** a shared.ts-ben:
+- `'device.restore': 'Eszköz visszaállítva'` (a Napló-fülben magyarul jelenik meg)
+
+**Teljes revoke/restore flow most:**
+
+```
+[Admin a web-en klikkel Revoke]
+    ↓
+UPDATE user_devices SET revoked = true, revoke_reason, ...
+    ↓
+INSERT audit_log (device.revoke, metadata = { reason })
+    ↓
+sendEmail(deviceRevokedEmail) → Brevo → user inbox
+    ↓
+[Desktop kliens 30 mp-en belül észleli — M4 core]
+    ↓
+alert() + signOut() + redirect /login
+```
+
+```
+[Admin klikkel Visszaállít]
+    ↓
+UPDATE revoked = false, revoke_* = null
+    ↓
+INSERT audit_log (device.restore)
+    ↓
+sendEmail(deviceRestoredEmail) → user inbox
+    ↓
+[A user újra bejelentkezhet az eszközön]
+```
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/web): 0 hiba
+- ✅ `npm run build` (Next.js prod): SUCCESS, 50+ route generált
+
+**Kipróbálás:**
+1. Desktop-on login → „Ez az eszköz" aktív
+2. Web-en `/admin` → Eszközök → **Revoke** → indoklás
+3. Email érkezik (nézd a Brevo log-ot vagy az inboxot)
+4. Desktop 30 mp-en belül kijelentkezik
+5. Web-en **Visszaállít** → confirm dialog → megerősítés
+6. Újabb email (restored)
+7. Desktop: újra login működik
+
+Ezzel az M4 minden része **teljes + éles**. Az M0.5-ben lerakott devices-licenses UI minden funkcióját használjuk, és az email-flow teljes.
+
+---
+
+## [2026-04-23] — M4: Admin revoke + desktop auto-logout
+
+<!-- key: 2026-04-23-m4-admin-revoke -->
+<!-- category: security -->
+<!-- version: 1.15.17 -->
+<!-- targets: fejlesztő, rendszergazda, lelkészek (közvetve) -->
+
+### 🚫 Az admin bármikor visszavonhatja egy eszköz hozzáférését
+
+**A webes oldali admin felület már az M0-ban elkészült** (`devices-licenses-tab.tsx`), csak most vált élessé az M3.3 eszköz-bind bevezetésével. Az M4 a **desktop-oldali detektálást** adja hozzá: ha az admin a web-ről revoke-ol egy eszközt, a kliens 30 másodpercen belül észleli és automatikusan kijelentkezik.
+
+**Webes admin felület** (`/admin/devices-licenses`):
+- Három sub-tab: **Eszközök, Licencek, Napló**
+- **Eszközök** tab:
+  - Táblázat: Felhasználó (email + név), Eszköz (név + fingerprint), Platform, Regisztrálva, Utolsó aktivitás, Státusz, Művelet
+  - **Revoke gomb** → kötelező indoklás → UPDATE `revoked = true, revoked_by, revoked_at, revoke_reason`
+  - Auto-audit: `audit_log.action = 'device.revoke'` → azonnal bekerül a Napló-fülbe
+
+**Desktop kliens — új detektor** (`apps/desktop/src/lib/device.ts`):
+- `checkDeviceRevokeState(userId)` — Supabase SELECT a saját eszközre (user_id + fingerprint)
+- Visszatérés: `{ known, revoked, reason, revokedAt, deviceRowId }`
+- Hibatűrő: ha a Supabase nem elérhető, `known: false` — a kliens nem jelentkezik ki tévedésből
+
+**Dashboard integráció**:
+- Új useEffect login után: **azonnali** ellenőrzés + **30 másodperces periodikus poll**
+- Ha `revoked === true`:
+  1. `alert(...)` a user-nek — a revoke indoklása kiírva
+  2. `supabase.auth.signOut()`
+  3. `navigate('/login', { replace: true })`
+
+**Biztonsági modell:**
+- Az admin revoke-ot nem tudja bypass-olni a kliens (RLS + server-oldali check)
+- A desktop-oldali polling csak **UX-javítás** — a user egyébként is sign-out-ra kényszerül, amint a Supabase auth-session-je elévül
+- A revoke **audit-trail**-elt: `audit_log` táblába kerül `action='device.revoke'` + metadata (reason)
+
+**Kipróbálási forgatókönyv:**
+1. Desktop: `npm run desktop:dev` → login → „Ez az eszköz" kártyán látszik, hogy aktív
+2. Böngésző: `/admin` → Eszközök tab → saját eszköz → Revoke → indoklás („teszt")
+3. Desktop: 30 mp-en belül **alert** jelenik meg: „Ezt az eszközt a rendszergazda visszavonta. Indok: teszt. A kliens automatikusan kijelentkezik."
+4. Az alert után: login-oldalra redirect
+5. Ha újra bejelentkezne, a Dashboard azonnal detektálja a revoke-ot és megint kidobja
+6. Admin a web-en **Restore** (ha majd hozzáadjuk — most manual UPDATE a Studio-ban: `UPDATE user_devices SET revoked = false WHERE id = '…'`)
+
+**Mi nem része az M4-nek (későbbi):**
+- **Soft-restore gomb** az admin UI-n (most csak revoke van)
+- **Tömeges revoke**: az összes user eszköze egy lépésben (pl. ha a user maga is revokolódott)
+- **Email-értesítés a user-nek** a revoke-ról (a user már látja az alert-et, de email is jó lenne)
+- **Gépen-aktív revoke**: jelenleg 30 sec polling a leggyorsabb. Supabase Realtime subscription-nel (`postgres_changes`) pillanatnyi lehetne — későbbi optimalizáció
+- **Eszköz-átnevezés** (device_name frissítés) — szép UX, de nem biztonsági
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build`: 516 kB JS (+1 kB polling glue), 57 kB CSS, 3.40 s
+- Web-oldal nem változott (az M0 óta már tesztelt)
+
+**Ezzel az M4 teljes**. A teljes szakértő-ajánlás V4 szinte teljes — a hátralevő M5 (auto-updater), M6 (béta-tesztelés) már üzemeltetési fázisok.
+
+---
+
+## [2026-04-23] — M3.3: Eszköz-bind — Ed25519 keypair + user_devices regisztráció
+
+<!-- key: 2026-04-23-m3-3-device-bind -->
+<!-- category: security -->
+<!-- version: 1.15.16 -->
+<!-- targets: fejlesztő, lelkészek (közvetve) -->
+
+### 🔐 Minden eszköz saját azonossága — admin-revoke előkészítés
+
+**A webes működést nem érinti közvetlenül.** A desktop kliens az első indításkor egy saját **device_id-t + Ed25519 keypairt** generál a Rust oldalon, és regisztrálja a Supabase `user_devices` táblába. A privát kulcs az OS-szintű keyringben marad (Windows DPAPI), a publikus kulcs a Supabase-ben.
+
+**Ez az alap a következő biztonsági szintekhez**:
+- **Admin-revoke**: az egyházkerületi admin bármikor visszavonhatja egy eszköz hozzáférését (M4 UI)
+- **Aláírt outbox-payload**: a user saját privát kulcsával írhat alá — a szerver ellenőrzi (M4)
+- **E2E doc-titkosítás**: a publikus kulcs a doc-kulcs wrap-olásához (M4 dokumentumtár)
+
+**Új Rust modul** (`apps/desktop/src-tauri/src/device.rs`):
+- `load_or_create_device()` — idempotens: első alkalommal generál, utána keyringből olvas
+- `#[tauri::command] device_info()` — a frontend invoke-ja
+
+**Új Rust deps** (mind pure-Rust, nincs új C-build):
+- `machine-uid v0.5` — hardware-fingerprint (Win registry MachineGuid / macOS / Linux)
+- `ed25519-dalek v2` (`rand_core` feature) — keypair + signing
+- `base64 v0.22` — serializálás
+
+**Új TS modul** (`apps/desktop/src/lib/device.ts`):
+- `getDeviceInfo()` — Rust invoke
+- `ensureDeviceRegistered(userId)` — idempotens Supabase INSERT / last_seen UPDATE
+- `getMyDevices(userId)` — lekéri az összes regisztrált eszközt
+- A publikus kulcs base64 → hex konverzió a `bytea`-oszlophoz
+
+**Új Dashboard-kártya**: „Ez az eszköz"
+- Device ID, hardware fingerprint, publikus kulcs (base64)
+- Platform + „most generálva" jelzés
+- Táblázat: az összes regisztrált eszköz (platform, név, regisztráció, utolsó aktivitás, státusz — aktív/visszavonva)
+- Auto-registration a login után
+
+**Biztonsági állapot:**
+- ✅ A privát kulcs **SOHA** nem hagyja el az eszközt
+- ✅ Az adatbázis `user_devices.public_key` nem elegendő impersonálásra
+- ✅ A `device_fingerprint` + `user_id` UNIQUE kombináció — dupla regisztráció elkerülve
+- ✅ RLS: `users_register_own_devices` (WITH CHECK `user_id = auth.uid()`) már megvan (M0)
+- ⚠️ Egyelőre a signing-használat nem éles (M4 feladat) — a kulcs most „alvó", de készen áll
+
+**Verify:**
+- ✅ `npx tsc --noEmit`: 0 hiba
+- ✅ `cargo check`: 29.8 s (3 új pure-Rust crate)
+- ✅ `npm run desktop:build` (Vite prod): 515 kB JS (+5 kB), 57 kB CSS, 3.17 s
+
+**Kipróbálás:**
+1. `npm run desktop:dev` → login → Dashboard
+2. Új „Ez az eszköz" kártya jelenik meg
+3. Első indításkor: „Eszköz regisztrálva a rendszerben." (zöld)
+4. A táblázat mutatja az eszközt (platform=windows, név pl. „Win32", aktív)
+5. Supabase Studio-ban ellenőrizhető: `SELECT * FROM user_devices WHERE user_id = '…'` — 1 sor
+
+**Következő (M3.4)**: Tauri updater plugin + aláírt manifest. Az MVP-hez optional — lehet az M3-t lezárni az M3.3-mal is, és átugrani az M5-re, ha Endre úgy dönti.
+
+---
+
+## [2026-04-23] — M3.2: Aláírt MSI + NSIS bundle (self-signed code-sign cert)
+
+<!-- key: 2026-04-23-m3-2-self-signed -->
+<!-- category: security -->
+<!-- version: 1.15.15 -->
+<!-- targets: fejlesztő -->
+
+### 🔏 A Windows installer bundle-k most már **digitálisan aláírtak**
+
+**A webes működést nem érinti.** Az M3.1-es bundle-k még `Unknown publisher`-rel kerültek ki. Az M3.2 óta mindent aláír a Tauri bundler (`signtool.exe`) egy self-signed code-sign cert-tel, és a timestamp is rákerül (DigiCert TSA) — így az aláírás **a cert lejárta után is érvényes marad**.
+
+**Mit csináltunk:**
+
+1. **`ops/code-sign-setup.ps1` futtatása** (Endre egyszer):
+   - Self-signed cert generálása: RSA-2048, SHA-256, 3 év érvényesség
+   - Subject: `CN=EREK Kartoteka Developer, O=Baratosi Reformatus Egyhazkozseg, C=RO`
+   - PFX export: `ops/kartoteka-codesign.pfx` (gitignore-olt)
+   - Registrálás mindhárom cert-store-ba: `CurrentUser\My` (a privát-kulcshoz), `TrustedPublisher` (SmartScreen belső-gép), `Root` (Get-AuthenticodeSignature `Valid`)
+   - Thumbprint: `F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3`
+
+2. **`tauri.conf.json` bővítés** — `bundle.windows` szekció:
+   ```json
+   {
+     "certificateThumbprint": "F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3",
+     "digestAlgorithm": "sha256",
+     "timestampUrl": "http://timestamp.digicert.com"
+   }
+   ```
+
+3. **Újra build** (inkrementális, pár perc):
+   ```bash
+   npm run desktop:build
+   ```
+   A Tauri `signtool.exe` automatikusan aláírt:
+   - `Kartotéka_0.1.0_x64_en-US.msi` (5.34 MB)
+   - `Kartotéka_0.1.0_x64-setup.exe` (3.89 MB)
+   - 3 NSIS plugin-DLL (System, nsDialogs, nsis_tauri_utils)
+   - Timestamp: DigiCert TSA (érvényes 2036-ig)
+
+**Verify (`Get-AuthenticodeSignature`):**
+- ✅ Signer: `CN=EREK Kartoteka Developer, …`
+- ✅ Thumbprint match
+- ✅ TimeStamper: `DigiCert SHA256 RSA4096 Timestamp Responder 2025 1`
+- ✅ Status: **Valid** (miután a cert a Trusted Root-ba került)
+
+**⚠ Fontos tisztázás — a lelkészi gépekre mi vonatkozik:**
+
+A Windows **SmartScreen** a **globális reputation-szolgáltatást** kérdezi — nem a helyi trust store-t. Egy self-signed cert-nek **nincs reputation**-je → SmartScreen warning (`Unknown publisher`) a **lelkész gépén** **továbbra is megjelenik**.
+
+| Cert típus | Fejlesztői gép (helyi) | Lelkészi gép (reputation) | Cost |
+|---|---|---|---|
+| Self-signed (M3.2) | ✅ Valid | ⚠ Unknown publisher | ingyenes |
+| **Azure Trusted Signing** (M5) | ✅ Valid | ✅ **Nincs warning** | $9.99/hó |
+| DigiCert EV | ✅ Valid | ✅ Instant-reputation | ~$300/év |
+| SignPath (OSS) | ✅ Valid | ✅ (OSS projektre ingyenes) | ingyenes OSS-re |
+
+Most self-signed-del maradunk — **MVP-alpha-bétára** (Endre és pár tesztelő) elég. Az M5 előtt átlépünk Azure Trusted Signing-re, mielőtt az egész EREK-elnökségnek szétosztjuk.
+
+**Következő (M3.3)**: eszköz-bind — a kliens első indításkor regisztrálja magát a Supabase `user_devices` táblába (device_fingerprint + Ed25519 public_key). Ez az alap a jövőbeli „admin eszköz-revoke" funkcióhoz.
+
+---
+
+## [2026-04-23] — M3.1: Első Kartotéka MSI + NSIS installer bundle
+
+<!-- key: 2026-04-23-m3-1-first-bundle -->
+<!-- category: improvement -->
+<!-- version: 1.15.14 -->
+<!-- targets: fejlesztő -->
+
+### 📦 A desktop kliens már telepíthető MSI + NSIS csomagra
+
+**A webes működést nem érinti.** Ez a M3 (production-deploy) fázis első lépése: a Tauri desktop kliens most már **telepíthető Windows-installer csomaggá** összeállítható.
+
+**Generált bundle-k** (első release build, ~25 perc):
+
+| Installer | Méret | Használat |
+|---|---|---|
+| `Kartotéka_0.1.0_x64_en-US.msi` | **5.4 MB** | Enterprise-deploy (Group Policy, SCCM), csendes telepítés (`/quiet`) |
+| `Kartotéka_0.1.0_x64-setup.exe` | **3.9 MB** | Felhasználóbarát wizard, modern Windows-telepítő |
+
+Output-útvonal: `C:\kartoteka-target\release\bundle\{msi|nsis}\` (a target-dir az M2.2 óta ASCII-úton a non-ASCII path-encoding-bug elkerülésére).
+
+**Egyedi EREK-ikon felhasználva** — a `icon/icon.png` (templom + csillag sötétkék háttéren) minden méret-változatban generálva:
+- Windows: 32x32, 128x128, 128x128@2x, Square*Logo, icon.ico
+- macOS: icon.icns
+- iOS + Android: teljes méretkészlet
+
+A Tauri `npx tauri icon` parancs intézte egyben.
+
+**Fájlnevek magyar ékezettel** (`Kartotéka`) — a Tauri `productName: "Kartotéka"` configból jön, a bundler megfelelően Unicode-kezeli.
+
+**Build environment:**
+- `cargo build --release` (első futás ~15-20 perc release-optimalizálásért)
+- WiX Toolset → MSI
+- NSIS 3.11 (Tauri automatikus letöltés) → EXE
+- Minden a `C:\kartoteka-target` cache alatt (a subsequent build-ek pár perces inkrementálisak)
+
+**Nem aláírt csomagok** — a Windows SmartScreen „Unknown publisher" warningot fog mutatni telepítéskor. A következő lépés (**M3.2**) javítja.
+
+**Előkészítve az M3.2-hez:**
+- `ops/code-sign-setup.ps1` — PowerShell script, ami self-signed code-sign cert-et generál (3 év érvényességgel), PFX-be exportál, a Trusted Publishers store-ba regisztrál, és kiírja a thumbprint-et a `tauri.conf.json`-be másoláshoz
+- `.gitignore` bővítés: `ops/*.pfx`, `apps/desktop/src-tauri/target/`, `.p12/.key/.pem` fájlok
+
+**Kipróbálási lehetőség (a lelkészi élmény előképe):**
+
+```powershell
+# 1. A telepítő futtatása
+Start-Process "C:\kartoteka-target\release\bundle\nsis\Kartotéka_0.1.0_x64-setup.exe"
+
+# 2. SmartScreen ("Unknown publisher") → "More info" → "Run anyway"
+# 3. Wizard végigvezetésével a Kartotéka telepítődik a Start menübe
+# 4. Indítás a Start menüből → ugyanaz a dashboard, mint npm run desktop:dev
+#    (ugyanarra a SQLCipher DB-re mutat + Credential Manager kulcs)
+```
+
+**M3 haladás:**
+- ✅ M3.1 Első MSI + NSIS bundle
+- ⏳ M3.2 Self-signed code-sign cert + aláírt MSI
+- ⏳ M3.3 Eszköz-bind (Supabase `user_devices` regisztráció)
+- ⏳ M3.4 Updater plugin + aláírt manifest
+
+---
+
+## [2026-04-23] — M2.7: Delta-sync — csak a változott sorok (összes profil)
+
+<!-- key: 2026-04-23-m2-7-delta-sync -->
+<!-- category: improvement -->
+<!-- version: 1.15.13 -->
+<!-- targets: fejlesztő -->
+
+### 🔀 Sávszélesség-takarékos szinkronizáció — csak a tényleges változások
+
+**A webes működést nem érinti.** Az M2.6-os SQL-migráció már hozzáadta a `profiles.updated_at`-et — most élesben használjuk: a desktop kliens csak azokat a sorokat kéri le a Supabase-től, amik tényleg változtak.
+
+**Új TS függvények** (`apps/desktop/src/lib/sync.ts`):
+- `pullAllProfiles(mode)` — `mode='delta'` vagy `mode='full'`
+  - **Delta-mode**: `WHERE updated_at > last_pull_all` (a legutóbbi pull óta változottak)
+  - **Első delta-futás**: automatikusan `full-initial` módra vált (nincs last_pull → mindent lehoz)
+  - **Full-mode**: override, mindent lehoz
+  - Frissíti a `sync:profiles:last_pull_all` kulcsot a high-water mark-tal
+- `getAllLocalProfiles()` — lokális olvasás az egész `profiles_local` táblából (updated_at DESC)
+- `getLastPullAllIso()` — az utolsó delta-pull ISO-ideje
+
+**Új Dashboard-kártya**: „Összes profil — delta-sync"
+- Utolsó delta-pull ISO-időpont
+- **Delta Pull** gomb (`variant="outline"`) — sávszélesség-takarékos
+- **Full Pull** gomb (primary) — override
+- Eredmény-üzenet: „Delta pull: 0 sor" / „Full (első futás): 1 sor frissítve"
+- Tábla: email, név, szerepkör, revision, updated_at
+
+**A dashboard refreshLocalDb kibővült**: most 6 párhuzamos load-ot csinál (settings, outbox, last_pull, last_pull_all, failed, all profiles).
+
+**Miért praktikus ez?**
+- Egy éles rendszerben 1000+ profil-sor lehet, amiből naponta csak néhány frissül. A delta-pull ilyenkor **99%+-ban üres** = < 1 kB hálózati forgalom (+ tranzakciós overhead).
+- A full-pull szándékosan megmaradt: debug, „valamilyen desync van" forgatókönyvre.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build`: 510 kB JS (+5 kB az új függvények/UI), 57 kB CSS, 3.69 s
+
+**Kipróbálás:**
+1. `npm run desktop:dev` → login
+2. „Összes profil" kártya → „Delta Pull" gomb → először full-initial, lejön 1 sor (a saját profilod)
+3. Klikkelj megint „Delta Pull"-ra → „nincs új / változott sor" (mert semmi sem változott azóta)
+4. Supabase Studio-ban UPDATE-eld a saját profilt (pl. phone) → revision+1, updated_at most
+5. „Delta Pull" megint → most 1 sort frissít (kizárólag azt)
+
+**Következő (M3)**: updater + code-signing (self-signed cert) + eszköz-bind. Az M2 fázis most teljes mértékben lezárult — minden offline-first funkció éles és tesztelt.
+
+---
+
+## [2026-04-23] — M2.6: Konfliktus-kezelés (revision + updated_at)
+
+<!-- key: 2026-04-23-m2-6-conflict -->
+<!-- category: feature -->
+<!-- version: 1.15.12 -->
+<!-- targets: fejlesztő, lelkészek (közvetve) -->
+
+### 🔀 A profil-szerkesztés most már **konfliktusbiztos** — ugyanazt a sort két eszközről nem lehet véletlenül felülírni
+
+**A webes működést nem érinti közvetlenül**, de ⚠️ **egy új Supabase SQL-migrációt kell futtatni**.
+
+**⚠ KÉZI LÉPÉS ENDRÉNEK**: Supabase Studio SQL Editor-ban futtasd le az alábbi fájlt:
+
+```
+migration-docs/sql/2026-04-23-m2-6-profiles-revision.sql
+```
+
+Ez hozzáadja a `profiles`-hoz a `revision bigint` + `updated_at timestamptz` oszlopokat + egy `BEFORE UPDATE trigger`-t, ami automatikusan inkrementálja a revision-t minden íráskor.
+
+**Mit csinál a konfliktus-kezelés:**
+
+1. A kliens minden mentésnél **feljegyzi** a saját cache-ben lévő `revision`-t (pl. 5).
+2. A Supabase UPDATE egy **conditional WHERE** záradékkal megy: `WHERE id = auth.uid() AND revision = 5`.
+3. Ha a szerver-oldali sor időközben valaki más által módosítódott (pl. webes felületről), a revision már 6. → a WHERE nem matchel → **0 sor frissül**.
+4. A kliens ezt érzékeli, és:
+   - **Online**: re-pull-olja a sort (a webes változatot) + figyelmezteti a user-t: „A szerveren időközben megváltozott, nézd át a mezőket"
+   - **Offline** (outbox): a sor `failed` marad `last_error='conflict: a szerver-oldali revision eltér'`-rel, a user retry-olhatja vagy elvetheti
+
+**Új UI elemek a Dashboard-on:**
+- A profil-táblában most látszik a `revision` + `updated_at`
+- Konfliktus-banner: ⚠ amber-színű figyelmeztetés a form alatt
+- **„Hibás / konfliktusos sorok" tábla** az Outbox kártyában — minden failed sorhoz „Újrapróba" és „Elvetés" gomb
+
+**Új TS API** (`apps/desktop/src/lib/sync.ts`):
+- `updateOwnProfile` most `{ queuedToOutbox, conflict, newRevision? }`-t ad vissza
+- `processOutbox` visszaadja a `conflicts` számot is
+- Új exportok: `getFailedOutboxRows()`, `retryOutboxRow(id)`, `dismissOutboxRow(id)`
+- **Outbox payload új formája**: `{ patch, expected_revision }` (legacy-kompatibilis: ha a payload csak patch, unconditional update megy)
+
+**Új Rust v3 migráció** (`apps/desktop/src-tauri/src/db.rs`):
+```sql
+ALTER TABLE profiles_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles_local ADD COLUMN updated_at TEXT;
+PRAGMA user_version = 3;
+```
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 32 s (v3 migráció új ALTER-ek, minden más cache-elt)
+- ✅ `npm run desktop:build`: 505 kB JS, 57 kB CSS, 3.18 s
+
+**Kipróbálás (miután az SQL migráció lefutott):**
+1. `npm run desktop:dev` → login → Pull profil → a „Revision: 0" látható
+2. Módosítsd a telefont → Mentés → „új revision: 1" üzenet
+3. **Konfliktus szimulálás**: Supabase Studio-ban manuálisan UPDATE-eld a sort (pl. `SET phone = 'valami'`). Vagy a webes felületen módosítsd.
+4. Most a desktop-on próbáld menteni az új értéket → ⚠ amber-banner: „A szerveren időközben megváltozott…"
+5. A lokális cache frissült a szerver-változatra, újra mentheted ha akarod.
+
+**Mit nem csináltunk még (M2.7+):**
+- Delta-sync (`updated_at > last_pull`) — az infrastruktúra most már kész hozzá, csak a kliens-oldali query kell hozzá
+- Több domain-tábla (members, finance, anyakonyv stb.) — minden egyes esetben egy hasonló SQL-migráció ajánlott (revision + updated_at + trigger), de azok külön-külön jönnek
+- Kimerítő retry-policy (exponential backoff) — most 1 retry-gomb van a failed sorokon
+
+**Következő (M2.7)**: fázis-záró csomag — több domain-tábla (pl. a `presbiter`, ami már készen van a séma-oldaltól). Vagy ha Endre inkább a M3-ra akar ugrani (updater + code-signing), azt is mérlegelhetjük.
+
+---
+
+## [2026-04-23] — M2.5: Push-sync — offline írás + outbox drain (saját profil)
+
+<!-- key: 2026-04-23-m2-5-outbox-push -->
+<!-- category: feature -->
+<!-- version: 1.15.11 -->
+<!-- targets: fejlesztő -->
+
+### 📤 A desktop most már **offline is írhat** — az outbox fogadja és később szinkronizál
+
+**A webes működést ez sem érinti.** A Tauri desktop-on most élesben használjuk az M2.1 óta ott lévő `outbox` táblát: a saját profil szerkeszthető mezőit (telefon, teljes név) akár offline állapotban is mentheted, és a háttér automatikusan feltölti a Supabase-be, amikor visszatér a net.
+
+**Mi lett új:**
+
+- **`sync.ts` bővítve** (apps/desktop/src/lib):
+  - `updateOwnProfile(userId, patch)` — **optimistic** frissítés: azonnal ír a lokális `profiles_local`-ba, majd online-esetben közvetlenül a Supabase-nek, offline-esetben az outbox-ba.
+  - `processOutbox()` — végigmegy a `pending` soron, elküldi a `UPDATE / INSERT / DELETE`-et a `target_table` + `target_id` + `payload` alapján. Sikeres sor: `status='sent'`. Hibás: `status='failed'`, `last_error`, `retry_count++`.
+  - `enqueueOutbox(op, table, id, payload)` — belső helper.
+  - `isOnline()` — `navigator.onLine` + 2 mp-es HEAD-ping a Supabase `/auth/v1/health`-re (valódi connectivity, captive-portal-biztos).
+
+- **Dashboard bővítve:**
+  - **„Online / Offline" badge** a fejlécen — `window.addEventListener('online'|'offline')`-on listen-el
+  - **„Szerkeszthető mezők" űrlap** a profil-kártyában — telefon + teljes név. Mentés gomb → optimistic-UX: lokálisan azonnal látszik a változás
+  - **„Outbox" kártya**: 4-tile KPI (függő / kiküldött / hibás / összes) + „Szinkronizálás most" gomb
+  - **Auto-drain login után**: a dashboard mount-kor egyszer elindítja a `processOutbox()`-ot. Ha vannak pending sorok és van net, azonnal szinkronizálódnak.
+
+**Kritikus viselkedés:**
+- Offline-ban a „Mentés" gomb **mindig sikeres** — nincs error-message. A UI megmutatja: „Elmentve offline — a szerverrel a következő online-csatlakozáskor szinkronizálódik."
+- Online-ban az közvetlen Supabase-hívás fut; **ha az mégis failelne** (pl. 5xx, RLS-probléma), a sor bekerül az outbox-ba fallback-ként → a következő manual sync vagy auto-drain próbálja.
+
+**RLS-biztonság:** a Supabase `profiles_write` policy szerint a user csak a saját sorát frissítheti (`id = auth.uid()`). Az outbox-ba írt `update` operation is ezzel az id-vel fut, a Supabase visszautasít idegen sort.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build` (Vite prod): 501 kB JS (+6 kB a sync+UI miatt), 3.46 s. Vite warningol, mert kb. 500 kB fölött van — M5-ben code-splitting a lazy route-okkal.
+
+**Kipróbálás:**
+1. `npm run desktop:dev` → login → Pull profil
+2. Módosítsd a telefont → „Mentés" → online esetén azonnal Supabase-ben is frissül
+3. **Offline-teszt**: kapcsold le az internetet. A badge „Offline"-ra vált. Írj át valamit → „Mentés" — a message: "Elmentve offline, outbox-olva". Az Outbox-kártya pending: 1.
+4. Kapcsold vissza az internetet. „Szinkronizálás most" → a pending → sent. A Supabase-ben is megjelenik.
+
+**Következő (M2.6):**
+- Konfliktus-kezelés: ha két gép egyszerre ír ugyanarra a sorra (vagy a server-oldali sor közben megváltozott), a push-sync-nek észre kell vennie és döntenie. Ez a `revision + updated_at` összevetésen alapul. Bevezető lépésként egy felkészített táblán (pl. `presbiter`) nézzük meg.
+
+---
+
+## [2026-04-23] — M2.4: Első Supabase → SQLite szinkron (saját profil pull)
+
+<!-- key: 2026-04-23-m2-4-profile-pull -->
+<!-- category: feature -->
+<!-- version: 1.15.10 -->
+<!-- targets: fejlesztő -->
+
+### 🔄 A desktop kliens először ír saját magának adatot a Supabase-ről
+
+**A webes működést nem érinti.** A Tauri desktop-on végre **valódi adat** kerül a lokális (titkosított) SQLCipher DB-be: a bejelentkezett user saját profilját tükrözzük a Supabase `profiles`-ból egy új lokális `profiles_local` táblába.
+
+**Mi történt:**
+
+- **v2 migráció** a `db.rs`-ben: `profiles_local` tábla létrejön (id, email, full_name, phone, role, status, congregation_id, diocese_id, district_id, synced_at) + index a `congregation_id`-n
+- **Új TS modul** `apps/desktop/src/lib/sync.ts`:
+  - `pullOwnProfile(userId)` — Supabase `.eq('id', userId).maybeSingle()` → lokális `INSERT OR REPLACE`
+  - `getLocalOwnProfile(userId)` — tisztán offline olvasás
+  - `getLastPullIso()` — utolsó sync ISO-ideje a `settings:sync:profiles:last_pull` kulcsban
+- **Dashboard bővítve**: új „Saját profil — offline cache" kártya
+  - „Pull profil" gomb — lehozza a saját sort
+  - Táblázat a 10 oszloppal + utolsó sync ideje
+  - Hiba-panel, ha a pull elakad (offline, RLS stb.)
+
+**Biztonsági megjegyzés**: a pull egy standard Supabase RLS-védett SELECT — a user csak a saját sorát láthatja. A `.eq('id', userId)` dupla-védelem kliens oldalon. A tárolt érték **SQLCipher-titkosított** DB-ben van.
+
+**Mi NEM része az M2.4-nek (tudatosan):**
+- **Delta-sync** (updated_at > last_pull) — a Supabase `profiles` táblán még **nincs** `updated_at` + `revision` oszlop. Delta-sync-et azokra a domain-táblákra tervezünk, amelyek már készek (pl. a `presbiter` már tartalmazza). Külön SQL-migrációt igényel a `profiles`-hoz, mielőtt ott delta lehetne.
+- **Push-sync** (offline írás → outbox → Supabase) — M2.5
+- **Konfliktus-kezelés** — M2.6
+- **Több domain-tábla** (members, finance stb.) — fokozatosan M2.5+
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 1.03 s (csak a migráció-vektor változott)
+- ✅ `npm run desktop:build`: **2117 modul** (+1 sync.ts), 3.29 s
+
+**Kipróbálás**: indítsd az `npm run desktop:dev`-et, jelentkezz be, majd a Dashboard-on kattints a „Pull profil" gombra. A táblázat kitöltődik a saját adataiddal — utána a Credential Manager-ben őrzött kulccsal titkosított DB-ben ez a sor már lokálisan elérhető (akkor is, ha kikapcsolod az internetet és újraindítod az app-ot).
+
+**Következő (M2.5)**: Push-sync — az outbox bemutatása egy írás-útvonallal. Első probálkozás: a user képes lesz lokálisan elmenteni egy „saját telefon-számot", az outbox fogadja az írást, a Supabase-nek egy tranzakcióban át fog adni, és a pull-sync visszaolvassa.
+
+---
+
+## [2026-04-23] — M2.3: SQLCipher-kulcs OS-szintű titkos tárolóban (Credential Manager)
+
+<!-- key: 2026-04-23-m2-3-os-keyring -->
+<!-- category: security -->
+<!-- version: 1.15.9 -->
+<!-- targets: fejlesztő -->
+
+### 🔑 A kulcs már nem a bináris-ben — Windows Credential Manager (DPAPI)
+
+**A webes működést nem érinti**, a desktop user-flow változatlan.
+
+**Biztonsági előrelépés az M2.2-höz képest:**
+- Az M2.2-ig a SQLCipher-kulcs egy **statikus konstans** (`DEV_DB_KEY`) volt a Rust kódban — bárki, aki reverse-engineer-eli a `.exe`-t, megkapta.
+- Az M2.3-tól a kulcs az **OS-szintű titkos tárolóban** él (Windows Credential Manager / macOS Keychain / Linux Secret Service). Windows-on a DPAPI titkosítja a bejelentkezett user adataival.
+
+**A fenyegetési modell most:**
+| Forgatókönyv | M2.2 (statikus kulcs) | M2.3 (OS keyring) |
+|---|---|---|
+| Bejelentkezett user + fizikai hozzáférés | ❌ DB olvasható | ❌ DB olvasható |
+| Kilopott eszköz / kilopott DB fájl (nincs Windows-login) | ❌ kulcs a binárisban visszafejthető | ✅ **kulcs nélkül visszafejthetetlen** |
+| Másik Windows-user ugyanazon a gépen | ❌ ugyanaz a bináris, ugyanaz a kulcs | ✅ **DPAPI per-user: másik user nem fér hozzá** |
+| Reverse-engineered .exe | ❌ kulcs a bin-ben | ✅ **csak a keyring-logika, a kulcs nem** |
+
+**Mit NEM véd még (M2.6-ra hagyva):**
+- Malware ugyanabban a user-kontextusban root-joggal — ellene csak user-jelszó-alapú derived key segíthet.
+- User-profil törlés (pl. Windows újratelepítés) → kulcs elvész, DB visszanyerhetetlen. A **backup/restore** külön feladat (M2.5).
+
+**Technikailag:**
+- Új Rust crate-ek: `keyring v3`, `rand v0.8`, `hex v0.4` — mind **pure-Rust**, semmi új C-build. Cargo check **8 mp** inkrementálisan.
+- A `db.rs`-ben új `load_or_create_db_key()`:
+  - Első indítás: generál egy kriptográfiailag biztonságos 32-byte kulcsot, elmenti a Credential Manager-be (`service=kartoteka-desktop`, `user=sqlcipher-db-key`)
+  - Subsequent: olvassa a Credential Manager-ből
+- A kulcs a SQLCipher-nek **raw hex-key formátum**ban (`x'...'` 64 hex-karakterrel) — elkerüli a KDF-lassulást és minden indulásnál ugyanaz a bájt-szekvencia.
+- `PRAGMA key = "x'...'"` raw execute-tel (a `pragma_update` idézőjel-escape-jét kikerülve).
+
+**⚠ Endre gépén egy kézi törlésre szükség van:**
+
+Ha már futtattad az M2.2-es Tauri dev-et, van egy DB fájlod a régi DEV_DB_KEY-vel titkosítva. Az M2.3-as app új kulccsal próbálja nyitni → sanity-check hiba. Töröld:
+
+```powershell
+Remove-Item "$env:APPDATA\com.erek.kartoteka\kartoteka.db"
+```
+
+Utána újra `npm run desktop:dev` → új kulcs generálódik, a DB újra inicializálódik.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 8 mp inkrementális (új deps: keyring, rand, zeroize, hex)
+- ✅ `npm run desktop:build` (Vite prod): **2116 modul** (+1 ErrorBoundary), 3.36s
+
+**Következő (M2.4)**: pull-sync — az első "éles" domain tábla (pl. `members`) Supabase → SQLite tükrözése.
+
+---
+
+## [2026-04-23] — M2.2: SQLCipher-titkosított lokális DB (rusqlite + saját commands)
+
+<!-- key: 2026-04-23-m2-2-sqlcipher -->
+<!-- category: security -->
+<!-- version: 1.15.8 -->
+<!-- targets: fejlesztő -->
+
+### 🔐 A lokális adatbázis most már titkosított — SQLCipher a helyén
+
+**A webes működést ez sem érinti.** A desktop kliens korábbi (M2.1) sima SQLite-ja titkosított SQLCipher-re cserélve.
+
+**Mi változott a Rust-oldalon:**
+- Eltávolítva: `tauri-plugin-sql` csomag (külső plugin)
+- Hozzáadva: `rusqlite v0.32` a `bundled-sqlcipher-vendored-openssl` feature-rel — ez **nem igényel system-OpenSSL-t és nem igényel system-SQLCipher-t**, mindent a crate-ek magukban hoznak
+- Új modul: `src-tauri/src/db.rs` — nyit, migrál, `db_execute` + `db_select` Tauri command-ok
+- `src-tauri/src/lib.rs` refaktor: `setup()`-ban megnyitja és migrálja a DB-t, a commandokat regisztrálja
+
+**Mi változott a TS-oldalon:**
+- Eltávolítva: `@tauri-apps/plugin-sql` npm csomag
+- `apps/desktop/src/lib/local-db.ts` átírva: most közvetlenül `invoke('db_execute', ...)` / `invoke('db_select', ...)`-ot hív
+- A **nyilvános API változatlan**: `getSetting`, `setSetting`, `getAllSettings`, `getOutboxStats` — a dashboard kódot nem kellett módosítani
+
+**Biztonsági állapot:**
+- ✅ A DB már SQLCipher-titkosított
+- ⚠️ A kulcs **statikus fejlesztői konstans** a Rust kódban (`DEV_DB_KEY`) — **NEM production-safe**
+- ⏳ **M2.3-ban** a Stronghold kulcstárba kerül (user-jelszóból derivált, egyedi eszközönként)
+
+**Migráció:**
+- A `PRAGMA user_version` verzió-alapú stratégia megmaradt (v1 séma: `settings` + `outbox`)
+- Ha a fejlesztői gépen létezik az M2.1-es plain-SQLite DB, az **nem nyitható meg** — az M2.2 törlést nem végez, a user kézzel törölheti a `%APPDATA%\com.erek.kartoteka\kartoteka.db`-t ha gond van
+
+**Capabilities tisztítva:** a `sql:*` engedélyeket eltávolítottuk a `capabilities/default.json`-ből, mert a saját `#[tauri::command]` függvényekhez Tauri 2-ben nem kell explicit capability (csak plugin-command-ekhez).
+
+**Fejlesztő gép build-függőségei (csak Endre oldalán — a lelkészek MSI-t kapnak):**
+- Strawberry Perl 5.42.2.1 (OpenSSL `Configure` szkripthez) — `winget install StrawberryPerl.StrawberryPerl`
+- NASM (a Strawberry Perl már behúzza a `C:\Strawberry\c\bin\nasm.exe`-t, a winget-es `NASM.NASM` redundáns)
+- Build-target átirányítva `C:\kartoteka-target`-re egy `.cargo/config.toml`-lal — az `D:\Egyházi APP\...` útvonalban lévő `á` karakter összetöri az OpenSSL build-scriptet (NASM-kódlap ütközés)
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `npm run desktop:build` (Vite prod): **2115 modul**, 5.09s
+- ✅ `cargo check`: első build ~15 perc (SQLCipher C + OpenSSL C fordítás), inkrementális **1.20 s**
+
+**Következő (M2.3)**: Stronghold kulcstár — a `DEV_DB_KEY` konstans helyett a kulcs egy user-jelszóból derivált értékből származik, és a Stronghold-napló titkosított. Ez zárja a fejlesztés → produkció váltás utolsó biztonsági résé.
+
+---
+
+## [2026-04-23] — M2.1: Lokális SQLite a desktop kliensben (tauri-plugin-sql)
+
+<!-- key: 2026-04-23-m2-1-local-sqlite -->
+<!-- category: improvement -->
+<!-- version: 1.15.7 -->
+<!-- targets: fejlesztő -->
+
+### 💾 Offline adatréteg első lépése — titkosítás nélküli SQLite
+
+**A webes működést nem érinti.** Az M2 fázis első alfázisa: a Tauri desktop kliens ezentúl létre tud hozni és használni egy **lokális SQLite adatbázist** (`%APPDATA%\com.erek.kartoteka\kartoteka.db`). Ez az offline-first működés alapja.
+
+**Egyelőre nincs titkosítás** — az M2.2-ben cseréljük SQLCipher-re, és a kulcsot a Stronghold kulcstárba tesszük (M2.3).
+
+**Új csomagok:**
+- **Rust**: `tauri-plugin-sql` v2 (sqlite feature)
+- **JS**: `@tauri-apps/plugin-sql` v2
+
+**Séma — v1 migráció (automatikusan fut az első indításkor):**
+- `settings (key, value, updated_at)` — kulcs-érték alapbeállítások
+- `outbox (id, op, target_table, target_id, payload, status, …)` — offline írás-queue (M2.3-ban tölt fel)
+
+**TS wrapper (`apps/desktop/src/lib/local-db.ts`):**
+- `getLocalDb()` — singleton factory
+- `getSetting(key)` / `setSetting(key, value)` / `getAllSettings()`
+- `getOutboxStats()` — pending/sent/failed/total számok
+
+**Dashboard-demo:**
+- Új „Lokális adatbázis" kártya a desktop dashboard-on
+- Mutatja a settings sorokat + outbox statisztikát
+- „Ping local DB" gomb → beszúr egy `last_ping` értéket, ami bizonyítja a working write-read
+- Böngésző-módban (npm run desktop:vite) szép hibaüzenet: „A Tauri SQL-plugin csak natív ablakban aktív, indítsd `npm run desktop:dev`-vel"
+
+**Tauri capabilities**: a `sql:*` engedélyeket explicit megadtuk a `src-tauri/capabilities/default.json`-ban (Tauri 2 biztonsági modellje mindent zárt engedélyezés nélkül)
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): 0 hiba
+- ✅ `cargo check`: 2m 18s, 0 hiba (sqlx-sqlite + tauri-plugin-sql 2.4 hozzáadva)
+- ✅ `npm run desktop:build` (Vite prod): **2116 modul (+4 plugin-sql SDK), 5.48s**
+
+**Következő (M2.2)**: SQLCipher cserélés — titkosított DB. Még mindig nincs Stronghold, a kulcs egy statikus env-változóból jön, de már SQLCipher-rel. A M2.3 adja hozzá a Stronghold-alapú kulcs-kezelést.
+
+---
+
+## [2026-04-23] — M1.5: Desktop kliens login-képernyő + auth-flow
+
+<!-- key: 2026-04-23-m1-5-desktop-login -->
+<!-- category: improvement -->
+<!-- version: 1.15.6 -->
+<!-- targets: fejlesztő -->
+
+### 🔑 Kartotéka Desktop első értelmes képernyője — bejelentkezés
+
+**A webes működést ez nem érinti.** A Tauri desktop kliens most először használja a közös csomagokat valós UI-val: Tailwind CSS 4 + `@kartoteka/ui` komponensek + `@kartoteka/supabase-client` auth, React Router routing-gel.
+
+**Mi van az M1.5-ben:**
+
+- **Tailwind CSS 4** beállítva a Vite-on át (`@tailwindcss/vite` plugin, nem PostCSS) — a közös `@kartoteka/ui` csomagot is scanneli (`@source "../../../packages/ui/src"`)
+- **Placeholder design tokenek** az `apps/desktop/src/index.css`-ben — minimál színpaletta (EREK zöld primary), M2-ben a `@kartoteka/design-tokens` fogja adni végleges formában
+- **React Router DOM v7** — `HashRouter` (Tauri-biztonságos, nem ütközik custom URL-scheme-ekkel)
+- **`AuthGate`** komponens — session-check, loading-spinner, redirect `/login`-ra, reagál `onAuthStateChange`-re
+- **Login képernyő** (`LoginPage`) — email + jelszó form, `@kartoteka/ui` Button/Card/Input/Label komponenseket használ, a Supabase hibákat magyar üzenetekre fordítja (pl. "invalid login credentials" → "Hibás e-mail cím vagy jelszó")
+- **Dashboard placeholder** — üdvözlő kártya + kijelentkezés gomb, bizonyítja hogy az auth-gate és a közös csomagok végig működnek
+- **Tauri default assetek** kitakarítva (App.css, react.svg, vite.svg, tauri.svg) — tiszta start
+
+**A user flow a desktop-on** (ha a `.env` kitöltve van):
+1. App indul → AuthGate session-check → nincs → redirect `#/login`
+2. Login form megjelenik a @kartoteka/ui Card-jával
+3. Email + jelszó beírása → `supabase.auth.signInWithPassword`
+4. Siker → redirect `#/` → AuthGate session OK → Dashboard
+5. "Kijelentkezés" → `supabase.auth.signOut` → redirect `#/login`
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (apps/desktop): **0 hiba**
+- ✅ Vite dev (port 1420) — Ready in 663 ms
+- ✅ `GET /` → 200, 566 byte HTML (title: "Kartotéka")
+- ✅ `GET /src/main.tsx` → 200, transformált modul
+- ✅ `GET /src/index.css` → 200, **78 KB generált Tailwind CSS** (a közös UI komponensek class-ai sikeresen scannelve)
+
+**Próbald ki böngészőben (Tauri nélkül is):**
+```bash
+cd apps/desktop
+cp .env.example .env  # ha még nem tetted
+# töltsd ki a VITE_SUPABASE_URL és VITE_SUPABASE_ANON_KEY értékeket
+cd ../..
+npm run desktop:vite
+# → http://localhost:1420 — ugyanaz a UI, Tauri-ablak nélkül
+```
+
+**Vagy Tauri-ablakban** (első indítás 5-10 perc a cargo build miatt):
+```bash
+npm run desktop:dev
+```
+
+**Következő (M2 fázis kezdete)**: SQLCipher + offline DB réteg a Tauri-oldalán. Az M1 fázis **ezzel lezárult**.
+
+---
+
+## [2026-04-23] — M1.4: Közös UI komponens-könyvtár (@kartoteka/ui)
+
+<!-- key: 2026-04-23-m1-4-ui-shared -->
+<!-- category: improvement -->
+<!-- version: 1.15.5 -->
+<!-- targets: fejlesztő -->
+
+### 🧩 13 shadcn-komponens kiemelve közös csomagba — web + desktop között (M1 fázis folytatása)
+
+**A webes működés pontosan ugyanaz marad.** Strukturális refaktor: a `Button`, `Card`, `Dialog`, `Input`, `Tabs` stb. alap-komponensek most egy közös csomagban élnek (`@kartoteka/ui`), hogy a Tauri desktop kliens (M1.5-től) ugyanazt használja.
+
+**Átemelt komponensek (13):** avatar, badge, button, card, dialog, dropdown-menu, input, label, select, separator, sheet, tabs, textarea. Plusz a `cn()` helper (`packages/ui/src/lib/utils.ts`).
+
+**NEM kerültek át (projekt-specifikusak, maradnak `apps/web`-ben):**
+- `address-form` (román cím-hierarchia), `color-tabs` (egyedi pirosas-kartyás kezelés), `help-tooltip` (Next.js `next/link`), `modal-field` (magyar label+required), `searchable-category-select`, `splash-screen` (magyar kezdő splash), `sonner` (`next-themes`-es wrapper)
+
+**Visszafelé kompatibilis** — nulla kód-módosítás volt szükséges a 15+ meglévő hívó helyen. Az `apps/web/tsconfig.json` **paths alias**-on keresztül a `@/components/ui/button` típusú importok automatikusan a közös csomagra mutatnak. A `@/lib/utils` is a közös `cn()`-re mutat egy vékony re-export wrapper-en át.
+
+**Tailwind 4 integráció**: az `apps/web/app/globals.css`-ben egy `@source "../../../packages/ui/src"` direktíva biztosítja, hogy a Tailwind JIT scanner a közös csomag TSX fájlait is scannelje és generálja a szükséges utility class-okat.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (packages/ui + apps/web): **0 hiba**
+- ✅ `npm run dev` (root-ról): Ready in 357ms
+- ✅ `GET /login → 200 OK`, 45 KB render — a UI komponensek ténylegesen renderelnek, a Tailwind CSS-e kompilál
+
+**Következő (M1.5)**: a `apps/desktop` app nem-placeholder UI-t kap — a közös `@kartoteka/ui` Button, Card komponenseit használó valódi login/regisztráció képernyő. Ehhez a Tauri oldalra is Tailwind CSS setup kerül (+ közös design tokenek a `@kartoteka/design-tokens`-ből).
+
+---
+
+## [2026-04-23] — M1.3: Közös Supabase-kliens csomag (@kartoteka/supabase-client)
+
+<!-- key: 2026-04-23-m1-3-supabase-client -->
+<!-- category: improvement -->
+<!-- version: 1.15.4 -->
+<!-- targets: fejlesztő -->
+
+### 🔌 Közös Supabase-kliens factory — web és desktop között (M1 fázis folytatása)
+
+**Ez sem érinti a felhasználói működést** — a webes app pontosan úgy fut, ahogy eddig. Viszont most már létezik egy **közös kliens-factory** (`@kartoteka/supabase-client`), amit mind a Next.js web (`apps/web/`), mind a Tauri desktop (`apps/desktop/`) ugyanabból a forrásból használ.
+
+**Mit csináltunk:**
+
+- Új `packages/supabase-client/` csomag: `createKartotekaBrowserClient(config)` factory, `SupabaseBrowserConfig` típus, `Database` típus placeholder (M1.5-ben generáljuk a valós Supabase-sémából)
+- A csomag **platform-független**: paraméterként kapja az URL-t és az anon key-t, nem olvas `process.env`-et vagy `import.meta.env`-et direktben — a caller (Next.js / Vite) adja át
+- `apps/web/lib/supabase/client.ts` refaktor: most már csak **15 soros wrapper**, ami a `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` env-változókat adja tovább a közös csomagnak
+- `apps/desktop/src/lib/supabase.ts` új: Vite-alapú kliens, ami az `import.meta.env.VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` változókból olvas (**lazy-init** — ha nincs `.env`, a modul még betölthető, csak első hívásnál dob hibát)
+- `apps/desktop/.env.example`: mintafájl a desktop-hoz
+- `apps/desktop/src/vite-env.d.ts`: TypeScript deklarálás a `VITE_*` env-változókra
+
+**Visszafelé kompatibilis**: a **15 meglévő fájl** a `apps/web`-ben, ami eddig a `@/lib/supabase/client`-et importálta, ugyanúgy működik tovább. Nulla változtatás az app-kódban.
+
+**Mit NEM emeltünk ki közös csomagba** (tudatosan):
+
+- `apps/web/lib/supabase/server.ts` — `cookies()` + Next.js SSR-specifikus, csak a webben működik
+- `apps/web/lib/supabase/admin-client.ts` — `service_role` kulcsos, `'server-only'` import
+- `apps/web/lib/supabase/middleware.ts` — Next.js Edge Runtime proxy
+- `apps/web/lib/supabase/secret-vault.ts` — pgcrypto helpers, csak server-oldal
+
+Ezek mind **Next.js-specifikusak** és nem illenek a Tauri desktop-hoz. Marad a helyükön.
+
+**Verify:**
+- ✅ `npx tsc --noEmit` (packages/supabase-client): **0 hiba**
+- ✅ `npx tsc --noEmit` (apps/web): **0 hiba**
+- ✅ `npx tsc --noEmit` (apps/desktop): **0 hiba**
+- ✅ `npm run dev` (web root-ról): Ready in 453ms, `.env.local` betöltve
+
+**Következő (M1.4)**: közös `@kartoteka/ui` csomag bevezetése (shadcn-alapú komponensek), hogy ugyanazokat a gomb/dialog/kártya komponenseket használja a web és a desktop.
+
+---
+
+## [2026-04-23] — M1.2: Tauri 2 desktop kliens bootstrap (apps/desktop/)
+
+<!-- key: 2026-04-23-m1-2-tauri-bootstrap -->
+<!-- category: improvement -->
+<!-- version: 1.15.3 -->
+<!-- targets: fejlesztő -->
+
+### 🖥️ Üres desktop-kliens inicializálva (M1 fázis folytatása)
+
+**Ez sem érinti a felhasználói működést** — a jelenlegi webes Kartotéka-rendszer továbbra is ugyanúgy fut. Viszont most már létezik egy **kezdő Tauri 2 desktop projekt** az `apps/desktop/` alatt, amit M1.3-tól tartalommal töltünk fel.
+
+**Mi történt:**
+
+- Rust 1.95.0 stable toolchain telepítve (`winget install Rustlang.Rustup`) — ez csak a fejlesztői gépen kell
+- Az `apps/desktop/` alatt létrejött egy Tauri 2 + React + TypeScript + Vite projekt (a `create-tauri-app` hivatalos CLI-vel)
+- `@kartoteka/desktop` workspace-névvel bejegyezve — a root `npm install` behúzza, a root `npm run desktop:dev` parancs a Tauri dev-szervert indítja
+- A Tauri config magyarítva: `productName: "Kartotéka"`, `title: "Kartotéka"`, 1280×800 kezdő ablakméret, EREK copyright + leírás
+- A React-oldali `App.tsx` és a Rust-oldali `greet` parancs magyarítva
+- `cargo check` sikeresen lefutott (1 perc 29 mp, 517 crate) — a Rust backend fordítható
+
+**Hogyan telepíti majd egy lelkész az egészet?** Nem a Rust-ot és nem a Visual Studio-t — hanem egy **egyetlen `.msi` installer-t**, amit a Tauri bundler generál és mindent magával hoz (WebView2 runtime, Visual C++ Redistributable). A fejlesztői függőségek (Rust, C++ Build Tools) csak Endre gépén szükségesek. Részletek: `docs/project-tracking/KARTOTEKA-M1-2-tauri-bootstrap-2026-04-23.md`.
+
+**Új root parancsok:**
+
+- `npm run desktop:dev` — Tauri ablak indítása (fejlesztéshez, első indításkor 5-10 perc)
+- `npm run desktop:build` — MSI installer generálás
+- `npm run desktop:vite` — csak a Vite frontend (browser-ben teszteléshez)
+
+**Fontos**: az M0 (access-requests, Brevo, JWT hook) és az M1.1 (monorepo) **változatlanul működik**. Az M1.2 csak **új modul** — nem nyúl a webhez.
+
+---
+
+## [2026-04-23] — M1.1: Monorepo átalakítás (apps/web + packages/*)
+
+<!-- key: 2026-04-23-m1-1-monorepo -->
+<!-- category: improvement -->
+<!-- version: 1.15.2 -->
+<!-- targets: fejlesztő -->
+
+### 🛠️ Tech-groundwork a Tauri desktop klienshez (M1 fázis)
+
+Ez a lépés **nem érinti a felhasználói működést** — csak a repo belső szerkezete változott, hogy a közelgő **Tauri 2 desktop kliens** és a jelenlegi **Next.js webapp** egyazon repo-ban, **közös csomagokon** (UI, Supabase-kliens, design-tokenek, séma-típusok) osztozzanak.
+
+**Mit változott a repo szerkezetében:**
+
+- A teljes Next.js app átkerült `app/`, `components/`, `lib/`, `public/` gyökér-mappákból → `apps/web/` alá
+- Az összes futtatási konfig (`next.config.ts`, `tsconfig.json`, `middleware.ts`, `eslint.config.mjs`, `postcss.config.mjs`, `components.json`, `next-env.d.ts`, `.env.local`, `.env.example`) is átkerült `apps/web/` alá
+- Új `packages/` könyvtár 4 placeholder csomaggal (`@kartoteka/ui`, `@kartoteka/supabase-client`, `@kartoteka/design-tokens`, `@kartoteka/schema-types`) — ezeket M1.2–M1.4 tölti fel tartalommal
+- A root `package.json` most **npm workspaces**-alapú monorepo-meta: a `dev`, `build`, `lint` parancsok a root-ról is működnek (`npm run dev` → `apps/web/` alá delegál)
+- A `scripts/audit-safety.mjs` átkerült `apps/web/scripts/` alá, a `scripts/build-adr-seed.mjs` maradt rooton (mert a `migration-docs/` gyökér-adatain dolgozik)
+
+**Mi maradt változatlan** (a felhasználó-látható szinten):
+
+- A rendszer **ugyanúgy működik**, mint eddig — minden URL, minden funkció, minden adatbázis-kapcsolat
+- A `npm run dev`, `npm run build`, `npm run lint` ugyanolyan parancsok, mint eddig (csak ezúttal a root `package.json` irányítja workspaces-en át)
+- Supabase, Brevo, RLS, auth — **semmi nem változott**
+- Az `.env.local` automatikusan betöltődik (Next.js a `apps/web/.env.local` fájlt olvassa)
+
+**Ellenőrzés futtatva:**
+
+- ✅ `npm install` — 968 csomag telepítve, workspaces összelinkelve (`node_modules/@kartoteka/{web,ui,...}` symlinkek OK)
+- ✅ `npx tsc --noEmit` (apps/web) — 0 hiba
+- ✅ `npm run dev` (root-ról) — `Ready in 386ms`, `Environments: .env.local` helyesen betöltve
+- ✅ Git: minden `git mv`-vel rögzítve, a történet megőrzöttt (file history linkelhető)
+
+**Következő lépés (M1.2):** Tauri 2 projekt init az `apps/desktop/` alá — Vite + React SPA a Tauri shell-ben. Ez már **új desktop kliens**, nem érinti a webes működést.
+
+---
+
 ## [2026-04-23] — Hozzáférés-kérelem rendszer: end-to-end ÉLES
 
 <!-- key: 2026-04-23-m0-end-to-end -->

@@ -1,0 +1,12 @@
+# Kartotéka Desktop — Cargo build konfiguráció
+#
+# A projekt-útvonal `D:\Egyházi APP\KARTOTEKA\...` nem-ASCII karakter (`á`) miatt
+# az OpenSSL + libsqlite3-sys bundled C-build elhal (build-script kódlap-ütközés,
+# lásd `target\...\openssl-build` logok "Egyh�zi"-ként megjelenő útvonalakkal).
+#
+# Megoldás: a build-output-ot egy tiszta ASCII mappára mutatjuk. Az OpenSSL-install
+# így egy működő ASCII útvonalra kerül, a crate-források változatlanok.
+#
+# Csak a fejlesztői gépen érvényes — a `target/` amúgy is git-ignore-olt.
+[build]
+target-dir = "C:/kartoteka-target"

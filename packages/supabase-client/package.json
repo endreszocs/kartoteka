@@ -1,0 +1,18 @@
+{
+  "name": "@kartoteka/supabase-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Közös Supabase kliens-factory — web és desktop között. Paraméterként kapja az URL-t és az anon key-t, így platform-független.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.10.0",
+    "@supabase/supabase-js": "^2.101.1"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -1,6 +1,29 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.access_requests (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  full_name text NOT NULL,
+  requested_role text NOT NULL CHECK (requested_role = ANY (ARRAY['lelkesz'::text, 'esperes'::text, 'egyhazmegyei_admin'::text, 'egyhazkeruleti_admin'::text, 'konyvelo'::text, 'egyhazmegyei_szamvevo'::text])),
+  congregation_slug text,
+  phone text,
+  justification text,
+  referrer text,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  reviewed_by uuid,
+  reviewed_at timestamp with time zone,
+  rejection_reason text,
+  admin_notes text,
+  ip_hash text,
+  user_agent text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  resulting_user_id uuid,
+  CONSTRAINT access_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT access_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id),
+  CONSTRAINT access_requests_resulting_user_id_fkey FOREIGN KEY (resulting_user_id) REFERENCES auth.users(id)
+);
 CREATE TABLE public.admin_access_requests (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   admin_user_id uuid NOT NULL,
@@ -123,6 +146,21 @@ CREATE TABLE public.attert (
   CONSTRAINT attert_honnanid_fk FOREIGN KEY (honnanid) REFERENCES public.adrlocality(id),
   CONSTRAINT attert_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
   CONSTRAINT attert_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
+);
+CREATE TABLE public.audit_log (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  device_id uuid,
+  action text NOT NULL,
+  target_table text,
+  target_id uuid,
+  metadata jsonb,
+  ip inet,
+  user_agent text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT audit_log_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.user_devices(id)
 );
 CREATE TABLE public.bankszamla_nyito_egyenleg (
   id bigint NOT NULL DEFAULT nextval('bankszamla_nyito_egyenleg_id_seq'::regclass),
@@ -657,6 +695,16 @@ CREATE TABLE public.districts (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT districts_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.document_keys (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  document_id uuid NOT NULL,
+  device_id uuid NOT NULL,
+  wrapped_dek bytea NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT document_keys_pkey PRIMARY KEY (id),
+  CONSTRAINT document_keys_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(id),
+  CONSTRAINT document_keys_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.user_devices(id)
+);
 CREATE TABLE public.document_submissions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   congregation_id uuid NOT NULL,
@@ -677,6 +725,24 @@ CREATE TABLE public.document_submissions (
   snapshot_data jsonb NOT NULL DEFAULT '{}'::jsonb,
   notes text,
   CONSTRAINT document_submissions_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL,
+  congregation_id uuid,
+  storage_path text NOT NULL UNIQUE,
+  filename_encrypted bytea NOT NULL,
+  mime_type text,
+  size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
+  deleted_at timestamp with time zone,
+  deleted_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  revision bigint NOT NULL DEFAULT 0,
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT documents_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id),
+  CONSTRAINT documents_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT documents_deleted_by_fkey FOREIGN KEY (deleted_by) REFERENCES auth.users(id)
 );
 CREATE TABLE public.elkoltozott (
   id integer NOT NULL DEFAULT nextval('elkoltozott_id_seq'::regclass),
@@ -1071,6 +1137,25 @@ CREATE TABLE public.leltar_tetelek (
   CONSTRAINT leltar_tetelek_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT leltar_tetelek_felelos_fkey FOREIGN KEY (felelos_szemely_id) REFERENCES public.szemely(id),
   CONSTRAINT leltar_tetelek_userid_fkey FOREIGN KEY (userid) REFERENCES auth.users(id)
+);
+CREATE TABLE public.licenses (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  congregation_id uuid,
+  device_limit integer NOT NULL DEFAULT 2 CHECK (device_limit > 0 AND device_limit <= 10),
+  valid_from date NOT NULL DEFAULT CURRENT_DATE,
+  valid_until date NOT NULL,
+  issued_jwt text NOT NULL,
+  revoked boolean NOT NULL DEFAULT false,
+  revoked_at timestamp with time zone,
+  revoked_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  notes text,
+  CONSTRAINT licenses_pkey PRIMARY KEY (id),
+  CONSTRAINT licenses_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT licenses_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT licenses_revoked_by_fkey FOREIGN KEY (revoked_by) REFERENCES auth.users(id)
 );
 CREATE TABLE public.logger (
   id integer NOT NULL DEFAULT nextval('logger_id_seq'::regclass),
@@ -1830,7 +1915,7 @@ CREATE TABLE public.system_broadcasts (
 );
 CREATE TABLE public.system_finance_costs (
   id bigint NOT NULL DEFAULT nextval('system_finance_costs_id_seq'::regclass),
-  kategoria text NOT NULL CHECK (kategoria = ANY (ARRAY['supabase'::text, 'vercel'::text, 'storage'::text, 'ai_gpu'::text, 'ai_proxy'::text, 'ai_monitoring'::text, 'mobile'::text, 'monitoring'::text, 'domain'::text, 'egyszeri'::text, 'egyeb'::text])),
+  kategoria text NOT NULL CHECK (kategoria = ANY (ARRAY['supabase'::text, 'railway'::text, 'vercel'::text, 'email_service'::text, 'storage'::text, 'ai_gpu'::text, 'ai_proxy'::text, 'ai_monitoring'::text, 'mobile'::text, 'monitoring'::text, 'domain'::text, 'egyszeri'::text, 'egyeb'::text])),
   nev text NOT NULL,
   havi_usd numeric NOT NULL DEFAULT 0,
   havi_ron numeric,
@@ -1974,6 +2059,23 @@ CREATE TABLE public.transactions (
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT transactions_entered_by_fkey FOREIGN KEY (entered_by) REFERENCES auth.users(id)
+);
+CREATE TABLE public.user_devices (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  device_fingerprint text NOT NULL,
+  device_name text,
+  platform text NOT NULL,
+  public_key bytea NOT NULL,
+  registered_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_seen timestamp with time zone,
+  revoked boolean NOT NULL DEFAULT false,
+  revoked_by uuid,
+  revoked_at timestamp with time zone,
+  revoke_reason text,
+  CONSTRAINT user_devices_pkey PRIMARY KEY (id),
+  CONSTRAINT user_devices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT user_devices_revoked_by_fkey FOREIGN KEY (revoked_by) REFERENCES auth.users(id)
 );
 CREATE TABLE public.valuta_atert (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

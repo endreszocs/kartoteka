@@ -1,0 +1,447 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* M1.4 — a `@kartoteka/ui` közös komponenseket is scannelje a Tailwind JIT. */
+@source "../../../packages/ui/src";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-serif);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --font-sans: "Segoe UI", "Trebuchet MS", "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-serif: "Palatino Linotype", "Book Antiqua", "Cormorant Garamond", Georgia, Cambria, serif;
+  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --background: #f5fbf7;
+  --foreground: #294853;
+  --card: #fffdf8;
+  --card-foreground: #294853;
+  --popover: #fffdf8;
+  --popover-foreground: #294853;
+  --primary: #217c72;
+  --primary-foreground: #fffdf9;
+  --secondary: #e8f5ef;
+  --secondary-foreground: #28535d;
+  --muted: #edf6f1;
+  --muted-foreground: #66848c;
+  --accent: #f3c061;
+  --accent-foreground: #64431b;
+  --destructive: #dc5a47;
+  --border: #dbece4;
+  --input: #e9f2ee;
+  --ring: #2b8e82;
+  --chart-1: #3aa8a1;
+  --chart-2: #f3c061;
+  --chart-3: #6dbd8e;
+  --chart-4: #ef8a52;
+  --chart-5: #6c7eef;
+  --radius: 0.95rem;
+  --sidebar: #1f5052;
+  --sidebar-foreground: #f6f5ef;
+  --sidebar-primary: #f3c061;
+  --sidebar-primary-foreground: #453117;
+  --sidebar-accent: #35696b;
+  --sidebar-accent-foreground: #f6f5ef;
+  --sidebar-border: rgba(171, 214, 206, 0.28);
+  --sidebar-ring: #f3c061;
+}
+
+.dark {
+  --background: #21343a;
+  --foreground: #f4f7f3;
+  --card: #284148;
+  --card-foreground: #f4f7f3;
+  --popover: #284148;
+  --popover-foreground: #f4f7f3;
+  --primary: #69c3af;
+  --primary-foreground: #163138;
+  --secondary: #32494e;
+  --secondary-foreground: #f4f7f3;
+  --muted: #2e4449;
+  --muted-foreground: #b7c8bc;
+  --accent: #e7b85b;
+  --accent-foreground: #32240f;
+  --destructive: #ef7a63;
+  --border: rgba(120, 149, 156, 0.4);
+  --input: #385257;
+  --ring: #69c3af;
+  --chart-1: #69c3af;
+  --chart-2: #e7b85b;
+  --chart-3: #66b788;
+  --chart-4: #e68059;
+  --chart-5: #7f8cf2;
+  --sidebar: #21343a;
+  --sidebar-foreground: #f4f7f3;
+  --sidebar-primary: #e7b85b;
+  --sidebar-primary-foreground: #32240f;
+  --sidebar-accent: #30484d;
+  --sidebar-accent-foreground: #f4f7f3;
+  --sidebar-border: rgba(120, 149, 156, 0.4);
+  --sidebar-ring: #e7b85b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply bg-background font-sans;
+  }
+  body {
+    @apply text-foreground;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, rgba(248, 183, 101, 0.24), transparent 19rem),
+      radial-gradient(circle at top right, rgba(66, 153, 144, 0.18), transparent 21rem),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(247, 250, 247, 0.92)),
+      var(--background);
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: rgba(245, 177, 78, 0.24);
+    color: inherit;
+  }
+}
+
+/* ── Rendszerszintű domborított stílusok ─── */
+@layer components {
+  .card-raised {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 251, 245, 0.86));
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    border-radius: 1.4rem;
+    box-shadow:
+      0 24px 55px -34px rgba(16, 70, 63, 0.38),
+      0 14px 30px -26px rgba(194, 141, 61, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(14px);
+    transition:
+      box-shadow 0.25s ease,
+      transform 0.25s ease,
+      border-color 0.25s ease;
+  }
+  .card-raised:hover {
+    box-shadow:
+      0 28px 60px -34px rgba(16, 70, 63, 0.42),
+      0 18px 34px -26px rgba(194, 141, 61, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.84);
+    border-color: rgba(255, 255, 255, 0.92);
+    transform: translateY(-2px);
+  }
+  .icon-raised {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    box-shadow:
+      0 18px 30px -22px rgba(12, 55, 50, 0.52),
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  /* ── Modal input stílus ─── */
+  .modal-input {
+    width: 100%;
+    border: 1px solid rgba(124, 151, 145, 0.26);
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.76);
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .modal-input:focus {
+    outline: none;
+    border-color: rgba(33, 124, 114, 0.46);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 0 0 4px rgba(33, 124, 114, 0.12);
+  }
+
+  /* ── Serif heading ─── */
+  .font-heading {
+    font-family: var(--font-serif), "Cormorant Garamond", Georgia, serif;
+  }
+  .page-shell {
+    position: relative;
+    isolation: isolate;
+  }
+  .page-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(circle at 0% 0%, rgba(255, 208, 146, 0.22), transparent 22rem),
+      radial-gradient(circle at 100% 0%, rgba(97, 180, 167, 0.14), transparent 22rem);
+  }
+  .page-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0)),
+      transparent;
+    pointer-events: none;
+  }
+}
+
+@media (max-height: 860px) {
+  .sidebar-adaptive .sidebar-brand > h2 {
+    font-size: 1.25rem;
+  }
+
+  .sidebar-adaptive .sidebar-support-copy p:last-child {
+    display: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .sidebar-adaptive .sidebar-brand-card {
+    padding: 0.7rem;
+  }
+
+  .sidebar-adaptive .sidebar-brand > h2 {
+    font-size: 1.1rem;
+  }
+
+  .sidebar-adaptive .sidebar-brand > p {
+    display: none;
+  }
+
+  .sidebar-adaptive .sidebar-support-link {
+    padding: 0.55rem 0.65rem;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Notification Bell animációk (2026-04-21k)
+   ────────────────────────────────────────────────────────────── */
+
+/* Lassú, nyugodt pulzálás — amíg van olvasatlan üzenet */
+@keyframes bell-soft-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+/* Egyszeri ring-shake — amikor új üzenet érkezik */
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(-14deg); }
+  20% { transform: rotate(12deg); }
+  30% { transform: rotate(-10deg); }
+  40% { transform: rotate(8deg); }
+  50% { transform: rotate(-6deg); }
+  60% { transform: rotate(4deg); }
+  70% { transform: rotate(-3deg); }
+  80% { transform: rotate(2deg); }
+  90% { transform: rotate(-1deg); }
+}
+
+/* Badge pulzálás — a piros számcímke körül */
+@keyframes badge-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.bell-active {
+  animation: bell-soft-pulse 3s ease-in-out infinite;
+}
+
+.bell-shake {
+  animation: bell-shake 1.4s ease-in-out;
+}
+
+.badge-pulse {
+  animation: badge-pulse-ring 2.2s ease-out infinite;
+}
+
+/* Amber glow a csengő gomb körül, amikor van olvasatlan */
+.bell-btn-glow {
+  box-shadow: 0 14px 30px -22px rgba(245, 158, 11, 0.55),
+              0 0 0 1px rgba(245, 158, 11, 0.22),
+              inset 0 1px 2px rgba(255, 255, 255, 0.6);
+  background: linear-gradient(180deg, rgba(255, 251, 235, 0.95), rgba(254, 243, 199, 0.72));
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Dark mode compatibility — MVP fixek (2026-04-21o)
+   ──────────────────────────────────────────────────────────────
+   A komponensek nagy része hardkódolt Tailwind-színeket használ
+   (bg-white, text-slate-*, stb.). Ezeket a .dark class alatt
+   felülírjuk, hogy a dark mode olvasható legyen.
+   TEENDŐ: hosszabb távon minden komponensben a semantic tokens
+   (bg-background, text-foreground, bg-card, stb.) használata.
+   ────────────────────────────────────────────────────────────── */
+
+.dark {
+  /* card-raised felülírás — dark háttér + világos keret */
+  .card-raised {
+    background: linear-gradient(180deg, rgba(40, 65, 72, 0.92), rgba(33, 52, 58, 0.9));
+    border: 1px solid rgba(171, 214, 206, 0.22);
+    color: var(--foreground);
+  }
+
+  /* Hardkódolt fehér hátterek → card */
+  .bg-white { background-color: var(--card) !important; }
+  .bg-white\/60, .bg-white\/70, .bg-white\/75, .bg-white\/78, .bg-white\/80,
+  .bg-white\/85, .bg-white\/90, .bg-white\/92, .bg-white\/94, .bg-white\/95,
+  .bg-white\/96 { background-color: rgba(40, 65, 72, 0.85) !important; }
+
+  /* Slate háttérárnyalatok */
+  .bg-slate-50, .bg-slate-100 { background-color: var(--muted) !important; }
+  .bg-slate-50\/30, .bg-slate-50\/40, .bg-slate-50\/50, .bg-slate-50\/60,
+  .bg-slate-50\/70 { background-color: rgba(46, 68, 73, 0.5) !important; }
+
+  /* Slate szövegárnyalatok → világos */
+  .text-slate-900, .text-slate-800, .text-slate-700 { color: var(--foreground) !important; }
+  .text-slate-600 { color: rgb(203 213 225) !important; }
+  .text-slate-500, .text-slate-400 { color: var(--muted-foreground) !important; }
+
+  /* Slate szegélyek */
+  .border-slate-100, .border-slate-200, .border-slate-200\/60,
+  .border-slate-200\/70, .border-slate-200\/80 { border-color: var(--border) !important; }
+
+  /* Fehér szegélyek */
+  .border-white, .border-white\/60, .border-white\/65, .border-white\/70,
+  .border-white\/75, .border-white\/80, .border-white\/82 { border-color: var(--border) !important; }
+
+  /* Hover-slate háttér */
+  .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover { background-color: rgba(60, 82, 88, 0.6) !important; }
+
+  /* Colored 50 hátterek (rose-50, sky-50, stb.) — finomabban */
+  .bg-emerald-50, .bg-emerald-50\/40, .bg-emerald-50\/60, .bg-emerald-50\/80 {
+    background-color: rgba(16, 92, 72, 0.35) !important;
+  }
+  .bg-amber-50, .bg-amber-50\/40, .bg-amber-50\/60 {
+    background-color: rgba(120, 82, 10, 0.35) !important;
+  }
+  .bg-sky-50, .bg-sky-50\/30, .bg-sky-50\/40, .bg-sky-50\/60 {
+    background-color: rgba(15, 75, 110, 0.35) !important;
+  }
+  .bg-rose-50, .bg-rose-50\/40, .bg-rose-50\/60 {
+    background-color: rgba(130, 40, 60, 0.35) !important;
+  }
+  .bg-violet-50, .bg-violet-50\/40, .bg-violet-50\/60 {
+    background-color: rgba(75, 60, 140, 0.35) !important;
+  }
+  .bg-indigo-50, .bg-indigo-50\/40, .bg-indigo-50\/60 {
+    background-color: rgba(60, 65, 145, 0.35) !important;
+  }
+
+  /* Emerald/amber/sky szövegek — sötétebb árnyalatok világosodnak */
+  .text-emerald-900, .text-emerald-800 { color: rgb(167 243 208) !important; }
+  .text-amber-900, .text-amber-800 { color: rgb(253 230 138) !important; }
+  .text-sky-900, .text-sky-800 { color: rgb(186 230 253) !important; }
+  .text-rose-900, .text-rose-800 { color: rgb(254 205 211) !important; }
+  .text-violet-900, .text-violet-800 { color: rgb(221 214 254) !important; }
+  .text-indigo-900 { color: rgb(199 210 254) !important; }
+
+  /* Nav/Sidebar-ok jelenlegi hátterek — a sidebar- specifikus color-tokent már
+     a .dark root átállította, semmi plusz teendő */
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Presentation Studio — print mode (2026-04-21r)
+   A kartoteka-print-root egy Portal a document.body-ban.
+   A visibility: hidden trükk: minden mást elrejtünk nyomtatáskor,
+   csak a print-root látszódik — kiküszöböli a szülő-fa print-
+   rejtési szabályait és bárhonnan nyomtathatunk.
+   ────────────────────────────────────────────────────────────── */
+
+/* Képernyőn a print-root rejtve */
+.kartoteka-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  /* Mindent eltüntetünk nyomtatáskor — csak a print-root látszik */
+  body > *:not(.kartoteka-print-root) {
+    display: none !important;
+  }
+
+  /* A print-root átveszi a teljes lapot */
+  .kartoteka-print-root {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    background: white;
+  }
+
+  /* Egy slide = egy A4 landscape lap */
+  .kartoteka-print-slide {
+    width: 297mm;
+    height: 210mm;
+    overflow: hidden;
+    page-break-after: always;
+  }
+  .kartoteka-print-slide:last-child {
+    page-break-after: auto;
+  }
+}
