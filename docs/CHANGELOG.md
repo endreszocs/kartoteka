@@ -23,6 +23,66 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M3.3: Eszköz-bind — Ed25519 keypair + user_devices regisztráció
+
+<!-- key: 2026-04-23-m3-3-device-bind -->
+<!-- category: security -->
+<!-- version: 1.15.16 -->
+<!-- targets: fejlesztő, lelkészek (közvetve) -->
+
+### 🔐 Minden eszköz saját azonossága — admin-revoke előkészítés
+
+**A webes működést nem érinti közvetlenül.** A desktop kliens az első indításkor egy saját **device_id-t + Ed25519 keypairt** generál a Rust oldalon, és regisztrálja a Supabase `user_devices` táblába. A privát kulcs az OS-szintű keyringben marad (Windows DPAPI), a publikus kulcs a Supabase-ben.
+
+**Ez az alap a következő biztonsági szintekhez**:
+- **Admin-revoke**: az egyházkerületi admin bármikor visszavonhatja egy eszköz hozzáférését (M4 UI)
+- **Aláírt outbox-payload**: a user saját privát kulcsával írhat alá — a szerver ellenőrzi (M4)
+- **E2E doc-titkosítás**: a publikus kulcs a doc-kulcs wrap-olásához (M4 dokumentumtár)
+
+**Új Rust modul** (`apps/desktop/src-tauri/src/device.rs`):
+- `load_or_create_device()` — idempotens: első alkalommal generál, utána keyringből olvas
+- `#[tauri::command] device_info()` — a frontend invoke-ja
+
+**Új Rust deps** (mind pure-Rust, nincs új C-build):
+- `machine-uid v0.5` — hardware-fingerprint (Win registry MachineGuid / macOS / Linux)
+- `ed25519-dalek v2` (`rand_core` feature) — keypair + signing
+- `base64 v0.22` — serializálás
+
+**Új TS modul** (`apps/desktop/src/lib/device.ts`):
+- `getDeviceInfo()` — Rust invoke
+- `ensureDeviceRegistered(userId)` — idempotens Supabase INSERT / last_seen UPDATE
+- `getMyDevices(userId)` — lekéri az összes regisztrált eszközt
+- A publikus kulcs base64 → hex konverzió a `bytea`-oszlophoz
+
+**Új Dashboard-kártya**: „Ez az eszköz"
+- Device ID, hardware fingerprint, publikus kulcs (base64)
+- Platform + „most generálva" jelzés
+- Táblázat: az összes regisztrált eszköz (platform, név, regisztráció, utolsó aktivitás, státusz — aktív/visszavonva)
+- Auto-registration a login után
+
+**Biztonsági állapot:**
+- ✅ A privát kulcs **SOHA** nem hagyja el az eszközt
+- ✅ Az adatbázis `user_devices.public_key` nem elegendő impersonálásra
+- ✅ A `device_fingerprint` + `user_id` UNIQUE kombináció — dupla regisztráció elkerülve
+- ✅ RLS: `users_register_own_devices` (WITH CHECK `user_id = auth.uid()`) már megvan (M0)
+- ⚠️ Egyelőre a signing-használat nem éles (M4 feladat) — a kulcs most „alvó", de készen áll
+
+**Verify:**
+- ✅ `npx tsc --noEmit`: 0 hiba
+- ✅ `cargo check`: 29.8 s (3 új pure-Rust crate)
+- ✅ `npm run desktop:build` (Vite prod): 515 kB JS (+5 kB), 57 kB CSS, 3.17 s
+
+**Kipróbálás:**
+1. `npm run desktop:dev` → login → Dashboard
+2. Új „Ez az eszköz" kártya jelenik meg
+3. Első indításkor: „Eszköz regisztrálva a rendszerben." (zöld)
+4. A táblázat mutatja az eszközt (platform=windows, név pl. „Win32", aktív)
+5. Supabase Studio-ban ellenőrizhető: `SELECT * FROM user_devices WHERE user_id = '…'` — 1 sor
+
+**Következő (M3.4)**: Tauri updater plugin + aláírt manifest. Az MVP-hez optional — lehet az M3-t lezárni az M3.3-mal is, és átugrani az M5-re, ha Endre úgy dönti.
+
+---
+
 ## [2026-04-23] — M3.2: Aláírt MSI + NSIS bundle (self-signed code-sign cert)
 
 <!-- key: 2026-04-23-m3-2-self-signed -->

@@ -37,4 +37,13 @@ keyring = "3"
 # SQLCipher-kulcs generáláshoz: kriptográfiailag biztonságos RNG.
 rand = "0.8"
 hex = "0.4"
+# M3.3 — eszköz-bind.
+# `machine-uid`: pure-Rust hardware-fingerprint (Win registry MachineGuid,
+#                macOS IOPlatformUUID, Linux /etc/machine-id).
+# `ed25519-dalek`: keypair + signing (a Rust-kripto-standard; pure-Rust,
+#                  nincs OpenSSL dependency — kis C-build).
+# `base64`: public-key szerializálás a Supabase-re küldéshez.
+machine-uid = "0.5"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
 

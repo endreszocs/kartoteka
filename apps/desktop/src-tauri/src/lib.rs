@@ -8,8 +8,10 @@
 // M2.4+ : outbox + pull/push-sync + konfliktus-kezelés
 
 mod db;
+mod device;
 
 use db::{db_execute, db_select, db_status, open_and_migrate, DbState};
+use device::device_info;
 use tauri::Manager;
 
 /// Tauri alkalmazás belépési pont.
@@ -48,7 +50,13 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, db_execute, db_select, db_status])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            db_execute,
+            db_select,
+            db_status,
+            device_info
+        ])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");
 }

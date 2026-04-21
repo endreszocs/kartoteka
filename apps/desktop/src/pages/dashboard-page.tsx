@@ -13,6 +13,13 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import {
+  ensureDeviceRegistered,
+  getDeviceInfo,
+  getMyDevices,
+  type DeviceInfo,
+  type RegisteredDevice,
+} from '../lib/device'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
@@ -77,6 +84,11 @@ export function DashboardPage() {
   const [pullingAll, setPullingAll] = useState(false)
   const [pullAllResult, setPullAllResult] = useState<string | null>(null)
   const [pullAllError, setPullAllError] = useState<string | null>(null)
+
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null)
+  const [myDevices, setMyDevices] = useState<RegisteredDevice[]>([])
+  const [deviceRegMsg, setDeviceRegMsg] = useState<string | null>(null)
+  const [deviceError, setDeviceError] = useState<string | null>(null)
 
   const navigate = useNavigate()
 
@@ -179,6 +191,32 @@ export function DashboardPage() {
       })
       .catch(() => {
         // csendes
+      })
+
+    // M3.3 — eszköz-bind: infót lekérjük a Rust-ból (lokális), és ha még
+    // nincs regisztrálva a Supabase-re, beinsertáljuk.
+    getDeviceInfo()
+      .then((info) => {
+        if (!mounted) return
+        setDeviceInfo(info)
+        return ensureDeviceRegistered(user.id)
+      })
+      .then((res) => {
+        if (!mounted || !res) return
+        if (res.error) {
+          setDeviceError(res.error)
+        } else if (res.registered) {
+          setDeviceRegMsg('Eszköz regisztrálva a rendszerben.')
+        }
+        // Utána lekérjük a user összes eszközét
+        return getMyDevices(user.id)
+      })
+      .then((devices) => {
+        if (!mounted || !devices) return
+        setMyDevices(devices)
+      })
+      .catch((err: unknown) => {
+        if (mounted) setDeviceError(errorMessage(err))
       })
 
     return () => {
@@ -635,6 +673,100 @@ export function DashboardPage() {
                                 Elvetés
                               </Button>
                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* — Eszköz-bind (M3.3) — */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Ez az eszköz</CardTitle>
+            <CardDescription>
+              Első indításkor a kliens egy Ed25519 kulcspárt és egy gép-fingerprintet
+              generál. A privát kulcs az OS-szintű keyringben marad (DPAPI védett).
+              A publikus kulcs a Supabase <code>user_devices</code> táblába kerül —
+              a rendszergazda később bármikor revoke-olhatja ezt az eszközt.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            {deviceError && (
+              <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                Eszköz-regisztráció hiba: {deviceError}
+              </div>
+            )}
+            {deviceRegMsg && (
+              <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                ✅ {deviceRegMsg}
+              </div>
+            )}
+
+            {deviceInfo ? (
+              <div className="rounded-md border border-border">
+                <table className="w-full text-left">
+                  <tbody>
+                    <ProfileRow label="Device ID" value={deviceInfo.id} mono />
+                    <ProfileRow label="Hardware fingerprint" value={deviceInfo.fingerprint} mono />
+                    <ProfileRow
+                      label="Publikus kulcs (base64)"
+                      value={deviceInfo.public_key_b64}
+                      mono
+                    />
+                    <ProfileRow label="Platform" value={deviceInfo.platform} />
+                    <ProfileRow
+                      label="Keypair generálva"
+                      value={deviceInfo.created_now ? 'most (első indítás)' : 'korábban (keyringből olvasva)'}
+                    />
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Eszköz-info betöltése…</p>
+            )}
+
+            {myDevices.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground">
+                  Összes regisztrált eszközöm ({myDevices.length})
+                </p>
+                <div className="rounded-md border border-border">
+                  <table className="w-full text-left">
+                    <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">Platform</th>
+                        <th className="px-3 py-2">Név</th>
+                        <th className="px-3 py-2">Regisztrálva</th>
+                        <th className="px-3 py-2">Utolsó aktivitás</th>
+                        <th className="px-3 py-2">Státusz</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {myDevices.map((d) => (
+                        <tr key={d.id} className="border-t border-border">
+                          <td className="px-3 py-2 text-xs">{d.platform}</td>
+                          <td className="px-3 py-2 text-xs">{d.device_name ?? '—'}</td>
+                          <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                            {d.registered_at}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                            {d.last_seen ?? '—'}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            {d.revoked ? (
+                              <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                                visszavonva
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                                aktív
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
