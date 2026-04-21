@@ -23,6 +23,74 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — M7: Tagnyilvántartás offline lista (szemely pull-sync + keresés)
+
+<!-- key: 2026-04-23-m7-members-sync -->
+<!-- category: feature -->
+<!-- version: desktop M7 (SQL trigger-migráció + kliens kód, release nélkül) -->
+<!-- targets: fejlesztő, lelkészek (közvetve — következő release-kor látják) -->
+
+### 👥 A desktop kliens most offline is mutatja a gyülekezet tagjait
+
+Az M6 a saját gyülekezet **egy** sorát szinkronizálta. Az M7 az első **sok-rekordos** domain-tábla: a **tagnyilvántartás** (`szemely`). A lelkész a desktop app-ban most **keresheti**, szűrheti és böngészheti gyülekezete tagjait offline is (látogatás-közben a falu utcáján, gyenge internettel).
+
+**Mi jelenik meg:**
+- Név (családnév + keresztnév, ill. férjezett + leánykori név)
+- CNP (személyi szám)
+- Születési dátum, családi állapot
+- Telefon, e-mail
+- Cím (szöveges), vallás, foglalkozás, nemzetiség
+- Családfő-jelzés / elhunyt státusz
+
+**UI funkciók:**
+- **Keresés**: név (család + kereszt + férjezett) vagy CNP részleges találattal
+- **Elhunytakat is mutassa** kapcsoló — alapértelmezésben csak élő tagok
+- **Delta Pull** (csak a változott tagokat) vagy **Full Pull** (minden)
+- Tag-szám: `{X} tag a listában`
+- Első 100 sor jelenik meg; nagyobb gyülekezeteknél keresés szűkít
+
+### Implementáció
+
+**1. Supabase backend** (`migration-docs/sql/2026-04-23-m7-0-szemely-csalad-triggers.sql`):
+- A `szemely.revision` + `szemely.updated_at` oszlopok **MÁR LÉTEZTEK** a sémában (egy korábbi fázisban valaki előkészítette) — csak a **trigger** hiányzott
+- `tg_szemely_bump_revision` + `BEFORE UPDATE trigger szemely_bump_revision`
+- `tg_csalad_bump_revision` + `BEFORE UPDATE trigger csalad_bump_revision` (később M7.4-hez)
+- `idx_szemely_updated_at` + `idx_csalad_updated_at` + `idx_szemely_congregation_id` indexek
+
+**2. Desktop kliens**:
+- **Rust v5 migráció** (`apps/desktop/src-tauri/src/db.rs`): `szemely_local` SQLite tábla **37 oszloppal**. Kulcs: `szemely.id` integer (NEM uuid!). Típus-mapping: boolean → INTEGER, date → TEXT, timestamptz → TEXT. 5 index (congregation_id, family_id, csaladnev, cnp, updated_at).
+- **TS sync layer** (`apps/desktop/src/lib/sync.ts`):
+  - `MemberLocalRow` interface (37 mező)
+  - `MemberSupabaseRow` interface (Supabase-oldali raw-sor — boolean-ok JS-típussal)
+  - `pullMembersOfOwnCongregation(userId, mode)` — delta vagy full
+  - Per-gyülekezet `last_pull` (`sync:members:last_pull:<cg_id>`)
+  - `getLocalMembersOfOwnCongregation(userId, {search, includeDeceased, includeHidden})` — LIKE-keresés + filter
+  - `getLocalMemberCount(userId)` + `getLastPullMembersIso(userId)`
+- **UI** (`apps/desktop/src/pages/dashboard-page.tsx`): új „Gyülekezet tagjai — offline lista" Card. Debounce-mentes search-box (SQLite gyors), checkbox az elhunytakra, táblázat 6 oszloppal (név, CNP, szül., telefon, e-mail, státusz).
+
+### Scope kihagyva V1-ből
+
+- **`szig`, `taj`** (szig.szám, TAJ-szám) — PII, külön megbeszélés után
+- **`kep`, `photo_url`** (fotók) — külön fázis (Supabase Storage cache)
+- **`sz_helyid`, `c_utcaid`, `c_helysegid`** (cím-FK-k) — egyelőre `c_szcim` szöveg-mezővel
+- **`befizetoev`** — pénzügyi, admin-oldali
+- **Írás** (új tag, módosítás) — M7.5 vagy későbbi fázis
+- **`csalad` join** (család-nézet) — M7.4 tervben
+
+### Verifikáció
+
+- `npx tsc --noEmit` : 0 hiba
+- `cargo check` : OK (`Finished dev profile in 12.64s`)
+- Kliens fallback: ha a M7.0 SQL-trigger nem fut, a pull akkor is **működik** (csak a revision-konfliktus-detektálás inaktív)
+
+### Futtatás
+
+1. **Supabase Studio**: `2026-04-23-m7-0-szemely-csalad-triggers.sql` futtatása (~5 mp)
+2. **Desktop**: a v5 migráció auto-fut (új `szemely_local` tábla jön létre a lokális SQLCipher-ben)
+3. **Teszt**: Dashboard → „Gyülekezet tagjai" Card → **Full Pull** gomb → a tagok megjelennek
+
+---
+
 ## [2026-04-23] — M6: Gyülekezet-adatok offline elérhetősége (congregations pull-sync)
 
 <!-- key: 2026-04-23-m6-congregations-sync -->

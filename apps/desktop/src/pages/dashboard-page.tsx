@@ -44,16 +44,20 @@ import {
   getLastPullAllIso,
   getLastPullCongregationIso,
   getLastPullIso,
+  getLastPullMembersIso,
+  getLocalMembersOfOwnCongregation,
   getLocalOwnCongregation,
   getLocalOwnProfile,
   isOnline,
   processOutbox,
   pullAllProfiles,
+  pullMembersOfOwnCongregation,
   pullOwnCongregation,
   pullOwnProfile,
   retryOutboxRow,
   updateOwnProfile,
   type CongregationLocalRow,
+  type MemberLocalRow,
   type OutboxRow,
   type ProfileLocalRow,
 } from '../lib/sync'
@@ -82,6 +86,15 @@ export function DashboardPage() {
   const [lastPullCongregation, setLastPullCongregation] = useState<string | null>(null)
   const [pullingCongregation, setPullingCongregation] = useState(false)
   const [pullCongregationError, setPullCongregationError] = useState<string | null>(null)
+
+  // M7 — szemely (members) sync state
+  const [members, setMembers] = useState<MemberLocalRow[]>([])
+  const [memberSearch, setMemberSearch] = useState('')
+  const [memberIncludeDeceased, setMemberIncludeDeceased] = useState(false)
+  const [lastPullMembers, setLastPullMembers] = useState<string | null>(null)
+  const [pullingMembers, setPullingMembers] = useState(false)
+  const [pullMembersError, setPullMembersError] = useState<string | null>(null)
+  const [pullMembersResult, setPullMembersResult] = useState<string | null>(null)
 
   const [phoneDraft, setPhoneDraft] = useState('')
   const [nameDraft, setNameDraft] = useState('')
@@ -212,6 +225,15 @@ export function DashboardPage() {
         // csendes
       })
 
+    // M7 — lokális member-lista + last_pull betöltése
+    getLastPullMembersIso(user.id)
+      .then((iso) => {
+        if (mounted) setLastPullMembers(iso)
+      })
+      .catch(() => {
+        // csendes
+      })
+
     processOutbox()
       .then((stats) => {
         if (!mounted) return
@@ -230,6 +252,25 @@ export function DashboardPage() {
       mounted = false
     }
   }, [user, dbAvailable, refreshLocalDb])
+
+  // M7 — member-lista refresh: user vagy keresés/szűrő változás
+  useEffect(() => {
+    if (!user || !dbAvailable) return
+    let mounted = true
+    getLocalMembersOfOwnCongregation(user.id, {
+      search: memberSearch.trim() || undefined,
+      includeDeceased: memberIncludeDeceased,
+    })
+      .then((rows) => {
+        if (mounted) setMembers(rows)
+      })
+      .catch(() => {
+        // csendes
+      })
+    return () => {
+      mounted = false
+    }
+  }, [user, dbAvailable, memberSearch, memberIncludeDeceased])
 
   // M3.3 — eszköz-bind: FÜGGETLEN a lokális DB állapotától.
   useEffect(() => {
@@ -358,6 +399,47 @@ export function DashboardPage() {
       setPullingCongregation(false)
     }
   }, [user, refreshLocalDb])
+
+  // M7 — members pull (delta vagy full)
+  const handlePullMembers = useCallback(
+    async (mode: 'delta' | 'full') => {
+      if (!user) return
+      setPullingMembers(true)
+      setPullMembersError(null)
+      setPullMembersResult(null)
+      try {
+        const res = await pullMembersOfOwnCongregation(user.id, mode)
+        setLastPullMembers(res.lastPullIso)
+        if (res.mode === 'no-congregation') {
+          setPullMembersResult(
+            'Nincs gyülekezet hozzárendelve a profilhoz (pl. super-admin vagy). Nincs mit pull-olni.',
+          )
+        } else {
+          const modeLabel =
+            res.mode === 'delta'
+              ? 'Delta'
+              : res.mode === 'full-initial'
+                ? 'Full (első futás)'
+                : 'Full'
+          setPullMembersResult(
+            res.pulledRows === 0
+              ? `${modeLabel} pull: nincs új / változott tag.`
+              : `${modeLabel} pull: ${res.pulledRows} tag frissítve.`,
+          )
+        }
+        const rows = await getLocalMembersOfOwnCongregation(user.id, {
+          search: memberSearch.trim() || undefined,
+          includeDeceased: memberIncludeDeceased,
+        })
+        setMembers(rows)
+      } catch (err: unknown) {
+        setPullMembersError(errorMessage(err))
+      } finally {
+        setPullingMembers(false)
+      }
+    },
+    [user, memberSearch, memberIncludeDeceased],
+  )
 
   const handleSave = useCallback(
     async (e: React.FormEvent) => {
@@ -842,6 +924,158 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
+        {/* — Gyülekezet tagjai (M7 — szemely sync) — */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Gyülekezet tagjai — offline lista</CardTitle>
+            <CardDescription>
+              Az M7 fázis az első sok-rekordos domain-tábla sync. A saját
+              gyülekezet tagjai letöltődnek a Supabase-ből, titkosítva
+              tárolódnak a lokális SQLCipher-ben, és offline is kereshetők.
+              A Delta pull csak a legutolsó szinkron óta változott tagokat
+              hozza. Az írás (új tag, módosítás) későbbi fázisban.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">
+                Utolsó pull:{' '}
+                {lastPullMembers ? (
+                  <span className="font-mono">{lastPullMembers}</span>
+                ) : (
+                  <em>még nem futott</em>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handlePullMembers('delta')}
+                  disabled={!user || pullingMembers}
+                >
+                  {pullingMembers ? 'Pull…' : 'Delta Pull'}
+                </Button>
+                <Button
+                  onClick={() => handlePullMembers('full')}
+                  disabled={!user || pullingMembers}
+                >
+                  {pullingMembers ? 'Pull…' : 'Full Pull'}
+                </Button>
+              </div>
+            </div>
+
+            {pullMembersResult && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
+                {pullMembersResult}
+              </div>
+            )}
+            {pullMembersError && (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                Pull hiba: {pullMembersError}
+              </div>
+            )}
+
+            {/* Kereső + szűrők */}
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/20 p-3">
+              <div className="min-w-[200px] flex-1 space-y-1">
+                <Label htmlFor="member-search">Keresés (név vagy CNP)</Label>
+                <Input
+                  id="member-search"
+                  type="search"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.currentTarget.value)}
+                  placeholder="pl. Kovács vagy 1850..."
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={memberIncludeDeceased}
+                  onChange={(e) => setMemberIncludeDeceased(e.currentTarget.checked)}
+                  className="size-4"
+                />
+                Elhunytakat is mutassa
+              </label>
+              <div className="text-xs text-muted-foreground">
+                <strong className="text-foreground">{members.length}</strong> tag a listában
+              </div>
+            </div>
+
+            {members.length > 0 ? (
+              <div className="rounded-md border border-border">
+                <table className="w-full text-left">
+                  <thead className="sticky top-0 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">Név</th>
+                      <th className="px-3 py-2">CNP</th>
+                      <th className="px-3 py-2">Szül.</th>
+                      <th className="px-3 py-2">Telefon</th>
+                      <th className="px-3 py-2">E-mail</th>
+                      <th className="px-3 py-2">Státusz</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.slice(0, 100).map((m) => (
+                      <tr key={m.id} className="border-t border-border hover:bg-muted/30">
+                        <td className="px-3 py-2 text-xs">
+                          <div className="font-medium text-foreground">
+                            {formatMemberName(m)}
+                          </div>
+                          {m.ferjk_nev && m.ferjk_nev !== m.csaladnev && (
+                            <div className="text-muted-foreground">
+                              leánykori: {m.szcs_nev ?? m.csaladnev}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.cnp}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {m.sz_datum ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">
+                          {m.telefon ?? '—'}
+                        </td>
+                        <td
+                          className="max-w-[180px] truncate px-3 py-2 font-mono text-xs"
+                          title={m.email ?? ''}
+                        >
+                          {m.email ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {m.meghalt === 1 ? (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                              elhunyt
+                            </span>
+                          ) : m.csaladfo === 1 ? (
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                              családfő
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {members.length > 100 && (
+                  <div className="border-t border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Az első 100 tag látható. Szűkítsd a keresést a többiért.
+                    (Összesen lokálisan: {members.length})
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {lastPullMembers
+                  ? 'Nincs találat a jelenlegi szűrőkkel. Próbálj mást keresni vagy engedd be az elhunytakat.'
+                  : 'Még nincs lokálisan cache-elt tag. Kattints a „Full Pull" gombra az első letöltéshez.'}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {/* — Minden profil (M2.7 delta-sync demo) — */}
         <Card>
           <CardHeader>
@@ -1307,6 +1541,17 @@ function ProfileRow({
       </td>
     </tr>
   )
+}
+
+/**
+ * Tag neve megjelenítésre — ABC-sorrendhez alkalmas + férjezett név kezelése.
+ * Formátum: "Csaladnev K_nev" — ha ferjk_nev van (nő, férjezett), az.
+ */
+function formatMemberName(m: MemberLocalRow): string {
+  const lastName = m.ferjk_nev ?? m.csaladnev ?? ''
+  const firstName = m.k_nev ?? ''
+  const name = `${lastName} ${firstName}`.trim()
+  return name || '(névtelen)'
 }
 
 function OnlineBadge({ online }: { online: boolean | null }) {

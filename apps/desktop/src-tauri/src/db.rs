@@ -314,8 +314,114 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v4 migráció (congregations_local) sikertelen: {e}"))?;
     }
 
+    if current < 5 {
+        // M7.1 — szemely_local: a Supabase `szemely` tábla lokális tükörképe.
+        //
+        // A lelkész offline is láthatja a saját gyülekezete **tagjait**:
+        // név-variánsok, CNP, születési dátum, cím, telefon, e-mail, vallási
+        // adatok, családfő-jelzés, stb.
+        //
+        // Oszlop-választás elve (V1):
+        //   - **BEKERÜL**: core identity, családfa-hivatkozás, cím (szöveges),
+        //     elérhetőség, vallás/foglalkozás/nemzetiség, státusz, megjegyzés
+        //   - **KIMARAD V1-ben**:
+        //     * `szig`, `taj` — PII, külön megbeszélés után (M7.5+)
+        //     * `kep`, `photo_url` — fotók külön fázis (Supabase Storage cache)
+        //     * `sz_helyid`, `c_utcaid`, `c_helysegid` — FK-k cím-táblákhoz;
+        //       a `c_szcim` szöveg-mezővel dolgozunk elsőre
+        //     * `befizetoev` — pénzügyi, admin-oldali
+        //     * `created`, `namepattern` — későbbi szempontok
+        //
+        // Típusok (megegyezik a congregations-mintával):
+        //   - integer → INTEGER  (szemely.id = integer, NEM uuid!)
+        //   - uuid → TEXT (congregation_id, family_id)
+        //   - boolean → INTEGER (0/1)
+        //   - date → TEXT (ISO 'YYYY-MM-DD')
+        //   - timestamptz → TEXT (ISO 8601)
+        //
+        // A Supabase-oldali M7.0 migráció (2026-04-23-m7-0-szemely-csalad-triggers.sql)
+        // adja hozzá a BEFORE UPDATE triggert — a `revision`/`updated_at` oszlopok
+        // MÁR LÉTEZTEK a Supabase sémában.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS szemely_local (
+                -- Core identity (INTEGER PK, szemely_id_seq-ből származik)
+                id                INTEGER PRIMARY KEY,
+                cnp               TEXT NOT NULL,
+                szcs_nev          TEXT,                       -- szül. családnév
+                k_nev             TEXT,                       -- keresztnév
+                csaladnev         TEXT,                       -- családnév (jelenlegi)
+                ferjk_nev         TEXT,                       -- férjezett név (nők)
+                allapot           TEXT,                       -- családi állapot
+
+                -- Személyes
+                sz_datum          TEXT,                       -- ISO 'YYYY-MM-DD'
+                ferfi             INTEGER NOT NULL DEFAULT 0, -- 0/1 boolean
+                csaladfo          INTEGER NOT NULL DEFAULT 0,
+                meghalt           INTEGER NOT NULL DEFAULT 0,
+                member_status     TEXT DEFAULT 'aktív',
+
+                -- Családfa (szülők névvel + CNP-hivatkozás)
+                apjaneve          TEXT,
+                anyjaneve         TEXT,
+                id_apja           TEXT,                       -- apa CNP-je
+                id_anyja          TEXT,                       -- anya CNP-je
+
+                -- Cím (szöveges, FK-k nélkül V1-ben)
+                c_szam            TEXT,                       -- házszám
+                c_tombhaz         TEXT,                       -- tömbház
+                c_lepcsohaz       TEXT,                       -- lépcsőház
+                c_ajto            TEXT,                       -- ajtó
+                c_emelet          TEXT,                       -- emelet
+                c_szcim           TEXT,                       -- teljes cím (string)
+
+                -- Elérhetőség
+                telefon           TEXT,
+                email             TEXT,
+
+                -- Vallás / identitás
+                vallas            TEXT,
+                foglalkozas       TEXT,
+                nemzetiseg        TEXT,
+                voter_eligible    INTEGER NOT NULL DEFAULT 0, -- választó-e
+
+                -- Gyülekezet / család FK-k
+                congregation_id   TEXT,                       -- uuid (szűrő-mező)
+                family_id         TEXT,                       -- uuid (nullable)
+
+                -- Egyéb
+                type              TEXT,                       -- szemely.type (pl. 'aktív')
+                isvisible         INTEGER NOT NULL DEFAULT 1,
+                megjegyzes        TEXT,
+
+                -- Sync metadata
+                revision          INTEGER NOT NULL DEFAULT 0,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            -- Indexek a leggyakoribb lekérdezésekhez
+            CREATE INDEX IF NOT EXISTS idx_szemely_local_congregation
+                ON szemely_local(congregation_id);
+            CREATE INDEX IF NOT EXISTS idx_szemely_local_family
+                ON szemely_local(family_id);
+            CREATE INDEX IF NOT EXISTS idx_szemely_local_csaladnev
+                ON szemely_local(csaladnev);
+            CREATE INDEX IF NOT EXISTS idx_szemely_local_cnp
+                ON szemely_local(cnp);
+            CREATE INDEX IF NOT EXISTS idx_szemely_local_updated_at
+                ON szemely_local(updated_at);
+
+            PRAGMA user_version = 5;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v5 migráció (szemely_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 5 { ... PRAGMA user_version = 5; }
+    // if current < 6 { ... PRAGMA user_version = 6; }
 
     Ok(())
 }

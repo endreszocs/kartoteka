@@ -884,3 +884,394 @@ export async function getLocalOwnCongregation(
 export async function getLastPullCongregationIso(): Promise<string | null> {
   return getSetting(LAST_PULL_CONGREGATION_KEY)
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// M7 — SZEMELY (tagnyilvántartás) PULL-SYNC
+// ═════════════════════════════════════════════════════════════════════════
+// A lelkész offline is láthatja a saját gyülekezete **tagjait**.
+//
+// Scope V1:
+//   - pullMembersOfOwnCongregation(userId) — delta-pull (updated_at > last_pull)
+//   - getLocalMembersOfOwnCongregation(userId) — offline olvasás listához
+//   - Csak a user saját gyülekezete — a profiles.congregation_id-n át
+//
+// Kihagyva V1-ből (későbbi fázis):
+//   - Írás (updateMember, addMember)
+//   - Családi kapcsolatok join (csalad_local)
+//   - Fotók (kep, photo_url) — külön Storage-cache
+
+/**
+ * A `szemely` és `szemely_local` közös, szinkronizált oszlopai (V1 subset).
+ * Kihagyva V1: szig, taj, kep, photo_url, sz_helyid, c_utcaid, c_helysegid, befizetoev
+ */
+export interface MemberLocalRow {
+  id: number // INTEGER (szemely.id integer, nem uuid!)
+  cnp: string
+  szcs_nev: string | null
+  k_nev: string | null
+  csaladnev: string | null
+  ferjk_nev: string | null
+  allapot: string | null
+
+  // Személyes
+  sz_datum: string | null // ISO date
+  /** SQLite INTEGER (0/1). */
+  ferfi: number
+  /** SQLite INTEGER (0/1). */
+  csaladfo: number
+  /** SQLite INTEGER (0/1). */
+  meghalt: number
+  member_status: string | null
+
+  // Családfa
+  apjaneve: string | null
+  anyjaneve: string | null
+  id_apja: string | null
+  id_anyja: string | null
+
+  // Cím
+  c_szam: string | null
+  c_tombhaz: string | null
+  c_lepcsohaz: string | null
+  c_ajto: string | null
+  c_emelet: string | null
+  c_szcim: string | null
+
+  // Elérhetőség
+  telefon: string | null
+  email: string | null
+
+  // Vallás/identitás
+  vallas: string | null
+  foglalkozas: string | null
+  nemzetiseg: string | null
+  /** SQLite INTEGER (0/1). */
+  voter_eligible: number
+
+  // FK-k
+  congregation_id: string | null
+  family_id: string | null
+
+  // Egyéb
+  type: string | null
+  /** SQLite INTEGER (0/1). */
+  isvisible: number
+  megjegyzes: string | null
+
+  // Sync metadata
+  revision: number
+  updated_at: string | null
+  synced_at: string
+}
+
+/**
+ * Supabase-ről érkező raw-sor típusa — a `public_site_enabled` / boolean mezők
+ * JS boolean-ok, nem 0/1-ek. A DB upsert-kor konvertálunk.
+ */
+interface MemberSupabaseRow {
+  id: number
+  cnp: string
+  szcs_nev: string | null
+  k_nev: string | null
+  csaladnev: string | null
+  ferjk_nev: string | null
+  allapot: string | null
+  sz_datum: string | null
+  ferfi: boolean
+  csaladfo: boolean
+  meghalt: boolean
+  member_status: string | null
+  apjaneve: string | null
+  anyjaneve: string | null
+  id_apja: string | null
+  id_anyja: string | null
+  c_szam: string | null
+  c_tombhaz: string | null
+  c_lepcsohaz: string | null
+  c_ajto: string | null
+  c_emelet: string | null
+  c_szcim: string | null
+  telefon: string | null
+  email: string | null
+  vallas: string | null
+  foglalkozas: string | null
+  nemzetiseg: string | null
+  voter_eligible: boolean | null
+  congregation_id: string | null
+  family_id: string | null
+  type: string | null
+  isvisible: boolean
+  megjegyzes: string | null
+  revision?: number
+  updated_at?: string
+}
+
+const MEMBER_SELECT_COLS =
+  'id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot, ' +
+  'sz_datum, ferfi, csaladfo, meghalt, member_status, ' +
+  'apjaneve, anyjaneve, id_apja, id_anyja, ' +
+  'c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim, ' +
+  'telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, ' +
+  'congregation_id, family_id, type, isvisible, megjegyzes, revision, updated_at'
+
+/** Kulcs-prefix — a per-gyülekezet last_pull külön mezőben él. */
+const LAST_PULL_MEMBERS_KEY_PREFIX = 'sync:members:last_pull:'
+
+function memberLastPullKey(congregationId: string): string {
+  return `${LAST_PULL_MEMBERS_KEY_PREFIX}${congregationId}`
+}
+
+/**
+ * Letölti a bejelentkezett user gyülekezetének tagjait a Supabase-ből
+ * a lokális `szemely_local` cache-be.
+ *
+ * Mode:
+ *   - 'delta' (default): csak `updated_at > last_pull_for_this_congregation`
+ *   - 'full': mindent, akkor is, ha nagy
+ *
+ * Első hívásnál (nincs last_pull) → automatikusan 'full-initial' fut.
+ *
+ * Az RLS szerver-oldalon is szűr (csak a saját gyülekezet), de kliens-oldalon
+ * is megadjuk a `congregation_id` szűrőt a robusztusság miatt.
+ */
+export async function pullMembersOfOwnCongregation(
+  userId: string,
+  mode: 'delta' | 'full' = 'delta',
+): Promise<{
+  pulledRows: number
+  mode: 'delta' | 'full' | 'full-initial' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+
+  // 1. congregation_id kinyerése — előbb lokálisan (gyors)
+  let congregationId: string | null = null
+  const localProfile = await getLocalOwnProfile(userId)
+  if (localProfile?.congregation_id) {
+    congregationId = localProfile.congregation_id
+  } else {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('congregation_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileError) {
+      throw new Error(`Supabase profile-lookup hiba: ${profileError.message}`)
+    }
+    congregationId = profile?.congregation_id ?? null
+  }
+
+  if (!congregationId) {
+    const now = new Date().toISOString()
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: now }
+  }
+
+  // 2. delta vs. full eldöntése
+  const lastPullKey = memberLastPullKey(congregationId)
+  const lastPull = mode === 'delta' ? await getSetting(lastPullKey) : null
+  const effectiveMode: 'delta' | 'full' | 'full-initial' =
+    mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
+
+  // 3. Supabase lekérdezés
+  let query = supabase
+    .from('szemely')
+    .select(MEMBER_SELECT_COLS)
+    .eq('congregation_id', congregationId)
+    .order('updated_at', { ascending: true })
+
+  if (effectiveMode === 'delta' && lastPull) {
+    query = query.gt('updated_at', lastPull)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    throw new Error(`Supabase pullMembers hiba: ${error.message}`)
+  }
+
+  const rows = (data ?? []) as unknown as MemberSupabaseRow[]
+
+  // 4. Upsert a lokális cache-be — soronként
+  for (const row of rows) {
+    await dbExecute(
+      `INSERT INTO szemely_local
+         (id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
+          sz_datum, ferfi, csaladfo, meghalt, member_status,
+          apjaneve, anyjaneve, id_apja, id_anyja,
+          c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
+          telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
+          congregation_id, family_id, type, isvisible, megjegyzes,
+          revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+          ?8, ?9, ?10, ?11, ?12,
+          ?13, ?14, ?15, ?16,
+          ?17, ?18, ?19, ?20, ?21, ?22,
+          ?23, ?24, ?25, ?26, ?27, ?28,
+          ?29, ?30, ?31, ?32, ?33,
+          ?34, ?35, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         cnp = excluded.cnp,
+         szcs_nev = excluded.szcs_nev,
+         k_nev = excluded.k_nev,
+         csaladnev = excluded.csaladnev,
+         ferjk_nev = excluded.ferjk_nev,
+         allapot = excluded.allapot,
+         sz_datum = excluded.sz_datum,
+         ferfi = excluded.ferfi,
+         csaladfo = excluded.csaladfo,
+         meghalt = excluded.meghalt,
+         member_status = excluded.member_status,
+         apjaneve = excluded.apjaneve,
+         anyjaneve = excluded.anyjaneve,
+         id_apja = excluded.id_apja,
+         id_anyja = excluded.id_anyja,
+         c_szam = excluded.c_szam,
+         c_tombhaz = excluded.c_tombhaz,
+         c_lepcsohaz = excluded.c_lepcsohaz,
+         c_ajto = excluded.c_ajto,
+         c_emelet = excluded.c_emelet,
+         c_szcim = excluded.c_szcim,
+         telefon = excluded.telefon,
+         email = excluded.email,
+         vallas = excluded.vallas,
+         foglalkozas = excluded.foglalkozas,
+         nemzetiseg = excluded.nemzetiseg,
+         voter_eligible = excluded.voter_eligible,
+         congregation_id = excluded.congregation_id,
+         family_id = excluded.family_id,
+         type = excluded.type,
+         isvisible = excluded.isvisible,
+         megjegyzes = excluded.megjegyzes,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = excluded.synced_at`,
+      [
+        row.id,
+        row.cnp,
+        row.szcs_nev,
+        row.k_nev,
+        row.csaladnev,
+        row.ferjk_nev,
+        row.allapot,
+        row.sz_datum,
+        row.ferfi ? 1 : 0,
+        row.csaladfo ? 1 : 0,
+        row.meghalt ? 1 : 0,
+        row.member_status,
+        row.apjaneve,
+        row.anyjaneve,
+        row.id_apja,
+        row.id_anyja,
+        row.c_szam,
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.c_szcim,
+        row.telefon,
+        row.email,
+        row.vallas,
+        row.foglalkozas,
+        row.nemzetiseg,
+        row.voter_eligible ? 1 : 0,
+        row.congregation_id,
+        row.family_id,
+        row.type,
+        row.isvisible ? 1 : 0,
+        row.megjegyzes,
+        row.revision ?? 0,
+        row.updated_at ?? null,
+      ],
+    )
+  }
+
+  // 5. last_pull frissítés — a legújabb kapott updated_at-ra
+  let newLastPull = lastPull ?? new Date(0).toISOString()
+  for (const row of rows) {
+    if (row.updated_at && row.updated_at > newLastPull) {
+      newLastPull = row.updated_at
+    }
+  }
+  if (rows.length > 0) {
+    await setSetting(lastPullKey, newLastPull)
+  } else if (!lastPull) {
+    // Első futás, nem jött semmi — mégis jegyezzük, hogy „futott"
+    await setSetting(lastPullKey, new Date().toISOString())
+  }
+
+  return {
+    pulledRows: rows.length,
+    mode: effectiveMode,
+    lastPullIso: newLastPull,
+  }
+}
+
+/**
+ * A user saját gyülekezetének **összes** lokálisan cache-elt tagja.
+ *
+ * Alapértelmezésben csak az `isvisible = 1 AND meghalt = 0` aktív tagokat
+ * adja vissza — a temetettek / rejtettek külön paraméterrel kérhetők.
+ *
+ * Rendezés: `csaladnev ASC, k_nev ASC` — ábécé-sorrend a UI-nak.
+ */
+export async function getLocalMembersOfOwnCongregation(
+  userId: string,
+  options?: { includeDeceased?: boolean; includeHidden?: boolean; search?: string },
+): Promise<MemberLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+
+  const conditions: string[] = ['congregation_id = ?1']
+  const params: (string | number)[] = [profile.congregation_id]
+  let idx = 2
+
+  if (!options?.includeDeceased) {
+    conditions.push('meghalt = 0')
+  }
+  if (!options?.includeHidden) {
+    conditions.push('isvisible = 1')
+  }
+  if (options?.search) {
+    // Egyszerű LIKE-keresés név + CNP mezőkön
+    conditions.push(
+      `(csaladnev LIKE ?${idx} OR k_nev LIKE ?${idx} OR ferjk_nev LIKE ?${idx} OR cnp LIKE ?${idx})`,
+    )
+    params.push(`%${options.search}%`)
+    idx++
+  }
+
+  const where = conditions.join(' AND ')
+  return dbSelect<MemberLocalRow>(
+    `SELECT id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
+            sz_datum, ferfi, csaladfo, meghalt, member_status,
+            apjaneve, anyjaneve, id_apja, id_anyja,
+            c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
+            telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
+            congregation_id, family_id, type, isvisible, megjegyzes,
+            revision, updated_at, synced_at
+       FROM szemely_local
+      WHERE ${where}
+      ORDER BY COALESCE(csaladnev, ''), COALESCE(k_nev, '')`,
+    params,
+  )
+}
+
+/** Hány lokálisan cache-elt tag van a saját gyülekezetben (aktív). */
+export async function getLocalMemberCount(userId: string): Promise<number> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return 0
+
+  const rows = await dbSelect<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM szemely_local
+      WHERE congregation_id = ?1 AND meghalt = 0 AND isvisible = 1`,
+    [profile.congregation_id],
+  )
+  return rows[0]?.count ?? 0
+}
+
+/** Utolsó member-pull a user gyülekezetére — null, ha még nem futott. */
+export async function getLastPullMembersIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(memberLastPullKey(profile.congregation_id))
+}
