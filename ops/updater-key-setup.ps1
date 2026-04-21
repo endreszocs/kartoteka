@@ -59,15 +59,14 @@ Write-Host "  Privat kulcs helye: $privateKeyPath" -ForegroundColor Gray
 Write-Host "  Jelszo: $keyPassword" -ForegroundColor Gray
 Write-Host ""
 
-$env:TAURI_KEY_PASSWORD = $keyPassword
-
+# Explicit `--password` — ezzel a Tauri signer biztosan ezt a jelszot hasznalja
+# encrypting/decrypting-hez, es nem ker interaktiv confirmation-t.
 Push-Location $desktopDir
 try {
-    & npx --yes @tauri-apps/cli signer generate -w $privateKeyPath --ci
+    & npx --yes @tauri-apps/cli signer generate -w $privateKeyPath --password $keyPassword
     $exitCode = $LASTEXITCODE
 } finally {
     Pop-Location
-    $env:TAURI_KEY_PASSWORD = $null
 }
 
 if ($exitCode -ne 0) {

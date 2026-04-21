@@ -46,6 +46,7 @@ $privateKeyPath = Join-Path $PSScriptRoot "updater-private.key"
 $bundleBase = "C:\kartoteka-target\release\bundle"
 $supabaseProjectRef = "bjytiawckbibqmtlezfl"
 $supabaseBucket = "updater"
+# A dev-kulcs `updater-key-setup.ps1`-ben a kovetkezo passworddel generalva:
 $keyPassword = "kartoteka-updater-dev-2026"
 
 # ----------------------------------------------------------------------------
@@ -63,13 +64,16 @@ if (-not (Test-Path $privateKeyPath)) {
 }
 
 # Verzio-ellenorzes (tauri.conf.json)
-$confContent = Get-Content $tauriConf -Raw
+# FONTOS: explicit UTF-8 olvasas/iras, mert a PS 5.1 Get-Content default-ja
+# Windows-1252 (CP1250), ami a magyar karaktereket (é, á, ü stb.) mojibake-re
+# tori. A Tauri/WiX azutan nem tudja felismerni a productName-t.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$confContent = [System.IO.File]::ReadAllText($tauriConf, $utf8NoBom)
 if ($confContent -notmatch "`"version`":\s*`"$Version`"") {
     Write-Host "[!] tauri.conf.json version-je nem egyezik a megadottal ($Version)." -ForegroundColor Yellow
     $answer = Read-Host "Frissitsem most? (y/n)"
     if ($answer -eq "y") {
         $newContent = $confContent -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
-        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText($tauriConf, $newContent, $utf8NoBom)
         Write-Host "    tauri.conf.json version = $Version" -ForegroundColor Green
     } else {
@@ -78,14 +82,14 @@ if ($confContent -notmatch "`"version`":\s*`"$Version`"") {
     }
 }
 
-# Verzio-ellenorzes (Cargo.toml)
-$cargoContent = Get-Content $cargoToml -Raw
+# Verzio-ellenorzes (Cargo.toml) — a Cargo.toml tisztan ASCII, de a konzisztencia
+# kedveert szinten UTF-8-kent kezeljuk
+$cargoContent = [System.IO.File]::ReadAllText($cargoToml, $utf8NoBom)
 if ($cargoContent -notmatch "(?m)^version\s*=\s*`"$Version`"") {
     Write-Host "[!] Cargo.toml version-je nem egyezik a megadottal ($Version)." -ForegroundColor Yellow
     $answer = Read-Host "Frissitsem most? (y/n)"
     if ($answer -eq "y") {
         $newContent = $cargoContent -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
-        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText($cargoToml, $newContent, $utf8NoBom)
         Write-Host "    Cargo.toml version = $Version" -ForegroundColor Green
     } else {
@@ -124,28 +128,34 @@ if ($exitCode -ne 0) {
 
 # ----------------------------------------------------------------------------
 # 4. Build-artifactok lokalizalas
+#    A Tauri v2 kozvetlenul a *-setup.exe + *.exe.sig -et generalja a nsis/
+#    mappaba (nincs .nsis.zip-wrapping az ujabb verziokban). A Windows-updater
+#    ezzel megy.
 # ----------------------------------------------------------------------------
 Write-Host ""
 Write-Host "Build-artifactok ellenorzese..." -ForegroundColor Cyan
 
-$nsisZipPath = Get-ChildItem "$bundleBase\nsis\*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
-$nsisSigPath = Get-ChildItem "$bundleBase\nsis\*.nsis.zip.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+# Verzio-specifikusan keressuk, mert a bundle-mappaban tobb build output
+# (0.1.0, 0.2.0, …) maradhat egymas mellett.
+$nsisExePath = Get-ChildItem "$bundleBase\nsis\*_${Version}_*-setup.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notlike "*.sig" } | Select-Object -First 1
+$nsisSigPath = Get-ChildItem "$bundleBase\nsis\*_${Version}_*-setup.exe.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
 
-if (-not $nsisZipPath) {
-    Write-Host "[FAIL] .nsis.zip nem talalhato a $bundleBase\nsis\ alatt" -ForegroundColor Red
-    Write-Host "       Ellenorizd: bundle.createUpdaterArtifacts = true a tauri.conf.json-ben" -ForegroundColor Yellow
+if (-not $nsisExePath) {
+    Write-Host "[FAIL] *-setup.exe nem talalhato a $bundleBase\nsis\ alatt" -ForegroundColor Red
     exit 1
 }
 if (-not $nsisSigPath) {
-    Write-Host "[FAIL] .nsis.zip.sig (Ed25519 signature) nem talalhato" -ForegroundColor Red
+    Write-Host "[FAIL] *-setup.exe.sig (Ed25519 signature) nem talalhato" -ForegroundColor Red
     Write-Host "       Ellenorizd: TAURI_SIGNING_PRIVATE_KEY env-valt beallitva volt-e" -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "    .nsis.zip: $($nsisZipPath.FullName) ($([math]::Round($nsisZipPath.Length / 1MB, 2)) MB)" -ForegroundColor Green
-Write-Host "    .nsis.zip.sig: $($nsisSigPath.FullName)" -ForegroundColor Green
+$uploadSizeMb = [math]::Round($nsisExePath.Length / 1MB, 2)
+Write-Host "    setup.exe: $($nsisExePath.FullName) ($uploadSizeMb MB)" -ForegroundColor Green
+Write-Host "    setup.exe.sig: $($nsisSigPath.FullName)" -ForegroundColor Green
 
-$signatureContent = Get-Content $nsisSigPath.FullName -Raw
+$signatureContent = (Get-Content $nsisSigPath.FullName -Raw).Trim()
 
 # ----------------------------------------------------------------------------
 # 5. Manifest generalas
@@ -153,7 +163,32 @@ $signatureContent = Get-Content $nsisSigPath.FullName -Raw
 Write-Host ""
 Write-Host "latest.json manifest generalasa..." -ForegroundColor Cyan
 
-$uploadedUrl = "https://$supabaseProjectRef.supabase.co/storage/v1/object/public/$supabaseBucket/$Target/$($nsisZipPath.Name)"
+# A filename-t ASCII-safe verzioba konvertaljuk. A magyar "é" tauri.conf.json
+# productName-bol oroklodott, de a Supabase Storage az object-key-ben
+# "Invalid key"-t dob a non-ASCII karakterekre. Atnevezzuk: Kartoteka_* (ASCII).
+function ConvertTo-Ascii {
+    param([string]$InputString)
+    $normalized = $InputString.Normalize([System.Text.NormalizationForm]::FormD)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in $normalized.ToCharArray()) {
+        $uc = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($c)
+        if ($uc -ne [System.Globalization.UnicodeCategory]::NonSpacingMark) {
+            # Magyar "ő" es "ű" nem FormD-decomposable — kulon kezeljuk
+            $code = [int]$c
+            if ($code -eq 0x0151) { [void]$sb.Append('o'); continue }  # ő
+            if ($code -eq 0x0171) { [void]$sb.Append('u'); continue }  # ű
+            if ($code -eq 0x0150) { [void]$sb.Append('O'); continue }  # Ő
+            if ($code -eq 0x0170) { [void]$sb.Append('U'); continue }  # Ű
+            if ($code -lt 128) { [void]$sb.Append($c) }
+        }
+    }
+    return $sb.ToString()
+}
+
+$uploadName = ConvertTo-Ascii -InputString $nsisExePath.Name
+$uploadedUrl = "https://$supabaseProjectRef.supabase.co/storage/v1/object/public/$supabaseBucket/$Target/$uploadName"
+
+Write-Host "    Upload name: $uploadName (ASCII-convertalt az eredetibol: $($nsisExePath.Name))" -ForegroundColor Gray
 
 $manifest = @{
     version = $Version
@@ -247,15 +282,15 @@ function Upload-File {
     }
 }
 
-$okZip = Upload-File -LocalPath $nsisZipPath.FullName `
-                    -RemotePath "$Target/$($nsisZipPath.Name)" `
-                    -ContentType "application/zip"
+$okBinary = Upload-File -LocalPath $nsisExePath.FullName `
+                       -RemotePath "$Target/$uploadName" `
+                       -ContentType "application/octet-stream"
 
 $okJson = Upload-File -LocalPath $manifestPath `
                      -RemotePath "$Target/latest.json" `
                      -ContentType "application/json"
 
-if ($okZip -and $okJson) {
+if ($okBinary -and $okJson) {
     Write-Host ""
     Write-Host "=============================================================" -ForegroundColor Green
     Write-Host "RELEASE FELTOLTVE!" -ForegroundColor Green
