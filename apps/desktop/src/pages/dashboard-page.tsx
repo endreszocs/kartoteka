@@ -163,7 +163,7 @@ export function DashboardPage() {
     }
   }, [])
 
-  // Ha van user + DB: lokális profil betöltése + initial outbox-drain
+  // DB-függő műveletek: csak akkor futnak, ha a lokális SQLCipher nyitva van
   useEffect(() => {
     if (!user || !dbAvailable) return
     let mounted = true
@@ -193,8 +193,18 @@ export function DashboardPage() {
         // csendes
       })
 
-    // M3.3 — eszköz-bind: infót lekérjük a Rust-ból (lokális), és ha még
-    // nincs regisztrálva a Supabase-re, beinsertáljuk.
+    return () => {
+      mounted = false
+    }
+  }, [user, dbAvailable, refreshLocalDb])
+
+  // M3.3 — eszköz-bind: FÜGGETLEN a lokális DB állapotától (csak a Tauri-invoke
+  // + Supabase-hez fér). Így ha a DB nem nyílik, az eszköz-info + regisztráció
+  // akkor is lefut.
+  useEffect(() => {
+    if (!user) return
+    let mounted = true
+
     getDeviceInfo()
       .then((info) => {
         if (!mounted) return
@@ -208,7 +218,6 @@ export function DashboardPage() {
         } else if (res.registered) {
           setDeviceRegMsg('Eszköz regisztrálva a rendszerben.')
         }
-        // Utána lekérjük a user összes eszközét
         return getMyDevices(user.id)
       })
       .then((devices) => {
@@ -222,7 +231,7 @@ export function DashboardPage() {
     return () => {
       mounted = false
     }
-  }, [user, dbAvailable, refreshLocalDb])
+  }, [user])
 
   async function handlePing() {
     setPinging(true)
