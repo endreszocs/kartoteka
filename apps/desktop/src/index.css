@@ -1,72 +1,42 @@
-/*
+/**
  * Kartotéka Desktop — Tailwind 4 belépési pont.
  *
- * A Tailwind JIT scannelje:
- *   - a saját src/ mappáját (a pages/, components/ kódjait)
- *   - a közös @kartoteka/ui csomag src/ mappáját
+ * A tartalmi design-rendszer (színek, fontok, custom class-ok, dark mode,
+ * animációk, print) a `packages/ui/src/kartoteka.css` fájlban van —
+ * **ez az egyetlen igazság forrása**. A web-app is ugyanezt importálja,
+ * így a két alkalmazás 100%-ban vizuálisan egyező.
  *
- * M2-től a `@kartoteka/design-tokens` csomagból importáljuk a teljes
- * színpalettát és a típusszabályokat. Addig itt egy minimál placeholder
- * tokent definiálunk, hogy a közös @kartoteka/ui komponensek
- * (button, card, dialog stb.) valamilyen kinézetet kapjanak.
+ * Kliens-specifikus (itt tartani):
+ *   - Tailwind entry (`@import "tailwindcss"`)
+ *   - `tw-animate-css` preset
+ *   - `shadcn/tailwind.css` preset
+ *   - Tauri-specifikus CSS (pl. webview-specifikus patch, user-select kezelés)
  */
 
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* A közös UI csomag fájljait is scannelni kell. */
+/* A közös UI csomag fájljait is scannelje a Tailwind JIT. */
 @source "../../../packages/ui/src";
 
-/* Placeholder design tokenek — M2-ben @kartoteka/design-tokens-ből érkezik. */
-@theme {
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-heading: Georgia, 'Times New Roman', serif;
+/* A teljes Kartotéka design-rendszer — egy forrásból. */
+@import "../../../packages/ui/src/kartoteka.css";
 
-  --color-background: oklch(0.99 0.003 87);
-  --color-foreground: oklch(0.17 0.015 250);
+/* ──────────────────────────────────────────────────────────────
+   Tauri-desktop specifikus kiegészítések
+   ──────────────────────────────────────────────────────────────
+   A Tauri ablakban a szöveg-kijelölés alapból engedélyezve van,
+   de a natív app-érzéshez érdemes kikapcsolni a nem-textbox
+   helyeken. Inputok és szerkeszthető mezők megmaradnak.
+   ────────────────────────────────────────────────────────────── */
 
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.17 0.015 250);
-
-  --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.17 0.015 250);
-
-  --color-primary: oklch(0.42 0.06 165);       /* EREK zöld */
-  --color-primary-foreground: oklch(0.99 0 0);
-
-  --color-secondary: oklch(0.96 0.01 170);
-  --color-secondary-foreground: oklch(0.27 0.03 180);
-
-  --color-muted: oklch(0.96 0.01 250);
-  --color-muted-foreground: oklch(0.5 0.02 250);
-
-  --color-accent: oklch(0.95 0.03 200);
-  --color-accent-foreground: oklch(0.27 0.03 180);
-
-  --color-destructive: oklch(0.55 0.20 25);
-  --color-destructive-foreground: oklch(0.99 0 0);
-
-  --color-border: oklch(0.9 0.01 250);
-  --color-input: oklch(0.94 0.01 250);
-  --color-ring: oklch(0.42 0.06 165);
-
-  --radius: 0.625rem;
-  --radius-md: calc(var(--radius) - 2px);
-}
-
-/* Alap body-stílus. */
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background: var(--color-background);
-  color: var(--color-foreground);
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* A Tauri ablakban ne jelenjen meg szöveg-kijelölés a nem-textbox helyeken. */
 * {
   user-select: none;
 }
-input, textarea, [contenteditable] {
+
+input,
+textarea,
+[contenteditable] {
   user-select: text;
 }
