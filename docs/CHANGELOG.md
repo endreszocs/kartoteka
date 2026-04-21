@@ -23,6 +23,80 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-23] — v0.2.0: Első publikált Kartotéka release (auto-updater élesben)
+
+<!-- key: 2026-04-23-v0-2-0-first-release -->
+<!-- category: feature -->
+<!-- version: 0.2.0 (desktop) / 1.15.20 (rendszer) -->
+<!-- targets: fejlesztő, lelkészek (közvetve) -->
+
+### 📦 A Kartotéka desktop kliens első éles release-e megjelent
+
+**A webes működést nem érinti.** Ez az első publikus desktop-verzió, amely az auto-updater mechanizmuson keresztül **is** elérhető. Egy későbbi Kartotéka-telepítésnél a „Frissítés → Ellenőrzés" gomb fogja **ténylegesen** észlelni.
+
+**Kibocsátás**: `v0.2.0` (Tauri), `1.15.20` (rendszer-szintű)
+**Platform**: Windows x64 (NSIS EXE + MSI)
+**Host**: Supabase Storage — `https://bjytiawckbibqmtlezfl.supabase.co/storage/v1/object/public/updater/windows-x86_64/`
+
+### Aláírások + biztonság
+| Réteg | Típus | Kulcs |
+|---|---|---|
+| **Bináris aláírás** (MSI + EXE) | Authenticode (signtool) | Self-signed EREK cert (thumbprint `F8DE7E85...`) |
+| **Updater manifest aláírás** | Ed25519 (minisign-format) | Új updater kulcs (`8EBAC2E77C732DCE`) |
+
+A kliens mindkét aláírást **külön** ellenőrzi: a code-sign cert-et Windows SmartScreen, az updater-signature-t a Tauri updater-plugin a `tauri.conf.json`-ben lévő publikus kulccsal.
+
+### Publikálási flow (az új `ops/release-build.ps1`)
+
+```powershell
+.\ops\release-build.ps1 -Version "0.2.0" -Notes "Első auto-update teszt"
+```
+
+Egy hívás mindent intéz:
+1. `tauri.conf.json` + `Cargo.toml` verzió-ellenőrzés + in-place bump (ha kell, a user-rákérdezéssel)
+2. Release-build: Rust optimalizált + Vite prod bundle
+3. Code-signing: MSI + NSIS EXE aláírás
+4. Updater-signing: `.exe.sig` + `.msi.sig` Ed25519-aláírás
+5. ASCII-safe filename konverzió (`Kartotéka` → `Kartoteka` a Supabase bucket-object-key-hez)
+6. Manifest-generálás (`latest.json`): `{ version, notes, pub_date, platforms.windows-x86_64.{signature, url} }`
+7. Upload a Supabase Storage REST API-n át (`x-upsert: true` — override a régi verziót)
+
+### Fájlok a Supabase Storage-on
+
+```
+updater/
+└── windows-x86_64/
+    ├── Kartoteka_0.2.0_x64-setup.exe   (4.76 MB, signed)
+    └── latest.json                      (~400 byte, Ed25519-signed manifest)
+```
+
+### Release-pipeline-tanulságok (5 körös debug után)
+
+A teljes pipeline **első működő konfigurációjának** eléréséhez négy ponton kellett script-javítás:
+
+1. **UTF-8 encoding** a PS-script-ekben (`[System.IO.File]::ReadAllText+UTF8Encoding(false)`) a magyar karakterek megőrzéséhez
+2. **`--password` explicit flag** a `signer generate`-nél (a `--ci` flag inkonzisztens Tauri v2 2.10.x-en)
+3. **Tauri v2 output**: a `.nsis.zip` helyett közvetlen `*-setup.exe + *.exe.sig` páros
+4. **ASCII-key** a Supabase Storage-hoz (a filename-ben lévő `é` → `InvalidKey`)
+
+Mind rögzítve a `memory/project_dev_toolchain_windows.md`-ben.
+
+### Kipróbálás (ha később tesztelni akarod)
+
+1. Telepíts egy korábbi v0.1.0-s buildet (ha megvan még) vagy ideiglenes downgrade-eld a dev-verziót
+2. Indítsd: Dashboard → Frissítés → Ellenőrzés
+3. Várt: „Új verzió: 0.2.0" + Letöltés + Telepítés + Restart
+
+### Következő release
+
+```powershell
+.\ops\release-build.ps1 -Version "0.3.0" -Notes "..."
+```
+
+A pipeline most innen **egyszerre** működik: minden további release ugyanebben a parancsban lebonyolódik (~1-2 perc build + upload).
+
+---
+
 ## [2026-04-23] — M5: Auto-updater skeleton (tauri-plugin-updater)
 
 <!-- key: 2026-04-23-m5-updater-skeleton -->
