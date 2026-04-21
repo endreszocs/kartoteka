@@ -674,20 +674,67 @@ export async function pullOwnCongregation(userId: string): Promise<PullResult> {
     return { pulledRows: 0, lastPullIso: now }
   }
 
-  // 2. A gyülekezet-sor letöltése
-  const { data, error } = await supabase
-    .from('congregations')
-    .select(
-      'id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id, ' +
-        'adoszam, cim, email, telefon, web, varos, megye, iranyitoszam, ' +
-        'iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, ' +
-        'cimer_url, public_slug, public_site_enabled, revision, updated_at',
-    )
-    .eq('id', congregationId)
-    .maybeSingle()
+  // 2. A gyülekezet-sor letöltése.
+  //
+  // Két próba: ELŐSZÖR a teljes séma (revision + updated_at), MÁSODJÁRA
+  // fallback ezek nélkül. Ez azért kell, mert az M6.1 Supabase SQL
+  // migráció egy külön lépés — amíg nem futtatták Supabase Studio-ban,
+  // a revision/updated_at oszlopok nincsenek a szerveren, és a teljes
+  // SELECT egy `42703 - column does not exist` Postgres-hibát ad.
+  //
+  // A fallback pull működik, de a konfliktus-detektálás ki van kapcsolva
+  // (revision = 0, updated_at = null) addig, amíg a SQL nem fut le.
+  const FULL_COLS =
+    'id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id, ' +
+    'adoszam, cim, email, telefon, web, varos, megye, iranyitoszam, ' +
+    'iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, ' +
+    'cimer_url, public_slug, public_site_enabled, revision, updated_at'
+  const FALLBACK_COLS =
+    'id, name, nev_hu, nev_ro, nev_en, district, egyhazmegye, diocese_id, ' +
+    'adoszam, cim, email, telefon, web, varos, megye, iranyitoszam, ' +
+    'iban, bank, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, ' +
+    'cimer_url, public_slug, public_site_enabled'
 
-  if (error) {
-    throw new Error(`Supabase pullOwnCongregation hiba: ${error.message}`)
+  let data: unknown = null
+  let pullError: { message: string; code?: string } | null = null
+
+  {
+    const first = await supabase
+      .from('congregations')
+      .select(FULL_COLS)
+      .eq('id', congregationId)
+      .maybeSingle()
+    data = first.data
+    pullError = first.error
+      ? { message: first.error.message, code: first.error.code }
+      : null
+  }
+
+  // Ha a hiba "column ... does not exist" (Postgres 42703) → retry
+  // fallback-COLS-szal. Minden más hibát továbbdobunk.
+  if (
+    pullError &&
+    (pullError.code === '42703' ||
+      /column .* does not exist/i.test(pullError.message))
+  ) {
+    console.warn(
+      '[sync] A congregations táblán még nincs revision/updated_at oszlop. ' +
+        'Fallback-pull fut (konfliktus-detektálás kikapcsolva). ' +
+        'Futtasd a 2026-04-23-m6-1-congregations-revision.sql-t Supabase Studio-ban.',
+    )
+    const fallback = await supabase
+      .from('congregations')
+      .select(FALLBACK_COLS)
+      .eq('id', congregationId)
+      .maybeSingle()
+    data = fallback.data
+    pullError = fallback.error
+      ? { message: fallback.error.message, code: fallback.error.code }
+      : null
+  }
+
+  if (pullError) {
+    throw new Error(`Supabase pullOwnCongregation hiba: ${pullError.message}`)
   }
   if (!data) {
     // A congregation_id mutat valahova, de az RLS / törlés miatt nem jön sor.
