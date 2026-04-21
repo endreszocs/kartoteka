@@ -17,8 +17,10 @@ import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import {
   getAllSettings,
+  getDbStatus,
   getOutboxStats,
   setSetting,
+  type DbStatus,
   type OutboxStats,
   type SettingRow,
 } from '../lib/local-db'
@@ -47,6 +49,7 @@ export function DashboardPage() {
   const [signingOut, setSigningOut] = useState(false)
 
   const [dbAvailable, setDbAvailable] = useState<boolean | null>(null)
+  const [dbStatus, setDbStatus] = useState<DbStatus | null>(null)
   const [settings, setSettings] = useState<SettingRow[]>([])
   const [outbox, setOutbox] = useState<OutboxStats | null>(null)
   const [dbError, setDbError] = useState<string | null>(null)
@@ -90,6 +93,18 @@ export function DashboardPage() {
   }, [])
 
   const refreshLocalDb = useCallback(async () => {
+    // A DB-státuszt MINDIG lekérjük — akkor is, ha a setup hibázott, mert a
+    // db_status command nem függ a Connection-től (csak a state-et olvassa).
+    const status = await getDbStatus().catch(() => null)
+    setDbStatus(status)
+
+    if (status && !status.opened) {
+      // Nincs értelme settings-et / outbox-ot kérni, mindkét command hibára futna.
+      setDbAvailable(false)
+      setDbError(status.init_error ?? 'A DB még nincs megnyitva')
+      return
+    }
+
     const [rows, stats, lastIso, lastAllIso, failed, all] = await Promise.all([
       getAllSettings(),
       getOutboxStats(),
@@ -645,14 +660,36 @@ export function DashboardPage() {
             )}
 
             {dbAvailable === false && (
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-muted-foreground">
-                <p className="font-medium text-foreground">Lokális DB nem elérhető</p>
-                <p className="mt-1 text-xs">
-                  A Rust-plugin csak natív Tauri-ablakban aktív. Indítsd:{' '}
-                  <code>npm run desktop:dev</code>.
-                </p>
-                {dbError && (
-                  <p className="mt-1 font-mono text-xs text-destructive">{dbError}</p>
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-foreground">
+                <p className="font-medium">Lokális DB nem elérhető</p>
+                {dbStatus?.init_error ? (
+                  <>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      A Rust-oldali inicializálás hibája:
+                    </p>
+                    <p className="mt-1 rounded bg-background/60 p-2 font-mono text-xs text-destructive">
+                      {dbStatus.init_error}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Tipikus ok: régi M2.2-es DB-fájl új kulccsal. Megoldás PowerShell-ből:
+                    </p>
+                    <pre className="mt-1 rounded bg-background/60 p-2 font-mono text-xs">
+{`Remove-Item "$env:APPDATA\\com.erek.kartoteka\\kartoteka.db" -ErrorAction SilentlyContinue`}
+                    </pre>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Majd: zárd be a Kartotéka-ablakot és indítsd újra (<code>npm run desktop:dev</code>).
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      A Rust-plugin csak natív Tauri-ablakban aktív. Indítsd:{' '}
+                      <code>npm run desktop:dev</code>.
+                    </p>
+                    {dbError && (
+                      <p className="mt-1 font-mono text-xs text-destructive">{dbError}</p>
+                    )}
+                  </>
                 )}
               </div>
             )}

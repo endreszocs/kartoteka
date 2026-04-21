@@ -54,6 +54,24 @@ export async function dbSelect<T = Record<string, unknown>>(
   return invoke<T[]>('db_select', { sql, params })
 }
 
+/**
+ * A lokális DB inicializálási állapotának lekérése.
+ *
+ * - `opened`: a Rust-oldali Connection megvan-e a DbState-ben (tehát a setup sikeres volt)
+ * - `init_error`: ha a setup hibára futott, a teljes hiba-üzenet
+ *
+ * Böngészőben (npm run desktop:vite) a `invoke` nem elérhető → throw.
+ */
+export interface DbStatus {
+  opened: boolean
+  init_error: string | null
+}
+
+export async function getDbStatus(): Promise<DbStatus> {
+  const res = await invoke<{ opened: boolean; init_error: string | null }>('db_status')
+  return { opened: res.opened, init_error: res.init_error ?? null }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Kényelmi helperek a `settings` táblához
 // ─────────────────────────────────────────────────────────────────────────

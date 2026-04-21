@@ -44,14 +44,21 @@ const KEYRING_SERVICE: &str = "kartoteka-desktop";
 const KEYRING_USER: &str = "sqlcipher-db-key";
 
 /// Globális DB-állapot — Option, mert az `open` még nem futott le alkalmazás-indulás előtt.
+///
+/// `init_error`: ha a `setup()`-beli `open_and_migrate()` hibát dobott, a teljes
+/// üzenet itt tárolódik, és a frontend a `db_status` Tauri-parancson át megkapja.
+/// Enélkül a user csak a generic „A DB még nincs megnyitva"-hibát látta, anélkül,
+/// hogy tudta volna, miért nem sikerült a nyitás.
 pub struct DbState {
     pub conn: Mutex<Option<Connection>>,
+    pub init_error: Mutex<Option<String>>,
 }
 
 impl DbState {
     pub fn new() -> Self {
         Self {
             conn: Mutex::new(None),
+            init_error: Mutex::new(None),
         }
     }
 }
@@ -60,6 +67,29 @@ impl Default for DbState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(serde::Serialize)]
+pub struct DbStatus {
+    /// `true`, ha a Connection objektum megvan a state-ben (tehát a setup sikeres volt).
+    pub opened: bool,
+    /// A setup-hibaüzenet, ha a `open_and_migrate()` hibára futott.
+    pub init_error: Option<String>,
+}
+
+#[tauri::command]
+pub fn db_status(state: State<'_, DbState>) -> Result<DbStatus, String> {
+    let opened = state
+        .conn
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false);
+    let init_error = state
+        .init_error
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_else(|_| Some("DbState mutex mérgezett".to_string()));
+    Ok(DbStatus { opened, init_error })
 }
 
 /// Lekéri a SQLCipher-kulcsot az OS-szintű keyringből. Ha még nincs, generál

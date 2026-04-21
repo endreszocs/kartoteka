@@ -9,7 +9,7 @@
 
 mod db;
 
-use db::{db_execute, db_select, open_and_migrate, DbState};
+use db::{db_execute, db_select, db_status, open_and_migrate, DbState};
 use tauri::Manager;
 
 /// Tauri alkalmazás belépési pont.
@@ -24,12 +24,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(DbState::new())
         .setup(|app| {
+            let state: tauri::State<DbState> = app.state();
             match open_and_migrate(app.handle()) {
                 Ok(conn) => {
-                    // `state` előbb deklarálódik, `guard` másodszor — drop order
-                    // fordított, így a guard drop-ol elsőként és szépen elengedi
-                    // a borrow-t, mielőtt a state eldobódna.
-                    let state: tauri::State<DbState> = app.state();
                     let mut guard = state
                         .conn
                         .lock()
@@ -39,11 +36,19 @@ pub fn run() {
                 }
                 Err(e) => {
                     eprintln!("[Kartotéka] DB megnyitás / migráció hiba: {e}");
+                    // Rögzítsük az init-hibát a state-be, hogy a frontend (db_status)
+                    // le tudja kérni — különben a user csak generic "nincs megnyitva"-hibát
+                    // lát, anélkül, hogy tudná, miért.
+                    let mut err_guard = state
+                        .init_error
+                        .lock()
+                        .expect("DbState init_error mutex poisoned");
+                    *err_guard = Some(e);
                 }
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, db_execute, db_select])
+        .invoke_handler(tauri::generate_handler![greet, db_execute, db_select, db_status])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");
 }
