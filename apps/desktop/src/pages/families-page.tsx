@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Home, RefreshCw, Search } from 'lucide-react'
+import { Home, Plus, RefreshCw, Search } from 'lucide-react'
 
 import {
   Button,
@@ -29,7 +29,12 @@ import {
   type CsaladStatusFilter,
 } from '@kartoteka/validations'
 
+import { CsaladFormDialog } from '../components/csalad-form-dialog'
 import { FamilyDetailDialog } from '../components/family-detail-dialog'
+import {
+  runCsaladSyncManually,
+  startCsaladAutoSync,
+} from '../lib/csalad-write-sync'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -59,6 +64,7 @@ export function FamiliesPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   // Auth + congregation_id
   useEffect(() => {
@@ -120,10 +126,11 @@ export function FamiliesPage() {
     [userId, congregationId, search, statusFilter, orderBy],
   )
 
-  // Mount: első pull + load
+  // Mount: első pull + load + sync-indítás
   useEffect(() => {
     if (userId && congregationId) {
       void refresh(true)
+      startCsaladAutoSync()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, congregationId])
@@ -156,15 +163,27 @@ export function FamiliesPage() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => refresh(true)}
-              disabled={syncing}
-            >
-              <RefreshCw className={`mr-2 size-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Szinkron…' : 'Frissítés'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => refresh(true)}
+                disabled={syncing}
+              >
+                <RefreshCw className={`mr-2 size-4 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Szinkron…' : 'Frissítés'}
+              </Button>
+              {congregationId && userId && (
+                <Button
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                  className="bg-violet-700 text-white hover:bg-violet-800"
+                >
+                  <Plus className="mr-2 size-4" />
+                  Új család
+                </Button>
+              )}
+            </div>
             <p className="text-xs italic text-muted-foreground">
               {rows.length} család · offline-kompatibilis
             </p>
@@ -272,11 +291,28 @@ export function FamiliesPage() {
         {selected && userId && (
           <FamilyDetailDialog
             userId={userId}
+            congregationId={congregationId ?? undefined}
             familyId={selected.id}
             onClose={() => {
               setSelectedId(null)
               void refresh(false)
             }}
+          />
+        )}
+
+        {/* Create dialog */}
+        {createOpen && userId && congregationId && (
+          <CsaladFormDialog
+            mode="create"
+            userId={userId}
+            congregationId={congregationId}
+            onSaved={() => {
+              void refresh(true)
+              // Manuálisan is indítunk egy sync-kört (különben a pending csak
+              // 30 s múlva próbálkozik):
+              void runCsaladSyncManually()
+            }}
+            onClose={() => setCreateOpen(false)}
           />
         )}
       </main>

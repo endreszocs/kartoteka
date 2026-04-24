@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.3c: Család létrehozás + szerkesztés offline-is (desktop)
+
+<!-- key: 2026-04-24-m8-3c-csalad-crud -->
+<!-- category: feature -->
+<!-- targets: lelkészek — most már a desktopról is létrehozhatsz új családot, szerkesztheted a meglévőt, offline is -->
+
+### ✨ Új család létrehozása a desktopon
+
+A Családok oldal fejlécén új **„Új család"** violet gomb. Kattintásra form nyílik:
+
+- **Szülők kijelölése**: apa és/vagy anya választás a gyülekezet meglévő tagjai közül, beépített kereső-mezővel
+- **Cím**: házszám (kötelező), opcionális tömb-, lépcső-, emelet, ajtó
+- **Státusz**: aktív / inaktív toggle
+
+Legalább egy szülő megadása szükséges (egyedülálló szülő / özvegy család is rögzíthető).
+
+### ✏️ Meglévő család szerkesztése
+
+A család-portré modal alján új **„Szerkesztés"** gomb. Ugyanazt a formot nyitja meg, előre kitöltve az aktuális értékekkel. Revision-alapú conditional UPDATE — ha más eszközről időközben módosították, konfliktus-banner jelez.
+
+### 📡 Teljesen offline-kompatibilis
+
+Mindkét művelet (create + update) **offline is működik**:
+- Lokális pending-sor azonnal, a UI frissül
+- A szinkron automatikusan feltölti amint online leszünk (30s poll + online-event)
+- Exp-backoff a retry-oknál (30s/1m/2m/5m/15m, majd konfliktus)
+
+### 🛠 Műszaki háttér
+
+- **Rust v18 migráció**: új `csalad_pending_local` tábla egy közös `operation` oszloppal (`'insert' | 'update'`), 3 index, CHECK-constraint. Az insert → `local-<uuid>` + `server_id` backfill, az update → `target_csalad_id` + `expected_revision` snapshot-payload
+- **[csalad-save.ts](packages/validations/src/members/csalad-save.ts)**: `csaladCreateInputSchema` (refine: legalább apa vagy anya) + `csaladUpdateInputSchema` + `normalizeCsaladPayload` (üres-string → null, `c_szam` → `'—'` fallback)
+- **[sync.ts](apps/desktop/src/lib/sync.ts)**: új `createCsaladEntry(userId, input)` + `updateCsaladEntry(userId, csaladId, patch, expectedRevision)` — online conditional + offline pending
+- **[csalad-write-sync.ts](apps/desktop/src/lib/csalad-write-sync.ts)**: background push (kezeli az insert és update operation-öket külön-külön), exp-backoff, session-check
+- **[csalad-form-dialog.tsx](apps/desktop/src/components/csalad-form-dialog.tsx)**: közös dialog a create + edit-hez, beépített tag-kereső a szülő-kijelöléshez
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: 7 új metódus (insertPendingCsaladCreate, insertPendingCsaladUpdate, upsertLocalCsaladOptimistic, listPendingCsalad, markCsaladPendingSynced, markCsaladPendingConflict, updateCsaladPendingAttempt)
+
+### 🔜 Mi jön később
+
+- **Gyerek-kezelés**: egy tag családhoz rendelése / eltávolítása — a `gyerek` junction-tábla CRUD-ja (M8.3d vagy a tag-edit flow-ba integrálva)
+- **Cím-FK lookup**: a `c_utcaid` → `adrstreet` feloldás (jelenleg dummy -1), hogy a címek normalizált street-listából legyenek választhatók
+
+---
+
 ## [2026-04-24] — M8.3b: Családfő kijelölése a család-nézetben (desktop)
 
 <!-- key: 2026-04-24-m8-3b-csaladfo -->

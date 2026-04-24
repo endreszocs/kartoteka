@@ -2417,3 +2417,236 @@ function generateUuid(): string {
   else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// M8.3c — Család CRUD (create + update), offline-is
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface CsaladCreateResult {
+  serverId: number | null
+  localId: string
+  synced: boolean
+  pending: boolean
+  error?: string
+}
+
+export interface CsaladUpdateResult {
+  queuedToPending: boolean
+  conflict: boolean
+  synced: boolean
+  error?: string
+}
+
+/**
+ * Új család létrehozása. A szemely-create mintáját követi:
+ *   1. Kliens-oldali `local-<uuid>` id
+ *   2. `csalad_pending_local` insert — optimistic a UI-nak
+ *   3. Online: supabase.from('csalad').insert() → ha sikeres, markSynced
+ *   4. Offline vagy hiba → pending marad, a `csalad-write-sync` tölti fel
+ */
+export async function createCsaladEntry(
+  userId: string,
+  input: {
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    id_csoport: number | null
+    isaktiv: boolean
+  },
+): Promise<CsaladCreateResult> {
+  const backend = (await import('./tauri-sqlite-backend')).getTauriSqliteBackend()
+
+  const localId = `local-${generateUuid()}`
+
+  // Pending sor létrehozása
+  await backend.insertPendingCsaladCreate({
+    id: localId,
+    id_ferfi: input.id_ferfi,
+    id_no: input.id_no,
+    c_szam: input.c_szam,
+    c_tombhaz: input.c_tombhaz,
+    c_lepcsohaz: input.c_lepcsohaz,
+    c_ajto: input.c_ajto,
+    c_emelet: input.c_emelet,
+    id_csoport: input.id_csoport,
+    isaktiv: input.isaktiv,
+    userid: userId,
+  })
+
+  // Online insert
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const payload = {
+        id_ferfi: input.id_ferfi,
+        id_no: input.id_no,
+        c_utcaid: -1,
+        c_szam: input.c_szam,
+        c_tombhaz: input.c_tombhaz,
+        c_lepcsohaz: input.c_lepcsohaz,
+        c_ajto: input.c_ajto,
+        c_emelet: input.c_emelet,
+        id_csoport: input.id_csoport,
+        isaktiv: input.isaktiv,
+      }
+      const { data, error } = await supabase
+        .from('csalad')
+        .insert(payload)
+        .select('id')
+        .maybeSingle()
+
+      if (error) {
+        return {
+          serverId: null,
+          localId,
+          synced: false,
+          pending: true,
+          error: error.message,
+        }
+      }
+      if (!data?.id) {
+        return {
+          serverId: null,
+          localId,
+          synced: false,
+          pending: true,
+          error: 'A szerver nem adott id-t.',
+        }
+      }
+
+      const serverId = Number(data.id)
+      await backend.markCsaladPendingSynced(localId, serverId)
+      // Lokál-cache-be azonnal
+      await backend.upsertLocalCsaladOptimistic({
+        id: serverId,
+        id_ferfi: input.id_ferfi,
+        id_no: input.id_no,
+        c_szam: input.c_szam,
+        c_tombhaz: input.c_tombhaz,
+        c_lepcsohaz: input.c_lepcsohaz,
+        c_ajto: input.c_ajto,
+        c_emelet: input.c_emelet,
+        id_csoport: input.id_csoport,
+        isaktiv: input.isaktiv,
+      })
+      return { serverId, localId, synced: true, pending: false }
+    } catch (err) {
+      return {
+        serverId: null,
+        localId,
+        synced: false,
+        pending: true,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  // Offline: marad pending
+  return { serverId: null, localId, synced: false, pending: true }
+}
+
+/**
+ * Család módosítása (id_ferfi, id_no, cím, id_csoport, isaktiv).
+ * Nincs optimistic local write ide — a szerver-oldali UPDATE + pull adja
+ * vissza a friss revision-t. Offline esetén pending-sort generálunk a
+ * `csalad-write-sync` számára.
+ */
+export async function updateCsaladEntry(
+  userId: string,
+  csaladId: number,
+  patch: {
+    id_ferfi?: number | null
+    id_no?: number | null
+    c_szam?: string
+    c_tombhaz?: string | null
+    c_lepcsohaz?: string | null
+    c_ajto?: string | null
+    c_emelet?: string | null
+    id_csoport?: number | null
+    isaktiv?: boolean
+  },
+  expectedRevision: number,
+): Promise<CsaladUpdateResult> {
+  const backend = (await import('./tauri-sqlite-backend')).getTauriSqliteBackend()
+
+  const keys = Object.keys(patch)
+  if (keys.length === 0) {
+    return { queuedToPending: false, conflict: false, synced: false }
+  }
+
+  // Online conditional UPDATE
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('csalad')
+        .update(patch)
+        .eq('id', csaladId)
+        .eq('revision', expectedRevision)
+        .select('id, revision')
+
+      if (error) {
+        // Fall through pending-be
+      } else if (!data || data.length === 0) {
+        return { queuedToPending: false, conflict: true, synced: false }
+      } else {
+        return { queuedToPending: false, conflict: false, synced: true }
+      }
+    } catch {
+      // Fall through pending-be
+    }
+  }
+
+  // Offline vagy hiba → pending-update sor
+  // Előbb olvassuk ki az aktuális csalad_local-t, hogy a hiányzó mezőket
+  // is el tudjuk tárolni a pending-ben (snapshot-szerűen).
+  const current = await dbSelect<{
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    id_csoport: number | null
+    isaktiv: number
+  }>(
+    `SELECT id_ferfi, id_no, c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet,
+            id_csoport, isaktiv
+       FROM csalad_local WHERE id = ?1`,
+    [csaladId],
+  )
+  const curr = current[0]
+  if (!curr) {
+    return {
+      queuedToPending: false,
+      conflict: false,
+      synced: false,
+      error: 'A család nincs a lokális cache-ben — frissíts.',
+    }
+  }
+
+  const pendingId = `local-${generateUuid()}`
+  await backend.insertPendingCsaladUpdate({
+    id: pendingId,
+    target_csalad_id: csaladId,
+    expected_revision: expectedRevision,
+    id_ferfi: patch.id_ferfi !== undefined ? patch.id_ferfi : curr.id_ferfi,
+    id_no: patch.id_no !== undefined ? patch.id_no : curr.id_no,
+    c_szam: patch.c_szam !== undefined ? patch.c_szam : curr.c_szam,
+    c_tombhaz: patch.c_tombhaz !== undefined ? patch.c_tombhaz : curr.c_tombhaz,
+    c_lepcsohaz:
+      patch.c_lepcsohaz !== undefined ? patch.c_lepcsohaz : curr.c_lepcsohaz,
+    c_ajto: patch.c_ajto !== undefined ? patch.c_ajto : curr.c_ajto,
+    c_emelet: patch.c_emelet !== undefined ? patch.c_emelet : curr.c_emelet,
+    id_csoport: patch.id_csoport !== undefined ? patch.id_csoport : curr.id_csoport,
+    isaktiv: patch.isaktiv !== undefined ? patch.isaktiv : curr.isaktiv === 1,
+    userid: userId,
+  })
+
+  return { queuedToPending: true, conflict: false, synced: false }
+}

@@ -1857,6 +1857,225 @@ export class TauriSqliteBackend implements StorageBackend {
     return { family, ferfi, no, gyermekek }
   }
 
+  // ── M8.3c — Család pending (csalad_pending_local) ──────────────────────
+
+  /**
+   * Új család pending-insert — a `csalad_pending_local`-ba. A kliens
+   * `local-<uuid>` id-t generál; a `server_id` null amíg nincs sync.
+   */
+  async insertPendingCsaladCreate(row: {
+    id: string // 'local-<uuid>'
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    id_csoport: number | null
+    isaktiv: boolean
+    userid: string
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO csalad_pending_local (
+        id, operation, id_ferfi, id_no,
+        c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet,
+        id_csoport, isaktiv, userid, sync_state, created_at, updated_at
+      ) VALUES (
+        ?1, 'insert', ?2, ?3,
+        -1, ?4, ?5, ?6, ?7, ?8,
+        ?9, ?10, ?11, 'pending', datetime('now'), datetime('now')
+      )`,
+      [
+        row.id,
+        row.id_ferfi,
+        row.id_no,
+        row.c_szam,
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.id_csoport,
+        row.isaktiv ? 1 : 0,
+        row.userid,
+      ],
+    )
+  }
+
+  /**
+   * Csalad-update pending — egy létező `csalad.id` módosítása. A patch
+   * oszlopait külön-külön `pending_local` sorban nem tároljuk; inkább
+   * teljes snapshot-ként tesszük le (a sync-helper kiolvassa és csak az
+   * eltéréseket küldi fel UPDATE-ként).
+   *
+   * Az M8.3c első iterációban: a pending sor tartalmazza az **összes**
+   * mezőt, az UPDATE szerver-oldalon az összeset küldi, a revision-trigger
+   * dönti el, változott-e.
+   */
+  async insertPendingCsaladUpdate(row: {
+    id: string // 'local-<uuid>'
+    target_csalad_id: number
+    expected_revision: number
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    id_csoport: number | null
+    isaktiv: boolean
+    userid: string
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO csalad_pending_local (
+        id, operation, target_csalad_id, expected_revision,
+        id_ferfi, id_no,
+        c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet,
+        id_csoport, isaktiv, userid, sync_state, created_at, updated_at
+      ) VALUES (
+        ?1, 'update', ?2, ?3,
+        ?4, ?5,
+        -1, ?6, ?7, ?8, ?9, ?10,
+        ?11, ?12, ?13, 'pending', datetime('now'), datetime('now')
+      )`,
+      [
+        row.id,
+        row.target_csalad_id,
+        row.expected_revision,
+        row.id_ferfi,
+        row.id_no,
+        row.c_szam,
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.id_csoport,
+        row.isaktiv ? 1 : 0,
+        row.userid,
+      ],
+    )
+  }
+
+  /**
+   * Optimistic lokál UPDATE a `csalad_local`-re. Akkor hívjuk, ha a
+   * create/update elkészült, hogy a UI azonnal frissüljön (a server-sync
+   * előtt is). A server-sync utána újra overwrite-olja a szerver-értékkel.
+   */
+  async upsertLocalCsaladOptimistic(row: {
+    id: number
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    id_csoport: number | null
+    isaktiv: boolean
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO csalad_local (
+        id, id_ferfi, id_no, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz,
+        c_ajto, c_emelet, id_csoport, isaktiv, revision, updated_at, synced_at
+      ) VALUES (
+        ?1, ?2, ?3, -1, ?4, ?5, ?6,
+        ?7, ?8, ?9, ?10, 0, datetime('now'), datetime('now')
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        id_ferfi = excluded.id_ferfi,
+        id_no = excluded.id_no,
+        c_szam = excluded.c_szam,
+        c_tombhaz = excluded.c_tombhaz,
+        c_lepcsohaz = excluded.c_lepcsohaz,
+        c_ajto = excluded.c_ajto,
+        c_emelet = excluded.c_emelet,
+        id_csoport = excluded.id_csoport,
+        isaktiv = excluded.isaktiv,
+        synced_at = datetime('now')`,
+      [
+        row.id,
+        row.id_ferfi,
+        row.id_no,
+        row.c_szam,
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.id_csoport,
+        row.isaktiv ? 1 : 0,
+      ],
+    )
+  }
+
+  /**
+   * Pending sorok listája — a sync-helper hívja.
+   */
+  async listPendingCsalad(): Promise<
+    Array<{
+      id: string
+      operation: 'insert' | 'update'
+      server_id: number | null
+      target_csalad_id: number | null
+      expected_revision: number | null
+      id_ferfi: number | null
+      id_no: number | null
+      c_szam: string
+      c_tombhaz: string | null
+      c_lepcsohaz: string | null
+      c_ajto: string | null
+      c_emelet: string | null
+      id_csoport: number | null
+      isaktiv: number
+      userid: string
+      sync_state: 'pending' | 'synced' | 'conflict'
+      sync_error: string | null
+      retry_count: number
+      last_attempt_at: string | null
+    }>
+  > {
+    return await dbSelect(
+      `SELECT id, operation, server_id, target_csalad_id, expected_revision,
+              id_ferfi, id_no, c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet,
+              id_csoport, isaktiv, userid, sync_state, sync_error, retry_count,
+              last_attempt_at
+         FROM csalad_pending_local
+         WHERE sync_state = 'pending'
+         ORDER BY created_at ASC`,
+    )
+  }
+
+  async markCsaladPendingSynced(localId: string, serverId: number): Promise<void> {
+    await dbExecute(
+      `UPDATE csalad_pending_local
+         SET sync_state = 'synced', server_id = ?1, sync_error = NULL,
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [serverId, localId],
+    )
+  }
+
+  async markCsaladPendingConflict(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE csalad_pending_local
+         SET sync_state = 'conflict', sync_error = ?1,
+             retry_count = retry_count + 1, last_attempt_at = datetime('now'),
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
+  async updateCsaladPendingAttempt(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE csalad_pending_local
+         SET sync_error = ?1, retry_count = retry_count + 1,
+             last_attempt_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
   /**
    * Konfliktus-sort vissza `pending` állapotba — a lelkész
    * „Újrapróbálkozás" gombjára. A sync-helper következő poll-ja ismét

@@ -1126,8 +1126,68 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v17 migráció (csalad_local + gyerek_local) sikertelen: {e}"))?;
     }
 
+    if current < 18 {
+        // M8.3c — csalad_pending_local (write-offline a csalad-ra)
+        //
+        // A szemely_pending_local (v16) mintáját követi, de bővítve egy
+        // `operation` oszloppal, hogy az INSERT és UPDATE mutation-ök
+        // közös táblában éljenek. Az update-hez a `target_csalad_id` +
+        // `expected_revision` fontos, az insert-hez pedig a teljes payload.
+        //
+        // Csak a `csalad` tábla CRUD-ja megy ide. A `gyerek` junction-ra
+        // külön write-offline jön (M8.3d-ben), vagy az outbox-on keresztül
+        // (egyszerűbb, ha a gyerek-insert is UPDATE-szerűen megy).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS csalad_pending_local (
+                id                  TEXT PRIMARY KEY,                     -- 'local-<uuid>'
+                server_id           INTEGER,                              -- csalad.id, NULL amíg nincs sync
+                operation           TEXT NOT NULL
+                                        CHECK (operation IN ('insert', 'update')),
+                target_csalad_id    INTEGER,                              -- update esetén a csalad.id
+                expected_revision   INTEGER,                              -- update conditional check-hez
+
+                -- csalad oszlopok
+                id_ferfi            INTEGER,
+                id_no               INTEGER,
+                c_utcaid            INTEGER NOT NULL DEFAULT -1,
+                c_szam              TEXT,
+                c_tombhaz           TEXT,
+                c_lepcsohaz         TEXT,
+                c_ajto              TEXT,
+                c_emelet            TEXT,
+                id_csoport          INTEGER,
+                isaktiv             INTEGER NOT NULL DEFAULT 1,
+
+                -- sync metaadatok
+                userid              TEXT NOT NULL,
+                sync_state          TEXT NOT NULL DEFAULT 'pending'
+                                        CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error          TEXT,
+                retry_count         INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at     TEXT,
+                created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_csalad_pending_sync_state
+                ON csalad_pending_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_csalad_pending_target
+                ON csalad_pending_local(target_csalad_id) WHERE target_csalad_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_csalad_pending_server_id
+                ON csalad_pending_local(server_id) WHERE server_id IS NOT NULL;
+
+            PRAGMA user_version = 18;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v18 migráció (csalad_pending_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 18 { ... PRAGMA user_version = 18; }
+    // if current < 19 { ... PRAGMA user_version = 19; }
 
     Ok(())
 }

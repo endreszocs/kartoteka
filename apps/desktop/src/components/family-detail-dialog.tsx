@@ -20,15 +20,17 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Crown, Home, Users, X } from 'lucide-react'
+import { Crown, Home, Pencil, Users, X } from 'lucide-react'
 
 import { Button } from '@kartoteka/ui'
 
+import { CsaladFormDialog } from './csalad-form-dialog'
 import { updateSzemelyEntry } from '../lib/sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 interface FamilyDetailDialogProps {
   userId: string
+  congregationId?: string
   familyId: number
   onClose: () => void
 }
@@ -44,12 +46,18 @@ type Banner =
   | { kind: 'error'; text: string }
   | null
 
-export function FamilyDetailDialog({ userId, familyId, onClose }: FamilyDetailDialogProps) {
+export function FamilyDetailDialog({
+  userId,
+  congregationId,
+  familyId,
+  onClose,
+}: FamilyDetailDialogProps) {
   const [detail, setDetail] = useState<FamilyDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyMemberId, setBusyMemberId] = useState<number | null>(null)
   const [banner, setBanner] = useState<Banner>(null)
+  const [editOpen, setEditOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -367,12 +375,49 @@ export function FamilyDetailDialog({ userId, familyId, onClose }: FamilyDetailDi
         </div>
 
         {/* Akciók */}
-        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50/50 p-4">
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50/50 p-4">
+          {congregationId && detail?.family ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditOpen(true)}
+              disabled={busyMemberId !== null}
+            >
+              <Pencil className="mr-2 size-4" />
+              Szerkesztés
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button type="button" onClick={onClose} disabled={busyMemberId !== null}>
             Bezárás
           </Button>
         </div>
       </div>
+
+      {/* Szerkesztés dialog */}
+      {editOpen && detail?.family && congregationId && (
+        <CsaladFormDialog
+          mode="edit"
+          userId={userId}
+          congregationId={congregationId}
+          existing={{
+            id: detail.family.id,
+            id_ferfi: detail.family.id_ferfi,
+            id_no: detail.family.id_no,
+            c_szam: detail.family.c_szam ?? '—',
+            c_tombhaz: detail.family.c_tombhaz,
+            c_lepcsohaz: detail.family.c_lepcsohaz,
+            c_ajto: detail.family.c_ajto,
+            c_emelet: detail.family.c_emelet,
+            id_csoport: null,
+            isaktiv: detail.family.isaktiv,
+            revision: detail.family.revision,
+          }}
+          onSaved={() => void load()}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
     </div>
   )
 }
