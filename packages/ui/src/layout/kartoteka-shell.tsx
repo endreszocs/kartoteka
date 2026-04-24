@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Kartotéka teljes dashboard-shell — platform-agnosztikus port.
  *

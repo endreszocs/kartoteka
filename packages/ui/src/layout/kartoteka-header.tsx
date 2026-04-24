@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Kartotéka header — platform-agnosztikus port a web `HeaderRefinedV3`-ból.
  *
