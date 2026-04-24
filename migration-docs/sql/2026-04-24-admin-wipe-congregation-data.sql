@@ -50,8 +50,7 @@ CREATE TABLE IF NOT EXISTS public.data_wipe_log (
 );
 
 COMMENT ON TABLE public.data_wipe_log IS
-    'Audit-log a gyülekezeti adat-törlés műveletekről. Minden egyes hívás ' ||
-    'egy új sort hoz létre, a törölt táblák listájával (JSONB).';
+    'Audit-log a gyülekezeti adat-törlés műveletekről. Minden egyes hívás egy új sort hoz létre, a törölt táblák listájával (JSONB).';
 
 -- RLS: csak admin / master / egyházkerületi admin olvashatja
 ALTER TABLE public.data_wipe_log ENABLE ROW LEVEL SECURITY;
@@ -250,9 +249,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.wipe_congregation_data(UUID, TEXT) IS
-    'Admin RPC: egy gyülekezet minden lelkész-bevitt adatát törli. Megtartja '  ||
-    'a gyülekezet alapadatait (congregations), a profilt és hozzárendeléseket. ' ||
-    'A hívónak be kell írnia a gyülekezet NEVÉT megerősítésként. Audit: data_wipe_log.';
+    'Admin RPC: egy gyülekezet minden lelkész-bevitt adatát törli. Megtartja a gyülekezet alapadatait (congregations), a profilt és hozzárendeléseket. A hívónak be kell írnia a gyülekezet NEVÉT megerősítésként. Audit: data_wipe_log.';
 
 -- GRANT — a PostgREST/Supabase RPC csak akkor hívható, ha a hívó szerep EXECUTE-ot kap
 -- A `authenticated` role a Supabase alap-szerep; a függvényen belüli role-check kezeli
