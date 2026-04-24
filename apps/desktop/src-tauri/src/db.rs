@@ -1051,8 +1051,83 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v16 migráció (szemely_pending_local) sikertelen: {e}"))?;
     }
 
+    if current < 17 {
+        // M8.3a — csalad_local + gyerek_local
+        //
+        // A `szemely_local` (M7.1) tag-szintű lokális tükre után a család-
+        // szintű mirror. A Supabase család-modell:
+        //   - `csalad` tábla: id (integer), id_ferfi (szemely.id FK),
+        //     id_no (szemely.id FK), c_utcaid (adrstreet FK), cím-mezők,
+        //     isaktiv, id_csoport (opcionális körzet-FK), revision, updated_at.
+        //     ⚠ A `csalad` táblának NINCS közvetlen `congregation_id`-ja —
+        //     a családot a szemely.id_ferfi / id_no congregation_id-ja
+        //     alapján köthetjük a gyülekezethez.
+        //   - `gyerek` tábla: id (integer), id_csalad (FK), id_szemely (FK),
+        //     revision, updated_at. Junction-tábla a csalad ↔ szemely
+        //     gyerek-kapcsolathoz (a szülőket a csalad.id_ferfi/id_no adja).
+        //
+        // Oszlop-választás V1-ben:
+        //   - c_utcaid (integer FK) a jelenlegi V1 szerint szöveges cím-pótlék
+        //     mellett marad, mint a szemely_local-nál. Későbbi M8.3+polish-
+        //     ban az FK → `adrstreet.name` backfill jöhet.
+        //   - id_csoport (körzet-FK) bekerül — később a körzet-lista-UI-hoz.
+        //
+        // A v16 `szemely_pending_local` mintájára ez READ-CACHE — a write-ág
+        // az M8.3c alfázisban jön (csalad_pending_local + gyerek_pending_local,
+        // vagy közös queue).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS csalad_local (
+                id              INTEGER PRIMARY KEY,               -- csalad.id (integer sequence)
+                id_ferfi        INTEGER,                           -- szemely.id FK, nullable
+                id_no           INTEGER,                           -- szemely.id FK, nullable
+                c_utcaid        INTEGER NOT NULL DEFAULT -1,       -- dummy a V1-ben
+                c_szam          TEXT NOT NULL DEFAULT '',
+                c_tombhaz       TEXT,
+                c_lepcsohaz     TEXT,
+                c_ajto          TEXT,
+                c_emelet        TEXT,
+                id_csoport      INTEGER,                            -- körzet-FK, nullable
+                isaktiv         INTEGER NOT NULL DEFAULT 1,         -- 0/1 boolean
+                revision        INTEGER NOT NULL DEFAULT 0,
+                updated_at      TEXT,
+                synced_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_csalad_local_ferfi
+                ON csalad_local(id_ferfi);
+            CREATE INDEX IF NOT EXISTS idx_csalad_local_no
+                ON csalad_local(id_no);
+            CREATE INDEX IF NOT EXISTS idx_csalad_local_updated_at
+                ON csalad_local(updated_at);
+
+            CREATE TABLE IF NOT EXISTS gyerek_local (
+                id              INTEGER PRIMARY KEY,               -- gyerek.id
+                id_csalad       INTEGER NOT NULL,                  -- csalad.id FK
+                id_szemely      INTEGER NOT NULL,                  -- szemely.id FK
+                revision        INTEGER NOT NULL DEFAULT 0,
+                updated_at      TEXT,
+                synced_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gyerek_local_csalad
+                ON gyerek_local(id_csalad);
+            CREATE INDEX IF NOT EXISTS idx_gyerek_local_szemely
+                ON gyerek_local(id_szemely);
+            CREATE INDEX IF NOT EXISTS idx_gyerek_local_updated_at
+                ON gyerek_local(updated_at);
+
+            PRAGMA user_version = 17;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v17 migráció (csalad_local + gyerek_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 17 { ... PRAGMA user_version = 17; }
+    // if current < 18 { ... PRAGMA user_version = 18; }
 
     Ok(())
 }

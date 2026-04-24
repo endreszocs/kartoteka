@@ -23,6 +23,47 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.3a: Család-kezelő a desktopon (olvasási réteg)
+
+<!-- key: 2026-04-24-m8-3a-csalad-olvasasi -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a desktop appban már elérhető a család-nézet -->
+
+### ✨ Családok a desktop appban
+
+A Tagnyilvántartás oldal fejlécében új **„Családok"** gomb → új `/csaladok` oldal. A családok lokálisan, offline is elérhetők:
+
+- **Lista**: családfő-név szerint rendezve (A→Z, Z→A, felvétel sorrendje)
+- **Keresés**: apa, anya vagy cím alapján — diakritika-toleráns (ékezetek nem számítanak)
+- **Szűrő**: aktív / inaktív / mind
+- **Sor-kattintás** → **Család-portré modal**: apa + anya + gyerekek listája (név, nem, életkor), cím
+
+### 📡 Offline-first pull
+
+Az első megnyitáskor + a „Frissítés" gombra a rendszer delta-pullt végez a szerverről:
+- Csak azok a családok töltődnek le, amelyek a gyülekezet tagjaihoz kapcsolódnak (apa, anya vagy gyermek)
+- A gyerekek (junction-tábla) külön pull-ban jönnek
+- A lokális SQLite cache ezt tartja eltárolva, így offline is megjelenik a lista
+
+### 🔜 Mi jön (M8.3b + c)
+
+- **M8.3b**: családfő kijelölése — a szemely.csaladfo flag, plusz „apa a családfő" / „anya a családfő" megjelölés
+- **M8.3c**: új család létrehozása, család szerkesztése, tagok áthelyezése családok között
+  - Offline-write (csalad_pending_local + gyerek_pending_local Rust-táblák, sync-helper)
+
+A jelenlegi verzió **read-only** — a modal-on jelzi: „A szerkesztési funkció a következő frissítésben jön."
+
+### 🛠 Műszaki háttér
+
+- **Rust v17 migráció**: új `csalad_local` + `gyerek_local` tükör-táblák (35+5 oszlop, 6 index)
+- **SQL RPC**: `get_csaladok_for_congregation(uuid, timestamptz)` + `get_gyerek_for_congregation` — SECURITY DEFINER, STABLE, a `csalad` táblának nincs `congregation_id`-ja, így a szemely-kapcsolaton át szűrünk
+- **[csalad-list.ts](packages/validations/src/members/csalad-list.ts)**: zod-séma `CsaladListRow`, `GyerekRow`, `CsaladPortrait`, `CsaladStatusFilter`
+- **[sync.ts](apps/desktop/src/lib/sync.ts)**: `pullFamiliesOfOwnCongregation` + `pullGyerekOfOwnCongregation` (delta + full-initial pattern a `pullMembers` mintán)
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: `listLocalCsaladok` (join szemely_local-ra, COUNT a gyerek_local-ból), `getLocalCsaladDetail` (szülők + gyerekek feloldás)
+- **[families-page.tsx](apps/desktop/src/pages/families-page.tsx)** + **[family-detail-dialog.tsx](apps/desktop/src/components/family-detail-dialog.tsx)**: UI + auto-refresh mount-kor
+
+---
+
 ## [2026-04-24] — Admin wipe + favicon V3 + /offline dobozos layout
 
 <!-- key: 2026-04-24-admin-wipe-polish -->

@@ -1978,6 +1978,227 @@ async function fallbackToOutbox(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// M8.3a — Családok pull (csalad + gyerek)
+// ─────────────────────────────────────────────────────────────────────────
+
+const LAST_PULL_FAMILIES_KEY_PREFIX = 'sync:families:last_pull:'
+const LAST_PULL_GYEREK_KEY_PREFIX = 'sync:gyerek:last_pull:'
+
+function familyLastPullKey(congregationId: string): string {
+  return `${LAST_PULL_FAMILIES_KEY_PREFIX}${congregationId}`
+}
+function gyerekLastPullKey(congregationId: string): string {
+  return `${LAST_PULL_GYEREK_KEY_PREFIX}${congregationId}`
+}
+
+interface CsaladSupabaseRow {
+  id: number
+  id_ferfi: number | null
+  id_no: number | null
+  c_utcaid: number
+  c_szam: string | null
+  c_tombhaz: string | null
+  c_lepcsohaz: string | null
+  c_ajto: string | null
+  c_emelet: string | null
+  id_csoport: number | null
+  isaktiv: boolean
+  revision: number
+  updated_at: string
+}
+
+interface GyerekSupabaseRow {
+  id: number
+  id_csalad: number
+  id_szemely: number
+  revision: number
+  updated_at: string
+}
+
+/**
+ * Gyülekezet családjainak pull-ja a Supabase-ből a `csalad_local` cache-be.
+ *
+ * A szerver-oldali `get_csaladok_for_congregation(congregation_id, updated_since)`
+ * RPC-t hívja, ami a szemely-kapcsolat alapján szűr (lásd
+ * `2026-04-24-m8-3a-csalad-rpc.sql`).
+ */
+export async function pullFamiliesOfOwnCongregation(
+  userId: string,
+  mode: 'delta' | 'full' = 'delta',
+): Promise<{
+  pulledRows: number
+  mode: 'delta' | 'full' | 'full-initial' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+
+  // 1. congregation_id feloldás (lokál profile → fallback Supabase)
+  let congregationId: string | null = null
+  const localProfile = await getLocalOwnProfile(userId)
+  if (localProfile?.congregation_id) {
+    congregationId = localProfile.congregation_id
+  } else {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('congregation_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileError) {
+      throw new Error(`Supabase profile-lookup hiba: ${profileError.message}`)
+    }
+    congregationId = profile?.congregation_id ?? null
+  }
+
+  if (!congregationId) {
+    const now = new Date().toISOString()
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: now }
+  }
+
+  // 2. delta vs full
+  const lastPullKey = familyLastPullKey(congregationId)
+  const lastPull = mode === 'delta' ? await getSetting(lastPullKey) : null
+  const effectiveMode: 'delta' | 'full' | 'full-initial' =
+    mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
+
+  // 3. RPC hívás
+  const { data, error } = await supabase.rpc('get_csaladok_for_congregation', {
+    target_congregation_id: congregationId,
+    updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
+  })
+  if (error) {
+    throw new Error(`Supabase pullFamilies hiba: ${error.message}`)
+  }
+
+  const rows = (data ?? []) as unknown as CsaladSupabaseRow[]
+
+  // 4. Upsert — soronként
+  for (const row of rows) {
+    await dbExecute(
+      `INSERT INTO csalad_local
+         (id, id_ferfi, id_no, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz,
+          c_ajto, c_emelet, id_csoport, isaktiv, revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+          ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         id_ferfi = excluded.id_ferfi,
+         id_no = excluded.id_no,
+         c_utcaid = excluded.c_utcaid,
+         c_szam = excluded.c_szam,
+         c_tombhaz = excluded.c_tombhaz,
+         c_lepcsohaz = excluded.c_lepcsohaz,
+         c_ajto = excluded.c_ajto,
+         c_emelet = excluded.c_emelet,
+         id_csoport = excluded.id_csoport,
+         isaktiv = excluded.isaktiv,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = datetime('now')`,
+      [
+        row.id,
+        row.id_ferfi,
+        row.id_no,
+        row.c_utcaid,
+        row.c_szam ?? '',
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.id_csoport,
+        row.isaktiv ? 1 : 0,
+        row.revision,
+        row.updated_at,
+      ],
+    )
+  }
+
+  // 5. last_pull frissítése — a legnagyobb updated_at-re
+  let newestIso = lastPull ?? new Date(0).toISOString()
+  for (const row of rows) {
+    if (row.updated_at > newestIso) newestIso = row.updated_at
+  }
+  await setSetting(lastPullKey, newestIso)
+
+  return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newestIso }
+}
+
+/**
+ * Gyülekezet gyerek-junction sorainak pull-ja a Supabase-ből a
+ * `gyerek_local` cache-be. Párhuzamos a `pullFamiliesOfOwnCongregation`-nal;
+ * a két pull-t általában együtt kell futtatni (családlista + gyerekek-
+ * számláló).
+ */
+export async function pullGyerekOfOwnCongregation(
+  userId: string,
+  mode: 'delta' | 'full' = 'delta',
+): Promise<{
+  pulledRows: number
+  mode: 'delta' | 'full' | 'full-initial' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+
+  let congregationId: string | null = null
+  const localProfile = await getLocalOwnProfile(userId)
+  if (localProfile?.congregation_id) {
+    congregationId = localProfile.congregation_id
+  } else {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('congregation_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileError) {
+      throw new Error(`Supabase profile-lookup hiba: ${profileError.message}`)
+    }
+    congregationId = profile?.congregation_id ?? null
+  }
+
+  if (!congregationId) {
+    const now = new Date().toISOString()
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: now }
+  }
+
+  const lastPullKey = gyerekLastPullKey(congregationId)
+  const lastPull = mode === 'delta' ? await getSetting(lastPullKey) : null
+  const effectiveMode: 'delta' | 'full' | 'full-initial' =
+    mode === 'full' ? 'full' : lastPull ? 'delta' : 'full-initial'
+
+  const { data, error } = await supabase.rpc('get_gyerek_for_congregation', {
+    target_congregation_id: congregationId,
+    updated_since: effectiveMode === 'delta' && lastPull ? lastPull : null,
+  })
+  if (error) {
+    throw new Error(`Supabase pullGyerek hiba: ${error.message}`)
+  }
+
+  const rows = (data ?? []) as unknown as GyerekSupabaseRow[]
+
+  for (const row of rows) {
+    await dbExecute(
+      `INSERT INTO gyerek_local
+         (id, id_csalad, id_szemely, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         id_csalad = excluded.id_csalad,
+         id_szemely = excluded.id_szemely,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = datetime('now')`,
+      [row.id, row.id_csalad, row.id_szemely, row.revision, row.updated_at],
+    )
+  }
+
+  let newestIso = lastPull ?? new Date(0).toISOString()
+  for (const row of rows) {
+    if (row.updated_at > newestIso) newestIso = row.updated_at
+  }
+  await setSetting(lastPullKey, newestIso)
+
+  return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newestIso }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // M8.1 — Új tag INSERT (online + offline)
 // ─────────────────────────────────────────────────────────────────────────
 

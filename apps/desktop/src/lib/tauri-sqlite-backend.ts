@@ -1585,6 +1585,253 @@ export class TauriSqliteBackend implements StorageBackend {
     await dbExecute(`DELETE FROM szemely_pending_local WHERE id = ?1`, [localId])
   }
 
+  // ── M8.3a — Családok (csalad_local + gyerek_local, read-only) ──────────
+
+  /**
+   * Családok listázása a lokális `csalad_local`-ból + `szemely_local` join
+   * a szülők neveiért + `gyerek_local` join a gyermekek számláláshoz.
+   *
+   * A search a JS-oldalon fut diakritika-toleráns módon (NFD), hasonlóan
+   * a `listLocalSzemely`-hez. Az SQL csak a status-szűrőt és a rendezést
+   * alkalmazza.
+   */
+  async listLocalCsaladok(input: {
+    congregationId: string
+    search?: string
+    statusFilter?: 'mind' | 'aktiv' | 'inaktiv'
+    orderBy?: 'csaladfo-nev-asc' | 'csaladfo-nev-desc' | 'id-desc'
+    limit?: number
+  }): Promise<
+    Array<{
+      id: number
+      ferfi_id: number | null
+      ferfi_name: string | null
+      no_id: number | null
+      no_name: string | null
+      gyermekek_count: number
+      cim_display: string | null
+      isaktiv: number
+      revision: number
+      updated_at: string | null
+    }>
+  > {
+    const statusFilter = input.statusFilter ?? 'aktiv'
+    const orderBy = input.orderBy ?? 'csaladfo-nev-asc'
+    const limit = input.limit ?? 1000
+
+    // A gyülekezeti szűrést közvetve tesszük: a csalad-ot csak akkor
+    // tartjuk meg, ha legalább egy kapcsolt szemely (ferfi/no/gyermek) a
+    // `congregation_id`-ra egyezik. Ezt SQL-szinten:
+    //   WHERE EXISTS (SELECT 1 FROM szemely_local s WHERE
+    //                  (s.id = c.id_ferfi OR s.id = c.id_no
+    //                   OR s.id IN (SELECT id_szemely FROM gyerek_local WHERE id_csalad = c.id))
+    //                  AND s.congregation_id = ?1)
+
+    const statusWhere =
+      statusFilter === 'aktiv'
+        ? 'AND c.isaktiv = 1'
+        : statusFilter === 'inaktiv'
+          ? 'AND c.isaktiv = 0'
+          : ''
+
+    let orderSql = ''
+    switch (orderBy) {
+      case 'csaladfo-nev-asc':
+        orderSql =
+          'ORDER BY COALESCE(sf.csaladnev, sn.csaladnev, sn.ferjk_nev) COLLATE NOCASE ASC'
+        break
+      case 'csaladfo-nev-desc':
+        orderSql =
+          'ORDER BY COALESCE(sf.csaladnev, sn.csaladnev, sn.ferjk_nev) COLLATE NOCASE DESC'
+        break
+      case 'id-desc':
+        orderSql = 'ORDER BY c.id DESC'
+        break
+    }
+
+    const sql = `
+      SELECT
+        c.id,
+        c.id_ferfi AS ferfi_id,
+        sf.csaladnev AS ferfi_csaladnev,
+        sf.k_nev     AS ferfi_k_nev,
+        c.id_no AS no_id,
+        sn.csaladnev AS no_csaladnev,
+        sn.k_nev     AS no_k_nev,
+        sn.ferjk_nev AS no_ferjk_nev,
+        (SELECT COUNT(*) FROM gyerek_local gl WHERE gl.id_csalad = c.id) AS gyermekek_count,
+        c.c_szam, c.c_tombhaz, c.c_lepcsohaz, c.c_ajto, c.c_emelet,
+        c.isaktiv, c.revision, c.updated_at
+      FROM csalad_local c
+      LEFT JOIN szemely_local sf ON sf.id = c.id_ferfi
+      LEFT JOIN szemely_local sn ON sn.id = c.id_no
+      WHERE (
+        sf.congregation_id = ?1
+        OR sn.congregation_id = ?1
+        OR EXISTS (
+          SELECT 1 FROM gyerek_local gl
+          JOIN szemely_local sg ON sg.id = gl.id_szemely
+          WHERE gl.id_csalad = c.id AND sg.congregation_id = ?1
+        )
+      )
+      ${statusWhere}
+      ${orderSql}
+      LIMIT ${Math.floor(limit)}
+    `
+
+    const raw = await dbSelect<{
+      id: number
+      ferfi_id: number | null
+      ferfi_csaladnev: string | null
+      ferfi_k_nev: string | null
+      no_id: number | null
+      no_csaladnev: string | null
+      no_k_nev: string | null
+      no_ferjk_nev: string | null
+      gyermekek_count: number
+      c_szam: string | null
+      c_tombhaz: string | null
+      c_lepcsohaz: string | null
+      c_ajto: string | null
+      c_emelet: string | null
+      isaktiv: number
+      revision: number
+      updated_at: string | null
+    }>(sql, [input.congregationId])
+
+    // Normalizálás: név + cím összerakás
+    const rows = raw.map((r) => ({
+      id: r.id,
+      ferfi_id: r.ferfi_id,
+      ferfi_name: buildFullName(r.ferfi_csaladnev, r.ferfi_k_nev, null),
+      no_id: r.no_id,
+      no_name: buildFullName(r.no_csaladnev, r.no_k_nev, r.no_ferjk_nev),
+      gyermekek_count: r.gyermekek_count ?? 0,
+      cim_display: buildCimDisplay({
+        c_szam: r.c_szam,
+        c_tombhaz: r.c_tombhaz,
+        c_lepcsohaz: r.c_lepcsohaz,
+        c_emelet: r.c_emelet,
+        c_ajto: r.c_ajto,
+      }),
+      isaktiv: r.isaktiv,
+      revision: r.revision,
+      updated_at: r.updated_at,
+    }))
+
+    // Search — diakritika-toleráns
+    const search = (input.search ?? '').trim()
+    if (!search) return rows
+
+    const norm = (s: string | null | undefined): string =>
+      (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const needle = norm(search)
+
+    return rows.filter((r) => {
+      const fields = [r.ferfi_name, r.no_name, r.cim_display]
+      return fields.some((f) => norm(f).includes(needle))
+    })
+  }
+
+  /**
+   * Egy család részleteinek betöltése: szülők + gyermekek (mind
+   * `szemely_local`-ból feloldva).
+   */
+  async getLocalCsaladDetail(familyId: number): Promise<{
+    family: {
+      id: number
+      id_ferfi: number | null
+      id_no: number | null
+      c_szam: string | null
+      c_tombhaz: string | null
+      c_lepcsohaz: string | null
+      c_ajto: string | null
+      c_emelet: string | null
+      isaktiv: number
+      revision: number
+    } | null
+    ferfi: { id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null } | null
+    no: { id: number; csaladnev: string | null; k_nev: string | null; ferjk_nev: string | null; sz_datum: string | null } | null
+    gyermekek: Array<{
+      id_gyerek: number
+      szemely_id: number
+      csaladnev: string | null
+      k_nev: string | null
+      sz_datum: string | null
+      ferfi: number
+    }>
+  }> {
+    const familyRows = await dbSelect<{
+      id: number
+      id_ferfi: number | null
+      id_no: number | null
+      c_szam: string | null
+      c_tombhaz: string | null
+      c_lepcsohaz: string | null
+      c_ajto: string | null
+      c_emelet: string | null
+      isaktiv: number
+      revision: number
+    }>(
+      `SELECT id, id_ferfi, id_no, c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet,
+              isaktiv, revision
+         FROM csalad_local WHERE id = ?1`,
+      [familyId],
+    )
+    const family = familyRows[0] ?? null
+    if (!family) {
+      return { family: null, ferfi: null, no: null, gyermekek: [] }
+    }
+
+    let ferfi = null
+    if (family.id_ferfi !== null) {
+      const r = await dbSelect<{
+        id: number
+        csaladnev: string | null
+        k_nev: string | null
+        sz_datum: string | null
+      }>(
+        `SELECT id, csaladnev, k_nev, sz_datum FROM szemely_local WHERE id = ?1`,
+        [family.id_ferfi],
+      )
+      ferfi = r[0] ?? null
+    }
+
+    let no = null
+    if (family.id_no !== null) {
+      const r = await dbSelect<{
+        id: number
+        csaladnev: string | null
+        k_nev: string | null
+        ferjk_nev: string | null
+        sz_datum: string | null
+      }>(
+        `SELECT id, csaladnev, k_nev, ferjk_nev, sz_datum FROM szemely_local WHERE id = ?1`,
+        [family.id_no],
+      )
+      no = r[0] ?? null
+    }
+
+    const gyermekek = await dbSelect<{
+      id_gyerek: number
+      szemely_id: number
+      csaladnev: string | null
+      k_nev: string | null
+      sz_datum: string | null
+      ferfi: number
+    }>(
+      `SELECT gl.id AS id_gyerek, gl.id_szemely AS szemely_id,
+              s.csaladnev, s.k_nev, s.sz_datum, s.ferfi
+         FROM gyerek_local gl
+         JOIN szemely_local s ON s.id = gl.id_szemely
+        WHERE gl.id_csalad = ?1
+        ORDER BY s.sz_datum ASC NULLS LAST`,
+      [familyId],
+    )
+
+    return { family, ferfi, no, gyermekek }
+  }
+
   /**
    * Konfliktus-sort vissza `pending` állapotba — a lelkész
    * „Újrapróbálkozás" gombjára. A sync-helper következő poll-ja ismét
@@ -1602,6 +1849,49 @@ export class TauriSqliteBackend implements StorageBackend {
       [localId],
     )
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// M8.3a — Családlistához + detailhez helper-ek (modul-szintűek)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Magyar név-formátum: ferjk_nev || csaladnev + k_nev. Ha mind üres → null.
+ */
+function buildFullName(
+  csaladnev: string | null | undefined,
+  k_nev: string | null | undefined,
+  ferjk_nev: string | null | undefined,
+): string | null {
+  const last = ferjk_nev || csaladnev || ''
+  const first = k_nev || ''
+  const combined = [last, first].filter(Boolean).join(' ')
+  return combined || null
+}
+
+/**
+ * Címrészletek összerakása egy rövid string-be. Az `adrstreet.name`
+ * lookup V1-ben még nem megy — a `c_utcaid` dummy, a `c_szam` + többi
+ * csak a házszám / ajtó. Ha minden üres → null.
+ */
+function buildCimDisplay(parts: {
+  c_szam: string | null
+  c_tombhaz: string | null
+  c_lepcsohaz: string | null
+  c_emelet: string | null
+  c_ajto: string | null
+}): string | null {
+  const bits: string[] = []
+  if (parts.c_szam && parts.c_szam.trim()) bits.push(parts.c_szam.trim())
+  if (parts.c_tombhaz && parts.c_tombhaz.trim())
+    bits.push(`tömb ${parts.c_tombhaz.trim()}`)
+  if (parts.c_lepcsohaz && parts.c_lepcsohaz.trim())
+    bits.push(`lh. ${parts.c_lepcsohaz.trim()}`)
+  if (parts.c_emelet && parts.c_emelet.trim())
+    bits.push(`em. ${parts.c_emelet.trim()}`)
+  if (parts.c_ajto && parts.c_ajto.trim())
+    bits.push(`ajtó ${parts.c_ajto.trim()}`)
+  return bits.length > 0 ? bits.join(', ') : null
 }
 
 // Singleton — az alkalmazás egy instance-t használ

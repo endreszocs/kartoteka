@@ -3,8 +3,20 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
 import { HomePage } from './pages/home-page'
+import { BankImportPage } from './pages/bank-import-page'
+import { BefizetesPage } from './pages/befizetes-page'
+import { BelsomozgasPage } from './pages/belsomozgas-page'
+import { ChitantaPage } from './pages/chitanta-page'
+import { ChitantaTombokPage } from './pages/chitanta-tombok-page'
 import { DashboardPage } from './pages/dashboard-page'
+import { FamiliesPage } from './pages/families-page'
+import { KiadasPage } from './pages/kiadas-page'
+import { MembersPage } from './pages/members-page'
 import { MunkanaploPage } from './pages/munkanaplo-page'
+import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
+import { PenzugyLandingPage } from './pages/penzugy-landing-page'
+import { PinEntryPage } from './pages/pin-entry-page'
+import { PinSetupPage } from './pages/pin-setup-page'
 import { PlaceholderPage } from './pages/placeholder-page'
 
 /**
@@ -12,7 +24,10 @@ import { PlaceholderPage } from './pages/placeholder-page'
  *
  * Route-felállás:
  *   /login        → LoginPage (nyilvános)
- *   /             → HomePage (üdvözlés + KPI-k + gyors linkek)
+ *   /pin-entry    → PIN-entry (offline-mode, A-M6.9) — nyilvános, de
+ *                   csak akkor éri el a user, ha nincs session de van PIN-hash
+ *   /pin-setup    → PIN-setup (A-M6.9) — sikeres online login után, ha nincs PIN
+ *   /             → HomePage (üdvözlés + KPI-k + gyors linkek) — auth-gate mögött
  *   /dashboard    → HomePage (web-compat, a sidebar "Irányítópult" linkje)
  *   /munkanaplo   → MunkanaploPage
  *   /dev          → DashboardPage (részletes fejlesztői eszközök: sync, outbox,
@@ -24,10 +39,22 @@ function App() {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/pin-entry" element={<PinEntryPage />} />
+        <Route path="/pin-setup" element={<PinSetupPage />} />
         <Route element={<AuthGate />}>
           <Route index element={<HomePage />} />
           <Route path="/dashboard" element={<HomePage />} />
           <Route path="/munkanaplo" element={<MunkanaploPage />} />
+          <Route path="/penzugy" element={<PenzugyLandingPage />} />
+          <Route path="/penzugy/attekintes" element={<PenzugyDashboardPage />} />
+          <Route path="/penzugy/befizetes" element={<BefizetesPage />} />
+          <Route path="/penzugy/kiadas" element={<KiadasPage />} />
+          <Route path="/penzugy/belsomozgas" element={<BelsomozgasPage />} />
+          <Route path="/penzugy/chitanta" element={<ChitantaPage />} />
+          <Route path="/penzugy/chitanta-tombok" element={<ChitantaTombokPage />} />
+          <Route path="/penzugy/bank-import" element={<BankImportPage />} />
+          <Route path="/tagnyilvantartas" element={<MembersPage />} />
+          <Route path="/csaladok" element={<FamiliesPage />} />
           <Route path="/dev" element={<DashboardPage />} />
           <Route path="*" element={<PlaceholderPage />} />
         </Route>

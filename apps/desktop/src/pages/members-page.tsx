@@ -13,7 +13,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, Search, UserPlus, Users } from 'lucide-react'
+import { Home, RefreshCw, Search, UserPlus, Users } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   Button,
@@ -48,6 +49,7 @@ import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 type OrderBy = 'csaladnev-asc' | 'csaladnev-desc' | 'sz_datum-asc' | 'sz_datum-desc' | 'id-desc'
 
 export function MembersPage() {
+  const navigate = useNavigate()
   const [userId, setUserId] = useState<string | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [rows, setRows] = useState<SzemelyListRow[]>([])
@@ -177,16 +179,27 @@ export function MembersPage() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            {congregationId && (
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
-                onClick={() => setCreateOpen(true)}
-                className="bg-violet-700 text-white hover:bg-violet-800"
+                variant="outline"
+                onClick={() => navigate('/csaladok')}
+                title="A gyülekezet családjainak listája"
               >
-                <UserPlus className="mr-2 size-4" />
-                Új tag
+                <Home className="mr-2 size-4" />
+                Családok
               </Button>
-            )}
+              {congregationId && (
+                <Button
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                  className="bg-violet-700 text-white hover:bg-violet-800"
+                >
+                  <UserPlus className="mr-2 size-4" />
+                  Új tag
+                </Button>
+              )}
+            </div>
             <p className="text-xs italic text-muted-foreground">
               {rows.length} tag · offline-kompatibilis
             </p>
