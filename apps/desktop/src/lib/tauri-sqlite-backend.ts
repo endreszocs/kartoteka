@@ -1339,6 +1339,251 @@ export class TauriSqliteBackend implements StorageBackend {
       [newIratszam, localId],
     )
   }
+
+  // ── M8.1 — szemely_pending_local (new-tag write-offline) ──────────────
+
+  /**
+   * Új tag lokális beszúrása a `szemely_pending_local` táblába. Az `id`
+   * local-uuid, a `server_id` null — amíg a szerver-insert nem futott le.
+   *
+   * Az M8.1 write-offline alapja: a UI azonnal látja a új taget a
+   * listában (optimistic), a szinkronizáció async megy.
+   */
+  async insertLocalSzemely(row: {
+    id: string
+    congregation_id: string
+    cnp: string
+    szcs_nev: string | null
+    k_nev: string | null
+    csaladnev: string | null
+    ferjk_nev: string | null
+    allapot: string | null
+    sz_datum: string | null
+    ferfi: boolean
+    csaladfo: boolean
+    meghalt: boolean
+    member_status: string | null
+    apjaneve: string | null
+    anyjaneve: string | null
+    id_apja: string | null
+    id_anyja: string | null
+    c_szam: string | null
+    c_tombhaz: string | null
+    c_lepcsohaz: string | null
+    c_ajto: string | null
+    c_emelet: string | null
+    c_szcim: string | null
+    telefon: string | null
+    email: string | null
+    vallas: string | null
+    foglalkozas: string | null
+    nemzetiseg: string | null
+    voter_eligible: boolean
+    family_id: string | null
+    type: string | null
+    isvisible: boolean
+    megjegyzes: string | null
+    userid: string
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO szemely_pending_local (
+        id, congregation_id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
+        sz_datum, ferfi, csaladfo, meghalt, member_status,
+        apjaneve, anyjaneve, id_apja, id_anyja,
+        c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
+        telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
+        family_id, type, isvisible, megjegyzes,
+        userid, sync_state, created_at, updated_at
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+        ?9, ?10, ?11, ?12, ?13,
+        ?14, ?15, ?16, ?17,
+        ?18, ?19, ?20, ?21, ?22, ?23,
+        ?24, ?25, ?26, ?27, ?28, ?29,
+        ?30, ?31, ?32, ?33,
+        ?34, 'pending', datetime('now'), datetime('now')
+      )`,
+      [
+        row.id,
+        row.congregation_id,
+        row.cnp,
+        row.szcs_nev,
+        row.k_nev,
+        row.csaladnev,
+        row.ferjk_nev,
+        row.allapot,
+        row.sz_datum,
+        row.ferfi ? 1 : 0,
+        row.csaladfo ? 1 : 0,
+        row.meghalt ? 1 : 0,
+        row.member_status,
+        row.apjaneve,
+        row.anyjaneve,
+        row.id_apja,
+        row.id_anyja,
+        row.c_szam,
+        row.c_tombhaz,
+        row.c_lepcsohaz,
+        row.c_ajto,
+        row.c_emelet,
+        row.c_szcim,
+        row.telefon,
+        row.email,
+        row.vallas,
+        row.foglalkozas,
+        row.nemzetiseg,
+        row.voter_eligible ? 1 : 0,
+        row.family_id,
+        row.type,
+        row.isvisible ? 1 : 0,
+        row.megjegyzes,
+        row.userid,
+      ],
+    )
+  }
+
+  /**
+   * Még-nem-sync-elt (pending + conflict) lokális új-tag sorok listája.
+   * A members-page a "pending új tagok" blokkba teszi ki.
+   */
+  async listLocalPendingSzemely(congregationId: string): Promise<
+    Array<{
+      id: string
+      server_id: number | null
+      congregation_id: string
+      cnp: string
+      csaladnev: string | null
+      k_nev: string | null
+      ferjk_nev: string | null
+      sz_datum: string | null
+      ferfi: number
+      userid: string
+      sync_state: 'pending' | 'conflict'
+      sync_error: string | null
+      retry_count: number
+      created_at: string
+    }>
+  > {
+    return await dbSelect(
+      `SELECT id, server_id, congregation_id, cnp, csaladnev, k_nev, ferjk_nev,
+              sz_datum, ferfi, userid, sync_state, sync_error, retry_count, created_at
+         FROM szemely_pending_local
+         WHERE congregation_id = ?1
+           AND sync_state IN ('pending','conflict')
+         ORDER BY created_at DESC`,
+      [congregationId],
+    )
+  }
+
+  /**
+   * Pending-sor teljes payload-ja (sync-insert újrajátszáshoz).
+   */
+  async getLocalPendingSzemely(localId: string): Promise<Record<string, unknown> | null> {
+    const rows = await dbSelect<Record<string, unknown>>(
+      `SELECT * FROM szemely_pending_local WHERE id = ?1`,
+      [localId],
+    )
+    return rows[0] ?? null
+  }
+
+  /**
+   * Kliens-oldali dupláció-check: a lokális `szemely_local` + `szemely_pending_local`
+   * kombinált CNP-ismeretéből ad választ. A szerver-oldali UNIQUE constraint a
+   * végső védelem, de a lelkésznek gyors UX-feedbacket akarunk adni.
+   */
+  async findSzemelyByCnp(congregationId: string, cnp: string): Promise<
+    | {
+        source: 'szemely_local' | 'szemely_pending_local'
+        id: number | string
+        csaladnev: string | null
+        k_nev: string | null
+      }
+    | null
+  > {
+    const liveRows = await dbSelect<{
+      id: number
+      csaladnev: string | null
+      k_nev: string | null
+    }>(
+      `SELECT id, csaladnev, k_nev FROM szemely_local
+         WHERE congregation_id = ?1 AND cnp = ?2 LIMIT 1`,
+      [congregationId, cnp],
+    )
+    if (liveRows[0]) {
+      return { source: 'szemely_local', ...liveRows[0] }
+    }
+    const pendingRows = await dbSelect<{
+      id: string
+      csaladnev: string | null
+      k_nev: string | null
+    }>(
+      `SELECT id, csaladnev, k_nev FROM szemely_pending_local
+         WHERE congregation_id = ?1 AND cnp = ?2
+           AND sync_state IN ('pending','conflict')
+         LIMIT 1`,
+      [congregationId, cnp],
+    )
+    if (pendingRows[0]) {
+      return { source: 'szemely_pending_local', ...pendingRows[0] }
+    }
+    return null
+  }
+
+  /**
+   * Sikeres szerver-sync: a pending sor `synced` + server_id. Egyidejűleg
+   * a most-érkezett szerver-szemely-t (ami majd a pullMembers-en keresztül
+   * jön a `szemely_local`-ba) ez a metódus nem érinti.
+   */
+  async markSzemelySynced(localId: string, serverId: number): Promise<void> {
+    await dbExecute(
+      `UPDATE szemely_pending_local
+         SET sync_state = 'synced',
+             server_id = ?1,
+             sync_error = NULL,
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [serverId, localId],
+    )
+  }
+
+  /**
+   * A szerver elutasította (23505 CNP-unique-ütközés, vagy hálózati hiba a
+   * max-retry után) — `conflict` állapot. A user kézzel oldja fel.
+   */
+  async markSzemelyConflict(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE szemely_pending_local
+         SET sync_state = 'conflict',
+             sync_error = ?1,
+             retry_count = retry_count + 1,
+             last_attempt_at = datetime('now'),
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
+  /**
+   * Retry-számláló és utolsó-próbálkozás-idő update (exp-backoff-támogatás).
+   */
+  async updateSzemelyAttempt(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE szemely_pending_local
+         SET sync_error = ?1,
+             retry_count = retry_count + 1,
+             last_attempt_at = datetime('now'),
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
+  /**
+   * Pending sor törlése — konfliktus esetén a lelkész "Törlés" gombjára.
+   */
+  async deleteLocalPendingSzemely(localId: string): Promise<void> {
+    await dbExecute(`DELETE FROM szemely_pending_local WHERE id = ?1`, [localId])
+  }
 }
 
 // Singleton — az alkalmazás egy instance-t használ

@@ -1976,3 +1976,223 @@ async function fallbackToOutbox(
   })
   return { queuedToOutbox: true, conflict: false }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// M8.1 — Új tag INSERT (online + offline)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface SzemelyCreateResult {
+  /** A szerver-oldali szemely.id (online-insert) vagy null (offline-pending). */
+  serverId: number | null
+  /** A `szemely_pending_local.id` (`local-<uuid>`) — akár online, akár offline */
+  localId: string
+  /** True, ha a szerver-insert megtörtént és a lokál már cache-elve van. */
+  synced: boolean
+  /** True, ha pending-be került (offline, vagy hiba). */
+  pending: boolean
+  /** Ha CNP dupláció-ütközés — a user gondolkodjon újra. */
+  duplicateCnp: boolean
+  /** Hibaszöveg, ha volt. */
+  error?: string
+}
+
+/**
+ * Új tag (`szemely`) hozzáadása — M8.1 új-tag wave.
+ *
+ * Flow:
+ *   1. Kliens-oldali CNP-dupláció-check (`szemely_local` + `szemely_pending_local`).
+ *      Ha van találat → `duplicateCnp: true` visszatérés, nem teszünk semmit.
+ *   2. Lokál UUID generálás: `local-<uuid>`.
+ *   3. INSERT `szemely_pending_local` (pending state).
+ *   4. Ha online: supabase.from('szemely').insert(payload).select('id'):
+ *      - 23505 (unique CNP) → conflict markolás + `duplicateCnp: true`
+ *      - egyéb hiba → pending marad, sync.ts folyamatos próbálja
+ *      - siker → markSynced(localId, serverId) + pullMembers delta
+ *   5. Ha offline: a pending marad, a `szemely-write-sync.ts` fogja feltölteni.
+ *
+ * Nem használunk `enqueueOutbox`-ot — a `szemely_pending_local` önmagában
+ * a queue (a `pushPendingSzemely` a `listLocalPendingSzemely`-ből dolgozik).
+ * A `szemely-write-sync.ts` minta a `befizetes-write-sync.ts`-sel analog.
+ */
+export async function createSzemelyEntry(
+  userId: string,
+  input: Record<string, unknown>,
+): Promise<SzemelyCreateResult> {
+  const backend = (await import('./tauri-sqlite-backend')).getTauriSqliteBackend()
+
+  const congregationId = input.congregation_id as string
+  const cnp = String(input.cnp ?? '').trim()
+
+  // 1. Kliens-oldali dupláció-check
+  if (congregationId && cnp) {
+    const dup = await backend.findSzemelyByCnp(congregationId, cnp)
+    if (dup) {
+      return {
+        serverId: null,
+        localId: '',
+        synced: false,
+        pending: false,
+        duplicateCnp: true,
+        error: `A CNP (${cnp}) már létezik: ${dup.csaladnev ?? ''} ${dup.k_nev ?? ''}`.trim(),
+      }
+    }
+  }
+
+  // 2. Lokál UUID + pending insert
+  const localId = `local-${generateUuid()}`
+
+  await backend.insertLocalSzemely({
+    id: localId,
+    congregation_id: congregationId,
+    cnp,
+    szcs_nev: (input.szcs_nev as string | null) ?? null,
+    k_nev: (input.k_nev as string | null) ?? null,
+    csaladnev: (input.csaladnev as string | null) ?? null,
+    ferjk_nev: (input.ferjk_nev as string | null) ?? null,
+    allapot: (input.allapot as string | null) ?? null,
+    sz_datum: (input.sz_datum as string | null) ?? null,
+    ferfi: Boolean(input.ferfi),
+    csaladfo: Boolean(input.csaladfo ?? false),
+    meghalt: Boolean(input.meghalt ?? false),
+    member_status: (input.member_status as string | null) ?? 'aktív',
+    apjaneve: (input.apjaneve as string | null) ?? null,
+    anyjaneve: (input.anyjaneve as string | null) ?? null,
+    id_apja: (input.id_apja as string | null) ?? null,
+    id_anyja: (input.id_anyja as string | null) ?? null,
+    c_szam: (input.c_szam as string | null) ?? null,
+    c_tombhaz: (input.c_tombhaz as string | null) ?? null,
+    c_lepcsohaz: (input.c_lepcsohaz as string | null) ?? null,
+    c_ajto: (input.c_ajto as string | null) ?? null,
+    c_emelet: (input.c_emelet as string | null) ?? null,
+    c_szcim: (input.c_szcim as string | null) ?? null,
+    telefon: (input.telefon as string | null) ?? null,
+    email: (input.email as string | null) ?? null,
+    vallas: (input.vallas as string | null) ?? null,
+    foglalkozas: (input.foglalkozas as string | null) ?? null,
+    nemzetiseg: (input.nemzetiseg as string | null) ?? null,
+    voter_eligible: Boolean(input.voter_eligible ?? false),
+    family_id: (input.family_id as string | null) ?? null,
+    type: (input.type as string | null) ?? 'normal',
+    isvisible: Boolean(input.isvisible ?? true),
+    megjegyzes: (input.megjegyzes as string | null) ?? null,
+    userid: userId,
+  })
+
+  // 3. Online-kísérlet
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const payload = buildServerInsertPayload(input)
+      const { data, error } = await supabase
+        .from('szemely')
+        .insert(payload)
+        .select('id')
+        .maybeSingle()
+
+      if (error) {
+        if (error.code === '23505') {
+          // Szerver-oldali CNP-ütközés — a lokális sort conflict-ra állítjuk
+          await backend.markSzemelyConflict(
+            localId,
+            `A CNP (${cnp}) a szerveren már foglalt. Valaki más mentette rá ugyanezt. ` +
+              `Nyisd meg a pending-listát és oldd fel kézzel.`,
+          )
+          return {
+            serverId: null,
+            localId,
+            synced: false,
+            pending: true,
+            duplicateCnp: true,
+            error: error.message,
+          }
+        }
+        // Egyéb hiba: pending marad, a background-sync próbálkozni fog
+        return {
+          serverId: null,
+          localId,
+          synced: false,
+          pending: true,
+          duplicateCnp: false,
+          error: error.message,
+        }
+      }
+
+      if (!data?.id) {
+        return {
+          serverId: null,
+          localId,
+          synced: false,
+          pending: true,
+          duplicateCnp: false,
+          error: 'Szerver nem adott ID-t az insert után',
+        }
+      }
+
+      // Sikeres online-insert → pending-sort sync-eltnek jelöljük + pull delta
+      const serverId = Number(data.id)
+      await backend.markSzemelySynced(localId, serverId)
+      try {
+        await pullMembersOfOwnCongregation(userId, 'delta')
+      } catch {
+        /* csendes — a sor már a szerveren, a pull majd legközelebb */
+      }
+      return {
+        serverId,
+        localId,
+        synced: true,
+        pending: false,
+        duplicateCnp: false,
+      }
+    } catch (err: unknown) {
+      // Hálózati hiba: pending marad
+      return {
+        serverId: null,
+        localId,
+        synced: false,
+        pending: true,
+        duplicateCnp: false,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  // 4. Offline: pending marad
+  return {
+    serverId: null,
+    localId,
+    synced: false,
+    pending: true,
+    duplicateCnp: false,
+  }
+}
+
+function buildServerInsertPayload(input: Record<string, unknown>): Record<string, unknown> {
+  // A pending-payload közvetlenül mehet INSERT-be; a szerver-szükségleti
+  // mezők (`c_utcaid`, `befizetoev`) NOT NULL, így ha a zod-séma nem adott
+  // értéket, defaultot adunk.
+  const payload: Record<string, unknown> = { ...input }
+
+  // A szemely tábla NOT NULL oszlopai közül 2 olyan, amit a kliens nem
+  // feltétlenül tud megadni:
+  //   - c_utcaid (integer FK adrstreet-re) — V1-ben a szöveges címet
+  //     használjuk, az FK-t null-ról NOT NULL-ra ösztönzik → -1 dummy
+  //   - befizetoev (integer) — default az aktuális év
+  if (payload.c_utcaid === undefined || payload.c_utcaid === null) {
+    payload.c_utcaid = -1 // ideiglenes dummy; a cím-FK normalizálás külön flow
+  }
+  if (payload.befizetoev === undefined || payload.befizetoev === null) {
+    payload.befizetoev = new Date().getFullYear()
+  }
+  return payload
+}
+
+function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // Fallback: 128-bit random hex (nem valódi UUID-v4, de unique-nek elegendő a client-oldalon)
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined') crypto.getRandomValues(bytes)
+  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}

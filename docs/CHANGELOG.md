@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.1: Új tag rögzítés (desktop, offline-is)
+
+<!-- key: 2026-04-24-m8-1-uj-tag -->
+<!-- category: feature -->
+<!-- targets: lelkészek — mostantól a desktop appban is felvehetsz új tagot, akár offline-ban is -->
+
+### ✨ Új tag a desktop appból
+
+A tagnyilvántartás fejlécében új **„Új tag"** gomb (violet, `UserPlus` ikonnal). Kattintásra megnyílik egy pasztorális form:
+
+- **Kötelező mezők** piros `*`-gal: CNP, Keresztnév, Családnév, Születési dátum, Nem
+- **CNP-ellenőrzés ellenőrző-számjegyzéssel** — ha hibás a CNP checksum, azonnal jelzi
+- **CNP-dupláció-check kiírva** — ha ezzel a CNP-vel már van tag (akár a listában, akár még szinkronra váró), amber figyelmeztetés
+- **Opcionális blokkok**: Nevek (szül. név, férjezett név) · Származás · Cím (6 mezős) · Elérhetőség · Identitás (vallás, foglalkozás, nemzetiség) · Jelzők (családfő, választó) · Megjegyzés
+
+### 📡 Offline is működik
+
+Ha nincs internet, a rögzítés **lokálisan mentődik**, és amint online leszel, a szinkron automatikusan feltölti a szerverre. A tagnyilvántartás fejlécében amber sáv jelzi: „Szinkronra váró új tagok (N)" — gomb: „Sync most".
+
+Ha más eszközről időközben felvették ugyanezt a CNP-t, a rögzítésed „ütközés" állapotba kerül (piros jelzés) — a pending-listából kézzel feloldható.
+
+### 🛠 Műszaki háttér
+
+- **[szemely-create.ts](packages/validations/src/members/szemely-create.ts)**: `szemelyCreateInputSchema` + **román CNP checksum** validátor (13 számjegy + súlyozott modulo-11 algoritmus)
+- **Rust v16 migráció**: új `szemely_pending_local` tábla (35+ oszlop, 3 index, `UNIQUE (congregation_id, cnp)` helyi védelem)
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: 7 új metódus (insert/list/get/findByCnp/markSynced/markConflict/updateAttempt/delete)
+- **[sync.ts](apps/desktop/src/lib/sync.ts)**: új `createSzemelyEntry(userId, input)` — optimistic local pending + online INSERT + 23505 → duplicateCnp flag
+- **[szemely-write-sync.ts](apps/desktop/src/lib/szemely-write-sync.ts)**: background push (online-event + 30s poll), exp-backoff (30s/1m/2m/5m/15m/conflict)
+- **[member-create-dialog.tsx](apps/desktop/src/components/member-create-dialog.tsx)**: serif cím, csoportos form, CNP-dup-check inline (400ms debounce)
+
+**Design-döntés**: nem használjuk az általános outbox táblát — a `szemely_pending_local` **maga a queue**. Egyszerűbb kód, jobb UX (a pending sorok közvetlenül listázhatók).
+
+---
+
 ## [2026-04-24] — M8.2 + M8.4: Rejtés + admin-jelzők (desktop)
 
 <!-- key: 2026-04-24-m8-2-m8-4-admin-soft-delete -->

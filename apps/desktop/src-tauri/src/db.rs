@@ -495,8 +495,564 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v7 migráció (munkanaplo_local.deleted) sikertelen: {e}"))?;
     }
 
+    if current < 8 {
+        // A-M7.0 — outbox bővítés a @kartoteka/offline-sync `Mutation` típusához.
+        //
+        // Az outbox tábla M2.5 óta aktív az INTEGER AUTOINCREMENT PK-val;
+        // a `sync.ts` régi logika (op/target_table/target_id/payload/retry_count)
+        // változatlanul fut tovább. Itt csak 3 új oszlopot adunk hozzá, hogy a
+        // TauriSqliteBackend (Mutation-interface kompat) működjön:
+        //   - mutation_id TEXT       — stabil kliens-generált ID (ULID/UUID), UNIQUE
+        //   - expected_revision INT  — conditional-update base revision
+        //   - last_attempt_at TEXT   — az utolsó push-kísérlet ISO timestamp-je
+        //
+        // A meglévő sorok (ha vannak) `mutation_id = NULL`-lal maradnak, és a
+        // TauriSqliteBackend csak a `mutation_id IS NOT NULL` sorokkal dolgozik.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE outbox ADD COLUMN mutation_id TEXT;
+            ALTER TABLE outbox ADD COLUMN expected_revision INTEGER;
+            ALTER TABLE outbox ADD COLUMN last_attempt_at TEXT;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_mutation_id
+                ON outbox(mutation_id)
+                WHERE mutation_id IS NOT NULL;
+            PRAGMA user_version = 8;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v8 migráció (outbox mutation_id) sikertelen: {e}"))?;
+    }
+
+    if current < 9 {
+        // A-M7.1a — chitanta_tombok_local: a nyugtatömb (bizonylat-tömb) tábla
+        // lokális tükre. A Supabase `chitanta_tombok` offline-szinkronizálása,
+        // az A-M7.1 pénzügyi use-case-első lépésében.
+        //
+        // Típus-mapping (konzisztens az előző fázisokkal):
+        //   uuid → TEXT, integer → INTEGER, numeric → REAL,
+        //   boolean → INTEGER (0/1), date → TEXT ISO 'YYYY-MM-DD',
+        //   timestamptz → TEXT ISO 8601.
+        //
+        // A `scope` oszlop TEXT + CHECK gyulekezet/egyhazmegye.
+        // A `revision` + `updated_at` + trigger a sync-tracking-hez kell;
+        // a szerver-oldali trigger a későbbi A-M7.x SQL-migrációban jön
+        // (most csak a Rust-oldali tábla, a push-sync még a jövőben kerül be).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS chitanta_tombok_local (
+                id                       TEXT PRIMARY KEY,      -- uuid
+                congregation_id          TEXT,                  -- uuid | NULL
+                diocese_id               TEXT,                  -- uuid | NULL
+                block_nr                 TEXT,
+                seria                    TEXT NOT NULL,
+                szam_kezdet              INTEGER NOT NULL,
+                szam_veg                 INTEGER NOT NULL,
+                darabszam_ossz           INTEGER NOT NULL,
+                felhasznalt_darabszam    INTEGER NOT NULL DEFAULT 0,
+                vasarlas_datuma          TEXT NOT NULL,
+                vasarlas_ara             REAL,
+                elso_hasznalat_datum     TEXT,
+                utolso_hasznalat_datum   TEXT,
+                aktiv                    INTEGER NOT NULL DEFAULT 1,  -- 0/1
+                megjegyzes               TEXT,
+                scope                    TEXT NOT NULL DEFAULT 'gyulekezet'
+                                            CHECK (scope IN ('gyulekezet','egyhazmegye')),
+                created_at               TEXT NOT NULL,
+                created_by               TEXT,                  -- uuid | NULL
+                updated_at               TEXT NOT NULL,
+                revision                 INTEGER NOT NULL DEFAULT 0,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chitanta_tombok_local_congregation
+                ON chitanta_tombok_local(congregation_id);
+            CREATE INDEX IF NOT EXISTS idx_chitanta_tombok_local_aktiv
+                ON chitanta_tombok_local(congregation_id, aktiv);
+            CREATE INDEX IF NOT EXISTS idx_chitanta_tombok_local_updated_at
+                ON chitanta_tombok_local(updated_at);
+
+            PRAGMA user_version = 9;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v9 migráció (chitanta_tombok_local) sikertelen: {e}"))?;
+    }
+
+    if current < 10 {
+        // A-M7.2d1 — chitanta_wallet_local: offline sorszám-tárca.
+        //
+        // A lelkész online-módban előre kér a szervertől N sorszámot
+        // (`reserve_chitanta_numbers(N)` RPC), amelyeket ebbe a táblába mentünk.
+        // Offline-módban (A-M7.2d2) a `claim_next_reserved_number()` típusú
+        // kliens-logika a legkisebb `used=0` sorszámot adja a chitanta-kiállító
+        // formnak, és azonnal `used=1`-re állítja.
+        //
+        // Mivel a szerver-oldali pointer (`oblio_fiokok.chitanta_kovetkezo_szam`)
+        // minden foglaláskor atomikusan ugrik, a wallet és az online-kiállítás
+        // sorszámai nem ütköznek.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS chitanta_wallet_local (
+                id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+                congregation_id              TEXT NOT NULL,       -- uuid
+                sorozat                      TEXT NOT NULL,
+                szam                         INTEGER NOT NULL,
+                reserved_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+                used                         INTEGER NOT NULL DEFAULT 0, -- 0/1
+                used_at                      TEXT,
+                used_for_chitanta_local_id   TEXT,                -- ha A-M7.2d2-ben offline chitanta_local lesz
+                UNIQUE (congregation_id, sorozat, szam)
+            );
+            CREATE INDEX IF NOT EXISTS idx_chitanta_wallet_available
+                ON chitanta_wallet_local (congregation_id, sorozat, used, szam);
+            PRAGMA user_version = 10;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v10 migráció (chitanta_wallet_local) sikertelen: {e}"))?;
+    }
+
+    if current < 11 {
+        // A-M7.2d2a — chitantak_local: offline-kiállított chitanták lokális tükre.
+        //
+        // A lelkész hálózat nélkül is kiállíthat chitantát: a wallet-ből vesz egy
+        // sorszámot (lásd v10), ideírja a papír-nyugta adatait, és a sor
+        // `sync_state='pending'` állapottal várja, hogy a gép újra online
+        // legyen, amikor a push-sync feltölti az `oblio_szamlak`-ba.
+        //
+        // A szerver-oldali tábla (oblio_szamlak) UUID-t vár PK-ként, amit csak
+        // a szerver tud adni → a kliens-oldalon **client-generált TEXT ID**-t
+        // használunk (`local-<uuid>` formátum), és a sikeres push után a
+        // `server_id` oszlopba kerül a szerver-UUID.
+        //
+        // Mezők (az `oblio_szamlak` chitanta-releváns oszlopai):
+        //   - klienesseg_nev, klienesseg_cui, klienesseg_cim  (befizető)
+        //   - osszeg_brut (RON)
+        //   - reprezentand, befizetes_id, megjegyzes
+        //   - issued_by (user uuid), collected_at
+        //   - sorozat + szam → a wallet-ből jön, UNIQUE (congregation, sorozat, szam)
+        //
+        // Sync-state:
+        //   - 'pending'  — még nem küldtük a szerverre (az outbox-ban várakozik)
+        //   - 'synced'   — a szerver elfogadta, server_id kitöltve
+        //   - 'conflict' — a szerver elutasította (pl. duplicate szám), user dönt
+        //
+        // A `used_for_chitanta_local_id` a wallet-ben erre az ID-re mutat.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS chitantak_local (
+                id                    TEXT PRIMARY KEY,      -- 'local-<uuid>'
+                server_id             TEXT,                  -- uuid, NULL amíg nincs sync
+                congregation_id       TEXT NOT NULL,         -- uuid
+                sorozat               TEXT NOT NULL,
+                szam                  INTEGER NOT NULL,
+                szamla_datum          TEXT NOT NULL,         -- ISO 'YYYY-MM-DD'
+                klienesseg_nev        TEXT NOT NULL,
+                klienesseg_cui        TEXT,
+                klienesseg_cim        TEXT,
+                osszeg_brut           REAL NOT NULL,
+                reprezentand          TEXT,
+                befizetes_id          TEXT,                  -- uuid | NULL
+                megjegyzes            TEXT,
+                issued_by             TEXT NOT NULL,         -- user uuid
+                collected_at          TEXT NOT NULL,         -- ISO timestamp
+                sync_state            TEXT NOT NULL DEFAULT 'pending'
+                                         CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error            TEXT,
+                created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (congregation_id, sorozat, szam)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chitantak_local_congregation_date
+                ON chitantak_local(congregation_id, szamla_datum DESC);
+            CREATE INDEX IF NOT EXISTS idx_chitantak_local_sync_state
+                ON chitantak_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_chitantak_local_server_id
+                ON chitantak_local(server_id);
+
+            PRAGMA user_version = 11;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v11 migráció (chitantak_local) sikertelen: {e}"))?;
+    }
+
+    if current < 12 {
+        // A-M7.8a — befizetes_local: offline olvasási cache a `befizetes` táblához.
+        //
+        // Read-only mirror: a pull-sync alkalmazza a szerver-változásokat, a
+        // desktop a listázáshoz használja. A write-offline (save-offline) egy
+        // külön iratszám-wallet rendszerrel jönne — az nincs most implementálva.
+        //
+        // A join-mezők (`befizetescel_nev`, `szemely_nev`, `bankszamla_nev`)
+        // a pull-sync-ben plusz-query-vel vagy RPC-vel tölthetők. Most az
+        // egyszerűség kedvéért NEM cache-eljük őket — a desktop-lista az
+        // offline-módban a join nélkül (ID-n keresztül) jelenik meg.
+        //
+        // Mezők: a `befizetes` tábla minden releváns oszlopa.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS befizetes_local (
+                id                INTEGER PRIMARY KEY,
+                xkey              TEXT NOT NULL,
+                id_csalad         INTEGER,
+                id_szemely        INTEGER,
+                forrasa           TEXT,
+                id_befizetescel   INTEGER NOT NULL,
+                datum             TEXT NOT NULL,       -- ISO 'YYYY-MM-DD'
+                osszeg            REAL NOT NULL,
+                nyugta            TEXT,
+                iratszam          TEXT NOT NULL,
+                irattipus         TEXT NOT NULL,
+                csalad            INTEGER NOT NULL DEFAULT 0,  -- 0/1
+                megjegyzes        TEXT,
+                deleted           INTEGER NOT NULL DEFAULT 0,  -- 0/1
+                created           TEXT,
+                fizetettev        INTEGER NOT NULL,
+                userid            TEXT NOT NULL,
+                is_potlas         INTEGER NOT NULL DEFAULT 0,
+                bankszamla_id     INTEGER,
+                stornozott        INTEGER NOT NULL DEFAULT 0,
+                stornozott_at     TEXT,
+                stornozott_indok  TEXT,
+                stornozott_by     TEXT,
+                osszeg_ron        REAL,
+                arfolyam          REAL,
+                congregation_id   TEXT NOT NULL,
+                revision          INTEGER NOT NULL DEFAULT 0,
+                updated_at        TEXT NOT NULL,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_congregation
+                ON befizetes_local(congregation_id);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_datum
+                ON befizetes_local(datum DESC);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_fizetettev
+                ON befizetes_local(fizetettev);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_updated_at
+                ON befizetes_local(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_szemely
+                ON befizetes_local(id_szemely);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_local_cel
+                ON befizetes_local(id_befizetescel);
+
+            PRAGMA user_version = 12;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v12 migráció (befizetes_local) sikertelen: {e}"))?;
+    }
+
+    if current < 13 {
+        // A-M7.8b — kiadas_local: offline olvasási cache a `kiadas` táblához.
+        // A befizetes_local minta szerint.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS kiadas_local (
+                id                    INTEGER PRIMARY KEY,
+                xkey                  TEXT NOT NULL,
+                id_kiadascel          INTEGER NOT NULL,
+                datum                 TEXT NOT NULL,       -- ISO timestamp
+                osszeg                REAL NOT NULL,
+                nyugta                TEXT,
+                iratszam              TEXT NOT NULL,
+                irattipus             TEXT NOT NULL,
+                megjegyzes            TEXT,
+                created               TEXT,
+                deleted               INTEGER NOT NULL DEFAULT 0,
+                atvevo                TEXT,
+                atvevoid              INTEGER,
+                userid                TEXT NOT NULL,
+                is_potlas             INTEGER NOT NULL DEFAULT 0,
+                bankszamla_id         INTEGER,
+                vonatkozo_idoszak     TEXT,
+                kedvezmenyezett_cui   TEXT,
+                stornozott            INTEGER NOT NULL DEFAULT 0,
+                stornozott_at         TEXT,
+                stornozott_indok      TEXT,
+                stornozott_by         TEXT,
+                osszeg_ron            REAL,
+                arfolyam              REAL,
+                congregation_id       TEXT NOT NULL,
+                revision              INTEGER NOT NULL DEFAULT 0,
+                updated_at            TEXT NOT NULL,
+                synced_at             TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_kiadas_local_congregation
+                ON kiadas_local(congregation_id);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_local_datum
+                ON kiadas_local(datum DESC);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_local_updated_at
+                ON kiadas_local(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_local_atvevoid
+                ON kiadas_local(atvevoid);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_local_cel
+                ON kiadas_local(id_kiadascel);
+
+            PRAGMA user_version = 13;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v13 migráció (kiadas_local) sikertelen: {e}"))?;
+    }
+
+    if current < 14 {
+        // A-M7.9a — iratszam_wallet_local + befizetes_pending_local
+        //
+        // Két új tábla az offline-WRITE flow-hoz:
+        //
+        //   1) `iratszam_wallet_local` — előre-foglalt iratszámok tárolója.
+        //      KÖZÖS a befizetés és kiadás között (tipus mezővel),
+        //      per (congregation × tipus × ev) szegmentálva. A kliens online-módban
+        //      `reserve_iratszam(congregation, tipus, ev, N)` RPC-vel hívja le
+        //      a számokat, amiket itt tárolunk.
+        //
+        //   2) `befizetes_pending_local` — offline-rögzített befizetések lokális
+        //      tükre. A `befizetes_local` (v12) READ-cache, ez WRITE-staging.
+        //      `sync_state='pending'` → outbox-push, 'synced' → szerver-id van,
+        //      'conflict' → manuális rendezés (A-M7.9b későbbi alfázis).
+        //
+        // A kiadás-write az A-M7.9b-ben jön — akkor lesz `kiadas_pending_local`.
+        // A wallet-tábla már most felkészült a 'kiadas' tipusra is.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS iratszam_wallet_local (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                congregation_id          TEXT NOT NULL,                        -- uuid
+                iratszam_tipus           TEXT NOT NULL CHECK (iratszam_tipus IN ('befizetes','kiadas')),
+                ev                       INTEGER NOT NULL,
+                szam                     INTEGER NOT NULL,
+                reserved_at              TEXT NOT NULL DEFAULT (datetime('now')),
+                used                     INTEGER NOT NULL DEFAULT 0,           -- 0/1
+                used_at                  TEXT,
+                used_for_local_id        TEXT,                                 -- 'local-<uuid>' a pending-sorra
+                UNIQUE (congregation_id, iratszam_tipus, ev, szam)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_iratszam_wallet_available
+                ON iratszam_wallet_local (congregation_id, iratszam_tipus, ev, used, szam);
+
+            CREATE TABLE IF NOT EXISTS befizetes_pending_local (
+                id                       TEXT PRIMARY KEY,                     -- 'local-<uuid>'
+                server_id                INTEGER,                              -- pgint8, NULL amíg nincs sync
+                congregation_id          TEXT NOT NULL,
+                xkey                     TEXT NOT NULL,                        -- kliens-generált uuid (server is megkapja)
+                osszeg                   REAL NOT NULL,
+                datum                    TEXT NOT NULL,                        -- ISO 'YYYY-MM-DD'
+                id_befizetescel          INTEGER NOT NULL,
+                id_szemely               INTEGER,
+                id_csalad                INTEGER,
+                forrasa                  TEXT,
+                iratszam                 TEXT NOT NULL,
+                irattipus                TEXT NOT NULL,
+                fizetettev               INTEGER NOT NULL,
+                megjegyzes               TEXT,
+                csalad                   INTEGER NOT NULL DEFAULT 0,           -- 0/1
+                is_potlas                INTEGER NOT NULL DEFAULT 0,
+                bankszamla_id            INTEGER,
+                wallet_id                INTEGER,                              -- iratszam_wallet_local.id
+                userid                   TEXT NOT NULL,                        -- kiállító user uuid
+                sync_state               TEXT NOT NULL DEFAULT 'pending'
+                                            CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error               TEXT,
+                created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (congregation_id, fizetettev, iratszam)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_befizetes_pending_congregation_date
+                ON befizetes_pending_local(congregation_id, datum DESC);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_pending_sync_state
+                ON befizetes_pending_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_befizetes_pending_server_id
+                ON befizetes_pending_local(server_id);
+
+            PRAGMA user_version = 14;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v14 migráció (iratszam_wallet_local + befizetes_pending_local) sikertelen: {e}"))?;
+    }
+
+    if current < 15 {
+        // A-M7.9b — kiadas_pending_local
+        //
+        // Az A-M7.9a befizetés-write-offline tükörképe a kiadás-oldalra. A
+        // wallet (`iratszam_wallet_local`) közös, már most felkészült a 'kiadas'
+        // típusra. Csak az új pending-tábla kell.
+        //
+        // Eltérések a `befizetes_pending_local`-tól (a `kiadas` séma-különbségek
+        // miatt):
+        //   - `id_kiadascel` az `id_befizetescel` helyett
+        //   - `atvevoid` (FK szemely) + `atvevo` (text) — ezek MINDKETTŐ lehet
+        //     egyszerre (a tag-FK + szöveges leírás), vagy csak az egyik
+        //   - `kedvezmenyezett_cui` (cég adószám)
+        //   - `vonatkozo_idoszak` (text, pl. "2026 01")
+        //   - NINCS `id_csalad`, `csalad`, `fizetettev` (a kiadás éve a `datum`-ből)
+        //   - `datum` TIMESTAMP — TEXT-ként tároljuk ISO formátumban
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS kiadas_pending_local (
+                id                       TEXT PRIMARY KEY,                     -- 'local-<uuid>'
+                server_id                INTEGER,                              -- pgint8, NULL amíg nincs sync
+                congregation_id          TEXT NOT NULL,
+                xkey                     TEXT NOT NULL,
+                osszeg                   REAL NOT NULL,
+                datum                    TEXT NOT NULL,                        -- ISO 'YYYY-MM-DDTHH:MM:SS'
+                id_kiadascel             INTEGER NOT NULL,
+                atvevoid                 INTEGER,                              -- FK szemely.id, vagy NULL
+                atvevo                   TEXT,                                 -- szöveges átvevő, vagy NULL
+                forrasa                  TEXT,
+                iratszam                 TEXT NOT NULL,
+                irattipus                TEXT NOT NULL,
+                ev                       INTEGER NOT NULL,                     -- EXTRACT(YEAR FROM datum)
+                megjegyzes               TEXT,
+                vonatkozo_idoszak        TEXT,
+                kedvezmenyezett_cui      TEXT,
+                is_potlas                INTEGER NOT NULL DEFAULT 0,
+                bankszamla_id            INTEGER,
+                wallet_id                INTEGER,                              -- iratszam_wallet_local.id
+                userid                   TEXT NOT NULL,
+                sync_state               TEXT NOT NULL DEFAULT 'pending'
+                                            CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error               TEXT,
+                created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (congregation_id, ev, iratszam)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_kiadas_pending_congregation_date
+                ON kiadas_pending_local(congregation_id, datum DESC);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_pending_sync_state
+                ON kiadas_pending_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_kiadas_pending_server_id
+                ON kiadas_pending_local(server_id);
+
+            PRAGMA user_version = 15;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v15 migráció (kiadas_pending_local) sikertelen: {e}"))?;
+    }
+
+    if current < 16 {
+        // M8.1 — szemely_pending_local
+        //
+        // Az M8.1 új-tag INSERT-offline flow-hoz. A szemely-nél NINCS
+        // iratszam-sequence (ellentétben a pénzügyi A-M7.9a/b-vel), de
+        // a szerver-oldali `szemely.id` INTEGER sequence — ezért az új
+        // tagot lokálisan `local-<uuid>` PK-val tároljuk, aztán a szerver-
+        // insert sikere után töltjük ki a `server_id` mezőt.
+        //
+        // Eltérések a pénzügyi pending-mintáktól:
+        //   - Nincs `iratszam` / `wallet_id` — szemely-nél nincs szám-pool.
+        //   - `cnp` az egyetlen kliens-ismerős unique-azonosító, ezért a
+        //     helyi dupláció-védelemre UNIQUE (congregation_id, cnp). A
+        //     szerver-oldali UNIQUE pedig a Supabase schema felelőssége.
+        //   - `xkey` nincs (a pénzügyi tábláknál ez a server-oldali
+        //     idempotencia-kulcs; szemely-nél az id→server_id mapping
+        //     végzi ugyanezt).
+        //
+        // Az M8.3 család-CRUD-ban egy `csalad_pending_local` tábla is
+        // jön majd hasonló logikával, de külön migrációban (v17+).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS szemely_pending_local (
+                id                       TEXT PRIMARY KEY,                     -- 'local-<uuid>'
+                server_id                INTEGER,                              -- szemely.id, NULL amíg nincs sync
+                congregation_id          TEXT NOT NULL,                        -- uuid
+
+                -- Core identity
+                cnp                      TEXT NOT NULL,
+                szcs_nev                 TEXT,
+                k_nev                    TEXT,
+                csaladnev                TEXT,
+                ferjk_nev                TEXT,
+                allapot                  TEXT,
+
+                -- Személyes
+                sz_datum                 TEXT,                                 -- ISO 'YYYY-MM-DD'
+                ferfi                    INTEGER NOT NULL DEFAULT 0,
+                csaladfo                 INTEGER NOT NULL DEFAULT 0,
+                meghalt                  INTEGER NOT NULL DEFAULT 0,
+                member_status            TEXT DEFAULT 'aktív',
+
+                -- Családfa (szülők névvel + CNP-hivatkozás)
+                apjaneve                 TEXT,
+                anyjaneve                TEXT,
+                id_apja                  TEXT,
+                id_anyja                 TEXT,
+
+                -- Cím (szöveges V1-ben, az FK-k kimaradnak)
+                c_szam                   TEXT,
+                c_tombhaz                TEXT,
+                c_lepcsohaz              TEXT,
+                c_ajto                   TEXT,
+                c_emelet                 TEXT,
+                c_szcim                  TEXT,
+
+                -- Elérhetőség
+                telefon                  TEXT,
+                email                    TEXT,
+
+                -- Vallás / identitás
+                vallas                   TEXT,
+                foglalkozas              TEXT,
+                nemzetiseg               TEXT,
+                voter_eligible           INTEGER NOT NULL DEFAULT 0,
+
+                -- Család FK (opcionális, UUID string)
+                family_id                TEXT,
+
+                -- Egyéb
+                type                     TEXT,
+                isvisible                INTEGER NOT NULL DEFAULT 1,
+                megjegyzes               TEXT,
+
+                -- Outbox-szerű metaadatok
+                userid                   TEXT NOT NULL,                        -- rögzítő user.id
+                sync_state               TEXT NOT NULL DEFAULT 'pending'
+                                            CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error               TEXT,
+                retry_count              INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at          TEXT,
+                created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+
+                UNIQUE (congregation_id, cnp)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_szemely_pending_congregation
+                ON szemely_pending_local(congregation_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_szemely_pending_sync_state
+                ON szemely_pending_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_szemely_pending_server_id
+                ON szemely_pending_local(server_id);
+
+            PRAGMA user_version = 16;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v16 migráció (szemely_pending_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 8 { ... PRAGMA user_version = 8; }
+    // if current < 17 { ... PRAGMA user_version = 17; }
 
     Ok(())
 }
@@ -570,6 +1126,234 @@ pub fn db_select(
     rows_iter
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| format!("Sor-iteráció hiba: {e}"))
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// A-M7.2d2a — atomikus wallet-szám fogyasztás
+// ───────────────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct WalletClaim {
+    pub szam: i64,
+    pub sorozat: String,
+    pub id: i64,
+}
+
+/// Atomikusan kivesz a wallet-ből egy szabad sorszámot és `used=1`-re állítja.
+///
+/// Miért Rust-oldali command? A `BEGIN/SELECT/UPDATE/COMMIT` szekvenciát
+/// egyetlen `db_execute` hívással **nem lehet** atomikusan lefuttatni a TS
+/// oldalon — ha két klienshívás gyorsan egymás után jön (pl. double-click),
+/// race-ez. A Mutex<Connection> itt sorosít, és a BEGIN/COMMIT egy
+/// tranzakcióba csomagolja a művelet két SQL utasítását.
+///
+/// Visszaadja: `Ok(Some(WalletClaim))` ha volt szabad szám,
+///             `Ok(None)` ha nincs (üres wallet),
+///             `Err(_)` DB-hiba esetén.
+///
+/// A `chitanta_local_id`-t a hívó adja — ez a majd létrehozott `chitantak_local`
+/// sor PK-ja. Így a wallet-sor és a chitanta-sor kötése nyomonkövethető
+/// az esetleges sztornó-flow-hoz.
+#[tauri::command]
+pub fn chitanta_wallet_claim_next(
+    state: State<'_, DbState>,
+    congregation_id: String,
+    sorozat: Option<String>,
+    chitanta_local_id: String,
+) -> Result<Option<WalletClaim>, String> {
+    let mut guard = state
+        .conn
+        .lock()
+        .map_err(|e| format!("DB mutex zárolás sikertelen: {e}"))?;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "A DB még nincs megnyitva".to_string())?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Tranzakció indítás sikertelen: {e}"))?;
+
+    // 1) Megkeressük a legkisebb szabad sorszámot (opcionálisan sorozat-szűrővel).
+    let row_opt: Option<(i64, i64, String)> = match &sorozat {
+        Some(s) => tx
+            .query_row(
+                "SELECT id, szam, sorozat FROM chitanta_wallet_local \
+                 WHERE congregation_id = ?1 AND sorozat = ?2 AND used = 0 \
+                 ORDER BY szam ASC LIMIT 1",
+                rusqlite::params![congregation_id, s],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok(),
+        None => tx
+            .query_row(
+                "SELECT id, szam, sorozat FROM chitanta_wallet_local \
+                 WHERE congregation_id = ?1 AND used = 0 \
+                 ORDER BY szam ASC LIMIT 1",
+                rusqlite::params![congregation_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok(),
+    };
+
+    let Some((id, szam, found_sorozat)) = row_opt else {
+        // Nincs szabad szám — rollback nem szükséges (nem írtunk),
+        // de a tranzakciót tisztán zárjuk.
+        tx.rollback().ok();
+        return Ok(None);
+    };
+
+    // 2) Megjelöljük használtnak + kapcsolunk a chitanta_local_id-hoz.
+    tx.execute(
+        "UPDATE chitanta_wallet_local \
+         SET used = 1, used_at = datetime('now'), used_for_chitanta_local_id = ?1 \
+         WHERE id = ?2",
+        rusqlite::params![chitanta_local_id, id],
+    )
+    .map_err(|e| format!("Wallet-szám használt-jelölés sikertelen: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("Tranzakció commit sikertelen: {e}"))?;
+
+    Ok(Some(WalletClaim {
+        szam,
+        sorozat: found_sorozat,
+        id,
+    }))
+}
+
+/// A claim visszavonása — ha a chitanta-kiállítás meghiúsul (pl. validáció,
+/// DB-hiba), a lefoglalt szám visszakerül a pool-ba. **Csak akkor hívd, ha
+/// tudod, hogy a `used_for_chitanta_local_id` még nem ment tovább az
+/// outbox-ba / nem sync-elt.**
+#[tauri::command]
+pub fn chitanta_wallet_release(
+    state: State<'_, DbState>,
+    wallet_id: i64,
+) -> Result<(), String> {
+    let mut guard = state
+        .conn
+        .lock()
+        .map_err(|e| format!("DB mutex zárolás sikertelen: {e}"))?;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "A DB még nincs megnyitva".to_string())?;
+
+    conn.execute(
+        "UPDATE chitanta_wallet_local \
+         SET used = 0, used_at = NULL, used_for_chitanta_local_id = NULL \
+         WHERE id = ?1",
+        rusqlite::params![wallet_id],
+    )
+    .map_err(|e| format!("Wallet-szám release sikertelen: {e}"))?;
+
+    Ok(())
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// A-M7.9a — atomikus iratszám-wallet (befizetés + kiadás közös)
+// ───────────────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct IratszamClaim {
+    pub szam: i64,
+    pub id: i64,
+}
+
+/// Atomikusan kivesz egy szabad iratszámot az `iratszam_wallet_local`-ból a
+/// (congregation × tipus × ev) szegmensből, és `used=1`-re állítja.
+///
+/// A chitanta-mintával analóg (lásd `chitanta_wallet_claim_next`): a SELECT MIN
+/// + UPDATE egyetlen `BEGIN/COMMIT` blokkban fut a `Mutex<Connection>` mögött,
+/// így két párhuzamos hívás (pl. duplicate-click) nem kap ugyanarra a számra.
+///
+/// A `local_id`-t a hívó adja — ez a majd létrehozott `befizetes_pending_local`
+/// (vagy később `kiadas_pending_local`) sor PK-ja. Így a wallet-sor és a
+/// pending-sor kötése audit-trailbe nyomonkövethető.
+///
+/// Visszaadja:
+///   - `Ok(Some(IratszamClaim))` ha volt szabad szám
+///   - `Ok(None)` ha üres a wallet
+///   - `Err(_)` DB-hiba esetén
+#[tauri::command]
+pub fn iratszam_wallet_claim_next(
+    state: State<'_, DbState>,
+    congregation_id: String,
+    iratszam_tipus: String,
+    ev: i64,
+    local_id: String,
+) -> Result<Option<IratszamClaim>, String> {
+    if iratszam_tipus != "befizetes" && iratszam_tipus != "kiadas" {
+        return Err(format!(
+            "Ismeretlen iratszam_tipus: '{}' (várt: 'befizetes' vagy 'kiadas')",
+            iratszam_tipus
+        ));
+    }
+
+    let mut guard = state
+        .conn
+        .lock()
+        .map_err(|e| format!("DB mutex zárolás sikertelen: {e}"))?;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "A DB még nincs megnyitva".to_string())?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Tranzakció indítás sikertelen: {e}"))?;
+
+    // 1) Legkisebb szabad szám a (congregation, tipus, ev) szegmensben
+    let row_opt: Option<(i64, i64)> = tx
+        .query_row(
+            "SELECT id, szam FROM iratszam_wallet_local \
+             WHERE congregation_id = ?1 AND iratszam_tipus = ?2 AND ev = ?3 AND used = 0 \
+             ORDER BY szam ASC LIMIT 1",
+            rusqlite::params![congregation_id, iratszam_tipus, ev],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+
+    let Some((id, szam)) = row_opt else {
+        tx.rollback().ok();
+        return Ok(None);
+    };
+
+    // 2) Megjelöljük használtnak + kapcsoljuk a pending-sorhoz
+    tx.execute(
+        "UPDATE iratszam_wallet_local \
+         SET used = 1, used_at = datetime('now'), used_for_local_id = ?1 \
+         WHERE id = ?2",
+        rusqlite::params![local_id, id],
+    )
+    .map_err(|e| format!("Iratszám-wallet használt-jelölés sikertelen: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("Tranzakció commit sikertelen: {e}"))?;
+
+    Ok(Some(IratszamClaim { szam, id }))
+}
+
+/// Az `iratszam_wallet_claim_next` visszavonása. Csak akkor hívd, ha a
+/// pending-sor mentése (vagy az outbox-enqueue) meghiúsult, és a szám még
+/// nem ment ki szerverre.
+#[tauri::command]
+pub fn iratszam_wallet_release(state: State<'_, DbState>, wallet_id: i64) -> Result<(), String> {
+    let mut guard = state
+        .conn
+        .lock()
+        .map_err(|e| format!("DB mutex zárolás sikertelen: {e}"))?;
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| "A DB még nincs megnyitva".to_string())?;
+
+    conn.execute(
+        "UPDATE iratszam_wallet_local \
+         SET used = 0, used_at = NULL, used_for_local_id = NULL \
+         WHERE id = ?1",
+        rusqlite::params![wallet_id],
+    )
+    .map_err(|e| format!("Iratszám-wallet release sikertelen: {e}"))?;
+
+    Ok(())
 }
 
 // ───────────────────────────────────────────────────────────────────────────

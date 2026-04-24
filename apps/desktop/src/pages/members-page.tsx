@@ -13,9 +13,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Search, Users } from 'lucide-react'
+import { RefreshCw, Search, UserPlus, Users } from 'lucide-react'
 
 import {
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -31,11 +32,16 @@ import {
   type SzemelyStatusFilter,
 } from '@kartoteka/validations'
 
+import { MemberCreateDialog } from '../components/member-create-dialog'
 import { MemberDetailDialog } from '../components/member-detail-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getLocalOwnProfile } from '../lib/sync'
+import {
+  runSzemelySyncManually,
+  startSzemelyAutoSync,
+} from '../lib/szemely-write-sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 type OrderBy = 'csaladnev-asc' | 'csaladnev-desc' | 'sz_datum-asc' | 'sz_datum-desc' | 'id-desc'
@@ -52,6 +58,13 @@ export function MembersPage() {
   const [orderBy, setOrderBy] = useState<OrderBy>('csaladnev-asc')
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  type PendingRow = Awaited<
+    ReturnType<ReturnType<typeof getTauriSqliteBackend>['listLocalPendingSzemely']>
+  >[number]
+  const [pendingRows, setPendingRows] = useState<PendingRow[]>([])
+  const [syncing, setSyncing] = useState(false)
 
   // Auth + congregation_id
   useEffect(() => {
@@ -106,6 +119,43 @@ export function MembersPage() {
     return () => clearTimeout(timer)
   }, [loadList])
 
+  // Pending új-tag sorok betöltése
+  const loadPending = useCallback(async () => {
+    if (!congregationId) return
+    try {
+      const list = await getTauriSqliteBackend().listLocalPendingSzemely(congregationId)
+      setPendingRows(list)
+    } catch {
+      /* csendes — UI-szinten nem kritikus */
+    }
+  }, [congregationId])
+
+  useEffect(() => {
+    void loadPending()
+  }, [loadPending])
+
+  // Auto-sync a szemely-write-sync-re (csak ha van congregationId)
+  useEffect(() => {
+    if (!congregationId) return
+    startSzemelyAutoSync(congregationId)
+    // Mountkor is futtasson egyszer + 30s poll
+  }, [congregationId])
+
+  async function handleManualSync() {
+    if (!congregationId || syncing) return
+    setSyncing(true)
+    try {
+      const result = await runSzemelySyncManually(congregationId)
+      // Ha sikeres volt legalább egy: pull + lista refresh
+      if (result.succeeded > 0) {
+        await loadList()
+      }
+      await loadPending()
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const selectedMember = selectedId !== null ? rows.find((r) => r.id === selectedId) ?? null : null
 
   return (
@@ -119,15 +169,91 @@ export function MembersPage() {
               <h1 className="text-2xl font-semibold tracking-tight">Tagnyilvántartás</h1>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              A gyülekezet tagjainak listája a lokális adatbázisból. A szerkesztés a
-              következő frissítésben jön — most kereshetsz, szűrhetsz, és megnézheted
-              a részleteket.
+              A gyülekezet tagjai. Kattints egy sorra a szerkesztéshez, vagy vegyél
+              fel új tagot a jobb oldali gombbal. Offline is működik — a szinkron
+              automatikus.
             </p>
           </div>
-          <p className="text-xs italic text-muted-foreground">
-            {rows.length} tag · offline-mode kompatibilis
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            {congregationId && (
+              <Button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="bg-violet-700 text-white hover:bg-violet-800"
+              >
+                <UserPlus className="mr-2 size-4" />
+                Új tag
+              </Button>
+            )}
+            <p className="text-xs italic text-muted-foreground">
+              {rows.length} tag · offline-kompatibilis
+            </p>
+          </div>
         </div>
+
+        {/* Pending (offline-rögzített új tagok) blokk */}
+        {pendingRows.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50/60">
+            <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
+              <div>
+                <CardTitle className="text-sm text-amber-900">
+                  Szinkronra váró új tagok ({pendingRows.length})
+                </CardTitle>
+                <CardDescription className="text-xs text-amber-800">
+                  Ezek offline-ban rögzített új tagok. A szinkron automatikusan feltölti
+                  őket, amint online leszel.
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleManualSync}
+                disabled={syncing}
+                className="border-amber-300 text-amber-900 hover:bg-amber-100"
+              >
+                <RefreshCw className={`mr-2 size-3 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Szinkronizál…' : 'Sync most'}
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-amber-200">
+                {pendingRows.map((p) => {
+                  const name =
+                    [(p.ferfi === 0 && p.ferjk_nev) || p.csaladnev, p.k_nev]
+                      .filter(Boolean)
+                      .join(' ') || '(névtelen)'
+                  const isConflict = p.sync_state === 'conflict'
+                  return (
+                    <li
+                      key={p.id}
+                      className="flex items-center gap-3 px-4 py-2 text-sm"
+                    >
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${
+                          isConflict
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-200 text-amber-900'
+                        }`}
+                      >
+                        {isConflict ? '⚠ ütközés' : '🕓 várakozik'}
+                      </span>
+                      <span className="font-medium">{name}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        CNP: {p.cnp}
+                      </span>
+                      {isConflict && p.sync_error && (
+                        <span className="ml-auto text-[11px] italic text-rose-700 line-clamp-1">
+                          {p.sync_error}
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Szűrők */}
         <Card>
@@ -238,6 +364,19 @@ export function MembersPage() {
               void loadList()
             }}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+
+        {/* Create modal */}
+        {createOpen && userId && congregationId && (
+          <MemberCreateDialog
+            userId={userId}
+            congregationId={congregationId}
+            onCreated={() => {
+              void loadList()
+              void loadPending()
+            }}
+            onClose={() => setCreateOpen(false)}
           />
         )}
       </main>
