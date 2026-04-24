@@ -271,8 +271,12 @@ export function FamiliesPage() {
         {/* Detail dialog */}
         {selected && userId && (
           <FamilyDetailDialog
+            userId={userId}
             familyId={selected.id}
-            onClose={() => setSelectedId(null)}
+            onClose={() => {
+              setSelectedId(null)
+              void refresh(false)
+            }}
           />
         )}
       </main>

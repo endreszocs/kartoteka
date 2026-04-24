@@ -1,25 +1,34 @@
 /**
- * FamilyDetailDialog — M8.3a read-only (2026-04-24).
+ * FamilyDetailDialog — M8.3a (read-only) + M8.3b (családfő-kijelölés) (2026-04-24).
  *
  * Egy család részleteit mutatja: férfi + nő (szülők) + gyerekek listája.
  * A `TauriSqliteBackend.getLocalCsaladDetail(familyId)`-t hívja, ami
- * join-olja a `szemely_local`-hez a neveket és adatokat.
+ * join-olja a `szemely_local`-hez a neveket, `csaladfo` flaget és revision-t.
  *
- * A későbbi M8.3b/c-ben jön:
- *   - "Családfő kijelölése" (szemely.csaladfo flag toggle)
- *   - "Tag áthelyezése" (szemely.family_id változtatás)
- *   - "Új gyermek hozzáadása" (gyerek insert)
- *   - "Család szerkesztése" (id_ferfi, id_no, cím)
+ * M8.3b — családfő-kijelölés:
+ *   - A jelenlegi családfő (szemely.csaladfo=1) kék "👑 Családfő" badge-et kap
+ *   - Mellette (a nem-családfő tagoknál) "Kijelölés családfőnek" gomb
+ *   - Kattintás: browser-confirm + (a) régi családfő false-ra állítása (b) új családfő true-ra
+ *   - `updateSzemelyEntry` mindkettőhöz (online + offline outbox)
+ *   - Siker után auto-refresh
+ *
+ * A későbbi M8.3c-ben jön:
+ *   - Új gyermek hozzáadása a családhoz (gyerek-junction insert)
+ *   - Tag eltávolítása a családból
+ *   - Új család létrehozása
+ *   - Család szerkesztése (id_ferfi, id_no, cím)
  */
 
-import { useEffect, useState } from 'react'
-import { Home, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Crown, Home, Users, X } from 'lucide-react'
 
 import { Button } from '@kartoteka/ui'
 
+import { updateSzemelyEntry } from '../lib/sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 interface FamilyDetailDialogProps {
+  userId: string
   familyId: number
   onClose: () => void
 }
@@ -28,29 +37,142 @@ type FamilyDetail = Awaited<
   ReturnType<ReturnType<typeof getTauriSqliteBackend>['getLocalCsaladDetail']>
 >
 
-export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProps) {
+type Banner =
+  | { kind: 'success'; text: string }
+  | { kind: 'conflict'; text: string }
+  | { kind: 'offline'; text: string }
+  | { kind: 'error'; text: string }
+  | null
+
+export function FamilyDetailDialog({ userId, familyId, onClose }: FamilyDetailDialogProps) {
   const [detail, setDetail] = useState<FamilyDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [busyMemberId, setBusyMemberId] = useState<number | null>(null)
+  const [banner, setBanner] = useState<Banner>(null)
 
-  useEffect(() => {
-    let mounted = true
-    void (async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const data = await getTauriSqliteBackend().getLocalCsaladDetail(familyId)
-        if (mounted) setDetail(data)
-      } catch (err) {
-        if (mounted) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    })()
-    return () => {
-      mounted = false
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await getTauriSqliteBackend().getLocalCsaladDetail(familyId)
+      setDetail(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
     }
   }, [familyId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  /**
+   * Családfő kijelölése — 2 lépcsős UPDATE:
+   *   1. A jelenlegi családfőt (ha van) csaladfo=false-ra állítjuk
+   *   2. Az új tagot csaladfo=true-ra
+   * Mindkettő külön `updateSzemelyEntry` — nem atomic, de V1-re elég.
+   */
+  async function handleSetCsaladfo(
+    newCsaladfoId: number,
+    newCsaladfoName: string,
+    newCsaladfoRevision: number,
+  ) {
+    if (!detail) return
+
+    // Az összes jelenlegi családtag (férfi + nő + gyerekek) csaladfo-listája
+    const allMembers: Array<{ id: number; csaladfo: number; revision: number }> = []
+    if (detail.ferfi) {
+      allMembers.push({
+        id: detail.ferfi.id,
+        csaladfo: detail.ferfi.csaladfo,
+        revision: detail.ferfi.revision,
+      })
+    }
+    if (detail.no) {
+      allMembers.push({
+        id: detail.no.id,
+        csaladfo: detail.no.csaladfo,
+        revision: detail.no.revision,
+      })
+    }
+    for (const g of detail.gyermekek) {
+      allMembers.push({
+        id: g.szemely_id,
+        csaladfo: g.csaladfo,
+        revision: g.revision,
+      })
+    }
+
+    const currentCsaladfok = allMembers.filter((m) => m.csaladfo === 1)
+
+    const confirmMsg =
+      currentCsaladfok.length > 0
+        ? `"${newCsaladfoName}" legyen az új családfő?\n\nA jelenlegi családfő(k) automatikusan lekerülnek a szerepkörből.`
+        : `"${newCsaladfoName}" legyen a család családfője?\n\nEddig nem volt kijelölt családfő.`
+    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return
+
+    setBusyMemberId(newCsaladfoId)
+    setBanner(null)
+    let anyConflict = false
+    let anyOffline = false
+
+    try {
+      // 1. Régi családfő(k) → csaladfo: false
+      for (const old of currentCsaladfok) {
+        if (old.id === newCsaladfoId) continue // már ő van, nem kell módosítani
+        const result = await updateSzemelyEntry(
+          userId,
+          old.id,
+          { csaladfo: false },
+          old.revision,
+        )
+        if (result.conflict) anyConflict = true
+        if (result.queuedToOutbox) anyOffline = true
+      }
+
+      // 2. Új családfő → csaladfo: true
+      const result = await updateSzemelyEntry(
+        userId,
+        newCsaladfoId,
+        { csaladfo: true },
+        newCsaladfoRevision,
+      )
+      if (result.conflict) anyConflict = true
+      if (result.queuedToOutbox) anyOffline = true
+
+      if (anyConflict) {
+        setBanner({
+          kind: 'conflict',
+          text:
+            'Más eszközről időközben módosítottak. Az adatokat frissítettem — ' +
+            'nézd meg, és próbáld újra, ha szükséges.',
+        })
+      } else if (anyOffline) {
+        setBanner({
+          kind: 'offline',
+          text:
+            'Offline módban elmentve. A szinkron a következő online-menetben ' +
+            'feltölti a szerverre.',
+        })
+      } else {
+        setBanner({
+          kind: 'success',
+          text: `"${newCsaladfoName}" most a család családfője.`,
+        })
+      }
+
+      await load()
+    } catch (err: unknown) {
+      setBanner({
+        kind: 'error',
+        text: `Hiba a családfő-kijelöléskor: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    } finally {
+      setBusyMemberId(null)
+    }
+  }
 
   const ferfi_name = formatName(
     detail?.ferfi?.csaladnev ?? null,
@@ -74,7 +196,7 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
       aria-labelledby="family-detail-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget && busyMemberId === null) onClose()
       }}
     >
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
@@ -102,12 +224,16 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            disabled={busyMemberId !== null}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
             aria-label="Bezárás"
           >
             <X className="size-5" />
           </button>
         </div>
+
+        {/* Banner */}
+        {banner && <DialogBanner banner={banner} />}
 
         <div className="space-y-4 p-5">
           {loading && (
@@ -133,21 +259,31 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
             <>
               {/* Szülők */}
               <DetailGroup title="Szülők">
-                <ParentRow
+                <MemberRow
                   label="Apa"
                   name={ferfi_name}
                   szDatum={detail.ferfi?.sz_datum}
                   kor="ferfi"
+                  memberId={detail.ferfi?.id ?? null}
+                  csaladfo={detail.ferfi?.csaladfo ?? 0}
+                  revision={detail.ferfi?.revision ?? 0}
+                  busyMemberId={busyMemberId}
+                  onSetCsaladfo={handleSetCsaladfo}
                 />
-                <ParentRow
+                <MemberRow
                   label="Anya"
                   name={no_name}
                   szDatum={detail.no?.sz_datum}
                   kor="no"
+                  memberId={detail.no?.id ?? null}
+                  csaladfo={detail.no?.csaladfo ?? 0}
+                  revision={detail.no?.revision ?? 0}
+                  busyMemberId={busyMemberId}
+                  onSetCsaladfo={handleSetCsaladfo}
                 />
               </DetailGroup>
 
-              {/* Gyerekek */}
+              {/* Gyermekek */}
               <DetailGroup
                 title={`Gyermekek${detail.gyermekek.length > 0 ? ` (${detail.gyermekek.length})` : ''}`}
               >
@@ -161,10 +297,14 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
                       const name = formatName(g.csaladnev, g.k_nev, null) ?? '(névtelen)'
                       const age = g.sz_datum ? ageFromIso(g.sz_datum) : null
                       const genderLabel = g.ferfi === 1 ? 'fiú' : 'lány'
+                      const isCsaladfo = g.csaladfo === 1
+                      const isBusy = busyMemberId === g.szemely_id
                       return (
                         <li
                           key={g.id_gyerek}
-                          className="flex items-center gap-3 rounded-md bg-slate-50/50 px-3 py-1.5 text-sm"
+                          className={`flex items-center gap-3 rounded-md px-3 py-1.5 text-sm ${
+                            isCsaladfo ? 'bg-amber-50/60' : 'bg-slate-50/50'
+                          }`}
                         >
                           <div
                             className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
@@ -176,13 +316,32 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
                             <Users className="size-3.5" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-medium text-slate-900">{name}</p>
+                            <p className="font-medium text-slate-900">
+                              {name}
+                              {isCsaladfo && <CsaladfoBadge />}
+                            </p>
                             <p className="text-[11px] text-muted-foreground">
                               {genderLabel}
                               {age !== null && ` · ${age} éves`}
                               {g.sz_datum && ` · szül.: ${formatHuDate(g.sz_datum)}`}
                             </p>
                           </div>
+                          {!isCsaladfo && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isBusy || busyMemberId !== null}
+                              onClick={() =>
+                                handleSetCsaladfo(g.szemely_id, name, g.revision)
+                              }
+                              className="text-[11px] px-2"
+                              title="Ő legyen a család családfője"
+                            >
+                              <Crown className="mr-1 size-3" />
+                              Családfő
+                            </Button>
+                          )}
                         </li>
                       )
                     })}
@@ -193,13 +352,15 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
               {/* Cím */}
               <DetailGroup title="Cím">
                 <p className="text-sm text-slate-700">
-                  {buildCimDisplay(detail.family) || <span className="italic text-muted-foreground">nincs cím megadva</span>}
+                  {buildCimDisplay(detail.family) || (
+                    <span className="italic text-muted-foreground">nincs cím megadva</span>
+                  )}
                 </p>
               </DetailGroup>
 
               <p className="text-[10px] italic text-slate-400">
-                Revision: {detail.family.revision} · A szerkesztési funkció a következő
-                frissítésben jön.
+                Revision: {detail.family.revision} · Új család létrehozása és szerkesztés
+                a következő frissítésben jön.
               </p>
             </>
           )}
@@ -207,7 +368,7 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
 
         {/* Akciók */}
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50/50 p-4">
-          <Button type="button" onClick={onClose}>
+          <Button type="button" onClick={onClose} disabled={busyMemberId !== null}>
             Bezárás
           </Button>
         </div>
@@ -220,6 +381,23 @@ export function FamilyDetailDialog({ familyId, onClose }: FamilyDetailDialogProp
 // Sub-komponensek
 // ─────────────────────────────────────────────────────────────────────────
 
+function DialogBanner({ banner }: { banner: NonNullable<Banner> }) {
+  const style: Record<NonNullable<Banner>['kind'], string> = {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    conflict: 'border-amber-200 bg-amber-50 text-amber-900',
+    offline: 'border-sky-200 bg-sky-50 text-sky-900',
+    error: 'border-rose-200 bg-rose-50 text-rose-900',
+  }
+  return (
+    <div
+      role="alert"
+      className={`mx-5 mt-4 rounded-md border px-3 py-2 text-sm ${style[banner.kind]}`}
+    >
+      {banner.text}
+    </div>
+  )
+}
+
 function DetailGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -231,22 +409,39 @@ function DetailGroup({ title, children }: { title: string; children: React.React
   )
 }
 
-function ParentRow({
+function MemberRow({
   label,
   name,
   szDatum,
   kor,
+  memberId,
+  csaladfo,
+  revision,
+  busyMemberId,
+  onSetCsaladfo,
 }: {
   label: string
   name: string | null
   szDatum: string | null | undefined
   kor: 'ferfi' | 'no'
+  memberId: number | null
+  csaladfo: number
+  revision: number
+  busyMemberId: number | null
+  onSetCsaladfo: (id: number, name: string, revision: number) => void
 }) {
   const color = kor === 'ferfi' ? 'bg-blue-100 text-blue-800' : 'bg-pink-100 text-pink-800'
   const age = szDatum ? ageFromIso(szDatum) : null
+  const isCsaladfo = csaladfo === 1
+  const isBusy = memberId !== null && busyMemberId === memberId
+  const canAssign = memberId !== null && name !== null && !isCsaladfo
 
   return (
-    <div className="flex items-center gap-3 rounded-md bg-slate-50/50 px-3 py-2">
+    <div
+      className={`flex items-center gap-3 rounded-md px-3 py-2 ${
+        isCsaladfo ? 'bg-amber-50/60' : 'bg-slate-50/50'
+      }`}
+    >
       <div className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${color}`}>
         {kor === 'ferfi' ? '♂' : '♀'}
       </div>
@@ -259,9 +454,33 @@ function ParentRow({
               {age} éves
             </span>
           )}
+          {isCsaladfo && <CsaladfoBadge />}
         </p>
       </div>
+      {canAssign && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isBusy || busyMemberId !== null}
+          onClick={() => memberId !== null && name !== null && onSetCsaladfo(memberId, name, revision)}
+          className="text-[11px] px-2"
+          title="Ő legyen a család családfője"
+        >
+          <Crown className="mr-1 size-3" />
+          Családfő
+        </Button>
+      )}
     </div>
+  )
+}
+
+function CsaladfoBadge() {
+  return (
+    <span className="ml-2 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
+      <Crown className="size-3" />
+      Családfő
+    </span>
   )
 }
 

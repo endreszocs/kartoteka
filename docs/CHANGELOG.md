@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.3b: Családfő kijelölése a család-nézetben (desktop)
+
+<!-- key: 2026-04-24-m8-3b-csaladfo -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a család-portré modalban egy kattintással kijelölheted, ki a családfő -->
+
+### ✨ Családfő kijelölése a családnézetben
+
+A Családok oldal egy sorára kattintva megnyíló modalban most minden családtagnál látod, ki a **családfő** — egy arany „👑 Családfő" badge jelöli. A nem-családfő tagok mellett új **„Családfő" gomb**, ami egy kattintással áthelyezi a szerepet:
+
+- Ha már van kijelölt családfő → automatikusan lekerül a szerepkörből
+- Az új kijelölt tag lesz a családfő
+- Offline is működik — a szinkron automatikusan feltölti
+
+### 💡 Ki lehet a családfő?
+
+**Bárki a család tagjai közül** — apa, anya, vagy akár egy felnőtt gyermek. A családfő a pénzügyi / adminisztratív szereppel jár (a gyülekezet felé ő a család képviselője, ő kapja a tagdíj-értesítőket), nem a családszerkezetet jelenti.
+
+### 🛠 Műszaki háttér
+
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: `getLocalCsaladDetail` most visszaadja a `csaladfo` + `revision` mezőket is minden családtagra
+- **[family-detail-dialog.tsx](apps/desktop/src/components/family-detail-dialog.tsx)**: új `handleSetCsaladfo(id, name, revision)` 2-lépcsős UPDATE (régi családfő → false, új → true); `MemberRow` komponens egységes szülő + gyermek render-hez; `CsaladfoBadge` (amber + Crown ikon); `banner` state success/conflict/offline/error üzenetekhez
+- **[families-page.tsx](apps/desktop/src/pages/families-page.tsx)**: a dialog most kapja a `userId`-t az `updateSzemelyEntry`-hez
+
+**Nincs új SQL migráció + nincs új Rust migráció** — a `szemely.csaladfo` flag már az eredeti sémában, a M8.0b óta szerkeszthető az `updateSzemelyEntry`-n keresztül. Most csak a UI-ban jelenik meg explicit családi kontextusban.
+
+---
+
 ## [2026-04-24] — M8.3a: Család-kezelő a desktopon (olvasási réteg)
 
 <!-- key: 2026-04-24-m8-3a-csalad-olvasasi -->

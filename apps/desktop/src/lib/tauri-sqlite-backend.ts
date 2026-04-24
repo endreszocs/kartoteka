@@ -1750,8 +1750,23 @@ export class TauriSqliteBackend implements StorageBackend {
       isaktiv: number
       revision: number
     } | null
-    ferfi: { id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null } | null
-    no: { id: number; csaladnev: string | null; k_nev: string | null; ferjk_nev: string | null; sz_datum: string | null } | null
+    ferfi: {
+      id: number
+      csaladnev: string | null
+      k_nev: string | null
+      sz_datum: string | null
+      csaladfo: number
+      revision: number
+    } | null
+    no: {
+      id: number
+      csaladnev: string | null
+      k_nev: string | null
+      ferjk_nev: string | null
+      sz_datum: string | null
+      csaladfo: number
+      revision: number
+    } | null
     gyermekek: Array<{
       id_gyerek: number
       szemely_id: number
@@ -1759,6 +1774,8 @@ export class TauriSqliteBackend implements StorageBackend {
       k_nev: string | null
       sz_datum: string | null
       ferfi: number
+      csaladfo: number
+      revision: number
     }>
   }> {
     const familyRows = await dbSelect<{
@@ -1790,8 +1807,11 @@ export class TauriSqliteBackend implements StorageBackend {
         csaladnev: string | null
         k_nev: string | null
         sz_datum: string | null
+        csaladfo: number
+        revision: number
       }>(
-        `SELECT id, csaladnev, k_nev, sz_datum FROM szemely_local WHERE id = ?1`,
+        `SELECT id, csaladnev, k_nev, sz_datum, csaladfo, revision
+           FROM szemely_local WHERE id = ?1`,
         [family.id_ferfi],
       )
       ferfi = r[0] ?? null
@@ -1805,8 +1825,11 @@ export class TauriSqliteBackend implements StorageBackend {
         k_nev: string | null
         ferjk_nev: string | null
         sz_datum: string | null
+        csaladfo: number
+        revision: number
       }>(
-        `SELECT id, csaladnev, k_nev, ferjk_nev, sz_datum FROM szemely_local WHERE id = ?1`,
+        `SELECT id, csaladnev, k_nev, ferjk_nev, sz_datum, csaladfo, revision
+           FROM szemely_local WHERE id = ?1`,
         [family.id_no],
       )
       no = r[0] ?? null
@@ -1819,9 +1842,11 @@ export class TauriSqliteBackend implements StorageBackend {
       k_nev: string | null
       sz_datum: string | null
       ferfi: number
+      csaladfo: number
+      revision: number
     }>(
       `SELECT gl.id AS id_gyerek, gl.id_szemely AS szemely_id,
-              s.csaladnev, s.k_nev, s.sz_datum, s.ferfi
+              s.csaladnev, s.k_nev, s.sz_datum, s.ferfi, s.csaladfo, s.revision
          FROM gyerek_local gl
          JOIN szemely_local s ON s.id = gl.id_szemely
         WHERE gl.id_csalad = ?1
