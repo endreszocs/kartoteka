@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — Admin wipe + favicon V3 + /offline dobozos layout
+
+<!-- key: 2026-04-24-admin-wipe-polish -->
+<!-- category: feature -->
+<!-- targets: lelkészek + admin — tiszta lappal indulhatsz élesbe; új favicon; /offline áttekinthetőbb -->
+
+### ✨ „Tiszta lap" gomb az adminban — gyülekezeti adatok törlése
+
+A teszt-fázis után élesre váltáshoz az admin-felület új **„Veszélyes zóna"** tabján egy gomb: egy kattintással törölhetőek a lelkész által felvitt tag-, pénzügyi-, munkanapló-, anyakönyv-, leltár-, jegyzőkönyv- és egyéb adatok.
+
+**Megtartódik**: a gyülekezet alapadatai, a felhasználók profiljai, az előfizetési és tagdíj-konfigurációk.
+
+**3-szintű védelem**:
+1. Csak admin / egyházkerületi / egyházmegyei admin szerepkör hívhatja (szerver-oldali ellenőrzés)
+2. Be kell írni a gyülekezet pontos nevét a megerősítéshez
+3. Browser-confirm a végső "biztosan?" kérdésre
+
+Minden művelet naplózva a `data_wipe_log` táblába (ki, mikor, mely gyülekezetet, összesen hány sort).
+
+### 🎨 Favicon frissítve — KARTOTEKA V3 ikon
+
+Az éles webappon (és a böngésző tab-címke + PWA-telepítés ikon) mostantól a **Kartotéka V3** ikon jelenik meg. Ha a régi ikont látod, a böngésző-cache-t tisztítsd meg.
+
+### 📐 `/offline` oldal dobozos elrendezés
+
+A korábbi egymás-alatti lista helyett most **2-oszlopos grid**:
+- Hero + desktop letöltés kártya teljes szélességű
+- Alul balra: böngésző-offline magyarázat
+- Alul jobbra: segédanyagok + (admin-only) diagnosztika-link
+
+Nagyobb képernyőn áttekinthetőbb, kisebbre mobil-optimalizáltan egymás alá rendeződik.
+
+### 🛠 Műszaki háttér
+
+- **[2026-04-24-admin-wipe-congregation-data.sql](migration-docs/sql/2026-04-24-admin-wipe-congregation-data.sql)**: `wipe_congregation_data(UUID, TEXT)` RPC + `data_wipe_log` audit-tábla. Dinamikus loop a `congregation_id`-jú táblákon, `keep_tables` whitelist.
+- **[wipe-actions.ts](apps/web/app/(dashboard)/admin/wipe-actions.ts)**: server action az RPC-hez, magyar hiba-fordítás
+- **[wipe-congregation-panel.tsx](apps/web/components/admin/wipe-congregation-panel.tsx)** + **[data-wipe-tab.tsx](apps/web/components/admin/data-wipe-tab.tsx)**: UI a 2-szintű megerősítéshez
+- **[admin-tabs-v3.tsx](apps/web/components/admin/admin-tabs-v3.tsx)**: új "Veszélyes zóna" tab
+- **[layout.tsx](apps/web/app/layout.tsx)**: favicon-metadata átvált Next.js App Router konvencióra
+- **[offline/page.tsx](apps/web/app/(dashboard)/offline/page.tsx)**: grid lg:grid-cols-2 + inline HelpResources + DiagnosticsLink kártyák
+
+---
+
 ## [2026-04-24] — M8.1 polish: CNP szerver-védelem + konfliktus-feloldó
 
 <!-- key: 2026-04-24-m8-1-polish -->

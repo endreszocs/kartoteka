@@ -13,10 +13,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'KARTOTEKA',
   },
-  icons: {
-    icon: '/EREK.png',
-    apple: '/EREK.png',
-  },
+  // Az icons-konfig a Next.js App Router konvenciójára támaszkodik:
+  //   - app/icon.png  → <link rel="icon"> (KARTOTEKA_V3)
+  //   - app/apple-icon.png (ha létezik) → Apple touch icon
+  // Ha explicit override kell, itt add meg; egyébként a Next.js
+  // auto-generálja a <link>-eket.
 }
 
 // PWA: theme color a manifest-tel egyezik (sötét indigo — #1e1b4b)

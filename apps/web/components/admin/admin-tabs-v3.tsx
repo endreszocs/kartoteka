@@ -8,6 +8,7 @@ import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { AccessRequestsTab } from './access-requests-tab'
 import { BroadcastsTab } from './broadcasts-tab'
 import { CongregationsTab } from './congregations-tab'
+import { DataWipeTab } from './data-wipe-tab'
 import { DevicesLicensesTab } from './devices-licenses-tab'
 import { ImportTabRefined } from './import-tab-refined'
 import { OverviewTabRefined } from './overview-tab-refined'
@@ -31,6 +32,7 @@ const TABS = [
   { value: 'import', label: 'Import', color: 'pink' },
   { value: 'system-finance', label: 'Rendszer pénzügyei', color: 'rose' },
   { value: 'security', label: 'Rendszer', color: 'red' },
+  { value: 'data-wipe', label: 'Veszélyes zóna', color: 'red' },
 ]
 
 export function AdminTabsV3({ isGodMode = false }: { isGodMode?: boolean }) {
@@ -75,6 +77,9 @@ export function AdminTabsV3({ isGodMode = false }: { isGodMode?: boolean }) {
       </TabsContent>
       <TabsContent value="security">
         <SecuritySettingsTabV2 />
+      </TabsContent>
+      <TabsContent value="data-wipe">
+        <DataWipeTab />
       </TabsContent>
     </Tabs>
   )
