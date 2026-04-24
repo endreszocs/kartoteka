@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.3.0"
+version = "0.4.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -46,6 +46,11 @@ hex = "0.4"
 machine-uid = "0.5"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 base64 = "0.22"
+# A-M6.9 — offline PIN hitelesítés.
+# Az argon2id pure-Rust implementáció, OWASP-ajánlott paraméterekkel jön.
+# A lelkész a PIN-t 30+ napos offline gap után is tudja használni a
+# lokális SQLCipher DB unlock-olásához. Minden crate pure-Rust, nincs C-build.
+argon2 = "0.5"
 # M5 — auto-updater plugin.
 # Ed25519-aláírt manifest JSON-t hitelesít + lehúzza az új MSI/NSIS-t.
 # A `tauri-plugin-updater` pure-Rust a végén (az aláírás-ellenőrzéshez

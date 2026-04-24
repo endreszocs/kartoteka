@@ -1,14 +1,15 @@
 {
   "name": "@kartoteka/desktop",
-  "version": "0.1.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "Kartotéka desktop kliens (Tauri 2 + React + Vite) — M1 kezdő állapot",
   "scripts": {
+    "lint:imports": "node ../../scripts/check-desktop-banned-imports.mjs",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run lint:imports && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "npm run lint:imports && tauri"
   },
   "dependencies": {
     "@kartoteka/supabase-client": "*",
