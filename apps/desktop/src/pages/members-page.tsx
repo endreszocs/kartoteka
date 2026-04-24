@@ -12,7 +12,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Cake,
   Home,
-  Plus,
   RefreshCw,
   Search,
   Trash2,
@@ -221,11 +220,6 @@ export function MembersPage() {
     }
   }
 
-  function sortIcon(col: SortColumn): string {
-    if (sortCol !== col) return '↕'
-    return sortDir === 'asc' ? '↑' : '↓'
-  }
-
   return (
     <DesktopShell>
       <main className="mx-auto max-w-7xl space-y-4 p-5">
@@ -303,7 +297,12 @@ export function MembersPage() {
         </div>
 
         {/* Pending új-tag blokk */}
-        {pendingRows.length > 0 && <PendingBlock pendingRows={pendingRows} onConflictClick={setConflictRow} />}
+        {pendingRows.length > 0 && (
+          <PendingBlock
+            pendingRows={pendingRows}
+            onConflictClick={(r) => setConflictRow(r as PendingRow)}
+          />
+        )}
 
         {/* Hiba-banner */}
         {error && (
