@@ -23,6 +23,962 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.0b/c: Tag-szerkesztés + offline-írás (desktop)
+
+<!-- key: 2026-04-24-m8-0b-szemely-edit -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a tagjaid adatai mostantól szerkeszthetők a desktop appból -->
+
+### ✨ Szerkeszthető a tag-adat a desktop appban
+
+A tagnyilvántartás detail-modalja szerkesztő-móddal bővült. A „**Szerkesztés**" gomb most élő — bekapcsolva inline form-ra vált:
+
+- Szerkeszthető **személyes adatok** (nevek, születési dátum, családi állapot)
+- **Származás** (apa, anya neve)
+- **Cím** (teljes cím + ház-/tömb-/lépcsőszám + emelet + ajtó)
+- **Elérhetőség** (telefon, e-mail)
+- **Identitás** (vallás, foglalkozás, nemzetiség)
+- **Megjegyzés** (többsoros)
+
+### 📡 Online + offline-írás (mint a pénzügynél)
+
+- **Online**: a mentés azonnal felmegy a szerverre — kondicionális UPDATE `revision`-check-kel. Ha másik eszközről időközben módosították, világos magyar konfliktus-banner figyelmeztet, hogy „más eszközről módosították".
+- **Offline**: a mentés a lokális outbox-ba kerül, és a következő online-menetben automatikusan szinkronizál. A sikerbanner világosan jelzi, hogy „elmentettem offline-ban".
+
+### 🛡 Biztonság — mit NEM lehet még szerkeszteni
+
+- **Tag státusza** (meghalt, member_status) — külön admin-UI később
+- **Választó-jelzés** — családi kontextus-függő, későbbi kör
+- **Családfő** — család-kezelő UI-ba kerül (M8.3)
+- **CNP** — identifier, sosem szerkeszthető
+
+### 🔜 Mi jön
+
+- **M8.1** — Új tag rögzítése a desktopon (offline is)
+- **M8.2** — Soft-delete (a tag rejtetté tétele)
+- **M8.3** — Család-kezelő UI (család-hozzárendelés, családfő)
+
+### 🛠 Műszaki háttér
+
+- **Új validations** ([szemely-save.ts](packages/validations/src/members/szemely-save.ts)): `szemelyUpdateInputSchema` (minden mező opcionális, regex + max-length checkek), `normalizeSzemelyPatch` (üres-string → null helper)
+- **Desktop sync** ([sync.ts](apps/desktop/src/lib/sync.ts)): új `updateSzemelyEntry(userId, id, patch, expectedRevision)` — optimistic-local + conditional-online + outbox-fallback (az `updateWorklogEntry` 1:1 mintájára)
+- **Dialog** ([member-detail-dialog.tsx](apps/desktop/src/components/member-detail-dialog.tsx)): `mode: 'view' | 'edit'` state, `EditBody` komponens 20 szerkeszthető mezővel, `DialogBanner` success/conflict/offline/error stílusokkal, `buildPatch` csak a változott mezőket küldi el
+- **Revision-trigger** a szerver-oldalon a `2026-04-23-m7-0-szemely-csalad-triggers.sql`-ből, az outbox-ban a `target_table='szemely'` kezelést a `processOutbox()` generikus flush-helperje intézi
+
+**Nincs új Rust-migráció + nincs új SQL** — a shared infra (`szemely_local` lokális cache + szerver-oldali revision-trigger + outbox) már az OS-M7 óta tisztán áll. Az M8.0c write-offline = az outbox-fallback ugyanezen a helper-en.
+
+---
+
+## [2026-04-25] — M8.0a: Tagnyilvántartás lista-oldal (read-only)
+
+<!-- key: 2026-04-25-m8-0a-tagnyilvantartas-lista -->
+<!-- category: feature -->
+<!-- targets: lelkészek — végre láthatók a tagjaid a desktop appban -->
+
+### ✨ Tagnyilvántartás a desktop appban (új modul)
+
+A **Tagnyilvántartás** modul most már elérhető a desktop appból. A home-page „Tagnyilvántartás" QuickLink élővé vált → új lista-oldal nyílik:
+
+- **Kereső** — név, cím, telefon, e-mail alapján; **diakritika-toleráns** (az „ékezet nem számít": Szőcs ↔ Szocs ↔ szőcs egyformán találhatók)
+- **Status-szűrő** — Mind / Aktív / Meghalt / Rejtett (alapból „Aktív")
+- **Sortolás** — Név A→Z, Név Z→A, Életkor (idős/fiatal), Felvétel (legújabb)
+- **Lista-sor** — avatar (kék férfi / pink nő), név, életkor, cím, telefon, csaladfő/választó badge-ek
+- **Sor-kattintás** → **MemberDetailDialog** (csoportosított, read-only nézet: személyes / származás / cím / kontakt / identitás / megjegyzés)
+
+Az **offline-mód kompatibilis** — a lokál `szemely_local` cache-ből olvas (OS-M7-ben szinkronizálva). Hálózat nélkül is teljesen működik.
+
+### 🔜 Mi jön (M8.0b)
+
+- **Szerkesztés** — a tag-portré modal „Szerkesztés (hamarosan)" gombja élővé válik
+- **Új tag** rögzítés
+- **Offline write** (a write-offline minta szerint)
+
+A jelenlegi modal-on a „Szerkesztés (hamarosan)" gomb disabled — világos jelzés a lelkésznek, mit jön legközelebb.
+
+### 🛠 Műszaki háttér
+
+- **Validations** (új [members/szemely-list.ts](packages/validations/src/members/szemely-list.ts)): `szemelyListRowSchema` (~30 mező a `szemely_local`-ról), `SzemelyStatusFilter` enum (`mind | aktiv | meghalt | rejtett`), `szemelyListInputSchema` (search + statusFilter + orderBy + limit)
+- **Backend** ([tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)): új `listLocalSzemely(input)` metódus — SQL `WHERE` a status-szűrőre + COLLATE NOCASE rendezés + JS-oldali NFD-normalizált kereső a 7 mezőn
+- **Új page** ([members-page.tsx](apps/desktop/src/pages/members-page.tsx)): lista + szűrők + 300ms debounced search + load-state
+- **Új komponens** ([member-detail-dialog.tsx](apps/desktop/src/components/member-detail-dialog.tsx)): csoportosított read-only modal (5 szekció + megjegyzés), serif cím, magyar dátum-formátum, üres mezők elrejtve
+- **Route** ([App.tsx](apps/desktop/src/App.tsx)): `/tagnyilvantartas` bekötve
+
+A modul **offline-first**: nincs új SQL migráció, a `szemely_local` tábla és a `pullMembersOfOwnCongregation` sync-je már megvan az OS-M7-ből.
+
+---
+
+## [2026-04-25] — A-M7.10c: Bank-import automata import (párosítatlanok rögzítése)
+
+<!-- key: 2026-04-25-a-m7-10c-bank-import-auto -->
+<!-- category: feature -->
+<!-- targets: lelkészek — banki tranzakciók egy kattintással bejönnek a könyvelésbe -->
+
+### ✨ Bank-import: end-to-end működés
+
+A bank-import most **teljesen működő** flow-t ad: a párosítatlan banki tranzakciókat egy kattintással **új befizetés / kiadás bejegyzésként** rögzíti a rendszer. A lelkész:
+
+1. Betölti a BCR Excel fájlt (A-M7.10a)
+2. Lefuttatja a párosítást (A-M7.10b) — látja, mi van már a rendszerben
+3. **Új panel**: válasszon default befizetés-kategóriát + default kiadás-kategóriát
+4. **„Párosítatlan tranzakciók importálása (N)"** gomb → minden új tétel bejön
+
+A folyamat:
+- Pozitív összeg → új befizetés (`irattipus = 'Banki'`, kategória = választott default)
+- Negatív összeg → új kiadás (átvevő = banki partner vagy a leírás eleje)
+- Iratszám: a banki referencia (közlemény), vagy auto-generált `BANK-yyyymmdd-NN` formátum
+- Megjegyzés: `[Bank-import] {leírás} · Partner: ... · Ref: ... · Egyenleg: ...`
+- Forrás: `'Bank-import'`
+
+A tételek **nem ütköznek** a Készpénz-iratszám pool-lal (más típusúak, más szegmens).
+
+### 🛠 Műszaki háttér
+
+- **Desktop UI** ([bank-import-page.tsx](apps/desktop/src/pages/bank-import-page.tsx)): új state-ek (`befizetesCelek`, `kiadasCelek`, `defaultIncomeCelId`, `defaultExpenseCelId`, `userId`, `importing`, `importResult`); `handleImportUnmatched` async fn forEach-flow-val (egyenként saveIncome/saveExpenseUseCase, hiba-aggregáció a `errors` tömbbe); `bankRowToIratszam` + `composeMegjegyzes` helper függvények; új `ImportResultCard` komponens (siker emerald / részleges siker amber, max 20 hiba listázva).
+- **Sikeres import után automatikus újra-párosítás** — az újonnan rögzített tételek a következő körben már matched státuszt kapnak.
+- **Online-only** (a `saveIncomeUseCase`/`saveExpenseUseCase` szerver-direkt).
+- **Nincs új SQL / Rust / core kód** — tisztán UI + meglévő use-case-ek orchestrációja.
+
+A bank-import wave most **75%-ban kész** — BCR teljes E2E működik. A Raiffeisen + BT parserek (A-M7.10d) hátra.
+
+---
+
+## [2026-04-25] — A-M7.10b: Bank-import matcher (banki tranzakciók párosítása)
+
+<!-- key: 2026-04-25-a-m7-10b-bank-import-matcher -->
+<!-- category: feature -->
+<!-- targets: lelkészek — banki kivonat tranzakcióinak automatikus felismerése -->
+
+### ✨ Bank-import: párosítás a meglévő tételekkel
+
+A `/penzugy/bank-import` oldal mostantól nemcsak előnézetet ad, hanem **„Párosítás futtatása"** gombbal automatikusan megnézi, hogy a banki tranzakciók közül melyik tartozik egy már rögzített befizetéshez vagy kiadáshoz. A heuristika:
+
+1. **Pontos egyezés** (zöld „Megvan" badge): azonos dátum + azonos összeg
+2. **Iratszám-egyezés** (zöld): a banki közleményben szerepel a meglévő tétel iratszáma
+3. **Toleráns egyezés** (sárga „Több jelölt"): pontos összeg, de a dátum eltér ±2 nappal — a user dönt
+4. **Nincs egyezés** (piros „Nincs"): a párosítatlan tranzakció a következő iterációban (A-M7.10c) lesz importálható új tételként
+
+**A Match Summary kártya** mutatja a 4 státusz darabszámát egy pillantásra. A preview-tábla minden sora mellé bekerül egy státusz-badge — hover-tooltipben a részletek (iratszám, magyarázat).
+
+### 🛠 Műszaki háttér
+
+- **Validations** ([bank-import.ts](packages/validations/src/finance/bank-import.ts)): új `MatchStatus` (`matched | multiple | unmatched | duplicate`), `MatchCandidate`, `BankMatchRow`, `BankMatchResult` zod-sémák
+- **Core matcher** (új [matcher.ts](packages/core/src/finance/bank-import/matcher.ts)): `matchBankTransactionsUseCase` — időtartomány-szűrt `listIncome` + `listExpense` lekérdezés, sor-onkénti 3 lépcsős párosítás (pontos / iratszám / toleráns), `confidence` 0.7–1.0
+- **Desktop UI** ([bank-import-page.tsx](apps/desktop/src/pages/bank-import-page.tsx)): `Párosítás futtatása` gomb, `MatchSummaryCard` 4-stat-kártyával, preview-tábla `MatchStatusBadge` oszloppal (csak match után jelenik meg), pasztorális következő-lépés tippek
+- **Online-only most**: a matcher RPC-szerű hívásokra támaszkodik (`listIncomeUseCase` + `listExpenseUseCase`); offline-fallback a következő session-be defer
+
+A bank-import wave most ~50%-ban kész — az infrastruktúra, parser és matcher megvan; a tényleges import (új tétel-rögzítés a párosítatlanokra) az A-M7.10c-ben jön.
+
+---
+
+## [2026-04-25] — A-M7.10a: Bank-import infrastruktúra (BCR XLSX parser)
+
+<!-- key: 2026-04-25-a-m7-10a-bank-import-bcr -->
+<!-- category: feature -->
+<!-- targets: lelkészek — BCR Excel kivonat előnézete a desktopon -->
+
+### ✨ Bank-import: BCR Excel előnézet a desktop appban
+
+A pénzügyi modul új ágat kapott: **`/penzugy/bank-import`** — a bankodból exportált Excel kivonat betöltése és tranzakciók előnézete. Az első iteráció a **BCR (Banca Comercială Română)** XLSX exportot támogatja, a webapp meglévő (és bevizsgált) parserének portjaként.
+
+**Mit lehet most:**
+- BCR Excel fájl (`.xlsx`) feltöltése
+- Tranzakciók előnézete (max 50 sor scroll-listán)
+- Bevétel + kiadás összesítés (jóváírás vs. terhelés)
+- Felismert oszlopok debug-listája
+- Pasztorális hibajelzés ha a fájl formátum-eltérő (pl. nincs dátum-oszlop)
+
+**Mit jön (A-M7.10b/c):**
+- Tranzakciók párosítása a már rögzített befizetés/kiadás tételekkel
+- Új tételek automatikus rögzítése (a párosítatlanok)
+- Raiffeisen Bank + Banca Transilvania (BT) parserek
+
+A bank-választó dropdown mind a 3 bankot mutatja, de a Raiffeisen + BT „még nem támogatott" jelzéssel — a placeholder-parserek tisztességes hibaüzenettel jelzik.
+
+### 🛠 Műszaki háttér
+
+- **Validations** (új [bank-import.ts](packages/validations/src/finance/bank-import.ts)): `bankProviderSchema` (literal union: bcr/raiffeisen/bt), `bankTransactionSchema`, `bankParseResultSchema`, magyar banknév-címkék.
+- **Core** (új [finance/bank-import/](packages/core/src/finance/bank-import/) modul): `parseBcrExcel(buffer)` — a webapp ~400 soros parserének portja, browser-független (xlsx import a fájl elején, nincs `'use client'`). Helper függvények: oszlop-fuzzy-matching (PRIORITÁS pattern-ek a BCR-specifikus „Suma intrare/iesire" mezőkre), Excel Date timezone-handling, RO/US dátum-ambiguity heurisztika, RO/US szám-formátum normalizálás.
+- **Core registry** (új [finance/bank-import/index.ts](packages/core/src/finance/bank-import/index.ts)): `BANK_PARSERS` map + univerzális `parseBankExport(provider, buffer)` belépési pont.
+- **Új dependency**: `xlsx@^0.18.5` a `@kartoteka/core` package-ben (a webapp már használta; most a core is).
+- **Desktop UI** (új [bank-import-page.tsx](apps/desktop/src/pages/bank-import-page.tsx)): bank-választó + browser `<input type="file">` (a Tauri webview natívan támogatja, nem kell FS plugin) + ArrayBuffer parse + preview tábla.
+- **Route** (`/penzugy/bank-import`) + landing-kártya bekötve a `PenzugyLandingPage`-en (indigo Download ikon, „Béta" badge).
+
+A core-ban most első olyan rétegű use-case, ami **harmadik-fél binary formátumot** parse-ol (XLSX). A `xlsx` package belső zip-warningjait („Bad uncompressed size:") kiszűrjük, a webapp-mintával azonos módon.
+
+---
+
+## [2026-04-25] — A-M7.9d: Pending tételek a pénzügyi áttekintőn
+
+<!-- key: 2026-04-25-a-m7-9d-dashboard-pending-summary -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — offline-rögzített tételek láthatósága az éves áttekintőn -->
+
+### 🎨 Pending tételek aggregátum-bannere a pénzügyi áttekintőn
+
+A `/penzugy/attekintes` oldal mostantól **külön sárga sávban** jelzi az offline-rögzített, még-nem-szinkronizált befizetéseket és kiadásokat. Ha offline rögzítesz vasárnap 3 befizetést, de a dashboard adatai csak hétfő reggel frissülnek — mostantól a sáv azonnal mutatja:
+
+- **„3 offline-rögzített tétel szinkronizálásra vár"**
+- Kattintható chipek: „3 befizetés · +450 RON" (emerald) vagy „2 kiadás · −120 RON" (rose)
+- Ha ütközés van: piros jelzés „1 ütközés feloldásra vár" + a sáv egésze pirosra vált
+
+A kattintás a megfelelő page-re navigál (befizetés vagy kiadás), ahol a pending blokk fel is oldható.
+
+### 🧠 Miért külön sáv, nem a stat-kártyák?
+
+Pasztorális döntés: az éves áttekintés a **hivatalos, szerveren lévő** képet mutassa (könyvelési hang). A pending tételek nem „vannak" még — várakoznak. A szétválasztás világossá teszi a lelkésznek: „Ez a szerver-adat. És ez még jönni fog."
+
+A stat-kártyák (Bevétel / Kiadás / Egyenleg) változatlanok — csak a szerverre került tételeket aggregálják. A pending összeg + darabszám a külön sávban.
+
+### 🛠 Műszaki háttér
+
+- **Frontend** ([penzugy-dashboard-page.tsx](apps/desktop/src/pages/penzugy-dashboard-page.tsx)): új `pendingSummary` state + `loadPendingSummary(cid, year)` helper (mindkét ágban — online és offline — fut `loadData` végén). `PendingSummaryBanner` komponens a fájl végén (~90 sor). `useNavigate` a kattintáshoz.
+- **Backend-használat**: `listLocalPendingBefizetes(cid, year)` + `listLocalPendingKiadas(cid, year)` már megvolt az A-M7.9a-ból; most a dashboard is fogyasztja.
+- **Nincs új SQL / Rust migráció** — tisztán frontend-bővítés.
+
+A pénzügyi áttekintő most teljesen **konzisztens** a pending-blokkokkal: ha a user a befizetés-oldalon lát 3 pending tételt, az áttekintő is mutatja a sáv-bannerén.
+
+---
+
+## [2026-04-25] — A-M7.9c: Konfliktus-feloldó dialog (befizetés + kiadás)
+
+<!-- key: 2026-04-25-a-m7-9c-write-sync-conflict-dialog -->
+<!-- category: feature -->
+<!-- targets: lelkészek — szinkronizációs ütközések feloldása egy kattintással -->
+
+### ✨ Konfliktus-feloldó dialog a sync-ütközéseken
+
+Ha az offline-rögzített befizetés vagy kiadás szinkronizációja **ütközésbe fut** (pl. egy másik lelkész/desktop ugyanazt az iratszámot foglalta a szerveren), a sor pirossal megjelenik a „🕓 Szinkronizálásra vár" blokkban — most már **kattintható**.
+
+A megnyíló dialógus két opciót kínál:
+- **Másik iratszámra állítás** — a wallet-ből kivesz egy új szabad sorszámot, az ütközött tétel automatikusan újra-szinkronizálódik. A tétel adatai (összeg, dátum, tag/átvevő, kategória) változatlanok.
+- **Lokális tétel törlése** — a sor eltűnik a gépedről, a wallet-szám visszakerül a tárcába (újra felhasználható). A szerveren lévő (másik kliens által rögzített) tétel nem érintve.
+
+A szerver-üzenet (sync_error) magyarul, idézőjelben látszik a fejlécben — látod, hogy mi okozta az ütközést, és tudod, hogy melyik döntés a megfelelő.
+
+### 🎨 UX-konzisztencia
+
+Egyetlen közös `WriteSyncConflictDialog` komponens szolgálja ki a befizetést és a kiadást is — a chitanța `ChitantaConflictDialog` általánosított változata. A három pénzügyi entitás (chitanța, befizetés, kiadás) most már **azonos UX-mintával** kezeli a konfliktusokat: serif cím, két nagy CTA, primary „új szám", másodlagos „törlés" + browser-confirm, sikerüzenet 1.5 mp után automatikus zárás.
+
+### 🛠 Műszaki háttér
+
+- **Backend** ([tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)): 4 új metódus — `deleteLocalBefizetes`, `updateLocalBefizetesNumber`, `deleteLocalKiadas`, `updateLocalKiadasNumber`. A pending-listing függvények mostantól a `fizetettev` (befizetés) és `ev` (kiadás) mezőt is visszaadják, hogy a reassign helyes wallet-szegmensből allokáljon.
+- **Sync helperek** (befizetes-write-sync.ts + kiadas-write-sync.ts): új `resolveBefizetesConflict` és `resolveKiadasConflict` — `delete` ág (wallet-release + DELETE) és `reassign` ág (claim → updateNumber → re-enqueue → trigger sync).
+- **UI komponens** (új fájl: [write-sync-conflict-dialog.tsx](apps/desktop/src/components/write-sync-conflict-dialog.tsx)) — `entity: 'befizetes' | 'kiadas'` props, közös rendering a magyar entitás-címke kiválasztásával.
+- **Page integráció**: `befizetes-page.tsx` és `kiadas-page.tsx` — conflict-sor `cursor-pointer + onClick + onKeyDown` (Enter/Space), dialog renderelés `conflictRow` state-tel, sikeres feloldás után `loadList + loadPending` reload.
+
+A pénzügyi desktop write-offline kör most teljes — a chitanța (A-M7.2), befizetés (A-M7.9a), kiadás (A-M7.9b), és a konfliktus-feloldás mindhárom entityre (A-M7.2d2d + A-M7.9c) **kész és UX-konzisztens**.
+
+---
+
+## [2026-04-25] — A-M7.9b: Offline kiadás-rögzítés
+
+<!-- key: 2026-04-25-a-m7-9b-kiadas-write-offline -->
+<!-- category: feature -->
+<!-- targets: lelkészek — Készpénzes kiadás rögzítése hálózat nélkül is -->
+
+### ✨ Offline kiadás-rögzítés Készpénzes tételekre (desktop)
+
+A befizetés-write-offline (A-M7.9a) párja: a Készpénzes **kiadás** rögzítése is működik most már offline. A vasárnap reggeli zsoltáros vagy presbiter kifizetés, a hét közbeni készpénzes vásárlás (gyertya, kenyér, kis bevásárlás) ugyanúgy rögzíthető hálózat nélkül.
+
+**Hogyan működik?**
+
+A `/penzugy/kiadas` oldalon ugyanaz a panel-rendszer mint a befizetésnél:
+- **Iratszám-tárca panel** — most már „Offline iratszám-tárca · 2026 · kiadás" — külön sorszám-pool a kiadásra (a befizetés-pool-tól független)
+- **Offline rögzítés** — Készpénzes átvevő (tag vagy szöveges) + összeg + kategória, sorszám automatikusan a tárcából
+- **Auto-szinkronizálás** — a hálózatra csatlakozáskor a háttérben felmegy a szerverre
+- **Sync indicator** — a jobb felső jelzés mostantól a chitanță + befizetés + kiadás összes pending tételét egybeszámolja
+
+**Korlátok**: csak Készpénzes kiadás. A banki kifizetések továbbra is online-mód alatt rögzíthetők.
+
+### 🛠 Műszaki háttér
+
+- **SQL**: nincs új migráció — a A-M7.9a `iratszam_pointers` tábla és `reserve_iratszam` RPC közös: csak `tipus='kiadas'` paraméterrel hívjuk
+- **Rust v15 migráció**: új `kiadas_pending_local` tábla
+- **Core use-case**: `saveExpenseUseCase` offline-ág + `OfflineExpenseBackend` interface (a befizetés-mintával azonos)
+- **Backend**: 5 új `TauriSqliteBackend` metódus (insert/list/get/markSynced/markConflict)
+- **Sync**: `kiadas-write-sync.ts` (a `befizetes-write-sync.ts` mintára: 30s poll + window.online + exp-backoff + 23505 → conflict)
+- **AuthGate**: `startKiadasAutoSync` mount-kor + `runKiadasSyncManually` SIGNED_IN-en
+- **UI**: `kiadas-page.tsx` bővítve `IratszamWalletPanel` + `KiadasOfflineWarning` + `PendingExpenseBlock` komponensekkel
+
+A teljes pénzügyi desktop write-offline kép most lezárva: chitanță (A-M7.2d), befizetés (A-M7.9a), kiadás (A-M7.9b). A konfliktus-feloldó dialog (a chitanța A-M7.2d2d minta szerint, befizetés + kiadás esetén) az A-M7.9c-ben jön.
+
+---
+
+## [2026-04-25] — A-M7.9a: Offline befizetés-rögzítés (iratszám-tárca)
+
+<!-- key: 2026-04-25-a-m7-9a-befizetes-write-offline -->
+<!-- category: feature -->
+<!-- targets: lelkészek — vasárnapi gyűjtés rögzítése hálózat nélkül is -->
+
+### ✨ Offline befizetés-rögzítés Készpénzes tételekre (desktop)
+
+A Kartotéka desktop alkalmazásban a Készpénzes befizetés rögzítése **most már offline is működik**. A vasárnapi gyűjtés, a hét közbeni perselypénzbe érkező adományok azonnal rögzíthetők, hálózat nélkül is — a rendszer a hálózatra csatlakozáskor automatikusan szinkronizálja az adatokat.
+
+**Hogyan működik?**
+
+1. **Iratszám-tárca feltöltés (egyszer, online)** — a befizetés-oldal tetején új panel: „Offline iratszám-tárca · 2026 · befizetés". A „+10 szám" gombbal a szerver atomikusan lefoglal 10 sorszámot, amelyeket a desktop helyileg eltárol.
+2. **Offline rögzítés** — ha hálózat nélkül vagy, a Készpénz-fülön ugyanúgy rögzíthetsz: a tárcából automatikusan kerül sor a következő szabad iratszám.
+3. **Automatikus szinkronizálás** — amint a gép online, az „🕓 Szinkronizálásra vár" sávban látható tételek a háttérben felmennek a szerverre. A jobb felső „N tétel szinkronra vár" jelölő minden oldalon mutatja az állapotot.
+
+**Korlátok**: csak Készpénzes befizetés. A banki átutalások továbbra is online-mód alatt rögzíthetők (a banki kivonatból jönnek be az automatikus import során). A bank-csatlakozó wave később jön.
+
+**Pasztorális UX**: a tárca állapota (üres / kevés / rendben) három színnel jelzett — a lelkész egyetlen pillantásra látja, hogy fel kell-e tölteni. Az offline figyelmeztető is „pasztorális" hangvételű — nem technikai üzenet, hanem érthető eligazítás.
+
+### 🔒 Race-mentes iratszám-foglalás (szerver-oldali védelem)
+
+Új PostgreSQL pointer-tábla (`iratszam_pointers`) + atomic RPC-k (`reserve_iratszam`, `next_iratszam`) gondoskodnak arról, hogy két lelkész vagy két desktop ne kaphasson véletlenül **ugyanazt az iratszámot** ugyanarra az évre. A `befizetes` és `kiadas` táblákra defensive `UNIQUE PARTIAL INDEX` is került — a Készpénzes iratszámok mostantól szerver-szinten egyediek (gyülekezet × év × iratszám).
+
+A korábbi `getNextReceiptNumberUseCase` regex-MAX+1 stratégia **nem volt concurrency-safe** — ezt most az atomic RPC + UNIQUE constraint együttesen váltja ki.
+
+### 🛠 Műszaki háttér (összegzés)
+
+- **SQL**: `migration-docs/sql/2026-04-25-a-m7-9a-iratszam-pointers.sql` (Endre futtatja)
+- **Rust v14 migráció**: `iratszam_wallet_local` + `befizetes_pending_local` (SQLCipher-titkosított lokális DB)
+- **Rust commands**: `iratszam_wallet_claim_next` (atomic BEGIN/SELECT/UPDATE/COMMIT) + `iratszam_wallet_release`
+- **Core use-case**: `refillIratszamWalletUseCase` (közös befizetés/kiadás, év-szegmentált)
+- **Core save offline-ág**: `saveIncomeUseCase` `OfflineIncomeBackend` interface-szel — duck-type, a Tauri backend implementálja
+- **UI komponens**: `IratszamWalletPanel` (három-állapotú: üres/kevés/rendben, +10 gomb online-módban)
+- **Sync modul**: `befizetes-write-sync.ts` — auto-trigger (`window.online` + 30s poll + AuthGate `SIGNED_IN`), exp-backoff (30s/1m/2m/5m/15m), 23505 unique-ütközés azonnal conflict
+- **Sync indicator**: shell-szintű jobbfelső jelölő mostantól mind a chitanță mind a befizetés pending sorokat mutatja
+
+A kiadás-write-offline (A-M7.9b) **ugyanezen az infrastruktúrán** fog menni — közös iratszam-pointers tábla, közös wallet, csak a save use-case + UI duplikáció marad hátra.
+
+---
+
+## [2026-04-24] — A-M7.7 + A-M7.8: TVA-plafon figyelmeztető + offline dashboard-nézet
+
+<!-- key: 2026-04-24-a-m7-7-8-tva-offline -->
+<!-- category: feature -->
+<!-- targets: lelkészek — proaktív TVA-figyelmeztetés + offline pénzügyi áttekintés -->
+
+### 🚨 TVA-plafon figyelmeztető a pénzügyi áttekintésen
+
+A pénzügyi áttekintés oldalon mostantól **automatikus figyelmeztetés** jelenik meg, ha az éves bevétel közelít a román TVA-plafonhoz (395.000 RON / év). Nincs több „jaj, nem is vettem észre" — a rendszer időben szól.
+
+**4 szint:**
+- **< 50%**: elrejtve (nyugodt)
+- **50-75%** sárga: tájékoztató, „egyelőre nyugodt"
+- **75-90%** narancs: „Közeledik — érdemes kezdeni gondolni a TVA-regisztrációra"
+- **90-100%** piros: „⚠ Hamarosan eléred — {X} RON van a plafonig"
+- **> 100%** piros 🚨: „A plafon elérve — sürgős regisztráció kell"
+
+A figyelmeztetés progress-bar-ral mutatja, hogy hol tartunk.
+
+**Megjegyzés:** ez egy konzervatív becslés — a teljes éves bevételt nézi, nem csak a TVA-ba számító kategóriákat. Ha ez alapján nyugodt vagy, biztosan rendben vagy. A pontos számítást a web-oldalon tudod megnézni.
+
+### 📱 Offline pénzügyi áttekintés
+
+A pénzügyi áttekintés oldal **offline is működik** — a legutóbb szinkronizált lokális adatokat mutatja. Hálózat nélkül is megnézheted, hol tart a gyülekezet pénzügyileg.
+
+**Hogyan működik?**
+- Amikor online vagy, a rendszer **automatikusan lesyncelte** az éves befizetéseket + kiadásokat a titkosított lokális adatbázisba
+- Offline-módban a lokális adat jelenik meg + narancs banner tájékoztat: „Offline munkamenet — lokális adat látszik"
+- Online-ra visszakapcsolódva az oldal automatikusan frissül a szerver-adatokkal
+
+**Korlátok:**
+- Max 500 befizetés + 500 kiadás tárolódik lokálisan (évenként)
+- Csak **olvasás** — offline-módban új befizetést/kiadást NEM rögzíthetsz (a form disabled marad)
+
+**Adat-forrás jelzés:**
+- `server` (alap) — friss szerver-adat
+- `mixed` — amber banner: „Részleges adat: egyes oldalak lokális cache-ből"
+- `local` — amber banner: „A szerver nem elérhető — lokális adat látszik"
+
+### 📦 Implementáció
+
+- **A-M7.7** — új komponens `TvaPlafonWarning` a dashboard-on (~100 sor, logika + UI)
+- **A-M7.8**:
+  - **Rust v12 migráció**: `befizetes_local` SQLite tábla (29 oszlop, 6 index)
+  - **Rust v13 migráció**: `kiadas_local` SQLite tábla (27 oszlop, 5 index)
+  - Új modul: `apps/desktop/src/lib/finance-sync.ts` — `pullBefizetesek`, `pullKiadasok`, `getLocalBefizetesek`, `getLocalKiadasok`
+  - Dashboard `loadData` bővítés: online-ág szerver-lekérdezés + háttér-pull + fallback lokál hibára; offline-ág azonnal lokál
+
+### 🧭 Ami MÉG nincs, de készülőben
+
+- **Bank-import** (BCR, Raiffeisen, BT CSV-k) — külön alkalomra, specifikus parser-ek
+- **Oblio / e-Factura** — Supabase Edge Function + 2-3 napos munka
+- **Write-offline** (offline befizetés/kiadás rögzítés) — iratszám-wallet rendszer kell, a chitanta minta szerint
+
+Ezek a funkciók a pénzügyi wave következő nagy körét alkotják.
+
+---
+
+## [2026-04-24] — A-M7.6: Belső mozgás rögzítése (`/penzugy/belsomozgas`)
+
+<!-- key: 2026-04-24-a-m7-6-belsomozgas -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a pénz belső helyváltoztatása (kassza ↔ bank) végre rögzíthető desktopról -->
+
+### 🔄 Új oldal: Belső mozgás
+
+Mostantól a gyülekezet **belső pénzmozgását** is rögzítheted közvetlenül a desktopról:
+
+**Mit rögzíthetsz?**
+- **Kassza → Bank** (perselyfölözés) — a vasárnapi persely a bankba bekerül
+- **Bank → Kassza** (pénzfelvétel) — a kiadásokhoz pénzt veszel fel a bankból
+- **Bank → Bank** (átutalás) — két bank-számla között
+- **Valutacsere** — pl. EUR → RON (a cél-összeg + árfolyam is megadandó)
+
+**A form élőben auto-fillelt:**
+- Kassza → Bank típusnál a forrás automatikusan „Kassza"
+- Bank → Kassza típusnál a cél automatikusan „Kassza"
+- Valutacserénél a cél-összeg + árfolyam mező csak akkor jelenik meg, ha szükséges
+
+**A lista:**
+- Év-szűrő + típus-szűrő
+- Típus-chip (K→B, B→K, B→B, Cs) — egy pillantásra érthető
+- Törlés (soft-delete, browser-confirm-mal)
+
+**Mit NEM érint?**
+A belső mozgás **nem** érinti a tagok befizetéseit / kiadásokat. Ez csak a gyülekezeti pénz belső helyváltoztatásának nyilvántartása. A befizetés-kategóriád, járulék-összesítőd változatlan.
+
+### Elérés
+
+`/penzugy/belsomozgas` — sidebar → Pénzügy → „Belső mozgás" kártya (🟢Új, indigo szín).
+
+A Pénzügy főoldal most **6 modul-kártyát** mutat: Áttekintés, Befizetés, Kiadás, Belső mozgás, Chitanța, Nyugtatömbök.
+
+### 📦 Implementáció
+
+- 3 új shared use-case a `@kartoteka/core`-ban (list, save, soft-delete)
+- Zod séma 4 input-típussal + valutacsere-refine
+- Web adapter (thin) — `apps/web/app/(dashboard)/penzugy/belsomozgas-actions.ts`
+- Desktop oldal `apps/desktop/src/pages/belsomozgas-page.tsx` (~500 sor)
+- Route + landing-kártya
+
+---
+
+## [2026-04-24] — A-M7.5: Pénzügyi áttekintés oldal (`/penzugy/attekintes`)
+
+<!-- key: 2026-04-24-a-m7-5-penzugy-dashboard -->
+<!-- category: feature -->
+<!-- targets: lelkészek — egy oldalon a gyülekezet éves pénzügyi képe -->
+
+### 📊 Új oldal: Pénzügyi áttekintés
+
+Egy oldalon, egy pillantásra látható a gyülekezet éves pénzügyi képe.
+
+**Elérés:** `/penzugy/attekintes` (sidebar → Pénzügy → Pénzügyi áttekintés kártya — az első, „Új" badge-dzsel).
+
+### Mit látsz ott?
+
+**3 stat-kártya fent:**
+- 💚 **Bevétel** — éves összes RON-ban + darabszám
+- 🌹 **Kiadás** — éves összes RON-ban + darabszám
+- ⚖ **Egyenleg** — bevétel − kiadás; kék ha pozitív, borostyán ha negatív
+
+**Havi bontás (12 hónap):**
+A januártól decemberig mindegyik hónapra:
+- Zöld bar a bevétellel (relatív a legnagyobb havi max-hoz)
+- Piros bar a kiadással
+- Darabszám: „3b / 5k" (3 bevétel / 5 kiadás)
+- Üres hónapok halványan
+
+**Top 5 kategória mindkét oldalon:**
+- **Top bevétel-kategóriák** — pl. Egyházfenntartó járulék 45%, Persely 20% stb.
+- **Top kiadás-kategóriák** — pl. Fűtés 30%, Továbbítás az egyházmegyének 25% stb.
+- Progress-bar + százalék + darabszám mindegyiken
+
+### 🔢 Mi számít bele?
+
+- **Sztornózott** és **törölt** sorok NEM — csak a tiszta valóság
+- `fizetettev` szerint a bevételeknél (melyik évre szól), `datum` szerint a kiadásoknál
+- Max 2000 sor/oldal — nagy gyülekezeteknek is elég
+
+### Mire használható?
+
+- **Év-eleji szemrevétel** — mennyi volt tavaly bevétel, mire költöttünk
+- **Egyházmegyei beszélgetéshez** — a fő számok gyorsan hivatkozhatók
+- **Költségvetés-tervezéshez** — a havi bontásból látszik, mikor vannak csúcsok
+- **Presbiteri ülésre** — vizuálisan összegző kép
+
+### 📦 Implementáció
+
+- Új oldal: `apps/desktop/src/pages/penzugy-dashboard-page.tsx` (~480 sor)
+- **Zero új backend** — a meglévő `listIncomeUseCase` és `listExpenseUseCase` párhuzamos hívásából kliens-oldali reduce
+- Route: `/penzugy/attekintes`
+- Pénzügy-landing-page most 5 modul-kártyát mutat
+
+---
+
+## [2026-04-24] — A-M7.4d: Desktop kiadás oldal (`/penzugy/kiadas`)
+
+<!-- key: 2026-04-24-a-m7-4d-desktop-kiadas -->
+<!-- category: feature -->
+<!-- targets: lelkészek — új desktop oldal a kiadások rögzítésére -->
+
+### 💸 Új desktop oldal: Kiadás
+
+A Kartotéka desktop app-ban mostantól **a kiadásokat is közvetlenül rögzítheted**. A befizetés-oldal mellé került a **Kiadás** kártya a pénzügyi főoldalon.
+
+**Elérés:** `/penzugy/kiadas` (sidebar → Pénzügy → Kiadás rögzítése kártya).
+
+**Mit tudsz itt csinálni:**
+
+1. **Év-szűrő** a fejlécben (elmúlt 6 év)
+2. **Új kiadás rögzítése** — 8 mezős űrlap:
+   - Dátum + kategória (járulék-továbbítás, villany, fűtés, segélyezés, stb.)
+   - **Átvevő mód-kapcsoló**:
+     - **Külső** (cég, magánszemély): név + CUI/adószám (cég esetén)
+     - **Gyülekezeti tag**: diakritika-toleráns autocomplete kereső
+   - Összeg (RON) + típus (Készpénz / Banki) + iratszám (automatikus)
+   - Vonatkozó időszak (opcionális, pl. „2026 01" = januári fűtés)
+   - Megjegyzés
+3. **Lista** az adott év 500 legfrissebb kiadásával
+4. **Szűrő kategória szerint**
+5. **Sztornó** (inline panel, kötelező indoklás) — a belső kassza↔bank transfer párját is automatikusan sztornózza
+6. **Törlés** (soft-delete, browser-confirm-mal)
+7. **Excel export** (CSV) — 12 oszlopos
+8. **Rose-színű összesítő kártya**: összes kiadás RON-ban + darabszám
+
+### 🎨 Vizuális kód
+
+A kiadás-oldal **rose (piros-árnyalatú)** színkóddal fut — a befizetés **emerald (zöld)** színével ellentétben. Így egy pillantásra azonnal érted, melyik nézetben vagy: bevétel vagy kiadás.
+
+### 🔒 Biztonság
+
+- Az év-véglegesítés esetén a sztornó blokkolt (egyházmegyei admin-engedély kell)
+- A CUI/adószám mező magánszemélynél nem kötelező
+- Cég-kiadásnál a CUI a TVA-követelményhez szükséges
+
+### 📦 Implementáció
+
+A backend (A-M7.4a/b/c, mai nap) már kész volt: 7 use-case (list, list-cel, save, next-receipt, duplicate, delete, sztornó) a `@kartoteka/core`-ban + web adapterek. Ma a desktop UI **ugyanezeket** hívja.
+
+- Új oldal: `apps/desktop/src/pages/kiadas-page.tsx` (~820 sor)
+- CSV export: `apps/desktop/src/lib/export/kiadas-csv.ts` (~80 sor)
+- Route: `/penzugy/kiadas`
+- Landing-kártya: `PenzugyLandingPage` most 4 modult mutat (Befizetés, Kiadás, Chitanța, Nyugtatömbök)
+
+---
+
+## [2026-04-24] — A-M7.3d5: Excel export a befizetés-listából
+
+<!-- key: 2026-04-24-a-m7-3d5-befizetes-csv-export -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a befizetés-lista exportálható Excelbe egy kattintással -->
+
+### 📥 Excel export
+
+A befizetés-oldal lista-szekciójának fejlécében új **„Excel export"** gomb. Egyetlen kattintás után letöltődik egy CSV-fájl, amit az Excel automatikusan megnyit, magyar ékezetekkel együtt.
+
+**Fájlnév:**
+- Teljes éves lista: `befizetesek-2026.csv`
+- Szűrt nézet: `befizetesek-2026-szurt.csv`
+
+**Amit tartalmaz** (11 oszlop):
+- Dátum, iratszám, típus (Készpénz/Banki)
+- Tag neve
+- Kategória (pl. „Egyházfenntartó járulék")
+- Család-szintű (igen/nem)
+- Összeg RON
+- Fizetett év
+- Sztornó jelző + indoklás
+- Megjegyzés
+
+### Mire használható?
+
+- **Éves pénzügyi beszámoló** Excelben (pivot-tábla, diagram)
+- **Könyvelőnek átadás** (papír vagy digitális)
+- **Egyházmegyei riport**
+- **Archiválás** a gyülekezet pénzügyi dokumentumtárában
+
+### 🔍 A szűrők számítanak
+
+Ha a listán aktív szűrő van (pl. egy adott tag vagy kategória), az export **csak azokat a sorokat tartalmazza**. Az egyszerű logika: „amit látsz, azt kapsz".
+
+### 📦 Implementáció
+
+- Új fájl: `apps/desktop/src/lib/export/befizetes-csv.ts` (~130 sor)
+- **Zero dependency** — nincs exceljs vagy xlsx library a bundle-ban, csak natív Blob + browser download
+- UTF-8 BOM + pontosvessző-elválasztó (EU Excel konvenció) + CRLF sorvég
+- RFC 4180-kompat escape-elés a különleges karakterek (idézőjel, pontosvessző, sortörés) kezelésére
+
+---
+
+## [2026-04-24] — A-M7.3d4: Szűrők a befizetés-listán + éves összesítő kártya
+
+<!-- key: 2026-04-24-a-m7-3d4-befizetes-szurok-osszesito -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a befizetés-oldal átlátható éves áttekintést ad -->
+
+### 🔍 Szűrők a listán
+
+A befizetés-oldalon mostantól **tag** és **kategória** szerint is szűrheted a listát:
+
+- **Tag**: ugyanolyan diakritika-toleráns keresővel, mint a rögzítő form-ban
+- **Kategória**: dropdown az összes aktív befizetés-célra (járulék, persely, adomány stb.)
+- Egyetlen „Szűrők törlése" gombbal visszaállítható az egész év
+
+Amikor szűrőt alkalmazol, a lista és az összesítő azonnal újratöltődik. A keresés élőben fut a szerveren (nem kliens-oldali filter — a teljes évre érvényes).
+
+### 📊 Éves összesítő kártya
+
+A lista felett egy új **zöld keretes kártya** három fő számmal:
+
+- **Összes befizetés** az évben (RON)
+- **Darabszám**
+- **Átlag egy befizetésre**
+
+Alatta a **Top 5 kategória** progress-bar-os bontásban — melyik kategória hány százalékát adja a teljes bevételnek. Egy pillanat alatt látod, mit hoz a járulék, mennyi a persely, mekkora az adomány.
+
+**Ha szűrsz**, az összesítő „Szűrt összesítő"-re vált és csak a fő számokat mutatja (a kategória-bontás ilyenkor zavaró lenne).
+
+**Sztornózott** sorok nem kerülnek be az összesítésbe, de kis italic felirat jelzi a mennyiségüket („+ 3 sztornózott, nem számítva").
+
+### 📋 A lista mostantól a teljes évet mutatja
+
+Korábban csak az utolsó 50 befizetést listáztuk — most **500**-ig. Egy átlagos gyülekezet évi 100-300 befizetést rögzít, így a teljes év egy listában elfér és a summary pontos.
+
+### 📦 Implementáció
+
+- **Nincs új backend-kód** — a `listIncomeUseCase` már támogatta a `szemelyId` + `befizetescelId` szűrőket (A-M7.3a óta). Csak a UI kapcsolta be.
+- Új `IncomeSummary` komponens (`befizetes-page.tsx`-ben, ~120 sor) kliens-oldali aggregációval (reduce + Map).
+- Szűrő state a `RecentIncomeSection`-ben, debounce-olt tag-kereső (300 ms).
+
+---
+
+## [2026-04-24] — A-M7.3d3: Család-szintű befizetés + sztornó cascade-visszajelzés
+
+<!-- key: 2026-04-24-a-m7-3d3-befizetes-polish -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — a desktop befizetés-oldal finomítása -->
+
+### 👨‍👩‍👧 Család-szintű befizetés (automatikus felajánlás)
+
+A desktop befizetés-rögzítőben, amikor tagot választasz ki, a rendszer **automatikusan ellenőrzi**, hogy a tag tartozik-e családhoz. Ha igen, **kék keretes checkbox** jelenik meg:
+
+> ☑ **Család-szintű befizetés** (a befizetés az egész családhoz rögzül, nem csak ehhez a taghoz)
+
+Ha a tag nem tartozik családhoz, diszkrét szöveg tudatja: *„Ez a tag nem tartozik családhoz a nyilvántartásban — a befizetés tag-szintű lesz."*
+
+A család-szintű rögzítés előnye: ha a férj vagy feleség fizet be, mindketten „fizetőnek" számítanak a járulék-nyilvántartásban.
+
+### ↩️ Sztornó cascade-visszajelzés
+
+Amikor sztornózol egy befizetést, **a rendszer most elmondja, mi történt mellette**:
+
+> Befizetés sztornózva. **Mellé: 1 chitanța is sztornózva + a belső kassza↔bank transfer párja is sztornózva.**
+
+Eddig csak a fő művelet sikerét jeleztük — most látod a cascade hatásait is (6 mp-ig zöld sáv a lista tetején).
+
+### 🏷 Család-jelölő a listán
+
+A befizetés-listában a család-szintű sorokon egy kis kék **`család`** címke jelenik meg a tag-név mellett. Ez segít megkülönböztetni a tag-szintű és család-szintű rögzítéseket egy pillantásra.
+
+### 📦 Implementáció
+
+- `getFamilyIdForPersonUseCase` integrálva a `BefizetesPage.IncomeForm`-ba (auto-trigger a tag kiválasztáskor)
+- `StornoIncomeResult.cascadedChitantas` + `cascadedInternalTransfer` flag-ek megjelenítve a UI-ban
+- `BefizetesListRow.csalad` alapján sky-100 badge a listán
+- Minden backend-oldali logika (core + web) változatlanul maradt
+
+---
+
+## [2026-04-24] — A-M7.3d2: Pénzügy almodul-választó a desktopon
+
+<!-- key: 2026-04-24-a-m7-3d2-penzugy-landing -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — a sidebar „Pénzügy" link most nem üres oldal, hanem egy választó -->
+
+### 🧭 Új kezdőlap a pénzügy-részben
+
+Eddig ha a desktop sidebar-ról a **Pénzügy** linkre kattintottál, egy általános „Hamarosan" üzenet jelent meg. **Mostantól** három kártyás választóval fogad:
+
+- 💰 **Befizetés rögzítése** — az új oldal (A-M7.3d1)
+- 🧾 **Chitanța kiállítása** — papír-nyugta az offline wallet-tel
+- 📖 **Nyugtatömbök** — az új tömbök rögzítése
+
+Plusz egy „Hamarosan" kártya felsorolja, mi fog még idekerülni (Bank-import, Oblio, TVA-figyelő, éves áttekintés).
+
+**Minden kártya egy kattintással megnyitja a vonatkozó oldalt.**
+
+### 📦 Implementáció
+
+- Új oldal: `apps/desktop/src/pages/penzugy-landing-page.tsx`
+- Route: `/penzugy` → `PenzugyLandingPage` (a régi PlaceholderPage helyett)
+- `MODULES` array-alapú konfiguráció — új almodul felvétele egy sor hozzáadásával
+
+---
+
+## [2026-04-24] — A-M7.3d1: Desktop befizetés oldal (`/penzugy/befizetes`)
+
+<!-- key: 2026-04-24-a-m7-3d1-desktop-befizetes -->
+<!-- category: feature -->
+<!-- targets: lelkészek — új desktop-oldal: befizetés rögzítése, lista, sztornó -->
+
+### 💰 Új desktop oldal: Befizetés
+
+A Kartotéka desktop app-ban mostantól rögzítheted a gyülekezet tag- és családi befizetéseit közvetlenül a géped mellől. A webes felületen már ismert flow-t hoztuk át, **a shared backend-del** (ugyanaz a kód fut mindkét oldalon).
+
+**Elérés:** `/penzugy/befizetes` (közvetlen URL vagy a sidebar pénzügy-linkje + jövőbeli submenu).
+
+**Mit tudsz ma itt csinálni:**
+
+1. **Év-szűrő** a fejlécben — az aktuális vagy elmúlt 5 év közül
+2. **Új befizetés rögzítése** — űrlap 8 mezővel:
+   - Dátum + melyik évre szól (ha pótlás: előző év)
+   - **Tag-kereső** diakritika-tolerans autocomplete-tel („Kovacs" és „Kovács" is talál) — opcionálisan üresen hagyható általános bevételhez
+   - **Kategória**-dropdown (a ~50 előre-definiált `befizetescel` lista)
+   - **Összeg** (RON)
+   - **Típus**: Készpénz (nyugta) vagy Banki átutalás
+   - **Iratszám** — Készpénz típusnál automatikus (a következő szabad szám), módosítható
+   - Belső megjegyzés
+3. **Lista** az adott év 50 legfrissebb befizetésével — dátum-csökkenő sorrendben
+4. **Sztornó** inline-panel (kötelező indoklás, min 5 karakter) — a kapcsolt chitantákat és a belső kassza↔bank transfer párját is automatikusan sztornózza
+5. **Törlés** — soft-delete gomb a tévesen rögzített sorokhoz (visszaállítható)
+
+**Biztonsági megjegyzések:**
+- Év-véglegesítés esetén a sztornó blokkolt — az egyházmegyei admintól kérj feloldást
+- Minden művelet a saját gyülekezetedre korlátozva (RLS)
+- A szerver-oldali unique constraint védi a párhuzamos iratszám-ütközést
+
+**Offline-állapot:**
+- Jelenleg a befizetés-rögzítés **online** kapcsolatot igényel (az iratszám-generálás és duplikátum-ellenőrzés a szerveren fut)
+- Ha offline vagy, a form disabled marad + világos magyar üzenet: „Offline munkamenet — csatlakozz a hálózatra"
+- Az **offline-módban rögzítés** a köv. release-ben jön (A-M7.3d2 — a chitanța offline-rendszer mintájára)
+
+### 📦 Implementáció
+
+A backend (A-M7.3a/b/c, 2026-04-24) már kész volt: 9 use-case a `@kartoteka/core`-ban, 9 web adapter. Ma a desktop UI **ugyanezeket** a use-case-eket hívja közvetlenül — nincs kódduplikáció.
+
+- Új core use-case: `listBefizetesCelekUseCase` (kategória-dropdown)
+- Új desktop oldal: `apps/desktop/src/pages/befizetes-page.tsx` (~620 sor)
+- Route: `/penzugy/befizetes`
+- Komponens-struktúra: `BefizetesPage` → `IncomeForm` + `RecentIncomeSection` (sztornó inline panel + soft-delete confirm-mal)
+
+---
+
+## [2026-04-24] — A-M7.2e: Szinkronizáció-státusz minden oldalon + csendesebb retry
+
+<!-- key: 2026-04-24-a-m7-2e-shell-indicator-exp-backoff -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — a szinkronizáció mostantól a teljes desktop app-ban látható -->
+
+### 🛰 Szinkronizáció-jelző a jobb-felső sarokban, mindenhol
+
+Eddig csak a chitanta-oldalon látszott, hogy mennyi offline-kiállított nyugta vár szerverre. **Mostantól** a desktop app **minden oldalán** (Dashboard, Munkanapló, Tagnyilvántartás, bármi) a jobb-felső sarokban, a session-jelző alatt, egy **kis címke** mutatja a helyzetet:
+
+- **Üres** — minden sync-elt. Semmi nem zavar, a pill egyáltalán nem látszik.
+- **🟡 „3 chitanță szinkronra vár"** — offline rögzítettek, hálózat visszatértével automatikusan mennek.
+- **🔴 „1 konfliktus feloldást vár"** — a szerver elutasított valamit, kattints és oldd meg.
+
+**Bármelyik oldalról rákattintasz:** azonnal a `/penzugy/chitanta` oldalra visz, ahol a Sync most gomb vagy a konfliktus-feloldó modal elérhető.
+
+### 🌊 Csendesebb újrapróbálás
+
+Eddig a háttér-sync 30 mp-enként **mindent** újra próbált, ami a szerveren elakadt. Ez burst-ökhöz vezetett, ha több chitanta egyszerre ütközött. Ma bevezettük az **exponenciális várakozást**:
+
+- **1. kísérlet** — azonnal
+- **2. kísérlet** — 30 mp múlva
+- **3. kísérlet** — 1 perc múlva
+- **4. kísérlet** — 2 perc múlva
+- **5. kísérlet** — 5 perc múlva
+- **6. kísérlet** — 15 perc múlva
+- **Utolsó után** — konfliktus-állapotba billen, te kézzel rendezed
+
+**A „Sync most" gomb továbbra is azonnali próbálkozás** — a várakozási idők csak a háttérben dolgozó automatikát érintik.
+
+### 📦 Implementáció (A-M7.2e)
+
+- `apps/desktop/src/components/sync-status-indicator.tsx` — új komponens, 15 s-enként poll + `online` event-alapú refresh
+- `AuthGate` mindkét kapujába bekötve (session és offline-PIN mód egyaránt)
+- `apps/desktop/src/lib/chitanta-sync.ts` — `BACKOFF_MS_BY_ATTEMPT` tábla + `shouldSkipByBackoff()` helper + `ignoreBackoff` paraméter a `pushPendingChitantas`-ban
+
+---
+
+## [2026-04-24] — A-M7.2d2d: Konfliktus-feloldás a lokális chitanțákhoz
+
+<!-- key: 2026-04-24-a-m7-2d2d-konfliktus-ux -->
+<!-- category: feature -->
+<!-- targets: lelkészek — az offline chitanta-kiállítás kör ma teljessé vált a konfliktus-kezeléssel -->
+
+### 🛠 Ha a szerver nem fogadja el az offline chitantát, mostantól feloldod
+
+A tegnap reggel óta működő offline chitanța-kiállítás (A-M7.2d2b) és az auto-push (A-M7.2d2c) után néha előfordulhat, hogy a szerver **nem fogadja** a sorszámot (pl. admin párhuzamosan lefoglalta más gépen, vagy 5× hálózati hiba). Ilyenkor a sor a „🕓 Szinkronizálásra várnak" blokkban **piros „Konfliktus"** címkét kap.
+
+**Ma** a lelkész **kattinthat** a conflict-sor feliratára, és a modal két opciót kínál:
+
+#### 🔄 Másik sorszámra állítás
+
+- Új sorszámot vesz a walletből (ha van)
+- A chitanta adatai (befizető, összeg, dátum, megjegyzés) **változatlanok**
+- A szinkronizációs sor újra-enqueue-olódik, és azonnal fut a push
+
+#### 🗑 Lokális chitanta törlése
+
+- A chitanta **eltűnik a gépedről** (a szerveren NEM létezik, nem érinti azt)
+- A wallet-szám visszakerül a pool-ba
+- Újra-kiállítás kézzel, friss form-mal — ha a szerver-válaszban hiba-gyanús adat volt
+
+### 🖼 UX részletek
+
+- Modal: serif cím, rózsaszín figyelmeztetés-ikon, a szerver-üzenet idézve
+- Két nagy CTA gomb mindegyikhez 2-soros magyarázat
+- Törléshez **kettős megerősítés** (browser confirm)
+- Sikerfeedback a modalban: „Új sorszám a walletből: EREKC24 / 211. …"
+- Automatikus lista-újratöltés a feloldás után
+
+### 📦 Implementáció (A-M7.2d2d)
+
+- `apps/desktop/src/components/chitanta-conflict-dialog.tsx` — új modal komponens (~200 sor)
+- `apps/desktop/src/lib/chitanta-sync.ts` — új `resolveChitantaConflict()` helper, `ConflictResolution` + `ConflictResolutionResult` típusok
+- `TauriSqliteBackend`: 3 új metódus — `deleteLocalChitanta()`, `updateLocalChitantaNumber()`, `getLocalChitanta()`
+- `RecentChitantasSection`: a conflict-sor kattinthatóvá tétele + modal renderelés
+
+### 🎯 Ezzel az A-M7.2 chitanța-kör TELJES
+
+6 alfázison keresztül:
+- A-M7.2a-f: az online chitanța kör (kiállítás, lista, sztornó, nyomtatás)
+- A-M7.2d1: wallet-infra
+- A-M7.2d2a-d: offline ciklus + conflict-resolve
+
+**A következő kör:** A-M7.3 — a többi pénzügyi use-case (befizetés, járulék, bank-import).
+
+---
+
+## [2026-04-24] — A-M7.2d2c: Automatikus szerverre-feltöltés az offline chitanțákhoz
+
+<!-- key: 2026-04-24-a-m7-2d2c-auto-push -->
+<!-- category: feature -->
+<!-- targets: lelkészek — az offline kiállított chitanțák mostantól automatikusan felkerülnek a szerverre -->
+
+### 🔄 Automatikus szinkronizáció
+
+A ma reggeli release-ben bevezetett **offline chitanța-kiállítás** (A-M7.2d2b) kiegészült az automatikus szerverre-feltöltéssel.
+
+**Mikor megy fel automatikusan a szerverre:**
+
+- Amikor a gép **online-ra vált** — azonnal.
+- Amikor **online-ban bejelentkezel** — azonnal.
+- A háttérben **30 mp-enként** folyamatosan — amíg online vagy és van pending chitanța.
+
+**Manuális „Sync most" gomb:**
+
+A `/penzugy/chitanta` oldalon, az „Utolsó chitantáim" fölött a borostyán „🕓 Szinkronizálásra várnak" blokk fejlécében:
+
+- **Sync most** gomb — manuális push-kiváltás, ha a 30s poll-ra nem akarsz várni.
+- Után rövid státusz-üzenet (pl. „3 felküldve · 1 újrapróbálásra vár").
+
+**Mit látsz sikeres push után:**
+
+- A borostyán „Szinkronizálásra várnak" blokkból a sor eltűnik.
+- A szerver „Utolsó chitantáim" listájában a chitanță megjelenik.
+- A sorszám és az adatok megegyeznek.
+
+**Ha valami nem jön össze:**
+
+- **Átmeneti hiba** (hálózat, szerver-hiba): 5 automatikus újrapróbálás.
+- **Sorszám-ütközés** (egy másik gép / admin ugyanazt a számot lefoglalta időközben): azonnali **„Konfliktus"** jelölés piros címkével. A lelkész kézzel rendezi (a konfliktus-kezelő UI az A-M7.2d2d release-ben jön — addig a lelkész manuálisan tudja az adatokat átmásolni új sorszámra).
+
+### 🔒 Biztonság
+
+- A pusher **mindig** ellenőrzi a Supabase session-t, mielőtt feltöltene — offline-PIN belépés után, amikor nincs élő session, a pusher néma marad (nem kockáztat 401-es zavart).
+- A RLS védelem a szerveren ugyanúgy érvényesül: a lelkész csak a saját gyülekezete chitantáit töltheti fel.
+- A `mutation_id` UNIQUE constraint biztosítja, hogy egy chitanța ugyanaz az insertje nem fut le kétszer.
+
+### 📦 Implementáció (A-M7.2d2c)
+
+- `apps/desktop/src/lib/chitanta-sync.ts` — új file, 300+ sor push-logika + auto-trigger
+- `TauriSqliteBackend.markChitantaSynced()` + `markChitantaConflict()`
+- `AuthGate` bekötés: mount-kor `startChitantaAutoSync()`, SIGNED_IN event-kor `runChitantaSyncManually()`
+- `RecentChitantasSection` bővítés: „Sync most" gomb + inline státusz-üzenet
+
+---
+
+## [2026-04-24] — A-M7.2d2a/b: Offline chitanța-kiállítás (kliens-flow)
+
+<!-- key: 2026-04-24-a-m7-2d2ab-offline-chitanta-kliens -->
+<!-- category: feature -->
+<!-- targets: lelkészek (offline-módban aktiválódik); az automatikus szerverre-feltöltés az A-M7.2d2c release-nél jön -->
+
+### 📝 Offline is tudsz chitantát adni
+
+Ha a szám-tárcádban van szabad sorszám (+10 gombbal előre feltöltve), most már **hálózat nélkül is** kiállíthatsz chitantát — falun, alkalom közben, gyenge jelnél.
+
+**Hogyan működik a gyakorlatban:**
+
+1. **Online-módban** töltsd fel a tárcát („Offline szám-tárca" panel → +10 szám)
+2. **Offline-módban** nyisd meg a `/penzugy/chitanta` oldalt:
+   - A kék „Offline mód — a tárcából állítunk ki" banner mondja, hány szám vár
+   - A form aktív marad, a „Kiállítás" gomb felirata: „Chitanță kiállítása offline"
+3. Töltsd ki az adatokat és küldd be:
+   - A tárcából automatikusan a legkisebb szabad sorszám kerül ki
+   - A chitanță a lokális adatbázisba mentődik (titkosítva)
+   - Borostyán sikersáv: „Chitanță offline rögzítve."
+4. Az „Utolsó chitantáim" listában megjelenik egy borostyán blokk:
+   - „🕓 Szinkronizálásra várnak (N)" + a sor-részletek
+5. Amikor a gép újra online lesz (A-M7.2d2c release-től): automatikusan felküldi a szerverre
+
+**Fontos korlátok (mai állapot):**
+- Az **automatikus szerverre-feltöltés még NEM fut** — a következő release (A-M7.2d2c) hozza. A lokális chitanta addig **a te desktopon** várakozik.
+- Offline-módban **nem adhatsz meg kézzel sorszámot** — a tárca adja.
+- Ha a tárca üres és nincs net: a form disabled, pasztorális üzenettel („Csatlakozz a hálózatra, vagy tölts fel sorszámokat").
+
+### 🔒 Adatvédelem
+
+- A lokális chitanțák a SQLCipher AES-256 titkosított adatbázisba kerülnek; a kulcs a Windows Credential Manager-ben, kriptográfiailag a te Windows-login-odhoz kötve.
+- A lokális pending chitanța csak a saját desktop-odon látható — más user (akár másik Windows-login ugyanazon a gépen) nem férhet hozzá.
+
+### 📦 Implementáció (A-M7.2d2a + A-M7.2d2b)
+
+**A-M7.2d2a — backend-infra:**
+- Rust v11 migráció: `chitantak_local` SQLite tábla (18 oszlop, UNIQUE, 3 index, sync_state enum: pending/synced/conflict)
+- Rust command: `chitanta_wallet_claim_next` — `rusqlite::Transaction` atomikus BEGIN/SELECT MIN/UPDATE/COMMIT → race-mentes
+- Rust command: `chitanta_wallet_release` — pre-outbox hiba esetén visszadobás a pool-ba
+
+**A-M7.2d2b — kliens-flow:**
+- Core `issueChitantaUseCase` offline-ág: új ctx-mezők (`isOnline?`, `offlineBackend?`), új result-flag (`pending`, `walletEmpty`), új `OfflineChitantaBackend` duck-type interface
+- `TauriSqliteBackend.insertLocalChitanta()` + `listLocalPendingChitantas()`
+- Desktop chitanta-page: `ChitantaWalletPanel.onStatusChange` callback, `OfflineWarning` 2-állapotú, form offline-flow, borostyán siker-banner
+- `RecentChitantasSection`: duplo-load (szerver + lokális), borostyán „Szinkronizálásra várnak" blokk, konfliktus-jelző
+
+**Mi jön ezután:**
+- **A-M7.2d2c** — automatikus outbox-push: amikor a gép online-ra vált, háttér-task feltölti a pending chitanțákat a szerverre.
+- **A-M7.2d2d** — konfliktus-UX (ha a szerveren közben más számot adtak ki).
+
+---
+
+## [2026-04-24] — A-M7.2d1: Offline szám-tárca (chitanța wallet) infrastruktúra
+
+<!-- key: 2026-04-24-a-m7-2d1-chitanta-wallet-infra -->
+<!-- category: feature -->
+<!-- targets: lelkészek (közvetve — az A-M7.2d2 offline-chitanța release-ével aktiválódik); fejlesztő -->
+
+### 💳 Offline szám-tárca a chitanțákhoz (alap)
+
+A desktop app most **előre-foglalhat** sorszámokat a szerverről, hogy hálózat nélkül is kiállíthasson nyugtát a lelkész (pl. látogatás falun, alkalom közben). A mai release a **wallet-infrát** szállítja — a tényleges offline-kiállítás az A-M7.2d2-ben jön.
+
+**Miért fontos?** Az online-kiállítás (A-M7.2b) a szerver `next_chitanta_number()` RPC-jét hívja, ami net nélkül nem fut. A wallet ezt oldja meg: a lelkész *online-módban* előre lefoglal 10-10 sorszámot, amiket a telefon/notebook a SQLCipher-ben tárol. Hálózat nélkül is tud nyugtát adni.
+
+**Mi jelenik meg ma a `/penzugy/chitanta` oldalon (az aktív tömb panel alatt):**
+
+- **Offline szám-tárca kártya** 3 állapotban:
+  - **Üres** (piros) — "Online-módban tölts fel, hogy hálózat nélkül is tudj chitantát kiállítani."
+  - **Kevés** (sárga, 1-3 szám) — "⚠ Kevés szám maradt — érdemes feltölteni."
+  - **Rendben** (indigo, 4+ szám) — `N szabad sorszám · következő: 204 · legrégibb foglalás: 2026-04-24`
+- **+10 szám gomb** — a szervertől atomikusan kér 10 új sorszámot (a `reserve_chitanta_numbers` RPC) és a SQLCipher walletbe menti. Csak online-módban aktív.
+- **Visszaigazolás:** `+10 sorszám a tárcában (EREKC24 201-210).`
+
+### 🔒 Biztonság
+
+- A szerveroldali `reserve_chitanta_numbers()` RPC `SECURITY DEFINER` + `current_user_can_access_congregation()` scope-check — a lelkész csak a saját/kapott gyülekezetére foglalhat.
+- A row-lock (`FOR UPDATE`) garantálja, hogy a párhuzamos online-kiállítás és a wallet-foglalás **ugyanazt** a `oblio_fiokok.chitanta_kovetkezo_szam` pointert használja, nem ütközik.
+- A lokális wallet-tábla (`chitanta_wallet_local`) a SQLCipher AES-256 titkosításban van; kulcs a Windows Credential Manager-ben.
+- Max 100 szám / hívás rate-limit.
+
+### 📦 Implementáció (A-M7.2d1)
+
+- **SQL**: `migration-docs/sql/2026-04-24-a-m7-2d1-reserve-chitanta-numbers.sql` — `reserve_chitanta_numbers(uuid, text, integer) RETURNS integer[]` RPC + 3 ellenőrző SELECT (Endre futtatja)
+- **Rust v10 migráció** (`apps/desktop/src-tauri/src/db.rs`): `chitanta_wallet_local` tábla 8 oszloppal, UNIQUE + index a szabad-szám-filterre
+- **Core** (`packages/core/src/finance/chitanta-wallet/refill.ts`): `refillChitantaWalletUseCase` — 9. re-exportált use-case
+- **Desktop backend** (`apps/desktop/src/lib/tauri-sqlite-backend.ts`): `insertWalletNumbers()` + `getWalletStatus()` metódusok
+- **Desktop UI** (`apps/desktop/src/pages/chitanta-page.tsx`): új `ChitantaWalletPanel` komponens (~130 sor), beépítve az `ActiveChitantaTombPanel` után
+
+**Mi marad hátra (A-M7.2d2):** `chitantak_local` tábla + `issueChitantaUseCase` offline-ága (szám-fogyasztás a walletből) + outbox-push + konfliktus-UX.
+
+---
+
 ## [2026-04-23] — M8: Munkanapló offline lista + zöld ikon + card-raised polish
 
 <!-- key: 2026-04-23-m8-worklog-sync-plus-polish -->
@@ -120,6 +1076,659 @@ Első tesztnél: **Full Pull: 616 tag frissítve**, de **0 tag a listában**. Ok
 **Javítás**: a default szűrőből kivéve az `isvisible = 1`-et — csak `meghalt = 0` marad alapértelmezésben. Új opt-in checkbox: „Csak nyilvántartásban láthatók (`isvisible=1`)". Ha a lelkész ezt bekapcsolja, visszakapja a régi viselkedést.
 
 **Diagnosztika**: új `getLocalMemberCounts()` — a UI most mutat 4 számot: lokálisan cache-elve / élő / élő+látható / szűrőben most. Így bármikor látszik, mi a hatása egy szűrő-beállításnak.
+
+---
+
+## [2026-04-24] — A-M7.2f: Chitanța nyomtatás — a kiállítási kör teljes lezárása
+
+<!-- key: 2026-04-24-a-m7-2f-chitanta-print -->
+<!-- category: feature -->
+<!-- version: shared core + desktop print-dialog -->
+<!-- targets: fejlesztő, lelkész (desktop-user) -->
+
+### 🖨 A papír-nyugta teljes munkafolyamata desktop-on
+
+Az A-M7.2e (list + sztornó) után most a **nyomtatás** is shared-re került. A lelkész kattint a "Nyomtatás" gombra a listán → megnyílik egy A5/A4 nyugta-layout dialog → Ctrl+P vagy "Nyomtatás" gomb → Windows/Mac print dialog → papír vagy "Mentés PDF-ként". Sztornózott nyugtán piros diagonal **STORNOZAT** pecsét + indok-info alul.
+
+**3 új + 3 módosított fájl**:
+- Validations: [`chitanta-print.ts`](../packages/validations/src/finance/chitanta-print.ts) — `ChitantaPrintData` + `ChitantaPrintCongregation` (22 mező)
+- Core: [`chitanta/print.ts`](../packages/core/src/finance/chitanta/print.ts) — `getChitantaForPrintUseCase` 5-query lánc (nyugta + fallback befizetés → befizetescel/szemely/csalad + congregation + diocese + district)
+- Desktop komponens: [`chitanta-print-dialog.tsx`](../apps/desktop/src/components/chitanta-print-dialog.tsx) (~280 sor) — modal full-screen dialog, print-toolbar (hidden on print), A5-layout
+- Web Server Action: `getChitantaForPrint` **156 → 15 sor**, a `ChitantaPrintData` re-export a validations-ből (backward-compat a 4 web-komponensnek)
+- Desktop `chitanta-page.tsx`: "Nyomtatás" gomb a listán minden soron, dialog-integráció
+
+### 🎨 Print-layout részletei
+
+- Egyházkerület + egyházmegye fejléc (hu + ro)
+- Gyülekezet-fejléc (név hu/ro, cím, város, megye, telefon, CIF)
+- Nagy **CHITANȚĂ** fejléc + "Papír-nyugta / Adeverință de plată" alcím
+- Sorozat + nyomdai szám + gyülekezeti Nr. intern + dátum
+- Átvevő adatai + reprezentánd (hu + ro fordítás)
+- Kiemelt összeg (3xl font, border-y-2): `{N} RON`
+- Sztornózott esetén: rotate-15deg piros "STORNOZAT" pecsét + indok-panel
+- Aláírás-mezők (átvevő + lelkipásztor)
+
+### ✅ Verifikáció
+
+- `validations + core + web + desktop tsc` → 0 error
+- `web lint` → 0 error, 68 non-blocking warning (változatlan)
+- `banned-imports` → 31 fájl, 0 tiltott
+
+**Részletek**: [`KARTOTEKA-A-M7-2f-chitanta-print-2026-04-24.md`](project-tracking/KARTOTEKA-A-M7-2f-chitanta-print-2026-04-24.md)
+
+### 🏁 A chitanța-kör (A-M7.2) TELJES lezárása — 5 alfázis kész
+
+| Alfázis | Tartalom | Státusz |
+|---|---|---|
+| A-M7.2a | Aktív-tömb státusz-követő | ✅ |
+| A-M7.2b | issueChitantaUseCase (online) | ✅ |
+| A-M7.2c | Desktop kiállító form | ✅ |
+| A-M7.2e | List + sztornó | ✅ |
+| A-M7.2f | **Nyomtatás** | ✅ |
+| ⏳ A-M7.2d | Offline-chitanța (szám-wallet) | hátra |
+
+A desktop kliens mostantól a **napi bizonylat-kiállítási folyamat 90%-át kezeli online**.
+
+### Következő
+
+- **A-M7.2d** — offline-chitanța: új RPC `reserve_chitanta_numbers()` + kliens szám-tárca + `chitantak_local` Rust SQLite migráció
+- **A-M7.3** — következő pénzügyi modul (befizetés / járulék / bank-import)
+
+---
+
+## [2026-04-23] — A-M7.2 chitanța-kiállítási kör (4 alfázis: aktív-státusz, kiállítás, desktop UI, list+sztornó)
+
+<!-- key: 2026-04-23-a-m7-2-chitanta-kor -->
+<!-- category: feature -->
+<!-- version: shared core + desktop UI + web adapter-ek -->
+<!-- targets: fejlesztő, lelkész (desktop-user) -->
+
+### 🧾 A napi chitanța-kör shared-re — 4 alfázis egy aggregált bejegyzésben
+
+Az A-M7.1 (chitanta_tombok CRUD) után az A-M7.2 alfázisai a **chitanța (papír-nyugta)** műveleteket rakják shared core-ra.
+
+**A-M7.2a — Aktív-tömb státusz-követő**
+- [`packages/core/src/finance/chitanta-tomb/active-status.ts`](../packages/core/src/finance/chitanta-tomb/active-status.ts) — `getActiveChitantaTombStatusUseCase` (online-first + offline-fallback)
+- Desktop `ActiveChitantaTombPanel` komponens — **derived a `rows`-ból**, 4-állapotú pasztorális UI: 🟢 rendben / 🟡 kevés / 🔴 elfogyott / 🔴 nincs aktív tömb
+
+**A-M7.2b — `issueChitantaUseCase` (papír-chitanța kiállítás)**
+- Zod: [`packages/validations/src/finance/chitanta-issue.ts`](../packages/validations/src/finance/chitanta-issue.ts) — 10-mezős input séma
+- Core: [`packages/core/src/finance/chitanta/issue.ts`](../packages/core/src/finance/chitanta/issue.ts) — **online-kötelező** (`next_chitanta_number()` PL/pgSQL RPC), 2 pasztorális hibaflag (`offlineNotSupported`, `duplicateNumber`)
+- Web: `issueChitanta` Server Action 77 → 50 sor
+
+**A-M7.2c — Desktop chitanta-form UI** (`/penzugy/chitanta`)
+- Új komponens: [`components/active-chitanta-tomb-panel.tsx`](../apps/desktop/src/components/active-chitanta-tomb-panel.tsx) (extraktálva a chitanta-tombok-page-ből)
+- Új oldal: [`pages/chitanta-page.tsx`](../apps/desktop/src/pages/chitanta-page.tsx) — 9-mezős form, `OfflineWarning` panel, `navigator.onLine` tracking, pasztorális hiba-kezelés a 3 flag szerint
+- App.tsx: új route `/penzugy/chitanta`
+
+**A-M7.2e — List + sztornó**
+- Zod: [`packages/validations/src/finance/chitanta-row.ts`](../packages/validations/src/finance/chitanta-row.ts) — list-row + sztornó input sémák
+- Core: [`list.ts`](../packages/core/src/finance/chitanta/list.ts) + [`storno.ts`](../packages/core/src/finance/chitanta/storno.ts) — **online-only** (A-M7.2d előtt)
+- Web: `listChitantas` + `stornoChitanta` Server Action-ök thin adapterek
+- Desktop: `RecentChitantasSection` a chitanta-page-en — 10 legújabb + sztornó-dialog (confirm + indok min 5 char + auto-refresh)
+
+### 🎯 Lelkész-informálási 5 pont — mindenhol teljesül
+
+Loading / Success / Error (3 flag) / Offline-state / Empty-state mind explicit, pasztorális magyar üzenetekkel. A sztornózott sorok áthúzva + indok szürke szövegben.
+
+### ✅ Verifikáció
+
+- `validations + core + web + desktop tsc` → 0 error
+- `banned-imports` → **30 fájl, 0 tiltott**
+
+**Részletes project logok**:
+- [A-M7.2a](project-tracking/KARTOTEKA-A-M7-2a-active-chitanta-tomb-status-2026-04-22.md)
+- [A-M7.2b](project-tracking/KARTOTEKA-A-M7-2b-issue-chitanta-2026-04-23.md)
+- [A-M7.2c](project-tracking/KARTOTEKA-A-M7-2c-desktop-chitanta-form-2026-04-23.md)
+- [A-M7.2e](project-tracking/KARTOTEKA-A-M7-2e-chitanta-list-storno-2026-04-23.md)
+
+### Következő
+
+- **A-M7.2f** — nyomtatás (`getChitantaForPrint` 156 sor fallback-lánccal) shared-re + desktop "Nyomtatás" gomb
+- **A-M7.2d** — offline-chitanța: szerver-oldali `reserve_chitanta_numbers()` RPC + kliens szám-wallet + `chitantak_local` Rust migráció
+- **A-M7.3+** — a következő pénzügyi Server Action-csoportok (befizetés, járulék, bank-import, tva, stb.)
+
+---
+
+## [2026-04-22] — A-M7.1c: desktop chitanta-tömbök oldal — **első E2E pénzügyi flow**
+
+<!-- key: 2026-04-22-a-m7-1c-desktop-chitanta-tombok -->
+<!-- category: feature -->
+<!-- version: desktop UI — következő release-ben fut -->
+<!-- targets: fejlesztő, lelkész (desktop-user) -->
+
+### 🧾 Első teljes E2E pénzügyi oldal a Tauri desktopon
+
+Az A-M7.1a (list) + A-M7.1b (create) rétegek után most a **desktop UI** is kész. `/penzugy/chitanta-tombok` route — listázás + inline create form, **online-first + offline-fallback**, minden loading / success / error / empty state implementálva.
+
+**Új fájl**: [`apps/desktop/src/pages/chitanta-tombok-page.tsx`](../apps/desktop/src/pages/chitanta-tombok-page.tsx) — ~430 sor, egyetlen oldal minden funkcióval: header + gombok + SourceBadge + kártyarács + empty-state + inline create form.
+
+**App.tsx**: új route `/penzugy/chitanta-tombok` az AuthGate mögött.
+
+### 🎯 Informálási alapelv — a lelkész mindig tudja, honnan jön az adat
+
+- 🟢 **Friss szerveradat**: "X tömb, éppen a Supabase-ből szinkronizálva"
+- 🟠 **Lokális gyorsítótárból**: "X tömb. A szerver most nem érhető el; a következő hálózati csatlakozáskor frissül"
+- Kártya-szintű StatusPill: **Aktív** / **Kevés** (≤5 maradék) / **Elfogyott** (0 maradék) / **Lezárt**
+- Sikeres rögzítés: zöld banner 4 mp-ig ("Az új tömb (EREKC24 100-120) elmentve")
+- Pasztorális hibaüzenet: pl. "Átfedés a meglévő EREKC24 100-200 tömbbel"
+- Empty state: "Még nincs rögzített nyugtatömb" + barátságos magyarázat + CTA
+
+### ✅ Verifikáció
+
+- `npx tsc --noEmit` → 0 error
+- `check-desktop-banned-imports.mjs` → 28 fájl, 0 tiltott
+
+### Az A-M7.1 kör LEZÁRVA
+
+| Alfázis | Tartalom | Státusz |
+|---|---|---|
+| A-M7.1a | Read-only use-case + Rust v9 + web adapter | ✅ |
+| A-M7.1b | Write use-case + SQL revision/trigger + web adapter | ✅ |
+| A-M7.1c | Desktop E2E oldal | ✅ |
+
+A **minta** minden jövőbeli pénzügyi use-case-hez megvan. A többi ~12 Server Action ugyanezt a pattern-t követi.
+
+**Részletek**: [`KARTOTEKA-A-M7-1c-desktop-chitanta-tombok-2026-04-22.md`](project-tracking/KARTOTEKA-A-M7-1c-desktop-chitanta-tombok-2026-04-22.md)
+
+### Következő lehetőségek
+
+- **A-M7.1b2** — `closeChitantaTombUseCase` + `createChitantaTombokBatch` (kerületi többes-tömb átvétel)
+- **A-M7.2** — aktív-tömb követő + chitanta-kiállítás (701 soros Server Action refaktor, ez a legnagyobb pénzügyi érték)
+- **A-M7.3+** — 12 további pénzügyi Server Action (bank-import, tva, tartozas, oblio-*, finalization, monetary)
+
+---
+
+## [2026-04-22] — A-M7.1b: `createChitantaTombUseCase` + szerver-oldali revision trigger
+
+<!-- key: 2026-04-22-a-m7-1b-create-chitanta-tomb -->
+<!-- category: improvement -->
+<!-- version: shared (core + validations) + SQL migráció + web adapter -->
+<!-- targets: fejlesztő -->
+
+### 🧾 Első write use-case: új nyugtatömb rögzítése a core-ban
+
+Az A-M7.1a (read-only) után az A-M7.1b hozza meg a write-use-case mintát: input-validálás + átfedés-ellenőrzés + RLS-védett INSERT + zod drift-check + opcionális lokális cache-frissítés. Minden ezután érkező pénzügyi write ezt a mintát követi.
+
+**4 új / módosított rész**:
+- Zod: `createChitantaTombInputSchema` + `…FullSchema` (két `.refine()` az üzleti szabályokhoz — szám-tartomány + 100-darab limit)
+- Core: [`packages/core/src/finance/chitanta-tomb/create.ts`](../packages/core/src/finance/chitanta-tomb/create.ts) — `createChitantaTombUseCase(input, { supabase, storage?, runtime, userId })` — **pasztorális magyar hibaüzenetek** a kulcs üzleti-szabály-sérülésekhez
+- SQL migráció (Endre): [`migration-docs/sql/2026-04-22-a-m7-1b-chitanta-tombok-revision.sql`](../migration-docs/sql/2026-04-22-a-m7-1b-chitanta-tombok-revision.sql) — `revision` oszlop + `trg_sync_chitanta_tombok` BEFORE UPDATE trigger + delta-pull index + 4 ellenőrző SELECT
+- Web Server Action refaktor: a 70+ soros `createChitantaTomb` most ~25 sor, a core use-case-t hívja
+
+### 🔁 A delta-sync alap szerver-oldalon is kész
+
+A `revision` oszlop + `sync_tracking_touch()` trigger engedi az optimistic-lock (`WHERE id = ? AND revision = ?`) conditional-update-et és a `WHERE updated_at > last_pull` delta-lekérdezést. A kliens-oldali `chitanta_tombok_local` (A-M7.1a, Rust v9) már felkészülve várt rá.
+
+### ✅ Verifikáció
+
+- `core + validations typecheck` → 0 error
+- `web tsc + lint` → 0 error (68 non-blocking warning)
+- `check-desktop-banned-imports` → 27 fájl, 0 tiltott
+
+### ⚠️ Kérés Endrének
+
+Futtatni kell a [`2026-04-22-a-m7-1b-chitanta-tombok-revision.sql`](../migration-docs/sql/2026-04-22-a-m7-1b-chitanta-tombok-revision.sql)-t Supabase Studio-ban. A fájl végi 4 SELECT zöldet kell adjon:
+- Ellenőrzés 1: `revision bigint NOT NULL DEFAULT 0`
+- Ellenőrzés 2: trigger `BEFORE UPDATE ROW`
+- Ellenőrzés 3: index `(congregation_id, updated_at DESC)`
+- Ellenőrzés 4: smoke-teszt előkészítő (egy kézi UPDATE teszt)
+
+**Részletek**: [`KARTOTEKA-A-M7-1b-create-chitanta-tomb-2026-04-22.md`](project-tracking/KARTOTEKA-A-M7-1b-create-chitanta-tomb-2026-04-22.md)
+
+### Következő
+
+- **A-M7.1c**: desktop `/penzugy/chitanta-tombok` route (listázás + create form, offline-fallback jelzéssel)
+- **A-M7.1b2**: `closeChitantaTombUseCase` + `createChitantaTombokBatch`
+- **A-M7.2**: `getActiveChitantaTombStatus` shared + chitanta-kiállítás (701 soros server action refaktor)
+
+---
+
+## [2026-04-22] — A-M7.1a: `listChitantaTombokUseCase` — első pénzügyi use-case
+
+<!-- key: 2026-04-22-a-m7-1a-chitanta-tombok-list -->
+<!-- category: improvement -->
+<!-- version: shared (core + validations) + desktop (Rust v9) + web adapter -->
+<!-- targets: fejlesztő -->
+
+### 🧾 Első use-case a core-ban: chitanta_tombok listázás
+
+Az A-M7.0 (TauriSqliteBackend) után az A-M7.1a hozza meg az **első pénzügyi use-case-t** a `@kartoteka/core`-ban: `listChitantaTombokUseCase`. Minta-értékű minden jövőbeli A-M7 use-case-hez.
+
+**4 új / módosított fájl**:
+- [`packages/validations/src/finance/chitanta-tomb.ts`](../packages/validations/src/finance/chitanta-tomb.ts) — zod séma (19 oszlopos row + scope enum + `computeChitantaTombStatus` helper)
+- [`packages/core/src/finance/chitanta-tomb/list.ts`](../packages/core/src/finance/chitanta-tomb/list.ts) — use-case: **online-first + offline-fallback**, zod-validálás drift-safe
+- [`apps/desktop/src-tauri/src/db.rs`](../apps/desktop/src-tauri/src/db.rs) — **Rust v9 migráció**: `chitanta_tombok_local` SQLite tábla (19 oszlop, 3 index)
+- [`apps/web/app/(dashboard)/penzugy/chitanta-tombok-actions.ts`](../apps/web/app/(dashboard)/penzugy/chitanta-tombok-actions.ts) — thin Server Action adapter a core use-case-hez, a meglévő `ChitantaTomb` interface-t megtartva
+
+### 📐 Minta (a további A-M7 use-case-ek követik)
+
+```
+packages/validations/src/finance/{domain}.ts    ← zod schema
+packages/core/src/finance/{domain}/{action}.ts  ← use-case (Input/Ctx/Result)
+apps/desktop/src-tauri/src/db.rs                ← Rust v{N} migration
+apps/web/app/(dashboard)/penzugy/{x}-actions.ts ← thin web adapter
+```
+
+**Use-case-kontraktus** (minden pénzügyi use-case ezt követi):
+- **Input**: zod-validált, explicit (pl. `congregationId`)
+- **Ctx**: `{ supabase, storage?, runtime }` — platform-agnostic DI
+- **Result**: discriminated union (`success: true, source: 'supabase'|'local', rows` / `success: false, error`)
+- **Nem dob**: minden hibát Result-ban ad vissza
+- **Online-first**: próbálja a Supabase-t, ha sikerül → opcionális `storage.upsertServerRows` a lokális cache-nek
+- **Offline-fallback**: ha Supabase fail + `ctx.storage` adott → `storage.findAll(filter)`
+
+### ✅ Verifikáció
+
+- `npm run typecheck --workspace=@kartoteka/core` → 0 error
+- `cd apps/web && npm run lint && npx tsc --noEmit` → 0 error (68 warning, változatlan)
+- `cd apps/desktop/src-tauri && cargo check` → Finished in 1.16s
+- `check-desktop-banned-imports.mjs` → 27 fájl, 0 tiltott
+
+**Részletek**: [`KARTOTEKA-A-M7-1a-chitanta-tombok-first-use-case-2026-04-22.md`](project-tracking/KARTOTEKA-A-M7-1a-chitanta-tombok-first-use-case-2026-04-22.md)
+
+### Következő
+
+- **A-M7.1b**: write-use-case-ek (`issueChitantaTombUseCase`, `closeChitantaTombUseCase`) + mutation-queue outbox-integráció
+- **A-M7.1c**: desktop kliens-komponens — `/penzugy/chitanta-tombok` listázó az offline-fallback jelzésével ("lokális cache, X napja friss")
+- **A-M7.2**: `getActiveChitantaTombStatus` shared + aktív-tömb maradék-követés
+
+---
+
+## [2026-04-22] — A-M7.0: `TauriSqliteBackend` + Rust v8 outbox bővítés
+
+<!-- key: 2026-04-22-a-m7-0-tauri-sqlite-backend -->
+<!-- category: improvement -->
+<!-- version: desktop infra — A-M7 pénzügyi wave első lépése -->
+<!-- targets: fejlesztő -->
+
+### 💾 Az első valós `StorageBackend` implementáció desktop-ra
+
+Az A-M6.8a skeleton után az A-M7 pénzügyi wave infrastrukturális előfeltétele: a `StorageBackend` interface valós impl-je, ami a meglévő Tauri `dbExecute`/`dbSelect` command-okra épül a SQLCipher-titkosított lokális DB-hez.
+
+**Új fájl**: [`apps/desktop/src/lib/tauri-sqlite-backend.ts`](../apps/desktop/src/lib/tauri-sqlite-backend.ts) (~300 sor) — 11 metódus (`upsertServerRows`, `writeLocal`, `deleteLocal`, `findByPk`, `findAll`, `enqueueMutation`, `getPendingMutations`, `removeMutation`, `updateMutationAttempt`, `getSetting`, `setSetting`). Safety-guard regex minden SQL-azonosítón; user-adat csak `?N` placeholder-en keresztül.
+
+**Rust v8 migráció**: az outbox táblához 3 új oszlop (`mutation_id TEXT UNIQUE`, `expected_revision INTEGER`, `last_attempt_at TEXT`) — a meglévő M2.5 outbox séma (INTEGER PK + `op/target_table/target_id/payload/retry_count`) változatlan marad, a régi `sync.ts` logika tovább fut. A backend az új `mutation_id`-t használja kliens-generált stabil PK-ként — **co-existence**, nincs törés.
+
+**Architektúra-döntés**: a `TauriSqliteBackend` és a jövőbeli `DexieBackend` **nem** a shared `@kartoteka/offline-sync` package-ben vannak, hanem az app-ok saját oldalán (desktop és web). Így a package platform-agnostic marad, a desktop import-check pedig tiltja a Dexie-t (A-M6.7).
+
+### ✅ Verifikáció
+
+- `cargo check` → Finished in 1.74s
+- `cargo test` → **7/7 PASS** (4 auth + 3 auth_pin)
+- `npx tsc --noEmit` → 0 error
+- `check-desktop-banned-imports.mjs` → 27 fájl, 0 tiltott
+
+**Részletek**: [`KARTOTEKA-A-M7-0-tauri-sqlite-backend-2026-04-22.md`](project-tracking/KARTOTEKA-A-M7-0-tauri-sqlite-backend-2026-04-22.md)
+
+### Következő
+
+- **A-M7.1**: első use-case — `@kartoteka/core/finance/chitanta/issue-chitanta.ts` + zod séma + web `'use server'` wrapper + desktop form
+- **A-M7.2**: Rust v9 migráció — `chitanta_tombok_local` offline SQLCipher tábla
+
+---
+
+## [2026-04-22] — A-M6.9: Offline PIN hitelesítés + "mindenről informálva" alapelv
+
+<!-- key: 2026-04-22-a-m6-9-offline-pin -->
+<!-- category: feature -->
+<!-- version: desktop (Rust + TS) — következő release-ben fut -->
+<!-- targets: fejlesztő, lelkész (offline UX) -->
+
+### 🔑 Offline PIN — a lelkész 30+ napos net-szünet után is be tud lépni
+
+Endre visszajelzése tárta fel, hogy a Supabase 30 napos refresh-token nem elég, ha a lelkész hosszabb ideig net nélkül dolgozik (falvak, szolgálati utak). Az új **offline PIN** argon2id-hash-elve él a Tauri keyring-ben, és lokális SQLCipher DB-hez enged hozzáférést hálózat nélkül.
+
+**Rust (`auth_pin.rs`)**: `auth_pin_has` / `auth_pin_set` / `auth_pin_verify` / `auth_pin_clear` / `auth_pin_status` Tauri command-ok. Lockout-lépcső: 3 → 30s, 5 → 5min, 7 → 1h, **10 → force logout** (PIN automatikusan törlődik, online-login kötelező). 7/7 Rust unit test PASS.
+
+**TS (`lib/auth-pin.ts` + `lib/session-state.ts`)**: invoke-wrapper + 4-állapotú session-analízis (`online`, `offline-pin`, `refresh-expiring`, `signed-out`) + `formatLockoutMessage` pasztorális magyar hibaszövegekkel.
+
+**Auth-gate**: 4-kapus logika — friss session / aktív offline-mode / van-PIN-redirect /pin-entry / nincs-PIN-redirect /login. `SIGNED_IN` és `SIGNED_OUT` esemény automatikusan kezeli az offline-mode flag-et.
+
+**Új oldalak**: `/pin-setup` (első online-login után) + `/pin-entry` (offline belépés PIN-nel, élő lockout-countdown-nal). A login-page sikeres bejelentkezés után automatikusan a `/pin-setup`-ra vezet, ha még nincs PIN.
+
+**SessionStatusIndicator**: diszkrét státusz-pötty a jobb-felső sarokban MINDEN autentikált oldalon — 🟢 Online / 🟠 Offline / 🟡 Refresh közeleg. 60 mp-enként újraértékeli.
+
+### 📘 Új alapelv memória: "A lelkész mindenről informálva legyen a megfelelő helyeken"
+
+Endre kifejezett kérése: minden rendszer-állapot és változás tiszta, pasztorális feedback-ben jelenjen meg — loading / success / error / offline state kötelező; nincs néma hiba, rejtett fallback, technikai szleng. Új memória: [`feedback_lelkesz_informalas.md`](../..). Minden jövőbeli UI-munka kötelező ellenőrzési pontjai: 5 kérdés (van-e loading / success / error / offline / sync-feedback).
+
+### ✅ Verifikáció
+
+- `cargo check` + `cargo test` — 7 passed (4 auth + 3 auth_pin)
+- `npx tsc --noEmit` — 0 error
+- `check-desktop-banned-imports.mjs` — ✅ 26 fájl, 0 tiltott
+
+**Részletek**: [`KARTOTEKA-A-M6-9-offline-pin-2026-04-22.md`](project-tracking/KARTOTEKA-A-M6-9-offline-pin-2026-04-22.md)
+
+---
+
+## [2026-04-22] — M6 fázis LEZÁRVA: M6.3 standalone kivezetés + M6.8a offline-sync skeleton
+
+<!-- key: 2026-04-22-m6-zarokep -->
+<!-- category: breaking -->
+<!-- version: — -->
+<!-- targets: fejlesztő -->
+
+### 🏁 M6 teljes fázis kész → M7 pénzügyi wave indulhat
+
+Az M6 8 allépése mind zöld: packages skeleton, 113-tábla RLS audit (P0-P3 teljes), mail-send Edge Fn + core wrapper, Next.js 16 proxy, desktop keyring auth, Dexie-tiltás, offline-sync skeleton, standalone portable kivezetés.
+
+### 🗑️ M6.3 — Inno Setup portable verzió teljesen kivezetve
+
+A diagnostic azt mutatta, hogy **0 aktív portable user** van az elmúlt 30 napban → azonnali törlés. A teljes `apps/web/app/api/standalone/`, `apps/web/lib/standalone/`, `standalone-build/`, `apps/web/components/standalone/` mappa törölve; a web-onboarding wizard komponensei `components/onboarding/`-ba átmozgatva és refaktorálva (a `mode` prop nélkül, Step1License import nélkül, Step5Finish web-only verzió maradt).
+
+**Cross-module cleanup**: 12+ fájl érintett — `lib/supabase/{client,middleware,server}.ts`, `lib/offline/{sync-orchestrator,recycle-bin-actions}.ts`, `components/offline/*` (5 fájl), `components/shared/recycle-bin-view.tsx`, `app/(dashboard)/layout.tsx`, `app/(dashboard)/offline/page.tsx`, `app/(setup)/{layout,welcome/page,welcome/actions}.tsx`. Minden `isStandaloneMode()` / `KARTOTEKA_STANDALONE` / `wrapSupabaseForOfflineUse` / `LicenseBanner` / `LicenseStatusCard` / `MonthlySyncPanel` referencia eltávolítva.
+
+**Config + deps**: `next.config.ts` `outputFileTracingIncludes` standalone-specific includes + `serverExternalPackages` törölve (de **`output: 'standalone'` marad** — Next.js build mode, NEM Kartotéka portable); `eslint.config.mjs` `standalone-build/**` ignore törölve; `scripts/audit-safety.mjs` frissítve; `apps/web/package.json` `better-sqlite3` + `node-machine-id` dep-ek + `@types/better-sqlite3` devDep törölve; `package.json` root `build:portable` npm script törölve. A `public/manifest.json "display": "standalone"` MARAD (PWA Web App Manifest spec). Összesen `303 → 299` package.
+
+### 🧱 M6.8a — @kartoteka/offline-sync skeleton (interface-only)
+
+Scope-szűkített: csak típus-kontraktus + `StorageBackend` interface, nem teljes 18-fájlos átemelés (az premature refactor lett volna). Új fájlok: `packages/offline-sync/src/{types,backend,index}.ts`. A `DexieBackend` és `TauriSqliteBackend` valós impl-je M7 alatt kerül be, a pénzügyi use-case-ekkel párhuzamosan (valós scenariókkal tesztelve).
+
+### ✅ Verifikáció (minden zöld)
+
+- `apps/web` tsc: 0 error, lint: 0 error / 68 non-blocking warning
+- 6 shared package typecheck: mind 0 error
+- `apps/desktop` tsc: 0 error, Rust `cargo check`: OK, `cargo test auth::`: 4/4 PASS
+- `scripts/check-desktop-banned-imports.mjs`: ✅ 21 fájl, 0 tiltott
+
+**Részletek**: [`KARTOTEKA-M6-zarokep-2026-04-22.md`](project-tracking/KARTOTEKA-M6-zarokep-2026-04-22.md)
+
+### 🚀 Következő: M7 pénzügyi wave
+
+1. M7.0 — `DexieBackend` + `TauriSqliteBackend` első valós impl (csak a pénzügyi táblákra szabva)
+2. M7.1 — `issueChitantaUseCase` a `@kartoteka/core/finance/chitanta/`-ban, mintája a `sendMailUseCase`
+3. M7.2-M7.4+ — 13 pénzügyi Server Action refaktor use-case-ekké + web adapter + desktop adapter + SQLCipher migráció
+
+---
+
+## [2026-04-22] — M6.6: Desktop Supabase session OS-szintű keyring-ben
+
+<!-- key: 2026-04-22-m6-6-desktop-auth-keyring -->
+<!-- category: security -->
+<!-- version: desktop Rust+TS — következő release-ben fut -->
+<!-- targets: fejlesztő, rendszerbiztonság -->
+
+### 🔐 Supabase session localStorage → OS keyring
+
+Eddig a desktop Tauri webview `localStorage`-ba mentette a Supabase session-t (JWT + 30 napos refresh token) — DevTools-ból olvasható, fájlrendszerből másolható. Mostantól **OS-szintű keyring-be** kerül: Windows Credential Manager (DPAPI), macOS Keychain, Linux Secret Service.
+
+### Mit változtattunk
+
+- **Rust**: új `apps/desktop/src-tauri/src/auth.rs` modul + 3 Tauri command (`auth_store_item`, `auth_read_item`, `auth_clear_item`). Kulcs-sanitize + `auth-` prefix-lock (a többi keyring-slot biztonsági elkülönítve). 4/4 unit test PASS.
+- **Shared**: `packages/supabase-client/src/browser.ts` bővítve `authOptions` paraméterrel + új `SupabaseAuthStorage` interface (localStorage-szerű, sync/async). A web oldal NEM módosul.
+- **Desktop**: `apps/desktop/src/lib/supabase.ts` `tauriKeyringStorage` adapter, `invoke()`-on keresztül szól a Rust oldalnak. `persistSession=true`, `autoRefreshToken=true`, `detectSessionInUrl=false`.
+
+### Backward-compatibility
+
+A meglévő localStorage session-ök **nem vándorolnak át** — az első indítás után egyszeri re-login szükséges. Elfogadható a beta-fázisban, a user-szám limitált.
+
+### Verifikáció
+
+```
+npm run typecheck --workspace=@kartoteka/supabase-client   # 0 error
+(apps/desktop) npx tsc --noEmit                             # 0 error
+(src-tauri)    cargo check                                   # Finished in 5s
+(src-tauri)    cargo test auth::                             # 4 passed
+```
+
+**Részletek**: [`KARTOTEKA-M6-6-desktop-auth-keyring-2026-04-22.md`](project-tracking/KARTOTEKA-M6-6-desktop-auth-keyring-2026-04-22.md)
+
+---
+
+## [2026-04-22] — M6.3 diagnostic + M6.4b core mail wrapper
+
+<!-- key: 2026-04-22-m6-3-diagnostic-es-m6-4b-mail-wrapper -->
+<!-- category: improvement -->
+<!-- version: — -->
+<!-- targets: fejlesztő -->
+
+### 🔍 M6.3 — portable-user diagnostic SQL
+
+Fájl: [`migration-docs/sql/2026-04-22-m6-3-portable-user-diagnostic.sql`](../migration-docs/sql/2026-04-22-m6-3-portable-user-diagnostic.sql) — 5 SELECT blokk, csak olvasó: `licenses` (portable Inno Setup) státusz-bontás, aktivitás az elmúlt 7/30/60 napban, `user_devices` (Tauri) referencia, végül 1-soros **döntési összefoglaló** javaslattal: ✅ azonnali törlés / 🟡 irányított migráció + 1 release után törlés / 🔴 halasztott (M12/M13). Endre futtatja, az eredmény alapján szabjuk meg az M6.3 konkrét megvalósítását.
+
+### 📧 M6.4b — @kartoteka/core mail wrapper (első valódi use-case)
+
+Új fájl: [`packages/core/src/mail/send.ts`](../packages/core/src/mail/send.ts) — a `sendMailUseCase(args, ctx)` a `mail-send` Edge Function kliens-oldali wrapper-je. Ez az **első valódi use-case** a core-ban, minta a jövőbeli M7+ modul-hullámoknak:
+
+- **Input interface** (`MailSendArgs`) + **Ctx interface** (`MailSendCtx` — csak a Supabase kliens kell)
+- **Nem dob kivételt**, mindig `MailSendResult`-ot ad — egyértelmű, tesztelhető hibakezelés
+- `supabase.functions.invoke('mail-send', { body: args })` — az Edge Fn 401/500/200 válaszait egységes result-objektummá alakítja
+- Authenticated session feltételezve (a Supabase kliens adja a headert)
+
+**Export**: a `@kartoteka/core/src/index.ts`-ben re-exportálva (`sendMailUseCase`, `EmailRecipient`, `MailSendArgs`, `MailSendCtx`, `MailSendResult`). `typecheck` zöld.
+
+**Használat** (mintapéldány):
+```ts
+import { sendMailUseCase } from '@kartoteka/core'
+const supabase = getDesktopSupabase()                       // vagy createServerSupabaseClient() web-en
+const result = await sendMailUseCase({ to, subject, text, html }, { supabase })
+if (!result.success) console.error(result.error)
+```
+
+A web Server Action-ök (access-requests, broadcasts, device-revoke, support) az M7 alatt váltanak át a `sendMailUseCase` hívásra — addig a meglévő `apps/web/lib/email/send.ts` backward-compat marad.
+
+---
+
+## [2026-04-22] — M6.4a: `mail-send` Edge Function (secret-gateway első darabja)
+
+<!-- key: 2026-04-22-m6-4a-mail-send-edge-function -->
+<!-- category: security -->
+<!-- version: Edge Function — Endre deploy-olja -->
+<!-- targets: fejlesztő -->
+
+### 📧 Egységes email-küldési gateway — API kulcsok elzárva a kliens elől
+
+A Tauri desktop **soha nem tartalmazhat** külső API kulcsot. Ez az első Edge Function a `supabase/functions/mail-send/` alatt, minta a többi 3 gateway-hez (`oblio-oauth`, `oblio-invoice`, `ai-chat` — M7/M11-ben).
+
+- **Deno runtime**, `Deno.serve()` handler
+- **Auth**: authenticated Supabase user JWT kötelező (401 ha hiányzik)
+- **Két provider**: Brevo default (EU GDPR, 300/nap), Resend fallback — ha az elsődleges fail, automatikusan próbálja a másikat
+- **Secrets Supabase CLI-ben**: `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `BREVO_FROM_NAME`, `RESEND_API_KEY`, `RESEND_FROM`, `EMAIL_PROVIDER`
+
+### Deploy
+
+```bash
+supabase secrets set BREVO_API_KEY="xkeysib-..."   # és a többi
+supabase functions deploy mail-send
+```
+
+Részletes deploy + curl-smoketest: [`supabase/functions/mail-send/README.md`](../supabase/functions/mail-send/README.md)
+
+### Integráció későbbre
+
+A kliens-oldali `sendMailUseCase(args, ctx)` wrapper az **M7 alatt** kerül be a `packages/core/src/mail/send.ts`-be. A meglévő `apps/web/lib/email/send.ts` addig backward-compat marad.
+
+**Részletek**: [`KARTOTEKA-M6-4a-mail-send-edge-function-2026-04-22.md`](project-tracking/KARTOTEKA-M6-4a-mail-send-edge-function-2026-04-22.md)
+
+---
+
+## [2026-04-22] — M6.2 TELJES ZÖLD + M6.7 Dexie tiltás desktopon
+
+<!-- key: 2026-04-22-m6-2-zold-es-m6-7-dexie-tiltas -->
+<!-- category: security -->
+<!-- version: — -->
+<!-- targets: fejlesztő -->
+
+### 🎯 M6.2 teljes audit zöld (M7 blokkolója elhárult)
+
+Az M6.2a fix-migráció lefutott Supabase Studio-ban, a fájl-végi check-SELECT-ek eredménye:
+
+| p1_total | ok | warn_no_policy | fail_rls_off | fail_missing |
+|---------:|---:|---------------:|-------------:|-------------:|
+|    **26** | **26** | **0**     | **0**        | **0**        |
+
+Teljes RLS audit minden prioritási szinten zöld (P0=38/38, P1=26/26, P2=6/6, P3=1/1). **Az M7 pénzügyi wave blokkolója elhárult**.
+
+### 🚫 M6.7: Dexie / IndexedDB import tiltás a desktop kódban
+
+A cél a dual-storage (Dexie + SQLCipher) megszüntetése — a desktop csak a Rust-oldali SQLCipher-t használja a `@kartoteka/offline-sync` `StorageBackend` absztrakciója mögött.
+
+- **Új script**: [`scripts/check-desktop-banned-imports.mjs`](../scripts/check-desktop-banned-imports.mjs) — tiszta Node.js (Windows-kompatibilis), tiltott csomagok: `dexie`, `dexie-react-hooks`, `@kartoteka/offline-sync/dexie-backend`
+- **Integráció**: `apps/desktop/package.json` `build` és `tauri` scriptek előtt `lint:imports` fut (dev-en nem — Vite natívan jelezne)
+- **Verifikáció**: `✅ M6.7 import-check OK (21 fájl vizsgálva, 0 tiltott import)` — a kódbázis már most tiszta, a script preventív
+
+**Részletek**: [`KARTOTEKA-M6-7-dexie-tiltas-desktopon-2026-04-22.md`](project-tracking/KARTOTEKA-M6-7-dexie-tiltas-desktopon-2026-04-22.md)
+
+---
+
+## [2026-04-21] — M6.2a: RLS fix a 4 jegyzőkönyv-táblára (P1 lyuk bezárva)
+
+<!-- key: 2026-04-21-m6-2a-rls-fix-jegyzokonyv -->
+<!-- category: security -->
+<!-- version: SQL migráció — Endre futtatja -->
+<!-- targets: fejlesztő, rendszerbiztonság -->
+
+### 🔐 Az utolsó P1 RLS-lyuk bezárva
+
+Az M6.2b diagnostic azonosította: mind a 4 `fail_rls_off` tábla a **jegyzőkönyvek modulban** — `presbiteri_jegyzokonyvek` (parent) + 3 child (`jegyzokonyv_hatarozatok`, `jegyzokonyv_napirendi_pontok`, `jegyzokonyv_resztvevok`).
+
+**A miértje**: a 2026-04-12 `jegyzokonyv-restructure.sql` szándékosan OFF-ban hagyta az RLS-t, mert *akkor* az app-szintű `getEffectiveAccessContext()` szűrés elégnek bizonyult. A **Tauri desktop migráció ezt felülírja**: a desktop közvetlen, ctx nélküli Supabase-hívásokkal dolgozik, ezért minden tábla RLS-védett kell legyen.
+
+### 🛠 A fix
+
+Fájl: [`migration-docs/sql/2026-04-21-m6-2a-rls-fix-jegyzokonyv.sql`](../migration-docs/sql/2026-04-21-m6-2a-rls-fix-jegyzokonyv.sql)
+
+- `ENABLE ROW LEVEL SECURITY` mind a 4 táblán
+- Parent policy: egysoros `FOR ALL` a `current_user_can_access_congregation(congregation_id)` helper-rel — ugyanaz a minta, mint `befizetes`/`kiadas`/`jarulek_kedvezmeny` (WC-7.4 fázis 2e)
+- 3 child policy: scope a parent `congregation_id`-ján keresztül `EXISTS` subquery-vel (a child táblákon nincs saját `congregation_id` — `jegyzokonyv_id` FK-val kapcsolódnak)
+- Backward-compatible: a meglévő Server Action-ök továbbra is működnek (defense-in-depth)
+
+### ✅ Check-SELECT-ek a fájl végén (futtatható)
+
+1. Mind a 4 tábla `rls_enabled=true`, `policy_count=1`, `✅ OK`
+2. Policy részletek (cmd='ALL', roles={authenticated}, USING + CHECK)
+3. M6.2 P1 összefoglaló újrafutás — várt: `ok=26, fail_rls_off=0`
+
+Ha minden zöld → **M7 pénzügyi wave INDULHAT**.
+
+### 🧭 Új alapelv (memóriába kerül)
+
+A Tauri migráció architektúrális alapelvet változtat: **minden desktopra kerülő táblának RLS-védettnek kell lennie** (eddig "app-level filter elég" → mostantól "RLS kötelező"). Új modulra = azonnal RLS + `current_user_can_access_congregation()` policy.
+
+**Részletek**: [`KARTOTEKA-M6-2a-rls-fix-jegyzokonyv-2026-04-21.md`](project-tracking/KARTOTEKA-M6-2a-rls-fix-jegyzokonyv-2026-04-21.md)
+
+---
+
+## [2026-04-21] — M6.5 Next.js 16 middleware→proxy átnevezés + 4 ESLint error javítása
+
+<!-- key: 2026-04-21-m6-5-proxy-rename-es-lint -->
+<!-- category: improvement -->
+<!-- version: Next.js 16 deprecation housekeeping -->
+<!-- targets: fejlesztő -->
+
+### 🔀 middleware.ts → proxy.ts (Next.js 16 file-convention)
+
+A Next.js 16 a `middleware.ts`-t deprecated-nak jelöli, új név `proxy.ts` + függvénynév `proxy`. A `matcher` és a funkcionalitás változatlan. A `@/lib/supabase/middleware` saját helper-modul (Supabase SSR session) szándékosan nem változott — az nem Next.js file-convention.
+
+### 🧹 4 ESLint error javítása (68 warning marad, non-blocking)
+
+- **`access-request-approve-dialog.tsx:111`** és **`access-requests-table.tsx:125`** — `react/no-unescaped-entities`: magyar idézőjel-pár `„...”` → `&bdquo;...&rdquo;`
+- **`motion-primitives.tsx:145`** — `react-hooks/set-state-in-effect`: render-time `staticDisplay` derived value + két külön effect (csak non-reduced-motion esetén iratkozik fel a spring `change`-re), nincs többé synchronous setState az effect-ben
+- **`splash-screen.tsx:33`** — ua. szabály: felesleges `mounted` flag törölve, a maradék session-specifikus `setVisible(true)` pedig targetált `eslint-disable-next-line`-nal dokumentált indoklással (átfogó `useSyncExternalStore`-refactor M15-ben)
+
+### ✅ Verifikáció
+
+```
+cd apps/web
+npm run lint     → 0 errors, 68 warnings
+npx tsc --noEmit → 0 errors
+```
+
+**Részletek**: [`KARTOTEKA-M6-5-middleware-proxy-es-lint-2026-04-21.md`](project-tracking/KARTOTEKA-M6-5-middleware-proxy-es-lint-2026-04-21.md)
+
+---
+
+## [2026-04-21] — M6.2 RLS audit első eredménye: P0/P2/P3 zöld, P1-ben 4 fail_rls_off
+
+<!-- key: 2026-04-21-m6-2-rls-audit-eredmeny -->
+<!-- category: security -->
+<!-- version: — -->
+<!-- targets: fejlesztő -->
+
+### 🔐 M6.2 audit lefutott
+
+Endre lefuttatta a 113-tábla RLS auditot Supabase Studio-ban. Összefoglaló:
+
+| Prioritás | Total | OK | warn_no_policy | fail_rls_off | fail_missing |
+|-----------|------:|---:|---------------:|-------------:|-------------:|
+| **P0**    |    38 | 38 | 0              | **0**        | 0            |
+| **P1**    |    26 | 22 | 0              | **4**        | 0            |
+| **P2**    |     6 |  6 | 0              | **0**        | 0            |
+| **P3**    |     1 |  1 | 0              | **0**        | 0            |
+
+A P0 pénzügy + tagnyilvántartás + anyakönyv (38/38) ÉS a P2/P3 teljesen zöld. **Az M7 pénzügyi wave elindulhat**, amint a P1 szintű 4 fail_rls_off pótolva lesz.
+
+### 🎯 M6.2b diagnostic SQL
+
+A 4 pontos tábla azonosítására: [`migration-docs/sql/2026-04-21-m6-2b-diagnostic-p1-fail.sql`](../migration-docs/sql/2026-04-21-m6-2b-diagnostic-p1-fail.sql) — csak SELECT, a 26 P1 tábla közül listázza a hiányosokat. Endre futtatja, a válasz alapján születik az **M6.2a fix-migráció**.
+
+---
+
+## [2026-04-21] — M6.1 shared packages skeleton + M6.2 RLS audit SQL
+
+<!-- key: 2026-04-21-m6-1-packages-skeleton-es-m6-2-rls-audit -->
+<!-- category: improvement -->
+<!-- version: monorepo (packages) — nincs release -->
+<!-- targets: fejlesztő -->
+
+### 📦 5 új közös csomag skeleton létrehozva (M6.1)
+
+A Tauri desktop migrációs roadmap első konkrét lépése: a web és a desktop közös frontend + business logic rétege számára skeleton package-ek a `packages/` alatt:
+
+- **`@kartoteka/core`** — use-case függvények, domain kalkulátorok (web + desktop közös)
+- **`@kartoteka/ui-app`** — alkalmazás-szintű React komponensek (302 komponens célhelye)
+- **`@kartoteka/offline-sync`** — `StorageBackend` absztrakció (web: Dexie, desktop: SQLCipher) + pull/push orchestrator
+- **`@kartoteka/auth`** — RBAC helper-ek, scope-builder-ek
+- **`@kartoteka/validations`** — közös zod sémák
+
+Mind az 5 csomagra `npm install` + `npm run typecheck` zöld (0 TS hiba). A tartalom a modul-hullámokban (M6.8, majd M7+) gördül át — egyelőre csak a skeleton + részletes dokumentációs kommentek a szándékolt modul-szerkezettel.
+
+### 🔐 113-tábla RLS audit SQL átadva Endrének (M6.2)
+
+Fájl: [`migration-docs/sql/2026-04-21-m6-2-rls-audit-full.sql`](../migration-docs/sql/2026-04-21-m6-2-rls-audit-full.sql)
+
+**Csak SELECT, 6 riport:**
+1. Teljes public-séma RLS overview (dinamikus, minden tábla)
+2. Modul-priorizált audit — 103+ tábla a 22 dashboard modulhoz rendelve (P0/P1/P2/P3/web-only/system)
+3. anon role engedélyek (gyanús publikus SELECT privát táblán)
+4. Hiányzó policy-k (RLS ON, 0 policy)
+5. SECURITY DEFINER helper fn-ek léte (`current_user_congregation_id`, `…_has_global_access`, `…_can_access_congregation`, `is_admin`, `same_congregation`, `is_owner`)
+6. Összefoglaló counter — OK/WARN/FAIL prioritásonként
+
+**Blokkoló szabály M7 indításához**: P0+P1 szinten `fail_rls_off = 0` ÉS `warn_no_policy = 0` ÉS `fail_missing = 0`. Ha a riport lyukakat mutat, fix-migrációk (`2026-04-22-m6-2a-rls-fix-*.sql`) készülnek, csak utána indul az M7 pénzügyi wave.
+
+**Részletek**: [`KARTOTEKA-M6-1-packages-skeleton-es-M6-2-rls-audit-2026-04-21.md`](project-tracking/KARTOTEKA-M6-1-packages-skeleton-es-M6-2-rls-audit-2026-04-21.md)
+
+---
+
+## [2026-04-21] — M6+ Tauri desktop migrációs roadmap dokumentálva
+
+<!-- key: 2026-04-21-m6-plusz-tauri-roadmap -->
+<!-- category: improvement -->
+<!-- version: tervezési dokumentum (nem release) -->
+<!-- targets: fejlesztő, tech-lead -->
+
+### 📘 Részletes roadmap a hátralévő Tauri migrációs munkára
+
+Az M0–M5 fázisok lezárultak (Tauri 2 + SQLCipher + keyring + device-bind + auto-updater éles), valamint M6 (congregations), M7 (`szemely`) és M8 (`munkanaplo`) offline-sync is fut. A hátralévő 22 dashboard modul, 77 Server Action, 8 API route, 302 komponens és 139 `lib/` fájl átemeléséhez készült egy **senior szintű, gyártásra alkalmas roadmap**.
+
+**Fájl**: `docs/project-tracking/KARTOTEKA-tauri-migracio-folytatas-M6-plusz-2026-04-21.md`
+
+**Kulcs döntések** (user-approved):
+- **Architektúra**: Hibrid A — shared `packages/{core,ui-app,offline-sync,auth,validations}`; Next.js marad SSR-kritikus helyeken (publikus `/gy/[slug]`, auth, admin, god-mode)
+- **Modul prioritás**: biztonsági súly szerint — P0 pénzügy → tagnyilvántartás → anyakönyv; P1 jegyzőkönyvek/iktato/leltar/eves-jelentes/profile/dashboard/congregation/notifications; P2–P3 többi; admin + god-mode + publikus-oldal szerkesztő **web-only**
+- **Offline scope**: mind a 22 modul offline-capable SQLCipher mirror-ral
+- **Külső API** (Oblio/Brevo/Resend/Claude): **Supabase Edge Function gateway** — secret SOHA nem kerül desktopra
+- **Code sign**: self-signed EREK cert marad béta-fázis alatt (EV/Azure Trusted Signing M16+ döntés)
+- **Default viselkedés**: online-first, offline-capable fallback
+
+**Roadmap váz**: M6 (architektúra konszolidáció, 2-3 hét) → M7–M12 (5 modul-hullám, 12-16 hét) → M13 (E2E doc titkosítás) → M14 (delta-update + rollback + release pipeline) → M15 (magyar lokalizáció) → M16 (béta 5-10 lelkésszel, majd fokozatos rollout 1000 lelkészre).
+
+**Top 3 kockázat**: (1) a 77 Server Action refaktor M6–M12 teljes időtartamát blokkolja; (2) egy P0 táblán hiányzó RLS-policy cross-congregation adatszivárgást okozhat a közvetlen desktop hívásoknál — M6.2 **113-tábla RLS audit** kötelező előfeltétel; (3) a 22-modulos offline scope nagyobb, mint a minimum, de modul-hullámokkal kezelhető.
+
+**Következő lépés**: **M6.1 — packages skeleton** (`packages/{core,ui-app,offline-sync,auth,validations}`) + **M6.2 — 113-tábla RLS audit SQL** (`migration-docs/sql/` alá, futtatható check-SELECT-ekkel a fájl végén). Endre fogja az SQL-t Supabase Studio-ban lefuttatni.
 
 ---
 

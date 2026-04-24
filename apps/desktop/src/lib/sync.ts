@@ -1860,3 +1860,119 @@ export async function deleteWorklogEntry(
   })
   return { queuedToOutbox: true, conflict: false }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// M8.0b — WRITE operations (szemely / tagnyilvántartás)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface SzemelyUpdateResult {
+  queuedToOutbox: boolean
+  conflict: boolean
+  newRevision?: number
+  error?: string
+}
+
+/**
+ * Egy tag (`szemely`) adatainak frissítése. A `updateWorklogEntry` mintája
+ * szerint:
+ *
+ *   1. Optimistic local UPDATE a `szemely_local` cache-en — azonnali UI-feedback.
+ *   2. Online: conditional Supabase UPDATE `.eq('revision', expectedRevision)`.
+ *      Ha 0 sor frissült → konfliktus → re-pull a szerver-oldali igazsággal.
+ *      Ha sikerült → új revision + updated_at visszaírása a lokálba.
+ *   3. Offline vagy Supabase-hiba → outbox-sor `op='update'`, `target_table='szemely'`,
+ *      payload `{ patch, expected_revision }`. A `processOutbox()` általános
+ *      flush-helperje ugyanúgy kezeli, mint a munkanaplo update-eket.
+ *
+ * A szerver-oldali `revision`/`updated_at` léptető trigger a
+ * `2026-04-23-m7-0-szemely-csalad-triggers.sql` migrációban készült el.
+ *
+ * A patch: **csak a változott mezőket** tartalmazza, már normalizált formában
+ * (üres string → null, a zod-séma `normalizeSzemelyPatch` helper-éből).
+ * A boolean → INTEGER konverziót a SQLite optimistic-writehoz itt végezzük.
+ */
+export async function updateSzemelyEntry(
+  userId: string,
+  szemelyId: number,
+  patch: Record<string, unknown>,
+  expectedRevision: number,
+): Promise<SzemelyUpdateResult> {
+  const keys = Object.keys(patch)
+  if (keys.length === 0) {
+    return { queuedToOutbox: false, conflict: false }
+  }
+
+  // 1. Optimistic local UPDATE
+  const setClauses: string[] = []
+  const params: (string | number | null)[] = []
+  let idx = 1
+  for (const [key, value] of Object.entries(patch)) {
+    // SQLite: boolean → INTEGER (0/1). A null/string/number direkt megy.
+    const sqlValue =
+      typeof value === 'boolean'
+        ? value
+          ? 1
+          : 0
+        : (value as string | number | null)
+    setClauses.push(`${key} = ?${idx++}`)
+    params.push(sqlValue)
+  }
+  params.push(szemelyId)
+  await dbExecute(
+    `UPDATE szemely_local SET ${setClauses.join(', ')}, synced_at = datetime('now')
+      WHERE id = ?${idx}`,
+    params,
+  )
+
+  // 2. Online conditional UPDATE
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('szemely')
+        .update(patch)
+        .eq('id', szemelyId)
+        .eq('revision', expectedRevision)
+        .select('revision, updated_at')
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        // Konfliktus → re-pull a lokális cache-be, majd jelezzük a UI-nak
+        await pullMembersOfOwnCongregation(userId, 'delta')
+        return { queuedToOutbox: false, conflict: true }
+      }
+
+      const srv = data[0] as { revision: number; updated_at: string }
+      await dbExecute(
+        `UPDATE szemely_local SET revision = ?1, updated_at = ?2 WHERE id = ?3`,
+        [srv.revision, srv.updated_at, szemelyId],
+      )
+      return {
+        queuedToOutbox: false,
+        conflict: false,
+        newRevision: srv.revision,
+      }
+    } catch (err) {
+      // Fall through az outboxra — a `isOnline()` true volt, de a szerver
+      // elérhetetlen vagy más hiba. A lelkész számára offline-ként viselkedünk.
+      return await fallbackToOutbox(szemelyId, patch, expectedRevision, errorMessage(err))
+    }
+  }
+
+  // 3. Offline — outbox
+  return await fallbackToOutbox(szemelyId, patch, expectedRevision, null)
+}
+
+async function fallbackToOutbox(
+  szemelyId: number,
+  patch: Record<string, unknown>,
+  expectedRevision: number,
+  _lastError: string | null,
+): Promise<SzemelyUpdateResult> {
+  await enqueueOutbox('update', 'szemely', String(szemelyId), {
+    patch,
+    expected_revision: expectedRevision,
+  })
+  return { queuedToOutbox: true, conflict: false }
+}
