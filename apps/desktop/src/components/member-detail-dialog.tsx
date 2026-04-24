@@ -1,24 +1,29 @@
 /**
- * MemberDetailDialog — M8.0a (read-only) + M8.0b (edit-mode) (2026-04-24).
+ * MemberDetailDialog — M8.0a (read-only) + M8.0b (edit-mode) +
+ * M8.2 soft-delete + M8.4 admin-mezők (2026-04-24).
  *
  * Két állapot:
- *   - 'view': read-only tag-portré, csoportos megjelenítés (eredeti M8.0a)
+ *   - 'view': read-only tag-portré, csoportos megjelenítés (eredeti M8.0a);
+ *     + M8.2: "Elrejtés / Visszahozás" gomb az `isvisible` flag toggle-re
  *   - 'edit': inline szerkesztő form a `szemely_local` / Supabase `szemely`
  *     írásához. A write-back az `updateSzemelyEntry` sync-helper-en megy,
  *     ami optimistic-local UPDATE + online conditional-revision UPDATE +
- *     outbox-fallback offline módban (M8.0c write-offline ugyanezen a síkon).
+ *     outbox-fallback offline módban (M8.0c write-offline ugyanezen a síkon);
+ *     + M8.4: "Admin jelzők" szekció (meghalt, voter_eligible, csaladfo,
+ *     member_status) — lelkész-szintű jogosultsággal szerkeszthetők, mert
+ *     a napi pasztorális munkához kellenek (haláleset, választói regisztráció).
  *
  * UX-elvek (feedback_modal_design_system, feedback_lelkesz_informalas):
  *   - Serif cím, csoportos szekciók, pasztorális feedback-sávok
  *   - Konfliktus esetén világos magyar üzenet (`másik eszközről módosították`)
- *   - Offline esetén zöld banner: `sync-re váró` jelzéssel
- *   - A kevésbé érzékeny mezők szerkeszthetők (név, cím, kontakt, identitás);
- *     az admin-jellegű mezők (meghalt, member_status, voter_eligible) disabled
- *     — azokhoz külön admin UI jön későbbi körben
+ *   - Offline esetén világos banner: `sync-re váró` jelzéssel
+ *   - Rejtés előtt browser-confirm, pasztorális magyarázattal
+ *   - A `cnp`, `congregation_id`, `family_id`, `type`, `isvisible` az edit-formból
+ *     kimarad: külön flow vagy admin-felület (M8.3 család-UI, M8.1 új tag)
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Check, Pencil, X } from 'lucide-react'
+import { AlertCircle, Check, EyeOff, Eye, Pencil, X } from 'lucide-react'
 
 import { Button, Input, Label } from '@kartoteka/ui'
 import {
@@ -73,6 +78,64 @@ export function MemberDetailDialog({
 
   const fullName = useMemo(() => formatFullName(m), [m])
   const age = m.sz_datum ? ageFromIso(m.sz_datum) : null
+
+  /**
+   * M8.2 — soft-delete / visszahozás. Az `isvisible` flag-et toggle-eli az
+   * `updateSzemelyEntry` sync-helper-en. A lelkész oldalán ez a "Rejtett"
+   * lista-szűrőbe teszi / onnan visszahozza a taget.
+   */
+  async function handleToggleVisibility() {
+    const isCurrentlyVisible = m.isvisible === 1
+    const confirmMsg = isCurrentlyVisible
+      ? `Elrejted a "${fullName}" nevű tagot a default listából?\n\n` +
+        `A tag adatai megmaradnak — a „Rejtett" szűrővel bármikor visszahozhatod. ` +
+        `Ez nem halálozási jelzés; használd akkor, ha a tag már nem aktív, ` +
+        `de még nem szeretnéd törölni.`
+      : `Visszahozod a "${fullName}" nevű tagot a default listába?\n\n` +
+        `Újra megjelenik az Aktív / Mind szűrőkben.`
+    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return
+
+    setSaving(true)
+    setBanner(null)
+    try {
+      const result = await updateSzemelyEntry(
+        userId,
+        m.id,
+        { isvisible: !isCurrentlyVisible },
+        currentRevision,
+      )
+      if (result.conflict) {
+        setBanner({
+          kind: 'conflict',
+          text:
+            'Más eszközről módosították időközben — kérlek frissítsd az oldalt, ' +
+            'és próbáld újra.',
+        })
+      } else if (result.queuedToOutbox) {
+        setBanner({
+          kind: 'offline',
+          text: isCurrentlyVisible
+            ? 'Elrejtés offline-ban elmentve. A szinkron felküldi, amint online leszel.'
+            : 'Visszahozás offline-ban elmentve. Szinkron a következő online-menetben.',
+        })
+        onSaved?.()
+      } else {
+        setBanner({
+          kind: 'success',
+          text: isCurrentlyVisible ? 'A tag elrejtve.' : 'A tag visszahozva.',
+        })
+        onSaved?.()
+        setTimeout(() => onClose(), 800)
+      }
+    } catch (err: unknown) {
+      setBanner({
+        kind: 'error',
+        text: `Hiba: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -175,6 +238,16 @@ export function MemberDetailDialog({
                   választó
                 </span>
               )}
+              {m.isvisible === 0 && (
+                <span className="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700">
+                  rejtett
+                </span>
+              )}
+              {m.member_status && m.member_status !== 'aktív' && m.member_status !== 'aktiv' && (
+                <span className="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] text-indigo-800">
+                  {m.member_status}
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -215,10 +288,40 @@ export function MemberDetailDialog({
         <div className="flex justify-between gap-2 border-t border-slate-200 bg-slate-50/50 p-4">
           {mode === 'view' ? (
             <>
-              <Button type="button" variant="outline" onClick={() => setMode('edit')}>
-                <Pencil className="mr-2 size-4" />
-                Szerkesztés
-              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setMode('edit')} disabled={saving}>
+                  <Pencil className="mr-2 size-4" />
+                  Szerkesztés
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleToggleVisibility}
+                  disabled={saving}
+                  className={
+                    m.isvisible === 1
+                      ? 'border-amber-300 text-amber-900 hover:bg-amber-50'
+                      : 'border-sky-300 text-sky-900 hover:bg-sky-50'
+                  }
+                  title={
+                    m.isvisible === 1
+                      ? 'A tag eltűnik a default listából — visszahozható a Rejtett szűrővel.'
+                      : 'A tag visszakerül a default listába.'
+                  }
+                >
+                  {m.isvisible === 1 ? (
+                    <>
+                      <EyeOff className="mr-2 size-4" />
+                      Elrejtés
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="mr-2 size-4" />
+                      Visszahozás
+                    </>
+                  )}
+                </Button>
+              </div>
               <Button type="button" onClick={onClose}>
                 Bezárás
               </Button>
@@ -316,7 +419,20 @@ type EditableFields = {
   foglalkozas: string
   nemzetiseg: string
   megjegyzes: string
+  // M8.4 admin-jelzők (boolean → string '0'/'1' a form-state-ben; patch-be boolean-ként)
+  meghalt: string
+  voter_eligible: string
+  csaladfo: string
+  member_status: string
 }
+
+/** Lelkészi szempontból releváns `member_status` értékek + "egyéb" biztosítóháló. */
+const MEMBER_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'aktív', label: 'Aktív' },
+  { value: 'kitért', label: 'Kitért' },
+  { value: 'törölt', label: 'Törölt' },
+  { value: 'mas_vallasu', label: 'Más vallású' },
+]
 
 function EditBody({
   form,
@@ -379,7 +495,98 @@ function EditBody({
           className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
       </EditGroup>
+
+      <EditGroup title="Tag-jelzők (adminisztratív)">
+        <p className="-mt-1 text-[10px] italic text-slate-500">
+          Ezek pasztorális jelzők — haláleset, választói státusz, családfő-szerep,
+          tagsági kategória. Ha bizonytalan vagy egy beállításban, kérdezd meg
+          előbb a gondnokot vagy a presbitériumot.
+        </p>
+
+        <CheckboxRow
+          id="meghalt"
+          label="Elhunyt"
+          hint="Ha a tag elhunyt — a listában † jellel + áthúzott névvel jelenik meg."
+          checked={form.meghalt === '1'}
+          onChange={(v) => upd('meghalt', v ? '1' : '0')}
+          disabled={disabled}
+        />
+        <CheckboxRow
+          id="voter_eligible"
+          label="Választó"
+          hint="Ha a tag jogosult presbitérium-, lelkész- és gondnokválasztásra."
+          checked={form.voter_eligible === '1'}
+          onChange={(v) => upd('voter_eligible', v ? '1' : '0')}
+          disabled={disabled}
+        />
+        <CheckboxRow
+          id="csaladfo"
+          label="Családfő"
+          hint="A család hivatalos képviselője — rendszerint egy a család-egységben."
+          checked={form.csaladfo === '1'}
+          onChange={(v) => upd('csaladfo', v ? '1' : '0')}
+          disabled={disabled}
+        />
+
+        <div className="grid grid-cols-3 items-center gap-2 pt-1">
+          <Label htmlFor="member_status" className="col-span-1 text-xs text-slate-500">
+            Tagsági kategória
+          </Label>
+          <select
+            id="member_status"
+            value={form.member_status}
+            onChange={(e) => upd('member_status', e.currentTarget.value)}
+            disabled={disabled}
+            className="col-span-2 h-8 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="">— nincs beállítva —</option>
+            {MEMBER_STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </EditGroup>
     </>
+  )
+}
+
+function CheckboxRow({
+  id,
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  hint?: string
+  checked: boolean
+  onChange: (v: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2 ${
+        disabled ? 'opacity-60' : 'hover:bg-slate-50'
+      }`}
+    >
+      <input
+        type="checkbox"
+        id={id}
+        checked={checked}
+        onChange={(e) => onChange(e.currentTarget.checked)}
+        disabled={disabled}
+        className="mt-0.5 size-4 accent-violet-600"
+      />
+      <div className="flex-1">
+        <span className="text-sm font-medium text-slate-900">{label}</span>
+        {hint && <p className="mt-0.5 text-[11px] leading-tight text-slate-500">{hint}</p>}
+      </div>
+    </label>
   )
 }
 
@@ -494,7 +701,7 @@ function EditField({
 // Helper-ek (SzemelyListRow ↔ EditableFields + patch + formázás)
 // ─────────────────────────────────────────────────────────────────────────
 
-const EDITABLE_KEYS: (keyof EditableFields)[] = [
+const EDITABLE_TEXT_KEYS: (keyof EditableFields)[] = [
   'k_nev',
   'csaladnev',
   'szcs_nev',
@@ -515,13 +722,31 @@ const EDITABLE_KEYS: (keyof EditableFields)[] = [
   'foglalkozas',
   'nemzetiseg',
   'megjegyzes',
+  'member_status',
+]
+
+/**
+ * Integer-boolean mezők a `szemely_local`-on (0/1) — a form-state-ben '0'/'1'
+ * stringként tároljuk a kezelés egységessége miatt, a patch-be konvertáljuk
+ * valódi `boolean`-ná.
+ */
+const EDITABLE_BOOL_KEYS: (keyof EditableFields)[] = [
+  'meghalt',
+  'voter_eligible',
+  'csaladfo',
 ]
 
 function extractEditable(m: SzemelyListRow): EditableFields {
   const out = {} as EditableFields
-  for (const key of EDITABLE_KEYS) {
-    const raw = (m as unknown as Record<string, unknown>)[key]
+  const row = m as unknown as Record<string, unknown>
+  for (const key of EDITABLE_TEXT_KEYS) {
+    const raw = row[key]
     out[key] = typeof raw === 'string' ? raw : raw == null ? '' : String(raw)
+  }
+  for (const key of EDITABLE_BOOL_KEYS) {
+    const raw = row[key]
+    // szemely_local: integer 0/1 → '0'/'1' string
+    out[key] = raw === 1 || raw === '1' || raw === true ? '1' : '0'
   }
   return out
 }
@@ -530,17 +755,32 @@ function extractEditable(m: SzemelyListRow): EditableFields {
  * A `SzemelyUpdateInput`-kompatibilis patch. Csak azokat a mezőket tartja
  * meg, amelyek ténylegesen változtak — így a Supabase UPDATE csak a delta-t
  * küldi, és a revision-trigger nem fut feleslegesen.
+ *
+ * A boolean mezőket explicit `boolean`-ná konvertáljuk (a Supabase `boolean`
+ * oszlopot vár, nem integer-t); a text-mezőket változatlanul hagyjuk.
  */
 function buildPatch(m: SzemelyListRow, form: EditableFields): Record<string, unknown> {
   const patch: Record<string, unknown> = {}
-  for (const key of EDITABLE_KEYS) {
-    const original = (m as unknown as Record<string, unknown>)[key]
+  const row = m as unknown as Record<string, unknown>
+
+  for (const key of EDITABLE_TEXT_KEYS) {
+    const original = row[key]
     const originalStr = original == null ? '' : String(original)
     if (originalStr !== form[key]) {
       // Az üres string tovább megy, a `normalizeSzemelyPatch` konvertálja null-ra
       patch[key] = form[key]
     }
   }
+
+  for (const key of EDITABLE_BOOL_KEYS) {
+    const original = row[key]
+    const originalBool = original === 1 || original === '1' || original === true
+    const formBool = form[key] === '1'
+    if (originalBool !== formBool) {
+      patch[key] = formBool
+    }
+  }
+
   return patch
 }
 

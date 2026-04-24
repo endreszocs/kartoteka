@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.2 + M8.4: Rejtés + admin-jelzők (desktop)
+
+<!-- key: 2026-04-24-m8-2-m8-4-admin-soft-delete -->
+<!-- category: feature -->
+<!-- targets: lelkészek — most már jelölheted az elhunytakat, választókat, családfőket és elrejtheted a nem-aktív tagokat -->
+
+### ✨ Admin-jelzők a tag-szerkesztőben
+
+A tag-szerkesztő modal most új **„Tag-jelzők (adminisztratív)"** szekciót kapott. Minden jelző hint-szöveges, hogy tudd, mikor melyiket használd:
+
+- **Elhunyt** — ha bejelölöd, a tag a listában `†` jellel + áthúzott névvel jelenik meg
+- **Választó** — a presbitérium-, lelkész- és gondnokválasztás jogosultsága
+- **Családfő** — a család hivatalos képviselője
+- **Tagsági kategória** — dropdown: aktív / kitért / törölt / más vallású (vagy „nincs beállítva")
+
+### 👁️ Tag elrejtése a listából (új gomb)
+
+A tag-modal alján (a Szerkesztés mellé) új gomb: **„Elrejtés"**. Egyetlen kattintás + biztonsági megerősítés után a tag eltűnik a default listából — de az adatok **megmaradnak**. A **„Rejtett"** szűrővel bármikor visszahozható. A rejtett tag fejlécében „rejtett" badge jelenik meg, a gomb pedig „**Visszahozás**"-ra vált.
+
+Ez nem a tag törlése, hanem csak egy lista-megjelenítési döntés — a lelkész eldöntheti, mit szeretne látni napi munkában.
+
+### 🎨 Új badge-ek a fejlécben
+
+A tag-portré fejlécében (az eddigi „családfő" + „választó" mellett) most megjelennek:
+- **rejtett** (szürke) — ha a tag `isvisible=0`
+- **tagsági kategória** (indigo) — ha nem „aktív" (pl. „kitért", „törölt", „más vallású")
+
+Egy pillantással látható minden státusz.
+
+### 📡 Online + offline ugyanúgy
+
+Minden flag + rejtés ugyanazt a `updateSzemelyEntry` flow-t használja, mint az M8.0b edit — online conditional UPDATE (revision-check), offline outbox-fallback. A sync transzparens.
+
+### 🛠 Műszaki háttér
+
+- **[member-detail-dialog.tsx](apps/desktop/src/components/member-detail-dialog.tsx)**: `EditableFields` + 4 új kulcs (`meghalt`, `voter_eligible`, `csaladfo`, `member_status`); új `handleToggleVisibility` async fn az isvisible toggle-hoz; új `CheckboxRow` komponens pasztorális hint-tel; `EDITABLE_TEXT_KEYS` + `EDITABLE_BOOL_KEYS` szétválasztva; `buildPatch` boolean-diff explicit
+- **[szemely-save.ts](packages/validations/src/members/szemely-save.ts)**: `isvisible: z.boolean().optional()` hozzáadva a zod-sémához
+
+**Nincs új Rust-migráció + nincs új SQL** — a `szemely` tábla `isvisible` + `meghalt` + `voter_eligible` + `csaladfo` + `member_status` mezői már megvoltak.
+
+---
+
 ## [2026-04-24] — M8.0b/c: Tag-szerkesztés + offline-írás (desktop)
 
 <!-- key: 2026-04-24-m8-0b-szemely-edit -->

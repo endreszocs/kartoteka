@@ -76,6 +76,10 @@ export const szemelyUpdateInputSchema = z.object({
   meghalt: z.boolean().optional(),
   member_status: z.string().trim().max(40).nullable().optional(),
 
+  // Soft-delete — az M8.2 "Elrejtés / Visszahozás" toggle (a tagsági jelzés
+  // független: ez csak lista-megjelenítés)
+  isvisible: z.boolean().optional(),
+
   // Megjegyzés
   megjegyzes: z.string().trim().max(2000).nullable().optional(),
 })
