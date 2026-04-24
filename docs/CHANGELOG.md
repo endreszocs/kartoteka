@@ -23,6 +23,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.1 polish: CNP szerver-védelem + konfliktus-feloldó
+
+<!-- key: 2026-04-24-m8-1-polish -->
+<!-- category: feature -->
+<!-- targets: lelkészek — a pending új tagok konfliktusait mostantól közvetlenül feloldhatod -->
+
+### ✨ Konfliktus-feloldó dialog az új-tag pending-blokkban
+
+Ha egy új tag rögzítése ütközésbe futott (pl. másik lelkész is felvette ugyanezt a CNP-t), most **kattinthatóvá válik** a pending-blokkban az érintett sor. Modális dialog nyílik:
+
+- **Szerver-üzenet** pirosan — pontosan mi volt a probléma
+- **Újrapróbálkozás** (kék) — ha hálózati hibának tűnik, újra elküldi
+- **Törlés** (piros) — ha tudod, hogy más már rögzítette, a helyi másolat eltűnik; a szerver-verzió a következő szinkronon megjelenik a listádban
+
+### 🛡 Szerver-oldali CNP védelem
+
+Új SQL migráció: **PARTIAL UNIQUE INDEX** a `szemely (congregation_id, cnp)` párra ahol `isvisible=true`. Ez védi a rendszert a párhuzamos klienseken keletkező duplikátumoktól:
+
+- Ha két lelkész egyidejűleg rögzíti ugyanazt a CNP-t (pl. egyik online, másik offline), a szerver a második küldést elutasítja
+- A rejtett (`isvisible=false`) tagok CNP-je **felszabadul** — soft-delete után újra felvehető
+- A halott tagok CNP-je továbbra is unique
+
+**Futtatás**: `migration-docs/sql/2026-04-24-m8-1-szemely-cnp-unique.sql` (Endre futtatja).
+
+### 🛠 Műszaki háttér
+
+- **[szemely-conflict-dialog.tsx](apps/desktop/src/components/szemely-conflict-dialog.tsx)**: új komponens, delete + retry + mégse gombokkal, pasztorális szövegezéssel
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: új `resetSzemelyPendingStatus(localId)` metódus — visszaállítja a sync_state-et `pending`-re, retry_count nullázva
+- **[members-page.tsx](apps/desktop/src/pages/members-page.tsx)**: a pending sorok conditional `role="button"` (csak conflict), `onClick` + `onKeyDown` a dialog megnyitásához, "kattints a feloldáshoz →" felirat
+- **[2026-04-24-m8-1-szemely-cnp-unique.sql](migration-docs/sql/2026-04-24-m8-1-szemely-cnp-unique.sql)**: PARTIAL UNIQUE INDEX + duplikátum-check `DO $$` blokk + ellenőrző SELECT-ek
+
+**Design-döntés**: nincs "reassign" ág a pénzügyi mintához képest — a CNP maga a tag azonosítója, másik CNP-re állítás értelmetlen. Új CNP-vel az "Új tag" gomb a megoldás.
+
+---
+
 ## [2026-04-24] — `/offline` oldal újragondolása + desktop letöltés
 
 <!-- key: 2026-04-24-offline-ujraepites -->

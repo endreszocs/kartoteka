@@ -1584,6 +1584,24 @@ export class TauriSqliteBackend implements StorageBackend {
   async deleteLocalPendingSzemely(localId: string): Promise<void> {
     await dbExecute(`DELETE FROM szemely_pending_local WHERE id = ?1`, [localId])
   }
+
+  /**
+   * Konfliktus-sort vissza `pending` állapotba — a lelkész
+   * „Újrapróbálkozás" gombjára. A sync-helper következő poll-ja ismét
+   * megpróbálja. A `retry_count` nullázva, hogy az exp-backoff újrainduljon.
+   */
+  async resetSzemelyPendingStatus(localId: string): Promise<void> {
+    await dbExecute(
+      `UPDATE szemely_pending_local
+         SET sync_state = 'pending',
+             retry_count = 0,
+             sync_error = NULL,
+             last_attempt_at = NULL,
+             updated_at = datetime('now')
+       WHERE id = ?1`,
+      [localId],
+    )
+  }
 }
 
 // Singleton — az alkalmazás egy instance-t használ

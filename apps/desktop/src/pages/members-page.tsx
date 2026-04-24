@@ -34,6 +34,7 @@ import {
 
 import { MemberCreateDialog } from '../components/member-create-dialog'
 import { MemberDetailDialog } from '../components/member-detail-dialog'
+import { SzemelyConflictDialog } from '../components/szemely-conflict-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -65,6 +66,7 @@ export function MembersPage() {
   >[number]
   const [pendingRows, setPendingRows] = useState<PendingRow[]>([])
   const [syncing, setSyncing] = useState(false)
+  const [conflictRow, setConflictRow] = useState<PendingRow | null>(null)
 
   // Auth + congregation_id
   useEffect(() => {
@@ -224,29 +226,51 @@ export function MembersPage() {
                       .filter(Boolean)
                       .join(' ') || '(névtelen)'
                   const isConflict = p.sync_state === 'conflict'
+                  const isClickable = isConflict
                   return (
-                    <li
-                      key={p.id}
-                      className="flex items-center gap-3 px-4 py-2 text-sm"
-                    >
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] ${
-                          isConflict
-                            ? 'bg-rose-100 text-rose-800'
-                            : 'bg-amber-200 text-amber-900'
+                    <li key={p.id}>
+                      <div
+                        role={isClickable ? 'button' : undefined}
+                        tabIndex={isClickable ? 0 : undefined}
+                        onClick={isClickable ? () => setConflictRow(p) : undefined}
+                        onKeyDown={
+                          isClickable
+                            ? (e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setConflictRow(p)
+                                }
+                              }
+                            : undefined
+                        }
+                        className={`flex items-center gap-3 px-4 py-2 text-sm ${
+                          isClickable ? 'cursor-pointer hover:bg-rose-100/60' : ''
                         }`}
                       >
-                        {isConflict ? '⚠ ütközés' : '🕓 várakozik'}
-                      </span>
-                      <span className="font-medium">{name}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        CNP: {p.cnp}
-                      </span>
-                      {isConflict && p.sync_error && (
-                        <span className="ml-auto text-[11px] italic text-rose-700 line-clamp-1">
-                          {p.sync_error}
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] ${
+                            isConflict
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-amber-200 text-amber-900'
+                          }`}
+                        >
+                          {isConflict ? '⚠ ütközés' : '🕓 várakozik'}
                         </span>
-                      )}
+                        <span className="font-medium">{name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          CNP: {p.cnp}
+                        </span>
+                        {isConflict && p.sync_error && (
+                          <span className="ml-auto text-[11px] italic text-rose-700 line-clamp-1">
+                            {p.sync_error}
+                          </span>
+                        )}
+                        {isConflict && (
+                          <span className="ml-2 whitespace-nowrap text-[11px] italic text-rose-600">
+                            kattints a feloldáshoz →
+                          </span>
+                        )}
+                      </div>
                     </li>
                   )
                 })}
@@ -377,6 +401,18 @@ export function MembersPage() {
               void loadPending()
             }}
             onClose={() => setCreateOpen(false)}
+          />
+        )}
+
+        {/* Conflict-resolve modal — a pending-blokkon egy conflict sort kattintva */}
+        {conflictRow && (
+          <SzemelyConflictDialog
+            pendingRow={conflictRow}
+            onResolved={() => {
+              void loadPending()
+              void loadList()
+            }}
+            onClose={() => setConflictRow(null)}
           />
         )}
       </main>
