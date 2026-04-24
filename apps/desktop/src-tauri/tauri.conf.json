@@ -59,8 +59,7 @@
         "headerImage": "icons/nsis-header.bmp",
         "sidebarImage": "icons/nsis-sidebar.bmp",
         "installMode": "currentUser",
-        "allowDowngrades": true,
-        "compressionLevel": "default"
+        "compression": "lzma"
       },
       "wix": {
         "language": ["hu-HU"]
