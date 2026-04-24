@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-25] — v0.4.1: UI paritás + magyar telepítő + pénzügyi SQL fix
+
+<!-- key: 2026-04-25-v0-4-1-ui-paritas -->
+<!-- category: feature -->
+<!-- version: 0.4.1 -->
+<!-- targets: mindenki — a desktop app most már prémium kinézetű és magyarul telepszik -->
+
+### 🎨 UX javítások — premium UI paritás
+
+A desktop app kinézete most már egybevág a webes felülettel. A lelkész ugyanazt az élményt kapja böngészőből és a telepített alkalmazásból is.
+
+- **Tagnyilvántartás** — táblázatos lista sortolható oszlopokkal (Név, Lakcím, Kor, Státusz, Foglalkozás), avatár-initials kép (kék/rózsaszín), szülinapi torta-ikon, státusz-badge-ek, offline-pending szekció konfliktus-feloldóval
+- **Családi karton** — gradient-hátterű prémium modal, avatar-box, státusz-chipek, stat-ek (szülők, gyermekek száma)
+- **Pénzügyi áttekintés** — új gradient-header, gradient-ikonos StatCard-ok hover-scale-lel
+- **Új PageHero komponens** — közös prémium fejléc a befizetés, kiadás, belső mozgás, chitanță, nyugtatömbök, családok, bank-import oldalakon
+
+### 🇭🇺 Magyar telepítő
+
+- Telepítővarázsló teljesen magyar nyelvű (NSIS + WiX hu-HU)
+- Kartotéka-ikonos telepítő (icon.ico)
+- Banner- és sidebar-képek (nsis-header.bmp, nsis-sidebar.bmp) KARTOTEKA_V3 logóval, indigo-950 háttéren
+- Digitálisan aláírt telepítő, Ed25519-updater signature
+
+### 🐛 Kritikus javítások
+
+- **Pénzügyi bevétel/kiadás lista** — a `bankszamlak.nev` oszlop nem létezik, helyette `bank_neve`. A lista sikertelenül futott eddig a webes felületen is. Javítva: `packages/core/src/finance/befizetes/list.ts`, `kiadas/list.ts`
+- **Tagnyilvántartás auto-pull** — a desktop első indítása után a members-page `pullMembersOfOwnCongregation(userId, 'delta')` fut a mount-kor, így nem marad üres a lista
+
+### 📋 Diagnosztika
+
+- Új `docs/DIAGNOSTICS.md` — P0/P1/P2/P3 prioritás szerinti rendszerállapot, modul-paritás táblázat, javasolt következő sprint
+
+---
+
 ## [2026-04-24] — M8.3d: Gyermek hozzáadása / eltávolítása a családból (desktop)
 
 <!-- key: 2026-04-24-m8-3d-gyerek-junction -->
