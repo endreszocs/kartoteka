@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — `/offline` oldal újragondolása + desktop letöltés
+
+<!-- key: 2026-04-24-offline-ujraepites -->
+<!-- category: feature -->
+<!-- targets: lelkészek — az /offline oldal mostantól áttekinthető, a desktop letöltés gombra egy kattintással elérhető -->
+
+### ✨ Új `/offline` oldal
+
+A korábbi, zsúfolt 6-fázisos diagnosztika helyett most az **asztali alkalmazás letöltése** van a középpontban:
+
+- **Nagy violet letöltés-gomb** — egy kattintással megkapod a telepítőt
+- **Verzió-jelzés és fájlméret** automatikusan — tudod, mit töltesz le
+- **"Miért desktop?"** 4 pontja: offline-elsőség, gyorsaság, PIN-védelem, szinkron
+- **Böngésző-offline tippek** ha maradnál a webes verzióban (online/offline állapot-badge)
+- **Fejlesztői diagnosztika** külön route-on (`/offline/diagnostika`) — csak admin-nézet, minden korábbi eszköz érintetlen
+
+### 📦 Letöltés-infrastruktúra
+
+- A Tauri build-elt `.exe` a `apps/web/public/downloads/kartoteka-setup.exe` helyre kerül
+- Verzió-string `kartoteka-setup-version.txt`-ből
+- A `.gitignore` kizárja a binárisokat a git-ből (15-30 MB)
+
+### 🛠 Műszaki háttér
+
+- **[page.tsx](apps/web/app/(dashboard)/offline/page.tsx)**: új, egyszerűsített oldal (~65 sor)
+- **[diagnostika/page.tsx](apps/web/app/(dashboard)/offline/diagnostika/page.tsx)**: a régi 6-fázis átköltöztetve + admin-guard
+- **[desktop-download-card.tsx](apps/web/components/offline/desktop-download-card.tsx)**: 3-állapotú letöltés kártya (checking/available/unavailable) + HEAD-request + version.txt
+- **[browser-offline-card.tsx](apps/web/components/offline/browser-offline-card.tsx)**: PWA fallback tippek + navigator.onLine badge
+- **[public/downloads/](apps/web/public/downloads/README.md)**: build-utasítás
+
+---
+
 ## [2026-04-24] — M8.1: Új tag rögzítés (desktop, offline-is)
 
 <!-- key: 2026-04-24-m8-1-uj-tag -->

@@ -47,3 +47,13 @@ ops/*.p12
 ops/*.key
 ops/*.pem
 *.pfx
+
+# Desktop telepítő-binárisok — a /downloads route a Railway-en szolgálja őket,
+# de a repo-ban ne legyenek (15-30 MB-os fájlok). Minden .exe / .msi a
+# public/downloads/-ból ki van zárva, kivéve a README-t és a version.txt-t.
+apps/web/public/downloads/*.exe
+apps/web/public/downloads/*.msi
+apps/web/public/downloads/*.dmg
+apps/web/public/downloads/*.AppImage
+apps/web/public/downloads/*.deb
+apps/web/public/downloads/*.rpm
