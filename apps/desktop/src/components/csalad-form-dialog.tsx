@@ -100,28 +100,10 @@ export function CsaladFormDialog({
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<MemberChoice[]>([])
 
-  // Előre betöltjük a szülők nevét, ha edit mode
-  useEffect(() => {
-    if (mode !== 'edit' || !existing) return
-    let cancelled = false
-    void (async () => {
-      const backend = getTauriSqliteBackend()
-      const updates: Partial<FormFields> = {}
-      if (existing.id_ferfi !== null) {
-        const rows = await backend.listLocalSzemely({
-          congregationId,
-          statusFilter: 'mind',
-          limit: 1,
-        })
-        // A listLocalSzemely egy szűrő-listát ad, nem direct ID-lookup.
-        // Egyszerűbb: egyenesen dbSelect-et kérünk (de itt megkerüljük):
-      }
-      if (!cancelled) setForm((f) => ({ ...f, ...updates }))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [mode, existing, congregationId])
+  // Edit-mode: a szülő-név megjelenítéséhez a `buildInitial` a `#<id>`
+  // placeholder-t adja. A teljes név V1-ben nem töltődik előre; a user
+  // a „Törlés" gombbal módosíthatja a kijelölést és új tagot választhat
+  // a keresővel. Későbbi polish: direkt `findSzemelyById` a backend-en.
 
   // Debounced keresés (300 ms)
   useEffect(() => {
