@@ -1,31 +1,27 @@
 /**
  * Tagnyilvántartás (members) lista-oldal — `/tagnyilvantartas` route.
  *
- * M8.0a (2026-04-25) — első iteráció:
- *   - Lokál `szemely_local` listázás (offline-first, OS-M7-ben pull-elve)
- *   - Kereső (csaladnev / k_nev / ferjk_nev / cím / telefon / email — diakritika-toleráns)
- *   - Status-szűrő (mind / aktív / meghalt / rejtett)
- *   - Sortolás (csaladnev asc/desc, sz_datum asc/desc, id desc)
- *   - Sor-kattintás → MemberDetailDialog (read-only)
- *
- * A szerkesztés (M8.0b) és az offline-write (M8.0c) későbbi alfázis. Most
- * a lelkész lát: pasztorális UX, tag-portré-szerű detail-modal.
+ * M8.0a (2026-04-25) — első iteráció lista + detail modal.
+ * UI paritás update (2026-04-25 este) — a webes `persons-tab.tsx` mintájára
+ * táblázatos megjelenítés, sortolható oszlopokkal, születésnap-ikonnal,
+ * hover-szerkesztő akciókkal. A célt az adja, hogy a lelkész ugyanazt
+ * a felületet lássa a weben és a desktopon.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { Home, RefreshCw, Search, UserPlus, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Cake,
+  Home,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  UserPlus,
+  Users,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-} from '@kartoteka/ui'
+import { Button, Input } from '@kartoteka/ui'
 import {
   SZEMELY_STATUS_FILTER_LABELS,
   SZEMELY_STATUS_FILTER_VALUES,
@@ -46,7 +42,8 @@ import {
 } from '../lib/szemely-write-sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
-type OrderBy = 'csaladnev-asc' | 'csaladnev-desc' | 'sz_datum-asc' | 'sz_datum-desc' | 'id-desc'
+type SortColumn = 'name' | 'age' | 'address' | 'id'
+type SortDir = 'asc' | 'desc'
 
 export function MembersPage() {
   const navigate = useNavigate()
@@ -58,7 +55,8 @@ export function MembersPage() {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<SzemelyStatusFilter>('aktiv')
-  const [orderBy, setOrderBy] = useState<OrderBy>('csaladnev-asc')
+  const [sortCol, setSortCol] = useState<SortColumn>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -94,7 +92,7 @@ export function MembersPage() {
     }
   }, [])
 
-  // Lista-betöltés
+  // Lista-betöltés (csak lokál, gyors)
   const loadList = useCallback(async () => {
     if (!congregationId) return
     setLoading(true)
@@ -102,10 +100,11 @@ export function MembersPage() {
     try {
       const list = await getTauriSqliteBackend().listLocalSzemely({
         congregationId,
+        // A search + sort a JS-ben, hogy a webes mintát követhessük
         search: search.trim() || undefined,
         statusFilter,
-        orderBy,
-        limit: 1000,
+        orderBy: 'csaladnev-asc',
+        limit: 2000,
       })
       setRows(list)
     } catch (err) {
@@ -113,7 +112,7 @@ export function MembersPage() {
     } finally {
       setLoading(false)
     }
-  }, [congregationId, search, statusFilter, orderBy])
+  }, [congregationId, search, statusFilter])
 
   // Debounced search (300ms)
   useEffect(() => {
@@ -123,14 +122,14 @@ export function MembersPage() {
     return () => clearTimeout(timer)
   }, [loadList])
 
-  // Pending új-tag sorok betöltése
+  // Pending új-tag sorok
   const loadPending = useCallback(async () => {
     if (!congregationId) return
     try {
       const list = await getTauriSqliteBackend().listLocalPendingSzemely(congregationId)
       setPendingRows(list)
     } catch {
-      /* csendes — UI-szinten nem kritikus */
+      /* csendes */
     }
   }, [congregationId])
 
@@ -138,15 +137,13 @@ export function MembersPage() {
     void loadPending()
   }, [loadPending])
 
-  // Auto-sync a szemely-write-sync-re (csak ha van congregationId)
+  // Auto-sync indítása
   useEffect(() => {
     if (!congregationId) return
     startSzemelyAutoSync(congregationId)
-    // Mountkor is futtasson egyszer + 30s poll
   }, [congregationId])
 
-  // Mount-kor delta-pull a szerverről (ha online). Ha van helyi adat, az
-  // azonnal látszik; a háttér-pull csendesen frissíti, ha új van.
+  // Mount-kor delta-pull
   useEffect(() => {
     if (!userId || !congregationId) return
     let cancelled = false
@@ -155,7 +152,7 @@ export function MembersPage() {
         await pullMembersOfOwnCongregation(userId, 'delta')
         if (!cancelled) await loadList()
       } catch {
-        /* csendes — offline esetén a lokál cache még elérhető */
+        /* csendes — offline esetén lokál cache-ből dolgozunk */
       }
     })()
     return () => {
@@ -168,31 +165,70 @@ export function MembersPage() {
     if (!congregationId || syncing || !userId) return
     setSyncing(true)
     try {
-      // Először: írás-sync (ha van pending új tag)
-      const writeResult = await runSzemelySyncManually(congregationId)
-      // Aztán: pull (hátha másik gépen újak kerültek fel)
+      await runSzemelySyncManually(congregationId)
       try {
         await pullMembersOfOwnCongregation(userId, 'delta')
       } catch {
         /* csendes */
       }
-      // Ha bármi változott, újra-load
-      if (writeResult.succeeded > 0) {
-        await loadList()
-      } else {
-        await loadList()
-      }
+      await loadList()
       await loadPending()
     } finally {
       setSyncing(false)
     }
   }
 
-  const selectedMember = selectedId !== null ? rows.find((r) => r.id === selectedId) ?? null : null
+  // Sortolt lista
+  const sortedRows = useMemo(() => {
+    const out = [...rows]
+    out.sort((a, b) => {
+      let vA: string | number
+      let vB: string | number
+      switch (sortCol) {
+        case 'name':
+          vA = ((a.ferfi === 0 && a.ferjk_nev) || a.csaladnev || '').toLowerCase()
+          vB = ((b.ferfi === 0 && b.ferjk_nev) || b.csaladnev || '').toLowerCase()
+          break
+        case 'age':
+          vA = a.sz_datum || '9999'
+          vB = b.sz_datum || '9999'
+          break
+        case 'address':
+          vA = (a.c_szcim || '').toLowerCase()
+          vB = (b.c_szcim || '').toLowerCase()
+          break
+        case 'id':
+        default:
+          vA = a.id
+          vB = b.id
+      }
+      if (vA < vB) return sortDir === 'asc' ? -1 : 1
+      if (vA > vB) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return out
+  }, [rows, sortCol, sortDir])
+
+  const selectedMember =
+    selectedId !== null ? rows.find((r) => r.id === selectedId) ?? null : null
+
+  function toggleSort(col: SortColumn) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortCol(col)
+      setSortDir('asc')
+    }
+  }
+
+  function sortIcon(col: SortColumn): string {
+    if (sortCol !== col) return '↕'
+    return sortDir === 'asc' ? '↑' : '↓'
+  }
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5">
+      <main className="mx-auto max-w-7xl space-y-4 p-5">
         {/* Fejléc */}
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -201,185 +237,75 @@ export function MembersPage() {
               <h1 className="text-2xl font-semibold tracking-tight">Tagnyilvántartás</h1>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              A gyülekezet tagjai. Kattints egy sorra a szerkesztéshez, vagy vegyél
-              fel új tagot a jobb oldali gombbal. Offline is működik — a szinkron
-              automatikus.
+              A gyülekezet tagjai. Kattints egy sorra a részletekhez, vagy vegyél
+              fel új tagot. Offline is működik — a szinkron automatikus.
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate('/csaladok')}
-                title="A gyülekezet családjainak listája"
-              >
-                <Home className="mr-2 size-4" />
-                Családok
-              </Button>
-              {congregationId && (
-                <Button
-                  type="button"
-                  onClick={() => setCreateOpen(true)}
-                  className="bg-violet-700 text-white hover:bg-violet-800"
-                >
-                  <UserPlus className="mr-2 size-4" />
-                  Új tag
-                </Button>
-              )}
-            </div>
-            <p className="text-xs italic text-muted-foreground">
-              {rows.length} tag · offline-kompatibilis
-            </p>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/csaladok')}
+            className="shrink-0"
+          >
+            <Home className="mr-2 size-4" />
+            Családok
+          </Button>
         </div>
 
-        {/* Pending (offline-rögzített új tagok) blokk */}
-        {pendingRows.length > 0 && (
-          <Card className="border-amber-200 bg-amber-50/60">
-            <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
-              <div>
-                <CardTitle className="text-sm text-amber-900">
-                  Szinkronra váró új tagok ({pendingRows.length})
-                </CardTitle>
-                <CardDescription className="text-xs text-amber-800">
-                  Ezek offline-ban rögzített új tagok. A szinkron automatikusan feltölti
-                  őket, amint online leszel.
-                </CardDescription>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleManualSync}
-                disabled={syncing}
-                className="border-amber-300 text-amber-900 hover:bg-amber-100"
-              >
-                <RefreshCw className={`mr-2 size-3 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Szinkronizál…' : 'Sync most'}
-              </Button>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-amber-200">
-                {pendingRows.map((p) => {
-                  const name =
-                    [(p.ferfi === 0 && p.ferjk_nev) || p.csaladnev, p.k_nev]
-                      .filter(Boolean)
-                      .join(' ') || '(névtelen)'
-                  const isConflict = p.sync_state === 'conflict'
-                  const isClickable = isConflict
-                  return (
-                    <li key={p.id}>
-                      <div
-                        role={isClickable ? 'button' : undefined}
-                        tabIndex={isClickable ? 0 : undefined}
-                        onClick={isClickable ? () => setConflictRow(p) : undefined}
-                        onKeyDown={
-                          isClickable
-                            ? (e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  setConflictRow(p)
-                                }
-                              }
-                            : undefined
-                        }
-                        className={`flex items-center gap-3 px-4 py-2 text-sm ${
-                          isClickable ? 'cursor-pointer hover:bg-rose-100/60' : ''
-                        }`}
-                      >
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] ${
-                            isConflict
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-200 text-amber-900'
-                          }`}
-                        >
-                          {isConflict ? '⚠ ütközés' : '🕓 várakozik'}
-                        </span>
-                        <span className="font-medium">{name}</span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          CNP: {p.cnp}
-                        </span>
-                        {isConflict && p.sync_error && (
-                          <span className="ml-auto text-[11px] italic text-rose-700 line-clamp-1">
-                            {p.sync_error}
-                          </span>
-                        )}
-                        {isConflict && (
-                          <span className="ml-2 whitespace-nowrap text-[11px] italic text-rose-600">
-                            kattints a feloldáshoz →
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Szűrők */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Szűrők</CardTitle>
-            <CardDescription className="text-xs">
-              Kereshetsz név, cím, telefon vagy e-mail alapján — az ékezetek nem
-              számítanak. A status-szűrő alapból „aktív".
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="search">Keresés</Label>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    id="search"
-                    type="search"
-                    placeholder="Név, cím, telefon, e-mail…"
-                    className="pl-8"
-                    value={search}
-                    onChange={(e) => setSearch(e.currentTarget.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="status-filter">Státusz</Label>
-                <select
-                  id="status-filter"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.currentTarget.value as SzemelyStatusFilter)}
-                >
-                  {SZEMELY_STATUS_FILTER_VALUES.map((v) => (
-                    <option key={v} value={v}>
-                      {SZEMELY_STATUS_FILTER_LABELS[v]}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        {/* Toolbar — search + státusz + Új tag (webes persons-tab mintájára) */}
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/60 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div className="flex flex-1 items-center gap-3 flex-wrap">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
+                placeholder="Keresés név, cím, telefon, e-mail…"
+                className="h-10 rounded-xl border-zinc-200 bg-zinc-50 pl-10"
+              />
             </div>
-            <div className="mt-3 flex items-center gap-2 text-xs">
-              <Label htmlFor="orderby">Rendezés:</Label>
-              <select
-                id="orderby"
-                className="rounded-md border border-input bg-background px-2 py-1 text-xs"
-                value={orderBy}
-                onChange={(e) => setOrderBy(e.currentTarget.value as OrderBy)}
-              >
-                <option value="csaladnev-asc">Név A→Z</option>
-                <option value="csaladnev-desc">Név Z→A</option>
-                <option value="sz_datum-asc">Életkor (idősebb)</option>
-                <option value="sz_datum-desc">Életkor (fiatalabb)</option>
-                <option value="id-desc">Felvétel dátuma (legújabb)</option>
-              </select>
-            </div>
-          </CardContent>
-        </Card>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.currentTarget.value as SzemelyStatusFilter)}
+              className="h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm shadow-sm"
+            >
+              {SZEMELY_STATUS_FILTER_VALUES.map((v) => (
+                <option key={v} value={v}>
+                  {SZEMELY_STATUS_FILTER_LABELS[v]}
+                </option>
+              ))}
+            </select>
+            <span className="text-sm text-zinc-400">
+              {sortedRows.length} / {rows.length} fő
+              {syncing && ' · szinkron…'}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleManualSync}
+              disabled={syncing}
+              title="Szinkronizálás most"
+            >
+              <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+          {congregationId && (
+            <Button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="h-10 shrink-0 gap-2 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700"
+            >
+              <UserPlus className="size-4" />
+              Új tag
+            </Button>
+          )}
+        </div>
 
-        {/* Hiba */}
+        {/* Pending új-tag blokk */}
+        {pendingRows.length > 0 && <PendingBlock pendingRows={pendingRows} onConflictClick={setConflictRow} />}
+
+        {/* Hiba-banner */}
         {error && (
           <div
             role="alert"
@@ -389,50 +315,149 @@ export function MembersPage() {
           </div>
         )}
 
-        {/* Lista */}
+        {/* Táblázat */}
         {loading ? (
           <div className="py-12 text-center text-muted-foreground">
             <div className="mx-auto size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="mt-3 text-sm">Tagok betöltése…</p>
           </div>
-        ) : rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Nincs találat. Próbáld törölni a szűrőket vagy a kereső-kifejezést.
-          </p>
+        ) : sortedRows.length === 0 ? (
+          <div className="rounded-xl border border-zinc-200 bg-white/60 p-12 text-center shadow-sm">
+            <Search className="mx-auto mb-3 size-12 text-zinc-200" />
+            <p className="font-medium text-zinc-500">Nincs a keresésnek megfelelő tag.</p>
+            <p className="mt-1 text-xs text-zinc-400">Próbáld más keresőszóval vagy szűrővel.</p>
+          </div>
         ) : (
-          <Card>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-slate-100">
-                {rows.map((m) => (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(m.id)}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50/80"
-                    >
-                      <MemberRow member={m} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white/60 shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-zinc-200 bg-white/80">
+                  <tr>
+                    <SortableHeader label="Név" col="name" current={sortCol} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader
+                      label="Lakcím"
+                      col="address"
+                      current={sortCol}
+                      dir={sortDir}
+                      onClick={toggleSort}
+                      hiddenOnMobile
+                    />
+                    <SortableHeader
+                      label="Kor"
+                      col="age"
+                      current={sortCol}
+                      dir={sortDir}
+                      onClick={toggleSort}
+                      hiddenOnMobile
+                    />
+                    <th className="p-3 text-left text-xs font-medium text-zinc-500">Státusz</th>
+                    <th className="hidden p-3 text-left text-xs font-medium text-zinc-500 lg:table-cell">
+                      Foglalkozás
+                    </th>
+                    <th className="w-10 p-3" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {sortedRows.map((m) => {
+                    const name = formatFullName(m)
+                    const initials = getInitials(m)
+                    const avatarC = getAvatarColors(m)
+                    const age = m.sz_datum ? ageFromIso(m.sz_datum) : null
+                    const bday = isBirthdayThisMonth(m)
+                    const isDeceased = m.meghalt === 1
+                    return (
+                      <tr
+                        key={m.id}
+                        className="group cursor-pointer transition-colors duration-150 hover:bg-violet-50/40"
+                        onClick={() => setSelectedId(m.id)}
+                      >
+                        {/* Név + avatar */}
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                              style={{ backgroundColor: avatarC.bg, color: avatarC.color }}
+                            >
+                              {initials}
+                            </div>
+                            <div className="min-w-0">
+                              <div
+                                className={`flex items-center gap-1.5 truncate font-medium text-zinc-800 ${
+                                  isDeceased ? 'italic text-muted-foreground line-through' : ''
+                                }`}
+                              >
+                                {name}
+                                {bday && (
+                                  <span title="Születésnapos ebben a hónapban">
+                                    <Cake className="size-3.5 shrink-0 text-amber-500" />
+                                  </span>
+                                )}
+                                {isDeceased && (
+                                  <span className="ml-1 text-[10px] not-italic">†</span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-zinc-400 md:hidden">
+                                {age !== null ? `${age} év · ` : ''}
+                                {m.c_szcim || ''}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Lakcím */}
+                        <td className="hidden p-3 text-xs text-zinc-500 md:table-cell">
+                          {m.c_szcim || '—'}
+                        </td>
+
+                        {/* Kor */}
+                        <td className="hidden p-3 text-zinc-500 md:table-cell">
+                          {age !== null ? `${age} év` : '—'}
+                        </td>
+
+                        {/* Státusz-badge */}
+                        <td className="p-3">
+                          <StatusBadges member={m} />
+                        </td>
+
+                        {/* Foglalkozás */}
+                        <td className="hidden p-3 text-xs text-zinc-400 lg:table-cell">
+                          {m.foglalkozas || '—'}
+                        </td>
+
+                        {/* Hover-action */}
+                        <td
+                          className="p-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            title="Megnyitás szerkesztéshez"
+                            onClick={() => setSelectedId(m.id)}
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                          >
+                            <Trash2 className="size-3.5 text-zinc-300 hover:text-rose-500" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
-        {/* Detail modal */}
+        {/* Modalok */}
         {selectedMember && userId && (
           <MemberDetailDialog
             member={selectedMember}
             userId={userId}
             currentRevision={selectedMember.revision}
-            onSaved={() => {
-              void loadList()
-            }}
+            onSaved={() => void loadList()}
             onClose={() => setSelectedId(null)}
           />
         )}
 
-        {/* Create modal */}
         {createOpen && userId && congregationId && (
           <MemberCreateDialog
             userId={userId}
@@ -445,7 +470,6 @@ export function MembersPage() {
           />
         )}
 
-        {/* Conflict-resolve modal — a pending-blokkon egy conflict sort kattintva */}
         {conflictRow && (
           <SzemelyConflictDialog
             pendingRow={conflictRow}
@@ -462,53 +486,172 @@ export function MembersPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Lista-sor
+// Sub-komponensek
 // ─────────────────────────────────────────────────────────────────────────
 
-function MemberRow({ member: m }: { member: SzemelyListRow }) {
-  const fullName = formatFullName(m)
-  const initials = `${(m.csaladnev || m.ferjk_nev || '?')[0] ?? '?'}${(m.k_nev || '?')[0] ?? '?'}`.toUpperCase()
-  const avatarBg = m.ferfi === 1 ? 'bg-blue-100 text-blue-800' : 'bg-pink-100 text-pink-800'
-  const age = m.sz_datum ? ageFromIso(m.sz_datum) : null
-  const isDeceased = m.meghalt === 1
-
+function SortableHeader({
+  label,
+  col,
+  current,
+  dir,
+  onClick,
+  hiddenOnMobile,
+}: {
+  label: string
+  col: SortColumn
+  current: SortColumn
+  dir: SortDir
+  onClick: (c: SortColumn) => void
+  hiddenOnMobile?: boolean
+}) {
+  const icon = current !== col ? '↕' : dir === 'asc' ? '↑' : '↓'
   return (
-    <div className="flex w-full items-center gap-3">
-      <div
-        className={`flex size-9 shrink-0 items-center justify-center rounded-full font-semibold text-xs ${avatarBg}`}
-      >
-        {initials}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className={`text-sm font-medium ${isDeceased ? 'text-muted-foreground line-through' : ''}`}>
-          {fullName}
-          {isDeceased && <span className="ml-2 text-[10px] not-italic">†</span>}
-          {m.csaladfo === 1 && (
-            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-800">
-              családfő
-            </span>
-          )}
-          {m.voter_eligible === 1 && (
-            <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-normal text-emerald-800">
-              választó
-            </span>
-          )}
+    <th
+      onClick={() => onClick(col)}
+      className={`cursor-pointer select-none p-3 text-left text-xs font-medium text-zinc-500 hover:text-zinc-700 ${
+        hiddenOnMobile ? 'hidden md:table-cell' : ''
+      }`}
+    >
+      {label} {icon}
+    </th>
+  )
+}
+
+function StatusBadges({ member: m }: { member: SzemelyListRow }) {
+  const badges: Array<{ label: string; tone: string }> = []
+  if (m.meghalt === 1) badges.push({ label: 'elhunyt', tone: 'bg-slate-200 text-slate-700' })
+  if (m.member_status === 'kitért')
+    badges.push({ label: 'kitért', tone: 'bg-amber-100 text-amber-800' })
+  if (m.member_status === 'törölt')
+    badges.push({ label: 'törölt', tone: 'bg-slate-200 text-slate-700' })
+  if (m.isvisible === 0) badges.push({ label: 'rejtett', tone: 'bg-slate-200 text-slate-700' })
+  if (m.csaladfo === 1) badges.push({ label: 'családfő', tone: 'bg-amber-100 text-amber-800' })
+  if (m.voter_eligible === 1)
+    badges.push({ label: 'választó', tone: 'bg-emerald-100 text-emerald-800' })
+
+  if (badges.length === 0) {
+    return (
+      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+        aktív
+      </span>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {badges.map((b, i) => (
+        <span key={i} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${b.tone}`}>
+          {b.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function PendingBlock({
+  pendingRows,
+  onConflictClick,
+}: {
+  pendingRows: Array<{
+    id: string
+    cnp: string
+    csaladnev: string | null
+    k_nev: string | null
+    ferjk_nev: string | null
+    ferfi: number
+    sync_state: 'pending' | 'conflict'
+    sync_error: string | null
+    retry_count: number
+  }>
+  onConflictClick: (r: (typeof pendingRows)[number]) => void
+}) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/70 shadow-sm">
+      <div className="border-b border-amber-200/60 px-4 py-2">
+        <p className="text-xs font-medium text-amber-900">
+          Szinkronra váró új tagok ({pendingRows.length}) — a rendszer automatikusan
+          feltölti, amint online leszel.
         </p>
-        <p className="text-xs text-muted-foreground">
-          {age !== null && <span className="mr-2">{age} éves</span>}
-          {m.c_szcim && <span className="line-clamp-1">{m.c_szcim}</span>}
-        </p>
       </div>
-      <div className="hidden text-right text-xs text-muted-foreground md:block">
-        {m.telefon && <p className="font-mono">{m.telefon}</p>}
-      </div>
+      <ul className="divide-y divide-amber-200/60">
+        {pendingRows.map((p) => {
+          const name =
+            [(p.ferfi === 0 && p.ferjk_nev) || p.csaladnev, p.k_nev]
+              .filter(Boolean)
+              .join(' ') || '(névtelen)'
+          const isConflict = p.sync_state === 'conflict'
+          const isClickable = isConflict
+          return (
+            <li key={p.id}>
+              <div
+                role={isClickable ? 'button' : undefined}
+                tabIndex={isClickable ? 0 : undefined}
+                onClick={isClickable ? () => onConflictClick(p) : undefined}
+                onKeyDown={
+                  isClickable
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onConflictClick(p)
+                        }
+                      }
+                    : undefined
+                }
+                className={`flex items-center gap-3 px-4 py-2 text-sm ${
+                  isClickable ? 'cursor-pointer hover:bg-rose-100/60' : ''
+                }`}
+              >
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] ${
+                    isConflict
+                      ? 'bg-rose-100 text-rose-800'
+                      : 'bg-amber-200 text-amber-900'
+                  }`}
+                >
+                  {isConflict ? '⚠ ütközés' : '🕓 várakozik'}
+                </span>
+                <span className="font-medium">{name}</span>
+                <span className="font-mono text-xs text-muted-foreground">CNP: {p.cnp}</span>
+                {isConflict && p.sync_error && (
+                  <span className="ml-auto text-[11px] italic text-rose-700 line-clamp-1">
+                    {p.sync_error}
+                  </span>
+                )}
+                {isConflict && (
+                  <span className="ml-2 whitespace-nowrap text-[11px] italic text-rose-600">
+                    kattints a feloldáshoz →
+                  </span>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Helper-ek (ageFromIso + formatFullName) — később közös lib-be
+// Helper-ek
 // ─────────────────────────────────────────────────────────────────────────
+
+function getInitials(m: SzemelyListRow): string {
+  const first = (m.csaladnev || m.ferjk_nev || '?')[0] ?? '?'
+  const second = (m.k_nev || '?')[0] ?? '?'
+  return `${first}${second}`.toUpperCase()
+}
+
+function getAvatarColors(m: SzemelyListRow): { bg: string; color: string } {
+  if (m.ferfi === 1) return { bg: '#dbeafe', color: '#1d4ed8' }
+  return { bg: '#fce7f3', color: '#be185d' }
+}
+
+function isBirthdayThisMonth(m: SzemelyListRow): boolean {
+  if (!m.sz_datum) return false
+  const now = new Date()
+  const bd = new Date(m.sz_datum)
+  if (Number.isNaN(bd.getTime())) return false
+  return bd.getMonth() === now.getMonth()
+}
 
 function ageFromIso(iso: string): number | null {
   const d = new Date(iso)
@@ -520,10 +663,6 @@ function ageFromIso(iso: string): number | null {
   return age >= 0 ? age : null
 }
 
-/**
- * Magyar név-formátum: csaladnev (vagy ferjk_nev nőknél) + k_nev.
- * Ha nincs k_nev, csak a csaladnev. Ha semmi, '(névtelen)'.
- */
 function formatFullName(m: SzemelyListRow): string {
   const last = (m.ferfi === 0 && m.ferjk_nev) || m.csaladnev || m.szcs_nev || ''
   const first = m.k_nev || ''

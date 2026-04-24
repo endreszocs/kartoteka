@@ -51,7 +51,20 @@
     "windows": {
       "certificateThumbprint": "F8DE7E854FF9E9DBA9CBD183F79B3F9753A87CE3",
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com"
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": {
+        "languages": ["Hungarian"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/nsis-header.bmp",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "installMode": "currentUser",
+        "allowDowngrades": true,
+        "compressionLevel": "default"
+      },
+      "wix": {
+        "language": ["hu-HU"]
+      }
     }
   }
 }
