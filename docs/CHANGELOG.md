@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-24] — M8.3d: Gyermek hozzáadása / eltávolítása a családból (desktop)
+
+<!-- key: 2026-04-24-m8-3d-gyerek-junction -->
+<!-- category: feature -->
+<!-- targets: lelkészek — most már gyermekeket rendelhetsz családhoz a desktop appban -->
+
+### ✨ Gyermek-kezelés a család-portré modalban
+
+A Családok oldal → egy sorra kattintva → család-portré → Gyermekek szekció:
+
+- **Piros kuka ikon** minden gyerek mellett → eltávolítás a családból (a tag adatai megmaradnak, csak a család-kapcsolat szűnik)
+- **„Gyermek hozzáadása a családhoz" gomb** → kereső-mező nyílik
+- Keresés a gyülekezet **aktív tagjai között**, a már családtagokat automatikusan kiszűrve
+- Egy kattintás a találatra → azonnal hozzáadódik
+
+**Offline is működik** — a háttérszinkron feltölti, amint online leszel.
+
+### 🎯 Az M8 wave teljes
+
+Ezzel az iterációval a **teljes M8 szemely + család wave lezárult**:
+tag-lista, szerkesztés, új tag, CNP-validáció, rejtés, admin-jelzők,
+családok listája, családfő-kijelölés, család CRUD, gyerek-kezelés — minden
+offline-is működik, konfliktus-feloldással.
+
+### 🛠 Műszaki háttér
+
+- **Rust v19 migráció**: új `gyerek_pending_local` tábla (`operation` oszloppal `'insert'` és `'delete'` értékekhez, 3 index)
+- **[gyerek-save.ts](packages/validations/src/members/gyerek-save.ts)**: `gyerekAddInputSchema`, `gyerekRemoveInputSchema`
+- **[sync.ts](apps/desktop/src/lib/sync.ts)**: új `addGyerekToCsalad(userId, id_csalad, id_szemely)` + `removeGyerekFromCsalad(userId, gyerekId)` — optimistic lokál + online + offline pending
+- **[gyerek-write-sync.ts](apps/desktop/src/lib/gyerek-write-sync.ts)**: background push kezeli az insert és delete operation-öket külön-külön, exp-backoff
+- **[tauri-sqlite-backend.ts](apps/desktop/src/lib/tauri-sqlite-backend.ts)**: 8 új metódus a pending-kezelésre és optimistic lokál-frissítésre
+- **[family-detail-dialog.tsx](apps/desktop/src/components/family-detail-dialog.tsx)**: gyerek-kezelés UI beépítve a Gyermekek szekcióba
+
+### 🔜 Mi következik
+
+- **adrstreet lookup** — a címet FK-alapon (utca-listából választhatóvá tenni)
+- **Anyakönyv**, **leltár**, **jegyzőkönyvek** desktop-paritása
+- **Bank-import Raiffeisen + BT** (A-M7.10d)
+- **Oblio e-Factura** Edge Fn
+
+---
+
 ## [2026-04-24] — M8.3c: Család létrehozás + szerkesztés offline-is (desktop)
 
 <!-- key: 2026-04-24-m8-3c-csalad-crud -->

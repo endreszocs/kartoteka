@@ -20,12 +20,17 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Crown, Home, Pencil, Users, X } from 'lucide-react'
+import { Crown, Home, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
 
-import { Button } from '@kartoteka/ui'
+import { Button, Input } from '@kartoteka/ui'
 
 import { CsaladFormDialog } from './csalad-form-dialog'
-import { updateSzemelyEntry } from '../lib/sync'
+import {
+  addGyerekToCsalad,
+  removeGyerekFromCsalad,
+  updateSzemelyEntry,
+} from '../lib/sync'
+import { runGyerekSyncManually, startGyerekAutoSync } from '../lib/gyerek-write-sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 interface FamilyDetailDialogProps {
@@ -58,6 +63,55 @@ export function FamilyDetailDialog({
   const [busyMemberId, setBusyMemberId] = useState<number | null>(null)
   const [banner, setBanner] = useState<Banner>(null)
   const [editOpen, setEditOpen] = useState(false)
+
+  // M8.3d — gyerek-add kereső
+  const [addChildOpen, setAddChildOpen] = useState(false)
+  const [childSearch, setChildSearch] = useState('')
+  const [childSearchResults, setChildSearchResults] = useState<
+    Array<{
+      id: number
+      csaladnev: string | null
+      k_nev: string | null
+      ferjk_nev: string | null
+      sz_datum: string | null
+      ferfi: number
+    }>
+  >([])
+  const [addingChild, setAddingChild] = useState(false)
+  const [removingGyerekId, setRemovingGyerekId] = useState<number | null>(null)
+
+  // M8.3d — gyerek-sync auto-start
+  useEffect(() => {
+    startGyerekAutoSync()
+  }, [])
+
+  // Child-search debounce
+  useEffect(() => {
+    if (!addChildOpen || !congregationId) {
+      setChildSearchResults([])
+      return
+    }
+    const t = setTimeout(async () => {
+      try {
+        const list = await getTauriSqliteBackend().listLocalSzemely({
+          congregationId,
+          search: childSearch.trim() || undefined,
+          statusFilter: 'aktiv',
+          orderBy: 'csaladnev-asc',
+          limit: 10,
+        })
+        // A már hozzárendelt gyerekeket kiszűrjük
+        const existingIds = new Set<number>()
+        if (detail?.ferfi?.id) existingIds.add(detail.ferfi.id)
+        if (detail?.no?.id) existingIds.add(detail.no.id)
+        for (const g of detail?.gyermekek ?? []) existingIds.add(g.szemely_id)
+        setChildSearchResults(list.filter((m) => !existingIds.has(m.id)))
+      } catch {
+        setChildSearchResults([])
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [addChildOpen, childSearch, congregationId, detail])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -179,6 +233,78 @@ export function FamilyDetailDialog({
       })
     } finally {
       setBusyMemberId(null)
+    }
+  }
+
+  /** M8.3d — Új gyermek hozzárendelése a családhoz */
+  async function handleAddChild(szemelyId: number, name: string) {
+    if (!detail?.family) return
+    setAddingChild(true)
+    setBanner(null)
+    try {
+      const result = await addGyerekToCsalad(userId, detail.family.id, szemelyId)
+      if (result.synced) {
+        setBanner({
+          kind: 'success',
+          text: `"${name}" hozzáadva a családhoz.`,
+        })
+      } else if (result.queuedToPending) {
+        setBanner({
+          kind: 'offline',
+          text: `"${name}" hozzáadása offline elmentve, a szinkron feltölti.`,
+        })
+      } else {
+        setBanner({
+          kind: 'error',
+          text: result.error ?? 'Nem sikerült a hozzárendelés.',
+        })
+      }
+      setAddChildOpen(false)
+      setChildSearch('')
+      await load()
+      void runGyerekSyncManually()
+    } catch (err) {
+      setBanner({
+        kind: 'error',
+        text: `Hiba: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    } finally {
+      setAddingChild(false)
+    }
+  }
+
+  /** M8.3d — Gyermek eltávolítása a családból */
+  async function handleRemoveChild(gyerekId: number, name: string) {
+    if (typeof window !== 'undefined') {
+      const confirmMsg = `Eltávolítod "${name}" gyermeket a családból?\n\nA tag adatai megmaradnak — csak a család-kapcsolat szűnik meg. Később újra hozzárendelhető.`
+      if (!window.confirm(confirmMsg)) return
+    }
+    setRemovingGyerekId(gyerekId)
+    setBanner(null)
+    try {
+      const result = await removeGyerekFromCsalad(userId, gyerekId)
+      if (result.synced) {
+        setBanner({ kind: 'success', text: `"${name}" eltávolítva a családból.` })
+      } else if (result.queuedToPending) {
+        setBanner({
+          kind: 'offline',
+          text: `"${name}" eltávolítása offline elmentve.`,
+        })
+      } else {
+        setBanner({
+          kind: 'error',
+          text: result.error ?? 'Nem sikerült az eltávolítás.',
+        })
+      }
+      await load()
+      void runGyerekSyncManually()
+    } catch (err) {
+      setBanner({
+        kind: 'error',
+        text: `Hiba: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    } finally {
+      setRemovingGyerekId(null)
     }
   }
 
@@ -306,11 +432,14 @@ export function FamilyDetailDialog({
                       const age = g.sz_datum ? ageFromIso(g.sz_datum) : null
                       const genderLabel = g.ferfi === 1 ? 'fiú' : 'lány'
                       const isCsaladfo = g.csaladfo === 1
-                      const isBusy = busyMemberId === g.szemely_id
+                      const isBusyCsaladfo = busyMemberId === g.szemely_id
+                      const isRemoving = removingGyerekId === g.id_gyerek
+                      const anyBusy =
+                        busyMemberId !== null || removingGyerekId !== null || addingChild
                       return (
                         <li
                           key={g.id_gyerek}
-                          className={`flex items-center gap-3 rounded-md px-3 py-1.5 text-sm ${
+                          className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${
                             isCsaladfo ? 'bg-amber-50/60' : 'bg-slate-50/50'
                           }`}
                         >
@@ -339,7 +468,7 @@ export function FamilyDetailDialog({
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled={isBusy || busyMemberId !== null}
+                              disabled={isBusyCsaladfo || anyBusy}
                               onClick={() =>
                                 handleSetCsaladfo(g.szemely_id, name, g.revision)
                               }
@@ -350,10 +479,95 @@ export function FamilyDetailDialog({
                               Családfő
                             </Button>
                           )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isRemoving || anyBusy}
+                            onClick={() => handleRemoveChild(g.id_gyerek, name)}
+                            className="text-[11px] px-2 text-rose-700 hover:bg-rose-50"
+                            title="Eltávolítás a családból"
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
                         </li>
                       )
                     })}
                   </ul>
+                )}
+
+                {/* Gyermek-hozzáadás */}
+                {congregationId && !addChildOpen && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAddChildOpen(true)}
+                    disabled={addingChild || busyMemberId !== null || removingGyerekId !== null}
+                    className="mt-2 text-[11px]"
+                  >
+                    <Plus className="mr-1 size-3" />
+                    Gyermek hozzáadása a családhoz
+                  </Button>
+                )}
+
+                {addChildOpen && (
+                  <div className="mt-2 rounded-md border border-violet-200 bg-violet-50/40 p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Search className="size-3.5 text-violet-700" />
+                      <span className="text-[11px] font-medium text-violet-900">
+                        Gyermek keresése — válassz egy tagot, akit ehhez a családhoz rendelsz
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddChildOpen(false)
+                          setChildSearch('')
+                        }}
+                        className="ml-auto rounded p-0.5 text-violet-700 hover:bg-violet-100"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                    <Input
+                      autoFocus
+                      value={childSearch}
+                      onChange={(e) => setChildSearch(e.currentTarget.value)}
+                      placeholder="Név alapján…"
+                      className="h-8 text-sm"
+                    />
+                    {childSearchResults.length > 0 ? (
+                      <ul className="mt-2 max-h-48 divide-y divide-violet-100 overflow-y-auto rounded-md bg-white">
+                        {childSearchResults.map((m) => {
+                          const name = formatName(m.csaladnev, m.k_nev, m.ferjk_nev) ?? '(névtelen)'
+                          return (
+                            <li key={m.id}>
+                              <button
+                                type="button"
+                                onClick={() => handleAddChild(m.id, name)}
+                                disabled={addingChild}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-violet-50 disabled:opacity-50"
+                              >
+                                <Users className="size-3.5 text-slate-400" />
+                                <span>{name}</span>
+                                {m.sz_datum && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    · {m.sz_datum.slice(0, 4)}
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    ) : (
+                      childSearch.trim() && (
+                        <p className="mt-2 text-[11px] italic text-muted-foreground">
+                          Nincs találat (a már a családba tartozók ki vannak szűrve).
+                        </p>
+                      )
+                    )}
+                  </div>
                 )}
               </DetailGroup>
 

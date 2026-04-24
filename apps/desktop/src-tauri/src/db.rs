@@ -1186,8 +1186,59 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v18 migráció (csalad_pending_local) sikertelen: {e}"))?;
     }
 
+    if current < 19 {
+        // M8.3d — gyerek_pending_local (junction CRUD a csalad ↔ szemely között)
+        //
+        // A `csalad_pending_local` (v18) mintája, de csak `insert` és `delete`
+        // operációkkal — nincs update (a junction nem módosítható, csak
+        // létrehozható / törölhető).
+        //
+        // Insert: id_csalad + id_szemely → új gyerek-sor a szerveren
+        // Delete: target_gyerek_id → a gyerek.id a szerveren törlendő
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS gyerek_pending_local (
+                id                  TEXT PRIMARY KEY,                     -- 'local-<uuid>'
+                server_id           INTEGER,                              -- gyerek.id, NULL amíg nincs sync
+                operation           TEXT NOT NULL
+                                        CHECK (operation IN ('insert', 'delete')),
+
+                -- insert-hez
+                id_csalad           INTEGER,
+                id_szemely          INTEGER,
+
+                -- delete-hez
+                target_gyerek_id    INTEGER,
+
+                -- sync metaadatok
+                userid              TEXT NOT NULL,
+                sync_state          TEXT NOT NULL DEFAULT 'pending'
+                                        CHECK (sync_state IN ('pending','synced','conflict')),
+                sync_error          TEXT,
+                retry_count         INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at     TEXT,
+                created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gyerek_pending_sync_state
+                ON gyerek_pending_local(sync_state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_gyerek_pending_csalad
+                ON gyerek_pending_local(id_csalad) WHERE id_csalad IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_gyerek_pending_target
+                ON gyerek_pending_local(target_gyerek_id) WHERE target_gyerek_id IS NOT NULL;
+
+            PRAGMA user_version = 19;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v19 migráció (gyerek_pending_local) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 19 { ... PRAGMA user_version = 19; }
+    // if current < 20 { ... PRAGMA user_version = 20; }
 
     Ok(())
 }

@@ -2076,6 +2076,114 @@ export class TauriSqliteBackend implements StorageBackend {
     )
   }
 
+  // ── M8.3d — Gyerek junction pending (gyerek_pending_local) ────────────
+
+  async insertPendingGyerekAdd(row: {
+    id: string // 'local-<uuid>'
+    id_csalad: number
+    id_szemely: number
+    userid: string
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO gyerek_pending_local (
+        id, operation, id_csalad, id_szemely, userid, sync_state, created_at, updated_at
+      ) VALUES (?1, 'insert', ?2, ?3, ?4, 'pending', datetime('now'), datetime('now'))`,
+      [row.id, row.id_csalad, row.id_szemely, row.userid],
+    )
+  }
+
+  async insertPendingGyerekRemove(row: {
+    id: string // 'local-<uuid>'
+    target_gyerek_id: number
+    userid: string
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT INTO gyerek_pending_local (
+        id, operation, target_gyerek_id, userid, sync_state, created_at, updated_at
+      ) VALUES (?1, 'delete', ?2, ?3, 'pending', datetime('now'), datetime('now'))`,
+      [row.id, row.target_gyerek_id, row.userid],
+    )
+  }
+
+  /**
+   * Optimistic lokál insert a `gyerek_local`-ba. A UI azonnal látja az új
+   * gyerek-junction sort (a család-detail refresh-e után).
+   */
+  async insertLocalGyerekOptimistic(row: {
+    id: number
+    id_csalad: number
+    id_szemely: number
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT OR IGNORE INTO gyerek_local (id, id_csalad, id_szemely, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, 0, datetime('now'), datetime('now'))`,
+      [row.id, row.id_csalad, row.id_szemely],
+    )
+  }
+
+  /**
+   * Optimistic lokál delete a `gyerek_local`-ból (a user kattintott az
+   * "Eltávolítás"-ra). A sync-helper megerősíti a szerver-oldalon.
+   */
+  async deleteLocalGyerekOptimistic(gyerekId: number): Promise<void> {
+    await dbExecute(`DELETE FROM gyerek_local WHERE id = ?1`, [gyerekId])
+  }
+
+  async listPendingGyerek(): Promise<
+    Array<{
+      id: string
+      operation: 'insert' | 'delete'
+      server_id: number | null
+      id_csalad: number | null
+      id_szemely: number | null
+      target_gyerek_id: number | null
+      userid: string
+      sync_state: 'pending' | 'synced' | 'conflict'
+      sync_error: string | null
+      retry_count: number
+      last_attempt_at: string | null
+    }>
+  > {
+    return await dbSelect(
+      `SELECT id, operation, server_id, id_csalad, id_szemely, target_gyerek_id,
+              userid, sync_state, sync_error, retry_count, last_attempt_at
+         FROM gyerek_pending_local
+         WHERE sync_state = 'pending'
+         ORDER BY created_at ASC`,
+    )
+  }
+
+  async markGyerekPendingSynced(localId: string, serverId: number | null): Promise<void> {
+    await dbExecute(
+      `UPDATE gyerek_pending_local
+         SET sync_state = 'synced', server_id = ?1, sync_error = NULL,
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [serverId, localId],
+    )
+  }
+
+  async markGyerekPendingConflict(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE gyerek_pending_local
+         SET sync_state = 'conflict', sync_error = ?1,
+             retry_count = retry_count + 1, last_attempt_at = datetime('now'),
+             updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
+  async updateGyerekPendingAttempt(localId: string, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE gyerek_pending_local
+         SET sync_error = ?1, retry_count = retry_count + 1,
+             last_attempt_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ?2`,
+      [reason, localId],
+    )
+  }
+
   /**
    * Konfliktus-sort vissza `pending` állapotba — a lelkész
    * „Újrapróbálkozás" gombjára. A sync-helper következő poll-ja ismét

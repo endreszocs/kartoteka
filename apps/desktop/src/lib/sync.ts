@@ -2650,3 +2650,128 @@ export async function updateCsaladEntry(
 
   return { queuedToPending: true, conflict: false, synced: false }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// M8.3d — Gyerek-junction CRUD (add / remove), offline-is
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface GyerekMutationResult {
+  synced: boolean
+  queuedToPending: boolean
+  error?: string
+}
+
+/**
+ * Egy meglévő tagot egy meglévő családhoz rendel (új `gyerek` junction sor).
+ * - Online: `supabase.from('gyerek').insert({ id_csalad, id_szemely })`
+ *   + optimistic `gyerek_local` insert
+ * - Offline: `gyerek_pending_local` sor insert-operation-nal
+ */
+export async function addGyerekToCsalad(
+  userId: string,
+  id_csalad: number,
+  id_szemely: number,
+): Promise<GyerekMutationResult> {
+  const backend = (await import('./tauri-sqlite-backend')).getTauriSqliteBackend()
+
+  const localId = `local-${generateUuid()}`
+  await backend.insertPendingGyerekAdd({
+    id: localId,
+    id_csalad,
+    id_szemely,
+    userid: userId,
+  })
+
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { data, error } = await supabase
+        .from('gyerek')
+        .insert({ id_csalad, id_szemely })
+        .select('id')
+        .maybeSingle()
+
+      if (error) {
+        return {
+          synced: false,
+          queuedToPending: true,
+          error: error.message,
+        }
+      }
+      if (!data?.id) {
+        return {
+          synced: false,
+          queuedToPending: true,
+          error: 'A szerver nem adott id-t.',
+        }
+      }
+
+      const serverId = Number(data.id)
+      await backend.markGyerekPendingSynced(localId, serverId)
+      await backend.insertLocalGyerekOptimistic({
+        id: serverId,
+        id_csalad,
+        id_szemely,
+      })
+      return { synced: true, queuedToPending: false }
+    } catch (err) {
+      return {
+        synced: false,
+        queuedToPending: true,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  return { synced: false, queuedToPending: true }
+}
+
+/**
+ * Gyerek-junction eltávolítása. A gyerek-sor törlődik (a tag megmarad, csak
+ * a család-kapcsolat szűnik meg).
+ * - Online: `supabase.from('gyerek').delete().eq('id', gyerekId)` + optimistic
+ *   `gyerek_local` delete
+ * - Offline: `gyerek_pending_local` sor delete-operation-nal
+ */
+export async function removeGyerekFromCsalad(
+  userId: string,
+  gyerekId: number,
+): Promise<GyerekMutationResult> {
+  const backend = (await import('./tauri-sqlite-backend')).getTauriSqliteBackend()
+
+  const localId = `local-${generateUuid()}`
+  await backend.insertPendingGyerekRemove({
+    id: localId,
+    target_gyerek_id: gyerekId,
+    userid: userId,
+  })
+
+  // Azonnali optimistic delete a lokál cache-ből (a UI azonnal frissül)
+  await backend.deleteLocalGyerekOptimistic(gyerekId)
+
+  if (await isOnline()) {
+    try {
+      const supabase = getDesktopSupabase()
+      const { error } = await supabase.from('gyerek').delete().eq('id', gyerekId)
+
+      if (error) {
+        return {
+          synced: false,
+          queuedToPending: true,
+          error: error.message,
+        }
+      }
+
+      await backend.markGyerekPendingSynced(localId, gyerekId)
+      return { synced: true, queuedToPending: false }
+    } catch (err) {
+      return {
+        synced: false,
+        queuedToPending: true,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  return { synced: false, queuedToPending: true }
+}
