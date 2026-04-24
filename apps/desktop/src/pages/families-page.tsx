@@ -31,6 +31,7 @@ import {
 
 import { CsaladFormDialog } from '../components/csalad-form-dialog'
 import { FamilyDetailDialog } from '../components/family-detail-dialog'
+import { PageHero } from '../components/page-hero'
 import {
   runCsaladSyncManually,
   startCsaladAutoSync,
@@ -149,26 +150,20 @@ export function FamiliesPage() {
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5">
-        {/* Fejléc */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <Home className="size-6 text-violet-700" />
-              <h1 className="text-2xl font-semibold tracking-tight">Családok</h1>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              A gyülekezet családjainak listája. Kattints egy sorra a családtagok
-              megnézéséhez. Offline is működik — a szinkron automatikus.
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
+      <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-6">
+        <PageHero
+          eyebrow={`Tagnyilvántartás · ${rows.length} család · offline-kompatibilis`}
+          title="Családok"
+          description="A gyülekezet családjainak listája. Kattints egy sorra a családtagok megnézéséhez. Offline is működik — a szinkron automatikus."
+          Icon={Home}
+          actions={
+            <>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => refresh(true)}
                 disabled={syncing}
+                className="rounded-xl border-slate-200 bg-white/90 shadow-sm"
               >
                 <RefreshCw className={`mr-2 size-4 ${syncing ? 'animate-spin' : ''}`} />
                 {syncing ? 'Szinkron…' : 'Frissítés'}
@@ -177,18 +172,15 @@ export function FamiliesPage() {
                 <Button
                   type="button"
                   onClick={() => setCreateOpen(true)}
-                  className="bg-violet-700 text-white hover:bg-violet-800"
+                  className="rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_16px_30px_-22px_rgba(109,40,217,0.55)] hover:from-violet-600 hover:to-indigo-700"
                 >
                   <Plus className="mr-2 size-4" />
                   Új család
                 </Button>
               )}
-            </div>
-            <p className="text-xs italic text-muted-foreground">
-              {rows.length} család · offline-kompatibilis
-            </p>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {/* Szűrők */}
         <Card>

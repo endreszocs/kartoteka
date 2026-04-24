@@ -20,7 +20,19 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Crown, Home, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
+import {
+  Check,
+  Crown,
+  Home,
+  MapPin,
+  Minus,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 
 import { Button, Input } from '@kartoteka/ui'
 
@@ -323,53 +335,99 @@ export function FamilyDetailDialog({
       ? `${ferfi_name} & ${no_name}`
       : ferfi_name || no_name || '(nincs szülő megadva)'
 
+  const totalChildren = detail?.gyermekek?.length ?? 0
+  const cimDisplay = detail?.family ? buildCimDisplay(detail.family) : null
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="family-detail-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget && busyMemberId === null) onClose()
       }}
     >
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
+      <div className="relative max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(247,251,250,0.98)_100%)] shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1.75rem]">
+          <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-violet-200/35 blur-3xl" />
+          <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full bg-teal-200/30 blur-3xl" />
+        </div>
+
+        {/* Bezárás gomb */}
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busyMemberId !== null}
+          className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-slate-500 shadow-sm transition hover:text-slate-700 disabled:opacity-50 sm:right-4 sm:top-4"
+          aria-label="Bezárás"
+        >
+          <X className="size-4" />
+        </button>
+
         {/* Fejléc */}
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-5">
-          <div>
-            <h2
-              id="family-detail-title"
-              className="flex items-center gap-2 font-serif text-2xl font-semibold text-slate-900"
-            >
-              <Home className="size-6 text-violet-700" />
-              {loading ? 'Betöltés…' : headline}
-            </h2>
+        <div className="relative border-b border-slate-200/70 px-5 pb-5 pt-5 sm:px-7 sm:pb-6 sm:pt-7">
+          <div className="min-w-0 pr-12 sm:pr-14">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">
+              Családi karton
+            </p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]">
+                <Users className="size-7" />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <h2
+                  id="family-detail-title"
+                  className="font-serif text-[1.8rem] leading-[1.08] text-slate-800 sm:text-[2rem]"
+                >
+                  {loading ? 'Betöltés…' : headline}
+                </h2>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {detail?.family ? (
+                    detail.family.isaktiv !== 0 ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
+                        <Check className="size-3.5" />
+                        Aktív család
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+                        <Minus className="size-3.5" />
+                        Inaktív család
+                      </span>
+                    )
+                  ) : null}
+                  {cimDisplay && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
+                      <Home className="size-3.5" />
+                      {cimDisplay}
+                    </span>
+                  )}
+                  {detail?.family && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+                      <MapPin className="size-3.5 text-teal-600" />
+                      Család #{detail.family.id}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {detail?.family && (
-              <p className="mt-0.5 text-xs text-slate-500">
-                Család-azonosító: #{detail.family.id}
-                {detail.family.isaktiv === 0 && (
-                  <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700">
-                    inaktív
-                  </span>
-                )}
-              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3">
+                <StatChip label="Szülők" value={`${[detail.ferfi, detail.no].filter(Boolean).length} fő`} />
+                <StatChip label="Gyermekek" value={`${totalChildren} fő`} />
+                <StatChip label="Család" value={detail.family.isaktiv !== 0 ? 'Aktív' : 'Inaktív'} />
+              </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busyMemberId !== null}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
-            aria-label="Bezárás"
-          >
-            <X className="size-5" />
-          </button>
         </div>
 
         {/* Banner */}
         {banner && <DialogBanner banner={banner} />}
 
-        <div className="space-y-4 p-5">
+        <div className="relative max-h-[calc(92vh-16rem)] space-y-4 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
           {loading && (
             <div className="py-8 text-center">
               <div className="mx-auto size-8 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600" />
@@ -740,6 +798,17 @@ function CsaladfoBadge() {
       <Crown className="size-3" />
       Családfő
     </span>
+  )
+}
+
+function StatChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1rem] bg-white/85 px-3 py-2 shadow-[0_14px_28px_-22px_rgba(15,74,66,0.35)] ring-1 ring-white/70">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
+    </div>
   )
 }
 
