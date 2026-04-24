@@ -39,7 +39,7 @@ import { SzemelyConflictDialog } from '../components/szemely-conflict-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
-import { getLocalOwnProfile } from '../lib/sync'
+import { getLocalOwnProfile, pullMembersOfOwnCongregation } from '../lib/sync'
 import {
   runSzemelySyncManually,
   startSzemelyAutoSync,
@@ -145,13 +145,41 @@ export function MembersPage() {
     // Mountkor is futtasson egyszer + 30s poll
   }, [congregationId])
 
+  // Mount-kor delta-pull a szerverről (ha online). Ha van helyi adat, az
+  // azonnal látszik; a háttér-pull csendesen frissíti, ha új van.
+  useEffect(() => {
+    if (!userId || !congregationId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        await pullMembersOfOwnCongregation(userId, 'delta')
+        if (!cancelled) await loadList()
+      } catch {
+        /* csendes — offline esetén a lokál cache még elérhető */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, congregationId])
+
   async function handleManualSync() {
-    if (!congregationId || syncing) return
+    if (!congregationId || syncing || !userId) return
     setSyncing(true)
     try {
-      const result = await runSzemelySyncManually(congregationId)
-      // Ha sikeres volt legalább egy: pull + lista refresh
-      if (result.succeeded > 0) {
+      // Először: írás-sync (ha van pending új tag)
+      const writeResult = await runSzemelySyncManually(congregationId)
+      // Aztán: pull (hátha másik gépen újak kerültek fel)
+      try {
+        await pullMembersOfOwnCongregation(userId, 'delta')
+      } catch {
+        /* csendes */
+      }
+      // Ha bármi változott, újra-load
+      if (writeResult.succeeded > 0) {
+        await loadList()
+      } else {
         await loadList()
       }
       await loadPending()
