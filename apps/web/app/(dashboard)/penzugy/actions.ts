@@ -1565,7 +1565,16 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
     .select('adrstreet_id, adrlocality_id')
     .eq('id', congregationId)
     .maybeSingle()
-  const streetId = Number(congregation?.adrstreet_id) || 1
+  let streetId = Number(congregation?.adrstreet_id) || null
+  if (!streetId) {
+    const { data: fallbackStreet } = await supabase
+      .from('adrstreet')
+      .select('id')
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    streetId = Number(fallbackStreet?.id) || 1
+  }
   const localityId = congregation?.adrlocality_id ?? null
 
   const basePayload = {

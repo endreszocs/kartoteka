@@ -192,16 +192,19 @@ export function WelcomeWizardClient() {
   const goNext = () => setCurrentStep(s => Math.min(s + 1, LAST_STEP_ID))
   const goBack = () => setCurrentStep(s => Math.max(s - 1, FIRST_STEP_ID))
 
-  const handleNextFromStep2 = async () => {
-    const ok = await saveStep(2, { congregation: data.congregation })
+  const handleNextFromStep2 = async (congregation: WizardData['congregation']) => {
+    setData(prev => ({ ...prev, congregation }))
+    const ok = await saveStep(2, { congregation })
     if (ok) goNext()
   }
-  const handleNextFromStep3 = async () => {
-    const ok = await saveStep(3, { pastor: data.pastor })
+  const handleNextFromStep3 = async (pastor: WizardData['pastor']) => {
+    setData(prev => ({ ...prev, pastor }))
+    const ok = await saveStep(3, { pastor })
     if (ok) goNext()
   }
-  const handleNextFromStep4 = async () => {
-    const ok = await saveStep(4, { finance: data.finance })
+  const handleNextFromStep4 = async (finance: WizardData['finance']) => {
+    setData(prev => ({ ...prev, finance }))
+    const ok = await saveStep(4, { finance })
     if (ok) goNext()
   }
 

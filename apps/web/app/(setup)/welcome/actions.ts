@@ -62,6 +62,22 @@ export interface WizardProgressRow {
   updated_at: string
 }
 
+async function resolveFallbackStreetId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  streetId?: number | null,
+): Promise<number> {
+  if (streetId) return streetId
+
+  const { data: fallbackStreet } = await supabase
+    .from('adrstreet')
+    .select('id')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  return Number(fallbackStreet?.id) || 1
+}
+
 // ──────────────────────────────────────────────────────────────────
 // 0) getCongregationContext — a user aktuális gyülekezet + egyházmegye info
 //
@@ -483,6 +499,7 @@ export async function completeWizard(): Promise<
   // ─── bealitas (aktuális év) ───
   if (wd.finance && profile.congregation_id) {
     const currentYear = String(new Date().getFullYear())
+    const streetId = await resolveFallbackStreetId(supabase, wd.congregation?.adrstreet_id)
     const bealitasUpsert: Record<string, unknown> = {
       id: currentYear,
       congregation_id: profile.congregation_id,
@@ -493,7 +510,7 @@ export async function completeWizard(): Promise<
       felmentes70felul: false,
       felmentesideneskudtek: false,
       kedvezmenyxevenfelul: false,
-      utcaid: wd.congregation?.adrstreet_id ?? 1,
+      utcaid: streetId,
     }
     if (wd.finance.eves_jarulek !== undefined) {
       bealitasUpsert.eves_jarulek = wd.finance.eves_jarulek

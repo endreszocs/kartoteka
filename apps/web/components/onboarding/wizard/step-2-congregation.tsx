@@ -15,7 +15,7 @@ import type { WizardData } from '../welcome-wizard-client'
 interface Step2Props {
   data: WizardData
   updateData: (patch: Partial<WizardData>) => void
-  onNext: () => void | Promise<void>
+  onNext: (congregation: WizardData['congregation']) => void | Promise<void>
   onBack: () => void
   saving?: boolean
 }
@@ -55,7 +55,7 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
       return
     }
     updateData({ congregation: form })
-    await onNext()
+    await onNext(form)
   }
 
   return (

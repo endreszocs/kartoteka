@@ -23,6 +23,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — Welcome wizard mentési hotfix és pénzügyi oldal stabilizálás
+
+<!-- key: 2026-04-26-welcome-wizard-step-save-hotfix -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek, rendszergazdák — welcome wizard és pénzügyi modul -->
+
+A welcome wizard pénzügyi lépésének szigorítása felszínre hozott egy korábbi kliensoldali mentési hibát:
+a lépés komponense frissítette ugyan a React állapotot, de a szülő komponens azonnal a régi állapotból
+mentett szerverre. Ez főleg a pénzügyi lépésnél okozhatta azt, hogy a frissen beírt éves járulék helyett
+0 került a `wizard_progress.data.finance` mezőbe, így a wizard véglegesítés vagy a pénzügyi oldal
+inicializálása elakadhatott.
+
+### Javítások
+
+- **A wizard-lépések mindig az aktuális formértéket mentik**: a gyülekezeti, lelkészi és pénzügyi lépés most közvetlenül átadja a saját friss formállapotát a szülő komponensnek, nem vár a React state aszinkron frissülésére.
+- **A pénzügyi Step 4 mentése stabil**: az éves járulék, kedvezményes járulék, határidő és nyitó egyenlegek azonnal a ténylegesen beírt értékekkel kerülnek a szerveroldali `wizard_progress` sorba.
+- **A `bealitas.utcaid` fallback biztonságosabb**: ha a gyülekezetnél még nincs strukturált `adrstreet_id`, a rendszer először az első létező `adrstreet` sort használja fallbackként, és csak végső tartalékként marad a régi `1` érték.
+- **A pénzügyi oldal bootstrapje kevésbé törékeny**: a hiányzó éves `bealitas` sor létrehozása kisebb eséllyel akad el idegenkulcs-hiba miatt frissen resetelt vagy részben kitöltött gyülekezetnél.
+
+### Ellenőrzés
+
+- Célzott ESLint: tiszta.
+- Teljes `tsc --noEmit`: tiszta.
+- Teljes production build (`npm run build --workspace=@kartoteka/web`): sikeres, `/penzugy` route production buildben is renderelhető.
+
+---
+
 ## [2026-04-26] — Welcome wizard újranyitás és pénzügyi beállítás bootstrap javítás
 
 <!-- key: 2026-04-26-welcome-wizard-finance-bootstrap-fix -->

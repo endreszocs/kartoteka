@@ -13,7 +13,7 @@ import type { WizardData } from '../welcome-wizard-client'
 interface Step3Props {
   data: WizardData
   updateData: (patch: Partial<WizardData>) => void
-  onNext: () => void | Promise<void>
+  onNext: (pastor: WizardData['pastor']) => void | Promise<void>
   onBack: () => void
   saving?: boolean
 }
@@ -31,7 +31,7 @@ export function Step3Pastor({ data, updateData, onNext, onBack, saving }: Step3P
       return
     }
     updateData({ pastor: form })
-    await onNext()
+    await onNext(form)
   }
 
   return (

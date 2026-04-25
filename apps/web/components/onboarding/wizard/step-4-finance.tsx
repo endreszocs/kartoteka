@@ -13,7 +13,7 @@ import type { WizardData } from '../welcome-wizard-client'
 interface Step4Props {
   data: WizardData
   updateData: (patch: Partial<WizardData>) => void
-  onNext: () => void | Promise<void>
+  onNext: (finance: WizardData['finance']) => void | Promise<void>
   onBack: () => void
   saving?: boolean
 }
@@ -35,7 +35,7 @@ export function Step4Finance({ data, updateData, onNext, onBack, saving }: Step4
       return
     }
     updateData({ finance: form })
-    await onNext()
+    await onNext(form)
   }
 
   return (
