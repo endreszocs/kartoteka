@@ -45,7 +45,7 @@ import {
 } from '@kartoteka/core'
 import type { BelsomozgasListRow, TransferType } from '@kartoteka/validations'
 
-import { PageHero } from '../components/page-hero'
+import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -118,7 +118,7 @@ export function BelsomozgasPage() {
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         <PageHero
           eyebrow="Pénzügy · Belső mozgás"
           title="Belső mozgás"
@@ -174,7 +174,7 @@ export function BelsomozgasPage() {
             refreshKey={refreshKey}
           />
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

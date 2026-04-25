@@ -7,10 +7,19 @@
 // M2.3+ : Stronghold kulcstár (a SQLCipher-kulcsot tárolja)
 // M2.4+ : outbox + pull/push-sync + konfliktus-kezelés
 
+mod auth;
+mod auth_pin;
 mod db;
 mod device;
 
-use db::{db_execute, db_select, db_status, open_and_migrate, DbState};
+use auth::{auth_clear_item, auth_read_item, auth_store_item};
+use auth_pin::{
+    auth_pin_clear, auth_pin_has, auth_pin_set, auth_pin_status, auth_pin_verify,
+};
+use db::{
+    chitanta_wallet_claim_next, chitanta_wallet_release, db_execute, db_select, db_status,
+    iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
+};
 use device::device_info;
 use tauri::Manager;
 
@@ -56,7 +65,19 @@ pub fn run() {
             db_execute,
             db_select,
             db_status,
-            device_info
+            device_info,
+            auth_store_item,
+            auth_read_item,
+            auth_clear_item,
+            auth_pin_has,
+            auth_pin_set,
+            auth_pin_verify,
+            auth_pin_clear,
+            auth_pin_status,
+            chitanta_wallet_claim_next,
+            chitanta_wallet_release,
+            iratszam_wallet_claim_next,
+            iratszam_wallet_release
         ])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");

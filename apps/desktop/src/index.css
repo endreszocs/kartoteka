@@ -17,8 +17,17 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* A közös UI csomag fájljait is scannelje a Tailwind JIT. */
+/* A közös UI csomagok fájljait is scannelje a Tailwind JIT.
+ * - `packages/ui`     → alap design-rendszer komponensek (Card, Button, Sidebar, Header, Shell stb.)
+ * - `packages/ui-app` → magas-szintű app-komponensek (Dashboard widgetek, PageHero,
+ *                       SessionStatusBadge, SyncStatusBadge, ModalField stb.)
+ *
+ * Mindkettő MUST scan: a `ui-app` widgetek (HeroBannerScripture, KpiCards, BottomStats,
+ * Celebrations, RecentActivity, UpcomingPrograms) Tailwind class-jai különben nem
+ * generálódnak a CSS bundle-be → fehéren-fehérre, hiányzó kártyák, törött dashboard.
+ */
 @source "../../../packages/ui/src";
+@source "../../../packages/ui-app/src";
 
 /* A teljes Kartotéka design-rendszer — egy forrásból. */
 @import "../../../packages/ui/src/kartoteka.css";
@@ -26,17 +35,13 @@
 /* ──────────────────────────────────────────────────────────────
    Tauri-desktop specifikus kiegészítések
    ──────────────────────────────────────────────────────────────
-   A Tauri ablakban a szöveg-kijelölés alapból engedélyezve van,
-   de a natív app-érzéshez érdemes kikapcsolni a nem-textbox
-   helyeken. Inputok és szerkeszthető mezők megmaradnak.
+   2026-04-25: a korábbi `* { user-select: none }` túl agresszív
+   volt — a lelkész nem tudott kimásolni nevet, címet, e-mail-t.
+   Most csak a window-chrome (drag-area) tiltja a kijelölést, a
+   tartalom alapból kiválasztható (mint egy normál webes app).
    ────────────────────────────────────────────────────────────── */
 
-* {
+[data-tauri-drag-region] {
   user-select: none;
-}
-
-input,
-textarea,
-[contenteditable] {
-  user-select: text;
+  -webkit-user-select: none;
 }

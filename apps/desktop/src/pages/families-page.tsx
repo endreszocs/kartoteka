@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Home, Plus, RefreshCw, Search } from 'lucide-react'
+import { Home, Plus, Search } from 'lucide-react'
 
 import {
   Button,
@@ -31,7 +31,7 @@ import {
 
 import { CsaladFormDialog } from '../components/csalad-form-dialog'
 import { FamilyDetailDialog } from '../components/family-detail-dialog'
-import { PageHero } from '../components/page-hero'
+import { PageHero } from '@kartoteka/ui-app'
 import {
   runCsaladSyncManually,
   startCsaladAutoSync,
@@ -39,11 +39,8 @@ import {
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
-import {
-  getLocalOwnProfile,
-  pullFamiliesOfOwnCongregation,
-  pullGyerekOfOwnCongregation,
-} from '../lib/sync'
+import { getLocalOwnProfile } from '../lib/sync'
+import { useDataVersion, notifyLocalDataChanged } from '../lib/sync-orchestrator'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 type OrderBy = 'csaladfo-nev-asc' | 'csaladfo-nev-desc' | 'id-desc'
@@ -53,6 +50,7 @@ type FamilyRow = Awaited<
 >[number]
 
 export function FamiliesPage() {
+  const dataVersion = useDataVersion()
   const [userId, setUserId] = useState<string | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [rows, setRows] = useState<FamilyRow[]>([])
@@ -64,7 +62,6 @@ export function FamiliesPage() {
   const [orderBy, setOrderBy] = useState<OrderBy>('csaladfo-nev-asc')
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [syncing, setSyncing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
 
   // Auth + congregation_id
@@ -91,94 +88,66 @@ export function FamiliesPage() {
     }
   }, [])
 
-  // Pull a mount-kor + lista betöltés
-  const refresh = useCallback(
-    async (triggerPull: boolean) => {
-      if (!userId || !congregationId) return
-      try {
-        if (triggerPull) {
-          setSyncing(true)
-          await Promise.all([
-            pullFamiliesOfOwnCongregation(userId, 'delta').catch(() => null),
-            pullGyerekOfOwnCongregation(userId, 'delta').catch(() => null),
-          ])
-        }
-      } finally {
-        setSyncing(false)
-      }
+  // Lista betöltés — TISZTÁN LOKÁLIS. A háttér-sync orchestrator (Sprint M)
+  // gondoskodik az online frissítésről; sikeres pull után a `dataVersion`
+  // bumpolódik és ez az effect újrafut.
+  const refresh = useCallback(async () => {
+    if (!userId || !congregationId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const list = await getTauriSqliteBackend().listLocalCsaladok({
+        congregationId,
+        search: search.trim() || undefined,
+        statusFilter,
+        orderBy,
+        limit: 2000,
+      })
+      setRows(list)
+    } catch (err) {
+      setError(`Családok betöltési hiba: ${errorMessage(err)}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [userId, congregationId, search, statusFilter, orderBy])
 
-      setLoading(true)
-      setError(null)
-      try {
-        const list = await getTauriSqliteBackend().listLocalCsaladok({
-          congregationId,
-          search: search.trim() || undefined,
-          statusFilter,
-          orderBy,
-          limit: 2000,
-        })
-        setRows(list)
-      } catch (err) {
-        setError(`Családok betöltési hiba: ${errorMessage(err)}`)
-      } finally {
-        setLoading(false)
-      }
-    },
-    [userId, congregationId, search, statusFilter, orderBy],
-  )
-
-  // Mount: első pull + load + sync-indítás
+  // Write-sync háttér-task indítása
   useEffect(() => {
     if (userId && congregationId) {
-      void refresh(true)
       startCsaladAutoSync()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, congregationId])
 
-  // Debounced search / filter / order — csak lista-reload, pull nélkül
+  // Lista-reload: keresés/szűrő/sort változására VAGY háttér-sync sikere után
   useEffect(() => {
     if (!userId || !congregationId) return
     const timer = setTimeout(() => {
-      void refresh(false)
+      void refresh()
     }, 300)
     return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, orderBy])
+  }, [refresh, dataVersion, userId, congregationId])
 
   const selected = selectedId !== null ? rows.find((r) => r.id === selectedId) ?? null : null
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         <PageHero
           eyebrow={`Tagnyilvántartás · ${rows.length} család · offline-kompatibilis`}
           title="Családok"
           description="A gyülekezet családjainak listája. Kattints egy sorra a családtagok megnézéséhez. Offline is működik — a szinkron automatikus."
           Icon={Home}
           actions={
-            <>
+            congregationId && userId ? (
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => refresh(true)}
-                disabled={syncing}
-                className="rounded-xl border-slate-200 bg-white/90 shadow-sm"
+                onClick={() => setCreateOpen(true)}
+                className="rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_16px_30px_-22px_rgba(109,40,217,0.55)] hover:from-violet-600 hover:to-indigo-700"
               >
-                <RefreshCw className={`mr-2 size-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Szinkron…' : 'Frissítés'}
+                <Plus className="mr-2 size-4" />
+                Új család
               </Button>
-              {congregationId && userId && (
-                <Button
-                  type="button"
-                  onClick={() => setCreateOpen(true)}
-                  className="rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_16px_30px_-22px_rgba(109,40,217,0.55)] hover:from-violet-600 hover:to-indigo-700"
-                >
-                  <Plus className="mr-2 size-4" />
-                  Új család
-                </Button>
-              )}
-            </>
+            ) : null
           }
         />
 
@@ -256,8 +225,8 @@ export function FamiliesPage() {
           </div>
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            Nincs család a gyülekezetben. A „Frissítés" gombbal szinkronizálhatod, vagy
-            az anyakönyvi / tagnyilvántartási modulból felvehetsz újat.
+            Nincs család a gyülekezetben. A háttér-szinkron percenként frissít — várd meg, vagy
+            az anyakönyvi / tagnyilvántartási modulból vegyél fel újat.
           </p>
         ) : (
           <Card>
@@ -287,7 +256,7 @@ export function FamiliesPage() {
             familyId={selected.id}
             onClose={() => {
               setSelectedId(null)
-              void refresh(false)
+              notifyLocalDataChanged()
             }}
           />
         )}
@@ -299,7 +268,7 @@ export function FamiliesPage() {
             userId={userId}
             congregationId={congregationId}
             onSaved={() => {
-              void refresh(true)
+              notifyLocalDataChanged()
               // Manuálisan is indítunk egy sync-kört (különben a pending csak
               // 30 s múlva próbálkozik):
               void runCsaladSyncManually()
@@ -307,7 +276,7 @@ export function FamiliesPage() {
             onClose={() => setCreateOpen(false)}
           />
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

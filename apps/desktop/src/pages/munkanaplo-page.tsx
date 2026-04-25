@@ -184,7 +184,7 @@ export function MunkanaploPage() {
 
   return (
     <DesktopShell>
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="space-y-6">
         {/* Fejléc */}
         <div className="flex items-end justify-between gap-4">
           <div>

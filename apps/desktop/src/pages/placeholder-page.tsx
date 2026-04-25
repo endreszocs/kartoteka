@@ -47,7 +47,7 @@ export function PlaceholderPage() {
 
   return (
     <DesktopShell>
-      <div className="mx-auto max-w-3xl space-y-6 pt-8">
+      <div className="space-y-6 pt-8">
         <Card className="card-raised border-0">
           <CardHeader>
             <div className="mb-2 inline-flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 icon-raised">

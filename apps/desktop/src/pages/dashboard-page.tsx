@@ -599,7 +599,7 @@ export function DashboardPage() {
 
   return (
     <DesktopShell>
-      <div className="mx-auto max-w-5xl space-y-4">
+      <div className="space-y-4">
         <Card className="card-raised border-0">
           <CardHeader>
             <div className="flex items-start justify-between gap-4">

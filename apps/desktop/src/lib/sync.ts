@@ -2198,6 +2198,27 @@ export async function pullGyerekOfOwnCongregation(
   return { pulledRows: rows.length, mode: effectiveMode, lastPullIso: newestIso }
 }
 
+/**
+ * Családok száma a saját gyülekezetben (lokális cache-ből).
+ * Csak az aktív (`isaktiv = 1`) családokat számolja.
+ */
+export async function getLocalCsaladokCount(userId: string): Promise<number> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return 0
+  const rows = await dbSelect<{ count: number }>(
+    `SELECT COUNT(*) AS count
+       FROM csalad_local cl
+      WHERE cl.isaktiv = 1
+        AND EXISTS (
+          SELECT 1 FROM szemely_local sl
+           WHERE sl.family_id = cl.id
+             AND sl.congregation_id = ?1
+        )`,
+    [profile.congregation_id],
+  )
+  return rows[0]?.count ?? 0
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // M8.1 — Új tag INSERT (online + offline)
 // ─────────────────────────────────────────────────────────────────────────
@@ -2774,4 +2795,2389 @@ export async function removeGyerekFromCsalad(
   }
 
   return { synced: false, queuedToPending: true }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint C (2026-04-25) — ANYAKÖNYV READ-ONLY pull (4 fő tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// Keresztelés / Konfirmáció / Házasság / Temetés mirror — desktop-paritás
+// első iteráció. Full-pull stratégia (TRUNCATE + INSERT), mert a sémában
+// a `revision`/`updated_at` mezők létezése nem garantált, és egy átlagos
+// gyülekezetben az anyakönyvi-bejegyzések száma <500/tábla → a teljes pull
+// <100 ms.
+//
+// Mozgás-táblák (bekoltozott / elkoltozott / attert / kitert) Sprint D-re.
+// Write-flow (új keresztelés rögzítése offline) Sprint E-re.
+
+export interface KeresztsegLocalRow {
+  id: number
+  congregation_id: string
+  datum: string | null
+  okirat: string | null
+  lelkeszneve: string | null
+  id_szemely: number | null
+  helyid: number | null
+  megjegyzes: string | null
+  /** P1 #3: a keresztelő egyik fő mezője. */
+  keresztszulok: string | null
+  /** P1 #3: jelzi, hogy be lett-e írva a munkanaplóba. SQLite INTEGER (0/1). */
+  munkanaploba: number
+  /** P1 #3: kapcsolódó munkanaplo-bejegyzés FK. */
+  munkanaplo_id: number | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface KonfirmalasLocalRow {
+  id: number
+  congregation_id: string
+  datum: string | null
+  lelkeszneve: string | null
+  id_szemely: number | null
+  megjegyzes: string | null
+  /** P1 #4: kapcsolódó munkanaplo-bejegyzés FK. */
+  munkanaplo_id: number | null
+  /** P1 #4: opcionális — a keresztelés ideje a konfirmáltnak. */
+  keresztelesideje: string | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface HazassagLocalRow {
+  id: number
+  congregation_id: string
+  datum: string | null
+  hlevel: string | null
+  lelkeszneve: string | null
+  id_ferfi: number | null
+  id_no: number | null
+  tanuk: string | null
+  megjegyzes: string | null
+  /** P1 #5: SQLite INTEGER (0/1). */
+  munkanaploba: number
+  /** P1 #5: kapcsolódó munkanaplo-bejegyzés FK. */
+  munkanaplo_id: number | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface TemetesLocalRow {
+  id: number
+  congregation_id: string
+  tdatum: string | null
+  hdatum: string | null
+  okirat: string | null
+  lelkeszneve: string | null
+  id_szemely: number | null
+  thelyid: number | null
+  hoka: string | null
+  megjegyzes: string | null
+  /** P1 #6: SQLite INTEGER (0/1). */
+  munkanaploba: number
+  /** P1 #6: kapcsolódó munkanaplo-bejegyzés FK. */
+  munkanaplo_id: number | null
+  /** P1 #6: halálozás helye (FK→adrlocality). */
+  hhelyid: number | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface RegistryStats {
+  totals: {
+    kereszteles: number
+    konfirmacio: number
+    hazassag: number
+    temetes: number
+    bekoltozott: number
+    elkoltozott: number
+    attert: number
+    kitert: number
+  }
+  thisYear: {
+    kereszteles: number
+    konfirmacio: number
+    hazassag: number
+    temetes: number
+    bekoltozott: number
+    elkoltozott: number
+    attert: number
+    kitert: number
+  }
+  currentYear: number
+}
+
+/**
+ * Anyakönyv 8 tábla full-pull a Supabase-ből a `*_local` cache-be.
+ * 4 fő (Sprint C): keresztseg, konfirmalas, hazassag, temetes
+ * 4 mozgás (Sprint D): bekoltozott, elkoltozott, attert, kitert
+ * TRUNCATE + INSERT mind a 8 táblára (egyszerű, mert <500 sor/tábla összesen).
+ */
+export async function pullRegistryOfOwnCongregation(userId: string): Promise<{
+  pulledRows: {
+    kereszteles: number
+    konfirmacio: number
+    hazassag: number
+    temetes: number
+    bekoltozott: number
+    elkoltozott: number
+    attert: number
+    kitert: number
+  }
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return {
+      pulledRows: {
+        kereszteles: 0,
+        konfirmacio: 0,
+        hazassag: 0,
+        temetes: 0,
+        bekoltozott: 0,
+        elkoltozott: 0,
+        attert: 0,
+        kitert: 0,
+      },
+      mode: 'no-congregation',
+      lastPullIso: new Date().toISOString(),
+    }
+  }
+
+  const [
+    keresztelesRes,
+    konfirmacioRes,
+    hazassagRes,
+    temetesRes,
+    bekoltozottRes,
+    elkoltozottRes,
+    attertRes,
+    kitertRes,
+  ] = await Promise.all([
+    supabase
+      .from('keresztseg')
+      .select(
+        'id, congregation_id, datum, okirat, lelkeszneve, id_szemely, helyid, megjegyzes,' +
+          ' keresztszulok, munkanaploba, munkanaplo_id, revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('konfirmalas')
+      .select(
+        'id, congregation_id, datum, lelkeszneve, id_szemely, megjegyzes,' +
+          ' munkanaplo_id, keresztelesideje, revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('hazassag')
+      .select(
+        'id, congregation_id, datum, hlevel, lelkeszneve, id_ferfi, id_no, tanuk, megjegyzes,' +
+          ' munkanaploba, munkanaplo_id, revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('temetes')
+      .select(
+        'id, congregation_id, tdatum, hdatum, okirat, lelkeszneve, id_szemely, thelyid, hoka, megjegyzes,' +
+          ' munkanaploba, munkanaplo_id, hhelyid, revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('bekoltozott')
+      .select(
+        'id, congregation_id, mikor, id_szemely, honnanid, igazolas, megjegyzes,' +
+          ' revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('elkoltozott')
+      .select(
+        'id, congregation_id, mikor, id_szemely, hovaid, kulfoldre, megjegyzes,' +
+          ' revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('attert')
+      .select(
+        'id, congregation_id, mikor, id_szemely, honnanid, felekezet, megjegyzes,' +
+          ' revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('kitert')
+      .select(
+        'id, congregation_id, mikor, id_szemely, hovaid, felekezet, megjegyzes,' +
+          ' revision, updated_at',
+      )
+      .eq('congregation_id', congregationId),
+  ])
+
+  if (keresztelesRes.error)
+    throw new Error(`Supabase pullRegistry/keresztseg: ${keresztelesRes.error.message}`)
+  if (konfirmacioRes.error)
+    throw new Error(`Supabase pullRegistry/konfirmalas: ${konfirmacioRes.error.message}`)
+  if (hazassagRes.error)
+    throw new Error(`Supabase pullRegistry/hazassag: ${hazassagRes.error.message}`)
+  if (temetesRes.error)
+    throw new Error(`Supabase pullRegistry/temetes: ${temetesRes.error.message}`)
+  if (bekoltozottRes.error)
+    throw new Error(`Supabase pullRegistry/bekoltozott: ${bekoltozottRes.error.message}`)
+  if (elkoltozottRes.error)
+    throw new Error(`Supabase pullRegistry/elkoltozott: ${elkoltozottRes.error.message}`)
+  if (attertRes.error)
+    throw new Error(`Supabase pullRegistry/attert: ${attertRes.error.message}`)
+  if (kitertRes.error)
+    throw new Error(`Supabase pullRegistry/kitert: ${kitertRes.error.message}`)
+
+  // TRUNCATE — csak a saját gyülekezet sorai (mind a 8 tábla)
+  await dbExecute('DELETE FROM keresztseg_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM konfirmalas_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM hazassag_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM temetes_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM bekoltozott_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM elkoltozott_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM attert_local WHERE congregation_id = ?1', [congregationId])
+  await dbExecute('DELETE FROM kitert_local WHERE congregation_id = ?1', [congregationId])
+
+  const krRows = (keresztelesRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of krRows) {
+    await dbExecute(
+      `INSERT INTO keresztseg_local
+         (id, congregation_id, datum, okirat, lelkeszneve, id_szemely, helyid, megjegyzes,
+          keresztszulok, munkanaploba, munkanaplo_id, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.datum as string | null) ?? null,
+        (r.okirat as string | null) ?? null,
+        (r.lelkeszneve as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.helyid as number | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.keresztszulok as string | null) ?? null,
+        (r.munkanaploba as boolean | null) === true ? 1 : 0,
+        (r.munkanaplo_id as number | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const knRows = (konfirmacioRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of knRows) {
+    await dbExecute(
+      `INSERT INTO konfirmalas_local
+         (id, congregation_id, datum, lelkeszneve, id_szemely, megjegyzes,
+          munkanaplo_id, keresztelesideje, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.datum as string | null) ?? null,
+        (r.lelkeszneve as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.munkanaplo_id as number | null) ?? null,
+        (r.keresztelesideje as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const hzRows = (hazassagRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of hzRows) {
+    await dbExecute(
+      `INSERT INTO hazassag_local
+         (id, congregation_id, datum, hlevel, lelkeszneve, id_ferfi, id_no, tanuk, megjegyzes,
+          munkanaploba, munkanaplo_id, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.datum as string | null) ?? null,
+        (r.hlevel as string | null) ?? null,
+        (r.lelkeszneve as string | null) ?? null,
+        (r.id_ferfi as number | null) ?? null,
+        (r.id_no as number | null) ?? null,
+        (r.tanuk as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.munkanaploba as boolean | null) === true ? 1 : 0,
+        (r.munkanaplo_id as number | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const tmRows = (temetesRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of tmRows) {
+    await dbExecute(
+      `INSERT INTO temetes_local
+         (id, congregation_id, tdatum, hdatum, okirat, lelkeszneve, id_szemely, thelyid, hoka, megjegyzes,
+          munkanaploba, munkanaplo_id, hhelyid, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.tdatum as string | null) ?? null,
+        (r.hdatum as string | null) ?? null,
+        (r.okirat as string | null) ?? null,
+        (r.lelkeszneve as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.thelyid as number | null) ?? null,
+        (r.hoka as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.munkanaploba as boolean | null) === true ? 1 : 0,
+        (r.munkanaplo_id as number | null) ?? null,
+        (r.hhelyid as number | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  // ── Sprint D — 4 mozgás-tábla INSERT ──
+  const bkRows = (bekoltozottRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of bkRows) {
+    await dbExecute(
+      `INSERT INTO bekoltozott_local
+         (id, congregation_id, mikor, id_szemely, honnanid, igazolas, megjegyzes,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.mikor as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.honnanid as number | null) ?? null,
+        (r.igazolas as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const elRows = (elkoltozottRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of elRows) {
+    await dbExecute(
+      `INSERT INTO elkoltozott_local
+         (id, congregation_id, mikor, id_szemely, hovaid, kulfoldre, megjegyzes,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.mikor as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.hovaid as number | null) ?? null,
+        (r.kulfoldre as boolean | null) ? 1 : 0,
+        (r.megjegyzes as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const atRows = (attertRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of atRows) {
+    await dbExecute(
+      `INSERT INTO attert_local
+         (id, congregation_id, mikor, id_szemely, honnanid, felekezet, megjegyzes,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.mikor as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.honnanid as number | null) ?? null,
+        (r.felekezet as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const ktRows = (kitertRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  for (const r of ktRows) {
+    await dbExecute(
+      `INSERT INTO kitert_local
+         (id, congregation_id, mikor, id_szemely, hovaid, felekezet, megjegyzes,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        r.id as number,
+        r.congregation_id as string,
+        (r.mikor as string | null) ?? null,
+        (r.id_szemely as number | null) ?? null,
+        (r.hovaid as number | null) ?? null,
+        (r.felekezet as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`anyakonyv:last_pull:${congregationId}`, nowIso)
+
+  return {
+    pulledRows: {
+      kereszteles: krRows.length,
+      konfirmacio: knRows.length,
+      hazassag: hzRows.length,
+      temetes: tmRows.length,
+      bekoltozott: bkRows.length,
+      elkoltozott: elRows.length,
+      attert: atRows.length,
+      kitert: ktRows.length,
+    },
+    mode: 'full',
+    lastPullIso: nowIso,
+  }
+}
+
+/** Anyakönyvi statisztika a lokális cache-ből — totál + ez évi (8 tábla). */
+export async function getLocalRegistryStats(userId: string): Promise<RegistryStats | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const congId = profile.congregation_id
+  const curYear = new Date().getFullYear()
+  const yearPrefix = `${curYear}-`
+
+  const countAll = (table: string) =>
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM ${table} WHERE congregation_id = ?1`,
+      [congId],
+    )
+  const countYear = (table: string, dateCol: string) =>
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM ${table} WHERE congregation_id = ?1 AND ${dateCol} LIKE ?2`,
+      [congId, `${yearPrefix}%`],
+    )
+
+  const [
+    krTotal, knTotal, hzTotal, tmTotal, bkTotal, elTotal, atTotal, ktTotal,
+    krY, knY, hzY, tmY, bkY, elY, atY, ktY,
+  ] = await Promise.all([
+    countAll('keresztseg_local'),
+    countAll('konfirmalas_local'),
+    countAll('hazassag_local'),
+    countAll('temetes_local'),
+    countAll('bekoltozott_local'),
+    countAll('elkoltozott_local'),
+    countAll('attert_local'),
+    countAll('kitert_local'),
+    countYear('keresztseg_local', 'datum'),
+    countYear('konfirmalas_local', 'datum'),
+    countYear('hazassag_local', 'datum'),
+    countYear('temetes_local', 'tdatum'),
+    countYear('bekoltozott_local', 'mikor'),
+    countYear('elkoltozott_local', 'mikor'),
+    countYear('attert_local', 'mikor'),
+    countYear('kitert_local', 'mikor'),
+  ])
+
+  return {
+    totals: {
+      kereszteles: krTotal[0]?.count ?? 0,
+      konfirmacio: knTotal[0]?.count ?? 0,
+      hazassag: hzTotal[0]?.count ?? 0,
+      temetes: tmTotal[0]?.count ?? 0,
+      bekoltozott: bkTotal[0]?.count ?? 0,
+      elkoltozott: elTotal[0]?.count ?? 0,
+      attert: atTotal[0]?.count ?? 0,
+      kitert: ktTotal[0]?.count ?? 0,
+    },
+    thisYear: {
+      kereszteles: krY[0]?.count ?? 0,
+      konfirmacio: knY[0]?.count ?? 0,
+      hazassag: hzY[0]?.count ?? 0,
+      temetes: tmY[0]?.count ?? 0,
+      bekoltozott: bkY[0]?.count ?? 0,
+      elkoltozott: elY[0]?.count ?? 0,
+      attert: atY[0]?.count ?? 0,
+      kitert: ktY[0]?.count ?? 0,
+    },
+    currentYear: curYear,
+  }
+}
+
+/** Keresztelések lista — legfrissebbek elöl. */
+export async function getLocalKeresztelesek(
+  userId: string,
+  limit = 50,
+): Promise<KeresztsegLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<KeresztsegLocalRow>(
+    `SELECT id, congregation_id, datum, okirat, lelkeszneve, id_szemely, helyid, megjegyzes,
+            keresztszulok, munkanaploba, munkanaplo_id, revision, updated_at
+       FROM keresztseg_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(datum, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Konfirmáltak lista. */
+export async function getLocalKonfirmaltak(
+  userId: string,
+  limit = 50,
+): Promise<KonfirmalasLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<KonfirmalasLocalRow>(
+    `SELECT id, congregation_id, datum, lelkeszneve, id_szemely, megjegyzes,
+            munkanaplo_id, keresztelesideje, revision, updated_at
+       FROM konfirmalas_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(datum, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Házasultak lista. */
+export async function getLocalHazasultak(
+  userId: string,
+  limit = 50,
+): Promise<HazassagLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<HazassagLocalRow>(
+    `SELECT id, congregation_id, datum, hlevel, lelkeszneve, id_ferfi, id_no, tanuk, megjegyzes,
+            munkanaploba, munkanaplo_id, revision, updated_at
+       FROM hazassag_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(datum, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Eltemetettek lista. */
+export async function getLocalEltemetettek(
+  userId: string,
+  limit = 50,
+): Promise<TemetesLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<TemetesLocalRow>(
+    `SELECT id, congregation_id, tdatum, hdatum, okirat, lelkeszneve, id_szemely, thelyid,
+            hoka, megjegyzes, munkanaploba, munkanaplo_id, hhelyid, revision, updated_at
+       FROM temetes_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(tdatum, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Utolsó anyakönyv-pull ISO ideje. */
+export async function getLastPullRegistryIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`anyakonyv:last_pull:${profile.congregation_id}`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sprint D (2026-04-25) — Mozgás-táblák READ-ONLY (4 tábla)
+// ─────────────────────────────────────────────────────────────────────────
+// A 4 fő anyakönyvi tábla (keresztelés, konfirmáció, házasság, temetés)
+// kiegészítése a tagmozgások mirror-jával.
+
+export interface BekoltozottLocalRow {
+  id: number
+  congregation_id: string
+  mikor: string | null
+  id_szemely: number | null
+  honnanid: number | null
+  igazolas: string | null
+  megjegyzes: string | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface ElkoltozottLocalRow {
+  id: number
+  congregation_id: string
+  mikor: string | null
+  id_szemely: number | null
+  hovaid: number | null
+  /** SQLite INTEGER (0/1). */
+  kulfoldre: number
+  megjegyzes: string | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface AttertLocalRow {
+  id: number
+  congregation_id: string
+  mikor: string | null
+  id_szemely: number | null
+  honnanid: number | null
+  felekezet: string | null
+  megjegyzes: string | null
+  revision: number | null
+  updated_at: string | null
+}
+
+export interface KitertLocalRow {
+  id: number
+  congregation_id: string
+  mikor: string | null
+  id_szemely: number | null
+  hovaid: number | null
+  felekezet: string | null
+  megjegyzes: string | null
+  revision: number | null
+  updated_at: string | null
+}
+
+/** Beköltözöttek lista — legfrissebbek elöl. */
+export async function getLocalBekoltozottek(
+  userId: string,
+  limit = 50,
+): Promise<BekoltozottLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<BekoltozottLocalRow>(
+    `SELECT id, congregation_id, mikor, id_szemely, honnanid, igazolas, megjegyzes,
+            revision, updated_at
+       FROM bekoltozott_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(mikor, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Elköltözöttek lista. */
+export async function getLocalElkoltozottek(
+  userId: string,
+  limit = 50,
+): Promise<ElkoltozottLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<ElkoltozottLocalRow>(
+    `SELECT id, congregation_id, mikor, id_szemely, hovaid, kulfoldre, megjegyzes,
+            revision, updated_at
+       FROM elkoltozott_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(mikor, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Áttértek lista. */
+export async function getLocalAttertek(
+  userId: string,
+  limit = 50,
+): Promise<AttertLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<AttertLocalRow>(
+    `SELECT id, congregation_id, mikor, id_szemely, honnanid, felekezet, megjegyzes,
+            revision, updated_at
+       FROM attert_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(mikor, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+/** Kitértek lista. */
+export async function getLocalKitertek(
+  userId: string,
+  limit = 50,
+): Promise<KitertLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<KitertLocalRow>(
+    `SELECT id, congregation_id, mikor, id_szemely, hovaid, felekezet, megjegyzes,
+            revision, updated_at
+       FROM kitert_local
+      WHERE congregation_id = ?1
+      ORDER BY COALESCE(mikor, '') DESC, id DESC
+      LIMIT ?2`,
+    [profile.congregation_id, limit],
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint F (2026-04-25) — LELTÁR READ-ONLY (1 tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// `leltar_tetelek` mirror — alapeszközök, könyvek, műkincsek leltári listája.
+// Egyetlen tábla, sok mező, full-pull stratégia (átlag <500 tétel egy
+// gyülekezetben). Az ID itt TEXT (UUID), eltérően a többi `*_local` táblától.
+
+export interface InventoryItemLocalRow {
+  id: string
+  congregation_id: string
+  leltari_szam: string | null
+  regi_leltari_szam: string | null
+  megnevezes: string
+  kategoria: string | null
+  beszerzes_erteke: number | null
+  beszerzes_datuma: string | null
+  beszerzes_bizonylat: string | null
+  katalogus_kod: string | null
+  hasznalati_ido: number | null
+  helyszin: string | null
+  felelos_szemely_id: number | null
+  felelos_nev: string | null
+  vonalkod: string | null
+  megjegyzes: string | null
+  mennyiseg: number
+  mertekegyseg: string | null
+  torles_datuma: string | null
+  torles_bizonylat: string | null
+  torles_indoklasa: string | null
+  szerzo: string | null
+  konyv_isbn: string | null
+  konyv_kiado: string | null
+  konyv_kiadas_helye: string | null
+  konyv_kiadas_eve: number | null
+  konyv_terjedelem: string | null
+  konyv_sorozatcim: string | null
+  /** SQLite INTEGER (0/1). Supabase-ben `is_deleted` néven. */
+  is_deleted: number
+  created_at: string | null
+  userid: string | null
+  penzugy_xkey: string | null
+  revision: number
+  updated_at: string | null
+}
+
+export interface InventoryStats {
+  total: number
+  active: number
+  deleted: number
+  /** Kategórianként: { 'alapeszkoz': 12, 'konyv': 45, ... } */
+  byCategory: Record<string, number>
+  totalValue: number
+}
+
+/**
+ * Leltár full-pull a Supabase-ből a `leltar_tetelek_local` cache-be.
+ * TRUNCATE + INSERT (átlag <500 sor).
+ */
+export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
+  pulledRows: number
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
+  }
+
+  const { data, error } = await supabase
+    .from('leltar_tetelek')
+    .select('*')
+    .eq('congregation_id', congregationId)
+
+  if (error) throw new Error(`Supabase pullInventory: ${error.message}`)
+
+  await dbExecute('DELETE FROM leltar_tetelek_local WHERE congregation_id = ?1', [congregationId])
+
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  for (const r of rows) {
+    await dbExecute(
+      `INSERT INTO leltar_tetelek_local
+         (id, congregation_id, leltari_szam, regi_leltari_szam, megnevezes, kategoria,
+          beszerzes_erteke, beszerzes_datuma, beszerzes_bizonylat, katalogus_kod,
+          hasznalati_ido, helyszin, felelos_szemely_id, felelos_nev, vonalkod, megjegyzes,
+          mennyiseg, mertekegyseg, torles_datuma, torles_bizonylat, torles_indoklasa,
+          szerzo, konyv_isbn, konyv_kiado, konyv_kiadas_helye, konyv_kiadas_eve,
+          konyv_terjedelem, konyv_sorozatcim, is_deleted, created_at, userid, penzugy_xkey,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+               ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
+               ?31, ?32, ?33, ?34, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        congregationId,
+        (r.leltari_szam as string | null) ?? null,
+        (r.regi_leltari_szam as string | null) ?? null,
+        String(r.megnevezes ?? ''),
+        (r.kategoria as string | null) ?? null,
+        (r.beszerzes_erteke as number | null) ?? (r.beszerzesi_ertek as number | null) ?? null,
+        (r.beszerzes_datuma as string | null) ?? null,
+        (r.beszerzes_bizonylat as string | null) ?? null,
+        (r.katalogus_kod as string | null) ?? null,
+        (r.hasznalati_ido as number | null) ?? (r.hasznalati_ido_ev as number | null) ?? null,
+        (r.helyszin as string | null) ?? null,
+        (r.felelos_szemely_id as number | null) ?? null,
+        (r.felelos_nev as string | null) ?? (r.felelos_neve as string | null) ?? null,
+        (r.vonalkod as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.mennyiseg as number | null) ?? 1,
+        (r.mertekegyseg as string | null) ?? 'db',
+        (r.torles_datuma as string | null) ?? null,
+        (r.torles_bizonylat as string | null) ?? null,
+        (r.torles_indoklasa as string | null) ?? null,
+        (r.szerzo as string | null) ?? null,
+        (r.konyv_isbn as string | null) ?? null,
+        (r.konyv_kiado as string | null) ?? null,
+        (r.konyv_kiadas_helye as string | null) ?? null,
+        (r.konyv_kiadas_eve as number | null) ?? null,
+        (r.konyv_terjedelem as string | null) ?? null,
+        (r.konyv_sorozatcim as string | null) ?? null,
+        (r.is_deleted as boolean | null) ? 1 : 0,
+        (r.created_at as string | null) ?? null,
+        (r.userid as string | null) ?? null,
+        (r.penzugy_xkey as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`leltar:last_pull:${congregationId}`, nowIso)
+
+  return { pulledRows: rows.length, mode: 'full', lastPullIso: nowIso }
+}
+
+/** Leltári statisztika a lokális cache-ből. */
+export async function getLocalInventoryStats(userId: string): Promise<InventoryStats | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const congId = profile.congregation_id
+
+  const [totalRes, activeRes, deletedRes, valueRes, catRes] = await Promise.all([
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM leltar_tetelek_local WHERE congregation_id = ?1`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM leltar_tetelek_local WHERE congregation_id = ?1 AND is_deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM leltar_tetelek_local WHERE congregation_id = ?1 AND is_deleted = 1`,
+      [congId],
+    ),
+    dbSelect<{ total: number | null }>(
+      `SELECT COALESCE(SUM(beszerzes_erteke * mennyiseg), 0) AS total
+         FROM leltar_tetelek_local
+        WHERE congregation_id = ?1 AND is_deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ kategoria: string | null; count: number }>(
+      `SELECT kategoria, COUNT(*) AS count FROM leltar_tetelek_local
+        WHERE congregation_id = ?1 AND is_deleted = 0
+        GROUP BY kategoria`,
+      [congId],
+    ),
+  ])
+
+  const byCategory: Record<string, number> = {}
+  for (const r of catRes) {
+    byCategory[r.kategoria ?? 'unknown'] = r.count
+  }
+
+  return {
+    total: totalRes[0]?.count ?? 0,
+    active: activeRes[0]?.count ?? 0,
+    deleted: deletedRes[0]?.count ?? 0,
+    byCategory,
+    totalValue: Number(valueRes[0]?.total ?? 0),
+  }
+}
+
+/** Leltári lista — alapértelmezetten csak az aktív tételek, leltári-szám szerint. */
+export async function getLocalInventory(
+  userId: string,
+  options?: {
+    includeDeleted?: boolean
+    category?: string | null
+    search?: string
+    limit?: number
+  },
+): Promise<InventoryItemLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+
+  const conditions: string[] = ['congregation_id = ?1']
+  const params: (string | number)[] = [profile.congregation_id]
+  let idx = 2
+
+  if (!options?.includeDeleted) {
+    conditions.push('is_deleted = 0')
+  }
+  if (options?.category) {
+    conditions.push(`kategoria = ?${idx}`)
+    params.push(options.category)
+    idx++
+  }
+  if (options?.search) {
+    conditions.push(
+      `(megnevezes LIKE ?${idx} OR leltari_szam LIKE ?${idx} OR helyszin LIKE ?${idx})`,
+    )
+    params.push(`%${options.search}%`)
+    idx++
+  }
+
+  const limit = options?.limit ?? 200
+  params.push(limit)
+
+  return dbSelect<InventoryItemLocalRow>(
+    `SELECT id, congregation_id, leltari_szam, regi_leltari_szam, megnevezes, kategoria,
+            beszerzes_erteke, beszerzes_datuma, beszerzes_bizonylat, katalogus_kod,
+            hasznalati_ido, helyszin, felelos_szemely_id, felelos_nev, vonalkod,
+            megjegyzes, mennyiseg, mertekegyseg, torles_datuma, torles_bizonylat,
+            torles_indoklasa, szerzo, konyv_isbn, konyv_kiado, konyv_kiadas_helye,
+            konyv_kiadas_eve, konyv_terjedelem, konyv_sorozatcim, is_deleted, created_at,
+            userid, penzugy_xkey, revision, updated_at
+       FROM leltar_tetelek_local
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY COALESCE(leltari_szam, ''), megnevezes
+      LIMIT ?${idx}`,
+    params,
+  )
+}
+
+/** Utolsó leltár-pull ISO ideje. */
+export async function getLastPullInventoryIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`leltar:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint G (2026-04-25) — IKTATÓ READ-ONLY (1 tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// `iktato` mirror — irat-naplózás év szerinti sequence-szel.
+// Irány: 'incoming' (beérkező) vagy 'outgoing' (kimenő).
+
+export type FilingDirection = 'incoming' | 'outgoing'
+
+export interface FilingEntryLocalRow {
+  id: string
+  congregation_id: string
+  year: number
+  sequence_number: number
+  direction: FilingDirection
+  kelt: string | null
+  subject: string
+  sender_or_recipient: string | null
+  file_folder: string | null
+  targykivonat: string | null
+  elintezes_ideje: string | null
+  elintezes_modja: string | null
+  irattarijel: string | null
+  megjegyzes: string | null
+  /** P1 #9: irat oldalszáma. */
+  oldalszam: number | null
+  /** P1 #9: ki rögzítette (FK→auth.users, UUID). */
+  userid: string | null
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  updated_at: string | null
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+}
+
+export interface FilingStats {
+  total: number
+  incoming: number
+  outgoing: number
+  /** Hány irat NINCS elintézve (elintezes_ideje IS NULL). */
+  pending: number
+  currentYear: number
+}
+
+/** Iktató full-pull a Supabase-ből az `iktato_local` cache-be. */
+export async function pullFilingOfOwnCongregation(userId: string): Promise<{
+  pulledRows: number
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
+  }
+
+  const { data, error } = await supabase
+    .from('iktato')
+    .select('*')
+    .eq('congregation_id', congregationId)
+
+  if (error) throw new Error(`Supabase pullFiling: ${error.message}`)
+
+  await dbExecute('DELETE FROM iktato_local WHERE congregation_id = ?1', [congregationId])
+
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  for (const r of rows) {
+    await dbExecute(
+      `INSERT INTO iktato_local
+         (id, congregation_id, year, sequence_number, direction, kelt, subject,
+          sender_or_recipient, file_folder, targykivonat, elintezes_ideje,
+          elintezes_modja, irattarijel, megjegyzes, oldalszam, userid,
+          revision, updated_at, deleted, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+               ?17, ?18, ?19, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        congregationId,
+        Number(r.year ?? new Date().getFullYear()),
+        Number(r.sequence_number ?? 0),
+        ((r.direction as string | null) ?? 'incoming') as FilingDirection,
+        (r.kelt as string | null) ?? null,
+        String(r.subject ?? ''),
+        (r.sender_or_recipient as string | null) ?? null,
+        (r.file_folder as string | null) ?? null,
+        (r.targykivonat as string | null) ?? null,
+        (r.elintezes_ideje as string | null) ?? null,
+        (r.elintezes_modja as string | null) ?? null,
+        (r.irattarijel as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.oldalszam as number | null) ?? null,
+        (r.userid as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+        (r.deleted as boolean | null) ? 1 : 0,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`iktato:last_pull:${congregationId}`, nowIso)
+
+  return { pulledRows: rows.length, mode: 'full', lastPullIso: nowIso }
+}
+
+/** Iktató statisztika egy adott évre. */
+export async function getLocalFilingStats(
+  userId: string,
+  year?: number,
+): Promise<FilingStats | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const congId = profile.congregation_id
+  const targetYear = year ?? new Date().getFullYear()
+
+  const [totalRes, incomingRes, outgoingRes, pendingRes] = await Promise.all([
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM iktato_local
+        WHERE congregation_id = ?1 AND year = ?2 AND deleted = 0`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM iktato_local
+        WHERE congregation_id = ?1 AND year = ?2 AND deleted = 0 AND direction = 'incoming'`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM iktato_local
+        WHERE congregation_id = ?1 AND year = ?2 AND deleted = 0 AND direction = 'outgoing'`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM iktato_local
+        WHERE congregation_id = ?1 AND year = ?2 AND deleted = 0 AND elintezes_ideje IS NULL`,
+      [congId, targetYear],
+    ),
+  ])
+
+  return {
+    total: totalRes[0]?.count ?? 0,
+    incoming: incomingRes[0]?.count ?? 0,
+    outgoing: outgoingRes[0]?.count ?? 0,
+    pending: pendingRes[0]?.count ?? 0,
+    currentYear: targetYear,
+  }
+}
+
+/** Iktató lista — adott évre és (opcionálisan) irányra szűrve. */
+export async function getLocalFilingEntries(
+  userId: string,
+  options?: {
+    year?: number
+    direction?: FilingDirection | 'all'
+    search?: string
+    limit?: number
+  },
+): Promise<FilingEntryLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+
+  const year = options?.year ?? new Date().getFullYear()
+  const conditions: string[] = ['congregation_id = ?1', 'year = ?2', 'deleted = 0']
+  const params: (string | number)[] = [profile.congregation_id, year]
+  let idx = 3
+
+  if (options?.direction && options.direction !== 'all') {
+    conditions.push(`direction = ?${idx}`)
+    params.push(options.direction)
+    idx++
+  }
+  if (options?.search) {
+    conditions.push(
+      `(subject LIKE ?${idx} OR sender_or_recipient LIKE ?${idx} OR targykivonat LIKE ?${idx})`,
+    )
+    params.push(`%${options.search}%`)
+    idx++
+  }
+
+  const limit = options?.limit ?? 200
+  params.push(limit)
+
+  return dbSelect<FilingEntryLocalRow>(
+    `SELECT id, congregation_id, year, sequence_number, direction, kelt, subject,
+            sender_or_recipient, file_folder, targykivonat, elintezes_ideje,
+            elintezes_modja, irattarijel, megjegyzes, oldalszam, userid,
+            revision, updated_at, deleted
+       FROM iktato_local
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY sequence_number DESC
+      LIMIT ?${idx}`,
+    params,
+  )
+}
+
+/** Utolsó iktató-pull ISO ideje. */
+export async function getLastPullFilingIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`iktato:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint H (2026-04-25) — JEGYZŐKÖNYVEK READ-ONLY (4 tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// Fő: `presbiteri_jegyzokonyvek` (presbiteri ÉS közgyűlési, `tipus` mező)
+// Altáblák: jegyzokonyv_resztvevok, jegyzokonyv_napirendi_pontok,
+//           jegyzokonyv_hatarozatok (FK: jegyzokonyv_id → fő.id)
+
+export type MinutesType = 'presbiteri' | 'kozgyulesi'
+
+export interface MinutesLocalRow {
+  id: string
+  congregation_id: string
+  tipus: MinutesType
+  ev: number
+  ules_sorszam: number
+  datum: string | null
+  hely: string | null
+  kezdes: string | null
+  zaras: string | null
+  elnok_neve: string | null
+  jegyzo_neve: string | null
+  hitelesito1: string | null
+  hitelesito2: string | null
+  igevers: string | null
+  felolvasas: string | null
+  megjegyzes: string | null
+  allapot: string | null
+  /** P1 #8: SQLite INTEGER (0/1), default 1. Jelzi, hogy a határozat-hozatal érvényes-e. */
+  hatarozatkepesseg: number
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface MinutesParticipantLocalRow {
+  id: string
+  jegyzokonyv_id: string
+  nev: string
+  statusz: string | null
+  szerep: string | null
+}
+
+export interface MinutesAgendaItemLocalRow {
+  id: string
+  jegyzokonyv_id: string
+  sorszam: number
+  cim: string
+  eloado: string | null
+  targyalas: string | null
+  szavazas_igen: number | null
+  szavazas_nem: number | null
+  szavazas_tartozkodo: number | null
+}
+
+export interface MinutesResolutionLocalRow {
+  id: string
+  jegyzokonyv_id: string
+  ev: number | null
+  sorszam: number
+  szoveg: string
+  felelos: string | null
+  hatarido: string | null
+  napirendi_pont_sorszam: number | null
+  /** UUID-FK a napirendi pontra (P0 #2). Stabil hivatkozás, a sorszámmal szemben. */
+  napirendi_pont_id: string | null
+  /** Workflow-állapot, default 'elfogadva'. */
+  allapot: string
+}
+
+export interface MinutesDetail extends MinutesLocalRow {
+  resztvevok: MinutesParticipantLocalRow[]
+  napirendi_pontok: MinutesAgendaItemLocalRow[]
+  hatarozatok: MinutesResolutionLocalRow[]
+}
+
+export interface MinutesStats {
+  total: number
+  presbiteri: number
+  kozgyulesi: number
+  resolutionsThisYear: number
+  currentYear: number
+}
+
+/** Jegyzőkönyvek full-pull (4 tábla). */
+export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
+  pulledRows: { jegyzokonyvek: number; resztvevok: number; napirendi_pontok: number; hatarozatok: number }
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return {
+      pulledRows: { jegyzokonyvek: 0, resztvevok: 0, napirendi_pontok: 0, hatarozatok: 0 },
+      mode: 'no-congregation',
+      lastPullIso: new Date().toISOString(),
+    }
+  }
+
+  // 1) Fő tábla
+  const jkRes = await supabase
+    .from('presbiteri_jegyzokonyvek')
+    .select('*')
+    .eq('congregation_id', congregationId)
+  if (jkRes.error) throw new Error(`Supabase pullMinutes/jk: ${jkRes.error.message}`)
+  const jkRows = (jkRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const jkIds = jkRows.map((r) => String(r.id ?? ''))
+
+  // 2) Altáblák — csak ha van legalább 1 jegyzőkönyv (különben üres .in() error-t ad)
+  let participantRows: Array<Record<string, unknown>> = []
+  let agendaRows: Array<Record<string, unknown>> = []
+  let resolutionRows: Array<Record<string, unknown>> = []
+
+  if (jkIds.length > 0) {
+    const [pRes, aRes, rRes] = await Promise.all([
+      supabase.from('jegyzokonyv_resztvevok').select('*').in('jegyzokonyv_id', jkIds),
+      supabase.from('jegyzokonyv_napirendi_pontok').select('*').in('jegyzokonyv_id', jkIds),
+      supabase.from('jegyzokonyv_hatarozatok').select('*').in('jegyzokonyv_id', jkIds),
+    ])
+    if (pRes.error) throw new Error(`Supabase pullMinutes/resztvevok: ${pRes.error.message}`)
+    if (aRes.error) throw new Error(`Supabase pullMinutes/napirend: ${aRes.error.message}`)
+    if (rRes.error) throw new Error(`Supabase pullMinutes/hatarozat: ${rRes.error.message}`)
+    participantRows = (pRes.data ?? []) as unknown as Array<Record<string, unknown>>
+    agendaRows = (aRes.data ?? []) as unknown as Array<Record<string, unknown>>
+    resolutionRows = (rRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  }
+
+  // 3) TRUNCATE — fő tábla a saját gyülekezetre, altáblák minden saját jk-ra
+  await dbExecute('DELETE FROM presbiteri_jegyzokonyvek_local WHERE congregation_id = ?1', [
+    congregationId,
+  ])
+  // Az altáblákat csak a saját jk-ID-kre töröljük (nem TRUNCATE az egészét)
+  for (const id of jkIds) {
+    await dbExecute('DELETE FROM jegyzokonyv_resztvevok_local WHERE jegyzokonyv_id = ?1', [id])
+    await dbExecute('DELETE FROM jegyzokonyv_napirendi_pontok_local WHERE jegyzokonyv_id = ?1', [id])
+    await dbExecute('DELETE FROM jegyzokonyv_hatarozatok_local WHERE jegyzokonyv_id = ?1', [id])
+  }
+
+  // 4) INSERT — fő
+  for (const r of jkRows) {
+    await dbExecute(
+      `INSERT INTO presbiteri_jegyzokonyvek_local
+         (id, congregation_id, tipus, ev, ules_sorszam, datum, hely, kezdes, zaras,
+          elnok_neve, jegyzo_neve, hitelesito1, hitelesito2, igevers, felolvasas,
+          megjegyzes, allapot, hatarozatkepesseg, revision, created_at, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+               ?19, ?20, ?21, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        congregationId,
+        ((r.tipus as string | null) ?? 'presbiteri') as MinutesType,
+        Number(r.ev ?? new Date().getFullYear()),
+        Number(r.ules_sorszam ?? 0),
+        (r.datum as string | null) ?? null,
+        (r.hely as string | null) ?? null,
+        (r.kezdes as string | null) ?? null,
+        (r.zaras as string | null) ?? null,
+        (r.elnok_neve as string | null) ?? null,
+        (r.jegyzo_neve as string | null) ?? null,
+        (r.hitelesito1 as string | null) ?? null,
+        (r.hitelesito2 as string | null) ?? null,
+        (r.igevers as string | null) ?? null,
+        (r.felolvasas as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.allapot as string | null) ?? null,
+        (r.hatarozatkepesseg as boolean | null) === false ? 0 : 1,
+        Number(r.revision ?? 0),
+        (r.created_at as string | null) ?? null,
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  // 5) INSERT — altáblák
+  for (const r of participantRows) {
+    await dbExecute(
+      `INSERT INTO jegyzokonyv_resztvevok_local
+         (id, jegyzokonyv_id, nev, statusz, szerep, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        String(r.jegyzokonyv_id ?? ''),
+        String(r.nev ?? ''),
+        (r.statusz as string | null) ?? null,
+        (r.szerep as string | null) ?? null,
+      ],
+    )
+  }
+  for (const r of agendaRows) {
+    await dbExecute(
+      `INSERT INTO jegyzokonyv_napirendi_pontok_local
+         (id, jegyzokonyv_id, sorszam, cim, eloado, targyalas,
+          szavazas_igen, szavazas_nem, szavazas_tartozkodo, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        String(r.jegyzokonyv_id ?? ''),
+        Number(r.sorszam ?? 0),
+        String(r.cim ?? ''),
+        (r.eloado as string | null) ?? null,
+        (r.targyalas as string | null) ?? null,
+        (r.szavazas_igen as number | null) ?? null,
+        (r.szavazas_nem as number | null) ?? null,
+        (r.szavazas_tartozkodo as number | null) ?? null,
+      ],
+    )
+  }
+  for (const r of resolutionRows) {
+    await dbExecute(
+      `INSERT INTO jegyzokonyv_hatarozatok_local
+         (id, jegyzokonyv_id, ev, sorszam, szoveg, felelos, hatarido,
+          napirendi_pont_sorszam, napirendi_pont_id, allapot, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        String(r.jegyzokonyv_id ?? ''),
+        (r.ev as number | null) ?? null,
+        Number(r.sorszam ?? 0),
+        String(r.szoveg ?? ''),
+        (r.felelos as string | null) ?? null,
+        (r.hatarido as string | null) ?? null,
+        (r.napirendi_pont_sorszam as number | null) ?? null,
+        (r.napirendi_pont_id as string | null) ?? null,
+        (r.allapot as string | null) ?? 'elfogadva',
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`jegyzokonyvek:last_pull:${congregationId}`, nowIso)
+
+  return {
+    pulledRows: {
+      jegyzokonyvek: jkRows.length,
+      resztvevok: participantRows.length,
+      napirendi_pontok: agendaRows.length,
+      hatarozatok: resolutionRows.length,
+    },
+    mode: 'full',
+    lastPullIso: nowIso,
+  }
+}
+
+/** Jegyzőkönyvek statisztika egy adott évre. */
+export async function getLocalMinutesStats(
+  userId: string,
+  year?: number,
+): Promise<MinutesStats | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const congId = profile.congregation_id
+  const targetYear = year ?? new Date().getFullYear()
+
+  const [totalRes, presbRes, kozgyRes, resoRes] = await Promise.all([
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM presbiteri_jegyzokonyvek_local
+        WHERE congregation_id = ?1 AND ev = ?2`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM presbiteri_jegyzokonyvek_local
+        WHERE congregation_id = ?1 AND ev = ?2 AND tipus = 'presbiteri'`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM presbiteri_jegyzokonyvek_local
+        WHERE congregation_id = ?1 AND ev = ?2 AND tipus = 'kozgyulesi'`,
+      [congId, targetYear],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM jegyzokonyv_hatarozatok_local h
+        WHERE EXISTS (
+          SELECT 1 FROM presbiteri_jegyzokonyvek_local jk
+           WHERE jk.id = h.jegyzokonyv_id AND jk.congregation_id = ?1
+        ) AND COALESCE(h.ev, ?2) = ?2`,
+      [congId, targetYear],
+    ),
+  ])
+
+  return {
+    total: totalRes[0]?.count ?? 0,
+    presbiteri: presbRes[0]?.count ?? 0,
+    kozgyulesi: kozgyRes[0]?.count ?? 0,
+    resolutionsThisYear: resoRes[0]?.count ?? 0,
+    currentYear: targetYear,
+  }
+}
+
+/** Jegyzőkönyvek lista — adott évre, opcionálisan típus szerint szűrve. */
+export async function getLocalMinutesList(
+  userId: string,
+  options?: { year?: number; tipus?: MinutesType | 'all' },
+): Promise<MinutesLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  const year = options?.year ?? new Date().getFullYear()
+
+  const conditions: string[] = ['congregation_id = ?1', 'ev = ?2']
+  const params: (string | number)[] = [profile.congregation_id, year]
+  let idx = 3
+
+  if (options?.tipus && options.tipus !== 'all') {
+    conditions.push(`tipus = ?${idx}`)
+    params.push(options.tipus)
+    idx++
+  }
+
+  return dbSelect<MinutesLocalRow>(
+    `SELECT id, congregation_id, tipus, ev, ules_sorszam, datum, hely, kezdes, zaras,
+            elnok_neve, jegyzo_neve, hitelesito1, hitelesito2, igevers, felolvasas,
+            megjegyzes, allapot, hatarozatkepesseg, revision, created_at, updated_at
+       FROM presbiteri_jegyzokonyvek_local
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY ules_sorszam DESC, datum DESC`,
+    params,
+  )
+}
+
+/** Jegyzőkönyv részletes lekérése (fő + 3 altábla). */
+export async function getLocalMinutesById(id: string): Promise<MinutesDetail | null> {
+  const jkRows = await dbSelect<MinutesLocalRow>(
+    `SELECT id, congregation_id, tipus, ev, ules_sorszam, datum, hely, kezdes, zaras,
+            elnok_neve, jegyzo_neve, hitelesito1, hitelesito2, igevers, felolvasas,
+            megjegyzes, allapot, hatarozatkepesseg, revision, created_at, updated_at
+       FROM presbiteri_jegyzokonyvek_local
+      WHERE id = ?1`,
+    [id],
+  )
+  if (jkRows.length === 0) return null
+
+  const [participants, agenda, resolutions] = await Promise.all([
+    dbSelect<MinutesParticipantLocalRow>(
+      `SELECT id, jegyzokonyv_id, nev, statusz, szerep
+         FROM jegyzokonyv_resztvevok_local WHERE jegyzokonyv_id = ?1
+        ORDER BY COALESCE(szerep, ''), COALESCE(nev, '')`,
+      [id],
+    ),
+    dbSelect<MinutesAgendaItemLocalRow>(
+      `SELECT id, jegyzokonyv_id, sorszam, cim, eloado, targyalas,
+              szavazas_igen, szavazas_nem, szavazas_tartozkodo
+         FROM jegyzokonyv_napirendi_pontok_local WHERE jegyzokonyv_id = ?1
+        ORDER BY sorszam`,
+      [id],
+    ),
+    dbSelect<MinutesResolutionLocalRow>(
+      `SELECT id, jegyzokonyv_id, ev, sorszam, szoveg, felelos, hatarido,
+              napirendi_pont_sorszam, napirendi_pont_id, allapot
+         FROM jegyzokonyv_hatarozatok_local WHERE jegyzokonyv_id = ?1
+        ORDER BY sorszam`,
+      [id],
+    ),
+  ])
+
+  return {
+    ...jkRows[0],
+    resztvevok: participants,
+    napirendi_pontok: agenda,
+    hatarozatok: resolutions,
+  }
+}
+
+/** Utolsó jegyzőkönyv-pull ISO ideje. */
+export async function getLastPullMinutesIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`jegyzokonyvek:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint I (2026-04-25) — SÍRHELYEK READ-ONLY (4 tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// sirhelytemeto (temető) → sirhely (parcella) → sirhelyberles + sirhelyelhunyt
+// FONTOS: a sirhely/sirhelyberles/sirhelyelhunyt NEM tartalmaz `congregation_id`-t,
+// a temető-FK-n keresztül szűrünk.
+
+export interface CemeteryLocalRow {
+  id: number
+  congregation_id: string
+  nev: string
+  cim: string | null
+  megjegyzes: string | null
+  /** SQLite INTEGER (0/1). */
+  aktiv: number
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  updated_at: string | null
+}
+
+export interface PlotLocalRow {
+  id: number
+  temetoid: number
+  parcella: string | null
+  sor: string | null
+  szam: string | null
+  allapot: string | null
+  elhelyezkedes: string | null
+  meret: string | null
+  tipus: string | null
+  megjegyzes: string | null
+  gps_lat: number | null
+  gps_lng: number | null
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+  /** P1 #10: aktív bérlés gyors-link (FK→sirhelyberles). */
+  aktivberlesid: number | null
+  /** P1 #10: sírhely-fotó URL. */
+  imagelnk: string | null
+  /** P1 #10: létrehozás dátuma. */
+  created_at: string | null
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  updated_at: string | null
+}
+
+export interface RentalLocalRow {
+  id: number
+  sirhelyid: number
+  befizetesid: number | null
+  berlo: string
+  berloid: number | null
+  berlocim: string | null
+  berloelerhetoseg: string | null
+  megvaltas: string | null
+  lejarata: string | null
+  tipus: string | null
+  osszeg: number | null
+  megjegyzes: string | null
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  updated_at: string | null
+}
+
+export interface DeceasedLocalRow {
+  id: number
+  sirhelyid: number
+  temetesid: number | null
+  nev: string
+  sznev: string | null
+  ferfi: number | null
+  sz_datum: string | null
+  sz_hely: string | null
+  anyjaneve: string | null
+  hdatum: string | null
+  hhely: string | null
+  tdatum: string | null
+  ttipus: string | null
+  tmodja: string | null
+  elhelyezkedes: string | null
+  temetteto: string | null
+  szolgaltato: string | null
+  megjegyzes: string | null
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  updated_at: string | null
+}
+
+export interface CemeteryStats {
+  cemeteries: number
+  plots: number
+  rentals: number
+  deceased: number
+  /** Hány bérlet jár le 90 napon belül. */
+  rentalsExpiringSoon: number
+}
+
+/** Sírhelyek full-pull: 4 tábla a saját gyülekezet temetőire szűrve. */
+export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
+  pulledRows: { cemeteries: number; plots: number; rentals: number; deceased: number }
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return {
+      pulledRows: { cemeteries: 0, plots: 0, rentals: 0, deceased: 0 },
+      mode: 'no-congregation',
+      lastPullIso: new Date().toISOString(),
+    }
+  }
+
+  // 1) Temetők
+  const cemRes = await supabase
+    .from('sirhelytemeto')
+    .select('*')
+    .eq('congregation_id', congregationId)
+  if (cemRes.error) throw new Error(`Supabase pullCemeteries/temeto: ${cemRes.error.message}`)
+  const cemRows = (cemRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  const temetoIds = cemRows.map((r) => Number(r.id))
+
+  // 2) Parcellák a temető-FK-n keresztül
+  let plotRows: Array<Record<string, unknown>> = []
+  let rentalRows: Array<Record<string, unknown>> = []
+  let deceasedRows: Array<Record<string, unknown>> = []
+
+  if (temetoIds.length > 0) {
+    const plotRes = await supabase
+      .from('sirhely')
+      .select('*')
+      .in('temetoid', temetoIds)
+    if (plotRes.error) throw new Error(`Supabase pullCemeteries/sirhely: ${plotRes.error.message}`)
+    plotRows = (plotRes.data ?? []) as unknown as Array<Record<string, unknown>>
+    const plotIds = plotRows.map((r) => Number(r.id))
+
+    if (plotIds.length > 0) {
+      const [bRes, eRes] = await Promise.all([
+        supabase.from('sirhelyberles').select('*').in('sirhelyid', plotIds),
+        supabase.from('sirhelyelhunyt').select('*').in('sirhelyid', plotIds),
+      ])
+      if (bRes.error) throw new Error(`Supabase pullCemeteries/berles: ${bRes.error.message}`)
+      if (eRes.error) throw new Error(`Supabase pullCemeteries/elhunyt: ${eRes.error.message}`)
+      rentalRows = (bRes.data ?? []) as unknown as Array<Record<string, unknown>>
+      deceasedRows = (eRes.data ?? []) as unknown as Array<Record<string, unknown>>
+    }
+  }
+
+  // 3) TRUNCATE — csak a saját adatokra (FK-cascade-jellegű)
+  await dbExecute('DELETE FROM sirhelytemeto_local WHERE congregation_id = ?1', [congregationId])
+  for (const tid of temetoIds) {
+    await dbExecute('DELETE FROM sirhely_local WHERE temetoid = ?1', [tid])
+  }
+  // Bérletek + elhunytak — a parcellához kötve, ezért minden saját parcella ID-ra
+  const plotIds = plotRows.map((r) => Number(r.id))
+  for (const pid of plotIds) {
+    await dbExecute('DELETE FROM sirhelyberles_local WHERE sirhelyid = ?1', [pid])
+    await dbExecute('DELETE FROM sirhelyelhunyt_local WHERE sirhelyid = ?1', [pid])
+  }
+
+  // 4) INSERT — temetők
+  for (const r of cemRows) {
+    await dbExecute(
+      `INSERT INTO sirhelytemeto_local
+         (id, congregation_id, nev, cim, megjegyzes, aktiv, deleted,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))`,
+      [
+        Number(r.id),
+        congregationId,
+        String(r.nev ?? ''),
+        (r.cim as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.aktiv as boolean | null) === false ? 0 : 1,
+        (r.deleted as boolean | null) ? 1 : 0,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  // 5) INSERT — parcellák
+  for (const r of plotRows) {
+    await dbExecute(
+      `INSERT INTO sirhely_local
+         (id, temetoid, parcella, sor, szam, allapot, elhelyezkedes, meret, tipus,
+          megjegyzes, gps_lat, gps_lng, deleted, aktivberlesid, imagelnk,
+          created_at, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+               ?16, ?17, ?18, datetime('now'))`,
+      [
+        Number(r.id),
+        Number(r.temetoid),
+        (r.parcella as string | null) ?? null,
+        (r.sor as string | null) ?? null,
+        (r.szam as string | null) ?? null,
+        (r.allapot as string | null) ?? null,
+        (r.elhelyezkedes as string | null) ?? null,
+        (r.meret as string | null) ?? null,
+        (r.tipus as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.gps_lat as number | null) ?? null,
+        (r.gps_lng as number | null) ?? null,
+        (r.deleted as boolean | null) ? 1 : 0,
+        (r.aktivberlesid as number | null) ?? null,
+        (r.imagelnk as string | null) ?? null,
+        (r.created_at as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  // 6) INSERT — bérletek
+  for (const r of rentalRows) {
+    await dbExecute(
+      `INSERT INTO sirhelyberles_local
+         (id, sirhelyid, befizetesid, berlo, berloid, berlocim, berloelerhetoseg,
+          megvaltas, lejarata, tipus, osszeg, megjegyzes, deleted,
+          revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now'))`,
+      [
+        Number(r.id),
+        Number(r.sirhelyid),
+        (r.befizetesid as number | null) ?? null,
+        String(r.berlo ?? ''),
+        (r.berloid as number | null) ?? null,
+        (r.berlocim as string | null) ?? null,
+        (r.berloelerhetoseg as string | null) ?? null,
+        (r.megvaltas as string | null) ?? null,
+        (r.lejarata as string | null) ?? null,
+        (r.tipus as string | null) ?? null,
+        (r.osszeg as number | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.deleted as boolean | null) ? 1 : 0,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  // 7) INSERT — elhunytak
+  for (const r of deceasedRows) {
+    await dbExecute(
+      `INSERT INTO sirhelyelhunyt_local
+         (id, sirhelyid, temetesid, nev, sznev, ferfi, sz_datum, sz_hely, anyjaneve,
+          hdatum, hhely, tdatum, ttipus, tmodja, elhelyezkedes, temetteto, szolgaltato,
+          megjegyzes, deleted, revision, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+               ?20, ?21, datetime('now'))`,
+      [
+        Number(r.id),
+        Number(r.sirhelyid),
+        (r.temetesid as number | null) ?? null,
+        String(r.nev ?? ''),
+        (r.sznev as string | null) ?? null,
+        (r.ferfi as boolean | null) === true ? 1 : (r.ferfi as boolean | null) === false ? 0 : null,
+        (r.sz_datum as string | null) ?? null,
+        (r.sz_hely as string | null) ?? null,
+        (r.anyjaneve as string | null) ?? null,
+        (r.hdatum as string | null) ?? null,
+        (r.hhely as string | null) ?? null,
+        (r.tdatum as string | null) ?? null,
+        (r.ttipus as string | null) ?? null,
+        (r.tmodja as string | null) ?? null,
+        (r.elhelyezkedes as string | null) ?? null,
+        (r.temetteto as string | null) ?? null,
+        (r.szolgaltato as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.deleted as boolean | null) ? 1 : 0,
+        Number(r.revision ?? 0),
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`sirhelyek:last_pull:${congregationId}`, nowIso)
+
+  return {
+    pulledRows: {
+      cemeteries: cemRows.length,
+      plots: plotRows.length,
+      rentals: rentalRows.length,
+      deceased: deceasedRows.length,
+    },
+    mode: 'full',
+    lastPullIso: nowIso,
+  }
+}
+
+/** Sírhelyek statisztika a lokális cache-ből. */
+export async function getLocalCemeteryStats(userId: string): Promise<CemeteryStats | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const congId = profile.congregation_id
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const in90DaysIso = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+
+  const [cemRes, plotRes, rentalRes, deceasedRes, expiringRes] = await Promise.all([
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM sirhelytemeto_local
+        WHERE congregation_id = ?1 AND deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM sirhely_local p
+        WHERE EXISTS (
+          SELECT 1 FROM sirhelytemeto_local c
+           WHERE c.id = p.temetoid AND c.congregation_id = ?1 AND c.deleted = 0
+        ) AND p.deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM sirhelyberles_local b
+        WHERE EXISTS (
+          SELECT 1 FROM sirhely_local p
+           WHERE p.id = b.sirhelyid
+             AND EXISTS (
+               SELECT 1 FROM sirhelytemeto_local c
+                WHERE c.id = p.temetoid AND c.congregation_id = ?1 AND c.deleted = 0
+             )
+             AND p.deleted = 0
+        ) AND b.deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM sirhelyelhunyt_local e
+        WHERE EXISTS (
+          SELECT 1 FROM sirhely_local p
+           WHERE p.id = e.sirhelyid
+             AND EXISTS (
+               SELECT 1 FROM sirhelytemeto_local c
+                WHERE c.id = p.temetoid AND c.congregation_id = ?1 AND c.deleted = 0
+             )
+             AND p.deleted = 0
+        ) AND e.deleted = 0`,
+      [congId],
+    ),
+    dbSelect<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM sirhelyberles_local b
+        WHERE b.deleted = 0
+          AND b.lejarata IS NOT NULL
+          AND b.lejarata >= ?1
+          AND b.lejarata <= ?2
+          AND EXISTS (
+            SELECT 1 FROM sirhely_local p
+             WHERE p.id = b.sirhelyid
+               AND EXISTS (
+                 SELECT 1 FROM sirhelytemeto_local c
+                  WHERE c.id = p.temetoid AND c.congregation_id = ?3 AND c.deleted = 0
+               )
+          )`,
+      [todayIso, in90DaysIso, congId],
+    ),
+  ])
+
+  return {
+    cemeteries: cemRes[0]?.count ?? 0,
+    plots: plotRes[0]?.count ?? 0,
+    rentals: rentalRes[0]?.count ?? 0,
+    deceased: deceasedRes[0]?.count ?? 0,
+    rentalsExpiringSoon: expiringRes[0]?.count ?? 0,
+  }
+}
+
+/** Saját gyülekezet temetői. */
+export async function getLocalCemeteries(userId: string): Promise<CemeteryLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<CemeteryLocalRow>(
+    `SELECT id, congregation_id, nev, cim, megjegyzes, aktiv, deleted, revision, updated_at
+       FROM sirhelytemeto_local
+      WHERE congregation_id = ?1 AND deleted = 0
+      ORDER BY nev`,
+    [profile.congregation_id],
+  )
+}
+
+/** Egy temető parcellái. */
+export async function getLocalPlotsOfCemetery(temetoId: number): Promise<PlotLocalRow[]> {
+  return dbSelect<PlotLocalRow>(
+    `SELECT id, temetoid, parcella, sor, szam, allapot, elhelyezkedes, meret, tipus,
+            megjegyzes, gps_lat, gps_lng, deleted, aktivberlesid, imagelnk,
+            created_at, revision, updated_at
+       FROM sirhely_local
+      WHERE temetoid = ?1 AND deleted = 0
+      ORDER BY COALESCE(parcella, ''), COALESCE(sor, ''), COALESCE(szam, '')`,
+    [temetoId],
+  )
+}
+
+/** Egy parcella bérletei + elhunytjai. */
+export async function getLocalPlotDetail(plotId: number): Promise<{
+  rentals: RentalLocalRow[]
+  deceased: DeceasedLocalRow[]
+}> {
+  const [rentals, deceased] = await Promise.all([
+    dbSelect<RentalLocalRow>(
+      `SELECT id, sirhelyid, befizetesid, berlo, berloid, berlocim, berloelerhetoseg,
+              megvaltas, lejarata, tipus, osszeg, megjegyzes, deleted, revision, updated_at
+         FROM sirhelyberles_local WHERE sirhelyid = ?1 AND deleted = 0
+        ORDER BY COALESCE(megvaltas, '') DESC`,
+      [plotId],
+    ),
+    dbSelect<DeceasedLocalRow>(
+      `SELECT id, sirhelyid, temetesid, nev, sznev, ferfi, sz_datum, sz_hely, anyjaneve,
+              hdatum, hhely, tdatum, ttipus, tmodja, elhelyezkedes, temetteto,
+              szolgaltato, megjegyzes, deleted, revision, updated_at
+         FROM sirhelyelhunyt_local WHERE sirhelyid = ?1 AND deleted = 0
+        ORDER BY COALESCE(tdatum, '') DESC`,
+      [plotId],
+    ),
+  ])
+  return { rentals, deceased }
+}
+
+/** Utolsó sírhelyek-pull ISO ideje. */
+export async function getLastPullCemeteryIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`sirhelyek:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint J (2026-04-25) — PROGRAMOK READ-ONLY (1 tábla, dashboard widget)
+// ═════════════════════════════════════════════════════════════════════════
+// `gyulekezeti_programok` mirror — események/alkalmak.
+// 16 program-típus, 4 prioritás, opcionális ismétlődés.
+
+export interface ProgramLocalRow {
+  id: string
+  congregation_id: string
+  cim: string
+  datum: string
+  datum_vege: string | null
+  ido_kezdes: string | null
+  ido_befejezes: string | null
+  helyszin: string | null
+  tipus: string
+  prioritas: string
+  ismetlodes_tipus: string | null
+  egyedi_tipus_nev: string | null
+  egyedi_emoji: string | null
+  megjegyzes: string | null
+  /** SQLite INTEGER (0/1). */
+  teljesitett: number
+  teljesites_datum: string | null
+  letrehozta_id: string | null
+  letrehozta_nev: string | null
+  /** P1 #7: esemény leírása. */
+  leiras: string | null
+  /** P1 #7: egyedi szín a naptári megjelenítéshez (HEX kód). */
+  szin: string | null
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+/** Programok full-pull a Supabase-ből. */
+export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
+  pulledRows: number
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
+  }
+
+  const { data, error } = await supabase
+    .from('gyulekezeti_programok')
+    .select('*')
+    .eq('congregation_id', congregationId)
+
+  if (error) throw new Error(`Supabase pullPrograms: ${error.message}`)
+
+  await dbExecute('DELETE FROM gyulekezeti_programok_local WHERE congregation_id = ?1', [
+    congregationId,
+  ])
+
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  for (const r of rows) {
+    await dbExecute(
+      `INSERT INTO gyulekezeti_programok_local
+         (id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
+          helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
+          megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
+          leiras, szin, revision, created_at, updated_at, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+               ?19, ?20, ?21, ?22, ?23, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        congregationId,
+        String(r.cim ?? ''),
+        String(r.datum ?? new Date().toISOString().slice(0, 10)),
+        (r.datum_vege as string | null) ?? null,
+        (r.ido_kezdes as string | null) ?? null,
+        (r.ido_befejezes as string | null) ?? null,
+        (r.helyszin as string | null) ?? null,
+        String(r.tipus ?? 'egyeb'),
+        String(r.prioritas ?? 'normal'),
+        (r.ismetlodes_tipus as string | null) ?? null,
+        (r.egyedi_tipus_nev as string | null) ?? null,
+        (r.egyedi_emoji as string | null) ?? null,
+        (r.megjegyzes as string | null) ?? null,
+        (r.teljesitett as boolean | null) ? 1 : 0,
+        (r.teljesites_datum as string | null) ?? null,
+        (r.letrehozta_id as string | null) ?? null,
+        (r.letrehozta_nev as string | null) ?? null,
+        (r.leiras as string | null) ?? null,
+        (r.szin as string | null) ?? null,
+        Number(r.revision ?? 0),
+        (r.created_at as string | null) ?? null,
+        (r.updated_at as string | null) ?? null,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`programok:last_pull:${congregationId}`, nowIso)
+
+  return { pulledRows: rows.length, mode: 'full', lastPullIso: nowIso }
+}
+
+/** Közelgő programok (mai + következő N napban, NEM teljesített). */
+export async function getLocalUpcomingPrograms(
+  userId: string,
+  daysAhead = 14,
+  limit = 10,
+): Promise<ProgramLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+
+  const today = new Date().toISOString().slice(0, 10)
+  const future = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+
+  return dbSelect<ProgramLocalRow>(
+    `SELECT id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
+            helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
+            megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
+            leiras, szin, revision, created_at, updated_at
+       FROM gyulekezeti_programok_local
+      WHERE congregation_id = ?1
+        AND datum >= ?2
+        AND datum <= ?3
+        AND teljesitett = 0
+      ORDER BY datum, COALESCE(ido_kezdes, '00:00')
+      LIMIT ?4`,
+    [profile.congregation_id, today, future, limit],
+  )
+}
+
+/** Programok lista — adott évre. */
+export async function getLocalPrograms(
+  userId: string,
+  year?: number,
+): Promise<ProgramLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  const targetYear = year ?? new Date().getFullYear()
+  return dbSelect<ProgramLocalRow>(
+    `SELECT id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
+            helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
+            megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
+            leiras, szin, revision, created_at, updated_at
+       FROM gyulekezeti_programok_local
+      WHERE congregation_id = ?1
+        AND datum >= ?2
+        AND datum <= ?3
+      ORDER BY datum DESC, COALESCE(ido_kezdes, '00:00') DESC`,
+    [profile.congregation_id, `${targetYear}-01-01`, `${targetYear}-12-31`],
+  )
+}
+
+/** Utolsó programok-pull ISO ideje. */
+export async function getLastPullProgramsIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`programok:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint K (2026-04-25) — ÉVES JELENTÉS READ-ONLY (1 tábla)
+// ═════════════════════════════════════════════════════════════════════════
+// `annual_reports` mirror — éves összesítő jelentés.
+// Workflow: draft → submitted → received → reviewed → finalized.
+// A `snapshot_data` egy JSON-mező; a desktop TEXT-ként tárolja, a UI parse-olja.
+
+export type AnnualReportStatus =
+  | 'draft'
+  | 'submitted'
+  | 'received'
+  | 'reviewed'
+  | 'finalized'
+
+export interface AnnualReportLocalRow {
+  id: string
+  congregation_id: string
+  year: number
+  status: AnnualReportStatus
+  members_count: number
+  services_count: number
+  total_income: number
+  pastor_note: string | null
+  /** JSON-string. A UI a JSON.parse-szal bontja ki. */
+  snapshot_data: string | null
+  submitted_at: string | null
+  submitted_by: string | null
+  received_at: string | null
+  received_by: string | null
+  reviewed_at: string | null
+  reviewed_by: string | null
+  review_notes: string | null
+  finalized_at: string | null
+  finalized_by: string | null
+  /** SQLite INTEGER (0/1). */
+  forwarded_to_kerulet: number
+  forwarded_at: string | null
+  updated_at: string | null
+  /** P2 #12: optimistic concurrency support. */
+  revision: number
+  /** SQLite INTEGER (0/1). */
+  deleted: number
+}
+
+/** Éves Jelentések full-pull a Supabase-ből. */
+export async function pullAnnualReportsOfOwnCongregation(userId: string): Promise<{
+  pulledRows: number
+  mode: 'full' | 'no-congregation'
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const profile = await getLocalOwnProfile(userId)
+  const congregationId = profile?.congregation_id ?? null
+
+  if (!congregationId) {
+    return { pulledRows: 0, mode: 'no-congregation', lastPullIso: new Date().toISOString() }
+  }
+
+  const { data, error } = await supabase
+    .from('annual_reports')
+    .select('*')
+    .eq('congregation_id', congregationId)
+
+  if (error) throw new Error(`Supabase pullAnnualReports: ${error.message}`)
+
+  await dbExecute('DELETE FROM annual_reports_local WHERE congregation_id = ?1', [congregationId])
+
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  for (const r of rows) {
+    const snapshot = r.snapshot_data
+    const snapshotStr =
+      snapshot == null ? null : typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot)
+
+    await dbExecute(
+      `INSERT INTO annual_reports_local
+         (id, congregation_id, year, status, members_count, services_count, total_income,
+          pastor_note, snapshot_data, submitted_at, submitted_by, received_at, received_by,
+          reviewed_at, reviewed_by, review_notes, finalized_at, finalized_by,
+          forwarded_to_kerulet, forwarded_at, updated_at, deleted, revision, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+               ?19, ?20, ?21, ?22, ?23, datetime('now'))`,
+      [
+        String(r.id ?? ''),
+        congregationId,
+        Number(r.year ?? new Date().getFullYear()),
+        ((r.status as string | null) ?? 'draft') as AnnualReportStatus,
+        Number(r.members_count ?? 0),
+        Number(r.services_count ?? 0),
+        Number(r.total_income ?? 0),
+        (r.pastor_note as string | null) ?? null,
+        snapshotStr,
+        (r.submitted_at as string | null) ?? null,
+        (r.submitted_by as string | null) ?? null,
+        (r.received_at as string | null) ?? null,
+        (r.received_by as string | null) ?? null,
+        (r.reviewed_at as string | null) ?? null,
+        (r.reviewed_by as string | null) ?? null,
+        (r.review_notes as string | null) ?? null,
+        (r.finalized_at as string | null) ?? null,
+        (r.finalized_by as string | null) ?? null,
+        (r.forwarded_to_kerulet as boolean | null) ? 1 : 0,
+        (r.forwarded_at as string | null) ?? null,
+        (r.updated_at as string | null) ?? null,
+        (r.deleted as boolean | null) ? 1 : 0,
+        Number(r.revision ?? 0),
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting(`eves-jelentes:last_pull:${congregationId}`, nowIso)
+
+  return { pulledRows: rows.length, mode: 'full', lastPullIso: nowIso }
+}
+
+/** Éves jelentések lista — év szerint csökkenő sorrendben. */
+export async function getLocalAnnualReports(userId: string): Promise<AnnualReportLocalRow[]> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return []
+  return dbSelect<AnnualReportLocalRow>(
+    `SELECT id, congregation_id, year, status, members_count, services_count, total_income,
+            pastor_note, snapshot_data, submitted_at, submitted_by, received_at, received_by,
+            reviewed_at, reviewed_by, review_notes, finalized_at, finalized_by,
+            forwarded_to_kerulet, forwarded_at, updated_at, deleted, revision
+       FROM annual_reports_local
+      WHERE congregation_id = ?1 AND deleted = 0
+      ORDER BY year DESC`,
+    [profile.congregation_id],
+  )
+}
+
+/** Egy adott éves jelentés (snapshot_data JSON-stringgel). */
+export async function getLocalAnnualReport(
+  userId: string,
+  year: number,
+): Promise<AnnualReportLocalRow | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  const rows = await dbSelect<AnnualReportLocalRow>(
+    `SELECT id, congregation_id, year, status, members_count, services_count, total_income,
+            pastor_note, snapshot_data, submitted_at, submitted_by, received_at, received_by,
+            reviewed_at, reviewed_by, review_notes, finalized_at, finalized_by,
+            forwarded_to_kerulet, forwarded_at, updated_at, deleted, revision
+       FROM annual_reports_local
+      WHERE congregation_id = ?1 AND year = ?2 AND deleted = 0
+      LIMIT 1`,
+    [profile.congregation_id, year],
+  )
+  return rows[0] ?? null
+}
+
+/** Utolsó éves-jelentés-pull ISO ideje. */
+export async function getLastPullAnnualReportsIso(userId: string): Promise<string | null> {
+  const profile = await getLocalOwnProfile(userId)
+  if (!profile?.congregation_id) return null
+  return getSetting(`eves-jelentes:last_pull:${profile.congregation_id}`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sprint L (P2 #14, 2026-04-25/26) — ADRLOCALITY referencia-tábla
+// ═════════════════════════════════════════════════════════════════════════
+// Az anyakönyvi/sírhelyek/mozgás-táblák `helyid`/`thelyid`/`hhelyid`/`honnanid`/
+// `hovaid` FK-k mindegyike az `adrlocality` táblára mutat. A UI-nak helyiség-
+// nevet kell mutatni az ID helyett — ezért egy lokális mirror-tábla.
+//
+// `adrlocality` országos referencia (~10k-50k sor egész RO-n), ritkán változik.
+// Full-pull mintát használunk, gyakorisága ritka (manual gomb vagy első mount).
+
+export interface AdrlocalityLocalRow {
+  id: number
+  name: string
+  megye_id: number | null
+  country: string | null
+  postcode: string | null
+}
+
+/**
+ * Adrlocality teljes katalógus pull-ja (full-pull).
+ * Az országos lista nagy (>10k sor lehet), ezért a Pull-gomb manuális.
+ * NEM hibázik, ha a tábla már fel van töltve — TRUNCATE + INSERT.
+ */
+export async function pullAdrlocalityCatalog(): Promise<{
+  pulledRows: number
+  lastPullIso: string
+}> {
+  const supabase = getDesktopSupabase()
+  const { data, error } = await supabase
+    .from('adrlocality')
+    .select('id, name, megye_id, country, postcode')
+
+  if (error) throw new Error(`Supabase pullAdrlocality: ${error.message}`)
+
+  await dbExecute('DELETE FROM adrlocality_local', [])
+
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  for (const r of rows) {
+    await dbExecute(
+      `INSERT INTO adrlocality_local (id, name, megye_id, country, postcode, synced_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
+      [
+        Number(r.id),
+        String(r.name ?? ''),
+        (r.megye_id as number | null) ?? null,
+        (r.country as string | null) ?? null,
+        (r.postcode as string | null) ?? null,
+      ],
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  await setSetting('adrlocality:last_pull', nowIso)
+  return { pulledRows: rows.length, lastPullIso: nowIso }
+}
+
+/** Egyetlen helyiség lookup. */
+export async function getLocalLocality(id: number | null): Promise<AdrlocalityLocalRow | null> {
+  if (id == null) return null
+  const rows = await dbSelect<AdrlocalityLocalRow>(
+    'SELECT id, name, megye_id, country, postcode FROM adrlocality_local WHERE id = ?1 LIMIT 1',
+    [id],
+  )
+  return rows[0] ?? null
+}
+
+/**
+ * Batch helyiség lookup — egy `Map<id, name>` jön vissza, hogy a UI gyorsan
+ * megjelenítse a táblázatos listák FK-mezőinek neveit.
+ */
+export async function getLocalLocalitiesByIds(
+  ids: Array<number | null>,
+): Promise<Map<number, string>> {
+  const uniqueIds = Array.from(new Set(ids.filter((x): x is number => x != null && x > 0)))
+  if (uniqueIds.length === 0) return new Map()
+
+  const placeholders = uniqueIds.map((_, i) => `?${i + 1}`).join(', ')
+  const rows = await dbSelect<{ id: number; name: string }>(
+    `SELECT id, name FROM adrlocality_local WHERE id IN (${placeholders})`,
+    uniqueIds,
+  )
+  const map = new Map<number, string>()
+  for (const r of rows) map.set(r.id, r.name)
+  return map
+}
+
+/** Utolsó adrlocality-pull ISO ideje. */
+export async function getLastPullAdrlocalityIso(): Promise<string | null> {
+  return getSetting('adrlocality:last_pull')
 }

@@ -1,0 +1,29 @@
+-- ════════════════════════════════════════════════════════════════════════════
+--  ⚠ ELAVULT FÁJL — NE FUTTASD ⚠
+--
+--  Ezt a fájlt szétszedtük 4 különálló lépésre, hogy a Supabase SQL Editorban
+--  lépésenként, biztonságosan futtatható legyen, és minden lépés output-ja
+--  külön látható maradjon.
+--
+--  Használd ehelyett (a sorrend kötelező):
+--
+--    LÉPÉS 1   →  2026-04-25-a-m7-9a-LEPES-1-DIAG.sql
+--                 (csak SELECT, megmutatja az összes duplikátumot)
+--
+--    LÉPÉS 2   →  vagy 2026-04-25-a-m7-9a-LEPES-2A-AUTO-UJRASZAMOZAS.sql
+--                 (a fiatalabb sorra új iratszám)
+--
+--                 vagy 2026-04-25-a-m7-9a-LEPES-2B-AUTO-SOFT-DELETE.sql
+--                 (a fiatalabb sor deleted=true + magyarázó komment)
+--
+--                 LÉPÉS 1 alapján döntöd el, melyik kell — vagy egyiket sem,
+--                 ha kézzel rendezed UPDATE-ekkel
+--
+--    LÉPÉS 3   →  2026-04-25-a-m7-9a-LEPES-3-UNIQUE-INDEX.sql
+--                 (csak akkor, ha a LÉPÉS 1 ÖSSZESÍTŐ-je 0-t ad)
+--
+--  Bővebben az A-M7.9a project log-ban:
+--    docs/project-tracking/KARTOTEKA-A-M7-9a-befizetes-write-offline-2026-04-25.md
+-- ════════════════════════════════════════════════════════════════════════════
+
+SELECT 'EZ A FÁJL ELAVULT — használd a LEPES-1 / LEPES-2A vagy 2B / LEPES-3 fájlokat.' AS uzenet;

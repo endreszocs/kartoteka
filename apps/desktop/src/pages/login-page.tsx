@@ -12,6 +12,7 @@ import {
   Label,
 } from '@kartoteka/ui'
 
+import { hasPin, setOfflineMode } from '../lib/auth-pin'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 
@@ -48,6 +49,23 @@ export function LoginPage() {
       if (signInError) {
         setError(translateAuthError(signInError.message))
         return
+      }
+
+      // A online-login érvényteleníti az esetleges korábbi offline-mode-ot:
+      // innentől a "rendes" Supabase session az auth-forrás.
+      setOfflineMode(false)
+
+      // Ha még nincs beállítva offline PIN, átirányítunk a setup-ra.
+      // A-M6.9: a lelkészt informáljuk az offline-védelemről (memory:
+      // feedback_lelkesz_informalas — "mindenről informálva legyen").
+      try {
+        const pinExists = await hasPin()
+        if (!pinExists) {
+          navigate('/pin-setup', { replace: true })
+          return
+        }
+      } catch {
+        // Ha a keyring nem válaszol, ne blokkoljuk az alap-login flow-t
       }
 
       navigate('/', { replace: true })

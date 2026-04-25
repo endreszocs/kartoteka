@@ -14,7 +14,6 @@ import {
   Cloud,
   CloudOff,
   Database,
-  HardDrive,
   Monitor,
   RefreshCw,
   Shield,
@@ -35,7 +34,6 @@ import {
   pullWorklogOfOwnCongregation,
 } from '../../lib/sync'
 import { getDeviceInfo, type DeviceInfo } from '../../lib/device'
-import { checkForUpdates, type UpdateCheckResult } from '../../lib/updater'
 
 export function AdatBiztonsagPanel() {
   const [user, setUser] = useState<User | null>(null)
@@ -44,11 +42,9 @@ export function AdatBiztonsagPanel() {
   const [dbError, setDbError] = useState<string | null>(null)
   const [outbox, setOutbox] = useState<OutboxStats | null>(null)
   const [device, setDevice] = useState<DeviceInfo | null>(null)
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
 
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  const [checkingUpdate, setCheckingUpdate] = useState(false)
 
   // Auth + online + DB + outbox + device — egyszerre töltjük be
   useEffect(() => {
@@ -125,18 +121,6 @@ export function AdatBiztonsagPanel() {
       setSyncing(false)
     }
   }, [user, refreshDbAndOutbox])
-
-  const handleCheckUpdate = useCallback(async () => {
-    setCheckingUpdate(true)
-    try {
-      const res = await checkForUpdates()
-      setUpdateInfo(res)
-    } catch {
-      setUpdateInfo({ available: false, error: 'Ellenőrzés sikertelen' })
-    } finally {
-      setCheckingUpdate(false)
-    }
-  }, [])
 
   return (
     <div className="space-y-4">
@@ -244,37 +228,6 @@ export function AdatBiztonsagPanel() {
               </div>
             </div>
           )
-        }
-      />
-
-      {/* Frissítés */}
-      <StatusCard
-        icon={<HardDrive className="size-4" />}
-        title="Alkalmazás frissítés"
-        status={updateInfo?.available ? 'warning' : updateInfo ? 'ok' : 'neutral'}
-        statusText={
-          updateInfo?.error
-            ? 'Ellenőrzési hiba'
-            : updateInfo?.available
-              ? `Új verzió elérhető: ${updateInfo.version ?? '?'}`
-              : updateInfo
-                ? 'A legfrissebb verzió fut'
-                : 'Még nem ellenőrzött'
-        }
-        description={
-          updateInfo?.error
-            ? updateInfo.error
-            : 'Az auto-updater Ed25519 aláírással hitelesíti az új verziókat a Supabase Storage-ból.'
-        }
-        action={
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleCheckUpdate}
-            disabled={checkingUpdate || online === false}
-          >
-            {checkingUpdate ? 'Ellenőrzés…' : 'Ellenőrzés most'}
-          </Button>
         }
       />
 

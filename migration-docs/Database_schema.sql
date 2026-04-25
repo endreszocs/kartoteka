@@ -398,6 +398,7 @@ CREATE TABLE public.chitanta_tombok (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   scope text NOT NULL DEFAULT 'gyulekezet'::text CHECK (scope = ANY (ARRAY['gyulekezet'::text, 'egyhazmegye'::text])),
   diocese_id uuid,
+  revision bigint NOT NULL DEFAULT 0,
   CONSTRAINT chitanta_tombok_pkey PRIMARY KEY (id),
   CONSTRAINT chitanta_tombok_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT chitanta_tombok_diocese_id_fkey FOREIGN KEY (diocese_id) REFERENCES public.dioceses(id)
@@ -487,6 +488,8 @@ CREATE TABLE public.congregations (
   iranyitoszam text,
   hazszam text,
   country text DEFAULT 'Románia'::text,
+  revision bigint NOT NULL DEFAULT 0,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT congregations_pkey PRIMARY KEY (id),
   CONSTRAINT congregations_diocese_id_fkey FOREIGN KEY (diocese_id) REFERENCES public.dioceses(id),
   CONSTRAINT congregations_adrlocality_fk FOREIGN KEY (adrlocality_id) REFERENCES public.adrlocality(id),
@@ -538,6 +541,17 @@ CREATE TABLE public.csoport (
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT csoport_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.data_wipe_log (
+  id bigint NOT NULL DEFAULT nextval('data_wipe_log_id_seq'::regclass),
+  congregation_id uuid NOT NULL,
+  congregation_name text NOT NULL,
+  initiated_by uuid NOT NULL,
+  initiated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_tables jsonb NOT NULL,
+  total_rows_deleted bigint NOT NULL DEFAULT 0,
+  CONSTRAINT data_wipe_log_pkey PRIMARY KEY (id),
+  CONSTRAINT data_wipe_log_congregation_fk FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
 );
 CREATE TABLE public.diocese_annual_reports (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -911,6 +925,16 @@ CREATE TABLE public.import_logs (
   CONSTRAINT import_logs_pkey PRIMARY KEY (id),
   CONSTRAINT import_logs_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT import_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.iratszam_pointers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  congregation_id uuid NOT NULL,
+  iratszam_tipus text NOT NULL CHECK (iratszam_tipus = ANY (ARRAY['befizetes'::text, 'kiadas'::text])),
+  ev integer NOT NULL CHECK (ev >= 2000 AND ev <= 2100),
+  next_szam integer NOT NULL DEFAULT 1 CHECK (next_szam >= 1),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT iratszam_pointers_pkey PRIMARY KEY (id),
+  CONSTRAINT iratszam_pointers_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
 );
 CREATE TABLE public.jarulek_kedvezmeny (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -1691,6 +1715,8 @@ CREATE TABLE public.profiles (
   walkthrough_completed boolean NOT NULL DEFAULT false,
   walkthrough_skipped_at timestamp with time zone,
   onboarding_completed_at timestamp with time zone,
+  revision bigint NOT NULL DEFAULT 0,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id),
   CONSTRAINT profiles_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),

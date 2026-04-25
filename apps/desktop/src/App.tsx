@@ -3,7 +3,14 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
 import { HomePage } from './pages/home-page'
+import { AnyakonyvPage } from './pages/anyakonyv-page'
 import { BankImportPage } from './pages/bank-import-page'
+import { LeltarPage } from './pages/leltar-page'
+import { IktatoPage } from './pages/iktato-page'
+import { JegyzokonyvekPage } from './pages/jegyzokonyvek-page'
+import { JegyzokonyvDetailPage } from './pages/jegyzokonyv-detail-page'
+import { SirhelyekPage } from './pages/sirhelyek-page'
+import { EvesJelentesPage } from './pages/eves-jelentes-page'
 import { BefizetesPage } from './pages/befizetes-page'
 import { BelsomozgasPage } from './pages/belsomozgas-page'
 import { ChitantaPage } from './pages/chitanta-page'
@@ -55,6 +62,13 @@ function App() {
           <Route path="/penzugy/bank-import" element={<BankImportPage />} />
           <Route path="/tagnyilvantartas" element={<MembersPage />} />
           <Route path="/csaladok" element={<FamiliesPage />} />
+          <Route path="/anyakonyv" element={<AnyakonyvPage />} />
+          <Route path="/leltar" element={<LeltarPage />} />
+          <Route path="/iktato" element={<IktatoPage />} />
+          <Route path="/jegyzokonyvek" element={<JegyzokonyvekPage />} />
+          <Route path="/jegyzokonyvek/:id" element={<JegyzokonyvDetailPage />} />
+          <Route path="/sirhelyek" element={<SirhelyekPage />} />
+          <Route path="/eves-jelentes" element={<EvesJelentesPage />} />
           <Route path="/dev" element={<DashboardPage />} />
           <Route path="*" element={<PlaceholderPage />} />
         </Route>

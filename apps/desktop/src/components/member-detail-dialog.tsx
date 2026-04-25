@@ -203,69 +203,107 @@ export function MemberDetailDialog({
     setMode('view')
   }
 
+  // v0.5.4 — webes paritás: avatar inicializálás + gradient
+  const initials = `${(m.csaladnev || m.k_nev || '?')[0] ?? '?'}${(m.k_nev || '?')[0] ?? '?'}`.toUpperCase()
+  const avatarGradient = m.ferfi
+    ? 'from-sky-400 via-blue-500 to-indigo-600'
+    : 'from-rose-400 via-pink-500 to-fuchsia-600'
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="member-detail-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget && mode === 'view') onClose()
       }}
     >
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        {/* Fejléc */}
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-5">
-          <div>
-            <h2
-              id="member-detail-title"
-              className="font-serif text-2xl font-semibold text-slate-900"
-            >
-              {fullName}
-              {m.meghalt === 1 && <span className="ml-2 text-base text-slate-500">†</span>}
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              CNP: <span className="font-mono">{m.cnp}</span>
-              {age !== null && <span className="ml-2">· {age} éves</span>}
-              {m.allapot && <span className="ml-2">· {m.allapot}</span>}
-              {m.csaladfo === 1 && (
-                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
-                  családfő
-                </span>
-              )}
-              {m.voter_eligible === 1 && (
-                <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800">
-                  választó
-                </span>
-              )}
-              {m.isvisible === 0 && (
-                <span className="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700">
-                  rejtett
-                </span>
-              )}
-              {m.member_status && m.member_status !== 'aktív' && m.member_status !== 'aktiv' && (
-                <span className="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] text-indigo-800">
-                  {m.member_status}
-                </span>
-              )}
+      <div className="relative max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(247,251,250,0.98)_100%)] shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1.75rem]">
+          <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-violet-200/35 blur-3xl" />
+          <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full bg-teal-200/30 blur-3xl" />
+        </div>
+
+        {/* Bezárás gomb */}
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={saving}
+          className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-slate-500 shadow-sm transition hover:text-slate-700 disabled:opacity-50 sm:right-4 sm:top-4"
+          aria-label="Bezárás"
+        >
+          <X className="size-4" />
+        </button>
+
+        {/* Fejléc — webes paritás: avatar + cím + chipek */}
+        <div className="relative border-b border-slate-200/70 px-5 pb-5 pt-5 sm:px-7 sm:pb-6 sm:pt-7">
+          <div className="min-w-0 pr-12 sm:pr-14">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-700/70">
+              Tag-portré
             </p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div
+                className={`flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br ${avatarGradient} text-base font-bold text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]`}
+              >
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2
+                  id="member-detail-title"
+                  className="font-serif text-[1.8rem] leading-[1.08] text-slate-800 sm:text-[2rem]"
+                >
+                  {fullName}
+                  {m.meghalt === 1 && <span className="ml-2 text-lg text-slate-500">†</span>}
+                </h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {m.cnp && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">CNP</span>
+                      <span className="font-mono">{m.cnp}</span>
+                    </span>
+                  )}
+                  {age !== null && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
+                      {age} éves
+                    </span>
+                  )}
+                  {m.allapot && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
+                      {m.allapot}
+                    </span>
+                  )}
+                  {m.csaladfo === 1 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 shadow-sm">
+                      👑 Családfő
+                    </span>
+                  )}
+                  {m.voter_eligible === 1 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800 shadow-sm">
+                      Választó
+                    </span>
+                  )}
+                  {m.isvisible === 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                      Rejtett
+                    </span>
+                  )}
+                  {m.member_status && m.member_status !== 'aktív' && m.member_status !== 'aktiv' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-800 shadow-sm">
+                      {m.member_status}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Bezárás"
-            disabled={saving}
-          >
-            <X className="size-5" />
-          </button>
         </div>
 
         {/* Banner */}
         {banner && <DialogBanner banner={banner} />}
 
-        {/* Tartalom */}
-        <div className="space-y-4 p-5">
+        {/* Tartalom — relatív, hogy a háttér-blur dekoráció szépen látsszon */}
+        <div className="relative max-h-[calc(92vh-12rem)] space-y-4 overflow-y-auto p-5 sm:p-6">
           {mode === 'view' ? (
             <ViewBody member={m} />
           ) : (
@@ -285,12 +323,17 @@ export function MemberDetailDialog({
         </div>
 
         {/* Akciók */}
-        <div className="flex justify-between gap-2 border-t border-slate-200 bg-slate-50/50 p-4">
+        <div className="relative flex justify-between gap-2 border-t border-slate-200/70 bg-white/60 p-4 backdrop-blur-sm">
           {mode === 'view' ? (
             <>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setMode('edit')} disabled={saving}>
-                  <Pencil className="mr-2 size-4" />
+                <Button
+                  type="button"
+                  onClick={() => setMode('edit')}
+                  disabled={saving}
+                  className="gap-2 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_16px_30px_-22px_rgba(109,40,217,0.55)] hover:from-violet-600 hover:to-indigo-700"
+                >
+                  <Pencil className="size-4" />
                   Szerkesztés
                 </Button>
                 <Button
@@ -322,7 +365,12 @@ export function MemberDetailDialog({
                   )}
                 </Button>
               </div>
-              <Button type="button" onClick={onClose}>
+              <Button
+                type="button"
+                onClick={onClose}
+                variant="outline"
+                className="rounded-xl border-slate-200 bg-white/90"
+              >
                 Bezárás
               </Button>
             </>
@@ -620,19 +668,19 @@ function DialogBanner({ banner }: { banner: NonNullable<Banner> }) {
 
 function DetailGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className="rounded-[1.2rem] border border-slate-100 bg-white/90 p-4 shadow-[0_14px_28px_-22px_rgba(15,74,66,0.18)]">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-600/80">
         {title}
       </p>
-      <div className="space-y-1">{children}</div>
+      <div className="space-y-1.5">{children}</div>
     </div>
   )
 }
 
 function EditGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className="rounded-[1.2rem] border border-slate-100 bg-white/90 p-4 shadow-[0_14px_28px_-22px_rgba(15,74,66,0.18)]">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-600/80">
         {title}
       </p>
       <div className="space-y-2">{children}</div>
@@ -651,9 +699,13 @@ function DetailRow({
 }) {
   if (!value) return null
   return (
-    <div className="grid grid-cols-3 gap-2 text-sm">
+    <div className="grid grid-cols-3 items-start gap-2 text-sm">
       <span className="col-span-1 text-xs text-slate-500">{label}</span>
-      <span className={`col-span-2 ${mono ? 'font-mono text-xs' : 'text-slate-900'}`}>
+      <span
+        className={`col-span-2 break-words ${
+          mono ? 'font-mono text-xs text-slate-700' : 'font-medium text-slate-800'
+        }`}
+      >
         {value}
       </span>
     </div>

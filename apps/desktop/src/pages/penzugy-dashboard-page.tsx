@@ -379,7 +379,7 @@ export function PenzugyDashboardPage() {
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-6xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         {/* Premium fejléc — a webes FinanceTabs-feel */}
         <div className="relative overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(247,251,250,0.98)_100%)] p-5 shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70 sm:p-6">
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1.75rem]">
@@ -595,7 +595,7 @@ export function PenzugyDashboardPage() {
             </div>
           </>
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

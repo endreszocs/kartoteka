@@ -57,7 +57,7 @@ import {
 import { ActiveChitantaTombPanel } from '../components/active-chitanta-tomb-panel'
 import { ChitantaConflictDialog } from '../components/chitanta-conflict-dialog'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
-import { PageHero } from '../components/page-hero'
+import { PageHero } from '@kartoteka/ui-app'
 import { runChitantaSyncManually } from '../lib/chitanta-sync'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
@@ -179,7 +179,7 @@ export function ChitantaPage() {
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-4xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         <PageHero
           eyebrow="Pénzügy · Nyugta"
           title="Chitanță kiállítása"
@@ -340,7 +340,7 @@ export function ChitantaPage() {
             }
           />
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

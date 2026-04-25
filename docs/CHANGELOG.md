@@ -23,6 +23,970 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — Pénzügyi nyomtatási központok közös csomagba (v0.7.5 — Sprint Q F1 lezárás)
+
+<!-- key: 2026-04-26-finance-print-shared-package -->
+<!-- category: improvement -->
+<!-- version: 0.7.5 -->
+<!-- targets: lelkészek, fejlesztők — pénzügyi nyomtatás felhasználói -->
+
+A Pénzügy modul két nyomtatási központja (FinancePrintDialog: Registru Casa /
+Banca / Jurnal / Nyugtatömb-kimutatás; és BudgetPrintDialog: költségvetés /
+számadás / részszámadás) átkerült a `@kartoteka/ui-app/finance` shared
+package-be. **Sprint Q F1 lezárul**: 9/11 finance modul közös csomagban.
+A felhasználó számára semmi nem változik.
+
+### 🎨 Háttér-fejlesztés (web–desktop UI paritás)
+
+- **Közös FinancePrintDialogBody + BudgetPrintDialogBody**: a 3-5 nyomtatvány
+  típusát váltó UI, élő iframe-előnézet, dátumtartomány-szűrő (részszámadásnál),
+  bankszámla-választó (Registru Banca-nál) — mind a sharedban.
+- **Slot-pattern a Dialog shell-re**: a shadcn-radix `<Dialog>` wrapper a
+  webnél marad — a sharedban csak a tartalom. Ez konzisztens a
+  CashbookTab/BankTab modal slot-okkal.
+- **Print engine callback-ek**: `onPrintToBrowser(html)` és
+  `onPrintToPdf(html, filename, opts)` — a wrapper a `print-engine-v2.ts`-t
+  köti be (web: html2pdf.js + iframe), iOS-en jövőbeli platform-specifikus
+  implementáció (UIPrintInteractionController).
+- **HTML builder callback-en**: `buildReport(filters)` — a wrapper a
+  `buildFinancePrintDocument` / `buildBudgetPrintDocument`-tel állítja elő
+  a HTML-t.
+- **Költségvetés-sorok lazy-load**: `onLoadBudgetRows(year)` callback —
+  a Supabase client a webes wrapperben.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Pénzügy fejléc → „Pénztár nyomtatás" gomb**: változatlan
+  UI, működés. Élő előnézet, A4 fekvő, PDF mentés.
+- **Webes /penzugy → Pénzügy fejléc → „Költségvetés nyomtatás" gomb**:
+  változatlan UI. Részszámadás dátumtartománnyal és gyorsbeállításokkal.
+- **Adatvesztés nincs**, frissítés automatikus auto-update-ön át.
+
+### 🔧 Műszaki részletek (fejlesztőknek)
+
+- Új shared komponensek:
+  - `packages/ui-app/src/finance/FinancePrintDialogBody.tsx` (~340 sor)
+  - `packages/ui-app/src/finance/BudgetPrintDialogBody.tsx` (~430 sor)
+- Új shared típusok a `types.ts`-ben: `FinancePrintType`, `FinancePrintTypeMeta`,
+  `BudgetPrintType`, `BudgetPrintTypeMeta`, `PrintReport`, `NyugtatombReportRow`.
+- Webes wrapperek átírva, Dialog shell webnél marad.
+- 3 build zöld: ui-app (tsc), web (Next.js 16 webpack, 51 oldal), desktop
+  (lint + tsc + vite, 2340 modul, 3.84s).
+
+### 🛑 Sprint Q F1 hatókör — átengedve külön sprintekbe
+
+Az alapos elemzés alapján a következő komponensek **NEM kerültek** ebbe a
+sprintbe, külön fókuszált sprintekben dolgozzuk fel őket:
+
+- **OblioEllenőrzésTab** (~7500 sor): 25+ runtime callback (FSAccess API +
+  Dexie + PDF.js + szerver actionök) — egy session-ben magas hibakockázat.
+- **3 form-dialog** (IncomeDialog + ExpenseDialogV2 + DecontDialog wrapper):
+  12+ server-action callback, sok shadcn-radix form-input-csere.
+
+### Sprint Q F1 zárás állapot — 9/11 finance UI shared
+
+| # | Modul | Verzió |
+|---|-------|--------|
+| 1 | FinanceDashboard | v0.6.0 |
+| 2 | DebtTab | v0.6.1 |
+| 3 | AccountingTab | v0.6.2 |
+| 4 | RentalTab | v0.6.3 |
+| 5 | TransactionsTab | v0.6.3 |
+| 6 | MonetaryTab | v0.7.0 |
+| 7 | BudgetTab | v0.7.0 |
+| 8 | CashbookTab | v0.7.1 |
+| 9 | BankTab | v0.7.2 |
+| 10 | FinanceSugoTab + Checklist | v0.7.3 |
+| 11 | FinancePrintDialog + BudgetPrintDialog | v0.7.5 |
+| **Hátra** | OblioEllenőrzésTab + Income/Expense/Decont dialog | külön sprintek |
+
+---
+
+## [2026-04-25] — Admin frissítésnapló archívum és aktív profil szerinti kezdőoldal
+
+<!-- key: 2026-04-25-admin-frissitesnaplo-es-active-root-redirect -->
+<!-- category: bugfix -->
+<!-- targets: rendszerszintű adminok, kerületi adminok, több szerepkörrel dolgozó felhasználók -->
+
+Két, adminisztrációt és napi használatot érintő javítás készült: az admin Frissítések fül most már minden
+CHANGELOG bejegyzést visszanézhető archívumként mutat, a főoldali belépési út pedig az aktív profil-szintet
+követi, nem a felhasználó legmagasabb elérhető szerepkörét.
+
+### Javítások
+
+- **Admin → Frissítések: minden bejegyzés látható marad**: megszűnt az a félrevezető állapot, amikor a felület csak annyit írt, hogy „Minden bejegyzés közzé lett téve”, és a korábbi frissítések csak egy keskeny összecsukott listában voltak visszanézhetők. Most a teljes `docs/CHANGELOG.md` alapú frissítésnapló mindig megjelenik.
+- **Dobozos frissítéselrendezés**: a changelog-bejegyzések kártyarácsban jelennek meg. Minden frissítés önálló dobozt kap dátummal, címmel, verzióval, kategóriával, célközönséggel és kézbesítési státusszal.
+- **Kattintható részletezés**: egy frissítés kártyájára kattintva lenyílik a hozzá tartozó teljes changelog-tartalom, így az admin bármikor vissza tudja olvasni, pontosan mi tartozott az adott bejegyzésbe.
+- **Üzenet és email státusz külön jelölve**: minden frissítés mellett látszik, hogy az alkalmazáson belüli üzenet el lett-e küldve, hány címzettnek ment, milyen célzással ment ki, és hogy email is ment-e, nem volt kérve, függőben van-e vagy hibára futott.
+- **Fejlesztési hírlevél email státuszának rögzítése**: több changelog-bejegyzés együttes hírlevélküldése után a rendszer a kapcsolódó `system_broadcasts` sorokon is rögzíti, hogy email küldés történt-e, sikeres volt-e, vagy milyen hiba állt elő. Ez a jövőbeli visszanézhetőséget pontosabbá teszi.
+- **Aktív gyülekezeti profilból nincs automatikus kerületi átugrás**: a `/` főoldal most elsőként az aktív `profile_role.scope` állapotot veszi figyelembe. Ha a felhasználó gyülekezeti profilban van, akkor a gyülekezeti dashboardra kerül, még akkor is, ha egyébként magasabb szintű szerepköre is van.
+- **Egységes post-login útvonal**: a jelszavas belépés, az OAuth callback, az OAuth-complete oldal és a bejelentkezett felhasználó auth-oldalról való visszairányítása mind a gyökér resolverre fut be. Így a kezdőoldal-választás egyetlen helyen, az aktív profil-scope alapján történik.
+- **OAuth profilkiegészítés megőrzése**: az `/oauth-complete` útvonal bejelentkezett OAuth felhasználónál továbbra is elérhető marad, ha még nincs profilja. Ha már van profil, az oldal a közös kezdőoldal-resolverre irányít.
+
+### Műszaki részletek
+
+- A `ChangelogEntry` típus új `broadcastStatus` mezőt kapott, amely a `system_broadcasts` sorból hozza a `sent_at`, `recipient_count`, `target_scope`, `target_role`, `send_email`, `email_sent_at` és `email_error` mezőket.
+- A `listChangelogEntries()` már nem csak azt állapítja meg, hogy egy changelog-kulcs szerepel-e a broadcast táblában, hanem a kézbesítési metaadatokat is visszaadja az admin UI-nak.
+- A `BroadcastsTab` fő changelog-szekciója a teljes bejegyzéslistát rendereli, nem csak az `unsentEntries` listát. A hírlevélküldő továbbra is csak a még nem kiküldött bejegyzéseket kapja.
+- A `resolveDefaultDashboardPath()` az aktív profil-scope-ot a `profile_preferences.default_dashboard` elé helyezi, mert profilváltás után a felhasználónak abban a munkatérben kell maradnia, amelyet kiválasztott.
+- A régi `resolvePostAuthRedirectPath()` helper is a közös `/` resolverre terel, hogy későbbi újrahívás esetén se térjen vissza a magasabb szerepkör szerinti automatikus átugrás.
+
+---
+
+## [2026-04-25] — Pénzügy Súgó közös csomagba költözött (v0.7.3)
+
+<!-- key: 2026-04-25-finance-sugo-shared-package -->
+<!-- category: improvement -->
+<!-- version: 0.7.3 -->
+<!-- targets: lelkészek, fejlesztők — pénzügyi súgó felhasználói -->
+
+A Pénzügy modul Súgó füle (a teljes lelkészbarát magyarázat-rendszer + élő év végi
+zárás checklist) átkerült a `@kartoteka/ui-app` shared package-be. A felhasználó
+számára semmi nem változik: a kategorizált súgó-szöveg (5 szekció, 20+ téma),
+a print/PDF kimenet és az élő checklist (localStorage) pontosan ugyanúgy
+működik, mint v0.7.2-ben.
+
+### 🎨 Háttér-fejlesztés (web–desktop UI paritás)
+
+- **Közös FinanceSugoTab + FinanceSugoChecklist**: a vizuális réteg most már
+  a `@kartoteka/ui-app/finance` package-ben él. A platform-függő részek
+  (print engine, sonner toast, web-specifikus URL-ek) callback prop-okon
+  keresztül kapcsolódnak.
+- **Print/PDF callback pattern**: a `onPrintTopicToBrowser` és
+  `onPrintTopicToPdf` callback-ek a topic adatait adják át a wrappernek —
+  a web a `html2pdf.js`-szel és a `print-engine-v2.ts`-szel rendereli,
+  desktop / iOS jövőbeli platformja saját print engine-t használhat
+  (WebView2 native print, iOS UIPrintInteractionController).
+- **iOS-felkészültség**: a komponensek platform-függetlenek, a localStorage
+  iOS WKWebView-ban is működik (`window` guard mögött).
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Súgó fül**: változatlan UI és viselkedés. A 20+ topic,
+  a print, a PDF és az élő checklist mind ott van.
+
+### 🔧 Műszaki részletek (fejlesztőknek)
+
+- Új shared komponensek: `packages/ui-app/src/finance/FinanceSugoTab.tsx`
+  (~870 sor) + `packages/ui-app/src/finance/FinanceSugoChecklist.tsx`.
+- Új típus: `FinanceSugoTopicPdfData` (a print callback-ek signaturájához).
+- Webes wrapper egyszerűsödött (~50 sor): `apps/web/components/finance/finance-sugo-tab.tsx`.
+- Régi `apps/web/components/finance/finance-sugo-checklist.tsx` törölve
+  (a shared verzió helyettesíti).
+- 3 build zöld: ui-app (tsc), web (Next.js 16 webpack, 51 oldal), desktop
+  (lint + tsc + vite, 2338 modul).
+
+---
+
+## [2026-04-25] — Banki modul közös csomagba költözött (v0.7.2)
+
+<!-- key: 2026-04-25-banktab-shared-package -->
+<!-- category: improvement -->
+<!-- version: 0.7.2 -->
+<!-- targets: lelkészek, fejlesztők — pénzügyi modul felhasználói -->
+
+A pénzügy Bank fülének teljes vizuális rétege átkerült a `@kartoteka/ui-app`
+közös csomagba, ahol a desktop és (a jövőben) iOS verzió is ugyanonnan veszi
+ezt a UI-t. A felhasználó számára semmi nem változik: a banki forgalom, a
+BCR Excel import, a stornózás és a nyitó egyenleg cellek pontosan ugyanúgy
+néznek ki és működnek, mint v0.7.1-ben.
+
+### 🎨 Háttér-fejlesztés (web–desktop UI paritás)
+
+- **Közös BankTab komponens**: a `@kartoteka/ui-app/finance/BankTab` most már a webes és a desktop oldalon is ugyanazt a vizuális réteget biztosítja. A platform-függő részek (server actionök, toast, router refresh) callback prop-okon keresztül kapcsolódnak — így a desktop verzió lokális Tauri SQLite-ot, a web pedig server actionöket használhat ugyanazzal a UI-val.
+- **NyitoEgyenlegRow típus a shared csomagba**: az éves bankszámla nyitó egyenleg típusa egyetlen helyre került (egy igazság-forrás). A meglévő `bank-nyito-egyenleg-actions.ts` re-exportálja, így a BCR import wizard változatlanul működik.
+- **iOS-felkészültség**: a közös BankTab komponens platform-független (sem `next/*`, sem `@supabase/*`, sem `@tauri-apps/*` import) — ha a jövőben Tauri-mobilon iOS app készül, ugyanez a UI ott is rendelkezésre áll.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Bank fül**: változatlan UI és viselkedés. Hibás működés esetén (BCR import, bankszámla mentés, stornó) érdemes a `Ctrl+F5` reload-dal frissíteni.
+- **Desktop app v0.7.2**: telepíthető az auto-update-en keresztül. A Bank-felület a desktopon még a meglévő legacy oldal — a teljes paritás Fázis 3-ban jön (v0.8.x).
+
+### 🔧 Műszaki részletek (fejlesztőknek)
+
+- Új shared komponens: `packages/ui-app/src/finance/BankTab.tsx` (callback prop + 4 modal slot pattern).
+- Új shared típus: `NyitoEgyenlegRow` a `packages/ui-app/src/finance/types.ts`-ben.
+- Webes wrapper átírva: `apps/web/components/finance/bank-tab.tsx` — `sonner` toast, `next/navigation` router és a 4 modal mountolása slot-okon át.
+- A `bank-nyito-egyenleg-actions.ts` típusát re-exportra cseréltük a shared csomagból (drift-elkerülés).
+- 3 build zöld: `@kartoteka/ui-app` (tsc), `@kartoteka/web` (Next.js 16 webpack, 51 oldal), `@kartoteka/desktop` (lint + tsc + vite, 2336 modul).
+
+---
+
+## [2026-04-25] — Bejelentkezés és admin napló javítás
+
+<!-- key: 2026-04-25-oauth-prod-redirect-and-audit-log-view -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek, esperesek, kerületi adminok, rendszerszintű adminok -->
+
+Élő hibák javítása: a Google fiókos bejelentkezés ismét a Kartotéka élő címére tér vissza, és az admin „Eszközök, licencek, napló" fülön belül a Napló nézet újra megnyitható.
+
+### 🔒 Biztonsági és hozzáférési javítások
+
+- **Google bejelentkezés productionben**: a Google fiókkal történő belépés most már a Kartotéka élő címére tér vissza, nem egy fejlesztői localhost címre. A felhasználók ismét gond nélkül be tudnak jelentkezni Googlevel a webes felületen.
+
+### 🐛 Javítások
+
+- **Admin → „Eszközök, licencek, napló" → Napló fül**: az audit-log lista ismét megnyílik, a felhasználói e-mail is megjelenik az egyes események mellett. Korábban a fül egy belső adatbázis-relációs hibára futott, így az admin nem látta a rögzített eseményeket.
+
+### 🔧 Technikai részletek
+
+- A Supabase Authentication URL Configuration kibővítve a production webcím engedélyezett redirect céljaival, így az OAuth visszatérési pont nem fallback-el a „Site URL"-re silent módon.
+- Új lapos DB nézet (`audit_log_with_profiles`) az audit-log lekérdezéséhez, RLS-konform módon (security_invoker = true). Ez megkerüli a PostgREST relationship inference problémát, amelyet az `audit_log.user_id` nullable foreign key okozott.
+
+### 📌 Megjegyzések
+
+- A változtatások nem érintik a desktop alkalmazás verzióját — kizárólag a webes oldali bejelentkezést és az admin napló nézetét.
+- A javításhoz Supabase és Railway oldali konfigurációs lépések is tartoznak; ezek érvényesülése után érdemes újra megpróbálni a Google bejelentkezést és az admin napló fület.
+
+---
+
+## [2026-04-26] — Auto-link családszerkezet + nem-mező biztonsági ellenőrzés
+
+<!-- key: 2026-04-26-tagnyilvantartas-auto-link-and-gender-safety -->
+<!-- category: feature -->
+<!-- targets: lelkipásztorok, esperesek, rendszerszintű adminok -->
+
+A tagnyilvántartás-import wizard két nagy bővítést kapott: egy automatikus családszerkezet-építő lépést, és egy biztonsági réteget a hiányzó nem-mező kezelésére.
+
+### ✨ Új funkciók — Családszerkezet összeállítása
+
+- **Új 5. wizard lépés**: az import után megjelenik egy „Családszerkezet összeállítása" CTA gomb. Amennyiben megnyomod, a rendszer automatikusan elemzi a most beimportált tagokat és felajánlja a házastárs- és gyerek-kapcsolatokat.
+- **Cím-alapú házastárs-egyezés**: ha egy családfő szemely-hez NULL az `id_no` (vagy `id_ferfi`) mező, és **pontosan egy** felnőtt másnemű lakik ugyanazon a házszámon és utcán, akkor automatikusan házastársként ajánlja.
+- **Szülő-név alapú gyerek-egyezés**: ha egy szemely `apjaneve` vagy `anyjaneve` mezője egyezik egy ugyanazon címen lakó szülő nevével, gyerekként ajánlja.
+- **Konzervatív mód (alapértelmezés)**: csak 100%-osan biztos egyezések kerülnek alkalmazásra (cím + szülő-név direkt találat). A bizonytalan eseteket (több jelölt, hiányzó cím-egyezés) listázza, de NEM érinti — kézi rendezés a tagnyilvántartáson.
+- **Visszavonhatóság**: minden auto-link batch-id-vel kerül egy audit táblába. Egyetlen kattintással visszavonható (`revert_family_link_batch`).
+- **„Csak család nélküli tagok" szűrő**: a Személyek fülön új szűrő a státuszválasztóban — az auto-link után megmaradó „lebegő" tagok kézzel rendezhetők innen.
+
+### 🛡️ Biztonsági javítások — hiányzó nem-mező
+
+- **Smart inference**: ha egy importált sornál a „Férfi" oszlop hiányzik, a rendszer megnézi a „Férje" mezőt — ha ki van töltve, biztosan **nő**. Egyébként alapértelmezésben férfi, **DE figyelmeztető jegyet** ír a result-stepbe.
+- **3-szintű figyelmeztetés-rendszer az import eredmény-stepben**: piros (kihagyott hibás sorok), sárga (figyelmeztetések — beszúrva, de ellenőrizendő), kék (tájékoztató jegyek — automatikus következtetések). Korábban minden mindenhol piros volt.
+- **Korábbi viselkedés**: az import csendben férfira default-olta a hiányzó nem-mezőt, nem jelezte a felhasználónak. Ez ellentétes a `feedback_lelkesz_informalas` alapelvvel — most javítva.
+
+### 🔧 Műszaki részletek
+
+- **Új SQL migráció** (Endre futtatja): `migration-docs/sql/2026-04-26-family-link-inference-rpc.sql` — `family_link_audit` tábla + 4 RPC (`infer_family_links_for_congregation`, `revert_family_link_batch`, `list_family_link_batches`, `_can_manage_family_links` helper).
+- **SQL frissítés** (Endre újra futtatja): `migration-docs/sql/2026-04-25-import-wizard-family-head-rpc.sql` — smart gender inference + warning rendszer az `import_family_head_batch` RPC-ben.
+- **SQL hotfix (2026-04-26 délután)**: a Supabase Studio `42P01: relation "found_id" does not exist` hibát adott a 04-25 fájl futtatásakor — a `$$` quoting bug okozta (a Studio editor néha elveszti a function body kontextusát). Mindkét SQL fájl minden függvénye explicit `$tag$` quoting-ra cserélve (`$resolve_locality$`, `$resolve_street$`, `$import_family_head$`, `$can_manage_family_links$`, `$infer_family_links$`, `$revert_family_link_batch$`, `$list_family_link_batches$`); a helper függvényekben a `SELECT INTO` átírva `:=` assignment-re (PL/pgSQL-only szintaxis, sose ütközik plain SQL-lel).
+- **Új komponensek**: `components/members/tagnyilvantartas-import/family-link-step.tsx` (5. wizard lépés a Preview Review + Apply + Revert flow-val).
+- **Új server action**: `lib/import/family-link-inference-actions.ts` (4 export: `previewFamilyLinks`, `applyFamilyLinks`, `revertFamilyLinkBatch`, `listFamilyLinkBatches`).
+- **Bővített result-step**: severity-szerinti csoportosítás (error/warning/info), összecsukható szekciók, név-feltüntetés a hiba-soroknál.
+- **Bővített `MEMBER_STATUS_FILTERS`**: új `'lebego'` érték a `lib/constants/members.ts`-ben.
+
+---
+
+## [2026-04-25] — Tagnyilvántartás Import Wizard (új letisztult import felület)
+
+<!-- key: 2026-04-25-tagnyilvantartas-import-wizard -->
+<!-- category: feature -->
+<!-- targets: lelkeszek, esperesek, rendszerszintu adminok -->
+
+### ✨ Új funkciók
+
+- **Tagnyilvántartás Import Wizard**: új 5 lépéses, lépésről-lépésre vezető import felület. Egy tisztán végigvezetett folyamat: fájl feltöltés → oszlop párosítás → előnézet → import indítása → eredmény. Magyarázott, magyar nyelvű útmutatás minden mezőhöz.
+- **Microsoft Excel XML 2003 (.xml) támogatás**: a régi Adatkezelő által exportált SpreadsheetML fájlok most importálhatók közvetlenül, .xlsx-be konvertálás nélkül.
+- **Családfők és családok egyben importja**: egy kattintással létrehozható egyszerre a családfő személy + a hozzá tartozó család rekord (cím + házszám). Új SQL RPC (`import_family_head_batch`) atomikus tranzakcióban dolgozik, és automatikusan létrehozza a hiányzó utca/helység rekordokat is.
+
+### 🎨 UX javítások
+
+- **Egyszerűsített import felület**: a két régi, túlzsúfolt importáló panel (admin/Import tab és modul-szintű "Rendszergazdai importáló" tab) ugyanazt az új wizardot rendereli — kevesebb mező, tisztább vizuális hierarchia, minden lépésnél egyértelmű "Tovább" gomb.
+- **Drag-drop fájlfeltöltés**: a régi Tallózás-csak megoldás helyett most ráhúzható a fájl az import zónára.
+- **Oszlop-párosítás magyarázatokkal**: minden Excel-fejléchez megjelenik az auto-felismert DB-mező + magyar magyarázat (pl. "Vezetéknév / családnév", "ÉÉÉÉ-HH-NN formátum"). Manuális override-olható, kihagyható.
+- **Előnézet az importálás előtt**: az első 10 sor megjeleníthető a választott mapping szerint, így a lelkész látja, mit fog kapni az adatbázis.
+- **Egy kattintásos import**: a wizard végén egy nagy "Import indítása" CTA gomb, amely világosan jelzi a sorszámot és a cél gyülekezetet.
+
+### 🔧 Műszaki részletek
+
+- Új SQL migráció (Endre futtatja): `migration-docs/sql/2026-04-25-import-wizard-family-head-rpc.sql` — `import_family_head_batch` RPC + `_resolve_or_create_street/_locality` upsert helperek (üres bemenetnél `Ismeretlen utca/helység` fallback, sose ad vissza NULL-t).
+- Új komponensek: `components/members/tagnyilvantartas-import-wizard.tsx` + 5 step-fájl a `tagnyilvantartas-import/` mappában.
+- Bővült backend: `lib/import/excel-parser.ts` (XML support), `import-profiles.ts` (PROFILE_PERSONS bővítve + új PROFILE_FAMILY_HEADS), `row-transformer.ts` (sz_datum + c_szcim szintetikus mezők).
+- Új server action: `lib/import/family-head-import-actions.ts` — **mindkét profilra ugyanaz a flow**, csak `createCsalad` flag különbözik. Ez biztosítja a `szemely.c_utcaid` NOT NULL teljesülését az utca-lookup révén.
+- Adatbázis séma audit: minden NOT NULL mezőre van fedezet (cnp placeholder, csaladfo/ferfi/meghalt boolean default, c_utcaid lookup, befizetoev current year, type='tag').
+- Régi `import-tab-refined.tsx` törölve.
+
+---
+
+## [2026-04-25] — Aktiv profil-szinthez kotott sidebar es scope-guardok
+
+<!-- key: 2026-04-25-active-scope-sidebar-guards -->
+<!-- category: bugfix -->
+<!-- targets: tobb szerepkorrel dolgozo lelkeszek, esperesek, keruleti adminok, rendszerszintu adminok -->
+
+### Biztonsagi es hozzaferesi javitasok
+
+- **Aktiv profil-scope szerinti oldalvedelem**: a `/dashboard-egyhazmegye`, `/dashboard-kerulet` es `/admin` oldalak most mar nem csak az osszesitett szerepkorokre figyelnek, hanem az aktiv `profile_role.scope` allapotra is.
+- **URL-es megkerules lezarasa**: ha valaki kozvetlen linkkel vagy regi bongeszoallapotbol masik scope dashboardjara lepne, a rendszer visszatereli az aktiv profil sajat kezdooldalara.
+- **Keruleti jogosultsag pontositasa**: a keruleti dashboard vedelme most a tenyleges `egyhazkeruletiAdmin` hozzaferesi flagre epul, nem a szukebb `admin` ellenorzesre.
+- **Admin oldal kozos access-context alapra kerult**: az admin route ugyanabbal az effektive access-logikaval dolgozik, mint a tobbi dashboard-oldal, igy a system scope ellenorzese is egyseges lett.
+
+### Javitasok
+
+- **Gyulekezeti profilban eltunnek a magasabb szintek menujei**: explicit congregation scope-ban a sidebar mar nem mutatja a megyei, keruleti es admin oldalakat.
+- **Egyhazmegyei profil megtartja a sajat munkafolyamatait**: explicit diocese scope-ban a felhasznalo tovabbra is a sajat egyhazmegyei iranyitopultjat es a relevans penzugyi nezetet kapja, csak a zavaro idegen menu-elemek nelkul.
+- **Keruleti profil letisztult**: explicit district scope-ban a sidebar csak a keruleti nezetet hagyja meg, nem keveri bele a gyulekezeti vagy egyhazmegyei menu-elemeket.
+- **Rendszerszintu admin menu a megfelelo profilban jelenik meg**: ha az aktiv profil system scope, az admin oldal kulon lathato a sidebarban; mas scope-ban ez a menupont nem tolakszik be.
+- **Web-desktop sidebar paritas javitasa**: a desktop shell most mar az aktualis route-bol is feloldja az aktiv UI-scope-ot, hogy a kozos sidebar vizualisan es logikailag is ugyanugy viselkedjen, mint weben.
+
+### UX javitasok
+
+- **Atlathatobb navigacio**: a felhasznalo csak az aktualisan hasznalt egyhazi szinthez tartozo menu-elemeket latja, ezert kisebb lett a zaj es a teves kattintas eselye.
+- **Profilvaltas logikaja kovetkezetesebb lett**: a gyakorlatban is ervenyesul, hogy a tobb szerepkorrel rendelkezo felhasznalonak valoban profilt kell valtania, ha masik szint feluleteit akarja hasznalni.
+
+### Belso mukodesi megjegyzesek
+
+- **Fontos architekturalis megfigyeles**: multi-role rendszerben a sidebar es a route-guard nem epulhet csak az osszesitett role-flagekre, mert azok egyszerre tobb szintet is igaznak mutathatnak. Az elso szamu forras az aktiv `profile_role.scope`.
+- **Ovatos visszafele kompatibilitas**: a scope-szintu szigoritast csak ott aktivaljuk, ahol tenylegesen van explicit aktiv scope. A legacy vagy atmeneti, explicit scope nelkuli profiloknal a korabbi fallback viselkedes megmarad.
+---
+
+## [2026-04-25] — Szerepkör nélküli várakoztató képernyő és pénzügyi onboarding-bootstrap
+
+<!-- key: 2026-04-25-roleless-waiting-finance-bootstrap -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek, adminok, egyházmegyei és kerületi jóváhagyók -->
+
+### 🔒 Biztonsági és hozzáférési javítások
+
+- **Szerepkör nélküli aktív felhasználók lezárása** — ha egy felhasználó már beléphet a rendszerbe, de a `profiles.role` mezője hiányzik, üres, hibás vagy törlődött, a rendszer többé nem kezeli csendes fallbackkal `lelkesz` szerepkörként.
+- **Dashboard és setup guard szigorítás** — az auth utáni szerveroldali döntési lánc most explicit ellenőrzi, hogy van-e ismert elsődleges szerepkör; ha nincs, a felhasználó nem juthat be sem a dashboard route-csoportba, sem az onboarding-setup útvonalra.
+- **Biztonságos effektív hozzáférési kontextus** — szerepkör hiányában az effektív gyülekezeti kontextus, a hozzárendelt gyülekezetlista, a profile-role kontextus és az esetleges admin override sem marad aktív állapotban, így a rendszer nem épít tovább „ál-lelkészi” sessiont.
+- **Profilnézeti félrevezetés megszüntetése** — a profil dialógus többé nem ír ki automatikusan „Lelkipásztor” szerepet olyan felhasználónál, akinek ténylegesen nincs elsődleges szerepköre; helyette egyértelműen a „Nincs hozzárendelt szerepkör” állapot jelenik meg.
+
+### 🐛 Javítások
+
+- **Kétféle várakozási állapot kezelése** — a `/pending` képernyő most már külön kezeli a `jóváhagyásra vár` és a `szerepkörre vár` helyzetet. Így nem ugyanaz az üzenet jelenik meg annak, akinek még a regisztrációja nincs elfogadva, és annak sem, akinek az elfogadott fiókjáról eltűnt a szerepkör.
+- **Beépített segítségkérés a várakozó képernyőn** — a várakoztató oldalon megjelent a meglévő, rendszerbe épített segítségkérő gomb. Ez ugyanazt a support-csatornát nyitja meg, amelyet a belső felületek is használnak, tehát nincs külön kerülőút vagy új párhuzamos támogatási megoldás.
+- **Pénzügyi duplikált adatbekérés megszüntetése** — a pénzügyi modul nyitóoldalán az „Éves Pénzügyi Beállítások” felugró ablak nem nyílik meg többé pusztán azért, mert az adott évre még nincs `bealitas` rekord.
+- **Welcome wizard elsődlegességének érvényesítése** — a rendszer a welcome wizardban már bekért `éves járulék` és `fizetési határidő` adatokat tekinti elsődleges forrásnak, és ezekből próbálja automatikusan létrehozni a hiányzó éves `bealitas` sort.
+- **Csendes éves bootstrap a pénzügyi kezdőoldalon** — ha a gyülekezeti alapadatokban az éves pénzügyi mezők már ki vannak töltve, a rendszer betöltéskor automatikusan létrehozza az adott évhez szükséges beállítási sort, majd ugyanazzal a betöltési folyamattal megy tovább, külön megszakító modal nélkül.
+- **Érthető fallback állapot hiba esetére** — ha az automatikus éves beállítás-létrehozás mégsem lehetséges, a felhasználó nem egy félkész modalba kerül, hanem egy egyértelmű információs kártyát lát arról, hogy a gyülekezeti alapadatokat kell ellenőrizni, vagy segítséget kell kérni az admintól.
+
+### 🎨 UX javítások
+
+- **Várakozási képernyő nyelvi pontosítása** — a képernyő szövegezése most már világosan kommunikálja, hogy a felhasználó miért nem fér hozzá a modulokhoz: azért várakozik, mert még nincs jóváhagyva, vagy azért, mert jóváhagyott fiókja mellett nincs érvényes szerepkör.
+- **Szerepkörhiány külön állapotként látszik** — megjelent a vizuális állapotjelzés is a várakozó oldalon, így a felhasználó és az admin is könnyebben megérti, hogy nem általános hiba, hanem jogosultsági hiány áll a háttérben.
+- **A pénzügyi belépési élmény egyszerűbb lett** — a felhasználó ugyanazt az adatot nem kapja meg másodszor is felugró ablakban, ha azt a rendszer az onboarding során már egyszer elkérte tőle.
+
+### 🔧 Belső működési megjegyzések
+
+- **Fontos séma-megfigyelés** — a `profiles.role` mező a rendszer valós működésében ténylegesen hiányozhat vagy sérülhet, ezért ezt nem szabad kizárólag adatbázis-defaultra bízott, „mindig meglesz” mezőként kezelni.
+- **Fontos működési alapelv** — a welcome wizard nem csak vizuális bevezető, hanem a gyülekezeti induló állapot egyik elsődleges adatforrása is, különösen a pénzügyi induló mezők esetében.
+- **Admin-kommunikációs alapelv** — a jelen változástól kezdve a fontos javítások és fejlesztések részletes admin-kompatibilis dokumentálása a `docs/CHANGELOG.md` fájlban is kötelező, mert az admin oldali közzétételek innen épülnek fel.
+
+---
+
+## [2026-04-25] — v0.7.1: Pénzügy Fázis 1 — CashbookTab port (8/11 tab kész)
+
+<!-- key: 2026-04-25-v0-7-1-cashbook-port -->
+<!-- category: improvement -->
+<!-- version: 0.7.1 -->
+<!-- targets: fejlesztők — Kasszanapló-tab a shared package-be teljes callback-abstraction-nel; 8/11 = 73% -->
+
+### 🏗️ Pénzügyi modul Fázis 1 — CashbookTab port
+
+A `@kartoteka/ui-app/finance/` package új komponense:
+
+#### `CashbookTab` (~650 sor)
+Készpénzes bevétel + kiadás unified lista, hónapok szerinti csoportosítás, sortálható oszlopok, nyitó/záró egyenleg, **3 callback + 5 slot prop**:
+- Callbacks: `onAutoIssueChitanta`, `loadChitantakForBefizetesek`, `onUndoStorno`, `onTransactionChanged`, `onToast`
+- Slots: `chitantaTombokPanelSlot` (aktív tömb panel), `chitantaSilentPrintSlot` (közvetlen nyomtatás), `chitantaTombRequiredDialogSlot` (wizard), `transactionEditDialogSlot` (szerkesztő), `stornoConfirmDialogSlot` (stornó modal)
+
+Új típusok: `ChitantaInfo`, `AutoIssueChitantaResult`, `CashTransactionType`, `CashbookToastKind`.
+
+### 📋 Fázis 1 előrehaladás — 8/11 tab (73%)
+
+✅ FinanceDashboard, DebtTab, AccountingTab, RentalTab, TransactionsTab, MonetaryTab, BudgetTab, **CashbookTab**
+
+⏳ BankTab (843), FinanceSugoTab (948), OblioEllenorzesTab (1637) — 5 dialog
+
+A frissítés adat-vesztés nélkül és automatikusan települ.
+
+---
+
+## [2026-04-25] — v0.7.0: Pénzügy Fázis 1 — MonetaryTab + BudgetTab port (7/11 tab kész)
+
+<!-- key: 2026-04-25-v0-7-0-monetary-budget-port -->
+<!-- category: improvement -->
+<!-- version: 0.7.0 -->
+<!-- targets: fejlesztők — 64% Fázis 1 előrehaladás. 7 finance-tab a shared package-ben, 4 hátra (CashbookTab, BankTab, FinanceSugoTab, OblioEllenorzesTab) — külön release-ek. -->
+
+### 🏗️ Pénzügyi modul Fázis 1 — MonetaryTab + BudgetTab port
+
+A `@kartoteka/ui-app/finance/` package két új komponenssel bővült:
+
+#### `MonetaryTab` (~400 sor)
+Címlet-számoló: bankjegyek és érmék darabszáma + összegzés + eltérés a könyvelt készpénzegyenleghez. Új közös típus: `MonetaryDenomination`. Callback-ek:
+- `loadSnapshot(year)` — denominations + counts lekérés
+- `saveSnapshot(year, items)` — címlet-szám mentés
+- `onToast(msg, kind)` — UI-feedback
+
+#### `BudgetTab` (~500 sor)
+4-fázisos költségvetés-kezelő (alap + 3 módosítás), bevétel/kiadás cellákkal, mentés + véglegesítés + javítási kérelem flow. Új közös típus: `BudgetCompatRow`. Callback-ek (8 db):
+- `loadBudgetRows`, `saveBudgetRows`, `saveBudgetModification`
+- `finalizeBudget`, `finalizeBudgetModification`
+- `submitDocument` (cross-module)
+- `requestBudgetUnlock`
+- `onRefresh`, `onToast`
+
+### 📋 Fázis 1 előrehaladás — 7/11 tab (64%)
+
+| Tab | Status | Sor | Release |
+|---|---|---|---|
+| FinanceDashboard | ✅ | ~200 | v0.6.0 |
+| DebtTab | ✅ | ~300 | v0.6.1 |
+| AccountingTab | ✅ | ~400 | v0.6.2 |
+| RentalTab | ✅ | ~430 | v0.6.3 |
+| TransactionsTab | ✅ | ~480 | v0.6.3 |
+| **MonetaryTab** | ✅ | ~400 | **v0.7.0** |
+| **BudgetTab** | ✅ | ~500 | **v0.7.0** |
+| CashbookTab | ⏳ | 652 | v0.7.1 |
+| BankTab | ⏳ | 843 | v0.7.1 |
+| FinanceSugoTab | ⏳ | 948 | v0.7.1 |
+| OblioEllenorzesTab | ⏳ | 1637 | v0.7.2 |
+
+### 📋 Fázis 2-3-4 (jövőbeli sprintek)
+
+- **5 modális dialog port** (IncomeDialog, ExpenseDialog, DecontDialog, FinancePrintDialog, BudgetPrintDialog) — v0.7.3
+- **Fázis 2 — desktop Tauri SQLite finance read-helperek** — v0.8.0
+- **Fázis 3 — desktop /penzugy közös FinanceTabs mount** — v0.8.1
+- **Fázis 4 — Tauri-data + offline outbox bekötés** — v0.8.2
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.6.3: Pénzügy Fázis 1 — RentalTab + TransactionsTab port
+
+<!-- key: 2026-04-25-v0-6-3-rental-transactions-port -->
+<!-- category: improvement -->
+<!-- version: 0.6.3 -->
+<!-- targets: fejlesztők — két nagyobb tab átkerült a shared package-be (Bérleti szerződések, Tranzakciók); a callback-abstraction template most már 5 komponensen érvényesült -->
+
+### 🏗️ Pénzügyi modul Fázis 1 — RentalTab + TransactionsTab port
+
+A `@kartoteka/ui-app/finance/` package két új komponenssel bővült:
+
+#### `RentalTab` (eredetileg ~400 sor → ~430 sor a shared-ben)
+Bérleti szerződések listázása, szűrés (típus, státusz), KPI-kártyák (aktív / éves várt bevétel / lejárt). Művelet-callback-ek:
+- `onDeleteContract(id)` — törlés
+- `onToast(msg, kind)` — UI-feedback
+- `contractDialogSlot({open, onOpenChange, editingContract})` — RentalContractDialog mount-pont
+- `invoiceDialogSlot({open, onOpenChange, contract})` — OblioIssueInvoiceDialog mount-pont (Oblio e-Factura)
+
+Új közös helper: `calculateEvesDij(contract)` — éves bérleti díj kalkuláció.
+
+#### `TransactionsTab` (eredetileg ~570 sor → ~480 sor a shared-ben)
+Bevétel + kiadás unified lista, hónaponként csoportosítva, dátum-fejléccel, kísérőív-nyomtatás gombbal, Oblio-státusz ikonokkal. Callback-ek:
+- `onDeleteTransaction(type, id)` — server-action delete
+- `loadOblioMatchedExpenseIds(year)` — SPV match-elt kiadás-ID-k
+- `onToast(msg, kind)` — UI-feedback
+- `onSwitchTab(tabKey)` — tab váltás (régi `window.dispatchEvent` helyett)
+- 4 slot prop: `oblioStatusIconSlot`, `oblioExpenseStatusIconSlot`, `kiseroivPrintDialogSlot`, `oblioInvoiceDialogSlot`
+
+### 📋 Fázis 1 előrehaladás
+
+| Tab | Status |
+|---|---|
+| FinanceDashboard | ✅ v0.6.0 |
+| DebtTab | ✅ v0.6.1 |
+| AccountingTab | ✅ v0.6.2 |
+| **RentalTab** | ✅ **v0.6.3** |
+| **TransactionsTab** | ✅ **v0.6.3** |
+| CashbookTab | ⏳ v0.6.4 |
+| BankTab | ⏳ v0.6.4 |
+| BudgetTab | ⏳ v0.6.4 |
+| MonetaryTab | ⏳ v0.6.4 |
+| OblioEllenorzesTab | ⏳ v0.6.5 |
+| FinanceSugoTab | ⏳ v0.6.5 |
+| 5 dialog | ⏳ v0.6.6 |
+
+5 / 11 tab portolva (45%).
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.6.2: Pénzügy Fázis 1 — AccountingTab port
+
+<!-- key: 2026-04-25-v0-6-2-accountingtab-port -->
+<!-- category: improvement -->
+<!-- version: 0.6.2 -->
+<!-- targets: fejlesztők — a Számadás-tab átkerült a shared package-be teljes callback-abstraction-nel; a desktop is használhatja. Felhasználói szinten változatlan. -->
+
+### 🏗️ Pénzügyi modul Fázis 1 — AccountingTab port
+
+A `@kartoteka/ui-app/finance/` package bővült az `AccountingTab` komponenssel (eredetileg webes `AccountingTabV2`, ~400 sor).
+
+**Callback-abstraction minta** — ez a port a többi server-coupled tab template-je:
+
+- `budgetData: Record<string, number>` prop — a szülő tölti be (web: Supabase, desktop: Tauri SQLite)
+- `loading?: boolean` prop — adatlekérési állapot
+- `onRequestUnlock(year, reason)` — javítási kérelem callback
+- `onRefresh()` — sikeres művelet után újratöltés (web: router.refresh, desktop: notifyLocalDataChanged)
+- `onToast(msg, kind)` — UI-feedback (web: sonner, desktop: belső állapot)
+- `finalizeWizardSlot({ open, onOpenChange, summary })` — modal slot-prop (web: AccountingFinalizeWizard, desktop: jövőbeli saját)
+
+**Eredmény**:
+- Web változatlanul működik (wrapper a server-action-ökre)
+- Desktop most már importálhatja az `AccountingTab`-ot (Fázis 2-3 után aktív)
+- Web build zöld, desktop build zöld
+
+### 📋 Fázis 1 előrehaladás
+
+| Tab | Status |
+|---|---|
+| FinanceDashboard | ✅ v0.6.0 |
+| DebtTab | ✅ v0.6.1 |
+| **AccountingTab** | ✅ **v0.6.2** |
+| TransactionsTab | ⏳ v0.6.3 |
+| RentalTab | ⏳ v0.6.3 |
+| CashbookTab | ⏳ v0.6.4 |
+| BankTab | ⏳ v0.6.4 |
+| BudgetTab | ⏳ v0.6.4 |
+| MonetaryTab | ⏳ v0.6.4 |
+| OblioEllenorzesTab | ⏳ v0.6.5 |
+| FinanceSugoTab | ⏳ v0.6.5 |
+| 5 dialog | ⏳ v0.6.6 |
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.6.1: P0 wipe-RPC fix + DebtTab port
+
+<!-- key: 2026-04-25-v0-6-1-wipe-fix-debttab-port -->
+<!-- category: bugfix -->
+<!-- version: 0.6.1 -->
+<!-- targets: lelkészek + admin — kritikus admin-veszélyes-zóna javítás (a wipe már nem törli a profilt). Plusz a tartozás-tab közös komponensbe szervezve a desktop paritáshoz. -->
+
+### 🚨 KRITIKUS hibajavítás — admin Veszélyes zóna
+
+A v0.6.0 wipe RPC `keep_tables` listájából **kimaradt a `profiles` tábla**, ami miatt a wipe **véletlenül törölte a felhasználó saját profilját** is (a `profiles.congregation_id` legacy oszlop miatt). Tünet: az `auth.users` érintetlen → login működik, de a dashboard nem tölt be (NULL profile).
+
+**Javítás (`migration-docs/sql/2026-04-25-FIX-wipe-restore-profile.sql`)**:
+- Recovery DO blokk: a felhasználó profiljának újra létrehozása az `auth.users`-ből
+- `wipe_congregation_data` RPC újra-deklarálva — `keep_tables` bővítve: `profiles`, `profile_roles`, `user_devices`, `user_login_attempts`
+- 3 ellenőrző SELECT a fájl végén (profil-állapot, védett táblák listája, wipeolható táblák listája)
+
+### 🏗️ Pénzügyi modul Fázis 2 — DebtTab port
+
+A `@kartoteka/ui-app/finance/` shared package bővült a `DebtTab` komponenssel (eredetileg webes `DebtTabV2`). 100% pure-UI, props-driven; a desktop is ugyanazt fogja használni.
+
+- `apps/web/components/finance/debt-tab-v2.tsx` → wrapper-shim a shared `DebtTab`-ra
+- `packages/ui-app/src/finance/DebtTab.tsx` → új közös komponens (~300 sor)
+- KPI-kártyák, járulék-státusz tagonként, bérleti hátralék — minden vizuálisan egyező marad
+
+### 📋 Hátralévő tabok (v0.6.2+)
+
+- 8 további finance-tab: Cashbook, Bank, Budget, Accounting, Transactions, Monetary, Rental, Oblio-Ellenőrzés (mind server-action coupled, callback-abstraction kell)
+- FinanceSugoTab: print/PDF dependency miatt platform-specifikus slot kell
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.6.0: Pénzügyi modul Fázis 1 — közös réteg
+
+<!-- key: 2026-04-25-v0-6-0-finance-phase1-shared-layer -->
+<!-- category: improvement -->
+<!-- version: 0.6.0 -->
+<!-- targets: fejlesztők — a pénzügyi modul típusait és tiszta-helpereit web és desktop egyaránt INNEN importálja: @kartoteka/ui-app/finance. Felhasználói szempontból: az alap megvan a desktop pénzügyi paritáshoz, a UI port a következő fázisokban érkezik. -->
+
+### 🏗️ Architektúra: pénzügyi modul közös réteg
+
+A *„web és desktop 100% paritás"* alapelv megvalósításának 1. fázisa.
+
+**Mi került át a `@kartoteka/ui-app/finance` shared package-be:**
+
+- **Típusok** (`types.ts`, ~270 sor): `BealitasRow`, `SzamadasiCel`, `BankAccount`, `BefitetesRow`, `KiadasRow`, `DebtRow`, `RentalContractRow`, `RentalDebtRow`, `FxRevaluationRow`, `InternalTransferRow`, `ReceiptHealth` és kapcsolódó konstansok (`RECEIPT_TYPES`, `TRANSFER_TYPES`, `RENTAL_*`, `FX_REVAL_*`).
+- **Tiszta-függvények** (`helpers.ts`, ~200 sor): `formatCurrency`, `getTransactionDocumentNumber`, `getExpensePartnerName`, `sortCellsHierarchically`, `normalizeDebtCalcMode`, `isInventoryCategory`, `calculateBalances`, `parseHungarianWomensName`, `normalizeName`, `stripNamePrefix`, `splitForrasaNameStreet`.
+- **Első UI-komponens** (`FinanceDashboard.tsx`, ~200 sor): a webes pénzügyi áttekintés (4 KPI + egyenleg-banner + 10 utolsó mozgás). Server-action mentes — propsokon kapja az adatot. A TVA-plafon widget opcionális slot-prop-ként mountolódik (web saját widget-jét adja át).
+
+**Backward compatibility**:
+- `apps/web/lib/constants/finance.ts` → re-export shim a shared package-ből
+- `apps/web/lib/utils/finance-helpers.ts` → re-export shim
+- `apps/web/components/finance/dashboard-tab.tsx` → wrapper, amely a shared `<FinanceDashboard>` + saját TVA widget
+
+**Eredmény**:
+- Web zöld build (változatlan funkcionalitás)
+- Desktop zöld build (most már importálhatja a shared típusokat)
+- A jövőbeli desktop pénzügyi oldal pixel-pontosan ugyanazt fogja mutatni
+
+### 🛣️ Fázisos terv folytatása
+
+- **Fázis 2**: további 10 finance-tab port (CashbookTab, BankTab, BudgetTab, AccountingTabV2, DebtTabV2, TransactionsTab, MonetaryTabV2, RentalTab, OblioEllenorzesTab, FinanceSugoTab) ugyanezen mintával: server-action mentes, props-on kap adatot.
+- **Fázis 3**: desktop adatréteg — `lib/finance-local.ts` Tauri SQLite read-helperek, hogy a shared komponensek lokális cache-ből kapjanak adatot.
+- **Fázis 4**: desktop `/penzugy` route a közös `<FinanceTabs>`-ot mountolja → 100% vizuális paritás.
+- **Fázis 5**: modális ablakok (IncomeDialog, ExpenseDialog, DecontDialog, FinancePrintDialog, BudgetPrintDialog) port.
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.5.5: minden oldal teljes szélességen + pénzügyi paritás-roadmap
+
+<!-- key: 2026-04-25-v0-5-5-fullwidth-finance-roadmap -->
+<!-- category: bugfix -->
+<!-- version: 0.5.5 -->
+<!-- targets: lelkészek — minden desktop oldal mostantól a teljes ablak szélességét használja, nincs üres sáv a két oldalon. A pénzügyi modul webes paritás-portolása fázisos terv szerint indul. -->
+
+### 🐛 Javítások
+
+- **Üres sávok teljes képernyőn — most már MINDEN oldalon javítva** *(#1)* — a v0.5.1-ben a shell-szintű `max-w-7xl` cap eltüntettem, de **11 oldal** lokálisan tartotta a `<main className="mx-auto max-w-{4xl|5xl|6xl}">` wrapper-t (Bank-import, Befizetés, Belső mozgás, Chitanță, Chitanță-tömbök, Kiadás, Pénzügy-dashboard, Pénzügy-landing, Munkanapló, Dashboard, Placeholder). Mostantól **mind a 11 oldal a teljes szélességet használja** — a beágyazott rács-komponensek (KPI-kártyák, statisztikák, listák) maguk osztják el a helyet.
+
+### 📋 Pénzügyi modul paritás — fázisos terv
+
+A *„webalkalmazás és a desktop alkalmazás kinézete 100%-ban megegyezzen"* alapelvre építve a pénzügyi modul portolása egy **többfázisos terv** szerint indul, mert a webes `FinanceTabs` 11+ tabot (Dashboard, Tranzakciók, Kasszanapló, Bank, Költségvetés, Számadás, Tartozások, Monetár, Bérleti, Oblio-ellenőrzés, Súgó) tartalmaz, mindegyikhez saját adatlekérő server-action-nel.
+
+- **Fázis 1 (közös komponensek extrakciója)**: a finance-* komponenseket átvesszük a `@kartoteka/ui-app` shared package-be, propertészerű adatfogadással (server-action vs. Tauri SQLite agnosztikus).
+- **Fázis 2 (desktop adatréteg)**: minden FinanceTab-hez Tauri-oldali read-helper a lokális `befizetes_local` / `kiadas_local` / `bealitas_local` táblákból.
+- **Fázis 3 (UI bekötés)**: a desktop `/penzugy` route-ja a közös `<FinanceTabs>`-ot mountolja a Tauri-data-source-szal.
+- **Fázis 4 (modális ablakok port)**: IncomeDialog, ExpenseDialog, DecontDialog, FinancePrintDialog, BudgetPrintDialog — mind közös komponens.
+
+A jelenlegi desktop pénzügyi oldalak (penzugy-landing, penzugy-dashboard, befizetes, kiadas, chitanta, chitanta-tombok, bank-import, belsomozgas) **párhuzamosan üzemelnek a portolás során**, hogy a lelkész SOSE veszítsen funkcionalitást.
+
+### 🔧 Belső
+
+- 11 oldalról eltávolítva: `<main className="mx-auto max-w-{4xl|5xl|6xl} space-y-{4|5|6} p-5 sm:p-6">` → `<div className="space-y-{4|5|6}">`. A shell felelős a paddingért és a maximális szélességért (most: nincs cap).
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.5.4: offline-first auto-reload, főoldal egyszerűsítés, member-modal paritás
+
+<!-- key: 2026-04-25-v0-5-4-offline-first-home-cleanup -->
+<!-- category: bugfix -->
+<!-- version: 0.5.4 -->
+<!-- targets: lelkészek — a desktop most tisztán offline-first: az adatok a lokális adatbázisból azonnal betöltődnek, a háttér-szinkron pedig automatikusan újratölti az oldalakat sikeres pull után. A főoldal a webes-only kártyák nélkül egyszerűbb. -->
+
+Endre 8 megfigyelése közül a megvalósítható részt Sprint P keretében javítva.
+
+### 🐛 Javítások
+
+- **Frissítés után nem töltődtek be a főoldal elemei** *(#1)* — eddig az oldalak csak mountkor olvasták a lokális cache-t; a percenkénti háttér-szinkron befejezése után az új adatok csak page-reload után jelentek meg. Mostantól **minden sikeres háttér-pull után az oldalak automatikusan újratöltik az adatokat** a lokális cache-ből — a felhasználó SEMMIT NEM ÉRZ MEG az online szinkronból, csak azt, hogy a számok mindig frissek. (Új `useDataVersion()` hook + globális `notifyLocalDataChanged()` függvény.)
+- **Manuális „Frissítés" gombok eltávolítva** *(#7)* — a Tagnyilvántartás és Családok oldalakról kikerült a felesleges „Frissítés" gomb. A háttér-szinkron percenként frissít, a státuszsáv mutatja az állapotot, és módosításnál azonnal újratöltődik a lista. (A többi olvasási oldalról a gombok a v0.5.5-ben kerülnek ki.)
+- **„Gyülekezeti weboldal beállítása" KPI-kártya eltávolítva** desktop főoldalról *(#4)* — a publikus oldal beállítása webes-only feature, a desktop nem rendelkezik ilyen szerkesztőfelülettel. A KpiCards mostantól desktop-on **3 oszlopos** (Aktív tagok / Családok / Pénzügy), web-en marad **5 oszlopos** (új `hideWebOnlyCards` prop).
+- **Demográfiai stat-ok (Férfiak / Nők / Gyermekek / Átlagéletkor / Fizetők / Presbiterek / Egyenleg) eltávolítva** desktop főoldalról *(#6)* — a számok szétfeszítették a layout-ot és a Korelosztás widget már részletesebben mutatja az életkor-megoszlást. Web-en megmaradnak.
+
+### ✨ UX javítások
+
+- **Beállítások dialog: oldalsáv MINDEN méretben** *(#3)* — eddig a fülek `md:` breakpoint alatt vízszintesen jelentek meg. Mostantól minden viewport-méreten **vertikálisan, a dialog bal oldalán**. Ez a javítás a webes és desktop verzióban egyaránt érvényesül.
+- **Member-detail dialog vizuális paritás a webes verzióval** *(#8)* — eddig a desktop tag-detail ablak puritán szürke szövegekkel jelent meg. Mostantól:
+  - **Avatar** gradient háttérrel (kék férfiaknak, rózsa nőknek) + monogram
+  - **Eyebrow** „Tag-portré" + serif font cím + dekoratív blur-pötty háttérrel
+  - **Chip-sor**: CNP / kor / családi állapot / családfő / választó / rejtett / member-status — színkódolt kártyákkal
+  - **DetailGroup szekciók** kis kártyákban, lila eyebrow-val + jobb tipográfia
+  - **Akciók** lent: gradient „Szerkesztés" gomb + outline-os Bezárás
+
+### 🔧 Belső
+
+- Új `useDataVersion()` hook a `lib/sync-orchestrator.ts`-ben + `notifyLocalDataChanged()` write-után-hívható függvény.
+- `KpiCards` új `hideWebOnlyCards?: boolean` prop a 2 web-only kártya elrejtéséhez.
+
+### 📌 v0.5.5 backlog (Endre megfigyelései közül)
+
+- **#2 Naptárnézet** a *„Gyülekezeti programok"* widgetben + gyors-akció gombok
+- **#5 Pénzügyi áttekintés grafikon** a desktop főoldalon (havi bevétel/kiadás trend)
+- **#7 Folytatás**: Frissítés gombok eltávolítása a maradék olvasási oldalakról (leltár, iktató, jegyzőkönyvek, sírhelyek, anyakönyv)
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.5.3: telepítő magyar fordítás, session-warning fix, Korelosztás widget
+
+<!-- key: 2026-04-25-v0-5-3-nsis-session-koreloszlas -->
+<!-- category: bugfix -->
+<!-- version: 0.5.3 -->
+<!-- targets: lelkészek — a telepítő üres feliratai magyarra fordítva, az „Online vagyok, miért lejár?" warning megszűnt, az irányítópulton új Korelosztás widget mellette a Köszöntések és Programok háromosztatú sorban -->
+
+Három észrevétel javítva, plusz egy új dashboard-widget.
+
+### 🐛 Javítások
+
+- **Telepítő ablakok feliratai eddig üresen jelentek meg** — a v0.5.2-es Tauri NSIS bundler `Custom tauri messages for Hungarian are not translated` warninggal jelezte, hogy 23 saját string (rádiógomb-feliratok az újratelepítés-oldalon, „Felhasználói adatok törlése" checkbox az eltávolítóban, WebView2-folyamat üzenetek stb.) nincs lefordítva. Mostantól **teljes magyar fordítás** a `apps/desktop/src-tauri/installer/Hungarian.nsh` fájlban, hivatkozva a `tauri.conf.json > nsis > customLanguageFiles`-on keresztül.
+- **„A munkamenet hamarosan lejár" warning online állapotban** — a `lib/session-state.ts` `REFRESH_WARNING_DAYS = 7` konstans az **access tokenre** vonatkozott (~1 órás auto-refresh ciklusra), nem a refresh tokenre. Ezért **mindig** „lejár" warning jelent meg. Mostantól: ha van session, → 🟢 *Online*. Ha a refresh-token tényleg lejár, a Supabase `SIGNED_OUT` eventet küld, és az AuthGate átirányít. Nincs többé felesleges figyelmeztetés.
+
+### ✨ Új — Korelosztás widget (5 korcsoport)
+
+Új dashboard-widget az irányítópulton, **háromosztatú sorban** a *„Ma köszöntjük"* (születésnapok és névnapok) és a *„Gyülekezeti programok"* mellett:
+
+- **0–14** (gyermekek), **15–29** (fiatalok), **30–49** (felnőttek), **50–69** (érettek), **70+** (idősek) — pasztorális felbontás.
+- Színkódolt vízszintes bar minden csoportra + szám + arány (%).
+- Üres állapotban barátságos magyarázat („még nincs születési dátummal regisztrált tag").
+- Forrás: `calculateAgeDistribution(members)` — JS-oldali aggregáció a lokális tag-listából, élő frissítés a percenkénti auto-szinkronnal.
+
+A korábbi 2-oszlopos elrendezés (Köszöntések + Friss munkanapló) helyett: a felső sorban 3 oszlopban (Köszöntések + Programok + Korelosztás), alatta a Friss munkanapló saját sorban, teljes szélességen.
+
+### 🎨 UI finomítás
+
+- A *„Köszöntések"* widget címe pontosabb: **„Ma köszöntjük"** (cím) + *„Születésnapok és névnapok"* (eyebrow).
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül — telepítés után az új ablak-feliratok is rögtön láthatók.
+
+---
+
+## [2026-04-25] — v0.5.2: működő frissítés-letöltés, dedikált Frissítés fül
+
+<!-- key: 2026-04-25-v0-5-2-frissites-letoltes -->
+<!-- category: bugfix -->
+<!-- version: 0.5.2 -->
+<!-- targets: lelkészek — a v0.5.1 telepítője után jelzett kritikus letöltési hiba javítva: most már a Beállítások → Frissítés fülön egy gombbal letölthető és telepíthető az új verzió -->
+
+A v0.5.1 telepítője után jelzett **kritikus hiba javítva**: az auto-updater jelezte az új verziót, de **nem volt UI-gomb a letöltéshez**.
+
+### 🐛 Javítások
+
+- **Frissítés letöltése most már működik** — eddig az „Adat & biztonság" fülön az „Ellenőrzés most" gomb megtalálta az új verziót, de utána nem lehetett honnan letölteni és telepíteni. **Mostantól külön „Frissítés" fül van a Beállításokban**, teljes folyamattal: ellenőrzés → release-notes megtekintése → „Letöltés és telepítés" gomb → letöltés-progress (MB / MB) → automatikus újraindítás.
+- **Családok-oldal layout-egységesítés** — a `families-page.tsx` még megtartotta a régi `<main className="mx-auto max-w-5xl">` lokális wrapper-t, ami dupla `<main>` elemet és felesleges paddingot adott a v0.5.1 új teljes-szélességű shell-éhez képest. Mostantól a tagnyilvántartás-oldallal vizuálisan azonos: PageHero teljes szélességen, a shell egységes paddingjével.
+
+### ✨ Új — dedikált „Frissítés" fül
+
+A Beállítások menüben (jobb felső user-menüből → „Beállítások") új fül a **„Publikus oldal"** és **„Adat & biztonság"** között:
+
+- **Aktuális verzió** kártyán kiemelve (Tauri runtime API-ból, mindig pontos)
+- **Automatikus ellenőrzés** a fül megnyitásakor (online esetén)
+- **Magyarázott állapotok** minden lépéshez:
+  - 🟢 *„A legfrissebb verzió fut"* — ha nincs új
+  - 🟡 *„Új verzió elérhető — vX.Y.Z"* + release-notes + **„Letöltés és telepítés" gomb**
+  - 🔵 *„Letöltés és telepítés folyamatban…"* — progress-bar + MB / MB
+  - 🟢 *„Telepítés sikeres — újraindítás folyamatban…"* — automatikus restart
+  - 🔴 *„Hiba történt"* — pontos hibaüzenet + újrapróbálás gomb
+- **Offline állapotban** világos magyarázat: „Offline vagy. Kapcsolódj az internethez a frissítések ellenőrzéséhez."
+
+A régi (törött) frissítés-kártya az „Adat & biztonság" fülről eltávolítva — az minden frissítéshez kapcsolódó művelet most az új „Frissítés" fülön egységesen elérhető.
+
+### 🔧 Belső
+
+- Új `FrissitesPanel` komponens (`apps/desktop/src/components/settings/frissites-panel.tsx`) — 7-fázisú állapotgép (`idle`, `checking`, `up-to-date`, `available`, `downloading`, `installed`, `error`).
+- `getVersion()` import a `@tauri-apps/api/app`-ból az aktuális verzió mindig-pontos megjelenítéséhez.
+
+A frissítés adat-vesztés nélkül és automatikusan települ az auto-updater-en keresztül.
+
+---
+
+## [2026-04-25] — v0.5.1: UI-javítások, automatikus háttérszinkron, reszponzív irányítópult
+
+<!-- key: 2026-04-25-v0-5-1-ui-fix-auto-sync -->
+<!-- category: bugfix -->
+<!-- version: 0.5.1 -->
+<!-- targets: lelkészek — a v0.5.0 telepítő után jelentkező megjelenítési hibák javítva, a tartalom most teljes ablakon szétterül, és percenként frissülő háttérszinkron mutatja az adatok frissességét -->
+
+A v0.5.0 telepítője után jelzett három fő probléma javítva, plusz egy új, gyakran kért feature.
+
+### 🐛 Javítások
+
+- **Hiányzó stílusok az irányítópulton** — a közös `@kartoteka/ui-app` csomag (új dashboard widget-ek: KPI-kártyák, születésnapok, közelgő alkalmak stb.) Tailwind class-jai nem kerültek be a CSS-bundle-be, ezért az új kártyák stílus nélkül, hiányos elemekkel jelentek meg. **Mostantól mindkét kliens (web és desktop) szkenneli az `@kartoteka/ui-app/src` mappát is** — minden új komponens stílusa megjelenik. (CSS-bundle ~120 kB → ~161 kB.)
+- **Üres sávok a két oldalon teljes képernyőn** — a tartalom maximum-szélessége 1280px volt, így nagy monitoron a sidebar utáni terület nagy része üres maradt. **Mostantól a tartalom kitölti a teljes ablakot**; a beágyazott rács-komponensek (KPI-kártyák, statisztikák) maguk osztják el a helyet, így ultra-széles képernyőn sem feszül szét olvashatatlanul.
+- **Tagnyilvántartás fejléc-egységesítés** — a webes/közös `PageHero` (eyebrow + serif cím + ikon + statisztikák) helyébe lépett a régi egyedi `<h1>` — így a desktop oldal vizuálisan ugyanaz, mint a többi modul. A táblázat „törlés"-ikonja (Trash2) helyett **ceruza-ikon** mutatja, hogy a sor szerkesztésre nyílik meg, nem törlésre.
+- **Telepítő hosszú leírás rövidítve** — a túlzottan hosszú `longDescription` egyes ablakokban tördelési problémákat okozott; mostantól tömörebb, jobban olvasható szöveg.
+
+### ✨ Új funkció — automatikus háttérszinkron + állapotsáv
+
+- **Indításkor azonnal** lefut egy **teljes szinkron** (mind a 14 lokális mirror-tábla); ezután **percenként** a leggyakrabban változó táblák (tagok, családok, munkanapló, programok, profil, gyülekezet) frissülnek, **5 percenként** pedig az összes (anyakönyv, leltár, iktató, jegyzőkönyvek, sírhelyek, éves jelentés, helyiségek).
+- A képernyő alján középen lebegő **állapotsáv** mutatja a szinkron állapotát:
+  - 🔵 *„Adatok szinkronizálása…"* — folyamatban
+  - 🟢 *„Friss adatok · 12 mp"* — sikeres pull, relatív idővel
+  - 🟠 *„Offline — cache-elt adatok"* — nincs net, a lokális cache érhető el
+  - 🔴 *„Szinkronizálási hiba — újrapróbálkozás"* — ideiglenes hiba, automatikus retry
+- **Kézi frissítés** a sávon lévő ↻ gombbal bármikor kérhető (teljes pull).
+- **Online → offline → online** átmenetkor automatikusan újraindul a szinkron.
+
+### 🔧 Belső
+
+- A `KartotekaShell` `<main>` régiója már nem korlátozza a tartalomszélességet — minden oldal az ablak teljes szélességén dolgozik.
+- Új `useAutoSyncOrchestrator(userId)` hook az auto-sync-logika központosítására (`apps/desktop/src/lib/sync-orchestrator.ts`).
+- Új `<AutoSyncStatusBar />` komponens a vizuális réteghez (`apps/desktop/src/components/auto-sync-status-bar.tsx`).
+
+A frissítés **adat-vesztés nélkül** és **automatikusan** települ az auto-updater-en keresztül (vagy a v0.5.1 telepítőből).
+
+---
+
+## [2026-04-25] — v0.5.0: 6 új READ-only modul + dashboard gazdagítás + séma-paritás
+
+<!-- key: 2026-04-25-v0-5-0-modul-hullam -->
+<!-- category: feature -->
+<!-- version: 0.5.0 -->
+<!-- targets: lelkészek — a desktop appban most már 6 új modul érhető el offline és gazdag, webes-szerű irányítópult fogad indításkor -->
+
+A v0.4.1 telepítője után a desktop app **jelentős bővülésen ment át**. A sidebar-on lévő „hamarosan" placeholder-ek mindegyike valódi oldallá vált, az irányítópult pedig a webes /dashboard mintáját követi.
+
+### 📂 6 új modul (READ-ONLY) — offline böngészhető
+
+- **Anyakönyv** — 8 tábla: keresztelés, konfirmáció, házasság, temetés + 4 mozgás (beköltözött / elköltözött / áttért / kitért). Áttekintő statisztika, fülkapcsolatos lista, részletes adatok.
+- **Leltár** — alapeszközök, könyvek, műkincsek; kategória-szűrő, szöveges keresés, össz-érték kalkuláció.
+- **Iktató** — beérkező és kimenő iratok év szerinti sorszámozással; függőben jelölés, irány-szűrő.
+- **Jegyzőkönyvek** — presbiteri és közgyűlési ülések részletes nézettel: résztvevők, napirendi pontok (szavazási eredményekkel), határozatok.
+- **Sírhelyek** — temetők, parcellák, bérletek, elhunytak; lejáró bérletek 90 napon belüli figyelmeztetése.
+- **Éves jelentés** — éves összesítő jelentések workflow-státuszokkal (vázlat → beküldve → befogadva → áttekintve → lezárva), JSON snapshot.
+
+Mind a 6 modul **„Frissítés most" gombbal** online egy kattintással lehúzza a teljes tartalmat a szerverről a lokális, titkosított adatbázisba — onnantól offline is böngészhető.
+
+### 📊 Új üdvözlő oldal — webes paritás
+
+- **Üdvözlő gradient-banner napi igével** (offline esetén alapértelmezett ige).
+- **5 KPI-kártya** (aktív tagok ✓, családok ✓, pénzforgalom, weboldal-státusz, prezentáció).
+- **7 demográfiai stat** (férfiak, nők, gyermekek, átlagéletkor, fizetők, presbiterek, egyenleg) — élesen kalkulálva a tagjegyzékből.
+- **Közelgő alkalmak widget** — mai és következő 14 napos programok automatikusan megjelennek.
+- **Mai + 14 napos születésnapok** widget (kattintásra a tag-részlethez).
+- **Friss munkanapló-bejegyzések** widget (10 utolsó alkalom).
+
+### 🛠️ Stabilitás és UX javítások
+
+- **Lokális adatbázis automatikus helyreállítás** — ha a titkosított adatbázis nem nyitható (kulcs-séma váltás után), az alkalmazás csendesen elmenti a régit `kartoteka.db.broken-...` néven, és tiszta állapotból folytatja. Eddig PowerShell-paranccsal kellett törölni — most automatikus.
+- **Szöveg most kijelölhető** — bárhol másolható név, e-mail, dátum.
+- **Munkamenet-figyelmeztetés egyértelműbb** — „jelentkezz be újra a megújításhoz" szöveg.
+- **Tartalom centerálva nagy ablakon** (max 1280px szélesség).
+
+### 🔧 Belső séma-finomhangolás
+
+A 7 új modul lokális adatbázis-mirror-jai **most már 100%-ban egyeznek** a szerver-oldali sémával:
+
+- **Leltár soft-delete fix** — eddig minden tétel törölt-jelzése `0` lett a hibás adatcsere miatt.
+- **Jegyzőkönyvek határozat-FK** — stabil UUID-FK a kapcsolódó napirendi pontra.
+- **10 új adat-mező a 7 modulra**: keresztszülők (keresztelő), halál helye (temetés), munkanapló-link, határozatképesség, irat-oldalszám, aktív bérlés-link, program-leírás és -szín, határozat-állapot, technikai mezők.
+- **Új helyiség-nyilvántartás (adrlocality)** mirror-tábla — előkészítve a UI-megjelenítéshez (a következő frissítésben jönnek a helyiség-nevek).
+- **Sync-infrastruktúra**: minden új mirror-tábla mostantól `revision` és `updated_at` mezőt tartalmaz a jövőbeli új-bejegyzés-rögzítéshez.
+
+A frissítés **adat-vesztés nélkül** és **automatikusan** lefut az alkalmazás következő indításakor (v28+v29 lokális adatbázis-migráció, kb. 1-2 másodperc).
+
+### 📌 Megjegyzések
+
+- A WRITE-flow (új keresztelés, házasság, temetés, leltári tétel, irat, jegyzőkönyv, sírhely-rekord stb. rögzítése) **a következő releaseban** jön — most az adatok megtekinthetők, a webes felületen szerkeszthetők.
+- A Missziós Műhely modul a webes appban marad (online community feature).
+- A kerületi/egyházmegyei dashboard, admin felületek és publikus weboldal-szerkesztő szintén webes.
+
+---
+
+## [2026-04-25] — Stabilitás + új üdvözlő oldal a desktopon
+
+<!-- key: 2026-04-25-sprint-a-stabilitas-dashboard -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — barátságosabb desktop, ugyanaz, mint a webes irányítópult -->
+
+A v0.4.1 telepítése után jelzett észrevételekre válaszul a Kartotéka asztali alkalmazás stabilabb és gazdagabb lett.
+
+### 🎨 Új üdvözlő oldal — webes paritás
+
+A desktop „Irányítópult" mostantól ugyanazt a gazdag élményt adja, mint a webes felület:
+
+- **Üdvözlő gradient-banner** napi igével. Az ige a webes alkalmazás `/api/daily-verse` szolgáltatásából érkezik; offline mód esetén egy alapértelmezett ige (Példabeszédek 3:5) jelenik meg.
+- **5 KPI-kártya**: aktív tagok, családok (mostantól élesen!), éves pénzforgalom, gyülekezeti weboldal státusz, éves prezentáció. A pénzforgalom-számok a következő frissítésekben kerülnek bekötésre.
+- **7 alsó demográfiai stat**: férfiak, nők, gyermekek, átlagéletkor, fizetők, presbiterek, egyenleg — **mostantól élesen kalkulálva** a tagjegyzék alapján (a fizetők és egyenleg pénzügyi aggregátumot vár).
+- **Születésnapok widget** — mai + következő 14 napban várt szülinapok, egy kattintással a tag-részletekhez.
+- **Friss munkanapló-bejegyzések** — az utolsó 10 alkalom dátummal, jellegével, jelenlét-számmal.
+
+### 📖 Anyakönyvi nyilvántartás — első desktop iteráció
+
+A sidebarban az **„Anyakönyv"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól van egy működő áttekintő:
+
+- **4 statisztika-kártya**: kereszteltek, konfirmáltak, házasultak, eltemetettek — totál és ez évi szám.
+- **8 fül listával**: 4 fő (kereszteltek, konfirmáltak, házasultak, eltemetettek) és 4 mozgás (beköltözöttek, elköltözöttek, áttértek, kitértek). Az utolsó 50 bejegyzés táblázatosan dátum, okirat, lelkész, és tábla-specifikus oszlopok szerint.
+- **Mozgás-összegző**: ha vannak beköltözések / elköltözések / áttérések / kitérések, kompakt összegző-panel mutatja az összeget és az idei számot.
+- **„Frissítés most" gomb**: online egy kattintással lehúzza mind a 8 tábla teljes tartalmát a szerverről a lokális, titkosított adatbázisba — onnantól offline is böngészhető.
+- **Új bejegyzés rögzítése** (új keresztelés, házasság, temetés, mozgás stb.) — még nem aktív, a következő iterációban érkezik.
+
+### 📦 Leltár — első desktop iteráció
+
+A sidebarban a **„Leltár"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól van egy működő leltári áttekintő:
+
+- **4 statisztika-kártya**: összes tétel, aktív tételek, törölt tételek, és **össz-érték (RON)**.
+- **Kategória-szűrő**: alapeszközök, könyvek, műkincsek, felszerelés, liturgikus tárgyak, járművek, ingatlan, egyéb — minden kategórián mellett a tételek száma.
+- **Szöveges keresés**: megnevezésre, leltári-számra vagy helyszínre.
+- **Táblázatos lista** legfeljebb 200 tétellel: leltári szám, megnevezés (könyveknél a szerzővel), kategória, helyszín, mennyiség, össz-érték.
+- **„Frissítés most" gomb**: online egy kattintással lehúzza a teljes leltárt a szerverről a lokális, titkosított adatbázisba.
+- **Új tétel rögzítése** — még nem aktív, a következő iterációban érkezik.
+
+### 📑 Iktató — első desktop iteráció
+
+A sidebarban a **„Iktató"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól van egy működő irat-napló:
+
+- **Év-szűrő**: az aktuális és előző 4 év között válthatsz.
+- **4 statisztika-kártya az adott évre**: összes irat, beérkező, kimenő, és külön **nincs elintézve** (még függőben lévő).
+- **Irány-szűrő**: Mind / Beérkező / Kimenő.
+- **Szöveges keresés**: tárgyra, küldőre/címzettre, tárgykivonatra.
+- **Táblázatos lista** legfeljebb 200 irattal: sorszám (`év/szám`), irány, kelt, tárgy + tárgykivonat, küldő/címzett, elintézés dátuma vagy „függőben" jelölés.
+- **„Frissítés most" gomb**: online egy kattintással lehúzza a teljes iktatót a szerverről a lokális, titkosított adatbázisba.
+- **Új irat rögzítése** — még nem aktív, a következő iterációban érkezik.
+
+### 📜 Jegyzőkönyvek — első desktop iteráció
+
+A sidebarban a **„Jegyzőkönyvek"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól teljes áttekintés:
+
+- **4 statisztika-kártya az évre**: összes ülés, presbiteri ülések, közgyűlési ülések, és határozatok száma az adott évben.
+- **Év-szűrő + típus-szűrő** (Mind / Presbiteri / Közgyűlési).
+- **Kártyás lista** az ülésekről: ülés sorszáma, dátuma, helye, elnök és jegyző neve, állapota.
+- **Részletes nézet** (kattintás egy ülésre): meta-adatok (kezdés/zárás/hitelesítők/igevers/felolvasás), résztvevők táblázat (jelen/hiányzó), napirendi pontok kártyákban (előadó, tárgyalás, **szavazási eredmények** igen/nem/tartózkodás chipekkel), határozatok kártyákban (azonosító `év/sorszám` formátumban, felelős, határidő).
+- **„Frissítés most" gomb**: online egy kattintással lehúzza mind a 4 tábla teljes tartalmát.
+- **Új jegyzőkönyv rögzítése** — még nem aktív, a következő iterációban érkezik.
+
+### ⚰️ Sírhelyek — első desktop iteráció
+
+A sidebarban a **„Sírhelyek"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól teljes áttekintés:
+
+- **5 statisztika-kártya**: temetők, sírhelyek, bérletek, elhunytak, és külön **„Lejár 90 napon belül"** kártya narancs kiemeléssel — ha van olyan bérlet, ami hamarosan jár le.
+- **Temető-szűrő** pill-gombokkal — több temető esetén egy kattintással válts.
+- **Parcella-lista**: parcella/sor/szám, állapot, típus, méret, megjegyzés.
+- **Kattintható sorok**: egy parcellára kattintva alatta megjelennek a bérletek (bérlő, megváltás dátuma, lejárat, lejár-figyelmeztetés) és a parcellában nyugvó elhunytak (név, születési név, halálozás, temetés dátuma).
+- **„Frissítés most" gomb**: online egy kattintással lehúzza mind a 4 tábla teljes tartalmát.
+- **Új sírhely / bérlet rögzítése** — még nem aktív, a következő iterációban érkezik.
+
+### 🔧 Belső séma-finomhangolás (Sprint L)
+
+A 7 új READ-only modul (Anyakönyv, Leltár, Iktató, Jegyzőkönyvek, Sírhelyek, Programok, Éves Jelentés) lokális adatbázis-mirror-jai **most már 100%-ban egyeznek** a szerver-oldali sémával:
+
+- **Leltár-modul soft-delete javítva** — eddig minden tétel törölt-jelzése `0` lett a hibás adatcsere miatt; mostantól helyesen jönnek át a Supabase-ből.
+- **Jegyzőkönyvek határozat-FK** — a határozatok mostantól stabil UUID-vel hivatkoznak a kapcsolódó napirendi pontra.
+- **10 új adat-mező a 7 modulra**: keresztszülők (keresztelő), halál helye (temetés), munkanapló-link (anyakönyvi 4), határozatképesség, irat-oldalszám, aktív bérlés-link, program-leírás és -szín, határozat-állapot, és technikai mezők (userid, penzugy_xkey).
+- **Új helyiség-nyilvántartás** mirror-tábla (`adrlocality`) — előkészítve a UI-megjelenítéshez (a következő frissítésben jönnek a helyiség-nevek a sírhelyek/anyakönyvi FK-mezőkben).
+- **Sync-infrastruktúra**: minden új mirror-tábla mostantól `revision` és `updated_at` mezőt tartalmaz, ami a jövőbeli inkrementális szinkronizációhoz és új-bejegyzés-rögzítéshez szükséges.
+
+A frissítés **adat-vesztés nélkül** és **automatikusan** lefut az alkalmazás következő indításakor (v28+v29 lokális adatbázis-migráció, kb. 1-2 másodperc).
+
+### 📅 Közelgő alkalmak az üdvözlő oldalon
+
+Az **Irányítópulton** a hero alatt megjelenik egy új widget: **„Közelgő alkalmak"**. Mostantól egyetlen pillantással látod, hogy mai vagy a következő 14 napban mi vár rád.
+
+- **Mai alkalom** sárga gradient kiemeléssel és „ma" címkével.
+- **Holnapi és további alkalmak** kártyákban: ikon (program-típus szerint emoji), dátum, idő, helyszín, ismétlődés-jel (heti/kétheti/havi), és „N nap múlva" kis chip.
+- 16 program-típus saját ikonnal: istentisztelet, bibliaóra, imaóra, ifjúsági, gyerekprogram, konferencia, hangverseny, közösségi, presbiteri, látogatás, ünnep, tábor, evangélizáció, diakónia, nőszövetség, egyéb (ott a saját emoji is használható).
+- **Automatikus frissítés** az alkalmazás indításakor (online esetén), offline módban a már letöltött programok látszanak.
+
+### 📦 Mai napi modul-bővülés
+
+A v0.4.1 telepítője után **5 új modul** lett desktopon elérhető (READ-ONLY):
+- **Anyakönyv** — 8 tábla (keresztelés, konfirmáció, házasság, temetés + 4 mozgás)
+- **Leltár** — alapeszközök, könyvek, műkincsek
+- **Iktató** — beérkező/kimenő irat-napló
+- **Jegyzőkönyvek** — presbiteri és közgyűlési ülések részletes nézettel
+- **Sírhelyek** — temetők, parcellák, bérletek, elhunytak
+
+Mind az 5 modul offline is böngészhető, miután egyszer rákattintottál a „Frissítés most" gombra.
+
+### 📊 Éves jelentés — első desktop iteráció
+
+A sidebarban az **„Éves jelentés"** menüpont eddig „hamarosan" oldalra vezetett. Mostantól van egy működő áttekintés:
+
+- **Státusz-csoport-panel**: hány jelentés van vázlat / beküldve / befogadva / áttekintve / lezárva állapotban — egy pillantásra látható.
+- **Jelentés-lista**: minden évre egy kártya, év száma + státusz-jel + 3 stat (tagok / istentiszteletek / éves bevétel).
+- **Kattintható kártya**: lenyitja a részletes nézetet — workflow-dátumokkal (beküldés / befogadás / áttekintés / lezárás dátuma + ki tette), lelkészi megjegyzés, áttekintői megjegyzés, és a teljes snapshot adatok (JSON-formátum, lenyitható).
+- **„Frissítés most" gomb**: online egy kattintással lehúzza a teljes éves jelentés listát.
+- **Új jelentés szerkesztése** — webes felületen (a desktop READ-only, mert a workflow központi).
+
+### 🛠️ Stabilitás és UX javítások
+
+- **Lokális adatbázis automatikus helyreállítás** — ha a titkosított adatbázis nem nyitható (pl. korábbi verzió kulcs-formátumából), az alkalmazás csendesen elmenti a régit `kartoteka.db.broken-...` néven, és tiszta állapotból folytatja. Eddig PowerShell-paranccsal kellett törölni a fájlt — ez most automatikus.
+- **Szöveg most kijelölhető** — a desktop ablakban végre lehet másolni nevet, e-mail-t, dátumot. Eddig minden „nem-input" mező le volt tiltva.
+- **Munkamenet-figyelmeztetés egyértelműbb** — „csatlakozz a hálózatra" helyett „jelentkezz be újra a megújításhoz". A figyelmeztetés azt jelzi, hogy a munkamenet 7 napon belül lejár — célszerű újra bejelentkezni a megújításhoz.
+- **Tartalom centerálva nagy ablakon** — a tartalom most maximum 1280px szélességig terjed, középen, és nem nyúlik el a teljes képernyőn üresen.
+
+### 📌 Megjegyzések
+
+- A KPI-számok (családok, pénzforgalom, demográfia) a következő sprintben kerülnek bekötésre — ehhez a lokális szinkronizációs táblák kiterjesztése szükséges.
+- A teljes web→desktop modul-paritás (anyakönyv, leltár, jegyzőkönyvek stb.) becslése: ~40-45 nap fejlesztés. Részletek a `docs/DIAGNOSTICS.md`-ben.
+
+---
+
 ## [2026-04-25] — v0.4.1: UI paritás + magyar telepítő + pénzügyi SQL fix
 
 <!-- key: 2026-04-25-v0-4-1-ui-paritas -->

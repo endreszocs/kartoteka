@@ -159,6 +159,16 @@ export function DesktopShell({ children }: DesktopShellProps) {
   const isKonyvelo = role === 'konyvelo'
   const isSzamvevo = role === 'szamvevo'
   const hasCongregation = Boolean(profile?.congregation_id)
+  const activeScope =
+    location.pathname.startsWith('/admin')
+      ? 'system'
+      : location.pathname.startsWith('/dashboard-kerulet')
+        ? 'district'
+        : location.pathname.startsWith('/dashboard-egyhazmegye')
+          ? 'diocese'
+          : hasCongregation
+            ? 'congregation'
+            : null
 
   // Ha a session még nincs lekérve, jelenítsünk meg minimál loading state-et
   if (!effectiveProfile) {
@@ -187,7 +197,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
         isSzamvevo={isSzamvevo}
         hasCongregation={hasCongregation}
         isGodMode={false}
-        activeScope={hasCongregation ? 'congregation' : null}
+        activeScope={activeScope}
         onSignOut={handleSignOut}
         onOpenSettings={() => setSettingsOpen(true)}
       >

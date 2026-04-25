@@ -32,7 +32,7 @@ import {
 import { computeChitantaTombStatus, type ChitantaTombRow } from '@kartoteka/validations'
 
 import { ActiveChitantaTombPanel } from '../components/active-chitanta-tomb-panel'
-import { PageHero } from '../components/page-hero'
+import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -120,7 +120,7 @@ export function ChitantaTombokPage() {
   // ── Render ──
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         <PageHero
           eyebrow="Pénzügy · Nyugta"
           title="Nyugtatömbök"
@@ -210,7 +210,7 @@ export function ChitantaTombokPage() {
             ))}
           </div>
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

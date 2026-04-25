@@ -11,16 +11,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Cake,
+  ChevronRight,
   Home,
-  RefreshCw,
+  Pencil,
   Search,
-  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button, Input } from '@kartoteka/ui'
+import { PageHero } from '@kartoteka/ui-app'
 import {
   SZEMELY_STATUS_FILTER_LABELS,
   SZEMELY_STATUS_FILTER_VALUES,
@@ -34,11 +35,9 @@ import { SzemelyConflictDialog } from '../components/szemely-conflict-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
-import { getLocalOwnProfile, pullMembersOfOwnCongregation } from '../lib/sync'
-import {
-  runSzemelySyncManually,
-  startSzemelyAutoSync,
-} from '../lib/szemely-write-sync'
+import { getLocalOwnProfile } from '../lib/sync'
+import { useDataVersion, notifyLocalDataChanged } from '../lib/sync-orchestrator'
+import { startSzemelyAutoSync } from '../lib/szemely-write-sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
 type SortColumn = 'name' | 'age' | 'address' | 'id'
@@ -46,6 +45,7 @@ type SortDir = 'asc' | 'desc'
 
 export function MembersPage() {
   const navigate = useNavigate()
+  const dataVersion = useDataVersion()
   const [userId, setUserId] = useState<string | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [rows, setRows] = useState<SzemelyListRow[]>([])
@@ -64,7 +64,6 @@ export function MembersPage() {
     ReturnType<ReturnType<typeof getTauriSqliteBackend>['listLocalPendingSzemely']>
   >[number]
   const [pendingRows, setPendingRows] = useState<PendingRow[]>([])
-  const [syncing, setSyncing] = useState(false)
   const [conflictRow, setConflictRow] = useState<PendingRow | null>(null)
 
   // Auth + congregation_id
@@ -113,13 +112,13 @@ export function MembersPage() {
     }
   }, [congregationId, search, statusFilter])
 
-  // Debounced search (300ms)
+  // Lista-újraolvasás: keresés, szűrő VAGY háttér-sync változására (dataVersion)
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadList()
     }, 300)
     return () => clearTimeout(timer)
-  }, [loadList])
+  }, [loadList, dataVersion])
 
   // Pending új-tag sorok
   const loadPending = useCallback(async () => {
@@ -134,48 +133,13 @@ export function MembersPage() {
 
   useEffect(() => {
     void loadPending()
-  }, [loadPending])
+  }, [loadPending, dataVersion])
 
-  // Auto-sync indítása
+  // Write-sync háttér-task (offline írásokat felküld online-kor)
   useEffect(() => {
     if (!congregationId) return
     startSzemelyAutoSync(congregationId)
   }, [congregationId])
-
-  // Mount-kor delta-pull
-  useEffect(() => {
-    if (!userId || !congregationId) return
-    let cancelled = false
-    void (async () => {
-      try {
-        await pullMembersOfOwnCongregation(userId, 'delta')
-        if (!cancelled) await loadList()
-      } catch {
-        /* csendes — offline esetén lokál cache-ből dolgozunk */
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, congregationId])
-
-  async function handleManualSync() {
-    if (!congregationId || syncing || !userId) return
-    setSyncing(true)
-    try {
-      await runSzemelySyncManually(congregationId)
-      try {
-        await pullMembersOfOwnCongregation(userId, 'delta')
-      } catch {
-        /* csendes */
-      }
-      await loadList()
-      await loadPending()
-    } finally {
-      setSyncing(false)
-    }
-  }
 
   // Sortolt lista
   const sortedRows = useMemo(() => {
@@ -220,31 +184,42 @@ export function MembersPage() {
     }
   }
 
+  // PageHero stats — élő számok
+  const heroStats = useMemo(() => {
+    const total = rows.length
+    const aktiv = rows.filter((r) => r.meghalt !== 1 && r.member_status !== 'törölt').length
+    const csaladfo = rows.filter((r) => r.csaladfo === 1).length
+    const valaszto = rows.filter((r) => r.voter_eligible === 1).length
+    return [
+      { label: 'Aktív', value: aktiv > 0 ? aktiv.toLocaleString('hu') : '—' },
+      { label: 'Családfők', value: csaladfo > 0 ? csaladfo.toLocaleString('hu') : '—' },
+      { label: 'Választók', value: valaszto > 0 ? valaszto.toLocaleString('hu') : '—' },
+      { label: 'Összes', value: total > 0 ? total.toLocaleString('hu') : '—' },
+    ]
+  }, [rows])
+
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-7xl space-y-4 p-5">
-        {/* Fejléc */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <Users className="size-6 text-violet-700" />
-              <h1 className="text-2xl font-semibold tracking-tight">Tagnyilvántartás</h1>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              A gyülekezet tagjai. Kattints egy sorra a részletekhez, vagy vegyél
-              fel új tagot. Offline is működik — a szinkron automatikus.
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate('/csaladok')}
-            className="shrink-0"
-          >
-            <Home className="mr-2 size-4" />
-            Családok
-          </Button>
-        </div>
+      <div className="space-y-5">
+        <PageHero
+          eyebrow="Közösség"
+          title="Tagnyilvántartás"
+          description="A gyülekezet tagjai. Kattints egy sorra a részletekhez, vagy vegyél fel új tagot. Offline is működik — a szinkron automatikus."
+          Icon={Users}
+          stats={heroStats}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate('/csaladok')}
+              className="gap-2"
+            >
+              <Home className="size-4" />
+              Családok
+              <ChevronRight className="size-3.5 opacity-60" />
+            </Button>
+          }
+        />
 
         {/* Toolbar — search + státusz + Új tag (webes persons-tab mintájára) */}
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/60 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-4">
@@ -271,18 +246,7 @@ export function MembersPage() {
             </select>
             <span className="text-sm text-zinc-400">
               {sortedRows.length} / {rows.length} fő
-              {syncing && ' · szinkron…'}
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleManualSync}
-              disabled={syncing}
-              title="Szinkronizálás most"
-            >
-              <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} />
-            </Button>
           </div>
           {congregationId && (
             <Button
@@ -423,7 +387,7 @@ export function MembersPage() {
                           {m.foglalkozas || '—'}
                         </td>
 
-                        {/* Hover-action */}
+                        {/* Hover-action: ceruza ikon szerkesztéshez */}
                         <td
                           className="p-3"
                           onClick={(e) => e.stopPropagation()}
@@ -431,10 +395,11 @@ export function MembersPage() {
                           <button
                             type="button"
                             title="Megnyitás szerkesztéshez"
+                            aria-label={`„${name}" tag szerkesztése`}
                             onClick={() => setSelectedId(m.id)}
-                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                            className="rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-violet-100"
                           >
-                            <Trash2 className="size-3.5 text-zinc-300 hover:text-rose-500" />
+                            <Pencil className="size-3.5 text-violet-500" />
                           </button>
                         </td>
                       </tr>
@@ -452,7 +417,9 @@ export function MembersPage() {
             member={selectedMember}
             userId={userId}
             currentRevision={selectedMember.revision}
-            onSaved={() => void loadList()}
+            onSaved={() => {
+              notifyLocalDataChanged()
+            }}
             onClose={() => setSelectedId(null)}
           />
         )}
@@ -462,8 +429,7 @@ export function MembersPage() {
             userId={userId}
             congregationId={congregationId}
             onCreated={() => {
-              void loadList()
-              void loadPending()
+              notifyLocalDataChanged()
             }}
             onClose={() => setCreateOpen(false)}
           />
@@ -479,7 +445,7 @@ export function MembersPage() {
             onClose={() => setConflictRow(null)}
           />
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }

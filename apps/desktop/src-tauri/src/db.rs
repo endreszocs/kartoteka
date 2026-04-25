@@ -122,7 +122,23 @@ fn load_or_create_db_key() -> Result<String, String> {
 /// Megnyitja a DB-t (létrehozza, ha nincs), beállítja a SQLCipher kulcsot, és
 /// lefuttatja a pending migrációkat. A `setup()` belőle hívódik, nem
 /// felhasználó-indítottan.
+///
+/// **Auto-recovery (2026-04-25)**: ha a SQLCipher sanity-check fail (pl. a régi
+/// M2.2-es DEV-kulccsal titkosított DB + új M2.3-as keyring-kulcs eltérés, vagy
+/// sérült DB-fájl), a függvény **automatikusan**:
+///   1. Bezárja a connection-t
+///   2. A régi DB-t átnevezi `kartoteka.db.broken-<unix-ts>`-re (backup, manuálisan
+///      visszaállítható)
+///   3. Törli a Credential Manager-ben tárolt régi kulcsot
+///   4. Újra próbálja a setup-ot egy tiszta DB-vel, új kulccsal
+///
+/// Így a felhasználónak **nem** kell PowerShell-paranccsal törölnie a fájlt.
+/// Az `eprintln!` log fejlesztői célokra megmarad.
 pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, String> {
+    open_and_migrate_inner(app, true)
+}
+
+fn open_and_migrate_inner(app: &AppHandle, allow_recovery: bool) -> Result<Connection, String> {
     let app_data = app
         .path()
         .app_data_dir()
@@ -155,14 +171,50 @@ pub fn open_and_migrate(app: &AppHandle) -> Result<Connection, String> {
 
     // Sanity-check: ha a kulcs rossz (pl. a régi M2.2-es DEV_DB_KEY-vel titkosított
     // DB-t próbáljuk megnyitni az új kulccsal), a sqlite_master olvasás `SQLITE_NOTADB`-t ad.
-    let _sanity: i64 = conn
-        .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))
-        .map_err(|e| format!(
-            "SQLCipher sanity-check sikertelen — nem megfelelő kulcs? \
-             Ha M2.2-es DEV-kulccsal készült DB-je van, törölje a \
-             {} fájlt és indítsa újra. Hiba: {e}",
-            db_path.display(),
-        ))?;
+    let sanity_result =
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
+            row.get::<_, i64>(0)
+        });
+
+    if let Err(e) = sanity_result {
+        if !allow_recovery {
+            return Err(format!(
+                "SQLCipher sanity-check sikertelen még auto-recovery után is: {e}"
+            ));
+        }
+
+        eprintln!(
+            "[Kartotéka] SQLCipher sanity-check sikertelen ({e}). Auto-recovery indul..."
+        );
+        drop(conn);
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let backup_path = db_path.with_file_name(format!("kartoteka.db.broken-{timestamp}"));
+
+        std::fs::rename(&db_path, &backup_path).map_err(|e| {
+            format!(
+                "DB auto-recovery sikertelen — a régi fájl ({}) átnevezése nem sikerült: {e}. \
+                 Manuális megoldás: zárd be a Kartotékát, és töröld a fájlt.",
+                db_path.display()
+            )
+        })?;
+        eprintln!(
+            "[Kartotéka] Régi (olvashatatlan) DB elmentve backupba: {}",
+            backup_path.display()
+        );
+
+        // Töröljük a Credential Manager-ben lévő régi kulcsot is — új DB, új kulcs.
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+            .map_err(|e| format!("Keyring entry létrehozás sikertelen recovery során: {e}"))?;
+        let _ = entry.delete_credential(); // ignoráljuk ha nincs entry
+        eprintln!("[Kartotéka] Credential Manager-ben lévő régi DB-kulcs törölve.");
+
+        // Egyszer próbáljuk újra (allow_recovery = false, hogy ne menjen végtelenbe).
+        return open_and_migrate_inner(app, false);
+    }
 
     run_migrations(&conn)?;
 
@@ -1237,8 +1289,697 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v19 migráció (gyerek_pending_local) sikertelen: {e}"))?;
     }
 
+    if current < 20 {
+        // Sprint C (2026-04-25) — Anyakönyv READ-ONLY desktop-paritás (4 fő tábla).
+        //
+        // Mind a 4 tábla mirror a Supabase-séma alapján; a séma a webes
+        // `apps/web/lib/constants/registry.ts` és `actions.ts` selectjeiből
+        // származik. A pull-stratégia full-pull (Sprint C), mert a sémában
+        // a `revision`/`updated_at` mezők létezése nem garantált — egy
+        // átlagos gyülekezetben az anyakönyvi-bejegyzések száma <500/tábla,
+        // így a teljes pull <100 ms.
+        //
+        // Mozgás-táblák (bekoltozott / elkoltozott / attert / kitert) Sprint D-re
+        // kerülnek; a write-flow (új keresztelés rögzítése offline) Sprint E-re.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS keresztseg_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                datum             TEXT,
+                okirat            TEXT,
+                lelkeszneve       TEXT,
+                id_szemely        INTEGER,
+                helyid            INTEGER,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_keresztseg_local_cong_datum
+                ON keresztseg_local(congregation_id, datum DESC);
+
+            CREATE TABLE IF NOT EXISTS konfirmalas_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                datum             TEXT,
+                lelkeszneve       TEXT,
+                id_szemely        INTEGER,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_konfirmalas_local_cong_datum
+                ON konfirmalas_local(congregation_id, datum DESC);
+
+            CREATE TABLE IF NOT EXISTS hazassag_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                datum             TEXT,
+                hlevel            TEXT,
+                lelkeszneve       TEXT,
+                id_ferfi          INTEGER,
+                id_no             INTEGER,
+                tanuk             TEXT,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_hazassag_local_cong_datum
+                ON hazassag_local(congregation_id, datum DESC);
+
+            CREATE TABLE IF NOT EXISTS temetes_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                tdatum            TEXT,
+                hdatum            TEXT,
+                okirat            TEXT,
+                lelkeszneve       TEXT,
+                id_szemely        INTEGER,
+                thelyid           INTEGER,
+                hoka              TEXT,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_temetes_local_cong_tdatum
+                ON temetes_local(congregation_id, tdatum DESC);
+
+            PRAGMA user_version = 20;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v20 migráció (anyakönyv 4 tábla) sikertelen: {e}"))?;
+    }
+
+    if current < 21 {
+        // Sprint D (2026-04-25) — Anyakönyv mozgás-táblák READ-ONLY (4 tábla).
+        //
+        // Kiegészíti a v20 4 fő anyakönyvi tábláját a tagmozgások mirror-jával:
+        // beköltözött, elköltözött, áttért, kitért. Mind a 4 közös mezője az
+        // `id_szemely` (ki mozdult) + `mikor` (dátum) + `congregation_id`.
+        // Eltérő mezők:
+        //   - bekoltozott: honnanid (adrlocality FK), igazolas
+        //   - elkoltozott: hovaid (adrlocality FK), kulfoldre (boolean)
+        //   - attert:      honnanid (adrlocality FK), felekezet (honnan jött)
+        //   - kitert:      hovaid (adrlocality FK), felekezet (hova ment)
+        //
+        // Pull-stratégia ugyanaz mint v20: full-pull, TRUNCATE + INSERT.
+        // Átlag <100 sor/tábla egy gyülekezetben.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS bekoltozott_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                mikor             TEXT,
+                id_szemely        INTEGER,
+                honnanid          INTEGER,
+                igazolas          TEXT,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_bekoltozott_local_cong_mikor
+                ON bekoltozott_local(congregation_id, mikor DESC);
+
+            CREATE TABLE IF NOT EXISTS elkoltozott_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                mikor             TEXT,
+                id_szemely        INTEGER,
+                hovaid            INTEGER,
+                kulfoldre         INTEGER NOT NULL DEFAULT 0,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_elkoltozott_local_cong_mikor
+                ON elkoltozott_local(congregation_id, mikor DESC);
+
+            CREATE TABLE IF NOT EXISTS attert_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                mikor             TEXT,
+                id_szemely        INTEGER,
+                honnanid          INTEGER,
+                felekezet         TEXT,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_attert_local_cong_mikor
+                ON attert_local(congregation_id, mikor DESC);
+
+            CREATE TABLE IF NOT EXISTS kitert_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                mikor             TEXT,
+                id_szemely        INTEGER,
+                hovaid            INTEGER,
+                felekezet         TEXT,
+                megjegyzes        TEXT,
+                revision          INTEGER,
+                updated_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_kitert_local_cong_mikor
+                ON kitert_local(congregation_id, mikor DESC);
+
+            PRAGMA user_version = 21;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v21 migráció (anyakönyv mozgás-táblák) sikertelen: {e}"))?;
+    }
+
+    if current < 22 {
+        // Sprint F (2026-04-25) — Leltár READ-ONLY desktop-paritás (1 tábla).
+        //
+        // Egyetlen mirror tábla: `leltar_tetelek_local`. A webes
+        // `apps/web/app/(dashboard)/leltar/actions.ts` selectjei alapján.
+        // Az ID itt TEXT (UUID), eltérően a többi `*_local` táblától.
+        // A kategória egy enum-szerű string ('alapeszkoz', 'konyv', 'mukincs',
+        // 'felszereles', stb.), a webes `INVENTORY_CATEGORY_PREFIXES` szerint.
+        //
+        // Pull-stratégia: full-pull, TRUNCATE + INSERT.
+        // Write-flow Sprint G+ke kerülhet (új leltári tétel rögzítése).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS leltar_tetelek_local (
+                id                       TEXT PRIMARY KEY,
+                congregation_id          TEXT NOT NULL,
+                leltari_szam             TEXT,
+                regi_leltari_szam        TEXT,
+                megnevezes               TEXT NOT NULL,
+                kategoria                TEXT,
+                beszerzes_erteke         REAL,
+                beszerzes_datuma         TEXT,
+                beszerzes_bizonylat      TEXT,
+                katalogus_kod            TEXT,
+                hasznalati_ido           INTEGER,
+                helyszin                 TEXT,
+                felelos_szemely_id       INTEGER,
+                felelos_nev              TEXT,
+                vonalkod                 TEXT,
+                megjegyzes               TEXT,
+                mennyiseg                INTEGER NOT NULL DEFAULT 1,
+                mertekegyseg             TEXT,
+                torles_datuma            TEXT,
+                torles_bizonylat         TEXT,
+                torles_indoklasa         TEXT,
+                szerzo                   TEXT,
+                konyv_isbn               TEXT,
+                konyv_kiado              TEXT,
+                konyv_kiadas_helye       TEXT,
+                konyv_kiadas_eve         INTEGER,
+                konyv_terjedelem         TEXT,
+                konyv_sorozatcim         TEXT,
+                deleted                  INTEGER NOT NULL DEFAULT 0,
+                created_at               TEXT,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_leltar_local_cong_kategoria
+                ON leltar_tetelek_local(congregation_id, kategoria);
+            CREATE INDEX IF NOT EXISTS idx_leltar_local_cong_szam
+                ON leltar_tetelek_local(congregation_id, leltari_szam);
+            CREATE INDEX IF NOT EXISTS idx_leltar_local_cong_deleted
+                ON leltar_tetelek_local(congregation_id, deleted);
+
+            PRAGMA user_version = 22;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v22 migráció (leltar_tetelek_local) sikertelen: {e}"))?;
+    }
+
+    if current < 23 {
+        // Sprint G (2026-04-25) — Iktató READ-ONLY desktop-paritás (1 fő tábla).
+        //
+        // `iktato` mirror: irat-naplózás év szerinti sequence-szel. A direction
+        // 'incoming' (beérkező) vagy 'outgoing' (kimenő). A `iktato_sablonok`
+        // (sablon-tábla) NINCS mirror-olva — admin-szintű, ritkán változó.
+        //
+        // Pull-stratégia: full-pull, TRUNCATE + INSERT.
+        // Átlag <500 irat/év egy gyülekezetben.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS iktato_local (
+                id                       TEXT PRIMARY KEY,
+                congregation_id          TEXT NOT NULL,
+                year                     INTEGER NOT NULL,
+                sequence_number          INTEGER NOT NULL,
+                direction                TEXT NOT NULL CHECK (direction IN ('incoming','outgoing')),
+                kelt                     TEXT,
+                subject                  TEXT NOT NULL,
+                sender_or_recipient      TEXT,
+                file_folder              TEXT,
+                targykivonat             TEXT,
+                elintezes_ideje          TEXT,
+                elintezes_modja          TEXT,
+                irattarijel              TEXT,
+                megjegyzes               TEXT,
+                deleted                  INTEGER NOT NULL DEFAULT 0,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_iktato_local_cong_year_seq
+                ON iktato_local(congregation_id, year DESC, sequence_number DESC);
+            CREATE INDEX IF NOT EXISTS idx_iktato_local_cong_direction
+                ON iktato_local(congregation_id, direction);
+            CREATE INDEX IF NOT EXISTS idx_iktato_local_cong_pending
+                ON iktato_local(congregation_id, elintezes_ideje) WHERE elintezes_ideje IS NULL;
+
+            PRAGMA user_version = 23;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v23 migráció (iktato_local) sikertelen: {e}"))?;
+    }
+
+    if current < 24 {
+        // Sprint H (2026-04-25) — Jegyzőkönyvek READ-ONLY (4 tábla).
+        //
+        // Fő: `presbiteri_jegyzokonyvek` (presbiteri ÉS közgyűlési, `tipus` mező)
+        // Kapcsolódók: jegyzokonyv_resztvevok, jegyzokonyv_napirendi_pontok,
+        //              jegyzokonyv_hatarozatok
+        //
+        // FK: `jegyzokonyv_id` az altáblákban a `presbiteri_jegyzokonyvek.id`-re mutat.
+        // A 3 altábla NEM tartalmaz `congregation_id`-t — a fő tábla FK-ján
+        // keresztül szűrünk pull-kor.
+        //
+        // Pull-stratégia: full-pull, TRUNCATE + INSERT.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS presbiteri_jegyzokonyvek_local (
+                id                TEXT PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                tipus             TEXT NOT NULL DEFAULT 'presbiteri'
+                                    CHECK (tipus IN ('presbiteri','kozgyulesi')),
+                ev                INTEGER NOT NULL,
+                ules_sorszam      INTEGER NOT NULL,
+                datum             TEXT,
+                hely              TEXT,
+                kezdes            TEXT,
+                zaras             TEXT,
+                elnok_neve        TEXT,
+                jegyzo_neve       TEXT,
+                hitelesito1       TEXT,
+                hitelesito2       TEXT,
+                igevers           TEXT,
+                felolvasas        TEXT,
+                megjegyzes        TEXT,
+                allapot           TEXT,
+                created_at        TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_jk_local_cong_ev_ules
+                ON presbiteri_jegyzokonyvek_local(congregation_id, ev DESC, ules_sorszam DESC);
+            CREATE INDEX IF NOT EXISTS idx_jk_local_cong_tipus
+                ON presbiteri_jegyzokonyvek_local(congregation_id, tipus);
+
+            CREATE TABLE IF NOT EXISTS jegyzokonyv_resztvevok_local (
+                id                TEXT PRIMARY KEY,
+                jegyzokonyv_id    TEXT NOT NULL,
+                nev               TEXT NOT NULL,
+                statusz           TEXT,
+                szerep            TEXT,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_jk_resztvevo_jk
+                ON jegyzokonyv_resztvevok_local(jegyzokonyv_id);
+
+            CREATE TABLE IF NOT EXISTS jegyzokonyv_napirendi_pontok_local (
+                id                       TEXT PRIMARY KEY,
+                jegyzokonyv_id           TEXT NOT NULL,
+                sorszam                  INTEGER NOT NULL,
+                cim                      TEXT NOT NULL,
+                eloado                   TEXT,
+                targyalas                TEXT,
+                szavazas_igen            INTEGER,
+                szavazas_nem             INTEGER,
+                szavazas_tartozkodo      INTEGER,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_jk_napirend_jk
+                ON jegyzokonyv_napirendi_pontok_local(jegyzokonyv_id, sorszam);
+
+            CREATE TABLE IF NOT EXISTS jegyzokonyv_hatarozatok_local (
+                id                       TEXT PRIMARY KEY,
+                jegyzokonyv_id           TEXT NOT NULL,
+                ev                       INTEGER,
+                sorszam                  INTEGER NOT NULL,
+                szoveg                   TEXT NOT NULL,
+                felelos                  TEXT,
+                hatarido                 TEXT,
+                napirendi_pont_sorszam   INTEGER,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_jk_hatarozat_jk
+                ON jegyzokonyv_hatarozatok_local(jegyzokonyv_id, sorszam);
+            CREATE INDEX IF NOT EXISTS idx_jk_hatarozat_ev
+                ON jegyzokonyv_hatarozatok_local(ev DESC, sorszam DESC);
+
+            PRAGMA user_version = 24;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v24 migráció (jegyzőkönyvek 4 tábla) sikertelen: {e}"))?;
+    }
+
+    if current < 25 {
+        // Sprint I (2026-04-25) — Sírhelyek READ-ONLY (4 tábla).
+        //
+        // sirhelytemeto (temető) → sirhely (parcella) → sirhelyberles + sirhelyelhunyt
+        // FONTOS: a sirhely/sirhelyberles/sirhelyelhunyt NEM tartalmaz `congregation_id`-t!
+        // A temető-FK-n keresztül szűrünk a pull-ban.
+        //
+        // Pull-stratégia: full-pull, TRUNCATE + INSERT a saját gyülekezet temetőire.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS sirhelytemeto_local (
+                id                INTEGER PRIMARY KEY,
+                congregation_id   TEXT NOT NULL,
+                nev               TEXT NOT NULL,
+                cim               TEXT,
+                megjegyzes        TEXT,
+                aktiv             INTEGER NOT NULL DEFAULT 1,
+                deleted           INTEGER NOT NULL DEFAULT 0,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_temeto_local_cong
+                ON sirhelytemeto_local(congregation_id, deleted);
+
+            CREATE TABLE IF NOT EXISTS sirhely_local (
+                id                INTEGER PRIMARY KEY,
+                temetoid          INTEGER NOT NULL,
+                parcella          TEXT,
+                sor               TEXT,
+                szam              TEXT,
+                allapot           TEXT,
+                elhelyezkedes     TEXT,
+                meret             TEXT,
+                tipus             TEXT,
+                megjegyzes        TEXT,
+                gps_lat           REAL,
+                gps_lng           REAL,
+                deleted           INTEGER NOT NULL DEFAULT 0,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_sirhely_local_temeto
+                ON sirhely_local(temetoid, deleted);
+            CREATE INDEX IF NOT EXISTS idx_sirhely_local_parcella_sor
+                ON sirhely_local(temetoid, parcella, sor, szam);
+
+            CREATE TABLE IF NOT EXISTS sirhelyberles_local (
+                id                  INTEGER PRIMARY KEY,
+                sirhelyid           INTEGER NOT NULL,
+                befizetesid         INTEGER,
+                berlo               TEXT NOT NULL,
+                berloid             INTEGER,
+                berlocim            TEXT,
+                berloelerhetoseg    TEXT,
+                megvaltas           TEXT,
+                lejarata            TEXT,
+                tipus               TEXT,
+                osszeg              REAL,
+                megjegyzes          TEXT,
+                deleted             INTEGER NOT NULL DEFAULT 0,
+                synced_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_berles_local_sirhely
+                ON sirhelyberles_local(sirhelyid, deleted);
+            CREATE INDEX IF NOT EXISTS idx_berles_local_lejarata
+                ON sirhelyberles_local(lejarata) WHERE lejarata IS NOT NULL;
+
+            CREATE TABLE IF NOT EXISTS sirhelyelhunyt_local (
+                id                INTEGER PRIMARY KEY,
+                sirhelyid         INTEGER NOT NULL,
+                temetesid         INTEGER,
+                nev               TEXT NOT NULL,
+                sznev             TEXT,
+                ferfi             INTEGER,
+                sz_datum          TEXT,
+                sz_hely           TEXT,
+                anyjaneve         TEXT,
+                hdatum            TEXT,
+                hhely             TEXT,
+                tdatum            TEXT,
+                ttipus            TEXT,
+                tmodja            TEXT,
+                elhelyezkedes     TEXT,
+                temetteto         TEXT,
+                szolgaltato       TEXT,
+                megjegyzes        TEXT,
+                deleted           INTEGER NOT NULL DEFAULT 0,
+                synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_elhunyt_local_sirhely
+                ON sirhelyelhunyt_local(sirhelyid, deleted);
+            CREATE INDEX IF NOT EXISTS idx_elhunyt_local_nev
+                ON sirhelyelhunyt_local(nev);
+
+            PRAGMA user_version = 25;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v25 migráció (sírhelyek 4 tábla) sikertelen: {e}"))?;
+    }
+
+    if current < 26 {
+        // Sprint J (2026-04-25) — Programok READ-ONLY (1 tábla, dashboard widget).
+        //
+        // `gyulekezeti_programok` mirror — események/alkalmak naptár.
+        // A magyar `ismétlődő` mezőt NEM mirror-oljuk (ékezetes oszlopnév SQLite-ban
+        // problémás), helyette `ismetlodes_tipus IS NOT NULL` derivátum.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS gyulekezeti_programok_local (
+                id                       TEXT PRIMARY KEY,
+                congregation_id          TEXT NOT NULL,
+                cim                      TEXT NOT NULL,
+                datum                    TEXT NOT NULL,
+                datum_vege               TEXT,
+                ido_kezdes               TEXT,
+                ido_befejezes            TEXT,
+                helyszin                 TEXT,
+                tipus                    TEXT NOT NULL DEFAULT 'egyeb',
+                prioritas                TEXT NOT NULL DEFAULT 'normal',
+                ismetlodes_tipus         TEXT,
+                egyedi_tipus_nev         TEXT,
+                egyedi_emoji             TEXT,
+                megjegyzes               TEXT,
+                teljesitett              INTEGER NOT NULL DEFAULT 0,
+                teljesites_datum         TEXT,
+                letrehozta_id            TEXT,
+                letrehozta_nev           TEXT,
+                created_at               TEXT,
+                updated_at               TEXT,
+                synced_at                TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_program_local_cong_datum
+                ON gyulekezeti_programok_local(congregation_id, datum);
+            CREATE INDEX IF NOT EXISTS idx_program_local_cong_teljesitett
+                ON gyulekezeti_programok_local(congregation_id, teljesitett);
+
+            PRAGMA user_version = 26;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v26 migráció (gyulekezeti_programok_local) sikertelen: {e}"))?;
+    }
+
+    if current < 27 {
+        // Sprint K (2026-04-25) — Éves Jelentés READ-ONLY (1 tábla).
+        //
+        // `annual_reports` mirror — éves összesítő jelentés, status workflow-val
+        // (draft → submitted → received → reviewed → finalized).
+        // A `snapshot_data` JSON-mező TEXT-ként tárolva (JSON.parse a UI-ban).
+        // Egy gyülekezetnek max 1 jelentés/év (UNIQUE congregation_id + year).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS annual_reports_local (
+                id                  TEXT PRIMARY KEY,
+                congregation_id     TEXT NOT NULL,
+                year                INTEGER NOT NULL,
+                status              TEXT NOT NULL DEFAULT 'draft'
+                                       CHECK (status IN ('draft','submitted','received','reviewed','finalized')),
+                members_count       INTEGER NOT NULL DEFAULT 0,
+                services_count      INTEGER NOT NULL DEFAULT 0,
+                total_income        REAL NOT NULL DEFAULT 0,
+                pastor_note         TEXT,
+                snapshot_data       TEXT,
+                submitted_at        TEXT,
+                submitted_by        TEXT,
+                received_at         TEXT,
+                received_by         TEXT,
+                reviewed_at         TEXT,
+                reviewed_by         TEXT,
+                review_notes        TEXT,
+                finalized_at        TEXT,
+                finalized_by        TEXT,
+                forwarded_to_kerulet INTEGER NOT NULL DEFAULT 0,
+                forwarded_at        TEXT,
+                updated_at          TEXT,
+                deleted             INTEGER NOT NULL DEFAULT 0,
+                synced_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_annual_reports_cong_year
+                ON annual_reports_local(congregation_id, year) WHERE deleted = 0;
+            CREATE INDEX IF NOT EXISTS idx_annual_reports_status
+                ON annual_reports_local(congregation_id, status);
+
+            PRAGMA user_version = 27;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v27 migráció (annual_reports_local) sikertelen: {e}"))?;
+    }
+
+    if current < 28 {
+        // Sprint L (2026-04-25/26) — séma-paritás finomhangolás (P0 + P1):
+        //   - 1 P0 RENAME (leltar_tetelek_local.deleted → is_deleted, Supabase-egyezés)
+        //   - 1 P0 új FK (jegyzokonyv_hatarozatok_local.napirendi_pont_id, UUID)
+        //   - 10 P1 új mező a 7 új modul tábláin
+        //
+        // SQLite 3.46 (SQLCipher 4.6) támogat RENAME COLUMN-t in-place;
+        // az indexek automatikusan követik az új nevet (3.25.2+).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            -- P0 #1: leltar_tetelek_local.deleted → is_deleted (Supabase-egyezés)
+            ALTER TABLE leltar_tetelek_local RENAME COLUMN deleted TO is_deleted;
+
+            -- P0 #2: jegyzokonyv_hatarozatok — UUID-FK a napirendi pontra
+            -- (a meglévő napirendi_pont_sorszam INTEGER mellé). NULLABLE.
+            ALTER TABLE jegyzokonyv_hatarozatok_local ADD COLUMN napirendi_pont_id TEXT;
+
+            -- P1 #3: keresztseg
+            ALTER TABLE keresztseg_local ADD COLUMN keresztszulok TEXT;
+            ALTER TABLE keresztseg_local ADD COLUMN munkanaploba INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE keresztseg_local ADD COLUMN munkanaplo_id INTEGER;
+
+            -- P1 #4: konfirmalas
+            ALTER TABLE konfirmalas_local ADD COLUMN munkanaplo_id INTEGER;
+            ALTER TABLE konfirmalas_local ADD COLUMN keresztelesideje TEXT;
+
+            -- P1 #5: hazassag
+            ALTER TABLE hazassag_local ADD COLUMN munkanaploba INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE hazassag_local ADD COLUMN munkanaplo_id INTEGER;
+
+            -- P1 #6: temetes
+            ALTER TABLE temetes_local ADD COLUMN munkanaploba INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE temetes_local ADD COLUMN munkanaplo_id INTEGER;
+            ALTER TABLE temetes_local ADD COLUMN hhelyid INTEGER;
+
+            -- P1 #7: gyulekezeti_programok
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN leiras TEXT;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN szin TEXT;
+
+            -- P1 #8: presbiteri_jegyzokonyvek — kvórum default = 1
+            ALTER TABLE presbiteri_jegyzokonyvek_local
+                ADD COLUMN hatarozatkepesseg INTEGER NOT NULL DEFAULT 1;
+
+            -- P1 #9: iktato
+            ALTER TABLE iktato_local ADD COLUMN oldalszam INTEGER;
+            ALTER TABLE iktato_local ADD COLUMN userid TEXT;
+
+            -- P1 #10: sirhely
+            ALTER TABLE sirhely_local ADD COLUMN aktivberlesid INTEGER;
+            ALTER TABLE sirhely_local ADD COLUMN imagelnk TEXT;
+            ALTER TABLE sirhely_local ADD COLUMN created_at TEXT;
+
+            -- P1 #11: jegyzokonyv_hatarozatok — workflow-állapot
+            ALTER TABLE jegyzokonyv_hatarozatok_local
+                ADD COLUMN allapot TEXT NOT NULL DEFAULT 'elfogadva';
+
+            -- P1 #12: leltar_tetelek
+            ALTER TABLE leltar_tetelek_local ADD COLUMN userid TEXT;
+            ALTER TABLE leltar_tetelek_local ADD COLUMN penzugy_xkey TEXT;
+
+            PRAGMA user_version = 28;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v28 migráció (séma-paritás P0+P1) sikertelen: {e}"))?;
+    }
+
+    if current < 29 {
+        // Sprint L (P2) — sync infrastruktúra:
+        //   - revision (INTEGER default 0) + updated_at (TEXT) a 6+ új mirror-táblán,
+        //     ahol eddig hiányzott. Ezzel a delta-pull (és a jövőbeli WRITE-flow
+        //     conditional-update-je) lehetővé válik.
+        //   - Új adrlocality_local mirror — helyiség-név megjelenítés a UI-ban
+        //     az anyakönyvi/sírhelyek/mozgás FK-knál (helyid, thelyid, hhelyid,
+        //     honnanid, hovaid). Az adrlocality ritkán változó referencia-tábla,
+        //     full-pull elég (országos lista, ~5000-50000 sor).
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            -- P2 #12: revision + updated_at hiányzik 6+ új mirror-táblán
+            ALTER TABLE leltar_tetelek_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE leltar_tetelek_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE iktato_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE iktato_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE presbiteri_jegyzokonyvek_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE presbiteri_jegyzokonyvek_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE sirhelytemeto_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE sirhelytemeto_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE sirhely_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE sirhely_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE sirhelyberles_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE sirhelyberles_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE sirhelyelhunyt_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE sirhelyelhunyt_local ADD COLUMN updated_at TEXT;
+            ALTER TABLE gyulekezeti_programok_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE annual_reports_local ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+            -- (gyulekezeti_programok_local + annual_reports_local már tartalmaz updated_at-t)
+
+            -- P2 #14: adrlocality mirror (helyiségek referencia-tábla)
+            CREATE TABLE IF NOT EXISTS adrlocality_local (
+                id            INTEGER PRIMARY KEY,
+                name          TEXT NOT NULL,
+                megye_id      INTEGER,
+                country       TEXT,
+                postcode      TEXT,
+                synced_at     TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_adrlocality_local_name
+                ON adrlocality_local(name);
+            CREATE INDEX IF NOT EXISTS idx_adrlocality_local_megye
+                ON adrlocality_local(megye_id) WHERE megye_id IS NOT NULL;
+
+            PRAGMA user_version = 29;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v29 migráció (sync infra + adrlocality) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 20 { ... PRAGMA user_version = 20; }
+    // if current < 30 { ... PRAGMA user_version = 30; }
 
     Ok(())
 }

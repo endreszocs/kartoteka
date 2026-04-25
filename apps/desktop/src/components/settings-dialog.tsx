@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   Bell,
+  Download,
   Globe,
   HardDrive,
   Languages,
@@ -42,6 +43,7 @@ import {
 } from '@kartoteka/ui'
 
 import { AdatBiztonsagPanel } from './settings/adat-biztonsag-panel'
+import { FrissitesPanel } from './settings/frissites-panel'
 
 // ──────────────────────────────────────────────────────────────
 // localStorage helperek — megegyezik a web-es verzióval (`kartoteka-user-prefs-v1`)
@@ -196,27 +198,32 @@ export function SettingsDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="ertesitesek" className="flex flex-col gap-4 md:flex-row md:gap-5">
-          {/* Bal oldalsáv */}
-          <div className="flex flex-col gap-3 md:w-56 md:shrink-0 md:self-start">
-            <TabsList className="w-full rounded-[1.2rem] bg-slate-50 p-1.5 md:flex-col md:h-auto md:items-stretch md:gap-1 md:p-2">
-              <TabsTrigger value="ertesitesek" className="md:w-full md:justify-start md:px-3 md:py-2">
+        {/* Bal oldalsáv MINDEN méretben — a tabok mindig vertikálisan a dialog
+            bal oldalán, a tartalom jobbra. v0.5.4 (Sprint P) — Endre kérése. */}
+        <Tabs defaultValue="ertesitesek" className="flex flex-row gap-4 sm:gap-5">
+          <div className="flex w-44 shrink-0 flex-col gap-3 self-start sm:w-52">
+            <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
+              <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">
                 <Bell className="mr-2 size-4" />
                 <span className="flex-1 text-left">Értesítések</span>
               </TabsTrigger>
-              <TabsTrigger value="megjelenes" className="md:w-full md:justify-start md:px-3 md:py-2">
+              <TabsTrigger value="megjelenes" className="w-full justify-start px-3 py-2">
                 <Palette className="mr-2 size-4" />
                 <span className="flex-1 text-left">Megjelenés</span>
               </TabsTrigger>
-              <TabsTrigger value="nyelv" className="md:w-full md:justify-start md:px-3 md:py-2">
+              <TabsTrigger value="nyelv" className="w-full justify-start px-3 py-2">
                 <Languages className="mr-2 size-4" />
                 <span className="flex-1 text-left">Nyelv</span>
               </TabsTrigger>
-              <TabsTrigger value="publikus" className="md:w-full md:justify-start md:px-3 md:py-2">
+              <TabsTrigger value="publikus" className="w-full justify-start px-3 py-2">
                 <Globe className="mr-2 size-4" />
                 <span className="flex-1 text-left">Publikus oldal</span>
               </TabsTrigger>
-              <TabsTrigger value="adatbiztonsag" className="md:w-full md:justify-start md:px-3 md:py-2">
+              <TabsTrigger value="frissites" className="w-full justify-start px-3 py-2">
+                <Download className="mr-2 size-4" />
+                <span className="flex-1 text-left">Frissítés</span>
+              </TabsTrigger>
+              <TabsTrigger value="adatbiztonsag" className="w-full justify-start px-3 py-2">
                 <Shield className="mr-2 size-4" />
                 <span className="flex-1 text-left">Adat &amp; biztonság</span>
               </TabsTrigger>
@@ -230,7 +237,7 @@ export function SettingsDialog({
             )}
 
             {/* Tudtad? */}
-            <div className="hidden rounded-[1rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3 md:block">
+            <div className="rounded-[1rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3">
               <div className="flex items-center gap-2 border-b border-indigo-100 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
                 <span>💡 Tudtad?</span>
               </div>
@@ -243,7 +250,7 @@ export function SettingsDialog({
 
             {/* Bejelentkezve mint */}
             {userEmail && (
-              <div className="hidden rounded-[1rem] border border-slate-100 bg-white p-3 md:block">
+              <div className="rounded-[1rem] border border-slate-100 bg-white p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Bejelentkezve mint
                 </p>
@@ -429,7 +436,12 @@ export function SettingsDialog({
               </SettingsSection>
             </TabsContent>
 
-            {/* ── ADAT & BIZTONSÁG ── (desktop: ITT a sync / DB / device / updater) */}
+            {/* ── FRISSÍTÉS ── (Sprint N, 2026-04-25) */}
+            <TabsContent value="frissites" className="space-y-4">
+              <FrissitesPanel />
+            </TabsContent>
+
+            {/* ── ADAT & BIZTONSÁG ── (desktop: sync / DB / device) */}
             <TabsContent value="adatbiztonsag" className="space-y-4">
               <AdatBiztonsagPanel />
 

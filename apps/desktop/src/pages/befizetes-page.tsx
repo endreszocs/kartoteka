@@ -60,7 +60,7 @@ import {
 } from '@kartoteka/validations'
 
 import { IratszamWalletPanel } from '../components/iratszam-wallet-panel'
-import { PageHero } from '../components/page-hero'
+import { PageHero } from '@kartoteka/ui-app'
 import { WriteSyncConflictDialog } from '../components/write-sync-conflict-dialog'
 import {
   buildBefizetesCsv,
@@ -157,7 +157,7 @@ export function BefizetesPage() {
 
   return (
     <DesktopShell>
-      <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-6">
+      <div className="space-y-5">
         <PageHero
           eyebrow="Pénzügy · Bevétel"
           title="Befizetés rögzítése"
@@ -236,7 +236,7 @@ export function BefizetesPage() {
             celek={celek}
           />
         )}
-      </main>
+      </div>
     </DesktopShell>
   )
 }
