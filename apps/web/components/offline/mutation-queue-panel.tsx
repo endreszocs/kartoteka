@@ -21,7 +21,6 @@ import {
   retryMutation,
 } from '@/lib/offline/mutation-queue'
 import { getSyncOrchestrator } from '@/lib/offline/sync-orchestrator'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 import { ConflictDialog } from './conflict-dialog'
 
 /**
@@ -35,9 +34,6 @@ import { ConflictDialog } from './conflict-dialog'
 export function MutationQueuePanel() {
   const [isPending, startTransition] = useTransition()
   const [openConflict, setOpenConflict] = useState<ConflictRecord | null>(null)
-  // Standalone módban a "Push most" gomb no-op (a havi sync flow kezeli a felhőt),
-  // ezért elrejtjük, hogy ne generáljunk félreértést.
-  const standalone = isStandaloneMode()
 
   // Kliens-oldali live query: mutation queue + conflicts
   const mutations = useSyncQuery<MutationEnvelope>('_mutation_queue') as
@@ -145,7 +141,7 @@ export function MutationQueuePanel() {
             </h3>
           </div>
           <div className="flex items-center gap-2">
-            {pendingOrFailedCount > 0 && !standalone && (
+            {pendingOrFailedCount > 0 && (
               <Button
                 size="sm"
                 variant="outline"

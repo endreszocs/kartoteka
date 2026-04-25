@@ -10,7 +10,7 @@ import { BroadcastsTab } from './broadcasts-tab'
 import { CongregationsTab } from './congregations-tab'
 import { DataWipeTab } from './data-wipe-tab'
 import { DevicesLicensesTab } from './devices-licenses-tab'
-import { ImportTabRefined } from './import-tab-refined'
+import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
 import { OverviewTabRefined } from './overview-tab-refined'
 import { ProfileCongregationsTab } from './profile-congregations-tab'
 import { ProfileRolesTab } from './profile-roles-tab'
@@ -18,6 +18,7 @@ import { SecuritySettingsTabV2 } from './security-settings-tab-v2'
 import { SupportTab } from './support-tab'
 import { SystemFinanceTab } from './system-finance-tab'
 import { UsersTab } from './users-tab'
+import { ImportLogList } from './import-log-list'
 
 const TABS = [
   { value: 'overview', label: 'Áttekintés', color: 'blue' },
@@ -70,7 +71,20 @@ export function AdminTabsV3({ isGodMode = false }: { isGodMode?: boolean }) {
         <SupportTab />
       </TabsContent>
       <TabsContent value="import">
-        <ImportTabRefined isGodMode={isGodMode} />
+        {isGodMode ? (
+          <div className="mt-4 space-y-6">
+            <TagnyilvantartasImportWizard mode="admin" />
+            <ImportLogList />
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[1.5rem] border border-amber-200 bg-amber-50/80 p-5 text-sm text-amber-900">
+            <p className="font-semibold">Az importáló rendszergazdai módban érhető el.</p>
+            <p className="mt-1">
+              Aktiváld a rendszergazdai (god) módot, hogy bármely gyülekezet
+              tagnyilvántartási adatait importálhasd egy egységes wizardon keresztül.
+            </p>
+          </div>
+        )}
       </TabsContent>
       <TabsContent value="system-finance">
         <SystemFinanceTab />

@@ -3,7 +3,6 @@ import { AiChatWidgetLazy } from '@/components/ai/ai-chat-widget-lazy'
 import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-client'
 import { SyncProvider } from '@/components/offline/sync-provider'
 import { SyncStatusBar } from '@/components/offline/sync-status-bar'
-import { LicenseBanner } from '@/components/standalone/license-banner'
 import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrough-client'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -47,6 +46,7 @@ export default async function DashboardLayout({
     congregationName,
     congregationLogo,
     override,
+    missingPrimaryRole,
     profileRoles,
     activeProfileRole,
   } = access
@@ -93,6 +93,10 @@ export default async function DashboardLayout({
   if (profile.status !== 'active' && !master) {
     await supabase.auth.signOut()
     redirect('/login')
+  }
+
+  if (missingPrimaryRole && !master) {
+    redirect('/pending?reason=no-role')
   }
 
   // 2b. Onboarding wizard guard (2026-04-20)
@@ -171,7 +175,6 @@ export default async function DashboardLayout({
       congregationName={congregationName}
     >
       <SyncStatusBar />
-      <LicenseBanner />
       <DashboardLayoutClient
         profile={profile}
         congregationId={access.effectiveCongregationId}

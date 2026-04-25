@@ -1,10 +1,23 @@
 import type { Role } from '@/lib/types/auth'
 
 const MASTER_ADMIN_EMAIL = process.env.MASTER_ADMIN_EMAIL || ''
+const KNOWN_ROLES = [
+  'lelkesz',
+  'esperes',
+  'egyhazmegyei_admin',
+  'egyhazkeruleti_admin',
+  'admin',
+  'konyvelo',
+  'egyhazmegyei_szamvevo',
+] as const
 
 // ─────────────────────────────────────────────────────────────
 // Alapszintű szerepkör-ellenőrzők
 // ─────────────────────────────────────────────────────────────
+
+export function isKnownRole(role: unknown): role is Role {
+  return typeof role === 'string' && (KNOWN_ROLES as readonly string[]).includes(role)
+}
 
 export function isMasterAdmin(email: string | null | undefined): boolean {
   if (!email || !MASTER_ADMIN_EMAIL) return false

@@ -12,14 +12,17 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import {
   Bell,
+  ChevronDown,
   Check,
   Clock,
   ExternalLink,
   Mail,
   MailWarning,
+  MessageSquare,
   Send,
   Sparkles,
   Users,
+  type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -43,6 +46,7 @@ import { NewsletterComposeDialog } from './newsletter-compose-dialog'
 
 import {
   BROADCAST_TARGET_SCOPE_LABELS,
+  BROADCAST_TARGET_ROLE_LABELS,
   BROADCAST_TIPUS_LABELS,
   RELEASE_CATEGORY_LABELS,
   ROLE_OPTIONS,
@@ -80,6 +84,7 @@ export function BroadcastsTab() {
   const [selectedDistrictIds, setSelectedDistrictIds] = useState<string[]>([])
   const [sendEmail, setSendEmail] = useState(false)
   const [newsletterOpen, setNewsletterOpen] = useState(false)
+  const [expandedEntryKeys, setExpandedEntryKeys] = useState<Set<string>>(new Set())
 
   async function fetchAll() {
     const [e, b, c, d, di] = await Promise.all([
@@ -123,7 +128,15 @@ export function BroadcastsTab() {
   }, [])
 
   const unsentEntries = useMemo(() => entries.filter((e) => !e.alreadySent), [entries])
-  const sentEntries = useMemo(() => entries.filter((e) => e.alreadySent), [entries])
+
+  function toggleEntry(key: string) {
+    setExpandedEntryKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function resetForm() {
     setCim('')
@@ -212,11 +225,14 @@ export function BroadcastsTab() {
 
       {/* 1. CHANGELOG bejegyzések */}
       <section className="card-raised overflow-hidden">
-        <header className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 bg-indigo-50/40">
+        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-4 bg-indigo-50/40">
           <Sparkles className="size-4 text-indigo-600" />
-          <h3 className="font-heading text-base text-slate-800">Közzétehető frissítések</h3>
+          <h3 className="font-heading text-base text-slate-800">Frissítések naplója</h3>
+          <Badge className="bg-white text-slate-700 border-slate-200">
+            {entries.length} összesen
+          </Badge>
           <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">
-            {unsentEntries.length} új
+            {unsentEntries.length} kiküldésre vár
           </Badge>
           <Button
             size="sm"
@@ -228,44 +244,32 @@ export function BroadcastsTab() {
             Fejlesztési hírlevél
           </Button>
         </header>
-        <div className="p-5 space-y-3">
-          {unsentEntries.length === 0 ? (
+        <div className="p-5">
+          {entries.length === 0 ? (
             <p className="text-sm text-slate-500 italic">
-              Minden bejegyzés közzé lett téve. Új fejlesztések után frissül a lista.
+              Még nincs rögzített CHANGELOG bejegyzés.
             </p>
           ) : (
-            unsentEntries.map((e) => (
-              <ChangelogEntryCard
-                key={e.key}
-                entry={e}
-                onSend={() => handleChangelogSend(e)}
-                isPending={isPending}
-                scopeLabel={describeScope(scope, targetRole, {
-                  congs: selectedCongIds.length,
-                  dioceses: selectedDioceseIds.length,
-                  districts: selectedDistrictIds.length,
-                })}
-                sendEmail={sendEmail}
-              />
-            ))
-          )}
-        </div>
-        {sentEntries.length > 0 && (
-          <details className="px-5 pb-4">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
-              {sentEntries.length} korábban közzétett bejegyzés
-            </summary>
-            <div className="mt-2 space-y-1.5 text-xs text-slate-500">
-              {sentEntries.map((e) => (
-                <p key={e.key} className="flex items-center gap-2">
-                  <Check className="size-3 text-emerald-600" />
-                  <span className="font-mono text-[10px] text-slate-400">{e.date}</span>
-                  <span className="truncate">{e.title}</span>
-                </p>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {entries.map((e) => (
+                <ChangelogEntryCard
+                  key={e.key}
+                  entry={e}
+                  onSend={() => handleChangelogSend(e)}
+                  isPending={isPending}
+                  scopeLabel={describeScope(scope, targetRole, {
+                    congs: selectedCongIds.length,
+                    dioceses: selectedDioceseIds.length,
+                    districts: selectedDistrictIds.length,
+                  })}
+                  sendEmail={sendEmail}
+                  expanded={expandedEntryKeys.has(e.key)}
+                  onToggle={() => toggleEntry(e.key)}
+                />
               ))}
             </div>
-          </details>
-        )}
+          )}
+        </div>
       </section>
 
       {/* 2. Új üzenet form */}
@@ -349,57 +353,176 @@ function ChangelogEntryCard({
   isPending,
   scopeLabel,
   sendEmail,
+  expanded,
+  onToggle,
 }: {
   entry: ChangelogEntry
   onSend: () => void
   isPending: boolean
   scopeLabel: string
   sendEmail: boolean
+  expanded: boolean
+  onToggle: () => void
 }) {
+  const status = entry.broadcastStatus
+  const cardClass = entry.alreadySent
+    ? 'border-slate-200 bg-white'
+    : 'border-indigo-200 bg-indigo-50/30'
+
   return (
-    <div className="rounded-xl border border-indigo-100 bg-white p-4">
-      <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-indigo-50 px-2 py-1 text-xs font-mono text-indigo-700 shrink-0">
-          {entry.date}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-800">{entry.title}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            {entry.version && (
-              <Badge variant="outline" className="border-slate-200">v{entry.version}</Badge>
-            )}
-            {entry.category && (
-              <Badge className="bg-slate-100 text-slate-700 border-slate-200">
-                {RELEASE_CATEGORY_LABELS[entry.category]}
-              </Badge>
-            )}
-            {entry.targetsHint && <span>{entry.targetsHint}</span>}
-          </div>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-700">
-              Tartalom megtekintése
-            </summary>
-            <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-600 leading-relaxed font-sans">
-              {entry.bodyMarkdown}
-            </pre>
-          </details>
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-1.5">
-          <Button
-            size="sm"
-            onClick={onSend}
-            disabled={isPending}
-            className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
-          >
-            <Send className="size-3.5" />
-            Közzététel
-          </Button>
-          <span className="text-[10px] text-slate-400">
-            {scopeLabel}{sendEmail ? ' + email' : ''}
+    <div className={`rounded-xl border p-4 transition-colors ${cardClass}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex flex-1 items-start gap-3 text-left"
+        >
+          <span className="rounded-lg bg-white px-2 py-1 text-xs font-mono text-indigo-700 ring-1 ring-indigo-100 shrink-0">
+            {entry.date}
           </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-start gap-2">
+              <span className="font-semibold text-slate-800">{entry.title}</span>
+              <ChevronDown
+                className={`mt-0.5 size-4 shrink-0 text-slate-400 transition-transform ${
+                  expanded ? 'rotate-180' : ''
+                }`}
+              />
+            </span>
+            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              {entry.version && (
+                <Badge variant="outline" className="border-slate-200">v{entry.version}</Badge>
+              )}
+              {entry.category && (
+                <Badge className="bg-slate-100 text-slate-700 border-slate-200">
+                  {RELEASE_CATEGORY_LABELS[entry.category]}
+                </Badge>
+              )}
+              {entry.targetsHint && <span>{entry.targetsHint}</span>}
+            </span>
+            <span className="mt-3 flex flex-wrap items-center gap-2">
+              <DeliveryBadge
+                icon={entry.alreadySent ? Check : MessageSquare}
+                label={entry.alreadySent ? 'Üzenet elküldve' : 'Üzenet nincs elküldve'}
+                tone={entry.alreadySent ? 'success' : 'muted'}
+              />
+              <EmailDeliveryBadge entry={entry} />
+              {status && (
+                <span className="text-[11px] text-slate-500">
+                  {formatBroadcastScope(status)} · {status.recipientCount} címzett · {formatDateTime(status.sentAt)}
+                </span>
+              )}
+            </span>
+          </span>
+        </button>
+
+        <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+          {!entry.alreadySent ? (
+            <>
+              <Button
+                size="sm"
+                onClick={onSend}
+                disabled={isPending}
+                className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
+              >
+                <Send className="size-3.5" />
+                Közzététel
+              </Button>
+              <span className="text-[10px] text-slate-400">
+                {scopeLabel}{sendEmail ? ' + email' : ''}
+              </span>
+            </>
+          ) : (
+            <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
+              Közzétéve
+            </Badge>
+          )}
         </div>
       </div>
+      {expanded && (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+          <pre className="whitespace-pre-wrap text-xs text-slate-600 leading-relaxed font-sans">
+            {entry.bodyMarkdown || 'Ehhez a bejegyzéshez nincs részletes leírás.'}
+          </pre>
+        </div>
+      )}
     </div>
+  )
+}
+
+function DeliveryBadge({
+  icon: Icon,
+  label,
+  tone,
+}: {
+  icon: LucideIcon
+  label: string
+  tone: 'success' | 'warning' | 'danger' | 'muted'
+}) {
+  const toneClass = {
+    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    warning: 'bg-amber-50 text-amber-700 border-amber-200',
+    danger: 'bg-rose-50 text-rose-700 border-rose-200',
+    muted: 'bg-slate-100 text-slate-600 border-slate-200',
+  }[tone]
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${toneClass}`}>
+      <Icon className="size-3" />
+      {label}
+    </span>
+  )
+}
+
+function EmailDeliveryBadge({ entry }: { entry: ChangelogEntry }) {
+  const status = entry.broadcastStatus
+  if (!entry.alreadySent) {
+    return (
+      <DeliveryBadge
+        icon={Mail}
+        label="Email nincs elküldve"
+        tone="muted"
+      />
+    )
+  }
+
+  if (!status?.sendEmail) {
+    return (
+      <DeliveryBadge
+        icon={Mail}
+        label="Email nem volt kérve"
+        tone="muted"
+      />
+    )
+  }
+
+  if (status.emailError) {
+    return (
+      <DeliveryBadge
+        icon={MailWarning}
+        label="Email hiba"
+        tone="danger"
+      />
+    )
+  }
+
+  if (status.emailSentAt) {
+    return (
+      <DeliveryBadge
+        icon={Mail}
+        label={`Email elküldve · ${formatDateTime(status.emailSentAt)}`}
+        tone="success"
+      />
+    )
+  }
+
+  return (
+    <DeliveryBadge
+      icon={Clock}
+      label="Email függőben"
+      tone="warning"
+    />
   )
 }
 
@@ -685,4 +808,22 @@ function describeScope(
     case 'district':
       return `${counts.districts} egyházkerület`
   }
+}
+
+function formatBroadcastScope(status: NonNullable<ChangelogEntry['broadcastStatus']>): string {
+  if (status.targetScope === 'role' && status.targetRole) {
+    return BROADCAST_TARGET_ROLE_LABELS[status.targetRole]
+  }
+
+  return BROADCAST_TARGET_SCOPE_LABELS[status.targetScope]
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString('hu-HU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }

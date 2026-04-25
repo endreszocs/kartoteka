@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 import { DioceseDashboardTabs } from '@/components/dashboard/diocese/diocese-dashboard-tabs'
 import { DioceseSetupAutoOpen } from '@/components/dashboard/diocese/diocese-setup-auto-open'
+import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { getCongregationOverviewData } from './actions'
 import { getDioceseSubmissions } from './document-actions'
@@ -24,10 +25,13 @@ import { listAssignments } from '@/app/(dashboard)/admin/profile-congregations-a
  */
 export default async function EgyhazmegyeDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, esperes, admin, master, profile, egyhazkeruletiAdmin } = access
+  const { supabase, user, esperes, admin, master, profile, egyhazkeruletiAdmin, activeProfileRole } = access
 
   if (!user) redirect('/login')
   if (!esperes && !admin && !master) redirect('/dashboard')
+  if (activeProfileRole && activeProfileRole.scope !== 'diocese') {
+    redirect(getHomePathForScope(activeProfileRole.scope))
+  }
 
   const dioceseId = profile?.diocese_id || null
   const currentYear = new Date().getFullYear()

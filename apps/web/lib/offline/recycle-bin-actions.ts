@@ -5,20 +5,15 @@
  * működnek. A Supabase a végén eldönti, hogy mit tesz (soft-delete → deleted=true,
  * hard-delete → DELETE FROM).
  *
- * STANDALONE MÓDBAN (Fázis 7):
- * Ezek a függvények a Dexie-mutation-queue-t használják, ami a böngészőben él.
- * A standalone server-side SQLite mutation queue-ja külön rendszer.
- *
  * Az aktuális MVP-ben a Recycle bin műveletei a Dexie-ben optimisticként
- * mennek, és a következő havi sync során a felhőre kerülnek. **Ez működik
- * standalone módban is**, mert:
+ * mennek, és a sync-orchestrator push-olja fel a Supabase-re:
  *  - Dexie a böngésző cache, a UI azonnal frissül
- *  - A `useSyncMutation` és sync-orchestrator (Fázis 0-6) felelős a Dexie
+ *  - A `useSyncMutation` és sync-orchestrator felelős a Dexie
  *    mutation-queue → Supabase push-ért
- *  - Standalone offline esetén a havi sync alatt push-olódnak fel
  *
- * NOTE: a következő iterációban (Fázis 8) javasolt a Dexie-mutation-queue +
- * SQLite-mutation-queue konvergens architektúra (egy queue, két reflektálás).
+ * M6.3 (2026-04-22) óta a portable standalone SQLite-mutation-queue flow
+ * kivezetve — csak Dexie + Supabase sync-et tartunk (web), vagy a Tauri
+ * oldali SQLCipher-t (desktop, az M6.8+ után).
  *
  * Működés:
  *  - `listDeletedRecords(table, congregationId)` → lekéri a soft-deleted sorokat

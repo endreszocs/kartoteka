@@ -1,73 +1,62 @@
 import { redirect } from 'next/navigation'
 
+import { isKnownRole } from '@/lib/auth/roles'
 import { createClient } from '@/lib/supabase/server'
-import { checkLicensePresent } from '@/lib/standalone/license-check'
-import { isStandaloneMode } from '@/lib/standalone/runtime-detect'
 
 /**
- * Setup route group layout — az onboarding wizardnak.
+ * Setup route group layout — web-onboarding varázslóhoz.
  *
- * KÉT ÜZEMMÓD:
+ * M6.3 (2026-04-22) óta csak web-mode (a korábbi standalone/portable ág kivezetve).
  *
- *  1. STANDALONE: az első indítási varázsló, licensz aktiválással
- *     - ha már van license.dat → redirect /
- *
- *  2. WEB: a bejelentkezett, active lelkész első wizard-lépései
- *     - ha status === 'pending' → redirect /pending
- *     - ha már onboarding_completed_at IS NOT NULL → redirect /dashboard
- *     - nincs bejelentkezve → redirect /login
- *
- * A header mode-aware: standalone módban "Első indítási varázsló",
- * web módban "Üdvözöljük a rendszerben".
+ * Viselkedés:
+ *   - nincs bejelentkezve → /login
+ *   - profile nincs, vagy nincs profil → /login
+ *   - status === 'pending' → /pending
+ *   - status !== 'active' → signOut + /login
+ *   - onboarding_completed_at IS NOT NULL → /dashboard
+ *   - egyébként: a wizard-ot rendereljük
  */
 export default async function SetupLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const standalone = isStandaloneMode()
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  if (standalone) {
-    // Standalone: csak a licensz ellenőrzés
-    const licenseCheck = checkLicensePresent()
-    if (licenseCheck.hasLicense) {
-      redirect('/')
-    }
-  } else {
-    // Web mód: auth + status + onboarding ellenőrzés
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/login')
+  }
 
-    if (!user) {
-      redirect('/login')
-    }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('status, role, onboarding_completed_at')
+    .eq('id', user.id)
+    .maybeSingle()
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('status, onboarding_completed_at')
-      .eq('id', user.id)
-      .maybeSingle()
+  if (!profile) {
+    redirect('/login')
+  }
 
-    if (!profile) {
-      redirect('/login')
-    }
+  if (profile.status === 'pending') {
+    redirect('/pending')
+  }
 
-    if (profile.status === 'pending') {
-      redirect('/pending')
-    }
+  if (profile.status !== 'active') {
+    // Banned vagy egyéb — signOut + login
+    await supabase.auth.signOut()
+    redirect('/login')
+  }
 
-    if (profile.status !== 'active') {
-      // Banned vagy egyéb — signOut + login
-      await supabase.auth.signOut()
-      redirect('/login')
-    }
+  if (!isKnownRole(profile.role)) {
+    redirect('/pending?reason=no-role')
+  }
 
-    // Már teljesítette az onboarding-ot → dashboard (ne csináljuk újra a wizardot)
-    if (profile.onboarding_completed_at) {
-      redirect('/dashboard')
-    }
+  // Már teljesítette az onboarding-ot → dashboard (ne csináljuk újra a wizardot)
+  if (profile.onboarding_completed_at) {
+    redirect('/dashboard')
   }
 
   return (
@@ -93,10 +82,8 @@ export default async function SetupLayout({
             </div>
           </div>
           <div className="text-right text-xs text-slate-500">
-            <p className="font-semibold">
-              {standalone ? 'Első indítási varázsló' : 'Üdvözöljük a rendszerben'}
-            </p>
-            <p>{standalone ? 'Standalone Windows' : 'Webes hozzáférés'}</p>
+            <p className="font-semibold">Üdvözöljük a rendszerben</p>
+            <p>Webes hozzáférés</p>
           </div>
         </div>
       </header>

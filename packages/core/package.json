@@ -1,0 +1,21 @@
+{
+  "name": "@kartoteka/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Közös business logic réteg — use-case függvények és domain kalkulátorok web és desktop között. M6.1 skeleton, a use-case-ek M7+ modul-hullámokban érkeznek.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kartoteka/schema-types": "*",
+    "@kartoteka/supabase-client": "*",
+    "@kartoteka/validations": "*",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -56,20 +56,11 @@ const publicSiteCsp = [
 
 const nextConfig: NextConfig = {
   devIndicators: false,
-  // Fázis 7 — Standalone Windows offline csomag:
-  // A `output: 'standalone'` létrehozza a `.next/standalone/` mappát minden
-  // szükséges dep-pel, hogy a `server.js` magában futtatható legyen portable
-  // Node.js-sel, internet nélkül is.
+  // Next.js "standalone" build mód — a `.next/standalone/server.js`
+  // magában futtatható (Railway / Docker deploy). FIGYELEM: ez NEM azonos
+  // a korábbi Kartotéka portable Inno Setup "standalone"-nal (M6.3-ban
+  // kivezetve). Ez csak egy Next.js build flag.
   output: 'standalone',
-  // A better-sqlite3 és a node-machine-id natív bindingokkal kerülnek
-  // a bundle-be (a NFT trace automatikusan észleli).
-  outputFileTracingIncludes: {
-    '/*': [
-      'node_modules/better-sqlite3/**/*',
-      'node_modules/node-machine-id/**/*',
-      'lib/standalone/sqlite-migrations/**/*',
-    ],
-  },
   // Üres turbopack config: jelzi a Next 16-nak, hogy Turbopack alatt
   // nem kell webpack-konfigot fordítania (Serwist prod build-nél a --webpack
   // flag miatt kapcsol át webpack-re automatikusan)
@@ -81,10 +72,6 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '25mb',
     },
   },
-  // better-sqlite3 és más natív node modulok — a standalone build-nél ezek
-  // nem kerülhetnek webpack-bundle-be, a Node runtime kell hogy loadolja őket
-  // (Next.js 16: áthelyezve experimental-ból a top-level `serverExternalPackages`-be)
-  serverExternalPackages: ['better-sqlite3', 'node-machine-id'],
   images: {
     // A Supabase Storage host engedélyezése a next/image komponenshez
     remotePatterns: supabaseHost

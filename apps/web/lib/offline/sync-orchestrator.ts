@@ -12,29 +12,15 @@
  * tölti meg. Most csak a kapcsoló-váz és az event bus.
  */
 
-import { isStandaloneMode } from '../standalone/is-standalone-client'
 import { getDb, setSyncMeta } from './db'
 import { pullAllTables, pullByTableName } from './pull'
 import { pushBatch } from './push'
 
-/**
- * Standalone mode-ban (Fázis 7 — Windows offline package) a Dexie sync-orchestrator
- * Supabase-hez való pull/push-a FELESLEGES és KÁROS:
- *
- *  - Az authoritative store a lokális SQLite (a server-actions a
- *    `wrapSupabaseForOfflineUse` wrapper-en keresztül írnak/olvasnak)
- *  - A Dexie csak view-cache (read optimization)
- *  - A tényleges Supabase-sync a havi sync flow (`/offline` → "Szinkronizálás most")
- *    fázisban történik — külön (Fázis 7d) endpoint keresi fel a felhőt
- *
- * Ezért minden Supabase-kapcsolatú művelet (pullAll, pushAll, syncNow, pullTable)
- * no-op-ot csinál standalone módban. A `start()` és `stop()` úgyszintén — a
- * timer-ek + event-listener-ek nem inicializálódnak.
- *
- * A kliens komponensek (SyncStatusBar, MutationQueuePanel, CacheOverview)
- * hívhatják ezeket a metódusokat biztonsággal — csak csendesen térnek vissza.
- */
-const STANDALONE = typeof window !== 'undefined' && isStandaloneMode()
+// M6.3 (2026-04-22): a portable standalone kivezetésével együtt eltávolítva
+// a sync-orchestrator STANDALONE fast-path-e. Az eddig "no-op standalone
+// módban" ágak mind normál pull/push-t csinálnak — a web kliens mindig
+// Dexie ↔ Supabase sync-et futtat, a desktop pedig Tauri-oldali SQLCipher-t
+// használ (NEM ezt az orchestrator-t).
 
 // ─────────────────────────────────────────────────────────────────
 // Event típusok
@@ -129,11 +115,6 @@ class SyncOrchestrator {
    */
   async start(congregationId: string | null): Promise<void> {
     if (typeof window === 'undefined') return
-    if (STANDALONE) {
-      // Standalone — no-op. A havi sync flow kezeli a Supabase-t.
-      this.state.congregationId = congregationId
-      return
-    }
 
     // Scope változás? → wipe
     if (this.state.congregationId && this.state.congregationId !== congregationId) {
@@ -237,7 +218,6 @@ class SyncOrchestrator {
    * Lekéri az összes regisztrált tábla delta-ját (updated_at > lastPullAt).
    */
   async pullAll(): Promise<void> {
-    if (STANDALONE) return // standalone — havi sync kezeli
     if (!this.state.online || !this.state.congregationId) return
 
     this.emit({ type: 'pull_started', timestamp: Date.now() })
@@ -268,7 +248,6 @@ class SyncOrchestrator {
    * Egyetlen tábla delta pull-ja (pl. egy modul megnyitásakor friss frissítés).
    */
   async pullTable(table: string): Promise<void> {
-    if (STANDALONE) return // standalone — havi sync kezeli
     if (!this.state.online || !this.state.congregationId) return
 
     this.emit({ type: 'pull_started', table, timestamp: Date.now() })
@@ -303,7 +282,6 @@ class SyncOrchestrator {
    * Exponential backoff az ismételt hibáknál, 5 retry után dead letter.
    */
   async pushAll(): Promise<void> {
-    if (STANDALONE) return // standalone — havi sync kezeli
     if (!this.state.online || !this.state.congregationId) return
 
     const db = getDb()
@@ -373,11 +351,6 @@ class SyncOrchestrator {
 
   /** Manuális sync-trigger a user "Szinkronizálás most" gombjához. */
   async syncNow(): Promise<void> {
-    if (STANDALONE) {
-      // Standalone — a user "Szinkronizálás most" gombja a /offline oldalon a
-      // havi sync flow-t triggereli, NEM ezt. Ez a metódus biztonságosan no-op.
-      return
-    }
     if (!this.state.online) {
       this.emit({ type: 'pull_error', error: 'Nincs internet', timestamp: Date.now() })
       return

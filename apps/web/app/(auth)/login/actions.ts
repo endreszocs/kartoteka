@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { isMasterAdmin } from '@/lib/auth/roles'
-import { resolvePostAuthRedirectPath } from '@/lib/auth/effective-access'
 
 export async function signIn(data: LoginInput) {
   const parsed = loginSchema.safeParse(data)
@@ -42,7 +41,6 @@ export async function signIn(data: LoginInput) {
     return { error: 'Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!' }
   }
 
-  // Routing a szerepkör és gyülekezet alapján
-  const destination = await resolvePostAuthRedirectPath(supabase, authData.user, profile ?? null)
-  redirect(destination)
+  // A root oldal egységesen az aktív profil-scope alapján dönt.
+  redirect('/')
 }

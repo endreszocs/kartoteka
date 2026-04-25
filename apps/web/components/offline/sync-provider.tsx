@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 
 import { getExcelWatcher } from '@/lib/offline/excel-watcher'
 import { getSyncOrchestrator } from '@/lib/offline/sync-orchestrator'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 
 /**
  * SyncProvider — a sync orchestrator inicializálása belépés után.
@@ -53,17 +52,12 @@ export function SyncProvider({
     if (typeof window === 'undefined') return
     if (!congregationId) return
 
-    const standalone = isStandaloneMode()
+    // M6.3 (2026-04-22): a portable standalone kivezetésével az orchestrator
+    // mindig elindul — nincs több feltételes "no-op in standalone" ág.
+    const orchestrator = getSyncOrchestrator()
+    void orchestrator.start(congregationId)
 
-    // Standalone módban a Dexie sync-orchestrator NEM kell — a SQLite az
-    // authoritative store, a havi sync (manual) tölti az adatokat
-    const orchestrator = standalone ? null : getSyncOrchestrator()
-    if (orchestrator) {
-      void orchestrator.start(congregationId)
-    }
-
-    // Excel watcher minden módban kell — a kétirányú Excel sync standalone-ban
-    // is működik (csak más a tárolóhely)
+    // Excel watcher a web PWA Excel-sync flow-jához
     const slug = slugify(
       congregationName || congregationId || 'ismeretlen',
     )

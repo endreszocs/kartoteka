@@ -56,6 +56,16 @@ export interface BroadcastRow {
   release_changelog_key: string | null
 }
 
+export interface ChangelogBroadcastStatus {
+  sentAt: string
+  recipientCount: number
+  targetScope: BroadcastTargetScope
+  targetRole: BroadcastTargetRole | null
+  sendEmail: boolean
+  emailSentAt: string | null
+  emailError: string | null
+}
+
 export interface ChangelogEntry {
   key: string
   date: string
@@ -66,6 +76,7 @@ export interface ChangelogEntry {
   bodyMarkdown: string
   /** True, ha már broadcast-olva lett (meglévő release_changelog_key a DB-ben) */
   alreadySent: boolean
+  broadcastStatus: ChangelogBroadcastStatus | null
 }
 
 export const BROADCAST_TIPUS_LABELS: Record<BroadcastTipus, string> = {

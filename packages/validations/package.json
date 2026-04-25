@@ -1,0 +1,17 @@
+{
+  "name": "@kartoteka/validations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Közös zod validációs sémák minden domain-hez (member, finance, worklog, anyakönyv, stb.). M6.1 skeleton; domain-sémák M7+ modul-hullámokban érkeznek.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

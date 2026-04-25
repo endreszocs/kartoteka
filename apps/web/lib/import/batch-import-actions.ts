@@ -13,7 +13,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { parseWorkbook, parseCsvString } from './excel-parser'
+import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
 import type { ParsedWorkbook } from './excel-parser'
 import {
   type ImportProfile,
@@ -66,8 +66,8 @@ export async function parseAndPreview(
 
   // Formátum ellenőrzés
   const ext = file.name.toLowerCase().split('.').pop()
-  if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
-    return { error: 'Nem támogatott fájlformátum. Elfogadott: .xlsx, .xls, .csv' }
+  if (!['xlsx', 'xls', 'csv', 'xml'].includes(ext || '')) {
+    return { error: 'Nem támogatott fájlformátum. Elfogadott: .xlsx, .xls, .csv, .xml' }
   }
 
   let workbook: ParsedWorkbook
@@ -76,6 +76,9 @@ export async function parseAndPreview(
     if (ext === 'csv') {
       const text = await file.text()
       workbook = parseCsvString(text, file.name)
+    } else if (ext === 'xml') {
+      const text = await file.text()
+      workbook = parseXmlSpreadsheet(text, file.name)
     } else {
       const buffer = await file.arrayBuffer()
       workbook = parseWorkbook(buffer, file.name)
@@ -160,6 +163,9 @@ export async function executeBatchImport(
     if (ext === 'csv') {
       const text = await file.text()
       workbook = parseCsvString(text, file.name)
+    } else if (ext === 'xml') {
+      const text = await file.text()
+      workbook = parseXmlSpreadsheet(text, file.name)
     } else {
       const buffer = await file.arrayBuffer()
       workbook = parseWorkbook(buffer, file.name)

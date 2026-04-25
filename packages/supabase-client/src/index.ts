@@ -19,6 +19,7 @@
 
 export {
   createKartotekaBrowserClient,
+  type SupabaseAuthStorage,
   type SupabaseBrowserConfig,
 } from './browser'
 

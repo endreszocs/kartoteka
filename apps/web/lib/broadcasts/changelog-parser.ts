@@ -96,6 +96,7 @@ export async function parseChangelog(): Promise<ChangelogEntry[]> {
       targetsHint,
       bodyMarkdown,
       alreadySent: false, // ezt a caller állítja be a DB alapján
+      broadcastStatus: null,
     })
 
     // Ha még a ## [dátum] sor nem került feldolgozásra (pl. az i éppen rajta áll), folytatjuk

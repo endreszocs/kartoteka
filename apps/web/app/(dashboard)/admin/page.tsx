@@ -1,17 +1,23 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { isMasterAdmin } from '@/lib/auth/roles'
 import { AdminTabsV3 } from '@/components/admin/admin-tabs-v3'
+import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
+import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { ArrowRight, Building2, LayoutDashboard, Shield } from 'lucide-react'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 
 export default async function AdminPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const access = await getEffectiveAccessContext()
+  const { user, admin, activeProfileRole } = access
 
-  if (!user || !isMasterAdmin(user.email)) {
+  if (!user) {
+    redirect('/login')
+  }
+  if (!admin) {
     redirect('/dashboard')
+  }
+  if (activeProfileRole && activeProfileRole.scope !== 'system') {
+    redirect(getHomePathForScope(activeProfileRole.scope))
   }
   const godMode = await getGodModeStatus()
 

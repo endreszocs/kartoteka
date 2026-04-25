@@ -108,7 +108,7 @@ export function AccessRequestApproveDialog({
                   Indoklás
                 </p>
                 <p className="mt-1 text-xs text-slate-700 whitespace-pre-wrap">
-                  „{request.justification}"
+                  &bdquo;{request.justification}&rdquo;
                 </p>
               </div>
             )}

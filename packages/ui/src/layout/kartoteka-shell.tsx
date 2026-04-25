@@ -135,7 +135,16 @@ export function KartotekaShell({
         {banners}
 
         <main className="flex-1 overflow-y-auto">
-          <div className="page-shell min-h-full p-4 md:p-6 lg:p-7">{children}</div>
+          {/* Reszponzív tartalom (2026-04-25):
+              - Korábban max-w-7xl (1280px) — teljes képernyőn üres sávok mindkét oldalon.
+              - Mostantól nincs felső korlát: a tartalom teljesen kitölti a sidebar utáni
+                főterületet, csak a padding (lg:p-8) tart távolságot a szélektől.
+              - Ultra-széles (3440px+) kijelzőn a beágyazott grid-komponensek (KPI cards,
+                BottomStats, Celebrations) `xl:grid-cols-*` szabályaikkal magukat osztják el,
+                így a szöveges widgetek sem feszülnek olvashatatlanul túl. */}
+          <div className="page-shell min-h-full p-4 md:p-6 lg:p-8">
+            <div className="w-full">{children}</div>
+          </div>
         </main>
       </div>
     </div>

@@ -20,7 +20,6 @@ import {
   getTablesByModule,
   type ModuleKey,
 } from '@/lib/offline/table-registry'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 
 /**
  * Cache áttekintő — modulonkénti bontás.
@@ -39,9 +38,6 @@ export function CacheOverview() {
   const [expanded, setExpanded] = useState<Set<ModuleKey>>(new Set())
   const [syncing, setSyncing] = useState(false)
   const [isPending, startTransition] = useTransition()
-  // Standalone módban a Dexie sync-orchestrator nem fut — a Teljes szinkron
-  // gomb no-op lenne. A havi sync flow kezeli a Supabase-kapcsolatot.
-  const standalone = isStandaloneMode()
 
   // Periodikus frissítés
   const refresh = useCallback(async () => {
@@ -118,28 +114,18 @@ export function CacheOverview() {
             </p>
           </div>
         </div>
-        {standalone ? (
-          <span
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800"
-            title="Standalone módban a havi sync flow kezeli a Supabase-kapcsolatot."
-          >
-            <RefreshCw className="mr-1.5 inline-block h-3.5 w-3.5" />
-            Havi sync az aktív
-          </span>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50"
-            onClick={handleFullSync}
-            disabled={!isOnline || syncing || isPending}
-          >
-            <RefreshCw
-              className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`}
-            />
-            Teljes szinkron most
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50"
+          onClick={handleFullSync}
+          disabled={!isOnline || syncing || isPending}
+        >
+          <RefreshCw
+            className={`mr-1.5 h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`}
+          />
+          Teljes szinkron most
+        </Button>
       </div>
 
       <div className="divide-y divide-slate-100">

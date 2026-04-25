@@ -10,11 +10,9 @@
  * a függvényt úgy, hogy `createClient()`-ként hívja — a viselkedés azonos
  * marad.
  *
- * STANDALONE MÓDBAN (a lelkész gépén — ma még a Next.js standalone output
- * verzió): a böngészőből nem férünk hozzá a SQLite-hoz közvetlenül, de a
- * server-side actions (lib/supabase/server.ts) automatikusan a SQLite-ra
- * irányítja a CRUD műveleteket. A kliens-oldali Supabase-hívások (pl.
- * realtime, auth, storage) szabadon futnak — csak ha van net.
+ * M6.3 (2026-04-22): a korábbi standalone/portable (SQLite-proxy) mód
+ * kivezetve — a Tauri desktop közvetlenül a @kartoteka/supabase-client
+ * factory-t használja (Tauri keyring storage-dzsel).
  */
 
 import { createKartotekaBrowserClient } from '@kartoteka/supabase-client'

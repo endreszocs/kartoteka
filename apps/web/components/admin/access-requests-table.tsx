@@ -122,7 +122,7 @@ function AccessRequestRow({
           <div className="font-medium text-slate-800">{req.full_name}</div>
           {req.justification && (
             <p className="mt-0.5 max-w-xs truncate text-[11px] text-slate-500">
-              „{req.justification}"
+              &bdquo;{req.justification}&rdquo;
             </p>
           )}
         </td>

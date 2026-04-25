@@ -17,8 +17,14 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* A közös UI csomag fájljait is scannelje a Tailwind JIT. */
+/* A közös UI csomagok fájljait is scannelje a Tailwind JIT.
+ * - `packages/ui`     → alap design-rendszer komponensek
+ * - `packages/ui-app` → magas-szintű app-komponensek (Dashboard widgetek,
+ *                       PageHero, SessionStatusBadge, SyncStatusBadge, ModalField)
+ * Lásd a desktop kliens index.css azonos blokkját — egyezőnek kell lennie.
+ */
 @source "../../../packages/ui/src";
+@source "../../../packages/ui-app/src";
 
 /* A teljes Kartotéka design-rendszer — egy forrásból. */
 @import "../../../packages/ui/src/kartoteka.css";

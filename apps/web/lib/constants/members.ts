@@ -6,6 +6,7 @@ export const MEMBER_STATUS_FILTERS = [
   { value: 'elkoltozott', label: 'Elköltözöttek' },
   { value: 'kitert', label: 'Kitértek' },
   { value: 'mas_vallasu', label: 'Más vallásúak' },
+  { value: 'lebego', label: 'Csak család nélküli tagok' },
   { value: 'mind', label: 'Mindenki' },
 ] as const
 

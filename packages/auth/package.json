@@ -1,0 +1,18 @@
+{
+  "name": "@kartoteka/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RBAC helper-ek és scope-builder-ek a Kartotéka szerep-hierarchiához (lelkesz → esperes → egyhazmegyei_admin → egyhazkeruleti_admin → admin). M6.1 skeleton; tartalom M6.1 végén kerül át az apps/web/lib/auth/ alól.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kartoteka/schema-types": "*",
+    "@kartoteka/supabase-client": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

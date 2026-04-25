@@ -18,11 +18,35 @@
 
 import { createBrowserClient } from '@supabase/ssr'
 
+/**
+ * Platform-független, localStorage-szerű storage adapter a Supabase session-höz.
+ * Web: az alapértelmezett `localStorage` (nincs override).
+ * Desktop: Tauri keyring-alapú adapter (Windows Credential Manager / macOS
+ * Keychain / Linux Secret Service) — ld. apps/desktop/src/lib/supabase.ts.
+ */
+export interface SupabaseAuthStorage {
+  getItem(key: string): string | null | Promise<string | null>
+  setItem(key: string, value: string): void | Promise<void>
+  removeItem(key: string): void | Promise<void>
+}
+
 export interface SupabaseBrowserConfig {
   /** A Supabase projekt URL-je, pl. `https://xxx.supabase.co` */
   url: string
   /** A publikus (anon) key — RLS-szel védi a DB-t. */
   anonKey: string
+  /**
+   * Opcionális auth-options override (M6.6 óta, 2026-04-22).
+   * Desktop: Tauri keyring storage adapter; web: NE add meg (cookie-alapú).
+   */
+  authOptions?: {
+    storage?: SupabaseAuthStorage
+    /** A storage-beli kulcs. Default: Supabase saját `sb-<project>-auth-token`. */
+    storageKey?: string
+    persistSession?: boolean
+    autoRefreshToken?: boolean
+    detectSessionInUrl?: boolean
+  }
 }
 
 /**
@@ -32,6 +56,11 @@ export interface SupabaseBrowserConfig {
  * Ha singletont akarsz, a hívó-oldalon kell cache-elni (ld. az
  * `apps/web/lib/supabase/client.ts` wrapper-t, ami minden komponens-render-kor
  * új klienst ad — ez Next.js-ben helyes, mert a session a cookie-ban van).
+ *
+ * Desktop-on a `authOptions.storage` paraméter a Tauri keyring-alapú adapter,
+ * amely a `auth_store_session` / `auth_read_session` / `auth_clear_session`
+ * Rust command-okon keresztül OS-szintű keyring-ben tárolja a session-t
+ * (localStorage helyett).
  */
 export function createKartotekaBrowserClient(
   config: SupabaseBrowserConfig,
@@ -49,6 +78,11 @@ export function createKartotekaBrowserClient(
         'Web: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, ' +
         'Desktop: import.meta.env.VITE_SUPABASE_ANON_KEY.',
     )
+  }
+  if (config.authOptions) {
+    return createBrowserClient(config.url, config.anonKey, {
+      auth: config.authOptions,
+    })
   }
   return createBrowserClient(config.url, config.anonKey)
 }

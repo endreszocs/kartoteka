@@ -9,7 +9,6 @@ import {
   getSyncOrchestrator,
   type SyncEvent,
 } from '@/lib/offline/sync-orchestrator'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 
 /**
  * Kis, kompakt badge az "Offline mentés" dropdown menüpont jobb oldalára.
@@ -71,11 +70,6 @@ export function OfflineMenuItemBadge() {
   }, [mounted])
 
   if (!mounted) return null
-
-  // Standalone módban a LicenseBanner kezeli a sync-állapot kommunikációt —
-  // ne mutassuk az "Offline" badge-et, ami félrevezetné a usert (standalone-ban
-  // az offline a NORMÁL állapot, nem hibajelzés).
-  if (isStandaloneMode()) return null
 
   // Prioritás: konfliktus > offline > pending > syncing > clean
   if ((conflictCount || 0) > 0) {

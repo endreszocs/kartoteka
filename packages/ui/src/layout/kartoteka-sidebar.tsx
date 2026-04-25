@@ -258,6 +258,7 @@ function SidebarNav({
   isEsperes,
   isAdmin,
   isEgyhazkeruletiAdmin = false,
+  isMasterAdmin = false,
   isKonyvelo = false,
   isSzamvevo = false,
   hasCongregation,
@@ -271,8 +272,15 @@ function SidebarNav({
 }: SidebarNavProps) {
   const sections: MenuSection[] = []
 
+  const hasExplicitScope = activeScope !== null
+  const isCongregationScope = activeScope === 'congregation'
   const isDioceseScope = activeScope === 'diocese'
   const isDistrictScope = activeScope === 'district'
+  const isSystemScope = activeScope === 'system'
+  const showCongregationSections = hasExplicitScope ? (isCongregationScope || isDioceseScope) : hasCongregation
+  const showDioceseSection = hasExplicitScope ? false : isEsperes
+  const showDistrictSection = hasExplicitScope ? isDistrictScope : (isEgyhazkeruletiAdmin || isAdmin)
+  const showAdminSection = hasExplicitScope ? (isSystemScope && isAdmin) : isMasterAdmin
 
   const dynamicDashboardItem: MenuItem = isDioceseScope
     ? { label: 'Egyházmegyei irányítópult', href: '/dashboard-egyhazmegye', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
@@ -289,7 +297,7 @@ function SidebarNav({
     ? dioceseMainItems
     : [dynamicDashboardItem, ...mainItems.slice(1)]
 
-  if (hasCongregation) {
+  if (showCongregationSections) {
     if (isDioceseScope) {
       sections.push({ title: 'Fő modulok', items: effectiveMainItems })
       sections.push({ title: 'Profilom', items: profileItems })
@@ -311,15 +319,15 @@ function SidebarNav({
     sections.push({ title: 'Profilom', items: profileItems })
   }
 
-  if (isEsperes) {
+  if (showDioceseSection) {
     sections.push({ title: 'Egyházmegyei nézet', items: dioceseItems })
   }
 
-  if (isEgyhazkeruletiAdmin || isAdmin) {
+  if (showDistrictSection) {
     sections.push({ title: 'Egyházkerületi nézet', items: districtItems })
   }
 
-  if (isAdmin) {
+  if (showAdminSection) {
     sections.push({ title: 'Rendszerszint', items: adminItems })
   }
 

@@ -3,18 +3,11 @@ import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
- * Standalone-aware Supabase server-side kliens.
+ * Supabase server-side kliens web-módra (SSR cookies-alapú session).
  *
- * KÉT MÓD:
- *   1. SERVER MODE (default, web deploy): standard Supabase kliens, minden
- *      query a felhő DB-hez megy.
- *
- *   2. STANDALONE MODE (Fázis 7, lelkész gépén): a Supabase kliens-t
- *      `wrapSupabaseForOfflineUse()` proxy-val felülírjuk, ami a `from()`
- *      hívásokat a lokális SQLite-ra irányítja. Az auth, storage, functions
- *      tovább a Supabase-hez mennek (ha van net), különben offline mode.
- *
- * A `wrapSupabaseForOfflineUse` lazy-loaded — server módban nem terhel.
+ * M6.3 (2026-04-22): a korábbi STANDALONE MODE (portable Inno Setup, SQLite-
+ * proxy) kivezetve — a Tauri desktop direktben a @kartoteka/supabase-client
+ * browser factory-t használja (nem ezt a server.ts-t).
  *
  * FIGYELEM: a `cookies()` és `createServerClient` SSR-only — ez a fájl
  * **csak** server components / route handlers / server actions-ban használható.
@@ -22,7 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export async function createClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies()
 
-  const client = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -37,20 +30,10 @@ export async function createClient(): Promise<SupabaseClient> {
             )
           } catch {
             // Server Component-ből nem lehet cookie-t beállítani
-            // Ez rendben van — a middleware kezeli a frissítést
+            // Ez rendben van — a middleware/proxy kezeli a frissítést
           }
         },
       },
     }
   )
-
-  // Standalone módban: SQLite proxy
-  if (process.env.KARTOTEKA_STANDALONE === 'true') {
-    const { wrapSupabaseForOfflineUse } = await import(
-      '@/lib/standalone/offline-supabase-wrapper'
-    )
-    return wrapSupabaseForOfflineUse(client)
-  }
-
-  return client
 }

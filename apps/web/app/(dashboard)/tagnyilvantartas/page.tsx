@@ -2,6 +2,7 @@ import { getMembers } from './actions'
 import { MemberTabsV4 } from '@/components/members/member-tabs-v4'
 import { MEMBER_IMPORT_PROFILES } from '@/components/members/member-import-profiles'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
+import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -42,6 +43,13 @@ export default async function TagnyilvantartasPage() {
           columns: [...profile.columns],
           hints: [...profile.hints],
         }))}
+        customImportTab={
+          <TagnyilvantartasImportWizard
+            mode="module"
+            congregationId={access.effectiveCongregationId}
+            congregationName={access.congregationName}
+          />
+        }
       >
         <MemberTabsV4
           initialMembers={members}

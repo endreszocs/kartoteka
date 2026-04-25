@@ -1,0 +1,18 @@
+{
+  "name": "@kartoteka/offline-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first szinkronizációs réteg — StorageBackend absztrakció (web: Dexie, desktop: SQLCipher), pull/push orchestrator, mutation queue, konfliktus-resolver. M6.1 skeleton; tartalom M6.8-ban kerül át az apps/web/lib/offline/ alól.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kartoteka/schema-types": "*",
+    "@kartoteka/supabase-client": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

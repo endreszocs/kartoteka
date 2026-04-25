@@ -23,7 +23,6 @@ import {
   restoreRecord,
   type DeletedRecordSummary,
 } from '@/lib/offline/recycle-bin-actions'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 
 /**
  * Recycle Bin View — reusable Kuka oldal minden modulhoz.
@@ -229,18 +228,6 @@ export function RecycleBinView({
             automatikusan véglegesen törli őket.
           </div>
 
-          {/* Standalone mód: a Kuka a Dexie cache-ből olvas, ami csak akkor
-              tartalmazza a törölt rekordokat, ha a Dexie populálódik (jelenleg
-              nem fut a Dexie sync-orchestrator standalone-ban). Tájékoztatjuk
-              a felhasználót, hogy a Kuka helyett a havi sync az aktuális. */}
-          {isStandaloneMode() && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
-              <AlertTriangle className="mr-1 inline h-3.5 w-3.5 text-amber-600" />
-              <strong>Offline csomag mód:</strong> A törölt rekordok a SQLite
-              fájlban vannak. A Kuka fel fog tölteni listát a következő
-              havi sync után.
-            </div>
-          )}
         </div>
       </div>
 

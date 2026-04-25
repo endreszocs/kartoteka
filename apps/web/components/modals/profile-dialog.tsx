@@ -27,7 +27,7 @@ interface ProfileDialogData {
   fullName: string | null
   phone: string | null
   birthDate: string | null
-  role: string
+  role: string | null
   status: string
   createdAt: string | null
   congregationName: string | null
@@ -84,11 +84,9 @@ const SCOPE_COLORS: Record<string, string> = {
   congregation: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  lelkesz: 'Lelkipásztor',
-  esperes: 'Esperes',
-  egyhazmegyei_admin: 'Egyházmegyei admin',
-  admin: 'Kerületi admin',
+function getPrimaryRoleLabel(role: string | null | undefined) {
+  if (!role) return 'Nincs hozzárendelt szerepkör'
+  return PROFILE_ROLE_LABELS[role] || role
 }
 
 export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProps) {
@@ -167,6 +165,7 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
       .slice(0, 2)
       .toUpperCase()
   }, [data?.fullName, profile.full_name, profile.email])
+  const primaryRoleLabel = getPrimaryRoleLabel(data?.role)
 
   async function handlePhotoUpload(file: File) {
     setUploading(true)
@@ -279,12 +278,12 @@ export function ProfileDialog({ open, onOpenChange, profile }: ProfileDialogProp
                     <div className="flex flex-wrap items-center gap-3">
                       <h2 className="font-heading text-3xl text-slate-800">{data?.fullName || 'Lelkipásztor'}</h2>
                       <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                        {data?.pastorProfile.displayTitle || ROLE_LABELS[data?.role || 'lelkesz'] || 'Szolgálattevő'}
+                        {data?.pastorProfile.displayTitle || primaryRoleLabel || 'Szolgálattevő'}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-2 text-sm text-slate-500">
                       <InfoPill icon={<Church className="size-4" />} label={data?.congregationName || 'Gyülekezet nincs hozzárendelve'} />
-                      <InfoPill icon={<ShieldCheck className="size-4" />} label={ROLE_LABELS[data?.role || 'lelkesz'] || data?.role || 'lelkesz'} />
+                      <InfoPill icon={<ShieldCheck className="size-4" />} label={primaryRoleLabel} />
                       <InfoPill icon={<CalendarDays className="size-4" />} label={data?.createdAt ? `Kartotéka tag ${new Date(data.createdAt).toLocaleDateString('hu-HU')}` : 'Kartotéka profil'} />
                     </div>
                   </div>

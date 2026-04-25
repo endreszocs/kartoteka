@@ -137,33 +137,38 @@ export function AnimatedNumber({
   const reducedMotion = useReducedMotion()
   const motionValue = useMotionValue(0)
   const spring = useSpring(motionValue, { stiffness, damping })
-  const [display, setDisplay] = useState<string>(formatter ? formatter(0) : '0')
+
+  // Derived érték render time — a reduced-motion ág nem igényel effect-et / setState-et.
+  // (M6.5-ig az effect-body közvetlenül hívott setDisplay-t reduced-motion esetén;
+  //  React 19 `react-hooks/set-state-in-effect` ezt tiltja.)
+  const staticFormatted = formatter ? formatter(value) : value.toLocaleString('hu')
+  const staticDisplay = showPlus && value > 0 ? `+${staticFormatted}` : staticFormatted
+
+  const [animatedDisplay, setAnimatedDisplay] = useState<string>(
+    formatter ? formatter(0) : '0',
+  )
 
   useEffect(() => {
-    if (reducedMotion) {
-      const formatted = formatter ? formatter(value) : value.toLocaleString('hu')
-      setDisplay(showPlus && value > 0 ? `+${formatted}` : formatted)
-      return
-    }
-    if (!inView) return
+    if (reducedMotion || !inView) return
     const timer = setTimeout(() => {
       motionValue.set(value)
     }, delayMs)
     return () => clearTimeout(timer)
-  }, [inView, value, motionValue, delayMs, reducedMotion, formatter, showPlus])
+  }, [inView, value, motionValue, delayMs, reducedMotion])
 
   useEffect(() => {
+    if (reducedMotion) return
     const unsub = spring.on('change', (latest) => {
       const rounded = Math.round(latest)
       const formatted = formatter ? formatter(rounded) : rounded.toLocaleString('hu')
-      setDisplay(showPlus && rounded > 0 ? `+${formatted}` : formatted)
+      setAnimatedDisplay(showPlus && rounded > 0 ? `+${formatted}` : formatted)
     })
     return unsub
-  }, [spring, formatter, showPlus])
+  }, [spring, formatter, showPlus, reducedMotion])
 
   return (
     <span ref={ref} className={className}>
-      {display}
+      {reducedMotion ? staticDisplay : animatedDisplay}
     </span>
   )
 }

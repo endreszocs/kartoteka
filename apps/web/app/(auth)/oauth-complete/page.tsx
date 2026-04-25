@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OAuthCompleteForm } from '@/components/auth/oauth-complete-form'
 import { isMasterAdmin } from '@/lib/auth/roles'
-import { resolvePostAuthRedirectPath } from '@/lib/auth/effective-access'
 
 export default async function OAuthCompletePage() {
   const supabase = await createClient()
@@ -27,8 +26,7 @@ export default async function OAuthCompletePage() {
       redirect('/login?error=pending')
     }
 
-    const destination = await resolvePostAuthRedirectPath(supabase, user, profile)
-    redirect(destination)
+    redirect('/')
   }
 
   // Név előtöltése az OAuth adatokból

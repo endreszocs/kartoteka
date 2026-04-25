@@ -1,0 +1,29 @@
+{
+  "name": "@kartoteka/ui-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alkalmazás-szintű React komponensek (modalok, táblák, dashboard tabok, form-ok) — közös web és desktop között. M6.1 skeleton; a 302 komponens modul-wave-nként költözik ide M7+-tól.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kartoteka/core": "*",
+    "@kartoteka/ui": "*",
+    "@kartoteka/validations": "*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.7.0",
+    "tailwind-merge": "^3.5.0"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

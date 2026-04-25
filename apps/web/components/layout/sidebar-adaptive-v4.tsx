@@ -183,6 +183,7 @@ function SidebarNav({
   isEsperes,
   isAdmin,
   isEgyhazkeruletiAdmin = false,
+  isMasterAdmin = false,
   isKonyvelo = false,
   isSzamvevo = false,
   hasCongregation,
@@ -217,8 +218,15 @@ function SidebarNav({
   const sections: MenuSection[] = []
 
   // 2026-04-18: dinamikus "Irányítópult" menüpont scope alapján
+  const hasExplicitScope = activeScope !== null
+  const isCongregationScope = activeScope === 'congregation'
   const isDioceseScope = activeScope === 'diocese'
   const isDistrictScope = activeScope === 'district'
+  const isSystemScope = activeScope === 'system'
+  const showCongregationSections = hasExplicitScope ? (isCongregationScope || isDioceseScope) : hasCongregation
+  const showDioceseSection = hasExplicitScope ? false : isEsperes
+  const showDistrictSection = hasExplicitScope ? isDistrictScope : (isEgyhazkeruletiAdmin || isAdmin)
+  const showAdminSection = hasExplicitScope ? (isSystemScope && isAdmin) : isMasterAdmin
 
   const dynamicDashboardItem: MenuItem = isDioceseScope
     ? { label: 'Egyházmegyei irányítópult', href: '/dashboard-egyhazmegye', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
@@ -241,7 +249,7 @@ function SidebarNav({
       ]
 
   // Lelkész / esperes / admin: a saját gyülekezetük moduljaihoz jutnak
-  if (hasCongregation) {
+  if (showCongregationSections) {
     if (isDioceseScope) {
       // Diocese scope-ban CSAK a Pénzügy fő modul + Profil
       sections.push({ title: 'Fő modulok', items: effectiveMainItems })
@@ -271,19 +279,19 @@ function SidebarNav({
     sections.push({ title: 'Profilom', items: profileItems })
   }
 
-  if (isEsperes) {
+  if (showDioceseSection) {
     sections.push({ title: 'Egyházmegyei nézet', items: dioceseItems })
   }
 
   // Egyházkerületi nézet: kerületi admin + admin + master (az isEgyhazkeruletiAdminRole
   // helper már magában foglalja az admin-t és master-t)
-  if (isEgyhazkeruletiAdmin || isAdmin) {
+  if (showDistrictSection) {
     sections.push({ title: 'Egyházkerületi nézet', items: districtItems })
   }
 
   // Admin Panel: az admin szerepkör és master admin is láthatja
   // (eddig CSAK a master admin látta — ez változás!)
-  if (isAdmin) {
+  if (showAdminSection) {
     sections.push({ title: 'Rendszerszint', items: adminItems })
   }
 

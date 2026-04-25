@@ -75,6 +75,7 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
       if (statusFilter === 'elkoltozott') return m.elkoltozott
       if (statusFilter === 'kitert') return m.member_status === 'kitért'
       if (statusFilter === 'mas_vallasu') { const v = (m.vallas || '').trim().toLowerCase(); return v !== '' && v !== 'református' && !m.meghalt }
+      if (statusFilter === 'lebego') return m.familyId === null && !m.meghalt && !m.elkoltozott
       return true
     })
 

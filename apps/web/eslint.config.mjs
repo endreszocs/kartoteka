@@ -12,9 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Standalone build artifacts
+    // Build artifacts
     "dist/**",
-    "standalone-build/**",
     // Supabase Edge Functions (Deno runtime, nem Node.js)
     "supabase/functions/**",
     // Legacy Vanilla JS forrásfájlok — referencia archívum, nem fut runtime-ban

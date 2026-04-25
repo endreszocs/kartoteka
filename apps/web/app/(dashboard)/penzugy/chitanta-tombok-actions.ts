@@ -11,6 +11,12 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import {
+  createChitantaTombUseCase,
+  getActiveChitantaTombStatusUseCase,
+  listChitantaTombokUseCase,
+} from '@kartoteka/core'
+
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
 export interface ChitantaTomb {
@@ -39,18 +45,45 @@ export async function listChitantaTombok(): Promise<{
   data?: ChitantaTomb[]
   error?: string
 }> {
+  // A-M7.1a óta: a @kartoteka/core use-case hívja a Supabase-t és
+  // zod-validálja a rekordokat. A web Server Action vékony adapter:
+  // a scope-t (congregationId) átadja, és a return-értéket a meglévő
+  // `ChitantaTomb` interface-hez igazítja (congregation_id non-null).
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { data, error } = await access.supabase
-    .from('chitanta_tombok')
-    .select('*')
-    .eq('congregation_id', access.effectiveCongregationId)
-    .order('szam_kezdet', { ascending: true })
+  const result = await listChitantaTombokUseCase(
+    { congregationId: access.effectiveCongregationId },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  if (!result.success) return { error: result.error }
 
-  if (error) return { error: error.message }
-  return { data: (data || []) as ChitantaTomb[] }
+  // A saját gyülekezet scope-jában a congregation_id mindig ki van töltve
+  // (a core query-jét `.eq('congregation_id', …)`-szal szűri).
+  const filtered = result.rows.filter(
+    (r): r is typeof r & { congregation_id: string } => r.congregation_id !== null,
+  )
+
+  return {
+    data: filtered.map((r) => ({
+      id: r.id,
+      congregation_id: r.congregation_id,
+      block_nr: r.block_nr,
+      seria: r.seria,
+      szam_kezdet: r.szam_kezdet,
+      szam_veg: r.szam_veg,
+      darabszam_ossz: r.darabszam_ossz,
+      felhasznalt_darabszam: r.felhasznalt_darabszam,
+      vasarlas_datuma: r.vasarlas_datuma,
+      vasarlas_ara: r.vasarlas_ara,
+      elso_hasznalat_datum: r.elso_hasznalat_datum,
+      utolso_hasznalat_datum: r.utolso_hasznalat_datum,
+      aktiv: r.aktiv,
+      megjegyzes: r.megjegyzes,
+      created_at: r.created_at,
+    })),
+  }
 }
 
 export async function getActiveChitantaTombStatus(): Promise<{
@@ -66,36 +99,20 @@ export async function getActiveChitantaTombStatus(): Promise<{
   } | null
   error?: string
 }> {
+  // A-M7.2a óta: a @kartoteka/core use-case számolja a derived státuszt
+  // (computeChitantaTombStatus). A web adapter vékony.
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { data, error } = await access.supabase
-    .from('chitanta_tombok')
-    .select('id, seria, szam_kezdet, szam_veg, felhasznalt_darabszam, darabszam_ossz')
-    .eq('congregation_id', access.effectiveCongregationId)
-    .eq('aktiv', true)
-    .order('szam_kezdet', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) return { error: error.message }
-  if (!data) return { active: null }
-
-  const maradek = (data.darabszam_ossz as number) - (data.felhasznalt_darabszam as number)
-  return {
-    active: {
-      id: data.id as string,
-      seria: data.seria as string,
-      szam_kezdet: data.szam_kezdet as number,
-      szam_veg: data.szam_veg as number,
-      felhasznalt_darabszam: data.felhasznalt_darabszam as number,
-      darabszam_ossz: data.darabszam_ossz as number,
-      maradek,
-      kovetkezo_szam: (data.szam_kezdet as number) + (data.felhasznalt_darabszam as number),
-    },
-  }
+  const result = await getActiveChitantaTombStatusUseCase(
+    { congregationId: access.effectiveCongregationId },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  if (!result.success) return { error: result.error }
+  return { active: result.active }
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Új tömb rögzítése (wizard utolsó lépése)
@@ -123,55 +140,31 @@ export async function createChitantaTomb(
   if (!Number.isFinite(input.szam_kezdet) || !Number.isFinite(input.szam_veg)) {
     return { error: 'Adj meg érvényes kezdő és záró nyomdai számokat.' }
   }
-  if (input.szam_veg < input.szam_kezdet) {
-    return { error: 'A záró szám nem lehet kisebb, mint a kezdő szám.' }
-  }
-  const darabszam = input.szam_veg - input.szam_kezdet + 1
-  if (darabszam > 100) {
-    return { error: 'Egy tömbben max. 100 nyugta lehet — ellenőrizd a számokat.' }
-  }
-
-  // Átfedés-ellenőrzés: a congregation jelenlegi tömbjei közül nincs átfedés?
-  const { data: existing } = await access.supabase
-    .from('chitanta_tombok')
-    .select('id, seria, szam_kezdet, szam_veg')
-    .eq('congregation_id', access.effectiveCongregationId)
-
-  for (const t of existing || []) {
-    if (t.seria !== input.seria.trim()) continue
-    const kezd = t.szam_kezdet as number
-    const veg = t.szam_veg as number
-    // Van átfedés?
-    if (input.szam_kezdet <= veg && input.szam_veg >= kezd) {
-      return {
-        error: `Átfedés a meglévő ${t.seria} ${kezd}-${veg} tömbbel. Ellenőrizd a számokat.`,
-      }
-    }
-  }
-
-  const { data: inserted, error } = await access.supabase
-    .from('chitanta_tombok')
-    .insert({
-      congregation_id: access.effectiveCongregationId,
-      block_nr: input.block_nr?.trim() || null,
-      seria: input.seria.trim(),
+  // A-M7.1b óta: a @kartoteka/core use-case kezeli a validálást + átfedés-
+  // ellenőrzést + RLS-védett insert-et + zod-drift-check-et. A web adapter
+  // vékony — csak a scope (congregationId) + userId kinyerése.
+  const result = await createChitantaTombUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      block_nr: input.block_nr ?? null,
+      seria: input.seria,
       szam_kezdet: input.szam_kezdet,
       szam_veg: input.szam_veg,
-      darabszam_ossz: darabszam,
-      felhasznalt_darabszam: 0,
       vasarlas_datuma: input.vasarlas_datuma,
       vasarlas_ara: input.vasarlas_ara ?? null,
-      megjegyzes: input.megjegyzes?.trim() || null,
-      aktiv: true,
-      created_by: access.user.id,
-    })
-    .select('id')
-    .single()
+      megjegyzes: input.megjegyzes ?? null,
+    },
+    {
+      supabase: access.supabase,
+      runtime: 'web',
+      userId: access.user.id,
+    },
+  )
 
-  if (error) return { error: `Hiba: ${error.message}` }
+  if (!result.success) return { error: result.error }
 
   revalidatePath('/penzugy')
-  return { success: true, id: inserted?.id }
+  return { success: true, id: result.id }
 }
 
 // ─────────────────────────────────────────────────────────────

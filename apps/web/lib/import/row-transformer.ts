@@ -161,6 +161,62 @@ function resolveAutoColumn(
 // ---------------------------------------------------------------------------
 
 /**
+ * Szintetikus mezők kitöltése a meglévő virtuális (`_*`) mezőkből.
+ *
+ *  - sz_datum: Ha üres, próbál Év/Hó/Nap-ból kompozit ÉÉÉÉ-HH-NN-t építeni
+ *    (a régi adatkezelő-XML-ek külön oszlopként tárolták ezeket)
+ *  - c_szcim: Ha üres és van Utca/Házszám/Helység, összerakja egy szöveges
+ *    címet ("Templom u. 229, Barátos") — a felhasználó később finomíthatja
+ *
+ * A módosítás in-place a record objektumon.
+ */
+function applySyntheticFields(record: Record<string, string | number | boolean | null>): void {
+  // 1. sz_datum kompozíció Év + Hó + Nap-ból
+  const currentDate = record['sz_datum']
+  if ((currentDate === null || currentDate === undefined || currentDate === '') &&
+      record['_sz_ev'] != null) {
+    const ev = Number(record['_sz_ev'])
+    const ho = record['_sz_ho'] != null ? Number(record['_sz_ho']) : 1
+    const nap = record['_sz_nap'] != null ? Number(record['_sz_nap']) : 1
+    if (Number.isFinite(ev) && ev > 1800 && ev < 2200) {
+      const validHo = Number.isFinite(ho) && ho >= 1 && ho <= 12 ? ho : 1
+      const validNap = Number.isFinite(nap) && nap >= 1 && nap <= 31 ? nap : 1
+      record['sz_datum'] = `${ev}-${String(validHo).padStart(2, '0')}-${String(validNap).padStart(2, '0')}`
+    }
+  }
+
+  // 2. c_szcim kompozíció Utca + Házszám + Helység-ből
+  const currentAddress = record['c_szcim']
+  if (currentAddress === null || currentAddress === undefined || currentAddress === '') {
+    const utca = record['_utca_text']
+    const helyseg = record['_helyseg_text']
+    const szam = record['c_szam']
+
+    const parts: string[] = []
+    if (typeof utca === 'string' && utca.trim() !== '') {
+      const utcaTrimmed = utca.trim()
+      // Ha az utca már tartalmazza az "u." vagy "út" stb. szót, ne ismételjük
+      const hasStreetSuffix = /\b(u\.|út|utca|sugárút|tér|park|krt\.|körút)\b/i.test(utcaTrimmed)
+      const utcaPart = hasStreetSuffix ? utcaTrimmed : `${utcaTrimmed} u.`
+      if (typeof szam === 'string' && szam.trim() !== '') {
+        parts.push(`${utcaPart} ${szam.trim()}`)
+      } else {
+        parts.push(utcaPart)
+      }
+    } else if (typeof szam === 'string' && szam.trim() !== '') {
+      parts.push(szam.trim())
+    }
+    if (typeof helyseg === 'string' && helyseg.trim() !== '') {
+      parts.push(helyseg.trim())
+    }
+
+    if (parts.length > 0) {
+      record['c_szcim'] = parts.join(', ')
+    }
+  }
+}
+
+/**
  * Egyetlen Excel sort DB rekorddá alakít a profil és a header matching alapján.
  */
 export function transformRow(
@@ -178,6 +234,9 @@ export function transformRow(
     const converted = convertCell(rawValue, mapping.type)
     record[mapping.dbColumn] = converted
   }
+
+  // 1b. Szintetikus mezők (sz_datum kompozíció Év/Hó/Nap-ból, c_szcim Utca/Házszám/Helység-ből)
+  applySyntheticFields(record)
 
   // 2. Kötelező mezők ellenőrzése
   for (const col of profile.columnMap) {

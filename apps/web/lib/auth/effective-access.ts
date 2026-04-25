@@ -4,6 +4,7 @@ import {
   isEgyhazkeruletiAdminRole,
   isEsperesRole,
   isKonyveloRole,
+  isKnownRole,
   isMasterAdmin,
   isSzamvevoRole,
 } from '@/lib/auth/roles'
@@ -49,7 +50,10 @@ type OverrideRow = {
   congregations: CongregationSummary | CongregationSummary[] | null
 }
 
-type RedirectProfile = Pick<Profile, 'role' | 'congregation_id'> | null
+type RedirectProfile = {
+  role?: string | null
+  congregation_id?: string | null
+} | null
 
 export interface EffectiveOverrideInfo {
   active: boolean
@@ -105,6 +109,8 @@ export interface EffectiveAccessContext {
   /** Approved profile_congregations sorok (csak konyvelo / szamvevo szerepkör esetén nem üres). */
   assignedCongregations: AssignedCongregation[]
   override: EffectiveOverrideInfo
+  /** A profil aktív, de nincs érvényes elsődleges szerepkör rendelve hozzá. */
+  missingPrimaryRole: boolean
   /** Minden approved profile_roles sor (multi-role, 2026-04-17) */
   profileRoles: ProfileRoleRow[]
   /** Az éppen aktív kontextus (profile switcher-rel választható).
@@ -210,26 +216,15 @@ async function getActiveOverride(
 }
 
 export async function resolvePostAuthRedirectPath(
-  supabase: SupabaseServerClient,
+  _supabase: SupabaseServerClient,
   user: { id: string; email?: string | null } | null,
   profile: RedirectProfile,
 ): Promise<string> {
   if (!user) return '/login'
 
-  const role = (profile?.role || 'lelkesz') as Role
   const master = isMasterAdmin(user.email)
-  const godModeActive = master ? await hasActiveGodModeSession() : false
-  const override = godModeActive ? await getActiveOverride(supabase, user.id) : { active: false }
-  const effectiveCongregationId = override.congregationId || profile?.congregation_id || null
-
-  if (effectiveCongregationId) return '/dashboard'
-  if (master || role === 'admin') return '/dashboard-kerulet'
-  if (role === 'egyhazkeruleti_admin') return '/dashboard-kerulet'
-  if (role === 'esperes' || role === 'egyhazmegyei_admin') return '/dashboard-egyhazmegye'
-  // Konyvelo / szamvevo nem rendelkezik saját congregation-nel, a hozzárendelt
-  // gyülekezetek (profile_congregations) választó oldalra irányítjuk.
-  if (role === 'konyvelo' || role === 'egyhazmegyei_szamvevo') return '/profile'
-  return '/dashboard'
+  if (!master && !isKnownRole(profile?.role)) return '/pending?reason=no-role'
+  return '/'
 }
 
 export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccessContext> => {
@@ -259,6 +254,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
       hasCongregation: false,
       assignedCongregations: [],
       override: { active: false },
+      missingPrimaryRole: false,
       profileRoles: [],
       activeProfileRole: null,
     }
@@ -270,8 +266,10 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     .eq('id', user.id)
     .maybeSingle()
 
-  const role = (profile?.role || 'lelkesz') as Role
   const master = isMasterAdmin(user.email)
+  const hasPrimaryRole = isKnownRole(profile?.role)
+  const missingPrimaryRole = Boolean(profile && !master && !hasPrimaryRole)
+  const role = (hasPrimaryRole ? profile.role : 'lelkesz') as Role
   const admin = isAdminRole(role, user.email)
   const egyhazkeruletiAdmin = isEgyhazkeruletiAdminRole(role, user.email)
   const esperes = isEsperesRole(role, user.email)
@@ -281,11 +279,22 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
 
   // BIZTONSÁGI: override csak aktív god mode sessionnel érvényes
   const godModeActive = master ? await hasActiveGodModeSession() : false
-  const override = godModeActive ? await getActiveOverride(supabase, user.id) : { active: false }
+  const override =
+    !missingPrimaryRole && godModeActive
+      ? await getActiveOverride(supabase, user.id)
+      : { active: false }
 
   // FÁZIS 3 (2026-04-17): multi-role és aktív kontextus feloldás — ELSŐ a scope döntéshez
-  const profileRoles = await loadProfileRoles(supabase, user.id)
-  const activeProfileRole = await resolveActiveProfileRole(profileRoles, role, profileCongregationId, profile?.diocese_id || null, profile?.district_id || null)
+  const profileRoles = missingPrimaryRole ? [] : await loadProfileRoles(supabase, user.id)
+  const activeProfileRole = missingPrimaryRole
+    ? null
+    : await resolveActiveProfileRole(
+        profileRoles,
+        role,
+        profileCongregationId,
+        profile?.diocese_id || null,
+        profile?.district_id || null,
+      )
 
   // 2026-04-19 BUGFIX (Endre): ha az aktív profile_role scope-ja NEM 'congregation'
   // (pl. system=admin, diocese=esperes, district=kerületi admin), akkor a gyülekezet
@@ -295,7 +304,9 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   // A fallback (activeProfileRole hiányában vagy 'congregation' scope-ban) a
   // meglévő profiles.congregation_id (+ opcionális god-mode override).
   let effectiveCongregationId: string | null
-  if (activeProfileRole && activeProfileRole.scope !== 'congregation') {
+  if (missingPrimaryRole) {
+    effectiveCongregationId = null
+  } else if (activeProfileRole && activeProfileRole.scope !== 'congregation') {
     // Admin/diocese/district scope — nincs saját gyülekezet kontextus
     effectiveCongregationId = null
   } else if (activeProfileRole && activeProfileRole.scope === 'congregation' && activeProfileRole.scopeId) {
@@ -307,7 +318,9 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   }
 
   // Konyvelo / szamvevo számára: approved hozzárendelések betöltése
-  const assignedCongregations = await getAssignedCongregations(supabase, user.id, role)
+  const assignedCongregations = missingPrimaryRole
+    ? []
+    : await getAssignedCongregations(supabase, user.id, role)
 
   const congregation = effectiveCongregationId
     ? override.active && override.congregationId === effectiveCongregationId
@@ -340,6 +353,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     hasCongregation: !!effectiveCongregationId,
     assignedCongregations,
     override,
+    missingPrimaryRole,
     profileRoles,
     activeProfileRole,
   }

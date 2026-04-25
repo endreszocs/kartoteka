@@ -1,22 +1,9 @@
-import { cn } from '@/lib/utils'
-
-interface ModalFieldProps {
-  label: string
-  required?: boolean
-  hint?: string
-  children: React.ReactNode
-  className?: string
-}
-
-export function ModalField({ label, required, hint, children, className }: ModalFieldProps) {
-  return (
-    <div className={cn('space-y-1.5', className)}>
-      <label className="text-sm font-medium text-zinc-700">
-        {label}
-        {required && <span className="text-amber-700 ml-0.5">*</span>}
-      </label>
-      {children}
-      {hint && <p className="text-xs text-zinc-400">{hint}</p>}
-    </div>
-  )
-}
+/**
+ * ModalField — re-export a `@kartoteka/ui-app/form` rétegből.
+ *
+ * 2026-04-25-től a komponens fizikai forrása a `packages/ui-app/src/form/ModalField.tsx`.
+ * Ez a fájl **backward-compat re-export** a 22 web modal/dialog számára,
+ * amelyek az `@/components/ui/modal-field` import-ra építenek. Új kódban
+ * közvetlenül a `@kartoteka/ui-app`-ból importálj.
+ */
+export { ModalField, type ModalFieldProps } from '@kartoteka/ui-app'

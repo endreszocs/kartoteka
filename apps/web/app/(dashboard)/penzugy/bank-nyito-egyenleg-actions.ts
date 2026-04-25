@@ -13,18 +13,12 @@
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
-export interface NyitoEgyenlegRow {
-  id: number
-  bankszamla_id: number
-  eve: number
-  nyito_egyenleg_valuta: number
-  nyito_egyenleg_ron: number
-  arfolyam: number | null
-  forrasa: 'manual' | 'import' | 'carryover'
-  megjegyzes: string | null
-  created_at: string
-  updated_at: string
-}
+// 2026-04-25 (Sprint Q F1, v0.7.2): a `NyitoEgyenlegRow` átkerült a shared
+// `@kartoteka/ui-app` package-be, hogy a desktop és iOS oldal is ugyanazt a
+// típust használja. Itt re-exportoljuk, hogy a meglévő import-helyek
+// (pl. bcr-import-wizard-dialog.tsx) változatlanul működjenek.
+import type { NyitoEgyenlegRow } from '@kartoteka/ui-app'
+export type { NyitoEgyenlegRow }
 
 export interface UpsertNyitoEgyenlegInput {
   bankszamla_id: number

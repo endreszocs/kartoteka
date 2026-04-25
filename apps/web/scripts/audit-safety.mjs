@@ -28,7 +28,7 @@ const ROOT = resolve(dirname(__filename), '..')
 const wantsJson = process.argv.includes('--json')
 
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx'])
-const IGNORE_DIR_NAMES = new Set(['node_modules', '.next', 'standalone-build', '.git'])
+const IGNORE_DIR_NAMES = new Set(['node_modules', '.next', '.git'])
 const CODE_SCAN_EXCLUDES = [
   'migration-docs/source-links/',
 ]

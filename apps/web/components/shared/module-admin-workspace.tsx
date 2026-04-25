@@ -22,6 +22,12 @@ interface ModuleAdminWorkspaceProps {
   /** Modul kulcs az import rendszerhez */
   importModule?: ImportModule
   hideTabsUntilPrivileged?: boolean
+  /**
+   * Egyedi import-tab tartalom — ha megadva, a "Rendszergazdai importáló" fülön
+   * ezt rendereli a rendszer az alapértelmezett ModuleAdminImportTabV2 helyett.
+   * Erre épül pl. a tagnyilvántartás új import wizardja (TagnyilvantartasImportWizard).
+   */
+  customImportTab?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -39,6 +45,7 @@ export function ModuleAdminWorkspace({
   importProfiles,
   importModule,
   hideTabsUntilPrivileged = false,
+  customImportTab,
   children,
 }: ModuleAdminWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<'main' | 'admin-import'>('main')
@@ -69,6 +76,8 @@ export function ModuleAdminWorkspace({
 
       {resolvedActiveTab === 'main' ? (
         children
+      ) : customImportTab ? (
+        customImportTab
       ) : (
         <ModuleAdminImportTabV2
           moduleKey={moduleKey}

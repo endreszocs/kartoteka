@@ -1,9 +1,10 @@
 /**
- * Szerver-oldali Excel / CSV parser a rendszergazdai import funkciókhoz.
+ * Szerver-oldali Excel / CSV / XML parser a rendszergazdai import funkciókhoz.
  *
  * Támogatott formátumok:
- *  - .xlsx / .xls (Microsoft Excel)
+ *  - .xlsx / .xls (Microsoft Excel — modern és régi)
  *  - .csv (vessző-/pontosvessző-elválasztott)
+ *  - .xml (Microsoft Excel SpreadsheetML 2003 — Excel "XML Spreadsheet" export)
  *
  * Főbb képességek:
  *  - Többfüles (multi-sheet) Excel fájlok — minden sheet külön felismerve
@@ -162,6 +163,88 @@ export function parseWorkbook(
     sheets,
     sheetCount: sheets.length,
     isCsv: fileName.toLowerCase().endsWith('.csv'),
+  }
+}
+
+/**
+ * Microsoft Excel SpreadsheetML 2003 parser — egy XML string-ből.
+ *
+ * Az "Excel XML Spreadsheet (.xml)" formátum a régebbi Excel verziókban
+ * létrejövő szöveges export. A SheetJS automatikusan felismeri, ha
+ * `XLSX.read(content, { type: 'string' })`-szel hívjuk.
+ *
+ * A workbook struktúra ugyanaz, mint az XLSX-nél — multi-sheet, fejléc-detekció
+ * a `parseWorkbook`-kal megegyező logikával.
+ */
+export function parseXmlSpreadsheet(content: string, fileName: string): ParsedWorkbook {
+  const workbook = XLSX.read(content, {
+    type: 'string',
+    cellDates: true,
+    raw: false,
+  })
+
+  const sheets: ParsedSheet[] = workbook.SheetNames.map((name) => {
+    const sheet = workbook.Sheets[name]
+    if (!sheet) {
+      return { name, headers: [], rows: [], rowCount: 0, warning: 'Üres fül' }
+    }
+
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      defval: null,
+      blankrows: false,
+    })
+
+    if (aoa.length === 0) {
+      return { name, headers: [], rows: [], rowCount: 0, warning: 'Üres fül' }
+    }
+
+    // Fejléc-detekció: ugyanaz a logika, mint a parseWorkbook-ban
+    let headerIndex = -1
+    for (let i = 0; i < Math.min(aoa.length, 10); i += 1) {
+      const row = aoa[i]
+      if (!row || !Array.isArray(row)) continue
+      const nonNullCount = row.filter((c) => c !== null && c !== undefined && c !== '').length
+      const stringCount = row.filter((c) => typeof c === 'string' && c.trim().length > 0).length
+      if (nonNullCount >= 2 && stringCount >= Math.ceil(nonNullCount / 2)) {
+        headerIndex = i
+        break
+      }
+    }
+
+    if (headerIndex === -1) {
+      return { name, headers: [], rows: [], rowCount: 0, warning: 'Nem található fejléc' }
+    }
+
+    const rawHeaders = aoa[headerIndex] as unknown[]
+    const headers = rawHeaders.map((h, idx) => {
+      const normalized = normalizeCell(h)
+      if (typeof normalized === 'string' && normalized.length > 0) return normalized
+      return `oszlop_${idx + 1}`
+    })
+
+    const rows: Array<Record<string, string | number | null>> = []
+    for (let i = headerIndex + 1; i < aoa.length; i += 1) {
+      const rowArr = aoa[i]
+      if (!rowArr || !Array.isArray(rowArr)) continue
+      const hasContent = rowArr.some((c) => c !== null && c !== undefined && c !== '')
+      if (!hasContent) continue
+
+      const rowObj: Record<string, string | number | null> = {}
+      headers.forEach((header, idx) => {
+        rowObj[header] = normalizeCell(rowArr[idx])
+      })
+      rows.push(rowObj)
+    }
+
+    return { name, headers, rows, rowCount: rows.length }
+  })
+
+  return {
+    fileName,
+    sheets,
+    sheetCount: sheets.length,
+    isCsv: false,
   }
 }
 

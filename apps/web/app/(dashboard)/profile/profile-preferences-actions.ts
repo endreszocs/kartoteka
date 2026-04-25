@@ -18,6 +18,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 
 export type DefaultDashboard =
   | 'auto'
@@ -141,6 +142,18 @@ export async function saveLastUsedScope(
 export async function resolveDefaultDashboardPath(): Promise<string> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return '/login'
+  if (!access.master && access.profile?.status === 'pending') return '/pending'
+  if (!access.master && access.missingPrimaryRole) return '/pending?reason=no-role'
+
+  // Ha a felhasználó profilváltóval explicit scope-ban van, a kezdőoldalnak
+  // ugyanazt a munkateret kell követnie. Ez előzi meg, hogy gyülekezeti
+  // profilból a / automatikusan kerületi vagy admin oldalra ugorjon.
+  if (access.activeProfileRole) {
+    if (access.activeProfileRole.scope === 'system' && !(access.admin || access.master)) {
+      return '/dashboard'
+    }
+    return getHomePathForScope(access.activeProfileRole.scope)
+  }
 
   // Saját preferenciák olvasása
   const { data: pref } = await access.supabase

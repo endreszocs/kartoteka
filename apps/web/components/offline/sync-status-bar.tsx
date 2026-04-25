@@ -17,7 +17,6 @@ import {
   getSyncOrchestrator,
   type SyncEvent,
 } from '@/lib/offline/sync-orchestrator'
-import { isStandaloneMode } from '@/lib/standalone/is-standalone-client'
 
 /**
  * Sync Status Bar — a képernyő tetején megjelenő fix sáv, ami a sync
@@ -91,11 +90,6 @@ export function SyncStatusBar() {
 
   // SSR safety: semmi nem renderelődik, amíg a client nem mount-olt
   if (!mounted) return null
-
-  // Standalone módban a Dexie sync-orchestrator nem fut — a LicenseBanner
-  // jeleníti meg a sync-állapotot. Itt ne mutassunk semmit, hogy ne legyen
-  // duplikáció és félreértés ("Offline mód" mindig látszana).
-  if (isStandaloneMode()) return null
 
   async function handleManualSync() {
     setManualSyncing(true)

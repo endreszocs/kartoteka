@@ -9,6 +9,7 @@ import {
 
 import { ScopeHero } from '@/components/dashboard/scope-dashboard-sections'
 import { FinalizedDocumentsList } from '@/components/dashboard/diocese/finalized-documents-list'
+import { getHomePathForScope } from '@/lib/auth/active-ui-scope'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { getKeruletSubmissions } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import {
@@ -32,10 +33,13 @@ import {
  */
 export default async function KeruletDashboardPage() {
   const access = await getEffectiveAccessContext()
-  const { supabase, user, admin, master } = access
+  const { supabase, user, egyhazkeruletiAdmin, activeProfileRole } = access
 
   if (!user) redirect('/login')
-  if (!admin && !master) redirect('/dashboard')
+  if (!egyhazkeruletiAdmin) redirect('/dashboard')
+  if (activeProfileRole && activeProfileRole.scope !== 'district') {
+    redirect(getHomePathForScope(activeProfileRole.scope))
+  }
 
   const currentYear = new Date().getFullYear()
 

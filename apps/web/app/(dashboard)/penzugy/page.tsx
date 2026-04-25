@@ -1,8 +1,7 @@
-import { initFinance } from './actions'
+import { createYearlySettings, initFinance } from './actions'
 import { checkOblioDeadline } from './oblio-ellenorzes-actions'
 import { FinanceTabs } from '@/components/finance/finance-tabs'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
-import { YearlySettingsDialog } from '@/components/modals/yearly-settings-dialog'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -69,8 +68,38 @@ export default async function PenzugyPage() {
         )
       }
     } else {
-      // Gyülekezeti módban marad az éves beállítások dialóg (járulék + határidő)
-      return <YearlySettingsDialog year={currentYear} />
+      // Gyülekezeti módban a wizardban már bekért éves alapadatokból próbáljuk
+      // automatikusan létrehozni a hiányzó `bealitas` sort, külön dialóg nélkül.
+      const { data: congregationDefaults } = await access.supabase
+        .from('congregations')
+        .select('eves_jarulek, jarulek_hatarid')
+        .eq('id', scopeId)
+        .maybeSingle()
+
+      const yearlyFee = Number(congregationDefaults?.eves_jarulek) || 0
+      const deadline = congregationDefaults?.jarulek_hatarid || '07-01'
+
+      if (yearlyFee > 0) {
+        const ensure = await createYearlySettings(currentYear, yearlyFee, deadline)
+        if (!ensure.error) {
+          data = await initFinance(currentYear)
+        }
+      }
+
+      if (!data?.settings) {
+        return (
+          <div className="rounded-xl border bg-white p-8 text-center text-muted-foreground">
+            <p className="text-lg font-medium text-slate-700">
+              A {currentYear}. évi pénzügyi beállítás nem hozható létre automatikusan.
+            </p>
+            <p className="mt-2 text-sm">
+              A welcome wizardban rögzített éves járulék vagy fizetési határidő hiányzik,
+              vagy az éves `bealitas` sor létrehozása nem sikerült. Kérem, ellenőrizze a
+              gyülekezeti alapadatokat, vagy küldjön segítségkérést az adminnak.
+            </p>
+          </div>
+        )
+      }
     }
   }
 

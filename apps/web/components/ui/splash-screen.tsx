@@ -17,26 +17,26 @@ const FADE_DELAY_MS = 3000
 const HIDE_DELAY_MS = 3500
 
 export function SplashScreen() {
-  // Minden state `false`-szal indul → SSR és első kliens-render azonos
-  const [mounted, setMounted] = useState(false)
+  // SSR és első kliens-render: visible=false → null-t adunk vissza (azonos markup, nincs hydration mismatch).
+  // Az effect conditional setVisible-lel vált át látható állapotra, ha a session még nem mutatta.
+  // (Korábban volt `mounted` flag unconditional setMounted(true)-val az effect elején — az M6.5-ben
+  // React 19 `react-hooks/set-state-in-effect` szabály miatt eltávolítva: a `visible` flag önmagában
+  // ugyanazt a hydration-safe viselkedést biztosítja.)
   const [visible, setVisible] = useState(false)
   const [fading, setFading] = useState(false)
 
-  // Mount után döntjük el: kell-e splash?
   useEffect(() => {
-    setMounted(true)
-
-    // Session-szintű ellenőrzés — egyszer jelenik meg böngésző-session-enként
     const alreadyShown = sessionStorage.getItem(SESSION_KEY)
-    if (alreadyShown) {
-      // Ebben a sessionben már látta — ne mutassuk
-      return
-    }
+    if (alreadyShown) return
 
     sessionStorage.setItem(SESSION_KEY, '1')
+    // Szándékos SSR-hydration pattern: a session-flag csak kliensen elérhető,
+    // így az első render SSR-en és kliensen azonosan `visible=false` (→ null),
+    // és csak a mount-on, conditional setState-tel váltunk át látható állapotra.
+    // Átfogó refaktor (useSyncExternalStore) M15 UI-polírozási fázisban jön.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisible(true)
 
-    // Fade out + teljes eltűnés időzítők
     const fadeTimer = setTimeout(() => setFading(true), FADE_DELAY_MS)
     const hideTimer = setTimeout(() => setVisible(false), HIDE_DELAY_MS)
 
@@ -46,9 +46,7 @@ export function SplashScreen() {
     }
   }, [])
 
-  // SSR + első kliens render → null (nincs hydration mismatch)
-  // Mount után, ha még nem látta → splash megjelenik
-  if (!mounted || !visible) return null
+  if (!visible) return null
 
   return (
     <div

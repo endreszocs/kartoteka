@@ -184,7 +184,7 @@ export async function getProfileDialogData() {
       fullName: profile?.full_name || user.user_metadata?.full_name || null,
       phone: profile?.phone || null,
       birthDate: profile?.birth_date || null,
-      role: profile?.role || 'lelkesz',
+      role: typeof profile?.role === 'string' ? profile.role : null,
       status: profile?.status || 'pending',
       createdAt: profile?.created_at || null,
       congregationName: congregation?.nev_hu || congregation?.name || null,

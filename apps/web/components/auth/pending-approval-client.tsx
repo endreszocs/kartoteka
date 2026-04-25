@@ -1,31 +1,29 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { motion } from 'framer-motion'
-import { Clock, LogOut, Mail, Sparkles } from 'lucide-react'
+import { Clock, HelpCircle, LogOut, Mail, ShieldAlert, Sparkles } from 'lucide-react'
 
 import { signOutFromPending } from '@/app/(auth)/pending/actions'
+import { SupportDialog } from '@/components/layout/support-dialog'
 import { Button } from '@/components/ui/button'
 
 interface PendingApprovalClientProps {
   firstName: string
   fullName: string | null
   email: string
+  waitReason: 'approval' | 'no-role'
 }
 
-/**
- * Pending jóváhagyás várakozó képernyő.
- *
- * A lelkész itt áll, amíg a kerületi SzuperAdmin nem hagyja jóvá.
- * Személyes megszólítással, barátságos animált UI-val — a várakozás
- * ne legyen kietlen.
- */
 export function PendingApprovalClient({
   firstName,
   fullName,
   email,
+  waitReason,
 }: PendingApprovalClientProps) {
   const [isPending, startTransition] = useTransition()
+  const [supportOpen, setSupportOpen] = useState(false)
+  const isRoleMissing = waitReason === 'no-role'
 
   function handleSignOut() {
     startTransition(async () => {
@@ -40,40 +38,26 @@ export function PendingApprovalClient({
       transition={{ type: 'spring', damping: 18, stiffness: 160 }}
       className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-8 shadow-xl md:p-10"
     >
-      {/* Dekoratív háttér-glow */}
       <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-amber-200/30 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-teal-200/25 blur-3xl" />
 
       <div className="relative space-y-6 text-center">
-        {/* Pulzáló óra ikon */}
         <div className="flex justify-center">
           <motion.div
-            animate={{
-              scale: [1, 1.05, 1],
-            }}
-            transition={{
-              duration: 2.4,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
             className="relative flex size-24 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-teal-100 shadow-inner"
           >
-            {/* Pulse ring */}
             <motion.div
               initial={{ scale: 1, opacity: 0.4 }}
               animate={{ scale: 1.6, opacity: 0 }}
-              transition={{
-                duration: 2.4,
-                repeat: Infinity,
-                ease: 'easeOut',
-              }}
+              transition={{ duration: 2.4, repeat: Infinity, ease: 'easeOut' }}
               className="absolute inset-0 rounded-2xl bg-amber-300/40"
             />
             <Clock className="relative size-10 text-amber-700" />
           </motion.div>
         </div>
 
-        {/* Üdvözlés */}
         <div className="space-y-2">
           <motion.p
             initial={{ opacity: 0 }}
@@ -81,7 +65,7 @@ export function PendingApprovalClient({
             transition={{ delay: 0.2 }}
             className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700"
           >
-            Várakozás jóváhagyásra
+            {isRoleMissing ? 'Várakozás szerepkörre' : 'Várakozás jóváhagyásra'}
           </motion.p>
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
@@ -89,7 +73,7 @@ export function PendingApprovalClient({
             transition={{ delay: 0.3 }}
             className="font-heading text-3xl font-bold text-slate-900 md:text-4xl"
           >
-            Üdvözlöm,{' '}
+            Még egy kis türelmet,{' '}
             <span className="bg-gradient-to-r from-amber-600 to-teal-700 bg-clip-text text-transparent">
               {firstName}!
             </span>
@@ -100,12 +84,12 @@ export function PendingApprovalClient({
             transition={{ delay: 0.4 }}
             className="mx-auto max-w-md text-base leading-relaxed text-slate-600"
           >
-            A regisztrációja megérkezett. Jelenleg a kerületi SzuperAdmin
-            ellenőrzi az adatait, és hamarosan jóvá fogja hagyni a fiókját.
+            {isRoleMissing
+              ? 'A belépése aktív, de a fiókjához jelenleg nincs érvényes szerepkör rendelve. Addig a rendszer biztonsági okból nem enged hozzáférést a modulokhoz, amíg az admin helyre nem állítja a jogosultságot.'
+              : 'A regisztrációja megérkezett. Jelenleg a kerületi SzuperAdmin ellenőrzi az adatait, és hamarosan jóvá fogja hagyni a fiókját.'}
           </motion.p>
         </div>
 
-        {/* Infókártya — email visszajelzés + status */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -116,9 +100,13 @@ export function PendingApprovalClient({
             <div className="flex items-start gap-3">
               <Mail className="mt-0.5 size-4 shrink-0 text-slate-500" />
               <div className="flex-1 text-sm">
-                <p className="font-semibold text-slate-900">Értesítés e-mailben</p>
+                <p className="font-semibold text-slate-900">
+                  {isRoleMissing ? 'Kapcsolattartási e-mail' : 'Értesítés e-mailben'}
+                </p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  Amint aktív, értesítést kap erre a címre:
+                  {isRoleMissing
+                    ? 'Ha az admin válaszol vagy pontosítás kell, ezen a címen érjük el:'
+                    : 'Amint aktív, értesítést kap erre a címre:'}
                 </p>
                 <p className="mt-1 font-mono text-xs text-slate-700">{email}</p>
               </div>
@@ -133,10 +121,21 @@ export function PendingApprovalClient({
                 </div>
               </div>
             )}
+
+            {isRoleMissing && (
+              <div className="flex items-start gap-3 border-t border-slate-200 pt-3">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                <div className="flex-1 text-sm">
+                  <p className="font-semibold text-slate-900">Jelenlegi állapot</p>
+                  <p className="mt-0.5 text-slate-700">
+                    A fiók bejelentkezhet, de szerepkör nélkül nem használhatja a Kartotéka moduljait.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 
-        {/* Segítség + kijelentkezés */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -144,8 +143,9 @@ export function PendingApprovalClient({
           className="space-y-3"
         >
           <p className="text-xs text-slate-500">
-            Ha sürgős a beléptetés, kérem vegye fel a kapcsolatot a kerületi
-            irodával: {' '}
+            {isRoleMissing
+              ? 'Ha szeretné, a beépített segítségkérővel közvetlenül üzenetet küldhet az adminnak. Sürgős esetben e-mailben is írhat ide: '
+              : 'Ha sürgős a beléptetés, a beépített segítségkérővel is üzenhet az adminnak, vagy írhat ide: '}
             <a
               href="mailto:support@kartoteka.erek.ro"
               className="font-semibold text-primary hover:underline"
@@ -154,7 +154,11 @@ export function PendingApprovalClient({
             </a>
           </p>
 
-          <div className="flex items-center justify-center pt-2">
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Button size="sm" onClick={() => setSupportOpen(true)} className="gap-2">
+              <HelpCircle className="size-4" />
+              Segítséget kérek
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -166,6 +170,8 @@ export function PendingApprovalClient({
               {isPending ? 'Kijelentkezés…' : 'Kijelentkezés'}
             </Button>
           </div>
+
+          <SupportDialog open={supportOpen} onOpenChange={setSupportOpen} />
         </motion.div>
       </div>
     </motion.div>

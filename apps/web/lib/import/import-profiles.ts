@@ -146,19 +146,28 @@ export const PROFILE_PERSONS: ImportProfile = {
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev', 'Vezetéknév', 'Név'], dbColumn: 'csaladnev', type: 'string', required: true, hint: 'Vezetéknév / családnév' },
     { excelHeader: 'Keresztnév', excelAliases: ['keresztnev', 'k_nev', 'Utónév'], dbColumn: 'k_nev', type: 'string', required: true, hint: 'Utónév / keresztnév' },
-    { excelHeader: 'CNP', excelAliases: ['cnp', 'Személyi szám', 'Személyi'], dbColumn: 'cnp', type: 'string', required: false, hint: 'Személyi szám (egyedi)' },
-    { excelHeader: 'Születési dátum', excelAliases: ['szuletesi_datum', 'Sz.dátum', 'sz_datum'], dbColumn: 'sz_datum', type: 'date', required: false, hint: 'ÉÉÉÉ-HH-NN vagy ÉÉÉÉ.HH.NN' },
-    { excelHeader: 'Születési név', excelAliases: ['szcs_nev', 'Leánykori név'], dbColumn: 'szcs_nev', type: 'string', required: false },
-    { excelHeader: 'Nem', excelAliases: ['ferfi', 'Férfi'], dbColumn: 'ferfi', type: 'boolean', required: false, hint: 'F/Férfi/igen → true; N/Nő/nem → false' },
+    { excelHeader: 'CNP', excelAliases: ['cnp', 'Személyi szám', 'Személyi'], dbColumn: 'cnp', type: 'string', required: false, hint: 'Személyi szám (egyedi). Ha üres, automatikus IMPORT-XXXX azonosító generálódik.' },
+    { excelHeader: 'Születési dátum', excelAliases: ['szuletesi_datum', 'Sz.dátum', 'sz_datum', 'Született'], dbColumn: 'sz_datum', type: 'date', required: false, hint: 'ÉÉÉÉ-HH-NN vagy ÉÉÉÉ.HH.NN' },
+    { excelHeader: 'Születési név', excelAliases: ['szcs_nev', 'Leánykori név', 'SzCsaládnév'], dbColumn: 'szcs_nev', type: 'string', required: false, hint: 'Lánykori / születési családnév' },
+    { excelHeader: 'Nem', excelAliases: ['ferfi', 'Férfi'], dbColumn: 'ferfi', type: 'boolean', required: false, hint: 'Igen/F/Férfi → férfi; Nem/N/Nő → nő' },
+    { excelHeader: 'Meghalt', excelAliases: ['meghalt'], dbColumn: 'meghalt', type: 'boolean', required: false, hint: 'Igen/Nem — alapérték: Nem' },
+    { excelHeader: 'Családfő', excelAliases: ['csaladfo', 'Családfő-e'], dbColumn: 'csaladfo', type: 'boolean', required: false, hint: 'Igen/Nem — alapérték: Nem' },
     { excelHeader: 'Telefon', excelAliases: ['telefon', 'Tel', 'Telefonszám'], dbColumn: 'telefon', type: 'string', required: false },
     { excelHeader: 'Email', excelAliases: ['email', 'E-mail'], dbColumn: 'email', type: 'string', required: false },
     { excelHeader: 'Vallás', excelAliases: ['vallas', 'Felekezet'], dbColumn: 'vallas', type: 'string', required: false },
     { excelHeader: 'Foglalkozás', excelAliases: ['foglalkozas', 'Foglalk.'], dbColumn: 'foglalkozas', type: 'string', required: false },
-    { excelHeader: 'Családi állapot', excelAliases: ['allapot', 'Állapot'], dbColumn: 'allapot', type: 'string', required: false },
-    { excelHeader: 'Apja neve', excelAliases: ['apjaneve'], dbColumn: 'apjaneve', type: 'string', required: false },
-    { excelHeader: 'Anyja neve', excelAliases: ['anyjaneve'], dbColumn: 'anyjaneve', type: 'string', required: false },
-    { excelHeader: 'Cím', excelAliases: ['c_szcim', 'Lakcím'], dbColumn: 'c_szcim', type: 'string', required: false },
-    { excelHeader: 'Házszám', excelAliases: ['c_szam', 'Szám'], dbColumn: 'c_szam', type: 'string', required: false },
+    { excelHeader: 'Családi állapot', excelAliases: ['allapot', 'Állapot'], dbColumn: 'allapot', type: 'string', required: false, hint: 'pl. nős, hajadon, Özv.' },
+    { excelHeader: 'Teljes név', excelAliases: ['namepattern'], dbColumn: 'namepattern', type: 'string', required: false, hint: 'Kereséshez használt teljes név (pl. "Özv. Tamás Gábor")' },
+    { excelHeader: 'Apja neve', excelAliases: ['apjaneve', 'Apja'], dbColumn: 'apjaneve', type: 'string', required: false },
+    { excelHeader: 'Anyja neve', excelAliases: ['anyjaneve', 'Anyja'], dbColumn: 'anyjaneve', type: 'string', required: false },
+    { excelHeader: 'Férj/Feleség neve', excelAliases: ['ferjk_nev', 'Férje', 'Felesége'], dbColumn: 'ferjk_nev', type: 'string', required: false },
+    { excelHeader: 'Cím', excelAliases: ['c_szcim', 'Lakcím'], dbColumn: 'c_szcim', type: 'string', required: false, hint: 'Teljes szöveges cím (ha különálló utca/helység mezők is vannak, a rendszer összeolvasztja)' },
+    { excelHeader: 'Utca', excelAliases: ['utca'], dbColumn: '_utca_text', type: 'string', required: false, hint: 'Az utca neve — összeolvad a Címbe és FK-lookup is történik' },
+    { excelHeader: 'Helység', excelAliases: ['helyseg', 'Település', 'telepules'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'A település neve — összeolvad a Címbe' },
+    { excelHeader: 'Házszám', excelAliases: ['c_szam', 'Szám', 'hazszam'], dbColumn: 'c_szam', type: 'string', required: false },
+    { excelHeader: 'Tömbház', excelAliases: ['c_tombhaz', 'tombhaz'], dbColumn: 'c_tombhaz', type: 'string', required: false },
+    { excelHeader: 'Születési hely', excelAliases: ['szuletesi_hely', 'sz_hely'], dbColumn: '_szhely_text', type: 'string', required: false, hint: 'A születés helye (szövegként, később normalizálható)' },
+    { excelHeader: 'Befizetési év kezdete', excelAliases: ['befizetoev', 'Befizetési év'], dbColumn: 'befizetoev', type: 'number', required: false, hint: 'Az első év, amikor a tag fizetett — alapérték: jelenlegi év' },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes', 'Jegyzet'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
   autoColumns: [
@@ -168,18 +177,79 @@ export const PROFILE_PERSONS: ImportProfile = {
   ],
   hints: [
     'Egy sor = egy személy.',
-    'A CNP legyen egyedi — duplikált CNP-s sorok kihagyásra kerülnek.',
+    'A CNP legyen egyedi — duplikált CNP-s sorok kihagyásra kerülnek. Ha üres, automatikus IMPORT-XXXX azonosító generálódik.',
     'A dátumok ÉÉÉÉ-HH-NN vagy ÉÉÉÉ.HH.NN formátumban.',
-    'Nem mező: "F"/"Férfi"/"igen" → férfi; "N"/"Nő"/"nem" → nő.',
+    'Nem mező: "F"/"Férfi"/"Igen" → férfi; "N"/"Nő"/"Nem" → nő.',
+    'Az "Életkor" mező nem tárolódik — a születési dátumból számítódik automatikusan.',
   ],
-  sheetHints: ['Személyek', 'Tagok', 'szemely', 'Members'],
+  sheetHints: ['Személyek', 'Tagok', 'szemely', 'Members', 'szemelyek'],
 }
 
+/**
+ * PROFILE_FAMILY_HEADS — speciális dual-insert profil
+ *
+ * A `csaladok.xml` típusú fájlokhoz: minden sor egy családfő személyes adatait
+ * tartalmazza (családnév, keresztnév, születési dátum, foglalkozás, vallás stb.)
+ * + a család címét (utca, házszám, helység).
+ *
+ * Az import a `import_family_head_batch` RPC-vel történik, ami atomikus
+ * tranzakcióban beszúrja:
+ *   1. szemely (családfő) — csaladfo=true, ferfi a "Férfi" mező alapján
+ *   2. csalad — id_ferfi VAGY id_no = az új szemely.id, c_szam, c_utcaid, c_tombhaz
+ *
+ * NB: targetTable='szemely' csak a UI/preview-hez kell — a tényleges insert RPC-vel.
+ */
+export const PROFILE_FAMILY_HEADS: ImportProfile = {
+  key: 'family_heads',
+  module: 'members',
+  label: 'Családfők és családok',
+  description: 'Egy sor = egy családfő (új személy) + egy új család. A személy és család egyszerre jön létre. Ideális a régi adatkezelő "csaladok.xml" exportjához.',
+  targetTable: 'szemely',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev', 'Vezetéknév'], dbColumn: 'csaladnev', type: 'string', required: true, hint: 'A családfő vezetékneve' },
+    { excelHeader: 'Keresztnév', excelAliases: ['keresztnev', 'k_nev', 'Utónév'], dbColumn: 'k_nev', type: 'string', required: true, hint: 'A családfő keresztneve' },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['Születési név', 'Leánykori név', 'szcs_nev'], dbColumn: 'szcs_nev', type: 'string', required: false, hint: 'Lánykori / születési családnév' },
+    { excelHeader: 'Állapot', excelAliases: ['allapot', 'Családi állapot'], dbColumn: 'allapot', type: 'string', required: false, hint: 'pl. nős, hajadon, Özv.' },
+    { excelHeader: 'Foglalkozás', excelAliases: ['foglalkozas'], dbColumn: 'foglalkozas', type: 'string', required: false },
+    { excelHeader: 'Vallás', excelAliases: ['vallas', 'Felekezet'], dbColumn: 'vallas', type: 'string', required: false },
+    { excelHeader: 'Születési dátum', excelAliases: ['szuletesi_datum', 'sz_datum', 'Született'], dbColumn: 'sz_datum', type: 'date', required: false, hint: 'ÉÉÉÉ-HH-NN — ha nincs, az Év/Hó/Nap mezőkből kombinálódik' },
+    { excelHeader: 'Év', excelAliases: ['ev', 'sz_ev'], dbColumn: '_sz_ev', type: 'number', required: false, hint: 'A születési év (kombinálódik a sz_datum-ba)' },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'sz_ho'], dbColumn: '_sz_ho', type: 'number', required: false, hint: 'A születési hónap (kombinálódik a sz_datum-ba)' },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'sz_nap'], dbColumn: '_sz_nap', type: 'number', required: false, hint: 'A születési nap (kombinálódik a sz_datum-ba)' },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: 'ferfi', type: 'boolean', required: false, hint: 'Igen → id_ferfi; Nem → id_no a csalad rekordban' },
+    { excelHeader: 'Apja', excelAliases: ['apjaneve'], dbColumn: 'apjaneve', type: 'string', required: false },
+    { excelHeader: 'Anyja', excelAliases: ['anyjaneve'], dbColumn: 'anyjaneve', type: 'string', required: false },
+    { excelHeader: 'Telefonszám', excelAliases: ['telefon', 'Tel'], dbColumn: 'telefon', type: 'string', required: false },
+    { excelHeader: 'E-mail', excelAliases: ['email'], dbColumn: 'email', type: 'string', required: false },
+    { excelHeader: 'Utca', excelAliases: ['utca'], dbColumn: '_utca_text', type: 'string', required: true, hint: 'Kötelező — az utca neve. A rendszer megkeresi vagy létrehozza az adatbázisban.' },
+    { excelHeader: 'Helység', excelAliases: ['helyseg', 'Település'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'A település neve — a rendszer megkeresi vagy létrehozza' },
+    { excelHeader: 'Házszám', excelAliases: ['c_szam', 'hazszam'], dbColumn: 'c_szam', type: 'string', required: true, hint: 'Kötelező — a család házszáma' },
+    { excelHeader: 'Tömbház', excelAliases: ['c_tombhaz', 'tombhaz'], dbColumn: 'c_tombhaz', type: 'string', required: false },
+  ],
+  autoColumns: [
+    // A szemely insert auto-mezőit az RPC tölti ki (congregation_id, isvisible, type='tag', created)
+    // A csaladfo=true az RPC default-ja
+  ],
+  hints: [
+    'Minden sor → egy új CSALÁDFŐ személy + egy új CSALÁD rekord (atomikusan).',
+    'Az "Utca" és "Házszám" mezők kötelezőek — utca FK-lookup történik (vagy új utca jön létre).',
+    'A "Férfi" mező határozza meg, hogy a családfő férj (id_ferfi) vagy feleség (id_no).',
+    'Az "Életkor" mező nem importálódik — a születési dátumból számítódik.',
+    'Ha a CNP üres, automatikus IMPORT-XXXX azonosító generálódik (egyedi).',
+  ],
+  sheetHints: ['Családok', 'csalad', 'Families', 'csaladok', 'Családfők'],
+}
+
+/**
+ * PROFILE_FAMILIES — DEPRECATED
+ * Megtartva backward-compatibility miatt. Használd a PROFILE_FAMILY_HEADS-et,
+ * ami egy lépésben létrehozza a családfő szemely-t és a csalad-rekordot.
+ */
 export const PROFILE_FAMILIES: ImportProfile = {
   key: 'families',
   module: 'members',
-  label: 'Családok',
-  description: 'Családi egységek és háztartási adatok importja.',
+  label: 'Családok (csak FK-val)',
+  description: 'Csak akkor használd, ha a családfő szemely már létezik a rendszerben (CNP alapján). Új családfő létrehozásához: "Családfők és családok" profil.',
   targetTable: 'csalad',
   columnMap: [
     { excelHeader: 'Családazonosító', excelAliases: ['csalad_azonosito', 'Család ID'], dbColumn: 'id', type: 'number', required: false, hint: 'Opcionális — ha üres, automatikus' },
@@ -192,10 +262,10 @@ export const PROFILE_FAMILIES: ImportProfile = {
     { dbColumn: 'isaktiv', source: 'true' },
   ],
   hints: [
-    'A családtagokat CNP-vel vagy névvel azonosítjuk.',
+    'A családtagokat CNP-vel azonosítjuk a rendszerben.',
     'A cím egy családon belül egységes legyen.',
   ],
-  sheetHints: ['Családok', 'csalad', 'Families'],
+  sheetHints: ['Családok-FK', 'families-fk'],
 }
 
 export const PROFILE_PRESBYTERS: ImportProfile = {
@@ -520,6 +590,7 @@ export const PROFILE_FILING: ImportProfile = {
 
 export const MEMBER_PROFILES: ImportProfile[] = [
   PROFILE_PERSONS,
+  PROFILE_FAMILY_HEADS,
   PROFILE_FAMILIES,
   PROFILE_PRESBYTERS,
 ]

@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { isStandaloneMode } from '@/lib/standalone/runtime-detect'
 import { revalidatePath } from 'next/cache'
 
 // ──────────────────────────────────────────────────────────────────
@@ -168,16 +167,13 @@ export async function getWizardProgress(): Promise<
     return { data: existing as WizardProgressRow }
   }
 
-  // Nincs még sor — létrehozunk egy üreset
-  // Standalone módban Step 1 (licensz) a kezdő, web módban Step 2 (a user
-  // már bejelentkezett, nincs licensz-lépés).
-  const startingStep = isStandaloneMode() ? 1 : 2
-
+  // Nincs még sor — létrehozunk egy üreset a Step 2-vel (Gyülekezet).
+  // A korábbi Step 1 (portable licensz-aktiválás) M6.3 óta kivezetve (2026-04-22).
   const { data: inserted, error: insertError } = await supabase
     .from('wizard_progress')
     .insert({
       user_id: user.id,
-      current_step: startingStep,
+      current_step: 2,
       completed_steps: [],
       data: {},
     })

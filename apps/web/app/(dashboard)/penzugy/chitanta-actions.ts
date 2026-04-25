@@ -14,6 +14,14 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import {
+  getChitantaForPrintUseCase,
+  issueChitantaUseCase,
+  listChitantasUseCase,
+  stornoChitantaUseCase,
+} from '@kartoteka/core'
+import { type ChitantaPrintData } from '@kartoteka/validations'
+
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 
 // ─────────────────────────────────────────────────────────────
@@ -323,74 +331,47 @@ export async function issueChitanta(input: ChitantaIssueInput): Promise<{
   szam?: number
   error?: string
 }> {
+  // A-M7.2b óta: a @kartoteka/core `issueChitantaUseCase` kezeli a zod-
+  // validálást, a sorszám-RPC-t (`next_chitanta_number`), az INSERT-et az
+  // `oblio_szamlak` táblába, és a pasztorális hibaüzeneteket. A web adapter
+  // vékony — a default sorozatot a config-ból betölti és átadja.
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const klienesseg_nev = (input.klienesseg_nev || '').trim()
-  if (!klienesseg_nev) return { error: 'Az átvevő (befizető) neve kötelező.' }
-  if (!input.osszeg_brut || input.osszeg_brut <= 0) {
-    return { error: 'Az összeg pozitív szám legyen.' }
-  }
-  if (!input.szamlaDatum) return { error: 'Adj meg dátumot.' }
-
-  // 1. Sorozat eldöntése
   const cfg = await getChitantaConfig()
-  if ('error' in cfg) return { error: cfg.error }
-  const sorozat = (input.sorozat || cfg.sorozat || 'CHIT').trim()
+  const defaultSorozat = 'error' in cfg ? null : cfg.sorozat
 
-  // 2. Szám lefoglalása — RPC ha nincs felülírva
-  let szam = input.szam
-  if (!szam) {
-    const { data, error } = await access.supabase
-      .rpc('next_chitanta_number', {
-        p_congregation_id: access.effectiveCongregationId,
-        p_sorozat: sorozat,
-      })
-    if (error) return { error: `Szám-lefoglalási hiba: ${error.message}` }
-    szam = Number(data)
-  }
-
-  // 3. Insert
-  const { data: inserted, error: insErr } = await access.supabase
-    .from('oblio_szamlak')
-    .insert({
-      congregation_id: access.effectiveCongregationId,
-      oblio_fiok_id: null, // chitanță NEM Oblio-n megy
-      tipus: 'chitanta_papir',
-      sorozat,
-      szam,
-      szamla_datum: input.szamlaDatum,
-      klienesseg_nev,
-      klienesseg_cui: input.klienesseg_cui?.trim() || null,
-      klienesseg_cim: input.klienesseg_cim?.trim() || null,
-      osszeg_net: input.osszeg_brut, // chitanță-nál nincs külön TVA
-      osszeg_tva: 0,
+  const result = await issueChitantaUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      sorozat: input.sorozat,
+      szam: input.szam,
+      szamlaDatum: input.szamlaDatum,
+      klienesseg_nev: input.klienesseg_nev,
+      klienesseg_cim: input.klienesseg_cim ?? null,
+      klienesseg_cui: input.klienesseg_cui ?? null,
       osszeg_brut: input.osszeg_brut,
-      e_factura_status: 'not_applicable',
-      reprezentand: input.reprezentand?.trim() || null,
+      reprezentand: input.reprezentand ?? null,
       befizetes_id: input.befizetes_id ?? null,
-      megjegyzes: input.megjegyzes?.trim() || null,
-      issued_by: access.user.id,
-      collected_at: new Date(input.szamlaDatum).toISOString(), // a chitanță maga a kifizetés
-    })
-    .select('id, sorozat, szam')
-    .maybeSingle()
+      megjegyzes: input.megjegyzes ?? null,
+    },
+    {
+      supabase: access.supabase,
+      runtime: 'web',
+      userId: access.user.id,
+      defaultSorozat,
+    },
+  )
 
-  if (insErr) {
-    // Ha a felhasználó kétszer próbálta kiállítani ugyanazt a számot
-    if (insErr.code === '23505') {
-      return { error: `A ${sorozat} sorozat ${szam} száma már létezik. Ellenőrizd a tömböt vagy adj meg másik számot.` }
-    }
-    return { error: `Mentés sikertelen: ${insErr.message}` }
-  }
+  if (!result.success) return { error: result.error }
 
   revalidatePath('/penzugy')
   return {
     success: true,
-    chitantaId: inserted?.id,
-    sorozat: inserted?.sorozat,
-    szam: inserted?.szam,
+    chitantaId: result.chitantaId,
+    sorozat: result.sorozat,
+    szam: result.szam,
   }
 }
 
@@ -402,196 +383,26 @@ export async function getChitantaForPrint(chitantaId: string): Promise<{
   data?: ChitantaPrintData
   error?: string
 }> {
+  // A-M7.2f óta: a @kartoteka/core use-case intézi az 5-query láncot és a
+  // fallback-eket (régi nyugtáknál reprezentand_ro / klienesseg_cim pótlás a
+  // befizetés → befizetescel / szemely / csalad táblákon keresztül).
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { data: row, error } = await access.supabase
-    .from('oblio_szamlak')
-    .select(`
-      id, sorozat, szam, nyomdai_szam, gyulekezeti_szam, szamla_datum,
-      klienesseg_nev, klienesseg_cui, klienesseg_cim, klienesseg_nr_orc_an,
-      osszeg_brut, reprezentand, reprezentand_ro, megjegyzes, stornozott,
-      stornozott_at, stornozott_indok, befizetes_id
-    `)
-    .eq('id', chitantaId)
-    .eq('congregation_id', access.effectiveCongregationId)
-    .eq('tipus', 'chitanta_papir')
-    .maybeSingle()
-
-  if (error) return { error: error.message }
-  if (!row) return { error: 'Nyugta nem található.' }
-
-  // ──────────────────────────────────────────────────────────
-  // Fallback-ek régi nyugtákhoz (amelyek még a reprezentand_ro
-  // / klienesseg_cim bevezetése előtt készültek): ha hiányzik az
-  // érték a nyugtán, de tudjuk a kapcsolódó befizetést, akkor
-  // visszanyúlunk a jelenlegi adatokhoz.
-  // ──────────────────────────────────────────────────────────
-  let reprezentandRoResolved: string | null = (row.reprezentand_ro as string | null) ?? null
-  let klienessegCimResolved: string | null = row.klienesseg_cim ?? null
-
-  if ((!reprezentandRoResolved || !klienessegCimResolved) && row.befizetes_id) {
-    const { data: bef } = await access.supabase
-      .from('befizetes')
-      .select('id_szemely, id_csalad, id_befizetescel')
-      .eq('id', row.befizetes_id)
-      .maybeSingle()
-
-    // Román reprezentand pótlása a befizetescel.nevro-ból
-    if (!reprezentandRoResolved && bef?.id_befizetescel) {
-      const { data: bc } = await access.supabase
-        .from('befizetescel')
-        .select('nevro')
-        .eq('id', bef.id_befizetescel)
-        .maybeSingle()
-      if (bc?.nevro) reprezentandRoResolved = String(bc.nevro)
-    }
-
-    // Lakhely pótlása a szemely/csalad táblából
-    if (!klienessegCimResolved) {
-      if (bef?.id_szemely) {
-        const { data: sz } = await access.supabase
-          .from('szemely')
-          .select('c_szam, adrlocality:c_helysegid(name), adrstreet:c_utcaid(name)')
-          .eq('id', bef.id_szemely)
-          .maybeSingle()
-        if (sz) {
-          const loc = sz.adrlocality as { name?: string | null } | null
-          const str = sz.adrstreet as { name?: string | null } | null
-          const cimParts = [loc?.name, str?.name, sz.c_szam].filter(Boolean)
-          if (cimParts.length > 0) klienessegCimResolved = cimParts.join(', ')
-        }
-      } else if (bef?.id_csalad) {
-        const { data: csalaTag } = await access.supabase
-          .from('szemely')
-          .select('c_szam, adrlocality:c_helysegid(name), adrstreet:c_utcaid(name)')
-          .eq('id_csalad', bef.id_csalad)
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-        if (csalaTag) {
-          const loc = csalaTag.adrlocality as { name?: string | null } | null
-          const str = csalaTag.adrstreet as { name?: string | null } | null
-          const cimParts = [loc?.name, str?.name, csalaTag.c_szam].filter(Boolean)
-          if (cimParts.length > 0) klienessegCimResolved = cimParts.join(', ')
-        }
-      }
-    }
-  }
-
-  // A gyülekezet adatai a fejléc miatt
-  // FIGYELEM: a DB-ben a CIF (adószám) oszlop neve `adoszam`, nem `cif`
-  const { data: cong } = await access.supabase
-    .from('congregations')
-    .select('name, nev_hu, nev_ro, adoszam, cim, varos, megye, telefon, diocese_id')
-    .eq('id', access.effectiveCongregationId)
-    .maybeSingle()
-
-  // Egyházmegye + kerület
-  let egyhazmegyeNev: string | null = null
-  let egyhazmegyeNevRo: string | null = null
-  let egyhazkeruletNev: string | null = null
-  let egyhazkeruletNevRo: string | null = null
-  if (cong?.diocese_id) {
-    const { data: diocese } = await access.supabase
-      .from('dioceses')
-      .select('name, nev_hu, nev_ro, district_id')
-      .eq('id', cong.diocese_id)
-      .maybeSingle()
-    if (diocese) {
-      egyhazmegyeNev = (diocese as Record<string, string | null>).nev_hu ?? diocese.name ?? null
-      egyhazmegyeNevRo = (diocese as Record<string, string | null>).nev_ro ?? null
-      const districtId = (diocese as Record<string, string | null>).district_id
-      if (districtId) {
-        const { data: district } = await access.supabase
-          .from('districts')
-          .select('name, nev_hu, nev_ro')
-          .eq('id', districtId)
-          .maybeSingle()
-        if (district) {
-          egyhazkeruletNev = (district as Record<string, string | null>).nev_hu ?? district.name ?? null
-          egyhazkeruletNevRo = (district as Record<string, string | null>).nev_ro ?? null
-        }
-      }
-    }
-  }
-
-  return {
-    data: {
-      id: row.id,
-      sorozat: row.sorozat,
-      szam: row.szam,
-      nyomdaiSzam: (row.nyomdai_szam as number | null) ?? row.szam,
-      gyulekezetiSzam: (row.gyulekezeti_szam as number | null) ?? null,
-      szamlaDatum: row.szamla_datum,
-      klienessegNev: row.klienesseg_nev,
-      klienessegCui: row.klienesseg_cui,
-      klienessegCim: klienessegCimResolved,
-      klienessegNrOrcAn: (row.klienesseg_nr_orc_an as string | null) ?? null,
-      osszegBrut: row.osszeg_brut,
-      reprezentand: row.reprezentand,
-      reprezentandRo: reprezentandRoResolved,
-      megjegyzes: row.megjegyzes,
-      stornozott: row.stornozott,
-      stornozottAt: row.stornozott_at,
-      stornozottIndok: row.stornozott_indok,
-      gyulekezet: {
-        nevHu: cong?.nev_hu ?? cong?.name ?? '',
-        nevRo: cong?.nev_ro ?? null,
-        cif: cong?.adoszam ?? null,
-        cim: cong?.cim ?? null,
-        varos: (cong as Record<string, string | null> | null)?.varos ?? null,
-        megye: (cong as Record<string, string | null> | null)?.megye ?? null,
-        telefon: cong?.telefon ?? null,
-      },
-      egyhazmegyeNevHu: egyhazmegyeNev,
-      egyhazmegyeNevRo: egyhazmegyeNevRo,
-      egyhazkeruletNevHu: egyhazkeruletNev,
-      egyhazkeruletNevRo: egyhazkeruletNevRo,
-    },
-  }
+  const result = await getChitantaForPrintUseCase(
+    { congregationId: access.effectiveCongregationId, chitantaId },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  if (!result.success) return { error: result.error }
+  return { data: result.data }
 }
 
-export type ChitantaPrintData = {
-  id: string
-  sorozat: string
-  /** A `szam` mező backward-kompatibilis — az újabb nyugtáknál ez megegyezik a `nyomdaiSzam`-mal. */
-  szam: number
-  /** Kerületi nyomdai sorszám — a tömbből lefoglalva (pl. 115356). Seria mellett jelenik meg. */
-  nyomdaiSzam: number | null
-  /** Gyülekezeti saját sorszám — év elején 1-től újraindul (pl. 356). A nagy Nr. mezőben. */
-  gyulekezetiSzam: number | null
-  szamlaDatum: string
-  klienessegNev: string
-  klienessegCui: string | null
-  klienessegCim: string | null
-  klienessegNrOrcAn: string | null
-  osszegBrut: number
-  reprezentand: string | null
-  /** A "reprezentând (címén)" mező román fordítása — a `befizetescel.nevro`-ból jön. */
-  reprezentandRo: string | null
-  megjegyzes: string | null
-  stornozott: boolean
-  stornozottAt: string | null
-  stornozottIndok: string | null
-  gyulekezet: {
-    nevHu: string
-    nevRo: string | null
-    cif: string | null
-    /** Utca + szám (pl. "str. Parohiei, nr. 214"). */
-    cim: string | null
-    /** Falu / város (pl. "Brateș"). */
-    varos: string | null
-    /** Megye (pl. "Jud. Covasna"). */
-    megye: string | null
-    telefon: string | null
-  }
-  egyhazmegyeNevHu: string | null
-  egyhazmegyeNevRo: string | null
-  egyhazkeruletNevHu: string | null
-  egyhazkeruletNevRo: string | null
-}
+// A ChitantaPrintData típus A-M7.2f óta a @kartoteka/validations-ben él
+// (ld. a fájl tetején lévő importot). A meglévő fogyasztók
+// (chitanta-print-template, chitanta-reprint-dialog, chitanta-silent-print)
+// ezen a fájlon keresztül importálnak — ezért re-exportáljuk:
+export type { ChitantaPrintData }
 
 // ─────────────────────────────────────────────────────────────
 // Lista
@@ -602,28 +413,24 @@ export async function listChitantas(filter?: {
   yearTo?: number
   sorozat?: string
 }): Promise<{ data?: ChitantaRow[]; error?: string }> {
+  // A-M7.2e óta: a @kartoteka/core use-case intézi a Supabase-lekérdezést +
+  // zod-drift-check-et. A web adapter vékony.
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  let q = access.supabase
-    .from('oblio_szamlak')
-    .select(`
-      id, sorozat, szam, szamla_datum, klienesseg_nev, klienesseg_cui, klienesseg_cim,
-      osszeg_brut, reprezentand, befizetes_id, stornozott, stornozott_indok,
-      megjegyzes, issued_by, created_at
-    `)
-    .eq('congregation_id', access.effectiveCongregationId)
-    .eq('tipus', 'chitanta_papir')
-    .order('szamla_datum', { ascending: false })
-
-  if (filter?.sorozat) q = q.eq('sorozat', filter.sorozat)
-  if (filter?.yearFrom) q = q.gte('szamla_datum', `${filter.yearFrom}-01-01`)
-  if (filter?.yearTo) q = q.lte('szamla_datum', `${filter.yearTo}-12-31`)
-
-  const { data, error } = await q
-  if (error) return { error: error.message }
-  return { data: (data ?? []) as ChitantaRow[] }
+  const result = await listChitantasUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      yearFrom: filter?.yearFrom,
+      yearTo: filter?.yearTo,
+      sorozat: filter?.sorozat,
+    },
+    { supabase: access.supabase, runtime: 'web' },
+  )
+  if (!result.success) return { error: result.error }
+  // A ChitantaListRow és ChitantaRow mezői megegyeznek — típus-kompatibilis cast.
+  return { data: result.rows as unknown as ChitantaRow[] }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -675,27 +482,22 @@ export async function stornoChitanta(args: {
   chitantaId: string
   indok: string
 }): Promise<{ success?: boolean; error?: string }> {
+  // A-M7.2e óta: a @kartoteka/core use-case intézi a zod-validálást +
+  // RLS-védett UPDATE-et.
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const indok = (args.indok || '').trim()
-  if (indok.length < 5) {
-    return { error: 'A sztornó indoklás legalább 5 karakter legyen.' }
-  }
+  const result = await stornoChitantaUseCase(
+    {
+      congregationId: access.effectiveCongregationId,
+      chitantaId: args.chitantaId,
+      indok: args.indok,
+    },
+    { supabase: access.supabase, runtime: 'web' },
+  )
 
-  const { error } = await access.supabase
-    .from('oblio_szamlak')
-    .update({
-      stornozott: true,
-      stornozott_at: new Date().toISOString(),
-      stornozott_indok: indok,
-    })
-    .eq('id', args.chitantaId)
-    .eq('congregation_id', access.effectiveCongregationId)
-    .eq('tipus', 'chitanta_papir')
-
-  if (error) return { error: error.message }
+  if (!result.success) return { error: result.error }
   revalidatePath('/penzugy')
   return { success: true }
 }

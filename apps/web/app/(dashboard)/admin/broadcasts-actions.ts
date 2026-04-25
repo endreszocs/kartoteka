@@ -240,6 +240,9 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
 
   // 3) Email küldés (szép HTML template)
   if (args.sendEmail) {
+    let emailSentAt: string | null = null
+    let emailError: string | null = null
+
     try {
       const { buildNewsletterHtml, buildNewsletterPlainText } = await import('@/lib/broadcasts/newsletter-template')
       const html = buildNewsletterHtml({
@@ -267,17 +270,34 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
         .map((r) => r.email)
         .filter((e): e is string => !!e)
       if (emails.length > 0) {
-        await sendBroadcastEmail({
+        const emailResult = await sendBroadcastEmail({
           to: emails,
           subject: title,
           bodyText: text,
           tipus: 'release',
           customHtml: html,
         })
+        if (emailResult.success) {
+          emailSentAt = new Date().toISOString()
+        } else {
+          emailError = emailResult.error || 'ismeretlen email hiba'
+        }
+      } else {
+        emailError = 'A célcsoportban nincs email címmel rendelkező címzett.'
       }
     } catch (err) {
       console.error('[sendNewsletter] email küldés hiba:', err)
+      emailError = err instanceof Error ? err.message : 'ismeretlen email hiba'
     }
+
+    await access.supabase
+      .from('system_broadcasts')
+      .update({
+        send_email: true,
+        email_sent_at: emailSentAt,
+        email_error: emailError,
+      })
+      .in('release_changelog_key', toSend.map((e) => e.key))
   }
 
   revalidatePath('/admin')
@@ -378,20 +398,49 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
   const entries = await parseChangelog()
   if (entries.length === 0) return { data: [] }
 
-  // Megnézzük, melyik kulcs van már broadcast-olva
+  // Megnézzük, melyik kulcs van már broadcast-olva, és milyen csatornán ment ki.
   const { data: sent } = await access.supabase
     .from('system_broadcasts')
-    .select('release_changelog_key')
+    .select('release_changelog_key, sent_at, recipient_count, target_scope, target_role, send_email, email_sent_at, email_error')
     .in('release_changelog_key', entries.map((e) => e.key))
-  const sentKeys = new Set(
-    ((sent || []) as { release_changelog_key: string | null }[])
-      .map((s) => s.release_changelog_key)
-      .filter((k): k is string => !!k),
+
+  type ChangelogBroadcastRow = {
+    release_changelog_key: string | null
+    sent_at: string
+    recipient_count: number
+    target_scope: BroadcastTargetScope
+    target_role: BroadcastTargetRole | null
+    send_email: boolean
+    email_sent_at: string | null
+    email_error: string | null
+  }
+
+  const sentByKey = new Map(
+    ((sent || []) as ChangelogBroadcastRow[])
+      .filter((s) => !!s.release_changelog_key)
+      .map((s) => [s.release_changelog_key as string, s]),
   )
 
   // Legfrissebb dátum felül — Endre visszajelzés 2026-04-18
   // (Az azonos dátumú bejegyzések közül az utoljára beszúrt kerül elsőre)
-  const withSent = entries.map((e) => ({ ...e, alreadySent: sentKeys.has(e.key) }))
+  const withSent = entries.map((e) => {
+    const status = sentByKey.get(e.key)
+    return {
+      ...e,
+      alreadySent: !!status,
+      broadcastStatus: status
+        ? {
+            sentAt: status.sent_at,
+            recipientCount: status.recipient_count,
+            targetScope: status.target_scope,
+            targetRole: status.target_role,
+            sendEmail: status.send_email,
+            emailSentAt: status.email_sent_at,
+            emailError: status.email_error,
+          }
+        : null,
+    }
+  })
   withSent.sort((a, b) => {
     if (a.date !== b.date) return b.date.localeCompare(a.date)
     // Azonos dátumnál a CHANGELOG sorrendjét megtartjuk fordítva:
