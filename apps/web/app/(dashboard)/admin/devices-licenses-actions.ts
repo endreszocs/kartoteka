@@ -233,9 +233,13 @@ export async function listAuditLog(filter: { action?: string; userId?: string; l
   const ctx = await requireAdmin()
   if ('error' in ctx) return { error: ctx.error }
 
+  // A `audit_log_with_profiles` flat VIEW az audit_log + profiles JOIN-t adja,
+  // megkerülve a PostgREST relationship inference problémát az audit_log.user_id
+  // ON DELETE SET NULL miatt. RLS érvényben marad (security_invoker=true).
+  // Migration: migration-docs/sql/2026-04-25-m0-5-audit-log-view.sql
   let q = ctx.supabase
-    .from('audit_log')
-    .select('*, profiles!user_id(email)')
+    .from('audit_log_with_profiles')
+    .select('*')
     .order('created_at', { ascending: false })
     .limit(filter.limit || 100)
 
@@ -245,22 +249,19 @@ export async function listAuditLog(filter: { action?: string; userId?: string; l
   const { data, error } = await q
   if (error) return { error: error.message }
 
-  const result = (data || []).map((row: Record<string, unknown>) => {
-    const profile = row['profiles'] as { email?: string } | null
-    return {
-      id: row['id'] as string,
-      user_id: (row['user_id'] as string | null) ?? null,
-      device_id: (row['device_id'] as string | null) ?? null,
-      action: row['action'] as string,
-      target_table: (row['target_table'] as string | null) ?? null,
-      target_id: (row['target_id'] as string | null) ?? null,
-      metadata: row['metadata'],
-      ip: (row['ip'] as string | null) ?? null,
-      user_agent: (row['user_agent'] as string | null) ?? null,
-      created_at: row['created_at'] as string,
-      user_email: profile?.email ?? null,
-    }
-  })
+  const result = (data || []).map((row: Record<string, unknown>) => ({
+    id: row['id'] as string,
+    user_id: (row['user_id'] as string | null) ?? null,
+    device_id: (row['device_id'] as string | null) ?? null,
+    action: row['action'] as string,
+    target_table: (row['target_table'] as string | null) ?? null,
+    target_id: (row['target_id'] as string | null) ?? null,
+    metadata: row['metadata'],
+    ip: (row['ip'] as string | null) ?? null,
+    user_agent: (row['user_agent'] as string | null) ?? null,
+    created_at: row['created_at'] as string,
+    user_email: (row['user_email'] as string | null) ?? null,
+  }))
 
   return { data: result }
 }
