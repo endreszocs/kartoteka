@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -8,6 +9,7 @@ import {
   BookOpen,
   Building2,
   Castle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -48,6 +50,9 @@ interface SidebarProps {
    *  Diocese esetén az "Irányítópult" label + href változik és csak a
    *  Pénzügy modul jelenik meg fő modulok között. */
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
+  /** A Pénzügy menüpont kibontható almenüje (Sprint Q F1.6, v0.7.6).
+   *  Hash-alapú navigáció: `/penzugy#cashbook` stb. */
+  financeSubmenu?: MenuItem[]
 }
 
 interface MenuItem {
@@ -55,6 +60,11 @@ interface MenuItem {
   href: string
   icon: LucideIcon
   gradient: string
+  /**
+   * Kibontható almenü gyermek-elemei (Sprint Q F1.6, v0.7.6, 2026-04-26).
+   * Hash-alapú navigáció a finance fülekhez: `/penzugy#cashbook` stb.
+   */
+  children?: MenuItem[]
 }
 
 interface MenuSection {
@@ -108,6 +118,160 @@ function isActivePath(pathname: string, href: string) {
   return href !== '/dashboard' && pathname.startsWith(`${href}/`)
 }
 
+/**
+ * Egy menüpont — kibontható almenüvel, ha van `children`.
+ * Hash-alapú aktivitás: `/penzugy#cashbook` matchel ha pathname=='/penzugy'
+ * és window.location.hash === '#cashbook'.
+ */
+function SidebarItem({
+  item,
+  pathname,
+  collapsed,
+  onNavigate,
+}: {
+  item: MenuItem
+  pathname: string
+  collapsed: boolean
+  onNavigate?: () => void
+}) {
+  const Icon = item.icon
+  const walkthroughKey = `menu-${item.href.replace(/^\//, '').split('/')[0]}`
+  const hasChildren = !!item.children && item.children.length > 0
+
+  const parentActive = isActivePath(pathname, item.href)
+  const childActive =
+    hasChildren && item.children!.some((c) => {
+      const [path, hash] = c.href.split('#')
+      if (hash) {
+        // hash-alapú: csak akkor aktív, ha pathname matchel ÉS hash matchel
+        return (
+          pathname === path &&
+          typeof window !== 'undefined' &&
+          window.location.hash === `#${hash}`
+        )
+      }
+      return isActivePath(pathname, c.href)
+    })
+  const active = parentActive || childActive
+
+  // Auto-expand: ha bármelyik gyermek aktív vagy a parent matchel.
+  const [expanded, setExpanded] = useState(parentActive || childActive)
+
+  useEffect(() => {
+    if (parentActive || childActive) setExpanded(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
+
+  // Hash változás figyelése — a finance fülek aktivitása frissül
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    function handleHashChange() {
+      // re-render trigger; az `childActive` újraszámolódik a következő render-ben
+      setExpanded((v) => v)
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  const showChildren = hasChildren && expanded && !collapsed
+
+  return (
+    <div className="space-y-0.5">
+      <div className="relative">
+        <Link
+          href={item.href}
+          onClick={onNavigate}
+          title={collapsed ? item.label : undefined}
+          aria-label={item.label}
+          data-walkthrough={walkthroughKey}
+          suppressHydrationWarning
+          className={cn(
+            'group flex w-full items-center gap-2 rounded-[0.95rem] border px-2.5 py-2 text-[12px] transition [@media(max-height:1040px)]:gap-1.5 [@media(max-height:1040px)]:rounded-[0.9rem] [@media(max-height:1040px)]:px-2 [@media(max-height:1040px)]:py-1.5 [@media(max-height:1040px)]:text-[11px] [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:rounded-[0.85rem] [@media(max-height:820px)]:px-1.5 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+            active
+              ? 'border-white/18 bg-white/14 text-white shadow-[0_18px_28px_-24px_rgba(0,0,0,0.55)]'
+              : 'border-transparent text-white/76 hover:border-white/10 hover:bg-white/8 hover:text-white',
+            collapsed && 'justify-center rounded-[0.9rem] px-1.5 py-1.5',
+            hasChildren && !collapsed && 'pr-9',
+          )}
+        >
+          <div
+            className={cn(
+              'flex size-8 shrink-0 items-center justify-center rounded-[0.95rem] border border-white/15 bg-white/10 transition [@media(max-height:820px)]:size-7',
+              active && `bg-gradient-to-br ${item.gradient} border-white/20`,
+              collapsed && 'size-8',
+            )}
+          >
+            <Icon className={cn('size-3.5', active ? 'text-white' : 'text-white/75')} />
+          </div>
+
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium leading-tight">{item.label}</p>
+            </div>
+          )}
+        </Link>
+
+        {hasChildren && !collapsed && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setExpanded((v) => !v)
+            }}
+            aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
+            aria-expanded={expanded}
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 flex size-7 items-center justify-center rounded-[0.7rem] text-white/65 hover:bg-white/10 hover:text-white transition',
+              '[@media(max-height:820px)]:size-6',
+            )}
+          >
+            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          </button>
+        )}
+      </div>
+
+      {showChildren && (
+        <div className="mt-0.5 ml-3 space-y-0.5 border-l border-white/10 pl-2">
+          {item.children!.map((child) => {
+            const [childPath, childHash] = child.href.split('#')
+            const isChildActive = childHash
+              ? pathname === childPath &&
+                typeof window !== 'undefined' &&
+                window.location.hash === `#${childHash}`
+              : isActivePath(pathname, child.href)
+            const childWalkthroughKey = `menu-${child.href.replace(/^\//, '').replace(/[#?].*$/, '').split('/').join('-')}`
+            return (
+              <Link
+                key={child.href}
+                href={child.href}
+                onClick={onNavigate}
+                aria-label={child.label}
+                data-walkthrough={childWalkthroughKey}
+                suppressHydrationWarning
+                className={cn(
+                  'group flex w-full items-center gap-2 rounded-[0.7rem] px-2.5 py-1.5 text-[11px] transition [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+                  isChildActive
+                    ? 'bg-white/12 text-white font-semibold'
+                    : 'text-white/68 hover:bg-white/6 hover:text-white',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block size-1.5 shrink-0 rounded-full',
+                    isChildActive ? 'bg-white' : 'bg-white/40',
+                  )}
+                />
+                <span className="truncate leading-tight">{child.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SidebarSection({
   title,
   items,
@@ -132,48 +296,15 @@ function SidebarSection({
       )}
 
       <div className={cn('space-y-0.5', collapsed && 'space-y-0.5')}>
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href)
-          const Icon = item.icon
-
-          // walkthrough target — a selector-t a WALKTHROUGH_STEPS is használja
-          const walkthroughKey = `menu-${item.href.replace(/^\//, '').split('/')[0]}`
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              title={collapsed ? item.label : undefined}
-              aria-label={item.label}
-              data-walkthrough={walkthroughKey}
-              suppressHydrationWarning
-              className={cn(
-                'group flex w-full items-center gap-2 rounded-[0.95rem] border px-2.5 py-2 text-[12px] transition [@media(max-height:1040px)]:gap-1.5 [@media(max-height:1040px)]:rounded-[0.9rem] [@media(max-height:1040px)]:px-2 [@media(max-height:1040px)]:py-1.5 [@media(max-height:1040px)]:text-[11px] [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:rounded-[0.85rem] [@media(max-height:820px)]:px-1.5 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
-                active
-                  ? 'border-white/18 bg-white/14 text-white shadow-[0_18px_28px_-24px_rgba(0,0,0,0.55)]'
-                  : 'border-transparent text-white/76 hover:border-white/10 hover:bg-white/8 hover:text-white',
-                collapsed && 'justify-center rounded-[0.9rem] px-1.5 py-1.5'
-              )}
-            >
-              <div
-                className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-[0.95rem] border border-white/15 bg-white/10 transition [@media(max-height:820px)]:size-7',
-                  active && `bg-gradient-to-br ${item.gradient} border-white/20`,
-                  collapsed && 'size-8'
-                )}
-              >
-                <Icon className={cn('size-3.5', active ? 'text-white' : 'text-white/75')} />
-              </div>
-
-              {!collapsed && (
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium leading-tight">{item.label}</p>
-                </div>
-              )}
-            </Link>
-          )
-        })}
+        {items.map((item) => (
+          <SidebarItem
+            key={item.href}
+            item={item}
+            pathname={pathname}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+        ))}
       </div>
     </section>
   )
@@ -194,6 +325,7 @@ function SidebarNav({
   onToggleCollapsed,
   onNavigate,
   activeScope = null,
+  financeSubmenu,
 }: {
   isEsperes: boolean
   isAdmin: boolean
@@ -213,6 +345,8 @@ function SidebarNav({
    *  Diocese esetén az "Irányítópult" menüpont "Egyházmegyei irányítópult"-ra
    *  változik és csak a Pénzügy látható. */
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
+  /** A Pénzügy menüpont kibontható almenüje (Sprint Q F1.6, v0.7.6). */
+  financeSubmenu?: MenuItem[]
 }) {
   const pathname = usePathname()
   const sections: MenuSection[] = []
@@ -234,18 +368,25 @@ function SidebarNav({
       ? { label: 'Kerületi irányítópult', href: '/dashboard-kerulet', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
       : { label: 'Irányítópult', href: '/dashboard', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
 
+  // A Pénzügy menüpontot — ha kapunk financeSubmenu-t — bővítjük
+  // a kibontható almenüvel (Sprint Q F1.6, v0.7.6).
+  const financeMenuItem: MenuItem = {
+    label: 'Pénzügy',
+    href: '/penzugy',
+    icon: Wallet,
+    gradient: 'from-amber-400 to-orange-500',
+    ...(financeSubmenu && financeSubmenu.length > 0 ? { children: financeSubmenu } : {}),
+  }
+
   // Diocese scope: csak Irányítópult + Pénzügy. A többi modul elrejtve.
-  const dioceseMainItems: MenuItem[] = [
-    dynamicDashboardItem,
-    { label: 'Pénzügy', href: '/penzugy', icon: Wallet, gradient: 'from-amber-400 to-orange-500' },
-  ]
+  const dioceseMainItems: MenuItem[] = [dynamicDashboardItem, financeMenuItem]
 
   // Gyülekezeti mainItems dinamikus elemmel
   const effectiveMainItems: MenuItem[] = isDioceseScope
     ? dioceseMainItems
     : [
         dynamicDashboardItem,
-        ...mainItems.slice(1), // Tagnyilvántartás, Pénzügy, Anyakönyv
+        ...mainItems.slice(1).map((m) => (m.href === '/penzugy' ? financeMenuItem : m)),
       ]
 
   // Lelkész / esperes / admin: a saját gyülekezetük moduljaihoz jutnak
@@ -268,7 +409,12 @@ function SidebarNav({
   // a profil oldalán ("Várakozás lelkészi jóváhagyásra").
   const isFinancialReviewer = (isKonyvelo || isSzamvevo) && !hasCongregation
   if (isFinancialReviewer && assignedCongregationsCount > 0) {
-    sections.push({ title: 'Pénzügyi review', items: financialReviewItems })
+    // Pénzügyi review-nál is bővítjük az item-et a financeSubmenu-vel.
+    const reviewerFinanceItem: MenuItem =
+      financeSubmenu && financeSubmenu.length > 0
+        ? { ...financialReviewItems[0], children: financeSubmenu }
+        : financialReviewItems[0]
+    sections.push({ title: 'Pénzügyi review', items: [reviewerFinanceItem] })
   }
 
   // Profil mindenkinek elérhető (saját oldal, hozzáférési kérések kezelése)
@@ -400,6 +546,7 @@ export function SidebarAdaptiveV4({
   collapsed,
   onToggleCollapsed,
   activeScope = null,
+  financeSubmenu,
 }: SidebarProps) {
   const navProps = {
     isEsperes,
@@ -412,6 +559,7 @@ export function SidebarAdaptiveV4({
     assignedCongregationsCount,
     isGodMode,
     activeScope,
+    financeSubmenu,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'

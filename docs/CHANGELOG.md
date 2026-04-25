@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — Pénzügy almenü a sidebarban (v0.7.6)
+
+<!-- key: 2026-04-26-sidebar-finance-submenu -->
+<!-- category: feature -->
+<!-- version: 0.7.6 -->
+<!-- targets: lelkészek, fejlesztők — minden pénzügyi modul felhasználói -->
+
+A baloldali sidebar-ban a **Pénzügy** menüpont mostantól kibontható
+almenüvel jelenik meg. Egy kattintással elérhető minden pénzügyi oldal
+(desktopon a 7 implementált oldal, weben a 11 fül) — nem kell előbb
+a /penzugy oldalra navigálni, majd a fülön belül átkattintani.
+
+### 🎨 Felhasználói UX
+
+- **Pénzügy → chevron jobbra (▶)**: az ikonra kattintva kibontódik az
+  almenü (vagy becsukódik ha már nyitva).
+- **Auto-expand**: ha az aktuális oldal a Pénzügy modulban van
+  (pl. `/penzugy/befizetes`), az almenü automatikusan kibontva indul.
+- **Aktív sub-item**: a jelenlegi oldal vagy fül erősebb kiemelést kap
+  (világos szín + bold).
+- **Behúzott sub-itemek**: vékony függőleges vonal jelzi a hierarchiát,
+  bullet-pont az aktív/inaktív állapot.
+- **Mobil + collapsed sidebar**: collapsed (csak ikon) módban a Pénzügy
+  ikonra kattintva navigál a /penzugy-re; a sub-itemek a kibontott
+  módban érhetők el.
+
+### 📋 Almenü tartalmak
+
+**Webes (11 fül, hash-alapú navigáció `/penzugy#cashbook` stb.):**
+- Áttekintés, Kassza, Bank, Tranzakciók, Költségvetés, Számadás,
+  Tartozások, Bérleti szerződések, Monetár, Oblio ellenőrzés, Súgó.
+
+**Desktop (7 oldal, `/penzugy/<route>`):**
+- Áttekintés, Bevétel, Kiadás, Belső mozgás, Nyugta, Nyugtatömbök,
+  Bank import.
+
+### 🔧 Műszaki részletek (fejlesztőknek)
+
+- `MenuItem.children?: MenuItem[]` mező — kibontható almenü modellje.
+- `KartotekaSidebar` + `SidebarAdaptiveV4` (web saját) bővítve
+  `financeSubmenu` prop-pal — a wrapper adja át a 7/11 sub-item listát.
+- Hash-alapú aktivitás: `/penzugy#cashbook` → pathname=='/penzugy' +
+  `window.location.hash === '#cashbook'`.
+- `finance-tabs.tsx` hash-listener: mount-kor + `hashchange` event-re
+  beállítja az activeTab-ot. Tab váltáskor `history.replaceState` az
+  URL hash-t (nem pushState — nincs Vissza-gomb-ugrálás).
+- `'use client'` direktíva a közös `kartoteka-sidebar.tsx`-ben — az
+  új `useState`/`useEffect` hookok miatt.
+
+### 📦 Új ALAPELV (memória)
+
+- **Web és desktop párhuzamos fejlesztés** — minden új feature MINDKÉT
+  platformra párhuzamosan. Ez volt az első port, ami ezt explicit
+  követte: a webes saját sidebar és a közös shared sidebar EGYIDŐBEN
+  módosult, a wrapper-ek párhuzamosan.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /dashboard → Pénzügy menüpont**: chevron-os kibontható almenü.
+- **Desktop oldal → Pénzügy menüpont**: ugyanígy.
+- **Adatvesztés nincs**, frissítés automatikus auto-update-ön át.
+
+---
+
 ## [2026-04-26] — Welcome wizard mentési hotfix és pénzügyi oldal stabilizálás
 
 <!-- key: 2026-04-26-welcome-wizard-step-save-hotfix -->

@@ -17,8 +17,35 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { User } from '@supabase/supabase-js'
+import {
+  ArrowDownRight,
+  ArrowLeftRight,
+  ArrowUpRight,
+  Eye,
+  FileSpreadsheet,
+  Receipt,
+  ScrollText,
+} from 'lucide-react'
 
-import { KartotekaShell } from '@kartoteka/ui'
+import { KartotekaShell, type MenuItem } from '@kartoteka/ui'
+
+/**
+ * A Pénzügy menüpont kibontható almenüje a desktop-on (Sprint Q F1.6, v0.7.6).
+ * 7 sub-item, a `/penzugy` landing page-t a parent-link adja külön.
+ *
+ * A sub-item-eknél az icon és gradient nem jelenik meg a UI-on (csak bullet
+ * látszik), de a `MenuItem` típus megköveteli őket — ezért ikon-konzisztencia
+ * miatt a finance-súgóból ismert ikonokat használjuk.
+ */
+const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
+  { label: 'Áttekintés', href: '/penzugy/attekintes', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Bevétel', href: '/penzugy/befizetes', icon: ArrowUpRight, gradient: 'from-emerald-400 to-green-500' },
+  { label: 'Kiadás', href: '/penzugy/kiadas', icon: ArrowDownRight, gradient: 'from-red-400 to-rose-500' },
+  { label: 'Belső mozgás', href: '/penzugy/belsomozgas', icon: ArrowLeftRight, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Bank import', href: '/penzugy/bank-import', icon: FileSpreadsheet, gradient: 'from-violet-400 to-purple-500' },
+]
 
 import { SettingsDialog } from '../../components/settings-dialog'
 import { getDesktopSupabase } from '../supabase'
@@ -200,6 +227,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
         activeScope={activeScope}
         onSignOut={handleSignOut}
         onOpenSettings={() => setSettingsOpen(true)}
+        financeSubmenu={DESKTOP_FINANCE_SUBMENU}
       >
         {children}
       </KartotekaShell>

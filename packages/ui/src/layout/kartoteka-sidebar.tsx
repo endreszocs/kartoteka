@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Kartotéka sidebar — platform-agnosztikus port a web `SidebarAdaptiveV4`-ből.
  *
@@ -13,13 +15,15 @@
  * mobile sheet, collapse) megmarad — csak a routing-réteg cserélődik.
  */
 
-import { type ComponentType, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   BookOpen,
   Building2,
   Castle,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   ClipboardList,
   FileText,
   Handshake,
@@ -62,6 +66,15 @@ export interface MenuItem {
   href: string
   icon: LucideIcon
   gradient: string
+  /**
+   * Kibontható almenü gyermek-elemei (Sprint Q F1.6, v0.7.6, 2026-04-26).
+   * Ha megadva, a parent item-en chevron jelenik meg, és a sub-itemek
+   * behúzva, halványabban renderelődnek. Az auto-expand logikája: ha a
+   * `currentPath` matchel valamelyik child-href-fel (pl. `/penzugy/befizetes`)
+   * VAGY a parent-href-fel (pl. `/penzugy`), a parent automatikusan
+   * kibontva indul.
+   */
+  children?: MenuItem[]
 }
 
 export interface MenuSection {
@@ -143,11 +156,171 @@ export interface KartotekaSidebarProps {
   onMobileClose: () => void
   collapsed: boolean
   onToggleCollapsed: () => void
+
+  /**
+   * A Pénzügy menüpont kibontható almenüje (v0.7.6+).
+   * - Web: 11 finance fül (`/penzugy#dashboard`, `/penzugy#cashbook`, ...)
+   * - Desktop: 8 desktop oldal (`/penzugy/attekintes`, `/penzugy/befizetes`, ...)
+   * Ha undefined/üres tömb, a Pénzügy item flat marad (régi viselkedés).
+   */
+  financeSubmenu?: MenuItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // SidebarSection — egy label + nav-linkek blokkja
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Egy menüpont (parent-link, esetleg kibontható almenüvel).
+ *
+ * Ha az item-nek van `children`, a parent-link mellett egy chevron-gomb
+ * jelenik meg, amely a sub-itemek listáját bontja ki/csukja össze.
+ * Az auto-expand logikája: ha a currentPath valamelyik child-href-fel matchel
+ * (pl. `/penzugy/befizetes`), a parent automatikusan expanded állapotban
+ * kezdődik.
+ */
+function SidebarItem({
+  item,
+  pathname,
+  collapsed,
+  Link,
+  onNavigate,
+}: {
+  item: MenuItem
+  pathname: string
+  collapsed: boolean
+  Link: SidebarLinkComponent
+  onNavigate?: () => void
+}) {
+  const Icon = item.icon
+  const walkthroughKey = `menu-${item.href.replace(/^\//, '').split('/')[0]}`
+  const hasChildren = !!item.children && item.children.length > 0
+
+  // Aktív, ha pontosan ez a parent-href, VAGY az URL ezen a parent alatt van
+  // (pl. /penzugy/befizetes a /penzugy parent alatt számít aktívnak az
+  // ikon-gradiensnél).
+  const parentActive = isActivePath(pathname, item.href)
+  const childActive =
+    hasChildren && item.children!.some((c) => isActivePath(pathname, c.href))
+  const active = parentActive || childActive
+
+  // Auto-expand a child-aktivitás vagy a hash-alapú aktivitás alapján.
+  // A hash-alapú match (`/penzugy#cashbook`) a child.href-hez illeszkedik.
+  const hashActive =
+    hasChildren &&
+    typeof window !== 'undefined' &&
+    item.children!.some((c) => {
+      const [path, hash] = c.href.split('#')
+      if (!hash) return false
+      return pathname === path && window.location.hash === `#${hash}`
+    })
+  const shouldStartExpanded = childActive || hashActive || parentActive
+
+  const [expanded, setExpanded] = useState(shouldStartExpanded)
+
+  // Auto-expand frissítés ha a pathname változik
+  useEffect(() => {
+    if (shouldStartExpanded) setExpanded(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
+
+  // Collapsed sidebar-ban a children-t nem mutatjuk (csak az ikon-tooltip)
+  const showChildren = hasChildren && expanded && !collapsed
+
+  return (
+    <div className="space-y-0.5">
+      <div className="relative">
+        <Link
+          href={item.href}
+          onClick={onNavigate}
+          title={collapsed ? item.label : undefined}
+          aria-label={item.label}
+          data-walkthrough={walkthroughKey}
+          suppressHydrationWarning
+          className={cn(
+            'group flex w-full items-center gap-2 rounded-[0.95rem] border px-2.5 py-2 text-[12px] transition [@media(max-height:1040px)]:gap-1.5 [@media(max-height:1040px)]:rounded-[0.9rem] [@media(max-height:1040px)]:px-2 [@media(max-height:1040px)]:py-1.5 [@media(max-height:1040px)]:text-[11px] [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:rounded-[0.85rem] [@media(max-height:820px)]:px-1.5 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+            active
+              ? 'border-white/18 bg-white/14 text-white shadow-[0_18px_28px_-24px_rgba(0,0,0,0.55)]'
+              : 'border-transparent text-white/76 hover:border-white/10 hover:bg-white/8 hover:text-white',
+            collapsed && 'justify-center rounded-[0.9rem] px-1.5 py-1.5',
+            // Helyet hagyunk a chevron gombnak
+            hasChildren && !collapsed && 'pr-9',
+          )}
+        >
+          <div
+            className={cn(
+              'flex size-8 shrink-0 items-center justify-center rounded-[0.95rem] border border-white/15 bg-white/10 transition [@media(max-height:820px)]:size-7',
+              active && `bg-gradient-to-br ${item.gradient} border-white/20`,
+              collapsed && 'size-8',
+            )}
+          >
+            <Icon className={cn('size-3.5', active ? 'text-white' : 'text-white/75')} />
+          </div>
+
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium leading-tight">{item.label}</p>
+            </div>
+          )}
+        </Link>
+
+        {/* Chevron toggle — csak ha van almenü és nem collapsed */}
+        {hasChildren && !collapsed && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setExpanded((v) => !v)
+            }}
+            aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
+            aria-expanded={expanded}
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 flex size-7 items-center justify-center rounded-[0.7rem] text-white/65 hover:bg-white/10 hover:text-white transition',
+              '[@media(max-height:820px)]:size-6',
+            )}
+          >
+            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          </button>
+        )}
+      </div>
+
+      {/* Almenü-elemek — behúzva, halványabban */}
+      {showChildren && (
+        <div className="mt-0.5 ml-3 space-y-0.5 border-l border-white/10 pl-2">
+          {item.children!.map((child) => {
+            const childActive = isActivePath(pathname, child.href)
+            const childWalkthroughKey = `menu-${child.href.replace(/^\//, '').replace(/[#?].*$/, '').split('/').join('-')}`
+            return (
+              <Link
+                key={child.href}
+                href={child.href}
+                onClick={onNavigate}
+                aria-label={child.label}
+                data-walkthrough={childWalkthroughKey}
+                suppressHydrationWarning
+                className={cn(
+                  'group flex w-full items-center gap-2 rounded-[0.7rem] px-2.5 py-1.5 text-[11px] transition [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+                  childActive
+                    ? 'bg-white/12 text-white font-semibold'
+                    : 'text-white/68 hover:bg-white/6 hover:text-white',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block size-1.5 shrink-0 rounded-full',
+                    childActive ? 'bg-white' : 'bg-white/40',
+                  )}
+                />
+                <span className="truncate leading-tight">{child.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function SidebarSection({
   title,
@@ -180,46 +353,16 @@ function SidebarSection({
       )}
 
       <div className={cn('space-y-0.5', collapsed && 'space-y-0.5')}>
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href)
-          const Icon = item.icon
-          const walkthroughKey = `menu-${item.href.replace(/^\//, '').split('/')[0]}`
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              title={collapsed ? item.label : undefined}
-              aria-label={item.label}
-              data-walkthrough={walkthroughKey}
-              suppressHydrationWarning
-              className={cn(
-                'group flex w-full items-center gap-2 rounded-[0.95rem] border px-2.5 py-2 text-[12px] transition [@media(max-height:1040px)]:gap-1.5 [@media(max-height:1040px)]:rounded-[0.9rem] [@media(max-height:1040px)]:px-2 [@media(max-height:1040px)]:py-1.5 [@media(max-height:1040px)]:text-[11px] [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:rounded-[0.85rem] [@media(max-height:820px)]:px-1.5 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
-                active
-                  ? 'border-white/18 bg-white/14 text-white shadow-[0_18px_28px_-24px_rgba(0,0,0,0.55)]'
-                  : 'border-transparent text-white/76 hover:border-white/10 hover:bg-white/8 hover:text-white',
-                collapsed && 'justify-center rounded-[0.9rem] px-1.5 py-1.5',
-              )}
-            >
-              <div
-                className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-[0.95rem] border border-white/15 bg-white/10 transition [@media(max-height:820px)]:size-7',
-                  active && `bg-gradient-to-br ${item.gradient} border-white/20`,
-                  collapsed && 'size-8',
-                )}
-              >
-                <Icon className={cn('size-3.5', active ? 'text-white' : 'text-white/75')} />
-              </div>
-
-              {!collapsed && (
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium leading-tight">{item.label}</p>
-                </div>
-              )}
-            </Link>
-          )
-        })}
+        {items.map((item) => (
+          <SidebarItem
+            key={item.href}
+            item={item}
+            pathname={pathname}
+            collapsed={collapsed}
+            Link={Link}
+            onNavigate={onNavigate}
+          />
+        ))}
       </div>
     </section>
   )
@@ -249,6 +392,7 @@ interface SidebarNavProps {
   onToggleCollapsed?: () => void
   onNavigate?: () => void
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
+  financeSubmenu?: MenuItem[]
 }
 
 function SidebarNav({
@@ -269,6 +413,7 @@ function SidebarNav({
   onToggleCollapsed,
   onNavigate,
   activeScope = null,
+  financeSubmenu,
 }: SidebarNavProps) {
   const sections: MenuSection[] = []
 
@@ -288,14 +433,24 @@ function SidebarNav({
       ? { label: 'Kerületi irányítópult', href: '/dashboard-kerulet', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
       : { label: 'Irányítópult', href: '/dashboard', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
 
-  const dioceseMainItems: MenuItem[] = [
-    dynamicDashboardItem,
-    { label: 'Pénzügy', href: '/penzugy', icon: Wallet, gradient: 'from-amber-400 to-orange-500' },
-  ]
+  // A Pénzügy menüpontot — ha kapunk financeSubmenu-t — bővítjük
+  // a kibontható almenüvel (Sprint Q F1.6, v0.7.6).
+  const financeMenuItem: MenuItem = {
+    label: 'Pénzügy',
+    href: '/penzugy',
+    icon: Wallet,
+    gradient: 'from-amber-400 to-orange-500',
+    ...(financeSubmenu && financeSubmenu.length > 0 ? { children: financeSubmenu } : {}),
+  }
+
+  const dioceseMainItems: MenuItem[] = [dynamicDashboardItem, financeMenuItem]
 
   const effectiveMainItems: MenuItem[] = isDioceseScope
     ? dioceseMainItems
-    : [dynamicDashboardItem, ...mainItems.slice(1)]
+    : [
+        dynamicDashboardItem,
+        ...mainItems.slice(1).map((m) => (m.href === '/penzugy' ? financeMenuItem : m)),
+      ]
 
   if (showCongregationSections) {
     if (isDioceseScope) {
@@ -312,7 +467,13 @@ function SidebarNav({
 
   const isFinancialReviewer = (isKonyvelo || isSzamvevo) && !hasCongregation
   if (isFinancialReviewer && assignedCongregationsCount > 0) {
-    sections.push({ title: 'Pénzügyi review', items: financialReviewItems })
+    // Pénzügyi review-nál is bővítjük az item-et a financeSubmenu-vel,
+    // ha kaptunk almenüt.
+    const reviewerFinanceItem: MenuItem =
+      financeSubmenu && financeSubmenu.length > 0
+        ? { ...financialReviewItems[0], children: financeSubmenu }
+        : financialReviewItems[0]
+    sections.push({ title: 'Pénzügyi review', items: [reviewerFinanceItem] })
   }
 
   if (isFinancialReviewer) {
@@ -458,6 +619,7 @@ export function KartotekaSidebar({
   collapsed,
   onToggleCollapsed,
   activeScope = null,
+  financeSubmenu,
 }: KartotekaSidebarProps) {
   const navProps = {
     Link,
@@ -473,6 +635,7 @@ export function KartotekaSidebar({
     assignedCongregationsCount,
     isGodMode,
     activeScope,
+    financeSubmenu,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'

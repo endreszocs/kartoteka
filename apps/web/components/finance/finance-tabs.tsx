@@ -116,6 +116,53 @@ export function FinanceTabs({
     return () => window.removeEventListener('finance-tab-switch', handler)
   }, [])
 
+  // Hash-alapú navigáció a sidebar pénzügy almenüből
+  // (Sprint Q F1.6, v0.7.6, 2026-04-26).
+  // A sidebar a `/penzugy#cashbook` URL-re mutató linkkel vált fülre — a
+  // mount-kor és a `hashchange` event-en is olvassuk az URL hash-t, és
+  // beállítjuk az activeTab-ot. A hash értékek pontosan a Tabs `value`-ival
+  // egyeznek (dashboard, cashbook, bank, transactions, budget, accounting,
+  // debt, rental, monetary, oblio_ellenorzes, sugo).
+  useEffect(() => {
+    function applyHashToTab() {
+      if (typeof window === 'undefined') return
+      const hash = window.location.hash.replace(/^#/, '')
+      if (!hash) return
+      // Validáljuk hogy létező fül-érték — egyébként figyelmen kívül hagyjuk.
+      const validTabs = [
+        'dashboard',
+        'cashbook',
+        'bank',
+        'transactions',
+        'budget',
+        'accounting',
+        'debt',
+        'rental',
+        'monetary',
+        'oblio_ellenorzes',
+        'sugo',
+      ] as const
+      if ((validTabs as readonly string[]).includes(hash)) {
+        setActiveTab(hash)
+      }
+    }
+    applyHashToTab()
+    window.addEventListener('hashchange', applyHashToTab)
+    return () => window.removeEventListener('hashchange', applyHashToTab)
+  }, [])
+
+  // Tab váltáskor frissítjük az URL hash-t — így a sidebar mindig az aktív
+  // fülön mutat aktív állapotot, és újratöltéskor megmarad a fül.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const currentHash = window.location.hash.replace(/^#/, '')
+    if (currentHash === activeTab) return
+    // A history.replaceState-tel (NEM pushState) frissítjük — így a Vissza
+    // gomb nem ugrik vissza minden fülváltáskor egy lépést.
+    const newUrl = `${window.location.pathname}${window.location.search}#${activeTab}`
+    window.history.replaceState(null, '', newUrl)
+  }, [activeTab])
+
   async function refreshData() {
     const { initFinance } = await import('@/app/(dashboard)/penzugy/actions')
     const data = await initFinance(currentYear)

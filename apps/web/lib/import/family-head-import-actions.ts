@@ -74,6 +74,28 @@ export async function executeFamilyHeadImport(
     (formData.get('targetCongregationId') as string | null) ||
     access.effectiveCongregationId
 
+  // Új: a wizard "Helység-egyeztetés" lépés eredménye
+  const resolvedLocalityMapRaw = formData.get('resolvedLocalityMap') as string | null
+  let resolvedLocalityMap: Record<string, number> | null = null
+  if (resolvedLocalityMapRaw) {
+    try {
+      resolvedLocalityMap = JSON.parse(resolvedLocalityMapRaw)
+    } catch {
+      resolvedLocalityMap = null
+    }
+  }
+
+  // Új: a wizard "Utca-postakód-egyeztetés" lépés eredménye
+  const resolvedStreetPostalcodesRaw = formData.get('resolvedStreetPostalcodes') as string | null
+  let resolvedStreetPostalcodes: Record<string, string> | null = null
+  if (resolvedStreetPostalcodesRaw) {
+    try {
+      resolvedStreetPostalcodes = JSON.parse(resolvedStreetPostalcodesRaw)
+    } catch {
+      resolvedStreetPostalcodes = null
+    }
+  }
+
   // Profil választás (PROFILE_PERSONS vagy PROFILE_FAMILY_HEADS)
   let chosenProfile: ImportProfile
   if (profileKey === PROFILE_PERSONS.key) {
@@ -191,6 +213,8 @@ export async function executeFamilyHeadImport(
   const { data, error } = await supabase.rpc('import_family_head_batch', {
     target_congregation_id: targetCongregationId,
     rows: cleanedRows,
+    p_resolved_locality_map: resolvedLocalityMap,
+    p_resolved_street_postalcodes: resolvedStreetPostalcodes,
   })
 
   if (error) {

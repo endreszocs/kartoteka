@@ -36,6 +36,8 @@ import type { ParseResult, ParsedSheetPreview } from '@/lib/import/batch-import-
 import { WizardStepper, type WizardStep } from './tagnyilvantartas-import/wizard-stepper'
 import { FileUploadStep } from './tagnyilvantartas-import/file-upload-step'
 import { ColumnMappingStep } from './tagnyilvantartas-import/column-mapping-step'
+import { LocalityMatchStep, type LocalityResolutionMap } from './tagnyilvantartas-import/locality-match-step'
+import { StreetPostalcodeStep, type StreetPostalcodeMap } from './tagnyilvantartas-import/street-postalcode-step'
 import { PreviewStep } from './tagnyilvantartas-import/preview-step'
 import { ResultStep, type ResultData } from './tagnyilvantartas-import/result-step'
 import { FamilyLinkStep } from './tagnyilvantartas-import/family-link-step'
@@ -45,6 +47,8 @@ import { FamilyLinkStep } from './tagnyilvantartas-import/family-link-step'
 const STEPS: WizardStep[] = [
   { id: 'upload', label: 'Fájl' },
   { id: 'mapping', label: 'Oszlopok' },
+  { id: 'locality', label: 'Helységek' },
+  { id: 'postalcode', label: 'Postakódok' },
   { id: 'preview', label: 'Előnézet' },
   { id: 'result', label: 'Eredmény' },
   { id: 'family-link', label: 'Családok' },
@@ -54,7 +58,15 @@ const AVAILABLE_PROFILES: ImportProfile[] = [PROFILE_PERSONS, PROFILE_FAMILY_HEA
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
 
-type WizardStage = 'upload' | 'mapping' | 'preview' | 'importing' | 'result' | 'family-link'
+type WizardStage =
+  | 'upload'
+  | 'mapping'
+  | 'locality'
+  | 'postalcode'
+  | 'preview'
+  | 'importing'
+  | 'result'
+  | 'family-link'
 
 interface CongregationOption {
   id: string
@@ -215,6 +227,8 @@ export function TagnyilvantartasImportWizard({
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [profile, setProfile] = useState<ImportProfile>(PROFILE_PERSONS)
   const [mappingOverrides, setMappingOverrides] = useState<Record<string, string | null>>({})
+  const [resolvedLocalityMap, setResolvedLocalityMap] = useState<LocalityResolutionMap>({})
+  const [resolvedPostalcodes, setResolvedPostalcodes] = useState<StreetPostalcodeMap>({})
   const [importResult, setImportResult] = useState<ResultData | null>(null)
 
   const [isParsing, startParsing] = useTransition()
@@ -234,6 +248,8 @@ export function TagnyilvantartasImportWizard({
     setParseResult(null)
     setProfile(PROFILE_PERSONS)
     setMappingOverrides({})
+    setResolvedLocalityMap({})
+    setResolvedPostalcodes({})
     setImportResult(null)
   }, [])
 
@@ -300,6 +316,36 @@ export function TagnyilvantartasImportWizard({
     return { ...auto, ...mappingOverrides }
   }, [activeSheet, profile, mappingOverrides])
 
+  // ─── Egyedi helység-nevek (a 3. step-hez) ─────────────────────────
+  const helysegHeader = useMemo<string | null>(() => {
+    if (!activeSheet) return null
+    // Olyan Excel-fejléc, amit a `_helyseg_text` virtuális dbColumn-ra map-elünk
+    for (const header of activeSheet.headers) {
+      if (effectiveMapping[header] === '_helyseg_text') return header
+    }
+    return null
+  }, [activeSheet, effectiveMapping])
+
+  const utcaHeader = useMemo<string | null>(() => {
+    if (!activeSheet) return null
+    for (const header of activeSheet.headers) {
+      if (effectiveMapping[header] === '_utca_text') return header
+    }
+    return null
+  }, [activeSheet, effectiveMapping])
+
+  const uniqueLocalityInputs = useMemo<string[]>(() => {
+    if (!activeSheet || !helysegHeader) return []
+    const set = new Set<string>()
+    for (const row of activeSheet.sampleRows as Array<Record<string, string | number | null>>) {
+      const val = row[helysegHeader]
+      if (typeof val === 'string' && val.trim() !== '') {
+        set.add(val.trim())
+      }
+    }
+    return Array.from(set)
+  }, [activeSheet, helysegHeader])
+
   // ─── Becsült importálható / kihagyott ────────────────────────────
   const counts = useMemo(() => {
     if (!activeSheet) return { importable: 0, skipped: 0 }
@@ -347,6 +393,26 @@ export function TagnyilvantartasImportWizard({
         formData.append('targetCongregationId', selectedCongId)
       }
 
+      // Helység-egyeztetés (3. lépés) — JSONB map átadása az import RPC-nek
+      // A SQL-oldali `normalize_name` ugyanúgy normalizál, így a kulcsok egyeznek
+      const localityMapForRpc: Record<string, number> = {}
+      for (const [input, resolution] of Object.entries(resolvedLocalityMap)) {
+        const normKey = input.toLowerCase().trim().replace(/\s+/g, ' ')
+        if (resolution.kind === 'auto' || resolution.kind === 'manual_pick') {
+          localityMapForRpc[normKey] = resolution.locality.locality_id
+        } else if (resolution.kind === 'new_locality') {
+          localityMapForRpc[normKey] = resolution.localityId
+        }
+      }
+      if (Object.keys(localityMapForRpc).length > 0) {
+        formData.append('resolvedLocalityMap', JSON.stringify(localityMapForRpc))
+      }
+
+      // Utca-postakód (4. lépés) — JSONB map
+      if (Object.keys(resolvedPostalcodes).length > 0) {
+        formData.append('resolvedStreetPostalcodes', JSON.stringify(resolvedPostalcodes))
+      }
+
       const result = await executeFamilyHeadImport(formData)
       if (result.error) {
         toast.error(result.error)
@@ -392,11 +458,17 @@ export function TagnyilvantartasImportWizard({
       : stage === 'family-link' ? 'family-link'
       : stage
   const completedIds: string[] = []
-  if (['mapping', 'preview', 'importing', 'result', 'family-link'].includes(stage)) {
+  if (['mapping', 'locality', 'postalcode', 'preview', 'importing', 'result', 'family-link'].includes(stage)) {
     completedIds.push('upload')
   }
-  if (['preview', 'importing', 'result', 'family-link'].includes(stage)) {
+  if (['locality', 'postalcode', 'preview', 'importing', 'result', 'family-link'].includes(stage)) {
     completedIds.push('mapping')
+  }
+  if (['postalcode', 'preview', 'importing', 'result', 'family-link'].includes(stage)) {
+    completedIds.push('locality')
+  }
+  if (['preview', 'importing', 'result', 'family-link'].includes(stage)) {
+    completedIds.push('postalcode')
   }
   if (['result', 'family-link'].includes(stage)) {
     completedIds.push('preview')
@@ -476,11 +548,51 @@ export function TagnyilvantartasImportWizard({
           selectedProfileKey={profile.key}
           onProfileChange={handleProfileChange}
           onBack={() => setStage('upload')}
-          onContinue={() => setStage('preview')}
+          onContinue={() => {
+            // Ha vannak helységek, megyünk a 3. step-re; egyébként ugorjuk át
+            if (uniqueLocalityInputs.length > 0) {
+              setStage('locality')
+            } else {
+              setStage('preview')
+            }
+          }}
         />
       )}
 
-      {/* Lépés 3: Előnézet + import gomb */}
+      {/* Lépés 3: Helység-egyeztetés (csak ha vannak helységek) */}
+      {stage === 'locality' && activeSheet && (
+        <LocalityMatchStep
+          uniqueLocalityInputs={uniqueLocalityInputs}
+          resolvedMap={resolvedLocalityMap}
+          onResolutionChange={(input, resolution) =>
+            setResolvedLocalityMap((prev) => ({ ...prev, [input]: resolution }))
+          }
+          onBack={() => setStage('mapping')}
+          onContinue={() => setStage('postalcode')}
+        />
+      )}
+
+      {/* Lépés 4: Utca-postakód-egyeztetés (átugorható) */}
+      {stage === 'postalcode' && activeSheet && (
+        <StreetPostalcodeStep
+          rows={activeSheet.sampleRows as Array<Record<string, string | number | null>>}
+          helysegHeader={helysegHeader}
+          utcaHeader={utcaHeader}
+          resolvedLocalityMap={resolvedLocalityMap}
+          resolvedPostalcodes={resolvedPostalcodes}
+          onPostalcodeChange={(key, postalcode) =>
+            setResolvedPostalcodes((prev) => ({ ...prev, [key]: postalcode }))
+          }
+          onBack={() => setStage('locality')}
+          onContinue={() => setStage('preview')}
+          onSkip={() => {
+            setResolvedPostalcodes({})
+            setStage('preview')
+          }}
+        />
+      )}
+
+      {/* Lépés 5: Előnézet + import gomb */}
       {(stage === 'preview' || stage === 'importing') && activeSheet && (
         <PreviewStep
           rows={activeSheet.sampleRows as Array<Record<string, string | number | null>>}
@@ -491,7 +603,14 @@ export function TagnyilvantartasImportWizard({
           congregationName={selectedCongName}
           importableCount={estimatedImportable}
           skippedCount={estimatedSkipped}
-          onBack={() => setStage('mapping')}
+          onBack={() => {
+            // Vissza a 4. (postalcode) lépésre, vagy ha üres, a 3.-ra (locality), vagy a 2.-ra
+            if (uniqueLocalityInputs.length > 0) {
+              setStage('postalcode')
+            } else {
+              setStage('mapping')
+            }
+          }}
           onConfirmImport={handleConfirmImport}
           isImporting={isImporting}
         />

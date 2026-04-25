@@ -20,7 +20,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import type { SidebarLinkComponent } from './kartoteka-sidebar'
+import type { MenuItem, SidebarLinkComponent } from './kartoteka-sidebar'
 import { KartotekaSidebar } from './kartoteka-sidebar'
 import { KartotekaHeader, type HeaderProfile } from './kartoteka-header'
 
@@ -62,6 +62,13 @@ export interface KartotekaShellProps {
   /** Opcionális banner slot a header alá (god-mode, setup-prompt stb.). */
   banners?: ReactNode
   children: ReactNode
+
+  /**
+   * A Pénzügy menüpont kibontható almenüje (v0.7.6+).
+   * - Web: 11 finance fül (`/penzugy#dashboard`, `/penzugy#cashbook`, ...)
+   * - Desktop: 8 desktop oldal (`/penzugy/attekintes`, `/penzugy/befizetes`, ...)
+   */
+  financeSubmenu?: MenuItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -93,6 +100,7 @@ export function KartotekaShell({
   onOpenSettings,
   banners,
   children,
+  financeSubmenu,
 }: KartotekaShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -117,6 +125,7 @@ export function KartotekaShell({
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
         activeScope={activeScope}
+        financeSubmenu={financeSubmenu}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

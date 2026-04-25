@@ -1,6 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import {
+  ArrowLeftRight,
+  Banknote,
+  BookMarked,
+  Building2,
+  ClipboardList,
+  Coins,
+  CreditCard,
+  Eye,
+  HelpCircle,
+  Inbox,
+  Landmark,
+  ScrollText,
+  Wallet,
+} from 'lucide-react'
 import { SidebarAdaptiveV4 } from './sidebar-adaptive-v4'
 import { DashboardShell } from './dashboard-shell'
 import { DioceseSetupBanner } from './diocese-setup-banner'
@@ -8,6 +23,33 @@ import { CongregationSetupBanner } from './congregation-setup-banner'
 import type { Profile } from '@/lib/types/auth'
 import type { Role } from '@/lib/types/auth'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
+
+/**
+ * A Pénzügy menüpont kibontható almenüje a webes oldalon
+ * (Sprint Q F1.6, v0.7.6, 2026-04-26).
+ *
+ * 11 fül a webes /penzugy oldalon — hash-alapú navigáció (`#cashbook` stb.)
+ * a `finance-tabs.tsx` `useState('dashboard')` activeTab-jával összehangolva.
+ *
+ * A sub-item-eknél az icon és gradient nem jelenik meg a UI-on (csak bullet
+ * látszik), de a `MenuItem` típus kötelezi őket.
+ */
+const WEB_FINANCE_SUBMENU = [
+  { label: 'Áttekintés', href: '/penzugy#dashboard', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Kassza', href: '/penzugy#cashbook', icon: Wallet, gradient: 'from-emerald-400 to-green-500' },
+  { label: 'Bank', href: '/penzugy#bank', icon: Landmark, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Tranzakciók', href: '/penzugy#transactions', icon: ArrowLeftRight, gradient: 'from-pink-400 to-rose-500' },
+  { label: 'Költségvetés', href: '/penzugy#budget', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Számadás', href: '/penzugy#accounting', icon: ClipboardList, gradient: 'from-cyan-400 to-teal-500' },
+  { label: 'Tartozások', href: '/penzugy#debt', icon: Coins, gradient: 'from-orange-400 to-red-500' },
+  { label: 'Bérleti szerződések', href: '/penzugy#rental', icon: Building2, gradient: 'from-amber-400 to-yellow-500' },
+  { label: 'Monetár', href: '/penzugy#monetary', icon: CreditCard, gradient: 'from-slate-400 to-slate-600' },
+  { label: 'Oblio ellenőrzés', href: '/penzugy#oblio_ellenorzes', icon: Inbox, gradient: 'from-cyan-400 to-blue-500' },
+  { label: 'Súgó', href: '/penzugy#sugo', icon: HelpCircle, gradient: 'from-teal-400 to-cyan-500' },
+] as const
+
+void Banknote
+void BookMarked
 
 interface DashboardLayoutClientProps {
   profile: Profile
@@ -77,6 +119,7 @@ export function DashboardLayoutClient({
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
         activeScope={activeScope}
+        financeSubmenu={WEB_FINANCE_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['financeSubmenu']}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
