@@ -23,6 +23,42 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — Welcome wizard újranyitás és pénzügyi beállítás bootstrap javítás
+
+<!-- key: 2026-04-26-welcome-wizard-finance-bootstrap-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek, rendszergazdák — resetelt vagy újrakezdett gyülekezetek -->
+
+Resetelt vagy részben törölt gyülekezeti adatoknál előfordulhatott, hogy a rendszer a lelkészt már
+onboarding-késznek tekintette, ezért nem nyitotta meg a welcome wizardot, miközben a gyülekezeti vagy
+pénzügyi alapadatok már hiányoztak. A pénzügyi oldal ilyenkor zsákutcába futhatott azzal az üzenettel,
+hogy az adott évi `bealitas` sor nem hozható létre automatikusan.
+
+### Javítások
+
+- **A welcome wizard nem csak a kész flagre figyel**: a dashboard guard már nem kizárólag a `profiles.onboarding_completed_at` mező alapján dönt. Új közös ellenőrzés vizsgálja a lelkész nevét, a gyülekezeti sort, a gyülekezeti nevet, a címet, az éves járulékot és a járulék-határidőt is.
+- **Reset után is újranyílik a wizard**: ha a reset/wipe után a `profiles.onboarding_completed_at` vagy a `wizard_progress.completed_at` bent maradt, de a kritikus törzsadat hiányzik, a rendszer újra a `/welcome` oldalra terel.
+- **A `/welcome` oldal nem zárja ki tévesen a felhasználót**: a setup layout már csak akkor irányít vissza a dashboardra, ha az onboarding-kész jelzés mellett a kritikus alapadatok is rendben vannak.
+- **A wizard progress visszaállítható állapotba kerül**: ha egy korábban befejezett wizard-sort hiányos adatok mellett találunk, a rendszer törli a `completed_at` értéket és a hiányzó adatokhoz tartozó legkorábbi lépésre állítja vissza a folyamatot.
+- **A pénzügyi lépés kötelezővé vált**: a Step 4 nem enged tovább 0 vagy hiányzó éves járulékkal, illetve hibás `MM-DD` határidő-formátummal.
+- **A wizard nem jelölhető késznek hiányos pénzügyi alapadatokkal**: a véglegesítés szerveroldalon is ellenőrzi az éves járulékot és a határidőt, mielőtt bármilyen kész állapotot rögzítene.
+- **A `bealitas` mentése a helyes kulccsal történik**: a welcome wizard az éves pénzügyi sort a séma szerinti `(id, congregation_id)` konfliktuskulccsal upserteli, nem csak az év (`id`) alapján.
+- **Sikertelen pénzügyi mentésnél nincs hamis onboarding-kész állapot**: ha a `bealitas` sor mentése hibára fut, a wizard hibát ad vissza, és nem írja be sem a `profiles.onboarding_completed_at`, sem a `wizard_progress.completed_at` értéket.
+- **A legacy kötelező `bealitas` mezők kitöltést kapnak**: az automatikus éves pénzügyi beállítás létrehozása megadja a régi NOT NULL mezőket is (`aktiv`, `isszemelyibefizetes`, `isszulokkulon`, `felmentes70felul`, `felmentesideneskudtek`, `kedvezmenyxevenfelul`, `utcaid`).
+- **A pénzügyi oldal önjavító bootstrapje stabilabb**: ha a gyülekezeti törzsadatokban már megvan az éves járulék és a határidő, a `/penzugy` oldal automatikusan létre tudja hozni az aktuális évi `bealitas` sort a megfelelő legacy-kompatibilis mezőkkel.
+- **A strukturált címadatok is továbbmennek**: a wizardból érkező megye, város, irányítószám, házszám, ország, `adrlocality_id` és `adrstreet_id` mezők mentése összhangba került a `congregations` sémával.
+- **A `bealitas` cím FK mezői biztonságosabbak**: ahol van strukturált utca/helység azonosító, a pénzügyi beállítás is ezt használja; ha nincs, a korábbi legacy fallback marad.
+
+### Műszaki megjegyzések
+
+- Új közös szerveroldali helper készült: `apps/web/lib/onboarding/welcome-status.ts`. Ennek célja, hogy a dashboard guard, a setup layout és a wizard progress ugyanazzal a logikával döntse el, szükséges-e a welcome wizard.
+- Az ellenőrzés tudatosan figyel a resetelt gyülekezetekre: az onboarding flag önmagában nem kanonikus igazság, ha közben a hozzá tartozó gyülekezeti/pénzügyi adatok hiányoznak.
+- A `bealitas` tábla elsődleges kulcsa a dokumentált séma szerint `(id, congregation_id)`, ezért minden új éves pénzügyi sor létrehozásánál ezt kell használni.
+- Nem történt deploy, release vagy éles adatbázis-módosítás. A javítás csak kódszinten készült el, az élesítés továbbra is külön rendszergazdai engedélyhez kötött.
+- Ellenőrzés: célzott ESLint tiszta, teljes `tsc --noEmit` tiszta.
+
+---
+
 ## [2026-04-26] — Pénzügyi nyomtatási központok közös csomagba (v0.7.5 — Sprint Q F1 lezárás)
 
 <!-- key: 2026-04-26-finance-print-shared-package -->

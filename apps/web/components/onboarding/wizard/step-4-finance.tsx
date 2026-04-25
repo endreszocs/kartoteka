@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ArrowLeft, ArrowRight, Info, Loader2, Wallet } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +26,14 @@ export function Step4Finance({ data, updateData, onNext, onBack, saving }: Step4
   }
 
   async function handleNext() {
+    if (!Number.isFinite(form.eves_jarulek) || form.eves_jarulek <= 0) {
+      toast.error('Az éves alap járulék legyen nagyobb mint 0.')
+      return
+    }
+    if (!/^\d{2}-\d{2}$/.test(form.jarulek_hatarid || '')) {
+      toast.error('A járulék határidejét MM-DD formátumban add meg.')
+      return
+    }
     updateData({ finance: form })
     await onNext()
   }

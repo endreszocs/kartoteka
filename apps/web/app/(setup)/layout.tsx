@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import { isKnownRole } from '@/lib/auth/roles'
+import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 import { createClient } from '@/lib/supabase/server'
 
 /**
@@ -32,7 +33,7 @@ export default async function SetupLayout({
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('status, role, onboarding_completed_at')
+    .select('status, role, onboarding_completed_at, congregation_id, full_name')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -54,8 +55,10 @@ export default async function SetupLayout({
     redirect('/pending?reason=no-role')
   }
 
-  // Már teljesítette az onboarding-ot → dashboard (ne csináljuk újra a wizardot)
-  if (profile.onboarding_completed_at) {
+  const welcomeStatus = await getWelcomeWizardStatus(supabase, profile)
+
+  // Már teljesítette az onboarding-ot, és a kritikus alapadatok is megvannak.
+  if (profile.onboarding_completed_at && !welcomeStatus.required) {
     redirect('/dashboard')
   }
 

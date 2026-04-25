@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 import { revalidatePath } from 'next/cache'
 
 // ──────────────────────────────────────────────────────────────────
@@ -19,6 +20,13 @@ export interface WizardCongregationSlot {
   web: string
   iban: string
   bank: string
+  megye: string
+  varos: string
+  iranyitoszam: string
+  hazszam: string
+  country: string
+  adrlocality_id: number | null
+  adrstreet_id: number | null
 }
 
 export interface WizardPastorSlot {
@@ -164,6 +172,31 @@ export async function getWizardProgress(): Promise<
   }
 
   if (existing) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('onboarding_completed_at, congregation_id, full_name')
+      .eq('id', user.id)
+      .maybeSingle()
+    const welcomeStatus = await getWelcomeWizardStatus(supabase, profile)
+
+    if (welcomeStatus.required && (existing.completed_at || existing.current_step > welcomeStatus.firstStep)) {
+      const { data: revived, error: reviveError } = await supabase
+        .from('wizard_progress')
+        .update({
+          completed_at: null,
+          current_step: welcomeStatus.firstStep,
+        })
+        .eq('user_id', user.id)
+        .select('*')
+        .single()
+
+      if (reviveError) {
+        return { error: `Hiba a wizard újranyitásakor: ${reviveError.message}` }
+      }
+
+      return { data: revived as WizardProgressRow }
+    }
+
     return { data: existing as WizardProgressRow }
   }
 
@@ -326,6 +359,15 @@ export async function completeWizard(): Promise<
 
   const wd = progress.data as WizardData
 
+  const yearlyFee = Number(wd.finance?.eves_jarulek) || 0
+  const yearlyDeadline = wd.finance?.jarulek_hatarid || ''
+  if (yearlyFee <= 0 || !/^\d{2}-\d{2}$/.test(yearlyDeadline)) {
+    return {
+      error:
+        'A pénzügyi alapadatok hiányosak. Kérem, adja meg az éves járulék összegét és a fizetési határidőt a Pénzügy lépésben.',
+    }
+  }
+
   // 2) Olvassuk be a profil-t (congregation_id-hez)
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
@@ -390,6 +432,17 @@ export async function completeWizard(): Promise<
     if (wd.congregation.web) congUpdate.web = wd.congregation.web
     if (wd.congregation.iban) congUpdate.iban = wd.congregation.iban
     if (wd.congregation.bank) congUpdate.bank = wd.congregation.bank
+    if (wd.congregation.megye) congUpdate.megye = wd.congregation.megye
+    if (wd.congregation.varos) congUpdate.varos = wd.congregation.varos
+    if (wd.congregation.iranyitoszam) congUpdate.iranyitoszam = wd.congregation.iranyitoszam
+    if (wd.congregation.hazszam) congUpdate.hazszam = wd.congregation.hazszam
+    if (wd.congregation.country) congUpdate.country = wd.congregation.country
+    if (wd.congregation.adrlocality_id !== undefined) {
+      congUpdate.adrlocality_id = wd.congregation.adrlocality_id
+    }
+    if (wd.congregation.adrstreet_id !== undefined) {
+      congUpdate.adrstreet_id = wd.congregation.adrstreet_id
+    }
     if (wd.finance?.eves_jarulek) {
       congUpdate.eves_jarulek = wd.finance.eves_jarulek
     }
@@ -440,21 +493,37 @@ export async function completeWizard(): Promise<
       felmentes70felul: false,
       felmentesideneskudtek: false,
       kedvezmenyxevenfelul: false,
-      utcaid: 1,
+      utcaid: wd.congregation?.adrstreet_id ?? 1,
     }
     if (wd.finance.eves_jarulek !== undefined) {
       bealitasUpsert.eves_jarulek = wd.finance.eves_jarulek
+    }
+    if (wd.finance.jarulek_kedvezmenyes !== undefined) {
+      bealitasUpsert.jarulek_kedvezmenyes = wd.finance.jarulek_kedvezmenyes
+    }
+    if (wd.finance.jarulek_hatarid) {
+      bealitasUpsert.jarulek_hatarid = wd.finance.jarulek_hatarid
+    }
+    if (wd.finance.nyito_keszpenz !== undefined) {
+      bealitasUpsert.nyito_keszpenz = wd.finance.nyito_keszpenz
+    }
+    if (wd.finance.nyito_bank !== undefined) {
+      bealitasUpsert.nyito_bank = wd.finance.nyito_bank
     }
     if (wd.congregation?.bejegyzesiszam) {
       // Ha a congregations-be nem ment, itt megpróbáljuk
       bealitasUpsert.bejegyzesiszam = wd.congregation.bejegyzesiszam
     }
+    if (wd.congregation?.adrlocality_id !== undefined) {
+      bealitasUpsert.helysegid = wd.congregation.adrlocality_id
+    }
 
     const { error } = await supabase
       .from('bealitas')
-      .upsert(bealitasUpsert, { onConflict: 'id' })
+      .upsert(bealitasUpsert, { onConflict: 'id,congregation_id' })
     if (error) {
       console.error('[completeWizard] bealitas upsert:', error)
+      return { error: `A pénzügyi alapbeállítások mentése sikertelen: ${error.message}` }
     }
   }
 

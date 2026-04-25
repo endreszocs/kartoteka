@@ -8,6 +8,7 @@ import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 import { checkCongregationSetupStatus } from '@/app/(dashboard)/congregation/actions'
+import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 
 /**
  * Magyar név keresztnév-kinyerés — "Nt. Kovács János" → "János"
@@ -117,11 +118,17 @@ export default async function DashboardLayout({
   ) {
     const { data: onboardCheck } = await supabase
       .from('profiles')
-      .select('onboarding_completed_at, walkthrough_completed, full_name')
+      .select('onboarding_completed_at, walkthrough_completed, full_name, congregation_id')
       .eq('id', user.id)
       .maybeSingle()
 
-    if (!onboardCheck?.onboarding_completed_at) {
+    const welcomeStatus = await getWelcomeWizardStatus(
+      supabase,
+      onboardCheck,
+      access.effectiveCongregationId,
+    )
+
+    if (welcomeStatus.required) {
       redirect('/welcome')
     }
 

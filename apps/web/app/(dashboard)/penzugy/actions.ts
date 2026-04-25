@@ -61,8 +61,6 @@ import { fetchBnrRates, type BnrFetchResult } from '@/lib/finance/bnr-exchange-r
 import {
   getFinanceScopeContext,
   tablesFor,
-  yearValueFor,
-  type FinanceScope,
   type FinanceScopeContext,
   type FinanceScopeTableMap,
 } from '@/lib/auth/finance-scope'
@@ -973,7 +971,7 @@ async function initFinanceDiocese(
   year: number,
   scope: FinanceScopeContext & { T: FinanceScopeTableMap },
 ) {
-  const { supabase, scopeId: dioceseId, T } = scope
+  const { supabase, scopeId: dioceseId } = scope
 
   const [
     settingsRes, celRes, bankRes, bevRes, kiaRes, prevBevRes, prevKiaRes,
@@ -1562,11 +1560,28 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const yearId = String(year)
+  const { data: congregation } = await supabase
+    .from('congregations')
+    .select('adrstreet_id, adrlocality_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  const streetId = Number(congregation?.adrstreet_id) || 1
+  const localityId = congregation?.adrlocality_id ?? null
+
   const basePayload = {
     id: yearId,
     congregation_id: congregationId,
     eves_jarulek: evesJarulek,
     jarulek_hatarid: jarulekHatarid || '07-01',
+    jarulek_kedvezmenyes: 0,
+    aktiv: true,
+    isszemelyibefizetes: false,
+    isszulokkulon: false,
+    felmentes70felul: false,
+    felmentesideneskudtek: false,
+    kedvezmenyxevenfelul: false,
+    utcaid: streetId,
+    helysegid: localityId,
     budget_finalized: false,
     accounting_finalized: false,
     unlock_requested: false,
@@ -1581,7 +1596,9 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
     nyito_bank: 0,
   }
 
-  let { error } = await supabase.from('bealitas').insert([basePayload])
+  let { error } = await supabase
+    .from('bealitas')
+    .upsert([basePayload], { onConflict: 'id,congregation_id' })
 
   if (error && shouldRetryLegacySettingsInsert(error.message)) {
     const { data: previousSettings } = await supabase
@@ -1598,7 +1615,9 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
         ...(previousSettings as Record<string, unknown>),
         ...basePayload,
       }
-      const retry = await supabase.from('bealitas').insert([legacyCompatiblePayload])
+      const retry = await supabase
+        .from('bealitas')
+        .upsert([legacyCompatiblePayload], { onConflict: 'id,congregation_id' })
       error = retry.error
     }
   }
