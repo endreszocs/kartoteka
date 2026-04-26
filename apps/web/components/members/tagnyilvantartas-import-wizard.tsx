@@ -27,14 +27,16 @@ import { getCongregations } from '@/app/(dashboard)/admin/actions'
 import {
   PROFILE_PERSONS,
   PROFILE_FAMILY_HEADS,
+  PROFILE_FAMILIES_FROM_EXISTING_PERSONS,
   type ImportProfile,
 } from '@/lib/import/import-profiles'
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
 import { executeFamilyHeadImport } from '@/lib/import/family-head-import-actions'
+import { executeFamiliesFromExistingPersonsImport } from '@/lib/import/families-from-persons-import-actions'
 import type { ParseResult, ParsedSheetPreview } from '@/lib/import/batch-import-types'
 
 import { WizardStepper, type WizardStep } from './tagnyilvantartas-import/wizard-stepper'
-import { FileUploadStep } from './tagnyilvantartas-import/file-upload-step'
+import { FileUploadStep, type ImportMode } from './tagnyilvantartas-import/file-upload-step'
 import { ColumnMappingStep } from './tagnyilvantartas-import/column-mapping-step'
 import { LocalityMatchStep, type LocalityResolutionMap } from './tagnyilvantartas-import/locality-match-step'
 import { StreetPostalcodeStep, type StreetPostalcodeMap } from './tagnyilvantartas-import/street-postalcode-step'
@@ -226,6 +228,7 @@ export function TagnyilvantartasImportWizard({
   const [file, setFile] = useState<File | null>(null)
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [profile, setProfile] = useState<ImportProfile>(PROFILE_PERSONS)
+  const [importMode, setImportMode] = useState<ImportMode>('new_persons')
   const [mappingOverrides, setMappingOverrides] = useState<Record<string, string | null>>({})
   const [resolvedLocalityMap, setResolvedLocalityMap] = useState<LocalityResolutionMap>({})
   const [resolvedPostalcodes, setResolvedPostalcodes] = useState<StreetPostalcodeMap>({})
@@ -264,7 +267,13 @@ export function TagnyilvantartasImportWizard({
       return
     }
 
-    const targetProfile = detectInitialProfile(file.name)
+    // Az importMode alapján döntjük meg a profilt:
+    //  - 'families_from_existing' → mindig PROFILE_FAMILIES_FROM_EXISTING_PERSONS
+    //  - 'new_persons' → fájlnév-detektálás (PROFILE_PERSONS vagy PROFILE_FAMILY_HEADS)
+    const targetProfile =
+      importMode === 'families_from_existing'
+        ? PROFILE_FAMILIES_FROM_EXISTING_PERSONS
+        : detectInitialProfile(file.name)
     setProfile(targetProfile)
 
     const formData = new FormData()
@@ -290,7 +299,7 @@ export function TagnyilvantartasImportWizard({
         toast.error('A fájl nem tartalmaz feldolgozható sort.')
       }
     })
-  }, [file, mode, selectedCongId])
+  }, [file, mode, selectedCongId, importMode])
 
   // ─── Profil váltás → mapping reset ─────────────────────────────
   const handleProfileChange = useCallback((key: string) => {
@@ -377,24 +386,15 @@ export function TagnyilvantartasImportWizard({
     setStage('importing')
 
     startImporting(async () => {
-      // Mindkét profil az RPC-alapú executeFamilyHeadImport-ot használja:
-      // a server action garantálja az utca/helység lookup-ot, ami a szemely.c_utcaid
-      // (és csalad.c_utcaid) NOT NULL constraint teljesüléséhez kell.
-      // A különbség csak: a PROFILE_PERSONS-nál createCsalad=false, a
-      // PROFILE_FAMILY_HEADS-nél createCsalad=true (a sor a families táblába is).
-      const isFamilyHeads = profile.key === PROFILE_FAMILY_HEADS.key
-
+      // Közös FormData előkészítés
       const formData = new FormData()
       formData.append('file', file)
       formData.append('sheetName', activeSheet.sheetName)
-      formData.append('profileKey', profile.key)
-      formData.append('createCsalad', isFamilyHeads ? 'true' : 'false')
       if (mode === 'admin' && selectedCongId) {
         formData.append('targetCongregationId', selectedCongId)
       }
 
       // Helység-egyeztetés (3. lépés) — JSONB map átadása az import RPC-nek
-      // A SQL-oldali `normalize_name` ugyanúgy normalizál, így a kulcsok egyeznek
       const localityMapForRpc: Record<string, number> = {}
       for (const [input, resolution] of Object.entries(resolvedLocalityMap)) {
         const normKey = input.toLowerCase().trim().replace(/\s+/g, ' ')
@@ -408,10 +408,49 @@ export function TagnyilvantartasImportWizard({
         formData.append('resolvedLocalityMap', JSON.stringify(localityMapForRpc))
       }
 
-      // Utca-postakód (4. lépés) — JSONB map
       if (Object.keys(resolvedPostalcodes).length > 0) {
         formData.append('resolvedStreetPostalcodes', JSON.stringify(resolvedPostalcodes))
       }
+
+      // ─── Mode A: "Csak családokká szervezés" ─────────────────────
+      if (importMode === 'families_from_existing') {
+        const result = await executeFamiliesFromExistingPersonsImport(formData)
+        if (result.error) {
+          toast.error(result.error)
+          setStage('preview')
+          return
+        }
+        const insertedCsalad = result.insertedCsalad ?? 0
+        const insertedGyerek = result.insertedGyerek ?? 0
+        const notFound = result.notFound ?? 0
+        const allIssues = result.rowErrors ?? []
+        const skippedCount = allIssues.filter((e) => (e.severity ?? 'error') === 'error').length
+
+        setImportResult({
+          insertedTotal: insertedCsalad + insertedGyerek,
+          insertedSzemely: 0,
+          insertedCsalad,
+          skippedCount,
+          errors: allIssues,
+        })
+        setStage('result')
+
+        const baseMsg = `${insertedCsalad} új család + ${insertedGyerek} gyerek-kapcsolat. ${
+          notFound > 0 ? `${notFound} tag nem található.` : ''
+        }`
+        if (notFound > 0 || allIssues.some((e) => e.severity === 'warning')) {
+          toast.warning(baseMsg)
+        } else {
+          toast.success(baseMsg)
+        }
+        router.refresh()
+        return
+      }
+
+      // ─── Mode B: "Új tagok importálása" (jelenlegi flow) ─────────
+      const isFamilyHeads = profile.key === PROFILE_FAMILY_HEADS.key
+      formData.append('profileKey', profile.key)
+      formData.append('createCsalad', isFamilyHeads ? 'true' : 'false')
 
       const result = await executeFamilyHeadImport(formData)
       if (result.error) {
@@ -423,8 +462,6 @@ export function TagnyilvantartasImportWizard({
       const insertedSzemely = result.insertedSzemely ?? 0
       const insertedCsalad = result.insertedCsalad ?? 0
       const allIssues = result.rowErrors ?? []
-      // A skippedCount CSAK a tényleges hibák — a warning/info-jegyek nem számítanak,
-      // mert azoknál a sorok beszúrásra kerültek.
       const skippedCount = allIssues.filter((e) => (e.severity ?? 'error') === 'error').length
 
       setImportResult({
@@ -449,7 +486,7 @@ export function TagnyilvantartasImportWizard({
       }
       router.refresh()
     })
-  }, [file, activeSheet, profile, mode, selectedCongId, router])
+  }, [file, activeSheet, profile, mode, selectedCongId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId =
@@ -526,7 +563,7 @@ export function TagnyilvantartasImportWizard({
         </div>
       )}
 
-      {/* Lépés 1: Fájl feltöltés */}
+      {/* Lépés 1: Fájl feltöltés + import-mód választó */}
       {stage === 'upload' && (
         <FileUploadStep
           selectedFile={file}
@@ -534,6 +571,8 @@ export function TagnyilvantartasImportWizard({
           onClearFile={() => setFile(null)}
           onContinue={handleParseFile}
           isParsing={isParsing}
+          importMode={importMode}
+          onImportModeChange={setImportMode}
         />
       )}
 

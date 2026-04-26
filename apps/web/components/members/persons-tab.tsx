@@ -13,7 +13,8 @@ import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers
 import { ageFromDate } from '@/lib/utils/date'
 import { MEMBER_STATUS_FILTERS } from '@/lib/constants/members'
 import type { EnrichedMember, MemberStatusFilter, SortColumn } from '@/lib/constants/members'
-import { Search, UserPlus, Trash2, Cake } from 'lucide-react'
+import { Search, UserPlus, Trash2, Cake, Link2 } from 'lucide-react'
+import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
 
 interface PersonsTabProps {
   members: EnrichedMember[]
@@ -61,6 +62,17 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
   const [returnToPersonAfterFamily, setReturnToPersonAfterFamily] = useState(false)
 
   const paidSet = useMemo(() => new Set(paidPersonIds), [paidPersonIds])
+
+  // Cross-congregation match notifikációk — a name mellé 🔗 jelölést tesszünk
+  const { notifications: crossNotifs } = useCrossCongregationNotifications()
+  const crossMatchedIds = useMemo(() => {
+    const set = new Set<number>()
+    for (const n of crossNotifs) {
+      set.add(n.triggering_szemely_id)
+      set.add(n.matched_szemely_id)
+    }
+    return set
+  }, [crossNotifs])
 
   const filtered = useMemo(() => {
     const query = searchQuery.toLowerCase()
@@ -163,6 +175,11 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                             <div className="font-medium text-zinc-800 truncate flex items-center gap-1.5">
                               {name}
                               {bday && <span title="Születésnapos ebben a hónapban"><Cake className="w-3.5 h-3.5 text-amber-500 shrink-0" /></span>}
+                              {crossMatchedIds.has(m.id) && (
+                                <span title="Más gyülekezetben is szerepel — egyeztetés szükséges">
+                                  <Link2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-zinc-400 md:hidden">
                               {age !== null ? `${age} év` : ''} · {m.adrlocality?.name || ''}

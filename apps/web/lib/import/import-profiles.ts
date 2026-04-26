@@ -241,6 +241,50 @@ export const PROFILE_FAMILY_HEADS: ImportProfile = {
 }
 
 /**
+ * PROFILE_FAMILIES_FROM_EXISTING_PERSONS — "Csak családokká szervezés" mód.
+ *
+ * A személyek MÁR fent vannak az adatbázisban (egy korábbi szemelyek.xml import után).
+ * Ez a profil egy `csaladok.xml`-szerű fájlból CSAK családokat hoz létre — a
+ * szemely-rekordokat NEM érinti.
+ *
+ * A logika: a (csaladnev, k_nev, ferfi) alapján megtalálja a meglévő szemely-t,
+ * és létrehoz egy `csalad` rekordot. Bonus: az apjaneve/anyjaneve mezők alapján
+ * automatikusan gyerek-junction-öket is hoz létre.
+ *
+ * NB: ugyanaz a columnMap mint a PROFILE_FAMILY_HEADS-é — a wizard ugyanazokat
+ * az oszlopokat várja, csak a backend logika más (a server action `mode='families_only'`
+ * paramétert kap és más RPC-t hív).
+ */
+export const PROFILE_FAMILIES_FROM_EXISTING_PERSONS: ImportProfile = {
+  key: 'families_from_existing_persons',
+  module: 'members',
+  label: 'Családok meglévő tagokból',
+  description: 'A személyek már fent vannak — ez csak családi rekordokat (házastárs, gyerekek) hoz létre, a meglévő tagokra építve. Minden sor → 1 új csalad + automatikus gyerek-junction az Apja/Anyja mezőkből.',
+  targetTable: 'csalad',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: 'csaladnev', type: 'string', required: true, hint: 'A családfő vezetékneve (a meglévő tag azonosításához)' },
+    { excelHeader: 'Keresztnév', excelAliases: ['keresztnev', 'k_nev'], dbColumn: 'k_nev', type: 'string', required: true, hint: 'A családfő keresztneve' },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['Születési név', 'Leánykori név', 'szcs_nev'], dbColumn: 'szcs_nev', type: 'string', required: false, hint: 'Lánykori név (anyja-egyezéshez)' },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: 'ferfi', type: 'boolean', required: false, hint: 'Igen → id_ferfi; Nem → id_no a csalad rekordban' },
+    { excelHeader: 'Születési dátum', excelAliases: ['szuletesi_datum', 'sz_datum', 'Született'], dbColumn: 'sz_datum', type: 'date', required: false, hint: 'Tie-breaker, ha több azonos nevű tag van' },
+    { excelHeader: 'Apja', excelAliases: ['apjaneve'], dbColumn: 'apjaneve', type: 'string', required: false, hint: 'Az auto-gyerek-egyezéshez' },
+    { excelHeader: 'Anyja', excelAliases: ['anyjaneve'], dbColumn: 'anyjaneve', type: 'string', required: false, hint: 'Az auto-gyerek-egyezéshez' },
+    { excelHeader: 'Utca', excelAliases: ['utca'], dbColumn: '_utca_text', type: 'string', required: true, hint: 'Kötelező — az utca a család címéhez' },
+    { excelHeader: 'Helység', excelAliases: ['helyseg', 'Település'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'A település' },
+    { excelHeader: 'Házszám', excelAliases: ['c_szam', 'hazszam'], dbColumn: 'c_szam', type: 'string', required: true, hint: 'Kötelező — házszám' },
+    { excelHeader: 'Tömbház', excelAliases: ['c_tombhaz', 'tombhaz'], dbColumn: 'c_tombhaz', type: 'string', required: false },
+  ],
+  autoColumns: [],
+  hints: [
+    'Minden sor → 1 új CSALAD rekord (a szemely táblát NEM érinti).',
+    'A meglévő szemely-t (csaladnev + k_nev + Férfi) alapján találja meg — több azonos név esetén sz_datum tie-breaker.',
+    'Ha a tag NEM TALÁLHATÓ a tagnyilvántartásban, warning-ot kapsz — vedd fel manuálisan.',
+    'Bonus: az Apja/Anyja mezők alapján automatikusan gyerek-junction is létrejön ugyanazon címen lakó tagoknál.',
+  ],
+  sheetHints: ['Családok', 'csalad', 'Families', 'csaladok'],
+}
+
+/**
  * PROFILE_FAMILIES — DEPRECATED
  * Megtartva backward-compatibility miatt. Használd a PROFILE_FAMILY_HEADS-et,
  * ami egy lépésben létrehozza a családfő szemely-t és a csalad-rekordot.
@@ -591,6 +635,7 @@ export const PROFILE_FILING: ImportProfile = {
 export const MEMBER_PROFILES: ImportProfile[] = [
   PROFILE_PERSONS,
   PROFILE_FAMILY_HEADS,
+  PROFILE_FAMILIES_FROM_EXISTING_PERSONS,
   PROFILE_FAMILIES,
   PROFILE_PRESBYTERS,
 ]
