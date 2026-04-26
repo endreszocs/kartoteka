@@ -1,6 +1,36 @@
 import { MALE_NAME_EXCEPTIONS } from '@/lib/constants/members'
 import type { MemberRow, PaymentStatus } from '@/lib/constants/members'
 
+/**
+ * Detektálja, hogy egy `namepattern` érték TÉNYLEG PREFIX-szerű-e.
+ * Példák amelyeket prefixnek tekintünk:
+ *   - "id."  / "ifj."   (apa-fia disztinkció)
+ *   - "Dr."  / "dr."    (akadémiai cím)
+ *   - "Gr."  / "Br."    (nemesi cím — ritka)
+ *   - "Özv." / "özv."   (családi állapot — fallback)
+ *
+ * NEM prefix-szerű (pl. teljes név, hosszabb szöveg, stb.) → false.
+ *
+ * Heurisztika: max 6 karakter ÉS ponttal végződik ÉS nincs benne szóköz.
+ */
+function isPrefixLikeNamepattern(value: string | null | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || trimmed.length > 6) return false
+  if (!trimmed.endsWith('.')) return false
+  if (/\s/.test(trimmed)) return false
+  return true
+}
+
+/**
+ * "Özvegy" detektálás — kezeli az "özvegy", "Özv.", "özv.", "ozv" formákat.
+ */
+function isOzvegyAllapot(allapot: string | null | undefined): boolean {
+  if (!allapot) return false
+  const norm = allapot.trim().toLowerCase().replace(/\.$/, '')
+  return norm === 'özvegy' || norm === 'özv' || norm === 'ozvegy' || norm === 'ozv'
+}
+
 export function formatNameWithPrefix(
   member: Pick<MemberRow, 'csaladnev' | 'k_nev' | 'namepattern' | 'allapot'>,
   spouseDeceased?: boolean
@@ -10,11 +40,16 @@ export function formatNameWithPrefix(
 
   if (member.allapot === 'elvált') prefixes.push('elv.')
 
-  let isOzvegy = member.allapot === 'özvegy'
+  let isOzvegy = isOzvegyAllapot(member.allapot)
   if (!isOzvegy && spouseDeceased) isOzvegy = true
   if (isOzvegy) prefixes.push('özv.')
 
-  if (member.namepattern) prefixes.push(member.namepattern)
+  // FONTOS: a namepattern-t CSAK akkor használjuk prefixként, ha tényleg
+  // PREFIX-SZERŰ (pl. "id.", "ifj."). Ha hosszabb szöveg (pl. teljes név),
+  // ignore — nem akarunk duplikációt a UI-ban.
+  if (isPrefixLikeNamepattern(member.namepattern)) {
+    prefixes.push(member.namepattern!.trim())
+  }
 
   const prefix = prefixes.length > 0 ? prefixes.join(' ') + ' ' : ''
   return `${prefix}${member.csaladnev || ''} ${member.k_nev || ''}`.trim()

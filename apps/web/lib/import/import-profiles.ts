@@ -157,7 +157,10 @@ export const PROFILE_PERSONS: ImportProfile = {
     { excelHeader: 'Vallás', excelAliases: ['vallas', 'Felekezet'], dbColumn: 'vallas', type: 'string', required: false },
     { excelHeader: 'Foglalkozás', excelAliases: ['foglalkozas', 'Foglalk.'], dbColumn: 'foglalkozas', type: 'string', required: false },
     { excelHeader: 'Családi állapot', excelAliases: ['allapot', 'Állapot'], dbColumn: 'allapot', type: 'string', required: false, hint: 'pl. nős, hajadon, Özv.' },
-    { excelHeader: 'Teljes név', excelAliases: ['namepattern'], dbColumn: 'namepattern', type: 'string', required: false, hint: 'Kereséshez használt teljes név (pl. "Özv. Tamás Gábor")' },
+    // A `namepattern` mező a UI prefix-tárolásra szolgál (id./ifj./Özv.) — a TELJES
+    // név XML oszlopot SZÁNDÉKOSAN nem map-eljük rá. A teljes név adatai már külön
+    // mezőkben vannak (csaladnev, k_nev, allapot), a namepattern-be csak a prefix
+    // kerül (az `apply_id_ifj_prefixes_for_congregation` SQL függvény tölti).
     { excelHeader: 'Apja neve', excelAliases: ['apjaneve', 'Apja'], dbColumn: 'apjaneve', type: 'string', required: false },
     { excelHeader: 'Anyja neve', excelAliases: ['anyjaneve', 'Anyja'], dbColumn: 'anyjaneve', type: 'string', required: false },
     { excelHeader: 'Férj/Feleség neve', excelAliases: ['ferjk_nev', 'Férje', 'Felesége'], dbColumn: 'ferjk_nev', type: 'string', required: false },

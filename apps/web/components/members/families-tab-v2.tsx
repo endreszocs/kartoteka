@@ -214,6 +214,17 @@ export function FamiliesTab() {
               <tbody className="divide-y divide-white/60">
                 {filtered.map((family) => {
                   const householdLabel = family.ferfi && family.no ? 'Házaspár alapú család' : 'Egytagú vagy részben rögzített háztartás'
+
+                  // CSALÁDFŐ logika: a férj VAGY nő (az aki van). Ha mindkettő van,
+                  // a férj a családfő, a nő a társ. Ha csak nő van (özvegy / egyedülálló
+                  // anya), a nő a családfő, és a "Társ" oszlopban "Nincs megadva" jelzés.
+                  const head = family.ferfi || family.no
+                  const spouse = family.ferfi && family.no ? family.no : null
+                  const headIsFerfi = !!family.ferfi
+                  const spouseDeceased = head
+                    ? (head.id === family.ferfi?.id ? family.no?.meghalt : family.ferfi?.meghalt)
+                    : false
+
                   return (
                     <tr
                       key={family.id}
@@ -222,16 +233,18 @@ export function FamiliesTab() {
                     >
                       <td className="p-3">
                         <PersonCell
-                          name={family.ferfi ? formatNameWithPrefix(family.ferfi, family.no?.meghalt) : 'Nincs megadva'}
-                          meta={family.ferfi?.allapot || 'családfő'}
-                          tone="blue"
+                          name={head ? formatNameWithPrefix(head, spouseDeceased) : 'Nincs megadva'}
+                          meta={head?.allapot || 'családfő'}
+                          tone={headIsFerfi ? 'blue' : 'pink'}
+                          role="head"
                         />
                       </td>
                       <td className="p-3">
                         <PersonCell
-                          name={family.no ? formatNameWithPrefix(family.no, family.ferfi?.meghalt) : 'Nincs megadva'}
-                          meta={family.no?.allapot || 'családtag'}
-                          tone="pink"
+                          name={spouse ? formatNameWithPrefix(spouse, head?.meghalt) : 'Nincs megadva'}
+                          meta={spouse?.allapot || 'családtag'}
+                          tone={headIsFerfi ? 'pink' : 'blue'}
+                          role="spouse"
                         />
                       </td>
                       <td className="p-3">
@@ -324,10 +337,12 @@ function PersonCell({
   name,
   meta,
   tone,
+  role,
 }: {
   name: string
   meta: string
   tone: 'blue' | 'pink'
+  role: 'head' | 'spouse'
 }) {
   const toneClassName =
     tone === 'blue' ? 'bg-sky-100 text-sky-700' : 'bg-pink-100 text-pink-700'
@@ -335,7 +350,7 @@ function PersonCell({
   return (
     <div className="space-y-2">
       <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${toneClassName}`}>
-        {tone === 'blue' ? 'Fő ág' : 'Társ'}
+        {role === 'head' ? 'Fő ág' : 'Társ'}
       </div>
       <div>
         <p className="font-semibold text-slate-800">{name}</p>
