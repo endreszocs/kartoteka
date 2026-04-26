@@ -243,3 +243,120 @@ struktúra). Ez kisebb parser-érzékenység + tisztább kód.
 - Plan fájl: `C:\Users\endre\.claude\plans\szia-folytatjuk-a-kartot-ka-immutable-sketch.md`
 - CHANGELOG: `docs/CHANGELOG.md` — `[2026-04-26] — Auto-link családszerkezet + nem-mező biztonsági ellenőrzés`
 - Korábbi project log: `KARTOTEKA-tagnyilvantartas-import-wizard-2026-04-25.md`
+
+---
+
+## 2026-04-26 (késő este) — Hiányzó házastársak diagnosztikája és bulk-MERGE
+
+### Endre észrevétele
+
+> "A családoknál sok helyen nincs házastás pedig kellene legyen! Ellenőrizd!"
+
+A korábbi prefix-cleanup és apa-fia swap után végignézve a Családok tabot, kiderült:
+sok család **single-parent rekord** maradt — vagy csak `id_ferfi` van benne, vagy csak
+`id_no`. A házaspáros megjelenítés helyett "csak férj" vagy "csak feleség".
+
+### Diagnózis — 3 fő ok
+
+1. **Az import single-parent rekordokat hoz létre.**  
+   A `csaladok.xml` minden sora egy családfőt definiál. A
+   `import_families_from_existing_persons_batch` RPC mindegyikből egy csalad-rekordot
+   gyárt — vagy `id_ferfi`, vagy `id_no` van, de soha nem mindkettő. A párosítás dolga
+   az `infer_family_links_for_congregation` RPC.
+
+2. **Az auto-link RPC szűri a `csaladfo = true` szemely-eket.**  
+   Viszont a `szemelyek.xml`-ben sok feleség is `Családfő` = "Igen" jelöléssel jött be
+   (mert mindkettő XML-rekord így volt). Az `infer_family_links` ezeket NEM tekinti
+   párosítható kandidátusnak — eredmény: 0 jelölt egy halom esetben.
+
+3. **Két csalad ugyanazon címen.**  
+   A `csaladok.xml` némelyik családnál mindkét házasfél külön sor — így mindkét
+   házasfélnek lett egy-egy SAJÁT single-parent csalad-rekord, ugyanazon `(c_utcaid,
+   c_szam)`-on. Ezeket MERGE-elni kell egy házaspáros rekorddá.
+
+### Megoldás — két SQL fájl
+
+**`migration-docs/sql/2026-04-26-FIX-missing-spouses-diagnostics.sql`** (csak SELECT):
+
+- Single-parent vs. házaspár statisztika
+- NULL `c_utcaid` rekordok száma (azoknál cím-egyezés lehetetlen)
+- Strict (`csaladfo = false` szűrővel) és LOOSE (csaladfo szűrő nélkül) jelölt-számolás
+- Két-csalad-egy-cím duplikációk listája
+
+**`migration-docs/sql/2026-04-26-FIX-merge-spouses-and-loose-link.sql`** (módosítás):
+
+- **A. MERGE**: minden férj-fő single-parent + feleség-fő single-parent ugyanazon
+  címen → összevonás egy házaspáros csalad-ba (gyerekek áthelyezve, feleség-csalad
+  törölve, feleség `csaladfo = false`)
+- **B. LOOSE LINK**: maradt single-parent csalad-okhoz egyértelmű (1 jelölt)
+  cím-egyezésen csatoljuk a házastársat — `csaladfo` szűrő nélkül; ha a jelöltnek volt
+  saját single-parent csalad-rekordja, az is törlődik
+- **C. csaladfo flag** korrekció: a most-házastárs-szá-vált szemely-eken `false`
+- Studio bypass: superuser role-ban auth.uid() NULL is megengedett
+
+### Endre teendői
+
+1. Először futtasd a `2026-04-26-FIX-missing-spouses-diagnostics.sql`-t — látod hány
+   családnál hiányzik a házastárs, és hány csatolható egyértelműen
+2. Ha a számok rendben vannak, futtasd a `2026-04-26-FIX-merge-spouses-and-loose-link.sql`-t
+3. Ellenőrizd a Tagnyilvántartás → Családok tabon: most már sok családnál látszik
+   mindkét házasfél
+4. Ami nem oldódott meg automatikusan (többes jelölt VAGY hiányzó cím) — az kézi
+   rendezés, a Családok tab szerkesztő modaljából.
+
+### Megjegyzés: hosszú távú megoldás
+
+Az import wizard végén az "Auto-link" CTA-nak (`infer_family_links_for_congregation`
+RPC dry-run + commit) a teljes flow része kéne legyen. A jelen állapotban a wizard
+megjeleníti a "Családszerkezet összeállítása" CTA-t az 5. lépés után, de nem futtatja
+automatikusan — Endre saját döntése, hogy hívja-e. A jelen SQL-fixek **adott
+adatbázis-állapotra** szolgálnak, az új importok a wizard CTA-val rendezhetők.
+
+---
+
+## 2026-04-26 (még későbbi este) — MERGE v1 elbukott, v2 szigorúbb logikával
+
+### Hiba a v1-ben
+
+A diagnosztika 7-es lekérdezése (két csalad ugyanazon címen) kiderítette: sok
+címen TÖBB CSALÁD lakik. Pl. a Főút 144-en 4 férj és 2 nő van single-parent
+csalad-rekordként (kollégiumi/bérház), a Templom 235-en 4 Kádár-férfi és 1
+Kádár Katalin (többgenerációs ház). A v1 MERGE script naiv módon próbálta
+összevonni az ÖSSZES férj × feleség pár cím-egyezést — első körben sikerült,
+2. körben az UNIQUE constraint (`csalad_id_no_idx`, mert Deák Ibolya = id_no=898
+nem lehet 4 férfi felesége) elbukott:
+
+```
+ERROR: 23505: duplicate key value violates unique constraint "csalad_id_no_idx"
+DETAIL: Key (id_no)=(898) already exists.
+```
+
+A teljes tranzakció ROLLBACK-elt, az adatbázis érintetlen maradt. ✅
+
+### v2 — SZIGORÚBB ALGORITMUS (`2026-04-26-FIX-merge-spouses-and-loose-link-v2.sql`)
+
+Három fázis, mindegyik csak BIZTOS-PÁROKKAL:
+
+**A. STRICT MERGE** — csak akkor, ha (c_utcaid, c_szam)-on PONTOSAN 1 férj-fő
+single-parent ÉS PONTOSAN 1 feleség-fő single-parent. Kétoldalú egyértelműség.
+Példa BIZTOS pár: 65 Benkő Sándor + 66 Benkő Éva (Parókia 217), 109 Finta
+Sándor + 113 Földes Ildikó.
+
+**B. NÉV-PÁROSÍTÁS MERGE** — több családos cím (3+ rekord), de a férj-feleség
+párosítás AZONOS családnévvel egyértelmű. A nő `szcs_nev` (lánykori név) is
+matchelhet a férj családnevével (pl. férjezve volt Kovácsné, született Nagy
+Anna). Példa: 156 Kiss Csaba ↔ 159 Kiss Irma (Főút 33), miközben 155 Kicsi
+Gergely is ott van — más családnév, nem zavarja össze.
+
+**C. LOOSE LINK** — single-parent csalad-okhoz cím-egyezésen egyetlen jelölt
+(csak `csaladfo = false`!). EXCEPTION-kezelés UNIQUE-violation esetére —
+nem omlik el az egész tranzakció.
+
+### Tanulság
+
+1. **MERGE/JOIN logika sose legyen naiv.** Mindig kétoldalú egyértelműséget
+   ellenőrizz, mielőtt UPDATE-elsz UNIQUE constraint-tal védett mezőt.
+2. **Több család egy címen valós eset** (kollégiumi ház, bérház, többgenerációs
+   családi ház). A cím-egyezés ÖNMAGÁBAN nem elég házastárs-azonosításhoz.
+3. **A maradék ambivalenciát (pl. Templom 235 / Kádár Katalin ↔ 4 Kádár-férfi)
+   manuális rendezés** kéri — a v2 záró SELECT-je listázza ezeket.

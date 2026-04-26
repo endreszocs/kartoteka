@@ -23,6 +23,111 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — OblioEllenőrzés 10 lib közös csomagba (v0.7.7 — Sprint Q F2.1)
+
+<!-- key: 2026-04-26-oblio-libs-shared-package -->
+<!-- category: improvement -->
+<!-- version: 0.7.7 -->
+<!-- targets: lelkészek, fejlesztők — Oblio e-Factura modul felhasználói -->
+
+A Pénzügy modul **OblioEllenőrzés** moduljának 10 belső lib-je átkerült a
+`@kartoteka/ui-app/finance/oblio/` shared csomagba. Az e-Factura
+ellenőrzésnél semmi nem változik a felhasználó számára (a UI, a párosítás
+algoritmus, a PDF tartalom-elemzés mind ugyanúgy működik), de a kód-
+struktúra fel van készítve a desktop és (a jövőben) iOS oldali használatra.
+
+### 🎨 Háttér-fejlesztés (web–desktop UI paritás Sprint Q F2.1)
+
+- **Pure-logic lib-ek** átemelve (4 fájl): `oblio-types`, `oblio-status-labels`,
+  `oblio-errors`, `oblio-matcher` (XML↔kiadás fuzzy párosítás algoritmus).
+- **Browser-only lib-ek** átemelve (6 fájl): `ubl-parser` (DOMParser),
+  `pdf-content-parser` (pdfjs-dist lazy import), `pdf-xml-name-matcher`
+  (fájlnév-pattern), `pdf-xml-content-matcher`, `oblio-print-builder`
+  (HTML), `oblio-cache` (IndexedDB/Dexie).
+- **Server-only lib-ek** webnél maradnak (3 fájl): `oblio-auth`, `oblio-client`,
+  `oblio-invoice-builder` — secret + REST API hívás, NEM kerül a sharedba.
+- **`oblio-folder.ts`** (File System Access API) szintén webnél marad —
+  a v0.7.9 sprintben kerül interface mögé (iOS-WKWebView fallback).
+- **Webes oldali kompatibilitás**: a 10 webes lib re-exporttá alakult
+  (`export * from '@kartoteka/ui-app'`), így minden meglévő import-hely
+  (`from '@/lib/finance/oblio/oblio-types'` stb.) változatlanul működik.
+
+### 📦 Új npm dependencies
+
+A `@kartoteka/ui-app` shared csomag bővült:
+- `dexie ^4.4.2` (IndexedDB cache az XML-eknél)
+- `pdfjs-dist ^5.6.205` (PDF tartalom-elemzés)
+
+Mindkettő iOS WKWebView-kompatibilis. A webes oldal már korábban használta
+őket, most a sharedba is bekerültek azonos verzióval.
+
+### 🔧 TypeScript target frissítés
+
+A `packages/ui-app/tsconfig.json` és `apps/desktop/tsconfig.json` `ES2020`
+→ `ES2022`-re emelve, mert az `Error({ cause })` constructor-szignatúra
+ES2022-es. iOS Safari 16+ és Chromium 94+ támogatja.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Oblio ellenőrzés fül**: változatlan UI, működés.
+  XML lista, kézi párosítás, diagnosztika dialog, kiadás-bevezetés
+  wizard — minden ott van, ahol eddig.
+- **Adatvesztés nincs**, frissítés automatikus auto-update-ön át.
+
+### 🛑 Sprint Q F2 következő lépések
+
+- **v0.7.8 (Sprint Q F2.2)**: 4 modal + 2 sub-komp port (~2000 sor)
+- **v0.7.9 (Sprint Q F2.3)**: 1637 soros tab + `OblioFileSystem` interface
+  (FSAccess absztrakció iOS-felkészülés)
+
+---
+
+## [2026-04-26] — Tagnyilvántartás: hiányzó házastársak diagnosztikája + auto-MERGE
+
+<!-- key: 2026-04-26-missing-spouses-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek — tagnyilvántartás, családstruktúra -->
+
+A `csaladok.xml` import után sok család egyetlen családfővel jött létre
+(`id_ferfi` VAGY `id_no` van, de a házastárs hiányzik). Ennek 3 oka volt:
+(1) az import **single-parent rekordot** hoz létre, mert a XML egy sora egy
+családfőt definiál; (2) az auto-link RPC szűrte a `csaladfo = true`
+szemely-eket — viszont sokan így kerültek be; (3) sok esetben mindkét
+házastárs *külön-külön* egy-egy single-parent csalad-ban szerepelt (mert a
+XML mindkettőt családfőként importálta).
+
+### 🐛 Javítások (SQL hotfixek — Endre futtatja Studio-ban)
+
+- **`2026-04-26-FIX-missing-spouses-diagnostics.sql`** — diagnosztika:
+  - Single-parent vs. házaspár kimutatás
+  - NULL `c_utcaid` családok száma (azoknál cím-egyezés lehetetlen)
+  - Cím-alapú házastárs-jelöltek számolása (strict + loose)
+  - Két-csalad-egy-cím probléma (férj és feleség külön rekordban)
+- **`2026-04-26-FIX-merge-spouses-and-loose-link-v2.sql`** — szigorúbb javítás:
+  - **A. STRICT MERGE**: csak akkor MERGE, ha (c_utcaid, c_szam)-on PONTOSAN 1
+    férj-fő és PONTOSAN 1 feleség-fő van (kétoldalú egyértelműség)
+  - **B. NÉV-PÁROSÍTÁS MERGE**: több családos címnél azonos vezetéknév (vagy nő
+    `szcs_nev` = férj `csaladnev`) alapján egyértelmű 1-1 párosítás
+    (pl. Benkő-Benkő, Kiss-Kiss)
+  - **C. LOOSE LINK**: maradt single-parent csalad-okhoz egyértelmű (1 jelölt)
+    cím-egyezésen csatoljuk a házastársat (csak `csaladfo = false` szemely-t)
+  - Studio bypass-szal: superuser role-ban auth.uid() NULL is megengedett
+  - Az ambivalens címeket (több férj VAGY több nő AZONOS címen, NEM azonos
+    családnév) NEM bántja → manuális rendezés a Családok tabon
+- **`2026-04-26-FIX-merge-spouses-and-loose-link.sql` (v1)** — DEPRECATED:
+  túl naiv volt, csak cím-egyezést nézett. Több férj egy címen esetén UNIQUE
+  constraint dobott (csalad_id_no_idx). Az adatbázis érintetlen maradt
+  (BEGIN-COMMIT teljes ROLLBACK).
+
+### 🎯 Várható hatás
+
+Egy átlagos gyülekezet (200-300 csalad) esetén a MERGE valószínűleg több
+tucat duplikált rekordot von össze; a LOOSE LINK további párokat csatol
+egyértelmű cím-alapú egyezések alapján. Ami marad → manuális rendezés
+(többes jelölt vagy hiányzó cím).
+
+---
+
 ## [2026-04-26] — Pénzügy almenü a sidebarban (v0.7.6)
 
 <!-- key: 2026-04-26-sidebar-finance-submenu -->
