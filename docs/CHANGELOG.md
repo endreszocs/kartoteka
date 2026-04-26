@@ -23,6 +23,61 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — OblioEllenőrzés 4 modal + 2 sub-komp közös csomagba (v0.7.8 — Sprint Q F2.2)
+
+<!-- key: 2026-04-26-oblio-modals-shared-package -->
+<!-- category: improvement -->
+<!-- version: 0.7.8 -->
+<!-- targets: lelkészek, fejlesztők — Oblio e-Factura modul felhasználói -->
+
+A Pénzügy → OblioEllenőrzés moduljában a 4 dialog-modal és a 2 sub-komp
+mind átkerült a `@kartoteka/ui-app/finance/oblio/` shared package-be.
+A UI változatlan, viszont a webes oldal csak `Dialog` shell + callback
+prop-okat ad — a body shared. Sprint Q F2-ből 2/3 sub-sprint kész
+(F2.1 + F2.2). Hátra: F2.3 — a tab + File System Access interface.
+
+### 🎨 Háttér-fejlesztés (Sprint Q F2.2)
+
+**Új shared komponensek (6 fájl, ~2000 sor):**
+
+- **2 sub-komp** közvetlenül a sharedban:
+  - `OblioEllenorzesWarnings` + `OblioFormatGuideCard` (160 sor)
+  - `OblioEllenorzesFolderCard` (295 sor) — FSAccess-jelző UI, copy-clipboard
+- **4 modal** body-pattern szerint (Dialog shell webnél, body shared):
+  - `OblioManualMatchDialogBody` (266 sor) — kézi párosítás
+  - `OblioMatchDiagnosticDialogBody` (510 sor) — 3 fülre osztott diagnosztika
+  - `OblioKiadasWizardDialogBody` (415 sor) — kronológiai bevezető wizard
+  - `OblioInvoicePrintDialogBody` (425 sor) — KARTOTEKA + ANAF PDF tabok,
+    iframe + `window.print()` (FSAccess típus a sharedban)
+
+**Új shared típusok:**
+
+- `OblioFolderStatus`, `OblioLocalFile` (folder-types.ts) — eddig a
+  `oblio-folder.ts`-ben; most a sharedban, a webes verzió re-exportál.
+- `WizardXmlItem`, `ExpenseCategoryOption`, `OblioCreateKiadasPayload`.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Oblio ellenőrzés fül**: változatlan UI, működés.
+- **Adatvesztés nincs**, frissítés automatikus auto-update-ön át.
+
+### 🔧 Műszaki részletek
+
+- A 6 webes fájl wrapper-ré egyszerűsödött (~30-100 sor mind):
+  - 2 sub-komp: re-export közvetlenül
+  - 4 modal: Dialog wrapper + sonner toast + server action callback bekötés
+- `Button`, `Input`, `Textarea` shadcn → natív elemek a sharedban.
+- 3 build zöld: ui-app (tsc), web (Next.js 16 webpack, 51 oldal),
+  desktop (lint + tsc + vite, 1839 KB bundle, 4.92s).
+
+### 🛑 Sprint Q F2.3 (v0.7.9) — hátra
+
+- 1637 soros tab átemelése a sharedba
+- `OblioFileSystem` interface a sharedban — a `oblio-folder.ts` File
+  System Access API-t absztrakcióval mögé.
+
+---
+
 ## [2026-04-26] — OblioEllenőrzés 10 lib közös csomagba (v0.7.7 — Sprint Q F2.1)
 
 <!-- key: 2026-04-26-oblio-libs-shared-package -->
@@ -98,26 +153,41 @@ XML mindkettőt családfőként importálta).
 
 ### 🐛 Javítások (SQL hotfixek — Endre futtatja Studio-ban)
 
-- **`2026-04-26-FIX-missing-spouses-diagnostics.sql`** — diagnosztika:
-  - Single-parent vs. házaspár kimutatás
-  - NULL `c_utcaid` családok száma (azoknál cím-egyezés lehetetlen)
-  - Cím-alapú házastárs-jelöltek számolása (strict + loose)
-  - Két-csalad-egy-cím probléma (férj és feleség külön rekordban)
-- **`2026-04-26-FIX-merge-spouses-and-loose-link-v2.sql`** — szigorúbb javítás:
-  - **A. STRICT MERGE**: csak akkor MERGE, ha (c_utcaid, c_szam)-on PONTOSAN 1
-    férj-fő és PONTOSAN 1 feleség-fő van (kétoldalú egyértelműség)
-  - **B. NÉV-PÁROSÍTÁS MERGE**: több családos címnél azonos vezetéknév (vagy nő
-    `szcs_nev` = férj `csaladnev`) alapján egyértelmű 1-1 párosítás
-    (pl. Benkő-Benkő, Kiss-Kiss)
-  - **C. LOOSE LINK**: maradt single-parent csalad-okhoz egyértelmű (1 jelölt)
-    cím-egyezésen csatoljuk a házastársat (csak `csaladfo = false` szemely-t)
-  - Studio bypass-szal: superuser role-ban auth.uid() NULL is megengedett
-  - Az ambivalens címeket (több férj VAGY több nő AZONOS címen, NEM azonos
-    családnév) NEM bántja → manuális rendezés a Családok tabon
-- **`2026-04-26-FIX-merge-spouses-and-loose-link.sql` (v1)** — DEPRECATED:
-  túl naiv volt, csak cím-egyezést nézett. Több férj egy címen esetén UNIQUE
-  constraint dobott (csalad_id_no_idx). Az adatbázis érintetlen maradt
-  (BEGIN-COMMIT teljes ROLLBACK).
+**Diagnosztika**:
+- **`2026-04-26-FIX-missing-spouses-diagnostics.sql`** — single-parent vs.
+  házaspár kimutatás, NULL `c_utcaid` családok, cím-alapú jelölt-számolás,
+  két-csalad-egy-cím duplikációk
+
+**MŰKÖDŐ MEGOLDÁS — három DO-blokk script egyenként Studio-ban**:
+- **`v7-do-block.sql`** — STRICT MERGE: 1×1 single-parent ugyanazon címen
+- **`v8-namematch.sql`** — NÉV-PÁROSÍTÁS: azonos vezetéknév (vagy nő
+  `szcs_nev` = férj `csaladnev`), kétoldalú egyértelműség
+- **`v9-loose-link.sql`** — LOOSE LINK: single-parent csaladhoz egyetlen
+  másnemű felnőtt szemely (`csaladfo = false`) ugyanazon címen
+
+**Eredmény (egy gyülekezeten, 201 csalad)**:
+- STRICT: **2 pár MERGE** (Benkő-Benkő, Finta-Földes)
+- NAMEMATCH: **1 pár MERGE** (Kiss-Kiss)
+- LOOSE: **0 csatolás** (nincs egyértelmű jelölt)
+- Maradt: **63** valódi single-parent (özvegy/elvált/egyedülálló) +
+  **44** többfős cím manuális rendezésre (kollégium/bérház/többgenerációs ház)
+- Házaspár: 90 → **93** (3 új házaspár)
+
+**Tanulságok (DEPRECATED iterációk v1–v6)**:
+- `v1–v3` — `BEGIN/COMMIT` + 3 DO blokk: túl naiv MERGE → UNIQUE-violation
+  egy körben → teljes ROLLBACK → adatbázis érintetlen
+- `v4` — perzisztens log-tábla: Studio nem futtatta a DO-blokkokat
+  (statement-batching probléma), csak a végső SELECT-eket
+- `v5` — egyetlen RPC `BEGIN/COMMIT`-ban: Studio "Run" csak az utolsó
+  SELECT-et futtatta, a CREATE FUNCTION nem hajtódott végre (MCP-vel
+  ellenőrizve: `merge_spouses_bulk` nem jött létre)
+- `v6` — PURE data-modifying CTE chain: az UPDATE+DELETE concurrent-ek
+  ugyanazon snapshot-on (PostgreSQL spec) → UNIQUE-violation a snapshot-
+  régi feleség-csaladdal → teljes ROLLBACK
+- **MEGOLDÁS** (v7–v9): 3 KÜLÖN script, mindegyikben EGY `DO $$` blokk
+  soros lépésekkel (UPDATE gyerek → DELETE feleség-csalad →
+  UPDATE férj-csalad → UPDATE szemely.csaladfo) + EXCEPTION-handling
+  páronként + eredmény perzisztens táblába (`_merge_v7_result`)
 
 ### 🎯 Várható hatás
 

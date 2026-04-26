@@ -359,4 +359,113 @@ nem omlik el az egész tranzakció.
 2. **Több család egy címen valós eset** (kollégiumi ház, bérház, többgenerációs
    családi ház). A cím-egyezés ÖNMAGÁBAN nem elég házastárs-azonosításhoz.
 3. **A maradék ambivalenciát (pl. Templom 235 / Kádár Katalin ↔ 4 Kádár-férfi)
-   manuális rendezés** kéri — a v2 záró SELECT-je listázza ezeket.
+   manuális rendezés** kéri.
+
+---
+
+## 2026-04-26 (éjszaka) — Studio batch + CTE concurrent execution: a v3–v6 buktatók
+
+### A v3–v6 iteráció buktatói
+
+A v2 ROLLBACK után 4 további iterációt végeztünk, mire működő scriptet kaptunk:
+
+**v3** — TEMP tábla `ON COMMIT DROP`: `relation "_merge_results" does not exist` —
+a Studio batch-ekben futtat, a TEMP tábla nem éli túl.
+
+**v4** — perzisztens log-tábla (`_merge_run_log`): a script lefutott, az
+adatbázis-állapot változott, DE a 6. SELECT végeredménye azonos volt a
+diagnosztikával — Benkő-Benkő (1×1 BIZTOS pár) NEM lett MERGE-elve. Ez azt
+jelenti, hogy a 3 DO-blokk SEM hajtódott végre, csak a CREATE TABLE és a SELECT-ek.
+
+**v5** — egyetlen RPC `BEGIN/COMMIT`-ban: MCP-vel ellenőriztem, a
+`merge_spouses_bulk` függvény NEM létezett az adatbázisban a futtatás után.
+A Studio "Run" gomb csak a kurzor pozíciójában lévő statement-et futtatja
+alapértelmezetten — az utolsó SELECT-et, NEM a teljes scriptet. A CREATE OR
+REPLACE FUNCTION blokk emiatt nem futott le.
+
+**v6** — PURE data-modifying CTE chain (egyetlen statement, garantáltan fut):
+`ERROR: 23505: duplicate key value violates unique constraint "csalad_id_no_idx"
+DETAIL: Key (id_no)=(719) already exists`. Ezt egy fontos PostgreSQL-szabály
+okozza: a data-modifying CTE-k **concurrent**-ek, nem szekvenciálisak. Az
+UPDATE megpróbálja `id_no=719`-et beírni, miközben a DELETE még nem hatott
+a snapshot-ban → constraint violation → teljes statement ROLLBACK.
+
+> "The sub-statements in WITH are executed concurrently with each other and
+> with the main query. [...] All the statements are executed with the same
+> snapshot (see Chapter 13), so they cannot 'see' one another's effects on the
+> target tables." — PostgreSQL docs, [WITH Queries / Data-Modifying Statements](https://www.postgresql.org/docs/current/queries-with.html)
+
+### MŰKÖDŐ MEGOLDÁS — v7+v8+v9
+
+3 KÜLÖN script, mindegyikben EGY `DO $$` blokk soros lépésekkel:
+
+```sql
+DO $merge_strict$
+DECLARE pair_rec record; ...
+BEGIN
+    FOR pair_rec IN <SELECT> LOOP
+        BEGIN
+            -- 1. Áthelyezzük a feleség-csalad gyerekeit
+            UPDATE gyerek SET id_csalad = ferj_id WHERE id_csalad = no_id;
+            -- 2. Töröljük a feleség-csaladot (felszabadítja az id_no=X bejegyzést)
+            DELETE FROM csalad WHERE id = no_csalad_id;
+            -- 3. Beírjuk a feleséget a férj-csaladba
+            UPDATE csalad SET id_no = no_szemely_id WHERE id = ferj_csalad_id;
+            -- 4. csaladfo = false
+            UPDATE szemely SET csaladfo = false WHERE id = no_szemely_id;
+        EXCEPTION WHEN OTHERS THEN
+            -- log + skip, NE omlassza a többi pár MERGE-jét
+        END;
+    END LOOP;
+    -- Eredményt egy perzisztens táblába (Studio NOTICE-ot nem mutat)
+    INSERT INTO _merge_v7_result (phase, merged, ...) VALUES ('STRICT', ...);
+END $merge_strict$;
+```
+
+Ez a forma EGYETLEN SQL statement (a DO blokk) — a Studio "Run" garantáltan
+végrehajtja. Az eredményt a perzisztens tábla őrzi, hogy NOTICE nélkül is
+megnézhető legyen.
+
+### Eredmény
+
+Az SQL-ek lefuttatása után a 201 csalad rekord így oszlott meg:
+
+| metric | előtt | után |
+|---|---|---|
+| Csak férj | 66 | 63 |
+| Csak feleség | 47 | 44 |
+| Házaspár | 90 | **93** |
+| **Összesen** | 203 | 200 |
+
+3 új házaspár (csökkenés 3-mal a fölösleges duplikátumok törlése miatt):
+- **Benkő Sándor + Benkő Éva** (Parókia 217) — STRICT
+- **Finta Sándor + Földes Ildikó** (- 0) — STRICT
+- **Kiss Csaba + Kiss Irma** (Főút 33) — NAMEMATCH
+
+### Maradék — manuális rendezés szükséges
+
+- **63 valódi single-parent csalad** — özvegy / elvált / egyedülálló (vagy a
+  házastárs más címen él).
+- **44 többfős cím** — több potenciális házastárs ugyanazon címen (kollégium,
+  bérház, többgenerációs ház). Példák:
+  - **Templom 235** — Kádár Katalin × {Zoltán, Sándor, Ernő} + Csoma Sándor
+  - **Főút 144** — Deák Ibolya, Bogyó Gabriella × {Beder Levente, Bitai Lajos,
+    Beder Alpár, Ilyés Zsolt}
+  - **Főút 33** — Kicsi Gergely × Kiss Irma (után, mert már csatolva Kiss Csabához)
+
+  → A lelkész manuálisan rendezi a Családok tab szerkesztő modaljából,
+  ismerve a tényleges családi viszonyokat.
+
+### Hosszú távú tanulságok
+
+1. **Studio "Run" csak az utolsó (kurzorpozíció) statement-et futtatja**
+   alapértelmezetten. Több statement esetén ki kell jelölni az egészet,
+   vagy egyetlen statementbe (DO blokk vagy data-modifying CTE) kell csomagolni.
+2. **PostgreSQL data-modifying CTE-ek concurrent-ek** ugyanazon snapshot-on.
+   UNIQUE constraint-tal védett mezőre nem szabad CTE-chainben UPDATE-elni
+   ha egy másik CTE majd DELETE-li a constraint-ütköző sort — ezt soros DO
+   blokkban kell csinálni.
+3. **Studio NOTICE-okat gyakran nem mutat** — érdemes az eredményt egy
+   perzisztens táblába írni és külön SELECT-tel lekérdezni.
+4. **MCP a Supabase-hez korlátozott** — az MCP egy MÁSIK projektre van kötve
+   (Baratosi Project), nem a Kartoteka-ra. A futtatáshoz Endre kell.

@@ -1,6 +1,6 @@
 {
   "name": "@kartoteka/desktop",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "private": true,
   "type": "module",
   "description": "Kartotéka desktop kliens (Tauri 2 + React + Vite) — M1 kezdő állapot",

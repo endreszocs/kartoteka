@@ -25,35 +25,13 @@ import {
 // Típusok
 // ─────────────────────────────────────────────────────────────
 
-export type OblioFolderStatus = {
-  /** A böngésző támogatja-e a File System Access API-t. */
-  supported: boolean
-  /** A KARTOTEKA root mappa be van-e már állítva. */
-  hasRoot: boolean
-  /** A KARTOTEKA root mappa neve (csak a leaf, nem a teljes út). */
-  rootName: string | null
-  /** Megvan-e a readwrite jogosultság. */
-  hasPermission: boolean
-  /** Az `oblio-ellenorzes/` almappa kész-e. */
-  ellenorzesDirReady: boolean
-  /** Hibaüzenet, ha valami nem ment. */
-  error: string | null
-}
-
-export type OblioLocalFile = {
-  /** A fájl neve (pl. "4214783.xml"). */
-  name: string
-  /** Relatív útvonal a `befogadott/<év>/` alól (pl. "4214783.xml"). */
-  relpath: string
-  /** Fájl típusa. */
-  kind: 'zip' | 'xml' | 'pdf' | 'other'
-  /** Fájlméret byte-ban. */
-  size: number
-  /** Utoljára módosítva. */
-  lastModified: number
-  /** A handle, hogy később megnyithassuk. */
-  handle: FileSystemFileHandle
-}
+// 2026-04-26 (Sprint Q F2.2, v0.7.8): a típusok átkerültek a shared
+// `@kartoteka/ui-app/finance/oblio/folder-types.ts`-be — itt csak
+// re-exportoljuk őket, hogy a meglévő import-helyek (pl. modal-ok,
+// tab) változatlanul működjenek. A logika (a függvények alább)
+// még webnél marad, a v0.7.9 sprint-ben kerül interface mögé.
+import type { OblioFolderStatus, OblioLocalFile } from '@kartoteka/ui-app'
+export type { OblioFolderStatus, OblioLocalFile }
 
 // ─────────────────────────────────────────────────────────────
 // Almappa-műveletek
