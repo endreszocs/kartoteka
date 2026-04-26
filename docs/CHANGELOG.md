@@ -23,6 +23,84 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-26] — Sprint Q F2 LEZÁRVA: Oblio teljes csomagba (v0.7.9 — F2.3)
+
+<!-- key: 2026-04-26-oblio-tab-and-filesystem-shared -->
+<!-- category: improvement -->
+<!-- version: 0.7.9 -->
+<!-- targets: lelkészek, fejlesztők — Oblio e-Factura modul felhasználói -->
+
+**Sprint Q F2 LEZÁRVA.** Az OblioEllenőrzés modul utolsó eleme — az 1637
+soros tab és a File System Access API absztrakció — átkerült a
+`@kartoteka/ui-app/finance/oblio/` shared package-be. A Pénzügy modul
+**100%-a (11/11 elem) és az Oblio modul minden eleme** közös csomagban van.
+
+### 🎨 Háttér-fejlesztés (Sprint Q F2.3)
+
+**Új shared `OblioEllenorzesTab.tsx` (~1730 sor):**
+
+- Pure UI: csak react + lucide-react + relatív Oblio import-ok
+- 5 server-action callback prop (`onLoadMatchesAndKiadasok`,
+  `onBulkSaveMatches`, `onSaveSingleMatch`, `onRemoveMatch`,
+  `onRecordDownloadNow`)
+- 4 modal slot (Dialog shell webnél marad)
+- `OblioFileSystem` runtime prop — file-műveletek absztrakciója
+
+**Új `OblioFileSystem` interface a `oblio-filesystem.ts`-ben:**
+
+- 11 metódus: `getFolderStatus`, `getBefogadottDir`, `getFeldolgozvaDir`,
+  `listFolderFiles`, `readFileAsText`, `removeFilesFromFolder`,
+  `renameFileInFolder`, `processAllZipsInFolder`,
+  `reprocessZipsFromArchive`, `openLocalFileInBrowser`
+- Web: `BrowserOblioFileSystem` adapter (FSAccess + jszip + DOMParser),
+  az `apps/web/lib/finance/oblio/oblio-folder.ts` végén
+- Desktop / iOS jövő: saját adapter implementálható (Tauri-fs / Tauri-mobile)
+
+**Új shared típusok:** `ZipProcessResult`, `ReprocessArchiveResult`,
+`RemoveFilesResult`, `RenameFileResult`, `OblioBulkMatchInput`,
+`OblioKiadasMatchRow`, `OblioMinimalKiadas` (a server action visszatérés-
+típusok). A webes `oblio-folder.ts` re-exportál a sharedból.
+
+### 📌 Felhasználói szempontból
+
+- **Webes /penzugy → Oblio ellenőrzés fül**: változatlan UI, működés.
+  XML lista, kézi párosítás, diagnosztika dialog, kiadás-bevezetés
+  wizard, nyomtatási központ — minden ott van.
+- **Adatvesztés nincs**, frissítés automatikus auto-update-ön át.
+
+### 🔧 Műszaki részletek
+
+- Az 1637 soros webes tab átalakult ~120 soros wrapper-ré (Dialog
+  shell + sonner toast + 5 server action + 4 modal slot + router).
+- `<Button>`, `<Badge>` shadcn → natív elemek a sharedban.
+- `toast.*(...)` hívások → `__toast_*` lokális helper-ek (`onToast` callback).
+- `window.location.href = '/profile?tab=offline'` → `onOpenSettings()` callback.
+- 3 build zöld: ui-app (tsc), web (Next.js 16 webpack, 51 oldal),
+  desktop (lint + tsc + vite, 1839 KB bundle, 4.78s).
+
+### 🏆 Sprint Q lezárva — összes finance UI shared
+
+| Modul | Verzió |
+|---|---|
+| FinanceDashboard | v0.6.0 |
+| DebtTab, AccountingTab, RentalTab, TransactionsTab | v0.6.x |
+| MonetaryTab, BudgetTab | v0.7.0 |
+| CashbookTab | v0.7.1 |
+| BankTab | v0.7.2 |
+| FinanceSugoTab + Checklist | v0.7.3 |
+| FinancePrint + BudgetPrint Dialog | v0.7.5 |
+| Sidebar Pénzügy almenü | v0.7.6 |
+| Oblio 10 lib | v0.7.7 |
+| Oblio 4 modal + 2 sub-komp | v0.7.8 |
+| **Oblio Tab + FileSystem interface** | **v0.7.9** |
+
+### 🛑 Hátra (Sprint Q F3 + v0.8.x)
+
+- **Sprint Q F3**: 3 form-dialog (IncomeDialog, ExpenseDialogV2, DecontDialog)
+- **v0.8.x**: offline finance write (Tauri SQLite mirror, outbox)
+
+---
+
 ## [2026-04-26] — OblioEllenőrzés 4 modal + 2 sub-komp közös csomagba (v0.7.8 — Sprint Q F2.2)
 
 <!-- key: 2026-04-26-oblio-modals-shared-package -->

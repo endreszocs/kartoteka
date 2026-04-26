@@ -30,8 +30,14 @@ import {
 // re-exportoljuk őket, hogy a meglévő import-helyek (pl. modal-ok,
 // tab) változatlanul működjenek. A logika (a függvények alább)
 // még webnél marad, a v0.7.9 sprint-ben kerül interface mögé.
-import type { OblioFolderStatus, OblioLocalFile } from '@kartoteka/ui-app'
+import type {
+  OblioFileSystem,
+  OblioFolderStatus,
+  OblioLocalFile,
+  ZipProcessResult as SharedZipProcessResult,
+} from '@kartoteka/ui-app'
 export type { OblioFolderStatus, OblioLocalFile }
+export type { ZipProcessResult as SharedZipProcessResult } from '@kartoteka/ui-app'
 
 // ─────────────────────────────────────────────────────────────
 // Almappa-műveletek
@@ -330,15 +336,10 @@ export async function removeFilesFromFolder(
 // mappába, majd a ZIP-et átteszi a feldolgozva-zip-be (audit célra).
 // ─────────────────────────────────────────────────────────────
 
-export type ZipProcessResult = {
-  zipName: string
-  /** Kibontott XML fájlnevek. */
-  extractedXmls: string[]
-  /** Kibontott PDF fájlnevek. */
-  extractedPdfs: string[]
-  /** Ha hiba történt, itt jön a magyar üzenet. */
-  error: string | null
-}
+// 2026-04-26 (Sprint Q F2.3, v0.7.9): a `ZipProcessResult` átkerült a
+// shared `@kartoteka/ui-app/finance/oblio/oblio-filesystem.ts`-be.
+// Itt re-exportoljuk a webes import-helyek kompatibilitása miatt.
+export type ZipProcessResult = SharedZipProcessResult
 
 /**
  * Kibontja az összes ZIP-et a `befogadott/` mappában.
@@ -632,4 +633,28 @@ export async function reprocessZipsFromArchive(
       error: e instanceof Error ? e.message : String(e),
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BrowserOblioFileSystem — a webes adapter (Sprint Q F2.3, v0.7.9, 2026-04-26)
+//
+// Az `OblioFileSystem` interface webes implementációja: a fenti exportált
+// függvények egy adapter-objektumba aggregálva. A shared `OblioEllenorzesTab`
+// ezt prop-ként kapja meg, és minden file-műveletet ezen át hív.
+//
+// Desktop (Tauri 2): külön adapter (Tauri-fs plugin alatt).
+// iOS (Tauri-mobile, jövőbeli): saját adapter (Tauri-fs-mobile).
+// ─────────────────────────────────────────────────────────────────────────
+
+export const BrowserOblioFileSystem: OblioFileSystem = {
+  getFolderStatus: getOblioFolderStatus,
+  getBefogadottDir: getOblioBefogadottDir,
+  getFeldolgozvaDir: getOblioFeldolgozvaDir,
+  listFolderFiles: listOblioFolderFiles,
+  readFileAsText,
+  removeFilesFromFolder,
+  renameFileInFolder,
+  processAllZipsInFolder,
+  reprocessZipsFromArchive,
+  openLocalFileInBrowser,
 }

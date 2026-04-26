@@ -270,14 +270,14 @@ export function HomePage() {
             <div className="flex-1 text-xs text-slate-700">
               <p className="font-medium text-slate-800">Fejlesztői állapot</p>
               <p className="mt-1 leading-snug">
-                A desktop app jelenleg <strong>v0.7.8</strong> verzióban fut. Tagnyilvántartás,
+                A desktop app jelenleg <strong>v0.7.9</strong> verzióban fut. Tagnyilvántartás,
                 családok, munkanapló, pénzügy (7 oldal), anyakönyv (8 tábla), leltár, iktató,
                 jegyzőkönyvek, sírhelyek és éves jelentés mind elérhetők offline-ban. Az
                 adatok automatikusan szinkronizálódnak percenként a háttérben — az alsó
-                állapotsávon látszik, mikor frissültek utoljára. <strong>Sprint Q F2.2
-                lezárva:</strong> az OblioEllenőrzés 4 modal + 2 sub-komponense is
-                átkerült a közös csomagba — a látható UI változatlan, csak hátra van a
-                tab maga és a File System interface (v0.7.9).
+                állapotsávon látszik, mikor frissültek utoljára. <strong>Sprint Q F2 LEZÁRVA:</strong>{' '}
+                az OblioEllenőrzés modul teljes egészében (10 lib + 4 modal + 2 sub-komp +
+                tab + File System interface) átkerült a közös csomagba, iOS-future-proof
+                módon. A pénzügyi modul 11/11 része és minden Oblio elem shared.
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => navigate('/dev')}>
