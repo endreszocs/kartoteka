@@ -53,6 +53,9 @@ interface SidebarProps {
   /** A Pénzügy menüpont kibontható almenüje (Sprint Q F1.6, v0.7.6).
    *  Hash-alapú navigáció: `/penzugy#cashbook` stb. */
   financeSubmenu?: MenuItem[]
+  /** A Tagnyilvántartás menüpont kibontható almenüje (2026-04-28).
+   *  Hash-alapú navigáció: `/tagnyilvantartas#persons` stb. */
+  tagnyilvantartasSubmenu?: MenuItem[]
 }
 
 interface MenuItem {
@@ -326,6 +329,7 @@ function SidebarNav({
   onNavigate,
   activeScope = null,
   financeSubmenu,
+  tagnyilvantartasSubmenu,
 }: {
   isEsperes: boolean
   isAdmin: boolean
@@ -347,6 +351,8 @@ function SidebarNav({
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
   /** A Pénzügy menüpont kibontható almenüje (Sprint Q F1.6, v0.7.6). */
   financeSubmenu?: MenuItem[]
+  /** A Tagnyilvántartás menüpont kibontható almenüje (2026-04-28). */
+  tagnyilvantartasSubmenu?: MenuItem[]
 }) {
   const pathname = usePathname()
   const sections: MenuSection[] = []
@@ -378,6 +384,18 @@ function SidebarNav({
     ...(financeSubmenu && financeSubmenu.length > 0 ? { children: financeSubmenu } : {}),
   }
 
+  // A Tagnyilvántartás menüpontot — ha kapunk tagnyilvantartasSubmenu-t — bővítjük
+  // a kibontható almenüvel (2026-04-28).
+  const tagnyilvantartasMenuItem: MenuItem = {
+    label: 'Tagnyilvántartás',
+    href: '/tagnyilvantartas',
+    icon: Users,
+    gradient: 'from-emerald-400 to-teal-500',
+    ...(tagnyilvantartasSubmenu && tagnyilvantartasSubmenu.length > 0
+      ? { children: tagnyilvantartasSubmenu }
+      : {}),
+  }
+
   // Diocese scope: csak Irányítópult + Pénzügy. A többi modul elrejtve.
   const dioceseMainItems: MenuItem[] = [dynamicDashboardItem, financeMenuItem]
 
@@ -386,7 +404,11 @@ function SidebarNav({
     ? dioceseMainItems
     : [
         dynamicDashboardItem,
-        ...mainItems.slice(1).map((m) => (m.href === '/penzugy' ? financeMenuItem : m)),
+        ...mainItems.slice(1).map((m) => {
+          if (m.href === '/penzugy') return financeMenuItem
+          if (m.href === '/tagnyilvantartas') return tagnyilvantartasMenuItem
+          return m
+        }),
       ]
 
   // Lelkész / esperes / admin: a saját gyülekezetük moduljaihoz jutnak
@@ -547,6 +569,7 @@ export function SidebarAdaptiveV4({
   onToggleCollapsed,
   activeScope = null,
   financeSubmenu,
+  tagnyilvantartasSubmenu,
 }: SidebarProps) {
   const navProps = {
     isEsperes,
@@ -560,6 +583,7 @@ export function SidebarAdaptiveV4({
     isGodMode,
     activeScope,
     financeSubmenu,
+    tagnyilvantartasSubmenu,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'

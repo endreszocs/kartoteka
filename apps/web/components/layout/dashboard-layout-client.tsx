@@ -11,9 +11,15 @@ import {
   CreditCard,
   Eye,
   HelpCircle,
+  Home,
   Inbox,
   Landmark,
+  Layers,
   ScrollText,
+  User,
+  UserCheck,
+  Users2,
+  Vote,
   Wallet,
 } from 'lucide-react'
 import { SidebarAdaptiveV4 } from './sidebar-adaptive-v4'
@@ -48,8 +54,23 @@ const WEB_FINANCE_SUBMENU = [
   { label: 'Súgó', href: '/penzugy#sugo', icon: HelpCircle, gradient: 'from-teal-400 to-cyan-500' },
 ] as const
 
+/**
+ * Tagnyilvántartás almenüje a sidebarban (2026-04-28).
+ * 6 fül a webes /tagnyilvantartas oldalon — hash-alapú navigáció (`#persons` stb.)
+ * a `member-tabs-v4.tsx` activeTab-jával összehangolva.
+ */
+const WEB_TAGNYILVANTARTAS_SUBMENU = [
+  { label: 'Áttekintés', href: '/tagnyilvantartas', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Személyek', href: '/tagnyilvantartas#persons', icon: User, gradient: 'from-emerald-400 to-teal-500' },
+  { label: 'Családok', href: '/tagnyilvantartas#families', icon: Home, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Presbiterek', href: '/tagnyilvantartas#presbyters', icon: UserCheck, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Körzetek', href: '/tagnyilvantartas#districts', icon: Layers, gradient: 'from-cyan-400 to-teal-500' },
+  { label: 'Választók', href: '/tagnyilvantartas#voters', icon: Vote, gradient: 'from-pink-400 to-rose-500' },
+] as const
+
 void Banknote
 void BookMarked
+void Users2
 
 interface DashboardLayoutClientProps {
   profile: Profile
@@ -120,6 +141,7 @@ export function DashboardLayoutClient({
         onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
         activeScope={activeScope}
         financeSubmenu={WEB_FINANCE_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['financeSubmenu']}
+        tagnyilvantartasSubmenu={WEB_TAGNYILVANTARTAS_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['tagnyilvantartasSubmenu']}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

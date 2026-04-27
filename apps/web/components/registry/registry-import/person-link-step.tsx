@@ -11,8 +11,8 @@
  * Esketésnél (marriage profil) dual-lookup: vőlegény + menyasszony külön.
  */
 
-import { useEffect, useRef, useState, useTransition } from 'react'
-import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle, Users } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle, Users, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ import {
   resolveRegistryPersonsAction,
   type RegistryPersonResolveResult,
 } from '@/lib/import/registry-person-resolve-action'
+import { executeCreateMissingPersonsForRegistry } from '@/lib/import/registry-create-missing-persons-action'
 
 interface PersonLinkStepProps {
   /** A teljesen transzformált rows (transformSheet output) */
@@ -41,13 +42,10 @@ export function PersonLinkStep({
 }: PersonLinkStepProps) {
   const [result, setResult] = useState<RegistryPersonResolveResult | null>(null)
   const [isResolving, startResolving] = useTransition()
+  const [isCreating, startCreating] = useTransition()
   const hasRunRef = useRef(false)
 
-  // Auto-futtatás amikor a step megnyílik (egyszer — ref-fel hogy ne triggereljen
-  // re-rendert; az ESLint react-hooks/set-state-in-effect-et ezzel kerüljük el)
-  useEffect(() => {
-    if (hasRunRef.current) return
-    hasRunRef.current = true
+  const runResolve = useCallback(() => {
     startResolving(async () => {
       const formData = new FormData()
       formData.append('rows', JSON.stringify(rows))
@@ -60,6 +58,40 @@ export function PersonLinkStep({
       setResult(res)
     })
   }, [rows, profileKey, targetCongregationId])
+
+  // Auto-futtatás amikor a step megnyílik (egyszer — ref-fel hogy ne triggereljen
+  // re-rendert; az ESLint react-hooks/set-state-in-effect-et ezzel kerüljük el)
+  useEffect(() => {
+    if (hasRunRef.current) return
+    hasRunRef.current = true
+    runResolve()
+  }, [runResolve])
+
+  // "Új tagok létrehozása ezekhez a sorokhoz" — minimal szemely-rekordokat hoz
+  // létre a NEM-talált sorokhoz (csak csaladnev/k_nev/sz_datum/ferfi). Aztán
+  // automatikusan újra-futtatja a person-resolve-ot, hogy most már megtalálja őket.
+  const handleCreateMissing = useCallback(() => {
+    startCreating(async () => {
+      const formData = new FormData()
+      formData.append('rows', JSON.stringify(rows))
+      formData.append('profileKey', profileKey)
+      formData.append('targetCongregationId', targetCongregationId)
+      const res = await executeCreateMissingPersonsForRegistry(formData)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      const created = res.createdCount ?? 0
+      const errors = res.errorCount ?? 0
+      if (created > 0) {
+        toast.success(`${created} új tag létrehozva${errors > 0 ? ` (${errors} hibás sor)` : ''}.`)
+      } else if (errors > 0) {
+        toast.warning(`${errors} sornál nem sikerült létrehozni a tagot.`)
+      }
+      // Újrafuttatjuk a resolve-ot, hogy az új ID-k beépüljenek a UI-ba
+      runResolve()
+    })
+  }, [rows, profileKey, targetCongregationId, runResolve])
 
   const isMarriage = profileKey === 'marriage'
 
@@ -169,10 +201,32 @@ export function PersonLinkStep({
               ))}
             </ul>
             <p className="mt-3 text-xs text-amber-700">
-              Ezeket a sorokat a rendszer KIHAGYJA. Ha mégis fontosak, először
-              vedd fel az érintett tagokat a tagnyilvántartásba (manuálisan vagy
-              tagnyilvántartás-importtal), majd futtasd újra ezt a wizardot.
+              Két lehetőség: (a) <strong>új tagokat hozok létre ezekhez</strong> — a
+              rendszer beveszi őket a tagnyilvántartásba alapadatokkal (név,
+              születési dátum, nem); a többi mező később pótolható. (b) Ha mégsem
+              kellenek, kattints csak a Tovább gombra — akkor a rendszer
+              kihagyja őket.
             </p>
+            <div className="mt-3">
+              <Button
+                type="button"
+                onClick={handleCreateMissing}
+                disabled={isCreating || isResolving}
+                className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {isCreating ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-4 animate-spin" />
+                    Új tagok létrehozása…
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-1.5 size-4" />
+                    Új tagok létrehozása ezekhez a sorokhoz
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 

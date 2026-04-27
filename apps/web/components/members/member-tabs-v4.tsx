@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { ColorTabs } from '@/components/ui/color-tabs'
 import type { EnrichedMember } from '@/lib/constants/members'
@@ -10,6 +10,16 @@ import { OverviewTab } from './overview-tab'
 import { PersonsTab } from './persons-tab'
 import { PresbytersTab } from './presbyters-tab'
 import { VotersTab } from './voters-tab'
+
+// Hash-routing — a sidebar almenüből (`/tagnyilvantartas#persons` stb.) közvetlen tab-ugrás.
+// Az érvényes value-k egyezniek kell a `tabs` array-vel.
+const VALID_TAB_HASHES = new Set(['overview', 'persons', 'families', 'presbyters', 'districts', 'voters'])
+const DEFAULT_TAB = 'overview'
+
+function getTabFromHash(hash: string): string {
+  const clean = hash.replace(/^#/, '')
+  return VALID_TAB_HASHES.has(clean) ? clean : DEFAULT_TAB
+}
 
 interface MemberTabsV4Props {
   initialMembers: EnrichedMember[]
@@ -28,7 +38,27 @@ export function MemberTabsV4({
   isGodMode,
 }: MemberTabsV4Props) {
   const [members, setMembers] = useState(initialMembers)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
+
+  // Hash-routing: induláskor + minden hash-változáskor frissítjük az activeTab-ot.
+  // A sidebar `/tagnyilvantartas#families` stb. URL-jeiből közvetlen tab-ugrás.
+  useEffect(() => {
+    const apply = () => setActiveTab(getTabFromHash(window.location.hash))
+    apply()
+    window.addEventListener('hashchange', apply)
+    return () => window.removeEventListener('hashchange', apply)
+  }, [])
+
+  // Tab váltáskor frissítjük a URL hash-ét is (hogy bookmarkolható legyen)
+  const handleTabChange = (next: string) => {
+    setActiveTab(next)
+    if (typeof window !== 'undefined') {
+      const newHash = next === DEFAULT_TAB ? '' : `#${next}`
+      if (window.location.hash !== newHash) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search + newHash)
+      }
+    }
+  }
 
   const tabs = useMemo(
     () => [
@@ -90,7 +120,7 @@ export function MemberTabsV4({
         </div>
       </div>
 
-      <ColorTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+      <ColorTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
 
       <div>
         {activeTab === 'overview' && <OverviewTab members={members} />}
