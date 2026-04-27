@@ -109,6 +109,27 @@ function normalizeDateForQuad(value: string | number | boolean | null | undefine
 }
 
 /**
+ * `ferfi` mező → 'M' | 'F' | '?' normalizáció.
+ * Támogatott bemenetek (case-insensitive):
+ *   - boolean true / false
+ *   - 'M' / 'F' / 'true' / 'false' / '1' / '0'
+ *   - 'igen' / 'nem' (magyar XML)
+ *   - 'férfi' / 'ferfi' / 'nő' / 'no' (magyar)
+ *   - 'yes' / 'no' (angol)
+ * '?' = ismeretlen (üres / hiányzó / fel nem ismert érték)
+ */
+function ferfiToFlag(ferfi: boolean | string | null | undefined): 'M' | 'F' | '?' {
+  if (ferfi === true) return 'M'
+  if (ferfi === false) return 'F'
+  if (typeof ferfi !== 'string') return '?'
+  const s = ferfi.trim().toLowerCase()
+  if (s === '') return '?'
+  if (['m', 'true', '1', 'igen', 'férfi', 'ferfi', 'yes'].includes(s)) return 'M'
+  if (['f', 'false', '0', 'nem', 'nő', 'no'].includes(s)) return 'F'
+  return '?'
+}
+
+/**
  * Quad-key generátor: `${csaladnev}|${k_nev}|${sz_datum}|${ferfi:M|F|?}`.
  * sz_datum vagy ferfi üres lehet — akkor a triple/double-fallback használt.
  */
@@ -121,10 +142,27 @@ function quadKey(
   const cs = normalizeNameForQuad(csaladnev)
   const k = normalizeNameForQuad(k_nev)
   const d = normalizeDateForQuad(sz_datum)
-  let f: 'M' | 'F' | '?' = '?'
-  if (ferfi === true || ferfi === 'M' || ferfi === 'm' || ferfi === 'true') f = 'M'
-  else if (ferfi === false || ferfi === 'F' || ferfi === 'f' || ferfi === 'false') f = 'F'
-  return `${cs}|${k}|${d}|${f}`
+  return `${cs}|${k}|${d}|${ferfiToFlag(ferfi)}`
+}
+
+/**
+ * Kettős keresztnév-variánsok generálása fuzzy match-hez.
+ * Pl. `Viktória-Olivia` → ['viktoria-olivia', 'viktoria olivia', 'viktoria', 'olivia']
+ * Pl. `Krisztina - Panna` → ['krisztina - panna', 'krisztina-panna', 'krisztina panna', 'krisztina', 'panna']
+ */
+function knevVariants(k_nev: string | null | undefined): string[] {
+  const norm = normalizeNameForQuad(k_nev)
+  if (!norm) return []
+  const variants = new Set<string>([norm])
+  // Kötőjel ↔ szóköz csere
+  variants.add(norm.replace(/\s*-\s*/g, '-'))     // "krisztina - panna" → "krisztina-panna"
+  variants.add(norm.replace(/\s*-\s*/g, ' '))     // "krisztina - panna" → "krisztina panna"
+  variants.add(norm.replace(/-+/g, ' '))           // "viktoria-olivia" → "viktoria olivia"
+  // Külön darabok (egyszerű első/második név)
+  for (const part of norm.split(/[-\s]+/).filter(Boolean)) {
+    if (part.length >= 2) variants.add(part)
+  }
+  return Array.from(variants)
 }
 
 function splitName(fullName: string): { vezetek: string; kereszt: string } {
@@ -193,18 +231,30 @@ async function buildPersonLookupMap(
       byName.set(`${csal} ${ker}`, row.id)
       byName.set(`${ker} ${csal}`, row.id) // fordított sorrend
     }
-    // Quad-lookup (anyakönyvi import)
+    // Quad-lookup (anyakönyvi import) — kettős keresztnév-variánsokkal együtt
     if (row.csaladnev && row.k_nev) {
-      const quad = quadKey(row.csaladnev, row.k_nev, row.sz_datum, row.ferfi)
-      // Csak akkor tegyük be, ha még nincs (első match nyer — tie-break a wizard-on)
-      if (!byQuad.has(quad)) {
-        byQuad.set(quad, row.id)
+      const dbFerfiFlag = ferfiToFlag(row.ferfi)
+      const csNorm = normalizeNameForQuad(row.csaladnev)
+      const knVariants = knevVariants(row.k_nev)
+      const dNorm = normalizeDateForQuad(row.sz_datum)
+
+      for (const knVar of knVariants) {
+        // Quad: csaladnev|k_nev_variant|sz_datum|ferfi
+        const quad = `${csNorm}|${knVar}|${dNorm}|${dbFerfiFlag}`
+        if (!byQuad.has(quad)) {
+          byQuad.set(quad, row.id)
+        }
+        // Triple fallback (sz_datum nélkül) — minden ilyen szemely-id-t gyűjtünk
+        const triple = `${csNorm}|${knVar}|${dbFerfiFlag}`
+        const arr = byTriple.get(triple) || []
+        if (!arr.includes(row.id)) arr.push(row.id)
+        byTriple.set(triple, arr)
+        // Plus: triple ferfi-flag NÉLKÜL is (utolsó fallback ha az XML _ferfi ismeretlen)
+        const tripleNoFerfi = `${csNorm}|${knVar}|?`
+        const arr2 = byTriple.get(tripleNoFerfi) || []
+        if (!arr2.includes(row.id)) arr2.push(row.id)
+        byTriple.set(tripleNoFerfi, arr2)
       }
-      // Triple fallback (sz_datum nélkül) — minden ilyen szemely-id-t gyűjtünk
-      const triple = `${normalizeNameForQuad(row.csaladnev)}|${normalizeNameForQuad(row.k_nev)}|${row.ferfi === true ? 'M' : row.ferfi === false ? 'F' : '?'}`
-      const arr = byTriple.get(triple) || []
-      arr.push(row.id)
-      byTriple.set(triple, arr)
     }
   }
 
@@ -315,30 +365,53 @@ function resolvePersonByQuad(
     else if (typeof v === 'string') ferfi = v
   }
 
-  // 1. Quad próba (sz_datummal)
-  if (sz_datum) {
-    const quad = quadKey(csaladnev, k_nev, typeof sz_datum === 'string' ? sz_datum : String(sz_datum), ferfi)
-    const id = maps.byQuad.get(quad)
-    if (id) {
-      rec[targetFk] = id
+  // Generáljuk a kettős keresztnév-variánsokat
+  const queryFerfiFlag = ferfiToFlag(ferfi)
+  const csNorm = normalizeNameForQuad(csaladnev)
+  const knVariants = knevVariants(k_nev)
+  const dNorm = normalizeDateForQuad(typeof sz_datum === 'string' ? sz_datum : sz_datum != null ? String(sz_datum) : '')
+
+  // 1. Quad próba minden knev-variánssal (sz_datummal + ferfi-vel)
+  if (dNorm) {
+    for (const knVar of knVariants) {
+      const quad = `${csNorm}|${knVar}|${dNorm}|${queryFerfiFlag}`
+      const id = maps.byQuad.get(quad)
+      if (id) {
+        rec[targetFk] = id
+        stats.personResolved += 1
+        return
+      }
+    }
+  }
+
+  // 2. Triple fallback (sz_datum nélkül, ferfi-vel)
+  let lastCandidates: string[] | undefined
+  for (const knVar of knVariants) {
+    const tripleKey = `${csNorm}|${knVar}|${queryFerfiFlag}`
+    const candidates = maps.byTriple.get(tripleKey)
+    if (candidates && candidates.length === 1) {
+      rec[targetFk] = candidates[0]
+      stats.personResolved += 1
+      return
+    }
+    if (candidates) lastCandidates = candidates
+  }
+
+  // 3. Triple-NoFerfi fallback (ha az XML _ferfi ismeretlen)
+  for (const knVar of knVariants) {
+    const tripleNoFerfi = `${csNorm}|${knVar}|?`
+    const candidates = maps.byTriple.get(tripleNoFerfi)
+    if (candidates && candidates.length === 1) {
+      rec[targetFk] = candidates[0]
       stats.personResolved += 1
       return
     }
   }
 
-  // 2. Triple fallback (sz_datum nélkül)
-  const tripleKey = `${normalizeNameForQuad(csaladnev)}|${normalizeNameForQuad(k_nev)}|${ferfi === true ? 'M' : ferfi === false ? 'F' : '?'}`
-  const candidates = maps.byTriple.get(tripleKey)
-  if (candidates && candidates.length === 1) {
-    rec[targetFk] = candidates[0]
-    stats.personResolved += 1
-    return
-  }
-
-  // 3. Nincs vagy ambiguous
+  // 4. Nincs vagy ambiguous
   stats.personUnresolved += 1
   if (stats.warnings.length < 30) {
-    const ambiguous = candidates && candidates.length > 1 ? ` (${candidates.length} jelölt)` : ''
+    const ambiguous = lastCandidates && lastCandidates.length > 1 ? ` (${lastCandidates.length} jelölt)` : ''
     stats.warnings.push(
       `${rowIndex + 1}. sor: tag nem található${ambiguous} — ${csaladnev} ${k_nev}${sz_datum ? `, sz: ${sz_datum}` : ''}${prefix ? ` [${prefix}]` : ''}`,
     )
