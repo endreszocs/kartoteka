@@ -42,11 +42,45 @@ export function MemberTabsV4({
 
   // Hash-routing: induláskor + minden hash-változáskor frissítjük az activeTab-ot.
   // A sidebar `/tagnyilvantartas#families` stb. URL-jeiből közvetlen tab-ugrás.
+  //
+  // 2026-04-28 FIX: a Next.js `<Link>` `pushState`-tel navigál — ez NEM trigger-eli
+  // automatikusan a `hashchange` event-et (csak a böngésző natív back/forward-ja
+  // teszi). Ezért monkey-patch-eljük a `history.pushState`/`replaceState`-et hogy
+  // saját `hashchange` event-et küldjenek minden navigáció után. Így ha a sidebar
+  // `<Link>` ugyanezen az oldalon csak a hash-t változtatja (`/tagnyilvantartas#persons`),
+  // a tab IS frissül.
   useEffect(() => {
     const apply = () => setActiveTab(getTabFromHash(window.location.hash))
     apply()
+
+    const originalPushState = window.history.pushState
+    const originalReplaceState = window.history.replaceState
+    let lastHash = window.location.hash
+    const dispatchIfHashChanged = () => {
+      const newHash = window.location.hash
+      if (newHash !== lastHash) {
+        lastHash = newHash
+        // setTimeout(0) — várjuk meg hogy a Next.js befejezze a routing-ot
+        setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0)
+      }
+    }
+    window.history.pushState = function (...args) {
+      originalPushState.apply(this, args)
+      dispatchIfHashChanged()
+    }
+    window.history.replaceState = function (...args) {
+      originalReplaceState.apply(this, args)
+      dispatchIfHashChanged()
+    }
+
     window.addEventListener('hashchange', apply)
-    return () => window.removeEventListener('hashchange', apply)
+    window.addEventListener('popstate', apply)
+    return () => {
+      window.removeEventListener('hashchange', apply)
+      window.removeEventListener('popstate', apply)
+      window.history.pushState = originalPushState
+      window.history.replaceState = originalReplaceState
+    }
   }, [])
 
   // Tab váltáskor frissítjük a URL hash-ét is (hogy bookmarkolható legyen)
