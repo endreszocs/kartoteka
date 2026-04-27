@@ -399,73 +399,10 @@ export function RegistryImportWizard({
     return map
   }, [resolvedLocalityMap])
 
-  // ─── A tényleges import-rows építése (locality_id alkalmazva) ─────
-  const buildRpcRows = useCallback(
-    (allRows: Array<Record<string, string | number | null>>) => {
-      const transformed = buildTransformedRows(allRows, effectiveMapping)
-      return transformed.map((r) => {
-        const out: Record<string, string | number | boolean | null> = {}
-        // Csak DB-mezők (nem _ prefix) kerülhetnek a végső sorba
-        for (const [k, v] of Object.entries(r)) {
-          if (k.startsWith('_')) continue
-          if (v == null) continue
-          out[k] = v
-        }
-
-        // Helység-text → ID (csak ha van)
-        const helysegLookup = (textKey: string, fkKey: string) => {
-          const text = r[textKey]
-          if (typeof text === 'string' && text.trim()) {
-            const norm = text.toLowerCase().trim().replace(/\s+/g, ' ')
-            const id = localityIdMap[norm]
-            if (id) out[fkKey] = id
-          }
-        }
-        // Profil szerint melyik FK
-        if (profile.key === 'baptism' || profile.key === 'confirmation' || profile.key === 'marriage') {
-          helysegLookup('_helyseg_text', 'helyid')
-        } else if (profile.key === 'burial') {
-          helysegLookup('_hhelyseg_text', 'hhelyid')
-          helysegLookup('_thelyseg_text', 'thelyid')
-        } else if (profile.key === 'movement_bekoltozott' || profile.key === 'movement_attert') {
-          helysegLookup('_helyseg_text', 'honnanid')
-        } else if (profile.key === 'movement_elkoltozott' || profile.key === 'movement_kitert') {
-          helysegLookup('_helyseg_text', 'hovaid')
-        }
-
-        // Esketés global vegyes flag (csak ha a sor nem hozott)
-        if (profile.key === 'marriage' && specialConfig.marriageVegyesGlobal && out.vegyes == null) {
-          out.vegyes = true
-        }
-
-        // Konfirmáció → create_baptism_first JSONB
-        if (
-          profile.key === 'confirmation' &&
-          specialConfig.autoCreateBaptismForConfirmation &&
-          r.keresztelesideje
-        ) {
-          out.create_baptism_first = JSON.stringify({
-            datum: r.keresztelesideje,
-            helyid: out.helyid ?? null,
-            lelkeszneve: out.lelkeszneve ?? null,
-          })
-        }
-
-        // _csaladnev / _k_nev / _sz_datum / _ferfi → még megőrizzük
-        // (a server action resolveLookups újra fel fogja oldani őket id-vé)
-        for (const k of [
-          '_csaladnev', '_k_nev', '_sz_datum', '_ferfi',
-          '_ferfi_csaladnev', '_ferfi_k_nev', '_ferfi_sz_datum',
-          '_no_csaladnev', '_no_k_nev', '_no_sz_datum',
-        ]) {
-          if (r[k] != null) out[k] = r[k]
-        }
-
-        return out
-      })
-    },
-    [effectiveMapping, localityIdMap, profile, specialConfig],
-  )
+  // 2026-04-28 ÁTÍRÁS: a `buildRpcRows` kliens-oldali kompozíció ELTÁVOLÍTVA.
+  // Az `executeRegistryImport` action server-oldalon parse-olja a teljes
+  // fájlt + resolveLookups-szal feloldja a quad-kulcsokat → id_szemely.
+  // A wizard csak a fájlt + locality-map + special-config-ot küldi.
 
   // ─── Import indítás ──────────────────────────────────────────────
   const handleConfirmImport = useCallback(() => {
@@ -481,35 +418,19 @@ export function RegistryImportWizard({
     setStage('importing')
 
     startImporting(async () => {
-      // Először SERVER-OLDALON resolve-oljuk a person+locality-t (a wizard
-      // előrebecslése csak sample-en futott — most a teljes sheet-en futtatjuk)
-      // Ehhez a teljes sheet rows-t használjuk:
-      const allRows = (activeSheet.sampleRows as Array<Record<string, string | number | null>>)
-      // megj.: a `parseAndPreview` jelenleg max 100 sor sample-t ad — ha nagyobb XML
-      // van, akkor is a sample alapján megyünk. Későbbi: szerver-oldali full-parse.
-
-      const rpcRows = buildRpcRows(allRows)
-
+      // 2026-04-28 ÁTÍRÁS: a server action MAGA parse-olja a teljes fájlt.
+      // A korábbi verzió csak a sampleRows-t (max 5 sor) küldte JSON-ben,
+      // ezért 81-soros XML-ből csak 5 importálódott.
       const formData = new FormData()
+      formData.append('file', file)
+      formData.append('sheetName', activeSheet.sheetName)
       formData.append('profileKey', profile.key)
-      formData.append('rows', JSON.stringify(rpcRows))
+      formData.append('resolvedLocalityMap', JSON.stringify(localityIdMap))
+      formData.append('specialFieldsConfig', JSON.stringify(specialConfig))
       formData.append('defaultMunkanaploba', 'false')
       if (mode === 'admin' && selectedCongId) {
         formData.append('targetCongregationId', selectedCongId)
       }
-
-      // SERVER-OLDALI lookup: meghívjuk a person-resolve-ot, hogy a quad-mezőkből
-      // id_szemely / id_ferfi / id_no legyen
-      const resolveFormData = new FormData()
-      resolveFormData.append('rows', JSON.stringify(rpcRows))
-      resolveFormData.append('profileKey', profile.key)
-      if (mode === 'admin' && selectedCongId) {
-        resolveFormData.append('targetCongregationId', selectedCongId)
-      }
-      // A person-link már részben elvégezte ezt — most a teljes sheet-re újra
-      // (A teljesen szerver-oldali resolveolás később kerül a server action-be,
-      //  most a person-link-step CSAK STATISZTIKA volt; az import maga az
-      //  RPC-ből futtat resolveLookups-szal egyenértékűt.)
 
       const result = await executeRegistryImport(formData)
 
@@ -544,7 +465,7 @@ export function RegistryImportWizard({
       }
       router.refresh()
     })
-  }, [file, activeSheet, mode, selectedCongId, profile, buildRpcRows, router])
+  }, [file, activeSheet, mode, selectedCongId, profile, localityIdMap, specialConfig, router])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId = stage === 'importing' ? 'preview' : stage

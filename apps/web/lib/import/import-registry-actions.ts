@@ -3,20 +3,17 @@
 /**
  * Anyakönyvi import server action.
  *
- * A wizard 7 lépéses flow-ja végén hívódik. A wizard előzetesen elvégzi:
- *   1. Fájl parse + mapping (excel-parser, transformSheet)
- *   2. Person-link (resolveLookups quad-lookup) → id_szemely / id_ferfi / id_no
- *   3. Locality (findLocalityMatchBatch) → helyid / honnanid / hovaid / hhelyid / thelyid
- *   4. Special-fields (konfirmáció keresztelés-stub, esketés vegyes, mozgás triplet)
+ * 2026-04-28 ÁTÍRÁS: most a TELJES fájlt parse-olja server-oldalon, NEM
+ * csak a sample-t. A korábbi verzió a wizard sampleRows-át kapta (5 sor),
+ * ezért 81-soros XML-ből csak 5 importálódott.
  *
- * Ezért az `executeRegistryImport` csak a végeredményt küldi az
- * `import_registry_batch` RPC-nek (8 anyakönyv-típus egyetlen RPC-ben).
- *
- * Az RPC végzi:
- *   - Profil-szerinti target tábla INSERT
- *   - UNIQUE / FK ütközések soronként → skipped + warning
- *   - Konfirmációnál `create_baptism_first` JSONB → előbb keresztseg INSERT
- *   - Temetésnél trigger automatikusan beállítja szemely.meghalt = true
+ * Lépések:
+ *   1. Fájl parse (excel-parser → ParsedWorkbook → sheet.rows)
+ *   2. transformSheet (mapping + típuskonverzió + autoColumns)
+ *   3. resolveLookups (quad-lookup → id_szemely / id_ferfi / id_no)
+ *   4. Helység-text → ID (a kliens-oldali resolvedLocalityMap alapján)
+ *   5. Special-fields config (konfirmáció create_baptism_first, marriage vegyes)
+ *   6. import_registry_batch RPC hívása az ID-vel ellátott rows-szal
  */
 
 import { revalidatePath } from 'next/cache'
@@ -24,6 +21,11 @@ import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { createClient } from '@/lib/supabase/server'
 
+import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
+import type { ParsedWorkbook } from './excel-parser'
+import { REGISTRY_PROFILES, type ImportProfile } from './import-profiles'
+import { resolveLookups } from './lookup-resolver'
+import { transformSheet, type AutoColumnContext } from './row-transformer'
 import type { RowIssue, RowIssueSeverity } from './family-head-import-actions'
 
 export type RegistryProfileKey =
@@ -41,6 +43,7 @@ export interface RegistryImportResult {
   error?: string
   insertedCount?: number
   skippedCount?: number
+  totalRows?: number
   rowErrors?: RowIssue[]
 }
 
@@ -50,19 +53,84 @@ const VALID_PROFILES: RegistryProfileKey[] = [
   'movement_attert', 'movement_kitert',
 ]
 
-// Sor/batch limit — egyszerre max ennyit küldünk az RPC-nek (a wizard
-// szeletekre bontja a nagyobb XML-eket). A 200 a tagnyilvántartás-import
-// gyakorlatából tükröződik.
-const MAX_ROWS_PER_BATCH = 200
+const SUPPORTED_EXTS = ['xlsx', 'xls', 'csv', 'xml']
+
+interface SpecialFieldsConfig {
+  autoCreateBaptismForConfirmation?: boolean
+  marriageVegyesGlobal?: boolean
+}
 
 /**
- * Fő belépési pont — egyetlen RPC-hívás az anyakönyvi importhoz.
+ * A kliens-oldali transformedRow → SQL RPC-vel feldolgozható row mapping.
+ * - DB mezők (nem `_` prefix) átkerülnek
+ * - Helység-text → ID (a profile szerinti fkOszlop-ra)
+ * - Special-fields: konfirmáció create_baptism_first JSONB, marriage vegyes
+ */
+function buildRpcRow(
+  rec: Record<string, unknown>,
+  profileKey: RegistryProfileKey,
+  localityIdMap: Record<string, number>,
+  specialConfig: SpecialFieldsConfig,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(rec)) {
+    if (k.startsWith('_')) continue
+    if (v == null) continue
+    out[k] = v
+  }
+
+  const helysegLookup = (textKey: string, fkKey: string) => {
+    const text = rec[textKey]
+    if (typeof text === 'string' && text.trim()) {
+      const norm = text.toLowerCase().trim().replace(/\s+/g, ' ')
+      const id = localityIdMap[norm]
+      if (id) out[fkKey] = id
+    }
+  }
+
+  if (profileKey === 'baptism' || profileKey === 'confirmation' || profileKey === 'marriage') {
+    helysegLookup('_helyseg_text', 'helyid')
+  } else if (profileKey === 'burial') {
+    helysegLookup('_hhelyseg_text', 'hhelyid')
+    helysegLookup('_thelyseg_text', 'thelyid')
+  } else if (profileKey === 'movement_bekoltozott' || profileKey === 'movement_attert') {
+    helysegLookup('_helyseg_text', 'honnanid')
+  } else if (profileKey === 'movement_elkoltozott' || profileKey === 'movement_kitert') {
+    helysegLookup('_helyseg_text', 'hovaid')
+  }
+
+  // Esketés vegyes-flag globális
+  if (profileKey === 'marriage' && specialConfig.marriageVegyesGlobal && out.vegyes == null) {
+    out.vegyes = true
+  }
+
+  // Konfirmáció create_baptism_first JSONB
+  if (
+    profileKey === 'confirmation'
+    && specialConfig.autoCreateBaptismForConfirmation
+    && rec.keresztelesideje
+  ) {
+    out.create_baptism_first = JSON.stringify({
+      datum: rec.keresztelesideje,
+      helyid: out.helyid ?? null,
+      lelkeszneve: out.lelkeszneve ?? null,
+    })
+  }
+
+  return out
+}
+
+/**
+ * Fő belépési pont — TELJES fájl-parse + RPC hívás.
  *
- * @param formData FormData ami:
+ * @param formData FormData mezők:
+ *   - file: a feltöltött Excel/CSV/XML
+ *   - sheetName: melyik sheet (opcionális, default: első nem-üres)
  *   - profileKey: RegistryProfileKey
- *   - rows: JSON string — a wizard által teljesen előkészített rekordok
- *   - defaultMunkanaploba?: 'true' | 'false' (default: false)
- *   - targetCongregationId?: string — ha admin más gyülekezethez importál
+ *   - resolvedLocalityMap: JSON map (kliens-oldali helység-resolveolás eredménye)
+ *   - specialFieldsConfig: JSON ({ autoCreateBaptismForConfirmation, marriageVegyesGlobal })
+ *   - defaultMunkanaploba: 'true' | 'false' (default 'false')
+ *   - targetCongregationId: opcionális admin override
  */
 export async function executeRegistryImport(
   formData: FormData,
@@ -70,85 +138,150 @@ export async function executeRegistryImport(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
+  const file = formData.get('file') as File | null
+  const sheetName = formData.get('sheetName') as string | null
   const profileKeyRaw = formData.get('profileKey') as string | null
-  const rowsRaw = formData.get('rows') as string | null
+  const localityMapRaw = formData.get('resolvedLocalityMap') as string | null
+  const specialConfigRaw = formData.get('specialFieldsConfig') as string | null
   const defaultMunkanaplobaRaw = formData.get('defaultMunkanaploba') as string | null
   const targetCongregationId =
     (formData.get('targetCongregationId') as string | null) ||
     access.effectiveCongregationId
 
-  // Validáció — profil kulcs
+  // Validáció
   if (!profileKeyRaw || !VALID_PROFILES.includes(profileKeyRaw as RegistryProfileKey)) {
     return { error: `Érvénytelen profil-kulcs: ${profileKeyRaw || '(üres)'}` }
   }
   const profileKey = profileKeyRaw as RegistryProfileKey
-
-  // Validáció — gyülekezet
-  if (!targetCongregationId) {
-    return { error: 'Nincs cél gyülekezet kiválasztva.' }
+  if (!targetCongregationId) return { error: 'Nincs cél gyülekezet kiválasztva.' }
+  if (!file) return { error: 'Nincs fájl kiválasztva.' }
+  if (file.size > 10 * 1024 * 1024) {
+    return { error: 'A fájl mérete meghaladja a 10 MB-os limitet.' }
+  }
+  const ext = file.name.toLowerCase().split('.').pop() || ''
+  if (!SUPPORTED_EXTS.includes(ext)) {
+    return { error: `Nem támogatott fájlformátum (.${ext}).` }
   }
 
-  // Validáció — rows JSON
-  if (!rowsRaw) {
-    return { error: 'Nincs importálandó adat.' }
-  }
-  let rows: Array<Record<string, unknown>>
+  // Profil object
+  const profile: ImportProfile | undefined = REGISTRY_PROFILES.find(p => p.key === profileKey)
+  if (!profile) return { error: `Profile not found: ${profileKey}` }
+
+  // 1. Parse
+  let workbook: ParsedWorkbook
   try {
-    const parsed = JSON.parse(rowsRaw)
-    if (!Array.isArray(parsed)) {
-      return { error: 'Az importálandó adat formátuma érvénytelen (nem tömb).' }
+    if (ext === 'csv') {
+      workbook = parseCsvString(await file.text(), file.name)
+    } else if (ext === 'xml') {
+      workbook = parseXmlSpreadsheet(await file.text(), file.name)
+    } else {
+      workbook = parseWorkbook(await file.arrayBuffer(), file.name)
     }
-    rows = parsed
   } catch (e) {
     return {
-      error: `Az importálandó adat nem értelmezhető JSON: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`,
+      error: `A fájl olvasása sikertelen: ${e instanceof Error ? e.message : 'ismeretlen'}`,
     }
   }
 
-  if (rows.length === 0) {
-    return { error: 'Egyetlen importálandó sor sincs.' }
+  const sheet = sheetName
+    ? workbook.sheets.find(s => s.name === sheetName)
+    : workbook.sheets.find(s => !s.warning && s.rowCount > 0) || workbook.sheets[0]
+  if (!sheet) return { error: `Nem található a megadott fül: ${sheetName || '(első)'}` }
+  if (sheet.rowCount === 0) return { error: `A "${sheet.name}" fül üres.` }
+  if (sheet.warning) return { error: `A "${sheet.name}" fül problémás: ${sheet.warning}` }
+
+  // 2. transformSheet (mapping + típuskonverzió)
+  const ctx: AutoColumnContext = {
+    congregationId: targetCongregationId,
+    userId: access.user.id,
+    currentYear: new Date().getFullYear(),
   }
-  if (rows.length > MAX_ROWS_PER_BATCH) {
+  const transformResult = transformSheet(sheet.rows, sheet.headers, profile, ctx)
+  if (transformResult.errors.length > 0 && transformResult.records.length === 0) {
     return {
-      error: `Túl sok sor egy körben (${rows.length}). Max ${MAX_ROWS_PER_BATCH} / batch — a wizard szeletekre bontja.`,
+      error: transformResult.errors[0]?.message || 'A sheet egyetlen sora sem dolgozható fel.',
+      rowErrors: transformResult.errors.map(e => ({
+        row: e.rowIndex + 1,
+        message: e.message,
+        severity: 'error' as RowIssueSeverity,
+      })),
     }
   }
 
-  const defaultMunkanaploba = defaultMunkanaplobaRaw === 'true'
-
-  // RPC hívás
+  // 3. resolveLookups (quad-lookup → id_szemely / id_ferfi / id_no)
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc('import_registry_batch', {
-    p_target_congregation_id: targetCongregationId,
-    p_profile_key: profileKey,
-    p_rows: rows,
-    p_default_munkanaploba: defaultMunkanaploba,
-  })
+  const records = transformResult.records.map(r => ({ ...r.record }))
+  await resolveLookups(supabase, targetCongregationId, records)
 
-  if (error) {
-    return { error: `A szerver-oldali import sikertelen: ${error.message}` }
+  // 4. Kliens-oldali state parse
+  let localityIdMap: Record<string, number> = {}
+  if (localityMapRaw) {
+    try {
+      localityIdMap = JSON.parse(localityMapRaw)
+    } catch {
+      // Ha rossz a JSON, üres map (nem fatal)
+    }
+  }
+  let specialConfig: SpecialFieldsConfig = {}
+  if (specialConfigRaw) {
+    try {
+      specialConfig = JSON.parse(specialConfigRaw)
+    } catch {
+      // ignore
+    }
   }
 
-  const firstRow = Array.isArray(data) ? data[0] : data
-  const insertedCount = (firstRow?.inserted_count as number) ?? 0
-  const skippedCount = (firstRow?.skipped_count as number) ?? 0
-  const rpcErrors = ((firstRow?.errors as RowIssue[]) ?? [])
+  // 5. RPC-row építés (helység-resolve + special-fields)
+  const rpcRows = records.map(r => buildRpcRow(r as Record<string, unknown>, profileKey, localityIdMap, specialConfig))
 
-  const rowErrors: RowIssue[] = rpcErrors.map((e) => ({
-    row: e.row,
-    message: e.message,
-    severity: (e.severity ?? 'error') as RowIssueSeverity,
-    name: e.name,
-  }))
+  // 6. RPC hívás batch-ekben (200 sor / hívás biztonságosan)
+  const BATCH_SIZE = 200
+  const defaultMunkanaploba = defaultMunkanaplobaRaw === 'true'
+  let totalInserted = 0
+  let totalSkipped = 0
+  const allErrors: RowIssue[] = []
 
-  // Cache-invalidálás — a tagnyilvántartás registry-tab és az anyakönyv lista is frissül
+  for (let i = 0; i < rpcRows.length; i += BATCH_SIZE) {
+    const batch = rpcRows.slice(i, i + BATCH_SIZE)
+    const { data, error } = await supabase.rpc('import_registry_batch', {
+      p_target_congregation_id: targetCongregationId,
+      p_profile_key: profileKey,
+      p_rows: batch,
+      p_default_munkanaploba: defaultMunkanaploba,
+    })
+
+    if (error) {
+      return {
+        success: false,
+        error: `Az import sikertelen a ${i / BATCH_SIZE + 1}. batch-en: ${error.message}`,
+        insertedCount: totalInserted,
+        skippedCount: totalSkipped,
+        totalRows: rpcRows.length,
+        rowErrors: allErrors,
+      }
+    }
+
+    const firstRow = Array.isArray(data) ? data[0] : data
+    totalInserted += (firstRow?.inserted_count as number) ?? 0
+    totalSkipped += (firstRow?.skipped_count as number) ?? 0
+    const batchErrors = ((firstRow?.errors as RowIssue[]) ?? []).map(e => ({
+      row: (e.row || 0) + i, // batch-offset hozzáadása
+      message: e.message,
+      severity: (e.severity ?? 'error') as RowIssueSeverity,
+      name: e.name,
+    }))
+    allErrors.push(...batchErrors)
+  }
+
+  // Cache-invalidálás
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
 
   return {
     success: true,
-    insertedCount,
-    skippedCount,
-    rowErrors,
+    insertedCount: totalInserted,
+    skippedCount: totalSkipped,
+    totalRows: rpcRows.length,
+    rowErrors: allErrors,
   }
 }
