@@ -476,20 +476,82 @@ export const PROFILE_MARRIAGE: ImportProfile = {
   description: 'Házassági anyakönyvi bejegyzések importja. Mindkét fél (vőlegény + menyasszony) meglévő tag kell legyen.',
   targetTable: 'hazassag',
   columnMap: [
-    // Vőlegény quad-mezők
-    { excelHeader: 'Férfi családnév', excelAliases: ['ferfi_csaladnev', 'Vőlegény családneve'], dbColumn: '_ferfi_csaladnev', type: 'string', required: true, hint: 'A vőlegény családneve' },
-    { excelHeader: 'Férfi keresztnév', excelAliases: ['ferfi_k_nev', 'Vőlegény keresztneve'], dbColumn: '_ferfi_k_nev', type: 'string', required: true },
-    { excelHeader: 'Férfi született', excelAliases: ['ferfi_sz_datum', 'Vőlegény születése'], dbColumn: '_ferfi_sz_datum', type: 'date', required: false },
-    // Menyasszony quad-mezők
-    { excelHeader: 'Nő családnév', excelAliases: ['no_csaladnev', 'Menyasszony családneve'], dbColumn: '_no_csaladnev', type: 'string', required: true },
-    { excelHeader: 'Nő keresztnév', excelAliases: ['no_k_nev', 'Menyasszony keresztneve'], dbColumn: '_no_k_nev', type: 'string', required: true },
-    { excelHeader: 'Nő született', excelAliases: ['no_sz_datum', 'Menyasszony születése'], dbColumn: '_no_sz_datum', type: 'date', required: false },
+    // 2026-04-28: az `esketesek.xml` szerkezete:
+    //   Vegyes | Családnév | Férfi | Családnév | Nő | Hely | Vegyes | Év | Hó | Nap | Lelkész | Okirat
+    // Két "Családnév" és két "Vegyes" oszlop — a parser dedupeHeaders-szel
+    // `Családnév`/`Családnév_2` és `Vegyes`/`Vegyes_2` formátumra alakítja.
+
+    // Vőlegény quad-mezők (1-2-3. oszlop)
+    {
+      excelHeader: 'Családnév',
+      excelAliases: ['Férfi családnév', 'ferfi_csaladnev', 'Vőlegény családneve'],
+      dbColumn: '_ferfi_csaladnev',
+      type: 'string',
+      required: true,
+      hint: 'A vőlegény (férj) családneve — az XML első "Családnév" oszlopa',
+    },
+    {
+      excelHeader: 'Férfi',
+      excelAliases: ['Férfi keresztnév', 'ferfi_k_nev', 'Vőlegény keresztneve', 'Vőlegény'],
+      dbColumn: '_ferfi_k_nev',
+      type: 'string',
+      required: true,
+      hint: 'A vőlegény (férj) keresztneve — az XML "Férfi" oszlopa',
+    },
+    {
+      excelHeader: 'Férfi született',
+      excelAliases: ['ferfi_sz_datum', 'Vőlegény születése'],
+      dbColumn: '_ferfi_sz_datum',
+      type: 'date',
+      required: false,
+    },
+
+    // Menyasszony quad-mezők (4-5. oszlop) — a 4. "Családnév" a parser dedupe-jából `Családnév_2`
+    {
+      excelHeader: 'Családnév_2',
+      excelAliases: ['Nő családnév', 'no_csaladnev', 'Menyasszony lánykori családneve', 'Menyasszony családneve', 'Lánykori családnév'],
+      dbColumn: '_no_csaladnev',
+      type: 'string',
+      required: true,
+      hint: 'A menyasszony LÁNYKORI családneve — az XML második "Családnév" oszlopa',
+    },
+    {
+      excelHeader: 'Nő',
+      excelAliases: ['Nő keresztnév', 'no_k_nev', 'Menyasszony keresztneve', 'Menyasszony'],
+      dbColumn: '_no_k_nev',
+      type: 'string',
+      required: true,
+      hint: 'A menyasszony keresztneve — az XML "Nő" oszlopa',
+    },
+    {
+      excelHeader: 'Nő született',
+      excelAliases: ['no_sz_datum', 'Menyasszony születése'],
+      dbColumn: '_no_sz_datum',
+      type: 'date',
+      required: false,
+    },
+
     // Esemény-mezők
-    { excelHeader: 'Dátum', excelAliases: ['datum', 'Esketés dátuma', 'Esküvő dátuma'], dbColumn: 'datum', type: 'date', required: true },
     { excelHeader: 'Hely', excelAliases: ['Helység', 'Esketés helye'], dbColumn: '_helyseg_text', type: 'string', required: false },
-    { excelHeader: 'Lelkész', excelAliases: ['lelkeszneve', 'Lelkész neve', 'Esketőlelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
-    { excelHeader: 'Okirat', excelAliases: ['hlevel', 'Okirat szám', 'Anyakönyvi szám'], dbColumn: 'hlevel', type: 'string', required: false, hint: 'Házassági levél száma (Endre döntése: hlevel = okirat)' },
-    { excelHeader: 'Vegyes', excelAliases: ['vegyes', 'Vegyes házasság'], dbColumn: 'vegyes', type: 'boolean', required: false, hint: 'Vegyes házasság jelzése (egyik fél nem református)' },
+    {
+      excelHeader: 'Vegyes',
+      excelAliases: ['vegyes', 'Vegyes házasság'],
+      dbColumn: 'vegyes',
+      type: 'boolean',
+      required: false,
+      hint: 'Vegyes házasság jelzése (egyik fél nem református) — Igen/Nem',
+    },
+    // Az XML második "Vegyes" oszlopa (Vegyes_2) jelenleg figyelmen kívül hagyva.
+    // Endre később megmondhatja, hogy mit jelent és hova kerüljön.
+
+    // Dátum: vagy az XML-ben "Dátum" oszlop, vagy az Év/Hó/Nap kompozícióból
+    { excelHeader: 'Dátum', excelAliases: ['datum', 'Esketés dátuma', 'Esküvő dátuma'], dbColumn: 'datum', type: 'date', required: false },
+    { excelHeader: 'Év', excelAliases: ['ev', 'Year'], dbColumn: '_ev', type: 'number', required: false, hint: 'A row-transformer kompozíciónázza Év+Hó+Nap-ból a `datum`-ot' },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'Month', 'Hónap'], dbColumn: '_ho', type: 'number', required: false },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'Day'], dbColumn: '_nap', type: 'number', required: false },
+
+    { excelHeader: 'Lelkész neve', excelAliases: ['lelkeszneve', 'Lelkész', 'Esketőlelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    { excelHeader: 'Okirat', excelAliases: ['hlevel', 'Okirat szám', 'Anyakönyvi szám', 'Házassági levél'], dbColumn: 'hlevel', type: 'string', required: false, hint: 'Házassági levél száma' },
     { excelHeader: 'Tanúk', excelAliases: ['tanuk', 'Tanú'], dbColumn: 'tanuk', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
@@ -497,8 +559,10 @@ export const PROFILE_MARRIAGE: ImportProfile = {
     { dbColumn: 'congregation_id', source: 'congregation_id' },
   ],
   hints: [
-    'Mindkét fél (vőlegény + menyasszony) Családnév + Keresztnév + Született mezőkkel azonosított meglévő tag.',
-    'A "Vegyes" oszlop boolean — Igen/Nem; nem-református házastárs esetén állítsd Igen-re.',
+    'A vőlegényt és a menyasszonyt CSALÁDNÉV + KERESZTNÉV alapján azonosítjuk.',
+    'A menyasszonyé a LÁNYKORI családnév (a tagnyilvántartás `csaladnev` mezője).',
+    'A "Vegyes" oszlop = vegyes házasság (egyik fél nem református).',
+    'Dátum: külön Év/Hó/Nap oszlopokból a rendszer automatikusan összerakja.',
   ],
   sheetHints: ['Esketés', 'Házasság', 'Marriage', 'hazassag', 'esketesek'],
 }

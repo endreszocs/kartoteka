@@ -171,7 +171,7 @@ function resolveAutoColumn(
  * A módosítás in-place a record objektumon.
  */
 function applySyntheticFields(record: Record<string, string | number | boolean | null>): void {
-  // 1. sz_datum kompozíció Év + Hó + Nap-ból
+  // 1a. sz_datum kompozíció Év + Hó + Nap-ból (tagnyilvántartás `_sz_ev/_sz_ho/_sz_nap`)
   const currentDate = record['sz_datum']
   if ((currentDate === null || currentDate === undefined || currentDate === '') &&
       record['_sz_ev'] != null) {
@@ -182,6 +182,23 @@ function applySyntheticFields(record: Record<string, string | number | boolean |
       const validHo = Number.isFinite(ho) && ho >= 1 && ho <= 12 ? ho : 1
       const validNap = Number.isFinite(nap) && nap >= 1 && nap <= 31 ? nap : 1
       record['sz_datum'] = `${ev}-${String(validHo).padStart(2, '0')}-${String(validNap).padStart(2, '0')}`
+    }
+  }
+
+  // 1b. datum kompozíció Év + Hó + Nap-ból (anyakönyvi import `_ev/_ho/_nap`)
+  // Az esketések / temetések / mozgások XML-jeiben a dátum külön Év/Hó/Nap
+  // oszlopokban van. Ha a `datum` mező üres, de van `_ev`, megpróbáljuk
+  // összerakni `YYYY-MM-DD`-vé.
+  const currentEventDate = record['datum']
+  if ((currentEventDate === null || currentEventDate === undefined || currentEventDate === '') &&
+      record['_ev'] != null) {
+    const ev = Number(record['_ev'])
+    const ho = record['_ho'] != null ? Number(record['_ho']) : 1
+    const nap = record['_nap'] != null ? Number(record['_nap']) : 1
+    if (Number.isFinite(ev) && ev > 1800 && ev < 2200) {
+      const validHo = Number.isFinite(ho) && ho >= 1 && ho <= 12 ? ho : 1
+      const validNap = Number.isFinite(nap) && nap >= 1 && nap <= 31 ? nap : 1
+      record['datum'] = `${ev}-${String(validHo).padStart(2, '0')}-${String(validNap).padStart(2, '0')}`
     }
   }
 

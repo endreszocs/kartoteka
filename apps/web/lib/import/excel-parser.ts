@@ -41,6 +41,25 @@ export interface ParsedWorkbook {
 }
 
 /**
+ * Duplikált fejléc nevek deduplikálása `_2`, `_3`, ... suffix-szel.
+ * Pl. ['Vegyes', 'Családnév', 'Férfi', 'Családnév', 'Nő', 'Hely', 'Vegyes']
+ *   → ['Vegyes', 'Családnév', 'Férfi', 'Családnév_2', 'Nő', 'Hely', 'Vegyes_2']
+ *
+ * Az anyakönyvi import-XML-ekben (esketesek.xml-ben) a "Családnév" oszlop
+ * kétszer is szerepel (férj + nő), és ugyanígy a "Vegyes". Eredetileg a row
+ * dictionary-ban a 2. felülírja az 1.-t, így a férj családneve elveszett.
+ * Ez a deduplikálás megőrzi mindkettőt.
+ */
+function dedupeHeaders(headers: string[]): string[] {
+  const counts: Record<string, number> = {}
+  return headers.map(h => {
+    const baseCount = counts[h] || 0
+    counts[h] = baseCount + 1
+    return baseCount === 0 ? h : `${h}_${baseCount + 1}`
+  })
+}
+
+/**
  * Cella érték normalizálás: undefined/null → null, string trim, szám szám.
  * Excel dátum-sorszámot (~45000) ISO dátum stringre alakít.
  */
@@ -128,11 +147,13 @@ export function parseWorkbook(
     }
 
     const rawHeaders = aoa[headerIndex] as unknown[]
-    const headers = rawHeaders.map((h, idx) => {
-      const normalized = normalizeCell(h)
-      if (typeof normalized === 'string' && normalized.length > 0) return normalized
-      return `oszlop_${idx + 1}` // fallback név, ha üres
-    })
+    const headers = dedupeHeaders(
+      rawHeaders.map((h, idx) => {
+        const normalized = normalizeCell(h)
+        if (typeof normalized === 'string' && normalized.length > 0) return normalized
+        return `oszlop_${idx + 1}` // fallback név, ha üres
+      }),
+    )
 
     const rows: Array<Record<string, string | number | null>> = []
     for (let i = headerIndex + 1; i < aoa.length; i += 1) {
@@ -217,11 +238,13 @@ export function parseXmlSpreadsheet(content: string, fileName: string): ParsedWo
     }
 
     const rawHeaders = aoa[headerIndex] as unknown[]
-    const headers = rawHeaders.map((h, idx) => {
-      const normalized = normalizeCell(h)
-      if (typeof normalized === 'string' && normalized.length > 0) return normalized
-      return `oszlop_${idx + 1}`
-    })
+    const headers = dedupeHeaders(
+      rawHeaders.map((h, idx) => {
+        const normalized = normalizeCell(h)
+        if (typeof normalized === 'string' && normalized.length > 0) return normalized
+        return `oszlop_${idx + 1}`
+      }),
+    )
 
     const rows: Array<Record<string, string | number | null>> = []
     for (let i = headerIndex + 1; i < aoa.length; i += 1) {
@@ -295,11 +318,13 @@ export function parseCsvString(content: string, fileName: string): ParsedWorkboo
   }
 
   const rawHeaders = aoa[headerIndex] as unknown[]
-  const headers = rawHeaders.map((h, idx) => {
-    const normalized = normalizeCell(h)
-    if (typeof normalized === 'string' && normalized.length > 0) return normalized
-    return `oszlop_${idx + 1}`
-  })
+  const headers = dedupeHeaders(
+    rawHeaders.map((h, idx) => {
+      const normalized = normalizeCell(h)
+      if (typeof normalized === 'string' && normalized.length > 0) return normalized
+      return `oszlop_${idx + 1}`
+    }),
+  )
 
   const rows: Array<Record<string, string | number | null>> = []
   for (let i = headerIndex + 1; i < aoa.length; i += 1) {
