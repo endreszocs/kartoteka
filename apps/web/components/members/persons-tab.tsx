@@ -182,17 +182,23 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                               )}
                             </div>
                             <div className="text-[11px] text-zinc-400 md:hidden">
-                              {age !== null ? `${age} év` : ''} · {m.adrlocality?.name || ''}
+                              {[
+                                age !== null ? `${age} év` : null,
+                                m.adrlocality?.name || null,
+                              ].filter(Boolean).join(' · ')}
                             </div>
                           </div>
                         </div>
                       </td>
 
-                      {/* Lakcím */}
+                      {/* Lakcím — helység, utca + házszám; ha bármelyik rész
+                          hiányzik, NE legyen lógó vessző az elején/közepén */}
                       <td className="p-3 hidden md:table-cell text-zinc-500 text-xs">
-                        {m.adrlocality?.name || ''}
-                        {m.adrstreet?.name ? `, ${m.adrstreet.name}` : ''}
-                        {m.c_szam ? ` ${m.c_szam}` : ''}
+                        {(() => {
+                          const parts = [m.adrlocality?.name, m.adrstreet?.name].filter(Boolean) as string[]
+                          const base = parts.join(', ')
+                          return base + (m.c_szam ? `${base ? ' ' : ''}${m.c_szam}` : '')
+                        })()}
                       </td>
 
                       {/* Kor */}
