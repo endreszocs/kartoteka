@@ -340,6 +340,30 @@ a /penzugy oldalra navigálni, majd a fülön belül átkattintani.
 
 ---
 
+## [2026-04-27] — Google OAuth visszairányítás localhost:8080 javítás
+
+<!-- key: 2026-04-27-google-oauth-localhost-8080-redirect-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkészek, rendszergazdák — Google bejelentkezés -->
+
+Google bejelentkezésnél előfordulhatott, hogy a Supabase/Google OAuth folyamat a
+`https://localhost:8080/` címre irányított vissza. Ez különösen akkor veszélyes,
+ha a bejelentkezés desktop/lokális shell eredetből indul, vagy a Supabase projekt
+auth konfigurációjában régi lokális Site URL maradt.
+
+### Javítások
+
+- **Kanonikus OAuth callback URL**: a Google bejelentkezés most elsőként a `NEXT_PUBLIC_APP_URL` értékét használja callback originnek.
+- **`localhost:8080` csapda elkerülése**: ha a kliens aktuális eredete `localhost:8080`, a rendszer nem ezt küldi tovább OAuth callbackként, hanem a publikus Railway app címet használja fallbackként.
+- **Lokális fejlesztés megőrzése**: normál lokális fejlesztői portokon, ha nincs `NEXT_PUBLIC_APP_URL`, továbbra is az aktuális `window.location.origin` marad az OAuth redirect alapja.
+
+### Üzemeltetési megjegyzés
+
+- Railway környezetben javasolt a `NEXT_PUBLIC_APP_URL=https://kartotekaweb-production.up.railway.app` változó beállítása.
+- Supabase Authentication URL Configuration alatt a publikus callbacket is engedélyezni kell: `https://kartotekaweb-production.up.railway.app/auth/callback`.
+
+---
+
 ## [2026-04-26] — Welcome wizard mentési hotfix és pénzügyi oldal stabilizálás
 
 <!-- key: 2026-04-26-welcome-wizard-step-save-hotfix -->

@@ -8,15 +8,44 @@ interface OAuthButtonsProps {
   mode: 'login' | 'register'
 }
 
+const FALLBACK_PUBLIC_APP_ORIGIN = 'https://kartotekaweb-production.up.railway.app'
+
+function normalizeOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+
+  try {
+    return new URL(trimmed).origin
+  } catch {
+    return null
+  }
+}
+
+function getOAuthRedirectOrigin(): string {
+  const configuredOrigin = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL)
+  if (configuredOrigin) return configuredOrigin
+
+  const currentOrigin = window.location.origin
+  const isDesktopLocalCallbackTrap =
+    window.location.hostname === 'localhost' && window.location.port === '8080'
+
+  if (isDesktopLocalCallbackTrap) {
+    return FALLBACK_PUBLIC_APP_ORIGIN
+  }
+
+  return currentOrigin
+}
+
 export function OAuthButtons({ mode }: OAuthButtonsProps) {
   const actionLabel = mode === 'login' ? 'bejelentkezésnél' : 'regisztrációnál'
 
   async function handleGoogleSignIn() {
     const supabase = createClient()
+    const redirectOrigin = getOAuthRedirectOrigin()
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${redirectOrigin}/auth/callback`,
       },
     })
     if (error) {
