@@ -23,6 +23,81 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-27] — Sprint Q F3.1: Kiadás-dialog + Decont-tab közös csomagba (v0.7.10)
+
+<!-- key: 2026-04-27-expense-dialog-and-decont-tab-shared -->
+<!-- category: improvement -->
+<!-- version: 0.7.10 -->
+<!-- targets: lelkészek, fejlesztők — pénzügyi modul felhasználói -->
+
+**Sprint Q F3.1 — formjellegű dialog-port indul.** A Sprint Q Fázis 2
+lezárása után a 3-tagú forma-dialog port-ja indult: az `ExpenseDialogV2`
+és a `DecontTab` átkerült a `@kartoteka/ui-app/finance` shared package-be.
+A Sprint Q F3-ból 1/2 sub-sprint kész. Az `IncomeDialog` (873 sor, 10
+callback) v0.7.11-be kerül.
+
+### 🎨 Háttér-fejlesztés (Sprint Q F3.1)
+
+**Új shared `ExpenseDialogBody.tsx` (~530 sor):**
+
+- Body-pattern: Dialog shell (DialogContent + DialogHeader + DialogTitle)
+  webnél marad, body sharedban
+- 3 server-action callback prop (`onSaveExpense`, `onSaveExpenseBatch`,
+  `onSaveInternalTransfer`)
+- 1 toast callback (`onToast: (type, message) => void`)
+- shadcn-radix komponensek (Dialog, Button, Input, Label, Badge, Textarea)
+  → native HTML elementekre (input, button, select, textarea, label)
+- `RECEIPT_TYPES`, `BankAccount` típusok a meglévő sharedból
+
+**Új shared `DecontTabBody.tsx` (~330 sor):**
+
+- A Decont (elszámolás) sablon teljes UI logikája átemelve
+- `onPrint(params: { mode, html, filename? })` callback prop —
+  webes wrapper a `printToBrowser`/`printToPdf` engine-t hívja
+- HTML sablon-építő (`buildDecontHtml`) változatlan
+- 1 toast callback
+
+**Webes wrapper-ek átalakultak (~620 sor → ~110 sor):**
+
+- `apps/web/components/modals/expense-dialog-v2.tsx`: 473 → ~80 sor wrapper
+  (Dialog shell + 3 server-action + sonner toast)
+- `apps/web/components/finance/decont-tab.tsx`: 323 → ~30 sor wrapper
+  (printToBrowser/printToPdf + sonner toast)
+
+### Felhasználó szempontból
+
+Nincs látható változás — a Pénzügy hero **Kiadás** és **Decont** gombjai
+ugyanúgy nyitják a megszokott dialógokat, ugyanazokkal az adatmezőkkel,
+egyesével/táblázatosan-mód, bankból kivétel speciális logika, és a
+nyomtatás/PDF mentés ugyanúgy működik.
+
+### iOS-future-proof állapot
+
+- Az ExpenseDialogBody pure UI (callback-pattern), Tauri-mobile alatt
+  egy natív iOS `UIAlertController`-rel és `URLSession`-rel kommunikáló
+  wrapper kódváltoztatás nélkül használja
+- A DecontTabBody pure UI; a webes `html2pdf.js` a Tauri-mobile alatt
+  egy natív `WKWebView`/`UIPrintInteractionController`-rel cserélhető
+- Mindkét body komponens csak a React + lucide-react + relatív
+  shared-import készletet használja (sem next/*, sem @/components/ui/*,
+  sem sonner)
+
+### Verifikáció
+
+- `@kartoteka/ui-app` (tsc): zöld
+- `@kartoteka/web` (Next.js 16 + Webpack, 51 oldal): zöld
+- `@kartoteka/desktop` (lint + tsc + vite, 2367 modul, 13.72s, 1839 KB): zöld
+- A bundle-méret változatlan (a kód már a sharedban szerepelt logikailag)
+
+### Sprint Q F3 áttekintés (1/2 sub-sprint kész)
+
+| Sub-sprint | Verzió | Hatókör |
+|------|--------|---------|
+| **F3.1** | **v0.7.10** | **ExpenseDialogV2 + DecontTab — kész** |
+| F3.2 | v0.7.11 | IncomeDialog (873s + 10 callback) |
+
+---
+
 ## [2026-04-26] — Sprint Q F2 LEZÁRVA: Oblio teljes csomagba (v0.7.9 — F2.3)
 
 <!-- key: 2026-04-26-oblio-tab-and-filesystem-shared -->

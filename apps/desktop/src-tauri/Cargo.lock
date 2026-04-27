@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.7.8"
+version = "0.7.9"
 dependencies = [
  "argon2",
  "base64 0.22.1",
