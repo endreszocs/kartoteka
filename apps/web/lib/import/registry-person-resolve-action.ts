@@ -3,21 +3,25 @@
 /**
  * Anyakönyvi import wizard — person-link lépés szerver-segéd.
  *
- * A wizard 3. lépésén a kliens már transzformálta a rows-t (transformSheet),
- * de a `_csaladnev` + `_k_nev` + `_sz_datum` + `_ferfi` mezők még szöveges
- * formában vannak. Ez a server action behívja a `resolveLookups`-ot és
- * visszaadja, mely sorokon sikerült id-t találni (id_szemely / id_ferfi / id_no).
+ * 2026-04-28 ÁTÍRÁS: most a TELJES fájlt parse-olja server-oldalon
+ * (nem csak a sample-t). A korábbi verzió csak az 5-soros sampleRows-ról
+ * adott statisztikát, ami félrevezető volt 81-soros XML-en.
  *
- * A wizard ezt csak STATISZTIKÁHOZ használja a person-link-step-en — a
- * tényleges import (executeRegistryImport) ugyanezt megint elvégzi
- * (idempotens). Egyszerűsítve: nem küldünk vissza minden record-ot, csak
- * statisztikát + nem-talált példákat.
+ * Lépések:
+ *   1. Fájl parse (excel-parser → ParsedWorkbook → sheet.rows)
+ *   2. transformSheet (mapping + típuskonverzió)
+ *   3. resolveLookups (quad-lookup → id_szemely / id_ferfi / id_no)
+ *   4. Statisztika: hány sor talált, hány nem, példák
  */
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { createClient } from '@/lib/supabase/server'
 
+import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
+import type { ParsedWorkbook } from './excel-parser'
+import { REGISTRY_PROFILES } from './import-profiles'
 import { resolveLookups } from './lookup-resolver'
+import { transformSheet, type AutoColumnContext } from './row-transformer'
 
 export interface RegistryPersonResolveResult {
   success?: boolean
@@ -30,24 +34,13 @@ export interface RegistryPersonResolveResult {
   dualResolvedCount?: number
   /** Hány esketés-sornál egyik vagy másik fél nem található */
   dualPartialCount?: number
+  /** A teljes sheet sorszáma */
+  totalRows?: number
   /** Példa nem-talált sorok (max 20) */
   unresolvedExamples?: Array<{ rowIndex: number; description: string }>
 }
 
-interface RowToResolve {
-  _csaladnev?: string | null
-  _k_nev?: string | null
-  _sz_datum?: string | null
-  _ferfi?: boolean | string | null
-  _ferfi_csaladnev?: string | null
-  _ferfi_k_nev?: string | null
-  _ferfi_sz_datum?: string | null
-  _no_csaladnev?: string | null
-  _no_k_nev?: string | null
-  _no_sz_datum?: string | null
-  // a transformer minden mást is hozzáadhat
-  [key: string]: string | number | boolean | null | undefined
-}
+const SUPPORTED_EXTS = ['xlsx', 'xls', 'csv', 'xml']
 
 export async function resolveRegistryPersonsAction(
   formData: FormData,
@@ -55,36 +48,71 @@ export async function resolveRegistryPersonsAction(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const rowsRaw = formData.get('rows') as string | null
+  const file = formData.get('file') as File | null
+  const sheetName = formData.get('sheetName') as string | null
   const profileKey = formData.get('profileKey') as string | null
   const targetCongregationId =
     (formData.get('targetCongregationId') as string | null) ||
     access.effectiveCongregationId
 
-  if (!rowsRaw) return { error: 'Nincs feldolgozandó adat.' }
+  if (!file) return { error: 'Nincs fájl kiválasztva.' }
   if (!profileKey) return { error: 'Hiányzó profil-kulcs.' }
   if (!targetCongregationId) return { error: 'Nincs cél gyülekezet.' }
 
-  let rows: RowToResolve[]
+  const profile = REGISTRY_PROFILES.find(p => p.key === profileKey)
+  if (!profile) return { error: `Érvénytelen profil-kulcs: ${profileKey}` }
+
+  const ext = file.name.toLowerCase().split('.').pop() || ''
+  if (!SUPPORTED_EXTS.includes(ext)) {
+    return { error: `Nem támogatott fájlformátum (.${ext}).` }
+  }
+
+  // 1. Parse
+  let workbook: ParsedWorkbook
   try {
-    const parsed = JSON.parse(rowsRaw)
-    if (!Array.isArray(parsed)) return { error: 'Rossz rows formátum.' }
-    rows = parsed as RowToResolve[]
+    if (ext === 'csv') {
+      workbook = parseCsvString(await file.text(), file.name)
+    } else if (ext === 'xml') {
+      workbook = parseXmlSpreadsheet(await file.text(), file.name)
+    } else {
+      workbook = parseWorkbook(await file.arrayBuffer(), file.name)
+    }
   } catch (e) {
+    return { error: `A fájl olvasása sikertelen: ${e instanceof Error ? e.message : 'ismeretlen'}` }
+  }
+
+  const sheet = sheetName
+    ? workbook.sheets.find(s => s.name === sheetName)
+    : workbook.sheets.find(s => !s.warning && s.rowCount > 0) || workbook.sheets[0]
+  if (!sheet) return { error: `Nem található a megadott fül: ${sheetName || '(első)'}` }
+  if (sheet.rowCount === 0) return { error: `A "${sheet.name}" fül üres.` }
+
+  // 2. transformSheet
+  const ctx: AutoColumnContext = {
+    congregationId: targetCongregationId,
+    userId: access.user.id,
+    currentYear: new Date().getFullYear(),
+  }
+  const transformResult = transformSheet(sheet.rows, sheet.headers, profile, ctx)
+  if (transformResult.records.length === 0) {
     return {
-      error: `JSON parse hiba: ${e instanceof Error ? e.message : 'ismeretlen'}`,
+      success: true,
+      resolvedCount: 0,
+      unresolvedCount: 0,
+      dualResolvedCount: 0,
+      dualPartialCount: 0,
+      totalRows: 0,
+      unresolvedExamples: [],
     }
   }
 
-  // Másoljuk a rows-t (mert a resolveLookups mutálja a rec-eket)
-  const records = rows.map((r) => ({ ...r })) as Array<Record<string, string | number | boolean | null>>
-
+  // 3. resolveLookups
+  const records = transformResult.records.map(r => ({ ...r.record })) as Array<Record<string, string | number | boolean | null>>
   const supabase = await createClient()
   await resolveLookups(supabase, targetCongregationId, records)
 
-  // Esketés profil → dual lookup (id_ferfi + id_no)
+  // 4. Statisztika gyűjtés
   const isMarriage = profileKey === 'marriage'
-
   let resolvedCount = 0
   let unresolvedCount = 0
   let dualResolvedCount = 0
@@ -101,10 +129,10 @@ export async function resolveRegistryPersonsAction(
       } else if (hasFerfi || hasNo) {
         dualPartialCount += 1
         if (unresolvedExamples.length < 20) {
-          const missingPart = !hasFerfi
+          const missing = !hasFerfi
             ? `Vőlegény nem található: ${r._ferfi_csaladnev || '?'} ${r._ferfi_k_nev || '?'}`
             : `Menyasszony nem található: ${r._no_csaladnev || '?'} ${r._no_k_nev || '?'}`
-          unresolvedExamples.push({ rowIndex: i + 1, description: missingPart })
+          unresolvedExamples.push({ rowIndex: i + 1, description: missing })
         }
       } else {
         unresolvedCount += 1
@@ -137,6 +165,7 @@ export async function resolveRegistryPersonsAction(
     unresolvedCount,
     dualResolvedCount,
     dualPartialCount,
+    totalRows: records.length,
     unresolvedExamples,
   }
 }

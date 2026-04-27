@@ -23,8 +23,10 @@ import {
 import { executeCreateMissingPersonsForRegistry } from '@/lib/import/registry-create-missing-persons-action'
 
 interface PersonLinkStepProps {
-  /** A teljesen transzformált rows (transformSheet output) */
-  rows: Array<Record<string, string | number | boolean | null>>
+  /** A feltöltött fájl (a server action MAGA parse-olja a teljes sheet-et) */
+  file: File
+  /** Melyik sheet-et dolgozzuk fel */
+  sheetName: string
   /** Az aktuális profil-kulcs */
   profileKey: string
   /** A célzott gyülekezet */
@@ -34,7 +36,8 @@ interface PersonLinkStepProps {
 }
 
 export function PersonLinkStep({
-  rows,
+  file,
+  sheetName,
   profileKey,
   targetCongregationId,
   onBack,
@@ -48,7 +51,8 @@ export function PersonLinkStep({
   const runResolve = useCallback(() => {
     startResolving(async () => {
       const formData = new FormData()
-      formData.append('rows', JSON.stringify(rows))
+      formData.append('file', file)
+      formData.append('sheetName', sheetName)
       formData.append('profileKey', profileKey)
       formData.append('targetCongregationId', targetCongregationId)
       const res = await resolveRegistryPersonsAction(formData)
@@ -57,7 +61,7 @@ export function PersonLinkStep({
       }
       setResult(res)
     })
-  }, [rows, profileKey, targetCongregationId])
+  }, [file, sheetName, profileKey, targetCongregationId])
 
   // Auto-futtatás amikor a step megnyílik (egyszer — ref-fel hogy ne triggereljen
   // re-rendert; az ESLint react-hooks/set-state-in-effect-et ezzel kerüljük el)
@@ -73,7 +77,8 @@ export function PersonLinkStep({
   const handleCreateMissing = useCallback(() => {
     startCreating(async () => {
       const formData = new FormData()
-      formData.append('rows', JSON.stringify(rows))
+      formData.append('file', file)
+      formData.append('sheetName', sheetName)
       formData.append('profileKey', profileKey)
       formData.append('targetCongregationId', targetCongregationId)
       const res = await executeCreateMissingPersonsForRegistry(formData)
@@ -91,11 +96,12 @@ export function PersonLinkStep({
       // Újrafuttatjuk a resolve-ot, hogy az új ID-k beépüljenek a UI-ba
       runResolve()
     })
-  }, [rows, profileKey, targetCongregationId, runResolve])
+  }, [file, sheetName, profileKey, targetCongregationId, runResolve])
 
   const isMarriage = profileKey === 'marriage'
 
-  const totalRows = rows.length
+  // A teljes sheet sorszáma (server-side parse-ból)
+  const totalRows = result?.totalRows ?? 0
   const resolvedTotal = isMarriage
     ? (result?.dualResolvedCount ?? 0)
     : (result?.resolvedCount ?? 0)

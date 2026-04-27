@@ -3,6 +3,10 @@
 /**
  * Anyakönyvi import wizard — "Új tagok létrehozása" szerver-akció.
  *
+ * 2026-04-28 ÁTÍRÁS: most a TELJES fájlt parse-olja server-oldalon
+ * (nem csak a sample-t). A korábbi verzió csak az 5-soros sampleRows-ról
+ * dolgozott, így 81-soros XML-en csak max 5 új tagot hozott létre.
+ *
  * A person-link lépésen ha vannak nem-talált tagok (pl. újszülöttek a
  * keresztelési XML-ben akik még nincsenek a tagnyilvántartásban), a wizard
  * ezzel az actionnel **minimal szemely-rekordokat** hoz létre nekik:
@@ -11,18 +15,16 @@
  *   - congregation_id = current
  *   - isvisible = true, isaktiv = true (default), type = 'L' (lélek/tag)
  *   - csaladfo = false (új tag, nem családfő)
- *
- * A többi mező (cím, telefon, foglalkozás stb.) NULL marad — Endre később
- * a tagnyilvántartásban kitöltheti.
- *
- * Az action visszadja, hány tagot hozott létre — a wizard ezután újra-resolve-olja
- * a person-link-et (most már megtalálja az újakat).
  */
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { createClient } from '@/lib/supabase/server'
 
+import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
+import type { ParsedWorkbook } from './excel-parser'
+import { REGISTRY_PROFILES } from './import-profiles'
 import { resolveLookups } from './lookup-resolver'
+import { transformSheet, type AutoColumnContext } from './row-transformer'
 
 export interface CreateMissingPersonsResult {
   success?: boolean
@@ -44,26 +46,14 @@ interface MissingPersonInput {
   ferfi?: boolean | null
 }
 
-interface RowToCheck {
-  _csaladnev?: string | null
-  _k_nev?: string | null
-  _sz_datum?: string | null
-  _ferfi?: boolean | string | null
-  _ferfi_csaladnev?: string | null
-  _ferfi_k_nev?: string | null
-  _ferfi_sz_datum?: string | null
-  _no_csaladnev?: string | null
-  _no_k_nev?: string | null
-  _no_sz_datum?: string | null
-  [key: string]: string | number | boolean | null | undefined
-}
+const SUPPORTED_EXTS = ['xlsx', 'xls', 'csv', 'xml']
 
 function coerceBoolean(v: unknown): boolean | null {
   if (typeof v === 'boolean') return v
   if (typeof v === 'string') {
     const s = v.trim().toLowerCase()
     if (['true', '1', 'igen', 'yes', 'i', 'm', 'férfi', 'ferfi'].includes(s)) return true
-    if (['false', '0', 'nem', 'no', 'n', 'f', 'nő', 'no'].includes(s)) return false
+    if (['false', '0', 'nem', 'no', 'n', 'f', 'nő'].includes(s)) return false
   }
   return null
 }
@@ -74,33 +64,60 @@ export async function executeCreateMissingPersonsForRegistry(
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const rowsRaw = formData.get('rows') as string | null
+  const file = formData.get('file') as File | null
+  const sheetName = formData.get('sheetName') as string | null
   const profileKey = formData.get('profileKey') as string | null
   const targetCongregationId =
     (formData.get('targetCongregationId') as string | null) ||
     access.effectiveCongregationId
 
-  if (!rowsRaw) return { error: 'Nincs feldolgozandó adat.' }
+  if (!file) return { error: 'Nincs fájl kiválasztva.' }
   if (!profileKey) return { error: 'Hiányzó profil-kulcs.' }
   if (!targetCongregationId) return { error: 'Nincs cél gyülekezet.' }
 
-  let rows: RowToCheck[]
-  try {
-    const parsed = JSON.parse(rowsRaw)
-    if (!Array.isArray(parsed)) return { error: 'Rossz rows formátum.' }
-    rows = parsed as RowToCheck[]
-  } catch (e) {
-    return { error: `JSON parse hiba: ${e instanceof Error ? e.message : 'ismeretlen'}` }
+  const profile = REGISTRY_PROFILES.find(p => p.key === profileKey)
+  if (!profile) return { error: `Érvénytelen profil-kulcs: ${profileKey}` }
+
+  const ext = file.name.toLowerCase().split('.').pop() || ''
+  if (!SUPPORTED_EXTS.includes(ext)) {
+    return { error: `Nem támogatott fájlformátum (.${ext}).` }
   }
 
-  // 1. Először RESOLVE-oljuk a már létezőket (hogy ne duplikáljuk)
-  const records = rows.map((r) => ({ ...r })) as Array<Record<string, string | number | boolean | null>>
+  // 1. Parse
+  let workbook: ParsedWorkbook
+  try {
+    if (ext === 'csv') {
+      workbook = parseCsvString(await file.text(), file.name)
+    } else if (ext === 'xml') {
+      workbook = parseXmlSpreadsheet(await file.text(), file.name)
+    } else {
+      workbook = parseWorkbook(await file.arrayBuffer(), file.name)
+    }
+  } catch (e) {
+    return { error: `A fájl olvasása sikertelen: ${e instanceof Error ? e.message : 'ismeretlen'}` }
+  }
+
+  const sheet = sheetName
+    ? workbook.sheets.find(s => s.name === sheetName)
+    : workbook.sheets.find(s => !s.warning && s.rowCount > 0) || workbook.sheets[0]
+  if (!sheet) return { error: `Nem található a megadott fül: ${sheetName || '(első)'}` }
+
+  // 2. transformSheet
+  const ctx: AutoColumnContext = {
+    congregationId: targetCongregationId,
+    userId: access.user.id,
+    currentYear: new Date().getFullYear(),
+  }
+  const transformResult = transformSheet(sheet.rows, sheet.headers, profile, ctx)
+  const records = transformResult.records.map(r => ({ ...r.record })) as Array<Record<string, string | number | boolean | null>>
+
+  // 3. resolveLookups (a már létezőket azonosítjuk)
   const supabase = await createClient()
   await resolveLookups(supabase, targetCongregationId, records)
 
-  // 2. A NEM-talált sorokból kinyerjük a létrehozandó person-eket
+  // 4. Nem-talált sorokból kinyerjük a létrehozandó person-eket
   const isMarriage = profileKey === 'marriage'
-  const personsToCreate: Array<{ rowIndex: number; person: MissingPersonInput; whichSlot: '' | 'ferfi' | 'no' }> = []
+  const personsToCreate: Array<{ rowIndex: number; person: MissingPersonInput }> = []
 
   for (let i = 0; i < records.length; i++) {
     const r = records[i]
@@ -118,7 +135,6 @@ export async function executeCreateMissingPersonsForRegistry(
               sz_datum: typeof r._ferfi_sz_datum === 'string' ? r._ferfi_sz_datum : null,
               ferfi: true,
             },
-            whichSlot: 'ferfi',
           })
         }
       }
@@ -134,12 +150,10 @@ export async function executeCreateMissingPersonsForRegistry(
               sz_datum: typeof r._no_sz_datum === 'string' ? r._no_sz_datum : null,
               ferfi: false,
             },
-            whichSlot: 'no',
           })
         }
       }
     } else {
-      // Egyszerű profilok (baptism, confirmation, burial, mozgások)
       if (r.id_szemely == null || r.id_szemely === '') {
         const cs = r._csaladnev
         const k = r._k_nev
@@ -152,7 +166,6 @@ export async function executeCreateMissingPersonsForRegistry(
               sz_datum: typeof r._sz_datum === 'string' ? r._sz_datum : null,
               ferfi: coerceBoolean(r._ferfi),
             },
-            whichSlot: '',
           })
         }
       }
@@ -169,8 +182,7 @@ export async function executeCreateMissingPersonsForRegistry(
     }
   }
 
-  // 3. Létrehozzuk az új szemely-rekordokat (egyszerre, soronként az insert
-  //    miatt a generate_egyhazi_cnp() egyedi értéket generál minden sorra)
+  // 5. Létrehozzuk az új szemely-rekordokat soronként
   let createdCount = 0
   let errorCount = 0
   const errors: Array<{ rowIndex: number; reason: string }> = []

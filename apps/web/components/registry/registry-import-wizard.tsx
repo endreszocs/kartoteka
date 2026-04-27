@@ -551,9 +551,10 @@ export function RegistryImportWizard({
       )}
 
       {/* 3. Person-link */}
-      {stage === 'person-link' && activeSheet && (
+      {stage === 'person-link' && activeSheet && file && (
         <PersonLinkStep
-          rows={transformedRows}
+          file={file}
+          sheetName={activeSheet.sheetName}
           profileKey={profile.key}
           targetCongregationId={mode === 'admin' ? selectedCongId : congregationId || ''}
           onBack={() => setStage('mapping')}
