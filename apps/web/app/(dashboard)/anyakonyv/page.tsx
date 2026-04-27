@@ -1,4 +1,5 @@
 import { RegistryTabs } from '@/components/registry/registry-tabs'
+import { RegistryImportWizard } from '@/components/registry/registry-import-wizard'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -34,6 +35,13 @@ export default async function AnyakonyvPage() {
         hideTabsUntilPrivileged
         importProfiles={REGISTRY_PROFILES}
         importModule="registry"
+        customImportTab={
+          <RegistryImportWizard
+            mode="module"
+            congregationId={effectiveCongregationId}
+            congregationName={congregationName}
+          />
+        }
         profiles={[
           {
             value: 'baptism',

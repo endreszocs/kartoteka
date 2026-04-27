@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+import { SESSION_MODE_COOKIE } from '@/lib/auth/session-mode'
+
 // Lelkészi auth útvonalak — bejelentkezett usernek nem kell ide visszamennie
 const PASTOR_AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/oauth-complete', '/auth/callback']
 
@@ -63,6 +65,25 @@ export async function updateSession(request: NextRequest) {
   // Publikus gyülekezeti oldalak → mindig átengedünk
   if (isPublicCongregationRoute(pathname)) {
     return supabaseResponse
+  }
+
+  // Session-mode lejárat ellenőrzés — "Maradjak bejelentkezve" funkció.
+  // Ha a user be van jelentkezve DE a session-mode cookie HIÁNYZIK,
+  // az azt jelenti hogy a 24-órás session lejárt → automatikus signOut.
+  // (Ha "Maradjak bejelentkezve" volt pipálva, a cookie max-age 1 év, így ott
+  //  szinte sosem fut le.) A /login és /auth/callback route-okon nem fut le
+  //  ez a check, hogy ne csapjuk le a friss bejelentkezést.
+  if (
+    user
+    && !isPastorAuthRoute(pathname)
+    && !isSetupRoute(pathname)
+    && !request.cookies.get(SESSION_MODE_COOKIE)
+  ) {
+    await supabase.auth.signOut()
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('reason', 'session-expired')
+    return NextResponse.redirect(url)
   }
 
   // Lelkészi védett útvonal + nincs user → redirect /login

@@ -1,9 +1,14 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { isMasterAdmin } from '@/lib/auth/roles'
+import {
+  SESSION_MODE_COOKIE,
+  buildSessionModeCookieOptions,
+} from '@/lib/auth/session-mode'
 
 export async function signIn(data: LoginInput) {
   const parsed = loginSchema.safeParse(data)
@@ -40,6 +45,13 @@ export async function signIn(data: LoginInput) {
     await supabase.auth.signOut()
     return { error: 'Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!' }
   }
+
+  // Session-mode cookie beállítása ("Maradjak bejelentkezve" alapján).
+  // - true  → persistent (1 év, csak a Supabase saját refresh token expiry korlátozza)
+  // - false → session (24 óra; a middleware redirectel /login-ra ha lejár)
+  const cookieStore = await cookies()
+  const { mode, options } = buildSessionModeCookieOptions(parsed.data.rememberMe ?? false)
+  cookieStore.set(SESSION_MODE_COOKIE, mode, options)
 
   // A root oldal egységesen az aktív profil-scope alapján dönt.
   redirect('/')

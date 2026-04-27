@@ -1,6 +1,23 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public._merge_run_log (
+  id integer NOT NULL DEFAULT nextval('_merge_run_log_id_seq'::regclass),
+  phase text,
+  ferj_csalad_id integer,
+  no_csalad_id integer,
+  action text,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT _merge_run_log_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public._merge_v7_result (
+  phase text,
+  merged integer,
+  skipped integer,
+  first_error text,
+  ran_at timestamp with time zone DEFAULT now()
+);
 CREATE TABLE public.access_requests (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   email text NOT NULL,
@@ -74,6 +91,8 @@ CREATE TABLE public.adrlocality (
   geonames_id integer,
   default_postalcode text,
   feature_code text,
+  needs_review boolean NOT NULL DEFAULT false,
+  review_source text,
   CONSTRAINT adrlocality_pkey PRIMARY KEY (id),
   CONSTRAINT adrlocality_countyid_fk FOREIGN KEY (countyid) REFERENCES public.adrcounty(id)
 );
@@ -495,6 +514,29 @@ CREATE TABLE public.congregations (
   CONSTRAINT congregations_adrlocality_fk FOREIGN KEY (adrlocality_id) REFERENCES public.adrlocality(id),
   CONSTRAINT congregations_adrstreet_fk FOREIGN KEY (adrstreet_id) REFERENCES public.adrstreet(id)
 );
+CREATE TABLE public.cross_congregation_match_notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  notification_type text NOT NULL CHECK (notification_type = ANY (ARRAY['new_member'::text, 'update_match'::text])),
+  triggering_szemely_id integer NOT NULL,
+  triggering_congregation_id uuid NOT NULL,
+  matched_szemely_id integer NOT NULL,
+  matched_congregation_id uuid NOT NULL,
+  confidence text NOT NULL CHECK (confidence = ANY (ARRAY['name_phone'::text, 'name_birth'::text, 'phone_only'::text, 'name_only'::text])),
+  resolution text CHECK (resolution = ANY (ARRAY['same_person'::text, 'different_person'::text, 'dismissed'::text])),
+  resolved_by_triggering_user uuid,
+  resolved_by_matched_user uuid,
+  resolved_at timestamp with time zone,
+  seen_by_triggering_user_at timestamp with time zone,
+  seen_by_matched_user_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT cross_congregation_match_notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT cross_congregation_match_notificatio_triggering_szemely_id_fkey FOREIGN KEY (triggering_szemely_id) REFERENCES public.szemely(id),
+  CONSTRAINT cross_congregation_match_notifi_triggering_congregation_id_fkey FOREIGN KEY (triggering_congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT cross_congregation_match_notifications_matched_szemely_id_fkey FOREIGN KEY (matched_szemely_id) REFERENCES public.szemely(id),
+  CONSTRAINT cross_congregation_match_notificat_matched_congregation_id_fkey FOREIGN KEY (matched_congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT cross_congregation_match_notif_resolved_by_triggering_user_fkey FOREIGN KEY (resolved_by_triggering_user) REFERENCES auth.users(id),
+  CONSTRAINT cross_congregation_match_notifica_resolved_by_matched_user_fkey FOREIGN KEY (resolved_by_matched_user) REFERENCES auth.users(id)
+);
 CREATE TABLE public.csalad (
   id integer NOT NULL DEFAULT nextval('csalad_id_seq'::regclass),
   id_ferfi integer,
@@ -792,6 +834,24 @@ CREATE TABLE public.event (
   type character varying NOT NULL,
   val character varying NOT NULL,
   created timestamp without time zone NOT NULL
+);
+CREATE TABLE public.family_link_audit (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  batch_id uuid NOT NULL,
+  congregation_id uuid NOT NULL,
+  user_id uuid,
+  action text NOT NULL CHECK (action = ANY (ARRAY['spouse_link'::text, 'child_link'::text, 'family_create'::text])),
+  csalad_id integer,
+  szemely_id integer,
+  evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
+  confidence text NOT NULL CHECK (confidence = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text])),
+  reverted_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT family_link_audit_pkey PRIMARY KEY (id),
+  CONSTRAINT family_link_audit_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT family_link_audit_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT family_link_audit_csalad_id_fkey FOREIGN KEY (csalad_id) REFERENCES public.csalad(id),
+  CONSTRAINT family_link_audit_szemely_id_fkey FOREIGN KEY (szemely_id) REFERENCES public.szemely(id)
 );
 CREATE TABLE public.felmentes (
   id integer NOT NULL DEFAULT nextval('felmentes_id_seq'::regclass),

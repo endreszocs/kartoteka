@@ -1,0 +1,185 @@
+'use client'
+
+/**
+ * Anyakönyvi import wizard 5. lépés — Special-fields.
+ *
+ * Profil-specifikus döntések:
+ *   - **Konfirmáció**: Endre invariáns "keresztelés nélkül nincs konfirmálás".
+ *     Ha a XML-ben van "Keresztelés ideje" oszlop, a wizard ELŐSZÖR keresztseg-
+ *     bejegyzést hoz létre minden konfirmandushoz (a "Keresztelés ideje" alapján).
+ *     A felhasználó eldöntheti: igen / nem (csak konfirmáció).
+ *   - **Esketés**: a "Vegyes" oszlop boolean kezelése — figyelmeztet, ha az
+ *     XML-ben nincs ilyen oszlop, és lehet manuálisan beállítani globálisan
+ *     (ritka esetre).
+ *   - **Mozgás**: nincs különleges döntés (csak átugró-üzenet).
+ *
+ * Az anyakönyvi profilok (baptism, burial) esetén ez a lépés átugorható.
+ */
+
+import { ArrowLeft, ArrowRight, BookOpen, Heart, Info } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+export interface SpecialFieldsConfig {
+  /** Konfirmáció: ha igaz, a wizard auto-rögzíti a hiányzó keresztseg-rekordokat */
+  autoCreateBaptismForConfirmation: boolean
+  /** Esketés: globálisan vegyes-e (ha az XML-ben nincs oszlop) — alapértelmezett false */
+  marriageVegyesGlobal: boolean
+}
+
+interface SpecialFieldsStepProps {
+  profileKey: string
+  config: SpecialFieldsConfig
+  onConfigChange: (next: SpecialFieldsConfig) => void
+  /** Hány konfirmandushoz lett megadva "Keresztelés ideje" az XML-ben */
+  confirmationsWithBaptismDate?: number
+  totalRows?: number
+  onBack: () => void
+  onContinue: () => void
+}
+
+export function SpecialFieldsStep({
+  profileKey,
+  config,
+  onConfigChange,
+  confirmationsWithBaptismDate = 0,
+  totalRows = 0,
+  onBack,
+  onContinue,
+}: SpecialFieldsStepProps) {
+  const showConfirmationOptions = profileKey === 'confirmation'
+  const showMarriageOptions = profileKey === 'marriage'
+  const isMovement = profileKey.startsWith('movement_')
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-[1.5rem] bg-white/85 p-5 ring-1 ring-violet-100 shadow-[0_18px_40px_-30px_rgba(124,58,237,0.25)]">
+        <div className="flex items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+            <Info className="size-5" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-slate-800">Speciális beállítások</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Az anyakönyv-típushoz tartozó egyedi döntések, mielőtt indul az import.
+            </p>
+          </div>
+        </div>
+
+        {/* Konfirmáció — keresztelés-link */}
+        {showConfirmationOptions && (
+          <div className="mt-4 rounded-2xl bg-emerald-50/60 p-4 ring-1 ring-emerald-100">
+            <div className="flex items-start gap-3">
+              <BookOpen className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-emerald-700">
+                  Keresztelés-rekord létrehozása konfirmációhoz
+                </p>
+                <p className="mt-1 text-xs text-emerald-900/80">
+                  „Keresztelés nélkül nincs konfirmálás.” Ha a konfirmáció-XML-ben
+                  szerepel a „Keresztelés ideje” oszlop, a wizard automatikusan
+                  létrehozza a hiányzó keresztelési bejegyzéseket is.
+                </p>
+                {totalRows > 0 && (
+                  <p className="mt-2 text-xs text-emerald-700">
+                    <span className="font-semibold">{confirmationsWithBaptismDate}</span> /{' '}
+                    {totalRows} konfirmandushoz van megadva keresztelés ideje a fájlban.
+                  </p>
+                )}
+              </div>
+            </div>
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-emerald-100 transition hover:bg-emerald-50/30">
+              <input
+                type="checkbox"
+                checked={config.autoCreateBaptismForConfirmation}
+                onChange={(e) =>
+                  onConfigChange({
+                    ...config,
+                    autoCreateBaptismForConfirmation: e.target.checked,
+                  })
+                }
+                className="size-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-slate-700">
+                Igen, hozza létre automatikusan a hiányzó keresztelési bejegyzéseket
+                (a „Keresztelés ideje” oszlop alapján).
+              </span>
+            </label>
+            <p className="mt-2 text-xs text-slate-500">
+              Ha kikapcsolod, csak a `konfirmalas.keresztelesideje` mezőbe kerül
+              a dátum, a `keresztseg` táblába nem hozunk létre rekordot. (Akkor
+              érdemes, ha a keresztelés más gyülekezetben volt.)
+            </p>
+          </div>
+        )}
+
+        {/* Esketés — vegyes flag */}
+        {showMarriageOptions && (
+          <div className="mt-4 rounded-2xl bg-rose-50/60 p-4 ring-1 ring-rose-100">
+            <div className="flex items-start gap-3">
+              <Heart className="mt-0.5 size-5 shrink-0 text-rose-600" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-rose-700">
+                  Vegyes házasság jelzése
+                </p>
+                <p className="mt-1 text-xs text-rose-900/80">
+                  Ha a XML-ben szerepel „Vegyes” oszlop, automatikusan azt használjuk.
+                  Ha nincs ilyen oszlop, itt globálisan beállíthatod a vegyes flaget
+                  (ritka eset).
+                </p>
+              </div>
+            </div>
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-rose-100 transition hover:bg-rose-50/30">
+              <input
+                type="checkbox"
+                checked={config.marriageVegyesGlobal}
+                onChange={(e) =>
+                  onConfigChange({
+                    ...config,
+                    marriageVegyesGlobal: e.target.checked,
+                  })
+                }
+                className="size-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+              />
+              <span className="text-sm text-slate-700">
+                Az összes esketést jelöld vegyesnek (ha a fájlban nincs külön
+                „Vegyes” oszlop).
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Mozgás / baptism / burial — nincs különleges döntés */}
+        {!showConfirmationOptions && !showMarriageOptions && (
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
+            <p className="text-sm text-slate-600">
+              Erre az anyakönyv-típusra (
+              <span className="font-semibold">{profileKey}</span>) nincs
+              különleges beállítás — mehetünk az előnézetre.
+              {isMovement && (
+                <span className="mt-1 block text-xs text-slate-500">
+                  Tagmozgásnál a férfi/családfő/gyerek jelölést a tagnyilvántartásból
+                  vesszük át, az XML „i” oszlopát figyelmen kívül hagyjuk.
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Button type="button" variant="outline" onClick={onBack} className="rounded-full">
+          <ArrowLeft className="mr-1.5 size-4" />
+          Vissza
+        </Button>
+        <Button
+          type="button"
+          onClick={onContinue}
+          className="rounded-full bg-violet-600 hover:bg-violet-700"
+        >
+          Tovább az előnézetre
+          <ArrowRight className="ml-1.5 size-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}

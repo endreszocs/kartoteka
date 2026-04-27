@@ -45,6 +45,9 @@ export function LoginForm({ initialError }: LoginFormProps) {
     formState: { errors },
   } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
+    defaultValues: {
+      rememberMe: false,
+    },
   })
 
   async function onSubmit(data: LoginInput) {
@@ -131,6 +134,23 @@ export function LoginForm({ initialError }: LoginFormProps) {
             <p className="text-xs text-red-500">{errors.password.message}</p>
           )}
         </div>
+
+        {/* Maradjak bejelentkezve checkbox */}
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 transition hover:bg-slate-100">
+          <input
+            type="checkbox"
+            id="rememberMe"
+            className="mt-0.5 size-4 rounded border-slate-300 text-primary focus:ring-2 focus:ring-primary/40"
+            {...register('rememberMe')}
+          />
+          <span className="select-none text-sm text-slate-700">
+            <span className="font-medium">Maradjak bejelentkezve</span>
+            <span className="block text-xs text-slate-500">
+              Ha bekapcsolod, hosszú ideig nem kell újra belépni. Ha kikapcsolod,
+              egy nap múlva újra meg kell adnod a jelszavadat.
+            </span>
+          </span>
+        </label>
 
         <Button
           type="submit"

@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-27] — Anyakönyvi import wizard + 1 napos session-lejárat
+
+<!-- key: 2026-04-27-anyakonyv-import-wizard-and-session-expiry -->
+<!-- category: feature -->
+<!-- targets: lelkészek, fejlesztők — anyakönyv modul + minden bejelentkező felhasználó -->
+
+### ✨ Új funkciók
+
+**Anyakönyvi import wizard** (`/anyakonyv` → "Rendszergazdai importáló" tab):
+- Új 7-lépéses wizard (tagnyilvántartás-wizard mintájára): Fájl → Oszlopok → Tagok →
+  Helységek → Beállítások → Előnézet → Eredmény
+- 8 anyakönyvi profil egyetlen RPC-ben (`import_registry_batch`):
+  keresztelés, konfirmáció, esketés, temetés + 4 mozgás (be-/elköltözött,
+  áttért, kitért)
+- Quad-lookup tag-azonosítás: Családnév + Keresztnév + Született + Férfi
+  (a `lookup-resolver.ts` `byQuad` és `byTriple` index-szel)
+- Konfirmációnál „Endre invariáns": _keresztelés nélkül nincs konfirmálás_ —
+  a wizard speciális lépésen kötelezi a hiányzó keresztelési bejegyzés
+  létrehozását („Keresztelés ideje" XML oszlopból auto-stub)
+- Esketésnél új `hazassag.vegyes` boolean oszlop (XML „Vegyes" jelölésből)
+- Temetés-INSERT trigger: automatikus `szemely.meghalt = true`
+- 8 UNIQUE INDEX a dupla-import elleni védelemhez (idempotens rerun)
+- Endre futtatja: `migration-docs/sql/2026-04-27-registry-import-rpc.sql` ✅
+
+**„Maradjak bejelentkezve" funkció** (login form):
+- Új checkbox a login-űrlapon — alapértelmezett OFF
+- Ha BE van pipálva: 1 éves persistent session
+- Ha NINCS pipálva: 24 órás session, utána automatikus signOut + redirect
+  /login (pasztorális üzenettel: „A bejelentkezésed lejárt — biztonsági okokból
+  egy nap után újra be kell jelentkezned.")
+- Cookie-alapú (`session-mode`) — a middleware ellenőrzi minden kérésnél
+- Google OAuth callback default `session` mode-ban (24 óra) — a felhasználó
+  a következő login-on bekapcsolhatja a remember-me-t
+
+### 🐛 Mellékesen javított
+
+- A `lookup-resolver.ts` régi `eq('deleted', false)` szűrője a `szemely`
+  táblán hibás volt (a `szemely`-nek nincs `deleted` mezője, csak `isvisible`).
+  Mostantól helyes: `eq('isvisible', true)`.
+
+### 📝 Megjegyzés a Google OAuth `400 invalid_request` hibához
+
+Endre jelezte: a Google bejelentkezés `400 invalid_request` hibát dob.
+Ez **nem kódhiba**, hanem **konfiguráció**:
+- A Google Cloud Console → OAuth client → Authorized redirect URIs
+  kell tartalmazza: `https://bjytiawckbibqmtlezfl.supabase.co/auth/v1/callback`
+- A Supabase Dashboard → Authentication → Providers → Google: legyen ott
+  a helyes Client ID + Client Secret a Google Console-ról
+- Ha a Railway domain (`kartotekaweb-production.up.railway.app`) megváltozik,
+  a Supabase Dashboard → Authentication → URL Configuration → Site URL és
+  Redirect URLs is frissítendő
+
+---
+
 ## [2026-04-27] — Sprint Q F3 LEZÁRVA: IncomeDialog közös csomagba (v0.7.11)
 
 <!-- key: 2026-04-27-income-dialog-shared-sprint-q-f3-zaras -->

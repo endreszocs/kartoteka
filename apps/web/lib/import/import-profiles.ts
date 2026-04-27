@@ -399,21 +399,36 @@ export const PROFILE_EXPENSE: ImportProfile = {
 }
 
 // ===========================
-// 3. ANYAKÖNYV (Registry)
+// 3. ANYAKÖNYV (Registry) — quad-lookup pattern (csaladnev + k_nev + sz_datum + ferfi)
 // ===========================
+//
+// Az XML-fájlokban (Adatkezelő-docs/) a tagok azonosítása nem CNP-vel, hanem
+// "Családnév + Keresztnév + Született + Férfi" négyessel történik. A wizard
+// person-link lépése ezeket resolve-olja az `id_szemely`/`id_ferfi`/`id_no`
+// FK-vá a `lookup-resolver.ts` quad-helper-jeivel.
+//
+// A `_helyseg_text` virtuális kulcs a wizard locality-step bemenete (a "Hely",
+// "Honnan", "Hova" oszlopokból) → `helyid`/`honnanid`/`hovaid` resolve.
+// Temetésnél két helyszín van: `_hhelyseg_text` (halálozás) + `_thelyseg_text`
+// (temetés).
 
 export const PROFILE_BAPTISM: ImportProfile = {
   key: 'baptism',
   module: 'registry',
   label: 'Keresztelések',
-  description: 'Keresztelési anyakönyvi bejegyzések importja.',
+  description: 'Keresztelési anyakönyvi bejegyzések importja a meglévő tagokhoz kapcsolva.',
   targetTable: 'keresztseg',
   columnMap: [
-    { excelHeader: 'Személy CNP', excelAliases: ['cnp', 'szemely_cnp', 'Személyi'], dbColumn: '_szemely_cnp', type: 'string', required: false, hint: 'A megkeresztelt személyi száma' },
-    { excelHeader: 'Név', excelAliases: ['nev', 'Teljes név', 'Személy neve'], dbColumn: '_szemely_nev', type: 'string', required: false, hint: 'Fallback, ha nincs CNP' },
-    { excelHeader: 'Dátum', excelAliases: ['datum', 'Keresztelés dátuma'], dbColumn: 'datum', type: 'date', required: true },
-    { excelHeader: 'Lelkész neve', excelAliases: ['lelkeszneve', 'Lelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
-    { excelHeader: 'Okirat szám', excelAliases: ['okirat', 'Anyakönyvi szám'], dbColumn: 'okirat', type: 'string', required: false },
+    // Quad-lookup mezők (a tag azonosításához)
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev', 'Vezetéknév'], dbColumn: '_csaladnev', type: 'string', required: true, hint: 'A megkeresztelt családneve' },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev', 'Utónév'], dbColumn: '_k_nev', type: 'string', required: true, hint: 'A megkeresztelt keresztneve' },
+    { excelHeader: 'Született', excelAliases: ['sz_datum', 'Születési dátum', 'Születés'], dbColumn: '_sz_datum', type: 'date', required: false, hint: 'Tie-breaker, ha több azonos nevű' },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false, hint: 'Igen / Nem' },
+    // Anyakönyvi mezők
+    { excelHeader: 'Dátum', excelAliases: ['datum', 'Keresztelés dátuma', 'Keresztelés ideje'], dbColumn: 'datum', type: 'date', required: true, hint: 'Mikor történt a keresztelés' },
+    { excelHeader: 'Hely', excelAliases: ['Helység', 'Keresztelés helye'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'A keresztelés helye (helység)' },
+    { excelHeader: 'Lelkész', excelAliases: ['lelkeszneve', 'Lelkész neve', 'Keresztelő lelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    { excelHeader: 'Okirat', excelAliases: ['okirat', 'Anyakönyvi szám', 'Okirat szám'], dbColumn: 'okirat', type: 'string', required: false },
     { excelHeader: 'Keresztszülők', excelAliases: ['keresztszulok', 'Keresztszülő'], dbColumn: 'keresztszulok', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
@@ -421,48 +436,60 @@ export const PROFILE_BAPTISM: ImportProfile = {
     { dbColumn: 'congregation_id', source: 'congregation_id' },
   ],
   hints: [
-    'A személyt CNP-vel vagy névvel azonosítjuk a meglévő tagok között.',
-    'Ha a személy még nincs a rendszerben, a sor kihagyásra kerül (figyelmeztetéssel).',
+    'A keresztelés tagját Családnév + Keresztnév + Született mezőkkel azonosítjuk.',
+    'Ha a tag még nincs a tagnyilvántartásban, a wizard person-link lépésén döntheted el (új tag létrehozása / kihagyás).',
   ],
-  sheetHints: ['Keresztelés', 'Baptism', 'keresztseg'],
+  sheetHints: ['Keresztelés', 'Keresztelés', 'Baptism', 'keresztseg', 'keresztelok'],
 }
 
 export const PROFILE_CONFIRMATION: ImportProfile = {
   key: 'confirmation',
   module: 'registry',
   label: 'Konfirmálások',
-  description: 'Konfirmálási anyakönyvi bejegyzések importja.',
+  description: 'Konfirmálási anyakönyvi bejegyzések importja. Keresztelés nélkül nincs konfirmálás — a wizard kötelezi a hiányzó keresztelési bejegyzés rögzítését.',
   targetTable: 'konfirmalas',
   columnMap: [
-    { excelHeader: 'Személy CNP', excelAliases: ['cnp', 'szemely_cnp'], dbColumn: '_szemely_cnp', type: 'string', required: false },
-    { excelHeader: 'Név', excelAliases: ['nev', 'Teljes név'], dbColumn: '_szemely_nev', type: 'string', required: false },
-    { excelHeader: 'Dátum', excelAliases: ['datum', 'Konfirmálás dátuma'], dbColumn: 'datum', type: 'date', required: true },
-    { excelHeader: 'Lelkész neve', excelAliases: ['lelkeszneve', 'Lelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Dátum', excelAliases: ['datum', 'Konfirmálás dátuma', 'Konfirmáció dátuma'], dbColumn: 'datum', type: 'date', required: true },
+    { excelHeader: 'Keresztelés ideje', excelAliases: ['keresztelesideje', 'Keresztelés dátuma'], dbColumn: 'keresztelesideje', type: 'date', required: false, hint: 'Mikor keresztelték a konfirmandust (visszafelé link)' },
+    { excelHeader: 'Hely', excelAliases: ['Helység', 'Konfirmálás helye'], dbColumn: '_helyseg_text', type: 'string', required: false },
+    { excelHeader: 'Lelkész', excelAliases: ['lelkeszneve', 'Lelkész neve'], dbColumn: 'lelkeszneve', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
   autoColumns: [
     { dbColumn: 'congregation_id', source: 'congregation_id' },
   ],
   hints: [
-    'A személyt CNP-vel vagy névvel azonosítjuk.',
-    'Már konfirmált személyek duplikált sorai kihagyásra kerülnek.',
+    'A wizard ellenőrzi minden konfirmandusnál, hogy van-e keresztelés a tagnyilvántartásban.',
+    'Ha nincs, kötelező döntést kérünk: keresztelés rögzítése a "Keresztelés ideje" alapján, manuális űrlap, vagy a sor kihagyása.',
   ],
-  sheetHints: ['Konfirmálás', 'Confirmation', 'konfirmalas'],
+  sheetHints: ['Konfirmálás', 'Konfirmáció', 'Confirmation', 'konfirmalas', 'konfirmalasok'],
 }
 
 export const PROFILE_MARRIAGE: ImportProfile = {
   key: 'marriage',
   module: 'registry',
-  label: 'Házasságok',
-  description: 'Házassági anyakönyvi bejegyzések importja.',
+  label: 'Esketések',
+  description: 'Házassági anyakönyvi bejegyzések importja. Mindkét fél (vőlegény + menyasszony) meglévő tag kell legyen.',
   targetTable: 'hazassag',
   columnMap: [
-    { excelHeader: 'Vőlegény CNP', excelAliases: ['ferfi_cnp', 'Férfi CNP'], dbColumn: '_ferfi_cnp', type: 'string', required: false },
-    { excelHeader: 'Vőlegény neve', excelAliases: ['ferfi_nev', 'Férfi neve'], dbColumn: '_ferfi_nev', type: 'string', required: false },
-    { excelHeader: 'Menyasszony CNP', excelAliases: ['no_cnp', 'Nő CNP'], dbColumn: '_no_cnp', type: 'string', required: false },
-    { excelHeader: 'Menyasszony neve', excelAliases: ['no_nev', 'Nő neve'], dbColumn: '_no_nev', type: 'string', required: false },
-    { excelHeader: 'Dátum', excelAliases: ['datum', 'Esküvő dátuma'], dbColumn: 'datum', type: 'date', required: true },
-    { excelHeader: 'Lelkész neve', excelAliases: ['lelkeszneve', 'Lelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    // Vőlegény quad-mezők
+    { excelHeader: 'Férfi családnév', excelAliases: ['ferfi_csaladnev', 'Vőlegény családneve'], dbColumn: '_ferfi_csaladnev', type: 'string', required: true, hint: 'A vőlegény családneve' },
+    { excelHeader: 'Férfi keresztnév', excelAliases: ['ferfi_k_nev', 'Vőlegény keresztneve'], dbColumn: '_ferfi_k_nev', type: 'string', required: true },
+    { excelHeader: 'Férfi született', excelAliases: ['ferfi_sz_datum', 'Vőlegény születése'], dbColumn: '_ferfi_sz_datum', type: 'date', required: false },
+    // Menyasszony quad-mezők
+    { excelHeader: 'Nő családnév', excelAliases: ['no_csaladnev', 'Menyasszony családneve'], dbColumn: '_no_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Nő keresztnév', excelAliases: ['no_k_nev', 'Menyasszony keresztneve'], dbColumn: '_no_k_nev', type: 'string', required: true },
+    { excelHeader: 'Nő született', excelAliases: ['no_sz_datum', 'Menyasszony születése'], dbColumn: '_no_sz_datum', type: 'date', required: false },
+    // Esemény-mezők
+    { excelHeader: 'Dátum', excelAliases: ['datum', 'Esketés dátuma', 'Esküvő dátuma'], dbColumn: 'datum', type: 'date', required: true },
+    { excelHeader: 'Hely', excelAliases: ['Helység', 'Esketés helye'], dbColumn: '_helyseg_text', type: 'string', required: false },
+    { excelHeader: 'Lelkész', excelAliases: ['lelkeszneve', 'Lelkész neve', 'Esketőlelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    { excelHeader: 'Okirat', excelAliases: ['hlevel', 'Okirat szám', 'Anyakönyvi szám'], dbColumn: 'hlevel', type: 'string', required: false, hint: 'Házassági levél száma (Endre döntése: hlevel = okirat)' },
+    { excelHeader: 'Vegyes', excelAliases: ['vegyes', 'Vegyes házasság'], dbColumn: 'vegyes', type: 'boolean', required: false, hint: 'Vegyes házasság jelzése (egyik fél nem református)' },
     { excelHeader: 'Tanúk', excelAliases: ['tanuk', 'Tanú'], dbColumn: 'tanuk', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
@@ -470,35 +497,147 @@ export const PROFILE_MARRIAGE: ImportProfile = {
     { dbColumn: 'congregation_id', source: 'congregation_id' },
   ],
   hints: [
-    'Mind a vőlegényt, mind a menyasszonyt CNP-vel vagy névvel azonosítjuk.',
+    'Mindkét fél (vőlegény + menyasszony) Családnév + Keresztnév + Született mezőkkel azonosított meglévő tag.',
+    'A "Vegyes" oszlop boolean — Igen/Nem; nem-református házastárs esetén állítsd Igen-re.',
   ],
-  sheetHints: ['Házasság', 'Marriage', 'hazassag', 'Esküvő'],
+  sheetHints: ['Esketés', 'Házasság', 'Marriage', 'hazassag', 'esketesek'],
 }
 
 export const PROFILE_BURIAL: ImportProfile = {
   key: 'burial',
   module: 'registry',
   label: 'Temetések',
-  description: 'Temetési anyakönyvi bejegyzések importja.',
+  description: 'Temetési anyakönyvi bejegyzések importja. A temetés-INSERT automatikusan beállítja a tag elhunyt-flagjét.',
   targetTable: 'temetes',
   columnMap: [
-    { excelHeader: 'Személy CNP', excelAliases: ['cnp', 'szemely_cnp'], dbColumn: '_szemely_cnp', type: 'string', required: false },
-    { excelHeader: 'Név', excelAliases: ['nev', 'Teljes név', 'Elhunyt neve'], dbColumn: '_szemely_nev', type: 'string', required: false },
-    { excelHeader: 'Halál dátuma', excelAliases: ['hdatum', 'Elhalálozás'], dbColumn: 'hdatum', type: 'date', required: false },
-    { excelHeader: 'Temetés dátuma', excelAliases: ['tdatum', 'Temetés'], dbColumn: 'tdatum', type: 'date', required: true },
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Halál dátuma', excelAliases: ['hdatum', 'Elhalálozás', 'Halál ideje'], dbColumn: 'hdatum', type: 'date', required: true },
+    { excelHeader: 'Halálozás helye', excelAliases: ['hhely', 'Halál helye'], dbColumn: '_hhelyseg_text', type: 'string', required: false, hint: 'Hol halt meg (helység)' },
     { excelHeader: 'Halál oka', excelAliases: ['hoka', 'Ok'], dbColumn: 'hoka', type: 'string', required: false },
-    { excelHeader: 'Lelkész neve', excelAliases: ['lelkeszneve', 'Lelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
-    { excelHeader: 'Okirat szám', excelAliases: ['okirat'], dbColumn: 'okirat', type: 'string', required: false },
+    { excelHeader: 'Temetés ideje', excelAliases: ['tdatum', 'Temetés', 'Temetés dátuma'], dbColumn: 'tdatum', type: 'date', required: true },
+    { excelHeader: 'Temetés helye', excelAliases: ['thely', 'Temetés helység'], dbColumn: '_thelyseg_text', type: 'string', required: false, hint: 'Hol temették el (helység)' },
+    { excelHeader: 'Lelkész', excelAliases: ['lelkeszneve', 'Temetőlelkész'], dbColumn: 'lelkeszneve', type: 'string', required: false },
+    { excelHeader: 'Okirat', excelAliases: ['okirat', 'Anyakönyvi szám'], dbColumn: 'okirat', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
   ],
   autoColumns: [
     { dbColumn: 'congregation_id', source: 'congregation_id' },
   ],
   hints: [
-    'A személyt CNP-vel vagy névvel azonosítjuk.',
-    'A temetés dátuma kötelező.',
+    'Két dátum: Halál dátuma (mikor halt meg) + Temetés ideje (mikor temették el).',
+    'Két helyszín: Halálozás helye (hhelyid) + Temetés helye (thelyid).',
+    'A temetés rögzítése után a tag automatikusan elhunyt-jelzést kap a tagnyilvántartásban.',
   ],
-  sheetHints: ['Temetés', 'Burial', 'temetes'],
+  sheetHints: ['Temetés', 'Burial', 'temetes', 'temetesek'],
+}
+
+// ===========================
+// 3.b TAGMOZGÁSOK (4 fajta) — quad-lookup pattern
+// ===========================
+
+export const PROFILE_MOVEMENT_BEKOLTOZOTT: ImportProfile = {
+  key: 'movement_bekoltozott',
+  module: 'registry',
+  label: 'Beköltözöttek',
+  description: 'Gyülekezetbe beköltözött tagok importja (más helységből ide).',
+  targetTable: 'bekoltozott',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Dátum', excelAliases: ['mikor', 'Beköltözés dátuma'], dbColumn: 'mikor', type: 'date', required: true, hint: 'Mikor költözött be' },
+    { excelHeader: 'Honnan', excelAliases: ['honnan', 'Korábbi helység'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'Honnan érkezett (helység)' },
+    { excelHeader: 'Igazolás', excelAliases: ['igazolas', 'Áthelyezési igazolás'], dbColumn: 'igazolas', type: 'string', required: false },
+    { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+  ],
+  hints: [
+    'A beköltözött tag már a tagnyilvántartásban szerepel.',
+    'A "Honnan" oszlop a korábbi helységét adja meg (a wizard a helység-listából feloldja).',
+  ],
+  sheetHints: ['Beköltözött', 'Beköltözöttek', 'bekoltozott'],
+}
+
+export const PROFILE_MOVEMENT_ELKOLTOZOTT: ImportProfile = {
+  key: 'movement_elkoltozott',
+  module: 'registry',
+  label: 'Elköltözöttek',
+  description: 'Gyülekezetből elköltözött tagok importja (másik helységbe vagy külföldre).',
+  targetTable: 'elkoltozott',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Dátum', excelAliases: ['mikor', 'Elköltözés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    { excelHeader: 'Hova', excelAliases: ['hova', 'Új helység', 'Célhelység'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'Hova költözött (helység)' },
+    { excelHeader: 'Külföldre', excelAliases: ['kulfoldre', 'Külföld'], dbColumn: 'kulfoldre', type: 'boolean', required: false, hint: 'Külföldre költözött-e' },
+    { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+  ],
+  hints: [
+    'A "Külföldre" mezővel jelölhető, ha az elköltözés külföldre történt (akkor a Hova helység üres maradhat).',
+  ],
+  sheetHints: ['Elköltözött', 'Elköltözöttek', 'elkoltozott'],
+}
+
+export const PROFILE_MOVEMENT_ATTERT: ImportProfile = {
+  key: 'movement_attert',
+  module: 'registry',
+  label: 'Egyházunkba tértek',
+  description: 'Más felekezetből áttért tagok importja.',
+  targetTable: 'attert',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Dátum', excelAliases: ['mikor', 'Áttérés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    { excelHeader: 'Honnan', excelAliases: ['honnan', 'Korábbi helység'], dbColumn: '_helyseg_text', type: 'string', required: false },
+    { excelHeader: 'Felekezet', excelAliases: ['felekezet', 'Korábbi felekezet'], dbColumn: 'felekezet', type: 'string', required: false, hint: 'Honnan tért át (pl. római katolikus)' },
+    { excelHeader: 'Igazolás', excelAliases: ['igazolas'], dbColumn: 'igazolas', type: 'string', required: false },
+    { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+  ],
+  hints: [
+    'A korábbi felekezet (Felekezet oszlop) szöveges, kötetlen érték.',
+  ],
+  sheetHints: ['Áttért', 'Egyházunkba tért', 'attert', 'egyhazunkba_tert'],
+}
+
+export const PROFILE_MOVEMENT_KITERT: ImportProfile = {
+  key: 'movement_kitert',
+  module: 'registry',
+  label: 'Egyházunkból kitértek',
+  description: 'Más felekezetbe kitért tagok importja.',
+  targetTable: 'kitert',
+  columnMap: [
+    { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
+    { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
+    { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
+    { excelHeader: 'Dátum', excelAliases: ['mikor', 'Kitérés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    { excelHeader: 'Hova', excelAliases: ['hova', 'Új helység'], dbColumn: '_helyseg_text', type: 'string', required: false },
+    { excelHeader: 'Felekezet', excelAliases: ['felekezet', 'Új felekezet'], dbColumn: 'felekezet', type: 'string', required: false, hint: 'Hová tért át' },
+    { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+  ],
+  hints: [
+    'A kitéréskor csak az új felekezetet adjuk meg (helység opcionális).',
+  ],
+  sheetHints: ['Kitért', 'Egyházunkból kitért', 'kitert', 'egyhazunkbol_kitert'],
 }
 
 // ===========================
@@ -653,6 +792,10 @@ export const REGISTRY_PROFILES: ImportProfile[] = [
   PROFILE_CONFIRMATION,
   PROFILE_MARRIAGE,
   PROFILE_BURIAL,
+  PROFILE_MOVEMENT_BEKOLTOZOTT,
+  PROFILE_MOVEMENT_ELKOLTOZOTT,
+  PROFILE_MOVEMENT_ATTERT,
+  PROFILE_MOVEMENT_KITERT,
 ]
 
 export const WORKLOG_PROFILES: ImportProfile[] = [

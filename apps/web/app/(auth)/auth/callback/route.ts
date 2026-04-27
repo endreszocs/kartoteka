@@ -1,6 +1,22 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isMasterAdmin } from '@/lib/auth/roles'
+import {
+  SESSION_MODE_COOKIE,
+  buildSessionModeCookieOptions,
+} from '@/lib/auth/session-mode'
+
+/**
+ * OAuth callback — a Supabase exchangeCodeForSession után beállítjuk a
+ * session-mode cookie-t is, hogy a "Maradjak bejelentkezve" rendszer működjön.
+ * Az OAuth flow-ban nincs checkbox, ezért default `session` (24 óra). A
+ * felhasználó a következő login-on bekapcsolhatja a "Maradjak bejelentkezve"-t.
+ */
+function applySessionModeCookie(response: NextResponse, rememberMe = false): NextResponse {
+  const { mode, options } = buildSessionModeCookieOptions(rememberMe)
+  response.cookies.set(SESSION_MODE_COOKIE, mode, options)
+  return response
+}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
@@ -23,7 +39,7 @@ export async function GET(request: Request) {
 
         // Nincs profil → kiegészítő adatbekérés
         if (!profile) {
-          return NextResponse.redirect(`${origin}/oauth-complete`)
+          return applySessionModeCookie(NextResponse.redirect(`${origin}/oauth-complete`))
         }
 
         const master = isMasterAdmin(user.email)
@@ -34,7 +50,7 @@ export async function GET(request: Request) {
           return NextResponse.redirect(`${origin}/login?error=pending`)
         }
 
-        return NextResponse.redirect(`${origin}/`)
+        return applySessionModeCookie(NextResponse.redirect(`${origin}/`))
       }
     }
   }

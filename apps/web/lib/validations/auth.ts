@@ -8,6 +8,13 @@ export const loginSchema = z.object({
   password: z
     .string()
     .min(1, 'A jelszó megadása kötelező'),
+  /**
+   * "Maradjak bejelentkezve" pipa.
+   *  - true  → 1 éves persistent session cookie ("session-mode=persistent")
+   *  - false / undefined → 24 órás session cookie ("session-mode=session")
+   *  - alapértelmezetten kikapcsolt (1 nap után újra be kell jelentkezni)
+   */
+  rememberMe: z.boolean().optional(),
 })
 
 /**

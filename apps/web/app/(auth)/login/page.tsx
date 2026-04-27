@@ -1,7 +1,7 @@
 import { LoginForm } from '@/components/auth/login-form'
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; reason?: string }>
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -10,7 +10,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     ? 'Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!'
     : params.error === 'auth'
       ? 'Hiba történt a bejelentkezés során. Kérem, próbálja újra.'
-      : undefined
+      : params.reason === 'session-expired'
+        ? 'A bejelentkezésed lejárt — biztonsági okokból egy nap után újra be kell jelentkezned. Ha szeretnéd, hogy ne kelljen, pipáld be a "Maradjak bejelentkezve" mezőt.'
+        : undefined
 
   return <LoginForm initialError={errorFromUrl} />
 }
