@@ -23,6 +23,88 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-27] — Sprint Q F3 LEZÁRVA: IncomeDialog közös csomagba (v0.7.11)
+
+<!-- key: 2026-04-27-income-dialog-shared-sprint-q-f3-zaras -->
+<!-- category: improvement -->
+<!-- version: 0.7.11 -->
+<!-- targets: lelkészek, fejlesztők — pénzügyi modul felhasználói -->
+
+**Sprint Q F3 LEZÁRVA — a 3-tagú forma-dialog port utolsó darabja.** Az
+`IncomeDialog v3` (873 sor, 10 server-action callback) átkerült a
+`@kartoteka/ui-app/finance` shared package-be. Ezzel a teljes pénzügyi
+modul vizuális rétege a sharedban él (12/12 = 100%).
+
+### 🎨 Háttér-fejlesztés (Sprint Q F3.2)
+
+**Új shared `IncomeDialogBody.tsx` (~870 sor):**
+
+- Body-pattern: Dialog shell (DialogContent + DialogHeader + DialogTitle)
+  webnél marad, body sharedban
+- **10 server-action callback prop:**
+  - `onSaveIncome`, `onSaveIncomeWithLinkedInventory`, `onSaveIncomeBatch`
+  - `onSaveInternalTransfer` (kassza → bank letét)
+  - `onGetNextReceiptNumber`, `onGetLastRecordedDate`
+  - `onSearchMembers`, `onGetFamilyIdForPerson`
+  - `onCheckReceiptDuplicate`, `onGetRentalContracts`
+- 1 toast callback (`onToast: (type, message) => void`) —
+  típus: `'success' | 'error' | 'warning'`
+- Bérleti quick-pick (B1.7), kapcsolt leltári alapeszköz, tag-keresés
+  autocomplete-tel — mind a sharedban
+- shadcn-radix komponensek (Dialog, Button, Input, Label, Badge, Textarea)
+  → native HTML elementekre
+
+**Új shared `inventory.ts` (~37 sor):**
+
+- 10-tételes `INVENTORY_AMORTIZATION_CATALOG`
+- `getInventoryAmortizationCatalogEntry` helper
+
+**Webes wrapper átalakult (873 → ~100 sor):**
+
+- `apps/web/components/modals/income-dialog-v3.tsx`: 873 → ~100 sor wrapper
+  (Dialog shell + 10 server-action + sonner toast)
+
+### Felhasználó szempontból
+
+Nincs látható változás — a Pénzügy hero **Bevétel** gombja ugyanúgy nyitja
+a megszokott dialógot, ugyanazokkal az adatmezőkkel, egyesével/táblázatosan
+mód, bankba letét speciális logika, autocomplete tagkereső, bérleti
+quick-pick és kapcsolt leltári alapeszköz form ugyanúgy működik.
+
+### Sprint Q áttekintés (Fázis 1+2+3 LEZÁRVA)
+
+| Fázis | Verziók | Hatókör | Modulok |
+|-------|---------|---------|---------|
+| **F1** | v0.7.0–v0.7.5 | 9 finance UI shared | Dashboard, Debt, Accounting, Rental, Transactions, Monetary, Budget, Cashbook, Bank, FinanceSugo, FinancePrint, BudgetPrint |
+| **F2** | v0.7.7–v0.7.9 | Oblio modul TELJESEN | 10 lib + 4 modal + 2 sub-komp + 1 tab + OblioFileSystem interface |
+| **F3** | v0.7.10–v0.7.11 | 3 form-dialog | ExpenseDialog + DecontTab + IncomeDialog |
+
+A teljes pénzügyi modul **12/12 = 100%-a** a sharedban él. iOS-future-proof
+módon (callback-pattern + slot-pattern + platform-független interface-ek
+mint az `OblioFileSystem`).
+
+### iOS-future-proof állapot
+
+- Az IncomeDialogBody pure UI (callback-pattern), csak React + lucide-react
+  + relatív shared-importok
+- Sem `next/*`, sem `@/components/ui/*`, sem `sonner` nincs benne
+- Tauri-mobile alatt egy natív iOS `UIAlertController`-rel és
+  `URLSession`-rel kommunikáló wrapper kódváltoztatás nélkül használja
+
+### Verifikáció
+
+- `@kartoteka/ui-app` (tsc): zöld
+- `@kartoteka/web` (Next.js 16 + Webpack, 51 oldal): zöld
+- `@kartoteka/desktop` (lint + tsc + vite, 2369 modul, 13.00s, 1839 KB): zöld
+
+### Hátralévő (csak emlékeztető)
+
+- **v0.8.x**: Tauri SQLite mirror + offline outbox + finance write flow.
+  A teljes pénzügy UI most már desktop-mountolható közös `<FinanceTabs>`
+  formában — a következő fázis a write-side offline-szinkronizáció.
+
+---
+
 ## [2026-04-27] — Sprint Q F3.1: Kiadás-dialog + Decont-tab közös csomagba (v0.7.10)
 
 <!-- key: 2026-04-27-expense-dialog-and-decont-tab-shared -->

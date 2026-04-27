@@ -270,14 +270,14 @@ export function HomePage() {
             <div className="flex-1 text-xs text-slate-700">
               <p className="font-medium text-slate-800">Fejlesztői állapot</p>
               <p className="mt-1 leading-snug">
-                A desktop app jelenleg <strong>v0.7.10</strong> verzióban fut. Tagnyilvántartás,
+                A desktop app jelenleg <strong>v0.7.11</strong> verzióban fut. Tagnyilvántartás,
                 családok, munkanapló, pénzügy (7 oldal), anyakönyv (8 tábla), leltár, iktató,
                 jegyzőkönyvek, sírhelyek és éves jelentés mind elérhetők offline-ban. Az
                 adatok automatikusan szinkronizálódnak percenként a háttérben — az alsó
-                állapotsávon látszik, mikor frissültek utoljára. <strong>Sprint Q F3.1:</strong>{' '}
-                a Kiadás-rögzítő dialog és a Decont (elszámolás) tab átkerült a közös
-                csomagba (body-pattern, callback-prop) — iOS-future-proof módon. Hátra
-                az IncomeDialog port (v0.7.11, F3.2).
+                állapotsávon látszik, mikor frissültek utoljára. <strong>Sprint Q F3 LEZÁRVA:</strong>{' '}
+                a Bevétel-, Kiadás- és Decont-rögzítő dialog átkerült a közös csomagba
+                (body-pattern, callback-prop) — iOS-future-proof módon. A teljes pénzügyi
+                modul vizuális rétege a sharedban (12/12).
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => navigate('/dev')}>
