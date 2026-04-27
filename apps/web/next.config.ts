@@ -17,7 +17,13 @@ const withSerwist = withSerwistInit({
   disable:
     process.env.DISABLE_PWA === "true" ||
     process.env.NODE_ENV !== "production",
-  cacheOnNavigation: true,
+  // FONTOS: false — a SW NE intercept-elje a navigation request-eket.
+  // 2026-04-27: a `true` érték miatt a `/login` és `/auth/callback` request-ek
+  // néha "no-response" hibával fail-eltek (a Serwist NetworkFirst nem kezeli
+  // jól a route-handler 302 response-okat). Ettől megzavarodott a Google
+  // OAuth callback-flow (incognito-ban is fail-elt). A `false` hagyja a
+  // hálózatra a HTML-eket; a static assetek továbbra is precache-eltek.
+  cacheOnNavigation: false,
   reloadOnOnline: true,
 });
 
