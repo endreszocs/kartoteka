@@ -192,11 +192,13 @@ interface PersonLookupMaps {
   byQuad: Map<string, string>
   /** Triple fallback: csaladnev|k_nev|ferfi (sz_datum nélkül). 1 érték = egyértelmű, több = ambiguous. */
   byTriple: Map<string, string[]>
-  /** LÁNYKORI (szcs_nev) fallback: szcs_nev|k_nev|ferfi — esketéseknél a feleségek
-   *  azonosítására. A magyar reformárus tagnyilvántartásban a férjezett nőknél a
-   *  `csaladnev` a férj családneve, a `szcs_nev` a lánykori. Az esketés-XML
-   *  viszont a lánykori nevet adja → erre matchelünk. */
+  /** LÁNYKORI (szcs_nev) fallback: szcs_nev|k_nev|ferfi */
   byMaiden: Map<string, string[]>
+  /** Csak keresztnév + ferfi (UTOLSÓ ESÉLY) — k_nev|ferfi → szemely-id-k.
+   *  Akkor segít, ha az esketési XML lánykori családnevet ad, de a tagnyilv.-
+   *  ban csak a férjezett családnév szerepel ÉS NINCS szcs_nev mezője.
+   *  Csak akkor matchel, ha 1 találat van (különben ambivalens, kihagyjuk). */
+  byKnameFerfi: Map<string, string[]>
 }
 
 async function buildPersonLookupMap(
@@ -211,13 +213,14 @@ async function buildPersonLookupMap(
   const byQuad = new Map<string, string>()
   const byTriple = new Map<string, string[]>()
   const byMaiden = new Map<string, string[]>()
+  const byKnameFerfi = new Map<string, string[]>()
 
   const allCnps = Array.from(cnps).filter(Boolean)
   const allNames = Array.from(names).filter(Boolean)
   const allQuads = Array.from(quads).filter(Boolean)
 
   if (allCnps.length === 0 && allNames.length === 0 && allQuads.length === 0) {
-    return { byCnp, byName, byQuad, byTriple, byMaiden }
+    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
   }
 
   // A query: szemely táblában csak a saját gyülekezet személyeit nézzük
@@ -229,7 +232,7 @@ async function buildPersonLookupMap(
     .eq('congregation_id', congregationId)
     .eq('isvisible', true)
 
-  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden }
+  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
 
   for (const row of data as Array<LookupRecord & { isvisible?: boolean }>) {
     if (row.cnp) {
@@ -284,10 +287,23 @@ async function buildPersonLookupMap(
           byMaiden.set(maidenKeyNoFerfi, arr2)
         }
       }
+
+      // K-NEV + FERFI fuzzy index (UTOLSÓ ESÉLY)
+      // Akkor segít, ha sem a csaladnev sem a szcs_nev nem találja a tagot —
+      // pl. férjes asszony, akinek a tagnyilv. csak a férj családnevét tárolja
+      // (lánykori szcs_nev mező üres). Csak akkor matchel a resolve-on, ha
+      // pontosan 1 jelölt van — különben skipped (több azonos keresztnevű
+      // azonos nemű tag = ambivalens).
+      for (const knVar of knVariants) {
+        const knFerfiKey = `${knVar}|${dbFerfiFlag}`
+        const arr = byKnameFerfi.get(knFerfiKey) || []
+        if (!arr.includes(row.id)) arr.push(row.id)
+        byKnameFerfi.set(knFerfiKey, arr)
+      }
     }
   }
 
-  return { byCnp, byName, byQuad, byTriple, byMaiden }
+  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
 }
 
 /**
@@ -452,7 +468,7 @@ function resolvePersonByQuad(
     }
     if (candidates && !lastCandidates) lastCandidates = candidates
   }
-  // 4b. Maiden + ferfi nélkül (utolsó esély)
+  // 4b. Maiden + ferfi nélkül (utolsó esély a lánykori-keresésre)
   for (const knVar of knVariants) {
     const maidenKeyNoFerfi = `${csNorm}|${knVar}|?`
     const candidates = maps.byMaiden.get(maidenKeyNoFerfi)
@@ -463,7 +479,24 @@ function resolvePersonByQuad(
     }
   }
 
-  // 5. Nincs vagy ambiguous
+  // 5. UTOLSÓ ESÉLY: csak k_nev + ferfi (csaladnev NÉLKÜL)
+  //    Akkor segít, ha a férjes asszony tagnyilv. csak a férj családnevét
+  //    tárolja (szcs_nev üres) — a XML lánykori családneve nem matchel
+  //    sem a csaladnev-en sem a szcs_nev-en. Ha pontosan 1 jelölt van
+  //    `k_nev='Beáta Linda', ferfi=false` → biztosan ő az.
+  //    Ha több → ambivalens, NEM matchelünk (különben rossz tagot kötne).
+  for (const knVar of knVariants) {
+    const knFerfiKey = `${knVar}|${queryFerfiFlag}`
+    const candidates = maps.byKnameFerfi.get(knFerfiKey)
+    if (candidates && candidates.length === 1) {
+      rec[targetFk] = candidates[0]
+      stats.personResolved += 1
+      return
+    }
+    if (candidates && candidates.length > 1 && !lastCandidates) lastCandidates = candidates
+  }
+
+  // 6. Nincs vagy ambiguous
   stats.personUnresolved += 1
   if (stats.warnings.length < 30) {
     const ambiguous = lastCandidates && lastCandidates.length > 1 ? ` (${lastCandidates.length} jelölt)` : ''
@@ -613,7 +646,7 @@ export async function resolveLookups(
     cnps.size > 0 || names.size > 0 || needsQuadLookup
       ? buildPersonLookupMap(supabase, congregationId, cnps, names, quads)
       : Promise.resolve<PersonLookupMaps>({
-          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(),
+          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(), byKnameFerfi: new Map(),
         }),
     records.some(r => typeof r._befizetescel_nev === 'string' && r._befizetescel_nev)
       ? buildCategoryLookupMap(supabase, congregationId, 'befizetescel')
