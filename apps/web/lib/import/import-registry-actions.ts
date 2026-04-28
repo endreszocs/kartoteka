@@ -213,6 +213,48 @@ export async function executeRegistryImport(
   const records = transformResult.records.map(r => ({ ...r.record }))
   await resolveLookups(supabase, targetCongregationId, records)
 
+  // 3b. SELF-HEALING (marriage profil) — UPDATE szcs_nev a megtalált
+  //     feleségeken, ha a tagnyilv. szcs_nev mezője üres és a XML adott
+  //     lánykori családnevet. Így a tagnyilvántartás fokozatosan kiegészül.
+  //     Plus: a következő esketés-importnál már a maiden-fallback működik.
+  if (profileKey === 'marriage') {
+    const updates: Array<{ id: number; szcs_nev: string }> = []
+    for (const r of records) {
+      const idNo = r.id_no
+      const lankoriNev = r._no_csaladnev
+      if (
+        idNo != null && idNo !== ''
+        && typeof lankoriNev === 'string' && lankoriNev.trim()
+      ) {
+        // Ha még nincs ebben a listában (egyik feleség többször is szerepelhet)
+        const idNum = Number(idNo)
+        if (Number.isFinite(idNum) && !updates.find(u => u.id === idNum)) {
+          updates.push({ id: idNum, szcs_nev: lankoriNev.trim() })
+        }
+      }
+    }
+    if (updates.length > 0) {
+      // Csak az ÜRES szcs_nev-űeket frissítjük — az alapján egy szelektív
+      // SELECT + UPDATE párost csinálunk (nem írjuk felül a már beállítottakat).
+      const ids = updates.map(u => u.id)
+      const { data: existing } = await supabase
+        .from('szemely')
+        .select('id, szcs_nev')
+        .in('id', ids)
+      const updatableIds = new Set(
+        (existing || []).filter(e => !e.szcs_nev || e.szcs_nev.trim() === '').map(e => e.id),
+      )
+      for (const u of updates) {
+        if (updatableIds.has(u.id)) {
+          await supabase
+            .from('szemely')
+            .update({ szcs_nev: u.szcs_nev })
+            .eq('id', u.id)
+        }
+      }
+    }
+  }
+
   // 4. Kliens-oldali state parse
   let localityIdMap: Record<string, number> = {}
   if (localityMapRaw) {

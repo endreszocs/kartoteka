@@ -44,6 +44,8 @@ interface MissingPersonInput {
   k_nev: string
   sz_datum?: string | null
   ferfi?: boolean | null
+  /** Születési (lánykori) családnév — esketésnél a feleség lánykori neve. */
+  szcs_nev?: string | null
 }
 
 const SUPPORTED_EXTS = ['xlsx', 'xls', 'csv', 'xml']
@@ -149,6 +151,11 @@ export async function executeCreateMissingPersonsForRegistry(
               k_nev: k.trim(),
               sz_datum: typeof r._no_sz_datum === 'string' ? r._no_sz_datum : null,
               ferfi: false,
+              // FONTOS: az esketés-XML "Csaladnev_2" (lánykori) az új feleség
+              // szcs_nev-jébe is bekerül. Így a következő esketés-importnál
+              // a maiden-fallback már megtalálja, és a hivatalos magyar
+              // megnevezés ("Hatházi Andrásné Karácsony Irma") is építhető.
+              szcs_nev: cs.trim(),
             },
           })
         }
@@ -204,6 +211,7 @@ export async function executeCreateMissingPersonsForRegistry(
           k_nev: item.person.k_nev,
           sz_datum: item.person.sz_datum || null,
           ferfi: item.person.ferfi ?? true,
+          szcs_nev: item.person.szcs_nev || null,
           csaladfo: false,
           meghalt: false,
           isvisible: true,
