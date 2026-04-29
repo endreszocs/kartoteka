@@ -423,67 +423,99 @@ function resolvePersonByQuad(
   const knVariants = knevVariants(k_nev)
   const dNorm = normalizeDateForQuad(typeof sz_datum === 'string' ? sz_datum : sz_datum != null ? String(sz_datum) : '')
 
-  // 1. Quad próba minden knev-variánssal (sz_datummal + ferfi-vel)
-  if (dNorm) {
-    for (const knVar of knVariants) {
-      const quad = `${csNorm}|${knVar}|${dNorm}|${queryFerfiFlag}`
-      const id = maps.byQuad.get(quad)
-      if (id) {
-        rec[targetFk] = id
-        stats.personResolved += 1
-        return
+  // 2026-04-30: a XML "SzCsaládnév" oszlopa (`_szcs_nev`) a lánykori családnév.
+  // Ha a fő quad/triple/maiden próba a XML `_csaladnev`-vel nem talál, a teljes
+  // próba-szettet újra futtatjuk a `_szcs_nev`-vel. Ez kétféle férjezett-asszony
+  // esetet fed le:
+  //  (a) tagnyilv. még a lánykori néven van (`csaladnev=Bitai`)  — akkor a XML
+  //      `_szcs_nev=Bitai` matchel a `byQuad`/`byTriple` indexekben;
+  //  (b) tagnyilv. a férjezett néven van (`csaladnev=Szabó`, `szcs_nev=Bitai`) —
+  //      ezt a XML `_csaladnev=Szabó`-val a fő próba találja meg, de ha az XML
+  //      "Családnév" nincs feltöltve (csak SzCsaládnév), a `_szcs_nev` fallback
+  //      a `byMaiden` indexen találja meg.
+  const szcsNevRaw = prefix === '' ? rec._szcs_nev : null
+  const szcsNorm = typeof szcsNevRaw === 'string' && szcsNevRaw.trim()
+    ? normalizeNameForQuad(szcsNevRaw)
+    : ''
+
+  let lastCandidates: string[] | undefined
+
+  // Belső helper: egyetlen családnév-jelölttel végigmegy a 4 próbán.
+  // Visszaad: true ha talált (rec[targetFk] beállítva), false ha nem.
+  function tryResolveWith(altCsNorm: string): boolean {
+    if (!altCsNorm) return false
+
+    // Quad próba (sz_datummal + ferfi-vel)
+    if (dNorm) {
+      for (const knVar of knVariants) {
+        const quad = `${altCsNorm}|${knVar}|${dNorm}|${queryFerfiFlag}`
+        const id = maps.byQuad.get(quad)
+        if (id) {
+          rec[targetFk] = id
+          stats.personResolved += 1
+          return true
+        }
       }
     }
+
+    // Triple fallback (sz_datum nélkül, ferfi-vel)
+    for (const knVar of knVariants) {
+      const tripleKey = `${altCsNorm}|${knVar}|${queryFerfiFlag}`
+      const candidates = maps.byTriple.get(tripleKey)
+      if (candidates && candidates.length === 1) {
+        rec[targetFk] = candidates[0]
+        stats.personResolved += 1
+        return true
+      }
+      if (candidates) lastCandidates = candidates
+    }
+
+    // Triple-NoFerfi (ha az XML _ferfi ismeretlen)
+    for (const knVar of knVariants) {
+      const tripleNoFerfi = `${altCsNorm}|${knVar}|?`
+      const candidates = maps.byTriple.get(tripleNoFerfi)
+      if (candidates && candidates.length === 1) {
+        rec[targetFk] = candidates[0]
+        stats.personResolved += 1
+        return true
+      }
+    }
+
+    // Maiden (a tagnyilv. szcs_nev-jén) + ferfi-vel
+    for (const knVar of knVariants) {
+      const maidenKey = `${altCsNorm}|${knVar}|${queryFerfiFlag}`
+      const candidates = maps.byMaiden.get(maidenKey)
+      if (candidates && candidates.length === 1) {
+        rec[targetFk] = candidates[0]
+        stats.personResolved += 1
+        return true
+      }
+      if (candidates && !lastCandidates) lastCandidates = candidates
+    }
+
+    // Maiden NoFerfi
+    for (const knVar of knVariants) {
+      const maidenKeyNoFerfi = `${altCsNorm}|${knVar}|?`
+      const candidates = maps.byMaiden.get(maidenKeyNoFerfi)
+      if (candidates && candidates.length === 1) {
+        rec[targetFk] = candidates[0]
+        stats.personResolved += 1
+        return true
+      }
+    }
+
+    return false
   }
 
-  // 2. Triple fallback (sz_datum nélkül, ferfi-vel)
-  let lastCandidates: string[] | undefined
-  for (const knVar of knVariants) {
-    const tripleKey = `${csNorm}|${knVar}|${queryFerfiFlag}`
-    const candidates = maps.byTriple.get(tripleKey)
-    if (candidates && candidates.length === 1) {
-      rec[targetFk] = candidates[0]
-      stats.personResolved += 1
-      return
-    }
-    if (candidates) lastCandidates = candidates
-  }
+  // 1-4. Fő próba a XML _csaladnev-vel (jelenlegi/férjezett családnév)
+  if (tryResolveWith(csNorm)) return
 
-  // 3. Triple-NoFerfi fallback (ha az XML _ferfi ismeretlen)
-  for (const knVar of knVariants) {
-    const tripleNoFerfi = `${csNorm}|${knVar}|?`
-    const candidates = maps.byTriple.get(tripleNoFerfi)
-    if (candidates && candidates.length === 1) {
-      rec[targetFk] = candidates[0]
-      stats.personResolved += 1
-      return
-    }
-  }
-
-  // 4. LÁNYKORI (szcs_nev) fallback — csak a `prefix='no'` (esketés menyasszony)
-  //    esetén jelentős, mert a férjes asszony `csaladnev`-je a férj családneve,
-  //    de a `szcs_nev`-ben tárolt lánykori név egyezik a XML "Csaladnev_2"-vel.
-  //    Általánosan is alkalmazható (a férfiak `szcs_nev`-je általában megegyezik
-  //    a `csaladnev`-vel, így nem ad téves találatot).
-  for (const knVar of knVariants) {
-    const maidenKey = `${csNorm}|${knVar}|${queryFerfiFlag}`
-    const candidates = maps.byMaiden.get(maidenKey)
-    if (candidates && candidates.length === 1) {
-      rec[targetFk] = candidates[0]
-      stats.personResolved += 1
-      return
-    }
-    if (candidates && !lastCandidates) lastCandidates = candidates
-  }
-  // 4b. Maiden + ferfi nélkül (utolsó esély a lánykori-keresésre)
-  for (const knVar of knVariants) {
-    const maidenKeyNoFerfi = `${csNorm}|${knVar}|?`
-    const candidates = maps.byMaiden.get(maidenKeyNoFerfi)
-    if (candidates && candidates.length === 1) {
-      rec[targetFk] = candidates[0]
-      stats.personResolved += 1
-      return
-    }
+  // 4.5. ÚJ (2026-04-30): ha van XML _szcs_nev (lánykori), próbáljuk azzal is.
+  //      A temetés-XML "Özv. Szabó Áronné Bitai Tekla" sornál: _csaladnev=Szabó,
+  //      _szcs_nev=Bitai. Ha a tagnyilv-ban a tag még lánykori néven van vagy
+  //      a szcs_nev mező Bitai-ra van állítva, ez a próba találja meg.
+  if (szcsNorm && szcsNorm !== csNorm) {
+    if (tryResolveWith(szcsNorm)) return
   }
 
   // 5. UTOLSÓ ESÉLY: csak k_nev + ferfi (csaladnev NÉLKÜL)

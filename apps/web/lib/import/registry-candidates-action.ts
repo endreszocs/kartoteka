@@ -115,6 +115,13 @@ interface ScoringInput {
    *  jel: ez már a férj nevét viseli). Logika: a magyar gyakorlatban a
    *  házassággal a nő csaladnev-je gyakran a férj nevére változik. */
   husbandCsaladnev?: string | null
+  /** XML "SzCsaládnév" oszlopa — a lánykori családnév. Akkor segít, ha az
+   *  XML-ben szerepel ez a mező (pl. temetés-XML "Özv. Szabó Áronné Bitai
+   *  Tekla" sornál: `searchCsaladnev=Szabó`, `searchSzcsNev=Bitai`). Ha a
+   *  jelölt `csaladnev`-je egyezik a XML lánykori nevével (a tag még a
+   *  lánykori nevén van) → +30 pont. Ha a jelölt `szcs_nev`-je egyezik
+   *  vele → +25 pont. */
+  searchSzcsNev?: string | null
 }
 
 interface PersonRow {
@@ -177,6 +184,23 @@ function scorePerson(p: PersonRow, s: ScoringInput): { score: number; reasons: s
   if (sCsNorm && pScsNorm && sCsNorm === pScsNorm) {
     score += 25
     reasons.push('Lánykori név egyezik')
+  }
+
+  // XML lánykori név (SzCsaládnév) ↔ jelölt csaladnev/szcs_nev
+  // A temetés-XML kifejezetten elválasztja a férjezett és lánykori nevet.
+  // Ha a tag még a lánykori néven van a tagnyilv-ban → csaladnev egyezés a
+  // XML lánykori nevével erős jel.
+  if (s.searchSzcsNev) {
+    const sSzcsNorm = norm(s.searchSzcsNev)
+    if (sSzcsNorm && sSzcsNorm !== sCsNorm) {
+      if (pCsNorm === sSzcsNorm) {
+        score += 30
+        reasons.push(`Tag a lánykori néven (${s.searchSzcsNev})`)
+      } else if (pScsNorm === sSzcsNorm) {
+        score += 25
+        reasons.push(`Lánykori név (${s.searchSzcsNev}) egyezik`)
+      }
+    }
   }
 
   // ─── Férj családneve (esketés menyasszony) ──────────────────────────────
@@ -391,11 +415,15 @@ export async function getCandidatesForUnresolvedAction(
         const cs = String(r._csaladnev || '')
         const k = String(r._k_nev || '')
         if (cs.trim() && k.trim()) {
+          const szcsNev = typeof r._szcs_nev === 'string' && r._szcs_nev.trim()
+            ? r._szcs_nev.trim()
+            : null
           const candidates = scoreAndPickTop({
             searchCsaladnev: cs,
             searchKnev: k,
             searchSzDatum: typeof r._sz_datum === 'string' ? r._sz_datum : null,
             searchFerfi: coerceFerfi(r._ferfi),
+            searchSzcsNev: szcsNev,
           })
           result.push({
             rowIndex: i + 1,

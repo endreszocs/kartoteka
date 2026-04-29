@@ -33,6 +33,7 @@ import {
 } from '@/lib/import/import-profiles'
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
 import { executeRegistryImport } from '@/lib/import/import-registry-actions'
+import { scanRegistryLocalitiesAction } from '@/lib/import/registry-locality-scan-action'
 import type { ParseResult, ParsedSheetPreview } from '@/lib/import/batch-import-types'
 
 import { WizardStepper, type WizardStep } from '../members/tagnyilvantartas-import/wizard-stepper'
@@ -243,6 +244,10 @@ export function RegistryImportWizard({
   /** Manuális tag-pick a person-link-step-en — kulcs: "rowIdx_slot", érték: szemely_id.
    *  Ha üres → automatikus quad-lookup eredménye érvényes. */
   const [manualPicks, setManualPicks] = useState<Record<string, number>>({})
+  /** A teljes fájlból kinyert egyedi helység-szövegek (a sample 5 sornál
+   *  több, mert a server action a TELJES fájlt parse-olja). 2026-04-30. */
+  const [fullFileLocalities, setFullFileLocalities] = useState<string[] | null>(null)
+  const [isScanningLocalities, startScanningLocalities] = useTransition()
   const handleManualPickChange = useCallback((key: string, szemelyId: number | null) => {
     setManualPicks((prev) => {
       if (szemelyId === null) {
@@ -278,6 +283,8 @@ export function RegistryImportWizard({
     setParseResult(null)
     setMappingOverrides({})
     setResolvedLocalityMap({})
+    setManualPicks({})
+    setFullFileLocalities(null)
     setImportResult(null)
   }, [])
 
@@ -359,6 +366,10 @@ export function RegistryImportWizard({
   }, [profile])
 
   const uniqueLocalityInputs = useMemo<string[]>(() => {
+    // Ha már lefutott a TELJES fájl-szken, azt használjuk (autoritatív).
+    if (fullFileLocalities !== null) return fullFileLocalities
+    // Egyébként a sample-alapú előzetes (csak az 5 sample-sorra) — ezt
+    // a wizard scan-action-jel cseréli, mielőtt a locality-step megnyílik.
     if (!activeSheet || helysegHeaderKeys.length === 0) return []
     const set = new Set<string>()
     for (const row of activeSheet.sampleRows as Array<Record<string, string | number | null>>) {
@@ -371,7 +382,31 @@ export function RegistryImportWizard({
       }
     }
     return Array.from(set)
-  }, [activeSheet, helysegHeaderKeys, effectiveMapping])
+  }, [activeSheet, helysegHeaderKeys, effectiveMapping, fullFileLocalities])
+
+  // Server-side TELJES fájl helység-szken — a wizard a person-link → locality
+  // átmenet előtt hívja, hogy minden 6+ sori új helyszín is bekerüljön a listába.
+  const runFullLocalityScan = useCallback(() => {
+    if (!file || !activeSheet) return
+    if (helysegHeaderKeys.length === 0) {
+      setFullFileLocalities([])
+      return
+    }
+    startScanningLocalities(async () => {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('sheetName', activeSheet.sheetName)
+      formData.append('profileKey', profile.key)
+      formData.append('mapping', JSON.stringify(effectiveMapping))
+      const res = await scanRegistryLocalitiesAction(formData)
+      if (res.error) {
+        toast.error(`Helyszín-szken: ${res.error}`)
+        // Fallback: sample-alapú lista marad
+        return
+      }
+      setFullFileLocalities(res.uniqueValues || [])
+    })
+  }, [file, activeSheet, helysegHeaderKeys, profile, effectiveMapping])
 
   // ─── Statisztikák ──────────────────────────────────────────────────
   const counts = useMemo(() => {
@@ -563,7 +598,13 @@ export function RegistryImportWizard({
           selectedProfileKey={profile.key}
           onProfileChange={handleProfileChange}
           onBack={() => setStage('upload')}
-          onContinue={() => setStage('person-link')}
+          onContinue={() => {
+            // 2026-04-30: TELJES fájl helység-szken indítása a háttérben.
+            // Mire a felhasználó eljut a locality-stage-ig, addigra megvan
+            // az ÖSSZES helység-szöveg listája (nem csak a sample 5 soré).
+            runFullLocalityScan()
+            setStage('person-link')
+          }}
         />
       )}
 
@@ -590,18 +631,25 @@ export function RegistryImportWizard({
 
       {/* 4. Locality */}
       {stage === 'locality' && activeSheet && (
-        <LocalityMatchStep
-          uniqueLocalityInputs={uniqueLocalityInputs}
-          resolvedMap={resolvedLocalityMap}
-          onResolutionChange={(input, resolution) =>
-            setResolvedLocalityMap((prev) => ({ ...prev, [input]: resolution }))
-          }
-          onBack={() => setStage('person-link')}
-          onContinue={() => {
-            if (skipSpecial) setStage('preview')
-            else setStage('special')
-          }}
-        />
+        <>
+          {isScanningLocalities && fullFileLocalities === null && (
+            <div className="rounded-2xl bg-violet-50 p-4 text-sm text-violet-700 ring-1 ring-violet-100">
+              A teljes fájlból gyűjtjük a helységeket… (52+ sor esetén pár másodperc)
+            </div>
+          )}
+          <LocalityMatchStep
+            uniqueLocalityInputs={uniqueLocalityInputs}
+            resolvedMap={resolvedLocalityMap}
+            onResolutionChange={(input, resolution) =>
+              setResolvedLocalityMap((prev) => ({ ...prev, [input]: resolution }))
+            }
+            onBack={() => setStage('person-link')}
+            onContinue={() => {
+              if (skipSpecial) setStage('preview')
+              else setStage('special')
+            }}
+          />
+        </>
       )}
 
       {/* 5. Special-fields */}
