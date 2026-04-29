@@ -13,12 +13,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { Check, Loader2, Search, X, AlertCircle, UserCheck, Heart } from 'lucide-react'
+import { Check, Loader2, Search, X, AlertCircle, UserCheck, Heart, SearchCheck } from 'lucide-react'
 
 import {
   getCandidatesForUnresolvedAction,
   type UnresolvedRowCandidates,
+  type CandidatePerson,
 } from '@/lib/import/registry-candidates-action'
+import { searchPersonsForManualPickAction } from '@/lib/import/registry-manual-search-action'
 
 interface UnresolvedCandidatesListProps {
   file: File
@@ -239,16 +241,175 @@ export function UnresolvedCandidatesList({
                   )}
                 </div>
               )}
+
+              {/* Manuális keresés — ha az ajánlott jelöltek között nincs a keresett tag */}
+              <ManualSearchBox
+                pickKey={pickKey}
+                ferfiFilter={row.searchedFerfi}
+                targetCongregationId={targetCongregationId}
+                currentPick={currentPick}
+                onPickChange={onPickChange}
+                initialQuery={`${row.searchedCsaladnev} ${row.searchedKnev}`.trim()}
+              />
             </li>
           )
         })}
       </ul>
 
       {unresolvedRows.length > 50 && (
-        <p className="mt-3 text-xs text-amber-700">
+        <p className="mt-3 text-xs text-violet-700">
           (Csak az első 50 sor jelenik meg, a többi automatikusan a legjobb
           jelölthöz lesz kötve, ha 1 egyértelmű találat van.)
         </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Manuális kereső sub-komponens ────────────────────────────────────────
+
+interface ManualSearchBoxProps {
+  pickKey: string
+  ferfiFilter: boolean | null
+  targetCongregationId: string
+  currentPick: number | undefined
+  onPickChange: (key: string, szemelyId: number | null) => void
+  /** Előre kitöltött keresőszöveg (a XML-ből származó név) — könnyebb
+   *  variálni a keresőt mint nulláról beírni. */
+  initialQuery: string
+}
+
+function ManualSearchBox({
+  pickKey,
+  ferfiFilter,
+  targetCongregationId,
+  currentPick,
+  onPickChange,
+  initialQuery,
+}: ManualSearchBoxProps) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(initialQuery)
+  const [results, setResults] = useState<CandidatePerson[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [isSearching, startSearching] = useTransition()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const runSearch = useCallback((q: string) => {
+    setError(null)
+    if (q.trim().length < 2) {
+      setResults([])
+      return
+    }
+    startSearching(async () => {
+      const res = await searchPersonsForManualPickAction(q, {
+        ferfi: ferfiFilter,
+        targetCongregationId,
+      })
+      if (res.error) {
+        setError(res.error)
+        setResults([])
+        return
+      }
+      setResults(res.results || [])
+    })
+  }, [ferfiFilter, targetCongregationId])
+
+  // Debounced keresés gépelés közben
+  useEffect(() => {
+    if (!open) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => runSearch(query), 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [query, open, runSearch])
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1 text-[11px] text-slate-500 underline-offset-2 hover:text-violet-700 hover:underline"
+        >
+          <Search className="size-3" />
+          Saját keresés (ha nincs az ajánlottak között)
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-slate-50 p-2 ring-1 ring-slate-200">
+      <div className="flex items-center gap-2">
+        <SearchCheck className="size-3.5 shrink-0 text-violet-600" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Keresés családnév, keresztnév, lánykori név alapján…"
+          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
+          autoFocus
+        />
+        {isSearching && <Loader2 className="size-3.5 shrink-0 animate-spin text-violet-500" />}
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setQuery(''); setResults([]) }}
+          className="text-slate-400 hover:text-slate-700"
+          aria-label="Kereső bezárása"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-2 text-[11px] text-red-600">{error}</div>
+      )}
+
+      {!error && !isSearching && query.trim().length >= 2 && results.length === 0 && (
+        <div className="mt-2 text-[11px] text-slate-500 italic">
+          Nincs találat — próbálj kevesebb betűt vagy más névrészt.
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1">
+          {results.map(c => {
+            const isPicked = currentPick === c.id
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => onPickChange(pickKey, isPicked ? null : c.id)}
+                className={`flex items-center justify-between gap-3 rounded-md border p-1.5 text-left text-xs transition ${
+                  isPicked
+                    ? 'border-violet-400 bg-violet-50 ring-1 ring-violet-200'
+                    : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/50'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium text-slate-800">
+                      {c.csaladnev} {c.k_nev}
+                    </span>
+                    {c.szcs_nev && c.szcs_nev !== c.csaladnev && (
+                      <span className="text-[10px] text-slate-500">
+                        (sz. {c.szcs_nev})
+                      </span>
+                    )}
+                    {c.sz_datum && (
+                      <span className="text-[10px] text-slate-500">{c.sz_datum}</span>
+                    )}
+                    <span className="text-[10px] text-slate-400">
+                      {c.ferfi === true ? '♂' : c.ferfi === false ? '♀' : ''}
+                    </span>
+                  </div>
+                </div>
+                {isPicked && <Check className="size-3.5 shrink-0 text-violet-600" />}
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )
