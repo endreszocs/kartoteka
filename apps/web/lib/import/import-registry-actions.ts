@@ -213,6 +213,29 @@ export async function executeRegistryImport(
   const records = transformResult.records.map(r => ({ ...r.record }))
   await resolveLookups(supabase, targetCongregationId, records)
 
+  // 3a. MANUÁLIS TAG-PICK alkalmazása (a wizard person-link lépéséről)
+  //     A `manualPicks` formátum: { "rowIdx_slot": szemely_id }
+  //     - "12_": general (id_szemely) az első nem-talált sorhoz
+  //     - "5_ferfi": esketés vőlegény
+  //     - "5_no": esketés menyasszony
+  const manualPicksRaw = formData.get('manualPicks') as string | null
+  if (manualPicksRaw) {
+    try {
+      const manualPicks: Record<string, number> = JSON.parse(manualPicksRaw)
+      for (const [key, szemelyId] of Object.entries(manualPicks)) {
+        const [rowIdxStr, slot] = key.split('_')
+        const rowIdx = Number(rowIdxStr) - 1 // 1-alapú index → 0-alapú
+        if (Number.isFinite(rowIdx) && rowIdx >= 0 && rowIdx < records.length) {
+          if (slot === 'ferfi') records[rowIdx].id_ferfi = szemelyId
+          else if (slot === 'no') records[rowIdx].id_no = szemelyId
+          else records[rowIdx].id_szemely = szemelyId
+        }
+      }
+    } catch {
+      // ignore — ha rossz a JSON, marad a quad-lookup eredménye
+    }
+  }
+
   // 3b. SELF-HEALING (marriage profil) — UPDATE szcs_nev a megtalált
   //     feleségeken, ha a tagnyilv. szcs_nev mezője üres és a XML adott
   //     lánykori családnevet. Így a tagnyilvántartás fokozatosan kiegészül.

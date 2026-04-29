@@ -21,6 +21,7 @@ import {
   type RegistryPersonResolveResult,
 } from '@/lib/import/registry-person-resolve-action'
 import { executeCreateMissingPersonsForRegistry } from '@/lib/import/registry-create-missing-persons-action'
+import { UnresolvedCandidatesList } from './unresolved-candidates-list'
 
 interface PersonLinkStepProps {
   /** A feltöltött fájl (a server action MAGA parse-olja a teljes sheet-et) */
@@ -31,6 +32,9 @@ interface PersonLinkStepProps {
   profileKey: string
   /** A célzott gyülekezet */
   targetCongregationId: string
+  /** Manuális tag-választás state — kulcs: "rowIdx_slot", érték: szemely_id */
+  manualPicks: Record<string, number>
+  onPickChange: (key: string, szemelyId: number | null) => void
   onBack: () => void
   onContinue: () => void
 }
@@ -40,6 +44,8 @@ export function PersonLinkStep({
   sheetName,
   profileKey,
   targetCongregationId,
+  manualPicks,
+  onPickChange,
   onBack,
   onContinue,
 }: PersonLinkStepProps) {
@@ -233,6 +239,20 @@ export function PersonLinkStep({
                 )}
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Manuális tag-pick — TOP-5 jelölt pontszámmal a nem-talált sorokhoz */}
+        {!isResolving && unresolvedTotal > 0 && (
+          <div className="mt-4">
+            <UnresolvedCandidatesList
+              file={file}
+              sheetName={sheetName}
+              profileKey={profileKey}
+              targetCongregationId={targetCongregationId}
+              manualPicks={manualPicks}
+              onPickChange={onPickChange}
+            />
           </div>
         )}
 

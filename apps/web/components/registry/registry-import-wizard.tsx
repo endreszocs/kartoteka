@@ -240,6 +240,19 @@ export function RegistryImportWizard({
     autoCreateBaptismForConfirmation: true,
     marriageVegyesGlobal: false,
   })
+  /** Manuális tag-pick a person-link-step-en — kulcs: "rowIdx_slot", érték: szemely_id.
+   *  Ha üres → automatikus quad-lookup eredménye érvényes. */
+  const [manualPicks, setManualPicks] = useState<Record<string, number>>({})
+  const handleManualPickChange = useCallback((key: string, szemelyId: number | null) => {
+    setManualPicks((prev) => {
+      if (szemelyId === null) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
+      return { ...prev, [key]: szemelyId }
+    })
+  }, [])
   const [importResult, setImportResult] = useState<ResultData | null>(null)
 
   const [isParsing, startParsing] = useTransition()
@@ -428,6 +441,10 @@ export function RegistryImportWizard({
       formData.append('resolvedLocalityMap', JSON.stringify(localityIdMap))
       formData.append('specialFieldsConfig', JSON.stringify(specialConfig))
       formData.append('defaultMunkanaploba', 'false')
+      // Manuális tag-pick (a person-link-step-ről)
+      if (Object.keys(manualPicks).length > 0) {
+        formData.append('manualPicks', JSON.stringify(manualPicks))
+      }
       if (mode === 'admin' && selectedCongId) {
         formData.append('targetCongregationId', selectedCongId)
       }
@@ -465,7 +482,7 @@ export function RegistryImportWizard({
       }
       router.refresh()
     })
-  }, [file, activeSheet, mode, selectedCongId, profile, localityIdMap, specialConfig, router])
+  }, [file, activeSheet, mode, selectedCongId, profile, localityIdMap, specialConfig, manualPicks, router])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId = stage === 'importing' ? 'preview' : stage
@@ -557,6 +574,8 @@ export function RegistryImportWizard({
           sheetName={activeSheet.sheetName}
           profileKey={profile.key}
           targetCongregationId={mode === 'admin' ? selectedCongId : congregationId || ''}
+          manualPicks={manualPicks}
+          onPickChange={handleManualPickChange}
           onBack={() => setStage('mapping')}
           onContinue={() => {
             if (skipLocality) {
