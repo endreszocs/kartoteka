@@ -59,11 +59,11 @@ WHERE dt.name = 'Erdélyi Református Egyházkerület';
 -- Várt: 15
 
 -- 3. A 15 hivatalos egyházmegye listája (név szerint rendezve)
-SELECT name AS egyhazmegye, id, created_at
+SELECT d.name AS egyhazmegye, d.id, d.created_at
 FROM public.dioceses d
 JOIN public.districts dt ON d.district_id = dt.id
 WHERE dt.name = 'Erdélyi Református Egyházkerület'
-ORDER BY name;
+ORDER BY d.name;
 -- Várt: pontosan 15 sor (Brassói, Dési, Erdővidéki, Görgényi, Hunyadi,
 --       Kalotaszegi, Kézdi-Orbai, Kolozsvári, Küküllői, Maros-Mezőségi,
 --       Marosi, Nagyenyedi, Sepsi, Székelyudvarhelyi, Tordai)
