@@ -629,27 +629,27 @@ export function RegistryImportWizard({
         />
       )}
 
-      {/* 4. Locality */}
+      {/* 4. Locality — szken-loader */}
+      {stage === 'locality' && activeSheet && isScanningLocalities && fullFileLocalities === null && (
+        <div className="rounded-2xl bg-violet-50 p-4 text-sm text-violet-700 ring-1 ring-violet-100">
+          A teljes fájlból gyűjtjük a helységeket… (52+ sor esetén pár másodperc)
+        </div>
+      )}
+
+      {/* 4. Locality — match step */}
       {stage === 'locality' && activeSheet && (
-        <>
-          {isScanningLocalities && fullFileLocalities === null && (
-            <div className="rounded-2xl bg-violet-50 p-4 text-sm text-violet-700 ring-1 ring-violet-100">
-              A teljes fájlból gyűjtjük a helységeket… (52+ sor esetén pár másodperc)
-            </div>
-          )}
-          <LocalityMatchStep
-            uniqueLocalityInputs={uniqueLocalityInputs}
-            resolvedMap={resolvedLocalityMap}
-            onResolutionChange={(input, resolution) =>
-              setResolvedLocalityMap((prev) => ({ ...prev, [input]: resolution }))
-            }
-            onBack={() => setStage('person-link')}
-            onContinue={() => {
-              if (skipSpecial) setStage('preview')
-              else setStage('special')
-            }}
-          />
-        </>
+        <LocalityMatchStep
+          uniqueLocalityInputs={uniqueLocalityInputs}
+          resolvedMap={resolvedLocalityMap}
+          onResolutionChange={(input, resolution) =>
+            setResolvedLocalityMap((prev) => ({ ...prev, [input]: resolution }))
+          }
+          onBack={() => setStage('person-link')}
+          onContinue={() => {
+            if (skipSpecial) setStage('preview')
+            else setStage('special')
+          }}
+        />
       )}
 
       {/* 5. Special-fields */}

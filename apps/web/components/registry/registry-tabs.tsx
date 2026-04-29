@@ -219,34 +219,110 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     const getName = (d: RegistryEntry) => d.szemely ? `${d.szemely.csaladnev} ${d.szemely.k_nev}` : '—'
     const getDate = (d: RegistryEntry) => (d.datum || d.mikor || d.hdatum || '')?.toString().split('T')[0] || '—'
 
+    // Fejlécek a profil szerint — array, kulcsokkal (a Fragment-ek React keys-warningot
+    // okoztak Next 16-ban a `<tr>`-ben, mert több feltételes <>...</> szomszédja
+    // listának látszott). Az array-elemek explicit key-vel megoldják.
+    const headerCells: React.ReactNode[] = []
+    if (activeTab === 'keresztseg') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-aszam" className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('okirat')}>Állami szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
+        <th key="h-lel" className="p-2 text-left hidden md:table-cell">Lelkész</th>,
+      )
+    } else if (activeTab === 'konfirmalas') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
+        <th key="h-lel" className="p-2 text-left hidden md:table-cell">Lelkész</th>,
+      )
+    } else if (activeTab === 'hazassag') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-hlev" className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('hlevel')}>Hlevel</th>,
+        <th key="h-vol" className="p-2 text-left">Vőlegény</th>,
+        <th key="h-men" className="p-2 text-left">Menyasszony</th>,
+        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
+      )
+    } else if (activeTab === 'temetes') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-hal" className="p-2 text-left">Halál</th>,
+        <th key="h-tem" className="p-2 text-left">Temetés</th>,
+        <th key="h-ok" className="p-2 text-left hidden md:table-cell">Ok</th>,
+      )
+    } else if (['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab)) {
+      headerCells.push(
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-dat" className="p-2 text-left">Dátum</th>,
+        <th key="h-meg" className="p-2 text-left hidden md:table-cell">Megjegyzés</th>,
+      )
+    }
+    headerCells.push(<th key="h-act" className="p-2 w-20"></th>)
+
+    function rowCells(d: RegistryEntry): React.ReactNode[] {
+      const cells: React.ReactNode[] = []
+      if (activeTab === 'keresztseg') {
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-aszam" className="p-2 hidden lg:table-cell text-xs text-slate-500">{d.okirat || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+          <td key="c-lel" className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td>,
+        )
+      } else if (activeTab === 'konfirmalas') {
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)} {d.szemely?.ferfi ? '♂' : '♀'}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+          <td key="c-lel" className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td>,
+        )
+      } else if (activeTab === 'hazassag') {
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-hlev" className="p-2 hidden lg:table-cell text-xs text-slate-500">{(d.hlevel as string | undefined) || '—'}</td>,
+          <td key="c-vol" className="p-2 font-medium">{d.ferfi ? `${d.ferfi.csaladnev} ${d.ferfi.k_nev}` : '—'}</td>,
+          <td key="c-men" className="p-2 font-medium">{d.no ? `${d.no.csaladnev} ${d.no.k_nev}` : '—'}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+        )
+      } else if (activeTab === 'temetes') {
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-hal" className="p-2 text-muted-foreground">{d.hdatum?.toString().split('T')[0] || '—'}</td>,
+          <td key="c-tem" className="p-2 text-muted-foreground">{d.tdatum?.toString().split('T')[0] || '—'}</td>,
+          <td key="c-ok" className="p-2 hidden md:table-cell text-muted-foreground text-xs">{d.hoka || '—'}</td>,
+        )
+      } else if (['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab)) {
+        cells.push(
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+          <td key="c-meg" className="p-2 hidden md:table-cell text-muted-foreground text-xs truncate max-w-[200px]">{d.megjegyzes || '—'}</td>,
+        )
+      }
+      cells.push(
+        <td key="c-act" className="p-2 text-right flex gap-1 justify-end">
+          {activeTab !== 'konfirmalas' && (
+            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs text-blue-500 hover:text-blue-700" onClick={() => openEdit(d)}>✏️</Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => handleDelete(d.id)}>✕</Button>
+        </td>
+      )
+      return cells
+    }
+
     return (
       <div className="border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b">
-            <tr>
-              {activeTab === 'keresztseg' && <><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th><th className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('okirat')}>Állami szám</th><th className="p-2 text-left">Név</th><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th><th className="p-2 text-left hidden md:table-cell">Lelkész</th></>}
-              {activeTab === 'konfirmalas' && <><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th><th className="p-2 text-left">Név</th><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th><th className="p-2 text-left hidden md:table-cell">Lelkész</th></>}
-              {activeTab === 'hazassag' && <><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th><th className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('hlevel')}>Hlevel</th><th className="p-2 text-left">Vőlegény</th><th className="p-2 text-left">Menyasszony</th><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th></>}
-              {activeTab === 'temetes' && <><th className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th><th className="p-2 text-left">Név</th><th className="p-2 text-left">Halál</th><th className="p-2 text-left">Temetés</th><th className="p-2 text-left hidden md:table-cell">Ok</th></>}
-              {['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab) && <><th className="p-2 text-left">Név</th><th className="p-2 text-left">Dátum</th><th className="p-2 text-left hidden md:table-cell">Megjegyzés</th></>}
-              <th className="p-2 w-20"></th>
-            </tr>
+            <tr>{headerCells}</tr>
           </thead>
           <tbody>
             {filtered.map(d => (
-              <tr key={d.id} className="border-b hover:bg-slate-50">
-                {activeTab === 'keresztseg' && <><td className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td><td className="p-2 hidden lg:table-cell text-xs text-slate-500">{d.okirat || '—'}</td><td className="p-2 font-medium">{getName(d)}</td><td className="p-2 text-muted-foreground">{getDate(d)}</td><td className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td></>}
-                {activeTab === 'konfirmalas' && <><td className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td><td className="p-2 font-medium">{getName(d)} {d.szemely?.ferfi ? '♂' : '♀'}</td><td className="p-2 text-muted-foreground">{getDate(d)}</td><td className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td></>}
-                {activeTab === 'hazassag' && <><td className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td><td className="p-2 hidden lg:table-cell text-xs text-slate-500">{(d.hlevel as string | undefined) || '—'}</td><td className="p-2 font-medium">{d.ferfi ? `${d.ferfi.csaladnev} ${d.ferfi.k_nev}` : '—'}</td><td className="p-2 font-medium">{d.no ? `${d.no.csaladnev} ${d.no.k_nev}` : '—'}</td><td className="p-2 text-muted-foreground">{getDate(d)}</td></>}
-                {activeTab === 'temetes' && <><td className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td><td className="p-2 font-medium">{getName(d)}</td><td className="p-2 text-muted-foreground">{d.hdatum?.toString().split('T')[0] || '—'}</td><td className="p-2 text-muted-foreground">{d.tdatum?.toString().split('T')[0] || '—'}</td><td className="p-2 hidden md:table-cell text-muted-foreground text-xs">{d.hoka || '—'}</td></>}
-                {['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab) && <><td className="p-2 font-medium">{getName(d)}</td><td className="p-2 text-muted-foreground">{getDate(d)}</td><td className="p-2 hidden md:table-cell text-muted-foreground text-xs truncate max-w-[200px]">{d.megjegyzes || '—'}</td></>}
-                <td className="p-2 text-right flex gap-1 justify-end">
-                  {activeTab !== 'konfirmalas' && (
-                    <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs text-blue-500 hover:text-blue-700" onClick={() => openEdit(d)}>✏️</Button>
-                  )}
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => handleDelete(d.id)}>✕</Button>
-                </td>
-              </tr>
+              <tr key={d.id} className="border-b hover:bg-slate-50">{rowCells(d)}</tr>
             ))}
           </tbody>
         </table>
