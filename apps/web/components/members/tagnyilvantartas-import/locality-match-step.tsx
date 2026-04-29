@@ -13,7 +13,7 @@
  * objektumban, amit a wizard átad az import RPC-nek mint `p_resolved_locality_map`.
  */
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -25,11 +25,14 @@ import {
   MapPin,
   Plus,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import {
+  findLocalityMatch,
   findLocalityMatchBatch,
   addLocalityForReview,
   listCountries,
@@ -305,6 +308,7 @@ function AmbiguousLocalityCard({
   countries: CountryOption[]
 }) {
   const [showForeignDropdown, setShowForeignDropdown] = useState(false)
+  const [showFreeSearch, setShowFreeSearch] = useState(false)
   const isResolved = resolution && resolution.kind !== 'skip'
 
   return (
@@ -392,12 +396,22 @@ function AmbiguousLocalityCard({
         </div>
       )}
 
-      {/* Egyéb opciók (új helység, külföld) */}
+      {/* Egyéb opciók (új helység, külföld, saját keresés) */}
       <div className="border-t border-slate-100 bg-slate-50/40 p-4">
         <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
           Vagy:
         </p>
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFreeSearch((v) => !v)}
+            className={`rounded-full text-xs ${showFreeSearch ? 'border-emerald-300 bg-emerald-50' : ''}`}
+          >
+            <Search className="mr-1 size-3.5" />
+            Saját keresés (romániai helység)
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -451,6 +465,22 @@ function AmbiguousLocalityCard({
             Üresen hagyom
           </Button>
         </div>
+
+        {/* Saját keresés panel */}
+        {showFreeSearch && (
+          <FreeLocalitySearch
+            initialQuery={item.input}
+            currentPickId={
+              resolution?.kind === 'manual_pick'
+                ? resolution.locality.locality_id
+                : null
+            }
+            onPick={(loc) => {
+              onResolutionChange({ kind: 'manual_pick', locality: loc })
+            }}
+            onClose={() => setShowFreeSearch(false)}
+          />
+        )}
       </div>
 
       {/* Resolution summary */}
@@ -660,6 +690,139 @@ function StatCard({
         {icon}
       </div>
       <p className="mt-1 text-2xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+// ─── FreeLocalitySearch ─────────────────────────────────────────────────
+//
+// Endre kérése (2026-04-30): "A helység egyeztetésénél lehessen beírni
+// romániai helységet is!" — egy keresőmező, amibe a felhasználó tetszőleges
+// szöveget ír, és a szerver a romániai adrlocality-ban keres élőben.
+// Például: az XML "Sepsi" — itt beírhatjuk "Sepsiszentgyörgy"-öt és
+// kiválaszthatjuk a megfelelő rekordot.
+
+function FreeLocalitySearch({
+  initialQuery,
+  currentPickId,
+  onPick,
+  onClose,
+}: {
+  initialQuery: string
+  currentPickId: number | null
+  onPick: (loc: LocalityCandidate) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState(initialQuery)
+  const [results, setResults] = useState<LocalityCandidate[]>([])
+  const [isSearching, startSearching] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const runSearch = useCallback((q: string) => {
+    setError(null)
+    if (q.trim().length < 2) {
+      setResults([])
+      return
+    }
+    startSearching(async () => {
+      // Alacsonyabb threshold (0.3) → több fuzzy találat
+      const res = await findLocalityMatch(q, 'RO', 0.3)
+      if (res.error) {
+        setError(res.error)
+        setResults([])
+        return
+      }
+      setResults(res.data?.candidates || [])
+    })
+  }, [])
+
+  // Debounced keresés gépelés közben
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => runSearch(query), 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [query, runSearch])
+
+  // Auto-focus + initial search
+  useEffect(() => {
+    runSearch(initialQuery)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-emerald-200">
+      <div className="flex items-center gap-2">
+        <Search className="size-4 shrink-0 text-emerald-600" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Írj be egy romániai helységet (magyar vagy román néven)…"
+          className="h-9 flex-1 rounded-md border border-emerald-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+          autoFocus
+        />
+        {isSearching && <Loader2 className="size-4 shrink-0 animate-spin text-emerald-500" />}
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700"
+          aria-label="Saját keresés bezárása"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-2 text-xs text-red-600">{error}</div>
+      )}
+
+      {!error && !isSearching && query.trim().length >= 2 && results.length === 0 && (
+        <div className="mt-2 text-xs italic text-slate-500">
+          Nincs találat — próbálj kevesebb betűt vagy a román nevet.
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1">
+          {results.map((c) => {
+            const isPicked = currentPickId === c.locality_id
+            return (
+              <button
+                key={c.locality_id}
+                type="button"
+                onClick={() => onPick(c)}
+                className={`flex items-center justify-between gap-3 rounded-md border p-2 text-left text-xs transition ${
+                  isPicked
+                    ? 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200'
+                    : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/50'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium text-slate-800">{c.name}</span>
+                    {c.name_hu && c.name_hu !== c.name && (
+                      <span className="text-[10px] text-slate-500">({c.name_hu})</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">
+                    {c.county_name} megye
+                    {c.default_postalcode && ` · ${c.default_postalcode}`}
+                    {c.match_type === 'fuzzy' && (
+                      <span className="ml-1 text-amber-600">
+                        · hasonlóság: {Math.round(c.similarity * 100)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {isPicked && <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
