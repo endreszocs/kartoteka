@@ -58,6 +58,10 @@ const SUPPORTED_EXTS = ['xlsx', 'xls', 'csv', 'xml']
 interface SpecialFieldsConfig {
   autoCreateBaptismForConfirmation?: boolean
   marriageVegyesGlobal?: boolean
+  /** Elköltözés célgyülekezete (UUID) — ha kitöltött, az elkoltozott
+   *  rekordba bekerül, és a trigger automatikusan generál egy átjelentkezési
+   *  notifikációt a célgyülekezet lelkészének. 2026-04-30. */
+  elkoltozottTargetCongregationId?: string | null
 }
 
 /**
@@ -115,6 +119,17 @@ function buildRpcRow(
       helyid: out.helyid ?? null,
       lelkeszneve: out.lelkeszneve ?? null,
     })
+  }
+
+  // Elköltözés célgyülekezete (2026-04-30) — minden sorhoz a globális
+  // elkoltozottTargetCongregationId kerül. Ha NULL, a notification-trigger
+  // nem generál notifikációt (külföldre vagy ismeretlen).
+  if (
+    profileKey === 'movement_elkoltozott'
+    && specialConfig.elkoltozottTargetCongregationId
+    && out.hova_congregation_id == null
+  ) {
+    out.hova_congregation_id = specialConfig.elkoltozottTargetCongregationId
   }
 
   return out

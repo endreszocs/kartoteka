@@ -240,6 +240,7 @@ export function RegistryImportWizard({
   const [specialConfig, setSpecialConfig] = useState<SpecialFieldsConfig>({
     autoCreateBaptismForConfirmation: true,
     marriageVegyesGlobal: false,
+    elkoltozottTargetCongregationId: null,
   })
   /** Manuális tag-pick a person-link-step-en — kulcs: "rowIdx_slot", érték: szemely_id.
    *  Ha üres → automatikus quad-lookup eredménye érvényes. */
@@ -530,7 +531,12 @@ export function RegistryImportWizard({
   // ─── Render ──────────────────────────────────────────────────────
   const isMovementProfile = profile.key.startsWith('movement_')
   const skipLocality = uniqueLocalityInputs.length === 0
-  const skipSpecial = profile.key !== 'confirmation' && profile.key !== 'marriage' && !isMovementProfile
+  // 2026-04-30: a special-step CSAK azokra a profilokra jelenik meg, ahol
+  // ténylegesen van döntés (konfirmáció, esketés, elkoltozott). A többi
+  // mozgás (bekoltozott, attert, kitert) és a baptism/burial átugorható.
+  const skipSpecial = profile.key !== 'confirmation'
+    && profile.key !== 'marriage'
+    && profile.key !== 'movement_elkoltozott'
 
   return (
     <div className="space-y-4">

@@ -16,14 +16,24 @@
  * Az anyakönyvi profilok (baptism, burial) esetén ez a lépés átugorható.
  */
 
-import { ArrowLeft, ArrowRight, BookOpen, Heart, Info } from 'lucide-react'
+import { useEffect, useState, useTransition } from 'react'
+import { ArrowLeft, ArrowRight, BookOpen, Building2, Heart, Info, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  listCongregationsTree,
+  type DioceseTreeNode,
+} from '@/lib/notifications/congregations-tree-action'
 
 export interface SpecialFieldsConfig {
   /** Konfirmáció: ha igaz, a wizard auto-rögzíti a hiányzó keresztseg-rekordokat */
   autoCreateBaptismForConfirmation: boolean
   /** Esketés: globálisan vegyes-e (ha az XML-ben nincs oszlop) — alapértelmezett false */
   marriageVegyesGlobal: boolean
+  /** Elköltözés: globálisan a célgyülekezet (UUID), ha minden tag ugyanoda megy.
+   *  Ha NULL → "külföldre vagy ismeretlen", a kulfoldre flag-et a XML adja.
+   *  Ha a XML-ben sor-szintű különbség van, a person-link lépésen lehet majd
+   *  felülírni (későbbi sub-feature). */
+  elkoltozottTargetCongregationId?: string | null
 }
 
 interface SpecialFieldsStepProps {
@@ -48,7 +58,19 @@ export function SpecialFieldsStep({
 }: SpecialFieldsStepProps) {
   const showConfirmationOptions = profileKey === 'confirmation'
   const showMarriageOptions = profileKey === 'marriage'
+  const showElkoltozottOptions = profileKey === 'movement_elkoltozott'
   const isMovement = profileKey.startsWith('movement_')
+
+  // Egyházmegye-fa lekérése (csak az elkoltozott profil esetén)
+  const [tree, setTree] = useState<DioceseTreeNode[]>([])
+  const [isLoadingTree, startLoadingTree] = useTransition()
+  useEffect(() => {
+    if (!showElkoltozottOptions) return
+    startLoadingTree(async () => {
+      const res = await listCongregationsTree()
+      if (res.data) setTree(res.data)
+    })
+  }, [showElkoltozottOptions])
 
   return (
     <div className="space-y-4">
@@ -148,8 +170,70 @@ export function SpecialFieldsStep({
           </div>
         )}
 
-        {/* Mozgás / baptism / burial — nincs különleges döntés */}
-        {!showConfirmationOptions && !showMarriageOptions && (
+        {/* Elköltözöttek — célgyülekezet választó */}
+        {showElkoltozottOptions && (
+          <div className="mt-4 rounded-2xl bg-cyan-50/60 p-4 ring-1 ring-cyan-100">
+            <div className="flex items-start gap-3">
+              <Building2 className="mt-0.5 size-5 shrink-0 text-cyan-600" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-cyan-700">
+                  Hova költöznek az elhagyó tagok?
+                </p>
+                <p className="mt-1 text-xs text-cyan-900/80">
+                  Válaszd ki a célgyülekezetet — az ottani lelkész{' '}
+                  <strong>rendszerüzenetet kap</strong> az átjelentkezési kérelemről,
+                  és el- vagy elutasíthatja. Ha külföldre / ismeretlen helyre mennek,
+                  hagyd ezt üresen (akkor csak az új helység tárolódik).
+                </p>
+                <p className="mt-2 text-[11px] text-cyan-700/80">
+                  Tipp: ha különböző tagok különböző gyülekezetekbe mennek, a most
+                  választott gyülekezet az <strong>alapértelmezett</strong> lesz —
+                  ezt később sor-szintenként felülírhatod (még nem támogatott, jelenleg
+                  globális).
+                </p>
+              </div>
+            </div>
+            <div className="mt-3">
+              {isLoadingTree ? (
+                <div className="flex items-center gap-2 text-sm text-cyan-700">
+                  <Loader2 className="size-4 animate-spin" />
+                  Egyházmegyék betöltése…
+                </div>
+              ) : (
+                <select
+                  value={config.elkoltozottTargetCongregationId || ''}
+                  onChange={(e) =>
+                    onConfigChange({
+                      ...config,
+                      elkoltozottTargetCongregationId: e.target.value || null,
+                    })
+                  }
+                  className="h-11 w-full rounded-xl border border-cyan-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200"
+                >
+                  <option value="">— Külföldre / ismeretlen (nincs notifikáció) —</option>
+                  {tree.map((node) => (
+                    <optgroup key={node.diocese_id} label={node.diocese_name}>
+                      {node.congregations.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.varos ? ` — ${c.varos}` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              )}
+            </div>
+            {config.elkoltozottTargetCongregationId && (
+              <p className="mt-2 text-[11px] text-cyan-700">
+                ✓ A sorok importálása után az itt választott gyülekezet lelkésze
+                automatikusan kap egy átjelentkezési értesítést minden tagra.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Egyéb mozgás (bekoltozott / attert / kitert) / baptism / burial — nincs különleges döntés */}
+        {!showConfirmationOptions && !showMarriageOptions && !showElkoltozottOptions && (
           <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
             <p className="text-sm text-slate-600">
               Erre az anyakönyv-típusra (
