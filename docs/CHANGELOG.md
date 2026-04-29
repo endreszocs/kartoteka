@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-29b] — Állami vs egyházi anyakönyvi szám szétválasztása + esketés pár-info
+
+<!-- key: 2026-04-29b-egyhazi-szam-szetvalasztas-eskeses-parinfo -->
+<!-- category: bugfix + improvement -->
+<!-- targets: lelkészek — anyakönyv modul felhasználói -->
+
+Endre észrevette: a 04-29-i első migráció HIBÁS volt — a generált egyházi
+számot az `okirat` mezőbe írta, ami eredetileg az ÁLLAMI anyakönyvi számot
+tárolja (pl. 418467, 297301, SZ09130472). A két szám teljesen különböző
+dolog, amit szét kell választani. Plus az esketés-import nem mutatta, hogy
+kihez keressük a párt.
+
+### 🐛 Javítások
+
+- **Állami vs egyházi anyakönyvi szám szétválasztva** — új `egyhazi_szam`
+  oszlop minden anyakönyvi táblához (keresztseg, konfirmalas, hazassag,
+  temetes, +4 mozgás). A `okirat` / `hlevel` / `igazolas` az ÁLLAMI számoknak
+  marad. Az új generált egyházi szám (`YYYYTTNNNN`) az új mezőbe megy.
+- **04-29-i hibás backfill VISSZAVONVA** — ahol a 04-29-i első migráció
+  ráírta a `YYYYTTNNNN` formát az `okirat`-ra (pl. `2024010001`,
+  `2025010006`), most NULL-ra állítjuk vissza (csak a 10-jegyű, mintára
+  illeszkedő rekordoknál — az igazi állami számokat NEM bántjuk).
+- **Esketés import: keresztnév-egyezés most KÖTELEZŐ** — Endre észrevétele:
+  "Ha van Szász Emőke, akkor csak az Emőkék között lehet a menyasszony.
+  A keresztnév nem változik." A TOP-5 picker most csak olyan jelölteket mutat,
+  akiknél a keresztnév pontosan vagy részben egyezik.
+
+### ✨ Új funkciók
+
+- **Esketés import: pár-info banner** — a TOP-5 picker minden sornál
+  mutatja, kihez keressük a párt (pl. "Esküvő 2025-06-12 — Menyasszony:
+  Szász Emőke (28 éves), sz: 1996-...". Az életkor és születési dátum
+  segít megkülönböztetni a többszörösen előforduló neveket.
+- **Színkódolt slot-jelölő** — vőlegény: kék, menyasszony: rózsaszín,
+  egyéb: szürke (gyors vizuális tájékozódás).
+
+### 🛠 Technikai
+
+- SQL migráció: `migration-docs/sql/2026-04-29b-egyhazi-szam-szetvalasztas.sql`
+- ALTER TABLE: 8 anyakönyvi tábla mind kapott `egyhazi_szam text` oszlopot
+- UNDO regex: `~ '^[0-9]{4}TT[0-9]{4}$'` minta szerint csak az újonnan beírt
+  számok visszavonva
+- `import_registry_batch`: minden ágban `egyhazi_szam` is INSERT-elve
+  (auto-gen ha üres), `okirat`/`hlevel` érintetlen
+- `generate_egyhazi_anyakonyvi_szam`: most az új `egyhazi_szam` mezőből
+  számolja a max sorszámot
+- TS típusok: `KeresztsegRecord`, `KonfirmalasRecord`, `HazassagRecord`,
+  `TemetesRecord` mind kapott `egyhazi_szam` mezőt
+- UI: `registry-tabs.tsx` 4 új oszlop (Egyházi szám | Állami szám)
+- `registry-candidates-action.ts`: `requireKnevMatch` flag + partner-info
+- `unresolved-candidates-list.tsx`: pár-info banner + életkor megjelenítése
+
+### 📋 Endre által futtatandó SQL
+
+```sql
+-- migration-docs/sql/2026-04-29b-egyhazi-szam-szetvalasztas.sql
+-- 1. ADD COLUMN egyhazi_szam minden anyakönyvi táblához
+-- 2. UNDO: a 04-29-i hibás backfill visszavonása
+-- 3. ÚJ backfill: minden rekordnak egyházi_szam (gyülekezetenként + évenként)
+-- 4. import_registry_batch + generate_egyhazi_anyakonyvi_szam frissítés
+```
+
+---
+
 ## [2026-04-29] — Konfirmáció anyakönyvi szám + import wizard UX javítás
 
 <!-- key: 2026-04-29-konfirmalas-okirat-importwizard-ux -->

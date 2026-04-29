@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { Check, Loader2, Search, X, AlertCircle, UserCheck } from 'lucide-react'
+import { Check, Loader2, Search, X, AlertCircle, UserCheck, Heart } from 'lucide-react'
 
 import {
   getCandidatesForUnresolvedAction,
@@ -109,20 +109,62 @@ export function UnresolvedCandidatesList({
             : row.slot === 'no'
               ? 'Menyasszony'
               : 'Tag'
+          const slotColor = row.slot === 'ferfi'
+            ? 'text-blue-700 bg-blue-50'
+            : row.slot === 'no'
+              ? 'text-pink-700 bg-pink-50'
+              : 'text-slate-700 bg-slate-50'
+
+          // Életkor kalkulálás (search személy)
+          const calcAge = (sz: string | null | undefined) => {
+            if (!sz) return null
+            const m = sz.match(/^(\d{4})/)
+            if (!m) return null
+            const year = parseInt(m[1])
+            return new Date().getFullYear() - year
+          }
+          const searchAge = calcAge(row.searchedSzDatum)
+
+          // Pár-info (esketésnél)
+          const hasPartner = row.partnerCsaladnev && row.partnerKnev
+          const partnerAge = calcAge(row.partnerSzDatum)
+          const partnerLabel = row.slot === 'ferfi' ? 'Menyasszony' : 'Vőlegény'
 
           return (
             <li
               key={pickKey}
-              className="rounded-xl bg-white p-3 ring-1 ring-amber-100"
+              className="rounded-xl bg-white p-3 ring-1 ring-violet-100"
             >
+              {/* Esketés pár-info BANNER — kit kihez keresünk */}
+              {hasPartner && (
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-rose-50/80 px-2.5 py-1.5 text-xs ring-1 ring-rose-100">
+                  <Heart className="size-3.5 shrink-0 text-rose-500" />
+                  <span className="text-rose-700">
+                    <strong>Esküvő{row.marriageDatum ? ` ${row.marriageDatum.split('T')[0]}` : ''}</strong> —
+                  </span>
+                  <span className="text-rose-700">
+                    {partnerLabel}: <strong>{row.partnerCsaladnev} {row.partnerKnev}</strong>
+                    {partnerAge !== null && ` (${partnerAge} éves)`}
+                    {row.partnerSzDatum && (
+                      <span className="ml-1 text-rose-500/80">sz: {row.partnerSzDatum.split('T')[0]}</span>
+                    )}
+                  </span>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span className="text-xs font-mono text-amber-600">{row.rowIndex}.</span>
-                <span className="text-xs font-semibold text-slate-600">{slotLabel}:</span>
+                <span className="text-xs font-mono text-violet-600">{row.rowIndex}.</span>
+                <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${slotColor}`}>
+                  {slotLabel}
+                </span>
                 <span className="text-sm font-medium text-slate-800">
                   {row.searchedCsaladnev} {row.searchedKnev}
                 </span>
+                {searchAge !== null && (
+                  <span className="text-xs text-slate-500">{searchAge} éves</span>
+                )}
                 {row.searchedSzDatum && (
-                  <span className="text-xs text-slate-500">sz: {row.searchedSzDatum}</span>
+                  <span className="text-xs text-slate-500">sz: {row.searchedSzDatum.split('T')[0]}</span>
                 )}
               </div>
 

@@ -53,6 +53,14 @@ export interface UnresolvedRowCandidates {
   searchedKnev: string
   searchedSzDatum: string | null
   searchedFerfi: boolean | null
+  /** Az esketés HÁZASTÁRSA — a UI mutatja, hogy ezt a vőlegény / menyasszony
+   *  melyik párjához keressük (pl. "Pár: Szász Emőke, sz: 1995-03-12").
+   *  Csak `marriage` profil esetén kitöltött, egyébként null. */
+  partnerCsaladnev?: string | null
+  partnerKnev?: string | null
+  partnerSzDatum?: string | null
+  /** Az esketés dátuma (UI: "Esküvő: 2025-06-12"). */
+  marriageDatum?: string | null
   /** TOP-5 jelölt pontszám szerint csökkenően */
   candidates: CandidatePerson[]
 }
@@ -96,6 +104,12 @@ interface ScoringInput {
   searchKnev: string
   searchSzDatum: string | null
   searchFerfi: boolean | null
+  /** Ha igaz, a keresztnév egyezés (pontos vagy közös szó-rész) KÖTELEZŐ —
+   *  ha nem teljesül, a jelölt 0 pontot kap (kiesik a MIN_SCORE szűrőn).
+   *  Esketésnél (marriage) használjuk: a magyar gyakorlatban a házassággal
+   *  csak a családnév változhat (lánykori → házassági), a keresztnév nem.
+   */
+  requireKnevMatch?: boolean
 }
 
 interface PersonRow {
@@ -117,7 +131,33 @@ function scorePerson(p: PersonRow, s: ScoringInput): { score: number; reasons: s
   const pKnNorm = norm(p.k_nev)
   const pScsNorm = norm(p.szcs_nev)
 
-  // Családnév
+  // ─── Keresztnév ─────────────────────────────────────────────────────────
+  // Esketésnél (requireKnevMatch=true) a keresztnév-egyezés KÖTELEZŐ — ha nem
+  // teljesül, 0 pontot adunk (a jelölt kiesik a MIN_SCORE szűrőn).
+  let knevMatched = false
+  if (sKnNorm && pKnNorm) {
+    if (sKnNorm === pKnNorm) {
+      score += 30
+      reasons.push('Keresztnév pontos egyezés')
+      knevMatched = true
+    } else {
+      // Fuzzy: kötőjel ↔ szóköz, részleges egyezés
+      const sKnParts = new Set(sKnNorm.split(/[-\s]+/).filter(Boolean))
+      const pKnParts = new Set(pKnNorm.split(/[-\s]+/).filter(Boolean))
+      const common = [...sKnParts].filter(x => pKnParts.has(x))
+      if (common.length > 0) {
+        score += 15
+        reasons.push(`Keresztnév részben egyezik (${common.join(', ')})`)
+        knevMatched = true
+      }
+    }
+  }
+
+  if (s.requireKnevMatch && !knevMatched) {
+    return { score: 0, reasons: [] }
+  }
+
+  // ─── Családnév ──────────────────────────────────────────────────────────
   if (sCsNorm && pCsNorm) {
     if (sCsNorm === pCsNorm) {
       score += 30
@@ -134,24 +174,7 @@ function scorePerson(p: PersonRow, s: ScoringInput): { score: number; reasons: s
     reasons.push('Lánykori név egyezik')
   }
 
-  // Keresztnév
-  if (sKnNorm && pKnNorm) {
-    if (sKnNorm === pKnNorm) {
-      score += 30
-      reasons.push('Keresztnév pontos egyezés')
-    } else {
-      // Fuzzy: kötőjel ↔ szóköz, részleges egyezés
-      const sKnParts = new Set(sKnNorm.split(/[-\s]+/).filter(Boolean))
-      const pKnParts = new Set(pKnNorm.split(/[-\s]+/).filter(Boolean))
-      const common = [...sKnParts].filter(x => pKnParts.has(x))
-      if (common.length > 0) {
-        score += 15
-        reasons.push(`Keresztnév részben egyezik (${common.join(', ')})`)
-      }
-    }
-  }
-
-  // Születési dátum
+  // ─── Születési dátum ────────────────────────────────────────────────────
   if (s.searchSzDatum && p.sz_datum) {
     if (s.searchSzDatum === p.sz_datum) {
       score += 20
@@ -162,7 +185,7 @@ function scorePerson(p: PersonRow, s: ScoringInput): { score: number; reasons: s
     }
   }
 
-  // Férfi/nő
+  // ─── Férfi/nő ───────────────────────────────────────────────────────────
   if (s.searchFerfi !== null && p.ferfi !== null && s.searchFerfi === p.ferfi) {
     score += 10
     reasons.push('Nem egyezik')
@@ -262,46 +285,66 @@ export async function getCandidatesForUnresolvedAction(
   for (let i = 0; i < records.length; i++) {
     const r = records[i]
     if (isMarriage) {
-      // Vőlegény ellenőrzés
+      // A pár (másik fél) adatai — a UI mutatja, kihez keressük a jelöltet
+      const ferfiCs = typeof r._ferfi_csaladnev === 'string' ? r._ferfi_csaladnev : null
+      const ferfiK = typeof r._ferfi_k_nev === 'string' ? r._ferfi_k_nev : null
+      const ferfiSz = typeof r._ferfi_sz_datum === 'string' ? r._ferfi_sz_datum : null
+      const noCs = typeof r._no_csaladnev === 'string' ? r._no_csaladnev : null
+      const noK = typeof r._no_k_nev === 'string' ? r._no_k_nev : null
+      const noSz = typeof r._no_sz_datum === 'string' ? r._no_sz_datum : null
+      const marriageDatum = typeof r.datum === 'string' ? r.datum : null
+
+      // Vőlegény ellenőrzés — keresztnév-egyezés KÖTELEZŐ (Endre észrevétele)
       if (r.id_ferfi == null || r.id_ferfi === '') {
-        const cs = String(r._ferfi_csaladnev || '')
-        const k = String(r._ferfi_k_nev || '')
+        const cs = String(ferfiCs || '')
+        const k = String(ferfiK || '')
         if (cs.trim() && k.trim()) {
           const candidates = scoreAndPickTop({
             searchCsaladnev: cs,
             searchKnev: k,
-            searchSzDatum: typeof r._ferfi_sz_datum === 'string' ? r._ferfi_sz_datum : null,
+            searchSzDatum: ferfiSz,
             searchFerfi: true,
+            requireKnevMatch: true,
           })
           result.push({
             rowIndex: i + 1,
             slot: 'ferfi',
             searchedCsaladnev: cs,
             searchedKnev: k,
-            searchedSzDatum: typeof r._ferfi_sz_datum === 'string' ? r._ferfi_sz_datum : null,
+            searchedSzDatum: ferfiSz,
             searchedFerfi: true,
+            partnerCsaladnev: noCs,
+            partnerKnev: noK,
+            partnerSzDatum: noSz,
+            marriageDatum,
             candidates,
           })
         }
       }
-      // Menyasszony ellenőrzés
+      // Menyasszony ellenőrzés — keresztnév-egyezés KÖTELEZŐ (a házassággal
+      // a családnév változhat, a keresztnév nem)
       if (r.id_no == null || r.id_no === '') {
-        const cs = String(r._no_csaladnev || '')
-        const k = String(r._no_k_nev || '')
+        const cs = String(noCs || '')
+        const k = String(noK || '')
         if (cs.trim() && k.trim()) {
           const candidates = scoreAndPickTop({
             searchCsaladnev: cs,
             searchKnev: k,
-            searchSzDatum: typeof r._no_sz_datum === 'string' ? r._no_sz_datum : null,
+            searchSzDatum: noSz,
             searchFerfi: false,
+            requireKnevMatch: true,
           })
           result.push({
             rowIndex: i + 1,
             slot: 'no',
             searchedCsaladnev: cs,
             searchedKnev: k,
-            searchedSzDatum: typeof r._no_sz_datum === 'string' ? r._no_sz_datum : null,
+            searchedSzDatum: noSz,
             searchedFerfi: false,
+            partnerCsaladnev: ferfiCs,
+            partnerKnev: ferfiK,
+            partnerSzDatum: ferfiSz,
+            marriageDatum,
             candidates,
           })
         }

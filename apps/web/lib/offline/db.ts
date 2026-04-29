@@ -193,7 +193,8 @@ export interface KeresztsegRecord extends SyncTrackedRecord {
   id_szemely: number // NOT NULL
   datum: string // NOT NULL (timestamp)
   lelkeszneve: string | null
-  okirat: string | null
+  okirat: string | null // ÁLLAMI anyakönyvi szám
+  egyhazi_szam: string | null // 2026-04-29: EGYHÁZI anyakönyvi szám (YYYY01NNNN)
   keresztszulok: string | null
   megjegyzes: string | null
   munkanaploba: boolean
@@ -211,7 +212,8 @@ export interface KonfirmalasRecord extends SyncTrackedRecord {
   megjegyzes: string | null
   helyid: number | null
   munkanaplo_id: number | null
-  okirat: string | null // 2026-04-29: egyházi anyakönyvi szám (YYYY02NNNN)
+  okirat: string | null // 2026-04-29: ÁLLAMI anyakönyvi szám
+  egyhazi_szam: string | null // 2026-04-29: EGYHÁZI anyakönyvi szám (YYYY02NNNN)
   congregation_id: string | null
 }
 
@@ -221,7 +223,8 @@ export interface HazassagRecord extends SyncTrackedRecord {
   id_no: number // NOT NULL
   datum: string // NOT NULL (timestamp)
   lelkeszneve: string | null
-  hlevel: string | null
+  hlevel: string | null // ÁLLAMI házassági levél száma
+  egyhazi_szam: string | null // 2026-04-29: EGYHÁZI anyakönyvi szám (YYYY03NNNN)
   tanuk: string | null
   megjegyzes: string | null
   munkanaploba: boolean
@@ -237,7 +240,8 @@ export interface TemetesRecord extends SyncTrackedRecord {
   hoka: string | null
   tdatum: string // temetés dátuma (NOT NULL) — NEM `datum`!
   lelkeszneve: string | null
-  okirat: string | null
+  okirat: string | null // ÁLLAMI halotti anyakönyvi szám
+  egyhazi_szam: string | null // 2026-04-29: EGYHÁZI anyakönyvi szám (YYYY04NNNN)
   megjegyzes: string | null
   munkanaploba: boolean
   hhelyid: number | null

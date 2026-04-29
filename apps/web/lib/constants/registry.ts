@@ -46,6 +46,10 @@ export interface RegistryEntry {
   hdatum?: string
   tdatum?: string
   okirat?: string
+  /** Egyházi anyakönyvi szám (YYYYTTNNNN) — 2026-04-29 óta. */
+  egyhazi_szam?: string
+  /** Házassági levél száma (állami) — 2026-04-29-ig okirat-ként szerepelt. */
+  hlevel?: string
   lelkeszneve?: string
   megjegyzes?: string
   // Személy JOIN
