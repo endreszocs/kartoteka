@@ -611,6 +611,7 @@ export const PROFILE_MOVEMENT_BEKOLTOZOTT: ImportProfile = {
   targetTable: 'bekoltozott',
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['szcs_nev', 'Lánykori név', 'Lánykori családnév', 'Leánykori név'], dbColumn: '_szcs_nev', type: 'string', required: false, hint: 'Lánykori (születési) családnév — segít a férjezett asszonyok azonosításában' },
     { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
@@ -637,6 +638,7 @@ export const PROFILE_MOVEMENT_ELKOLTOZOTT: ImportProfile = {
   targetTable: 'elkoltozott',
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['szcs_nev', 'Lánykori név', 'Lánykori családnév', 'Leánykori név'], dbColumn: '_szcs_nev', type: 'string', required: false, hint: 'Lánykori (születési) családnév' },
     { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
@@ -662,6 +664,7 @@ export const PROFILE_MOVEMENT_ATTERT: ImportProfile = {
   targetTable: 'attert',
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['szcs_nev', 'Lánykori név', 'Lánykori családnév', 'Leánykori név'], dbColumn: '_szcs_nev', type: 'string', required: false, hint: 'Lánykori (születési) családnév' },
     { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
@@ -688,6 +691,7 @@ export const PROFILE_MOVEMENT_KITERT: ImportProfile = {
   targetTable: 'kitert',
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev'], dbColumn: '_csaladnev', type: 'string', required: true },
+    { excelHeader: 'SzCsaládnév', excelAliases: ['szcs_nev', 'Lánykori név', 'Lánykori családnév', 'Leánykori név'], dbColumn: '_szcs_nev', type: 'string', required: false, hint: 'Lánykori (születési) családnév' },
     { excelHeader: 'Keresztnév', excelAliases: ['k_nev'], dbColumn: '_k_nev', type: 'string', required: true },
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
