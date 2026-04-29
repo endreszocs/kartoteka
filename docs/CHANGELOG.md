@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-28] — Anyakönyvi import bővítések (Endre tesztelés alapján)
+
+<!-- key: 2026-04-28-anyakonyv-import-bovitesek -->
+<!-- category: feature + bugfix -->
+<!-- targets: lelkészek — anyakönyv modul felhasználói -->
+
+Endre tesztelte a 8 XML importálását, ami több újabb fejlesztést indított.
+
+### ✨ Új funkciók
+
+- **Anyakönyv sidebar almenü** — 9 sub-item (Áttekintés + 8 anyakönyv-típus),
+  hash-routing (`/anyakonyv#keresztseg`), bookmarkolható linkek
+- **Egyházi anyakönyvi szám auto-generálás** — formátum `YYYYTTNNNN`
+  (10 karakter): év + típus-kód (01-08) + sorszám az évben.
+  Pl. `2025010042` = 2025-ös év, 42. keresztelés. Új SQL RPC:
+  `generate_egyhazi_anyakonyvi_szam`. Az `import_registry_batch` automatikusan
+  generálja, ha az `okirat`/`hlevel`/`igazolas` mező üres.
+  Endre futtatja: `migration-docs/sql/2026-04-28-egyhazi-anyakonyvi-szam.sql`
+- **Manuális tag-pick a wizard person-link lépésén** — minden nem-talált
+  sorhoz a wizard megmutatja a TOP-5 leghasonlóbb tag-jelöltet pontszámmal
+  (csaladnev/szcs_nev/k_nev/sz_datum/nem alapján). A lelkész 1 klikkel
+  választja a megfelelőt. Pontszám-badge színkódolva (zöld 70+, sárga 50+).
+- **Lánykori (szcs_nev) self-healing** — esketés-importnál ha a feleség
+  megtalálva ÉS a `szcs_nev` üres ÉS a XML lánykori nevet adott → automatikus
+  UPDATE. A tagnyilvántartás fokozatosan kiegészül.
+
+### 🐛 Javítások
+
+- **Teljes fájl-parse server-oldalon**: a `parseAndPreview` `slice(0, 5)`-öt
+  ad sample-ként, de a wizard ezt küldte importnak is — javítva: most a
+  server action maga parse-olja a teljes sheet-et (81 sor → 81 sor)
+- **Lakcím vessző-bug**: `, Templom u. 229` (lógó vessző üres helység esetén)
+  → `Templom u. 229`
+- **OAuth Railway proxy bug**: a `getPublicOrigin()` helper-rel a Railway
+  proxy-mögötti `localhost:8080` belső port már nem szivárog ki a redirektbe
+- **SW cacheOnNavigation:false** + NetworkOnly auth-routes — a Service
+  Worker nem zavarja meg az auth flow-t
+- **Quad-lookup magyar Igen/Nem ferfi-flag** + kettős keresztnév variánsok
+  (Viktória-Olivia, Krisztina - Panna)
+- **Marriage-import dedupe headers** (két "Családnév" oszlop az XML-ben)
+  + Év/Hó/Nap → `datum` kompozíció
+- **Sidebar hash-routing** — a Next.js Link `pushState`-tel navigál, ami
+  nem trigger-eli a `hashchange` event-et. Monkey-patch fix.
+- **"Maradjak bejelentkezve" + 1 napos session-lejárat** — login-formon
+  új checkbox; default OFF (24h), ON (1 év persistent)
+
+---
+
 ## [2026-04-27] — Anyakönyvi import wizard + 1 napos session-lejárat
 
 <!-- key: 2026-04-27-anyakonyv-import-wizard-and-session-expiry -->
