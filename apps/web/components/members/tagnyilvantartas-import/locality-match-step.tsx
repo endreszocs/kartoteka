@@ -793,7 +793,13 @@ function FreeLocalitySearch({
               <button
                 key={c.locality_id}
                 type="button"
-                onClick={() => onPick(c)}
+                onClick={() => {
+                  // 2026-04-30 (Endre kérése): a kattintás a kereső mezőbe is
+                  // beírja a teljes helységnevet (vizuális visszaigazolás),
+                  // és egyúttal beállítja a manual_pick resolution-t.
+                  setQuery(c.name)
+                  onPick(c)
+                }}
                 className={`flex items-center justify-between gap-3 rounded-md border p-2 text-left text-xs transition ${
                   isPicked
                     ? 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200'
