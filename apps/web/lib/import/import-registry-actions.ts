@@ -296,18 +296,80 @@ export async function executeRegistryImport(
     }
   }
 
-  // 5. RPC-row építés (helység-resolve + special-fields)
-  const rpcRows = records.map(r => buildRpcRow(r as Record<string, unknown>, profileKey, localityIdMap, specialConfig))
+  // 5. RPC-row építés (helység-resolve + special-fields) + PRE-VALIDÁCIÓ
+  // ÚJDONSÁG (2026-04-29): a hiányos sorokat MÉG MIELŐTT az RPC-nek küldenénk
+  // szűrjük + részletes hibaüzenettel beletesszük az allErrors-ba. Így a
+  // lelkész pontosan tudja, hogy a 17. sornál a VŐLEGÉNY hiányzik (nem csak
+  // hogy "hiányzik valami").
+  const allErrors: RowIssue[] = []
+  const rpcRows: Array<{ row: Record<string, unknown>; originalRowIndex: number }> = []
+
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i] as Record<string, unknown>
+    const rpcRow = buildRpcRow(r, profileKey, localityIdMap, specialConfig)
+    const rowIdx = i + 1 // 1-alapú a felhasználó számára
+    const missing: string[] = []
+
+    if (profileKey === 'marriage') {
+      if (rpcRow.id_ferfi == null || rpcRow.id_ferfi === '') {
+        const cs = String(r._ferfi_csaladnev || '?')
+        const k = String(r._ferfi_k_nev || '?')
+        missing.push(`vőlegény (${cs} ${k}) — válaszd ki a tagot a TOP-5 listából vagy a saját keresővel`)
+      }
+      if (rpcRow.id_no == null || rpcRow.id_no === '') {
+        const cs = String(r._no_csaladnev || '?')
+        const k = String(r._no_k_nev || '?')
+        missing.push(`menyasszony (${cs} ${k}) — válaszd ki a tagot a TOP-5 listából vagy a saját keresővel`)
+      }
+      if (rpcRow.datum == null || rpcRow.datum === '') {
+        missing.push('esküvő dátuma')
+      }
+    } else if (profileKey === 'baptism' || profileKey === 'confirmation') {
+      if (rpcRow.id_szemely == null || rpcRow.id_szemely === '') {
+        const cs = String(r._csaladnev || '?')
+        const k = String(r._k_nev || '?')
+        missing.push(`${profileKey === 'baptism' ? 'keresztelt' : 'konfirmált'} (${cs} ${k})`)
+      }
+      if (rpcRow.datum == null || rpcRow.datum === '') {
+        missing.push(`${profileKey === 'baptism' ? 'keresztelés' : 'konfirmáció'} dátuma`)
+      }
+    } else if (profileKey === 'burial') {
+      if (rpcRow.id_szemely == null || rpcRow.id_szemely === '') {
+        const cs = String(r._csaladnev || '?')
+        const k = String(r._k_nev || '?')
+        missing.push(`elhunyt (${cs} ${k})`)
+      }
+      if (rpcRow.hdatum == null || rpcRow.hdatum === '') missing.push('halál dátuma')
+      if (rpcRow.tdatum == null || rpcRow.tdatum === '') missing.push('temetés dátuma')
+    } else if (profileKey.startsWith('movement_')) {
+      if (rpcRow.id_szemely == null || rpcRow.id_szemely === '') {
+        const cs = String(r._csaladnev || '?')
+        const k = String(r._k_nev || '?')
+        missing.push(`tag (${cs} ${k})`)
+      }
+    }
+
+    if (missing.length > 0) {
+      allErrors.push({
+        row: rowIdx,
+        message: `Hiányzik: ${missing.join('; ')}`,
+        severity: 'error' as RowIssueSeverity,
+      })
+      continue // Ne küldjük tovább az RPC-nek
+    }
+
+    rpcRows.push({ row: rpcRow, originalRowIndex: rowIdx })
+  }
 
   // 6. RPC hívás batch-ekben (200 sor / hívás biztonságosan)
   const BATCH_SIZE = 200
   const defaultMunkanaploba = defaultMunkanaplobaRaw === 'true'
   let totalInserted = 0
-  let totalSkipped = 0
-  const allErrors: RowIssue[] = []
+  let totalSkipped = allErrors.length // a TS-oldali pre-validációs hibák is "skipped"
 
   for (let i = 0; i < rpcRows.length; i += BATCH_SIZE) {
-    const batch = rpcRows.slice(i, i + BATCH_SIZE)
+    const batchSlice = rpcRows.slice(i, i + BATCH_SIZE)
+    const batch = batchSlice.map(r => r.row)
     const { data, error } = await supabase.rpc('import_registry_batch', {
       p_target_congregation_id: targetCongregationId,
       p_profile_key: profileKey,
@@ -321,7 +383,7 @@ export async function executeRegistryImport(
         error: `Az import sikertelen a ${i / BATCH_SIZE + 1}. batch-en: ${error.message}`,
         insertedCount: totalInserted,
         skippedCount: totalSkipped,
-        totalRows: rpcRows.length,
+        totalRows: records.length,
         rowErrors: allErrors,
       }
     }
@@ -329,12 +391,18 @@ export async function executeRegistryImport(
     const firstRow = Array.isArray(data) ? data[0] : data
     totalInserted += (firstRow?.inserted_count as number) ?? 0
     totalSkipped += (firstRow?.skipped_count as number) ?? 0
-    const batchErrors = ((firstRow?.errors as RowIssue[]) ?? []).map(e => ({
-      row: (e.row || 0) + i, // batch-offset hozzáadása
-      message: e.message,
-      severity: (e.severity ?? 'error') as RowIssueSeverity,
-      name: e.name,
-    }))
+    // Az RPC-ből visszajött hiba `row` mezője a batch-en belüli 1-alapú index.
+    // Visszafordítjuk az eredeti sor-indexre a batchSlice alapján.
+    const batchErrors = ((firstRow?.errors as RowIssue[]) ?? []).map(e => {
+      const batchRowIdx = (e.row || 1) - 1 // 0-alapú index a batchSlice-ban
+      const originalRow = batchSlice[batchRowIdx]?.originalRowIndex ?? (e.row || 0) + i
+      return {
+        row: originalRow,
+        message: e.message,
+        severity: (e.severity ?? 'error') as RowIssueSeverity,
+        name: e.name,
+      }
+    })
     allErrors.push(...batchErrors)
   }
 
@@ -346,7 +414,7 @@ export async function executeRegistryImport(
     success: true,
     insertedCount: totalInserted,
     skippedCount: totalSkipped,
-    totalRows: rpcRows.length,
+    totalRows: records.length,
     rowErrors: allErrors,
   }
 }
