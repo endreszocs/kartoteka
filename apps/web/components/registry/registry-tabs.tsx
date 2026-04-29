@@ -24,8 +24,17 @@ interface RegistryTabsProps {
   congregationName: string
 }
 
+// Hash-routing: a sidebar `/anyakonyv#keresztseg` stb. URL-jeiből közvetlen tab-ugrás.
+const VALID_TAB_HASHES = new Set<string>(REGISTRY_TABS as readonly string[])
+const DEFAULT_TAB: RegistryTab = 'attekinto'
+
+function getTabFromHash(hash: string): RegistryTab {
+  const clean = hash.replace(/^#/, '')
+  return VALID_TAB_HASHES.has(clean) ? (clean as RegistryTab) : DEFAULT_TAB
+}
+
 export function RegistryTabs({ congregationName }: RegistryTabsProps) {
-  const [activeTab, setActiveTab] = useState<RegistryTab>('attekinto')
+  const [activeTab, setActiveTab] = useState<RegistryTab>(DEFAULT_TAB)
   const [allData, setAllData] = useState<RegistryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filterYear, setFilterYear] = useState('')
@@ -73,6 +82,42 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
       cancelled = true
     }
   }, [activeTab, loadData])
+
+  // Hash-routing — sidebar almenüből (`/anyakonyv#keresztseg` stb.) tab-ugrás.
+  // pushState monkey-patch: a Next.js Link `pushState`-tel navigál, ami nem
+  // trigger-eli a hashchange-et — saját HashChangeEvent dispatch-szel pótoljuk.
+  useEffect(() => {
+    const apply = () => setActiveTab(getTabFromHash(window.location.hash))
+    apply()
+    const originalPushState = window.history.pushState
+    const originalReplaceState = window.history.replaceState
+    let lastHash = window.location.hash
+    const dispatchIfHashChanged = () => {
+      const newHash = window.location.hash
+      if (newHash !== lastHash) {
+        lastHash = newHash
+        setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 0)
+      }
+    }
+    window.history.pushState = function (...args) {
+      originalPushState.apply(this, args)
+      dispatchIfHashChanged()
+    }
+    window.history.replaceState = function (...args) {
+      originalReplaceState.apply(this, args)
+      dispatchIfHashChanged()
+    }
+    window.addEventListener('hashchange', apply)
+    window.addEventListener('popstate', apply)
+    return () => {
+      window.removeEventListener('hashchange', apply)
+      window.removeEventListener('popstate', apply)
+      window.history.pushState = originalPushState
+      window.history.replaceState = originalReplaceState
+    }
+  }, [])
+
+  // (A handleTabChange az alábbi function declaration-ben van, ami a hash-t is frissíti)
 
   // Év opciók
   const yearOptions = useMemo(() => {
@@ -143,6 +188,13 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     resetViewState()
     setLoading(tab !== 'attekinto')
     setActiveTab(tab)
+    // Bookmarkolható URL: a hash-t is frissítjük (sidebar almenüvel együttműködik)
+    if (typeof window !== 'undefined') {
+      const newHash = tab === DEFAULT_TAB ? '' : `#${tab}`
+      if (window.location.hash !== newHash) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search + newHash)
+      }
+    }
   }
 
   async function handleDelete(id: number) {

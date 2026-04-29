@@ -56,6 +56,9 @@ interface SidebarProps {
   /** A Tagnyilvántartás menüpont kibontható almenüje (2026-04-28).
    *  Hash-alapú navigáció: `/tagnyilvantartas#persons` stb. */
   tagnyilvantartasSubmenu?: MenuItem[]
+  /** Az Anyakönyv menüpont kibontható almenüje (2026-04-28).
+   *  Hash-alapú navigáció: `/anyakonyv#keresztseg` stb. */
+  anyakonyvSubmenu?: MenuItem[]
 }
 
 interface MenuItem {
@@ -330,6 +333,7 @@ function SidebarNav({
   activeScope = null,
   financeSubmenu,
   tagnyilvantartasSubmenu,
+  anyakonyvSubmenu,
 }: {
   isEsperes: boolean
   isAdmin: boolean
@@ -353,6 +357,8 @@ function SidebarNav({
   financeSubmenu?: MenuItem[]
   /** A Tagnyilvántartás menüpont kibontható almenüje (2026-04-28). */
   tagnyilvantartasSubmenu?: MenuItem[]
+  /** Az Anyakönyv menüpont kibontható almenüje (2026-04-28). */
+  anyakonyvSubmenu?: MenuItem[]
 }) {
   const pathname = usePathname()
   const sections: MenuSection[] = []
@@ -396,6 +402,17 @@ function SidebarNav({
       : {}),
   }
 
+  // Az Anyakönyv menüpontot — ha kapunk anyakonyvSubmenu-t — bővítjük (2026-04-28).
+  const anyakonyvMenuItem: MenuItem = {
+    label: 'Anyakönyv',
+    href: '/anyakonyv',
+    icon: BookOpen,
+    gradient: 'from-rose-400 to-fuchsia-500',
+    ...(anyakonyvSubmenu && anyakonyvSubmenu.length > 0
+      ? { children: anyakonyvSubmenu }
+      : {}),
+  }
+
   // Diocese scope: csak Irányítópult + Pénzügy. A többi modul elrejtve.
   const dioceseMainItems: MenuItem[] = [dynamicDashboardItem, financeMenuItem]
 
@@ -407,6 +424,7 @@ function SidebarNav({
         ...mainItems.slice(1).map((m) => {
           if (m.href === '/penzugy') return financeMenuItem
           if (m.href === '/tagnyilvantartas') return tagnyilvantartasMenuItem
+          if (m.href === '/anyakonyv') return anyakonyvMenuItem
           return m
         }),
       ]
@@ -570,6 +588,7 @@ export function SidebarAdaptiveV4({
   activeScope = null,
   financeSubmenu,
   tagnyilvantartasSubmenu,
+  anyakonyvSubmenu,
 }: SidebarProps) {
   const navProps = {
     isEsperes,
@@ -584,6 +603,7 @@ export function SidebarAdaptiveV4({
     activeScope,
     financeSubmenu,
     tagnyilvantartasSubmenu,
+    anyakonyvSubmenu,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'

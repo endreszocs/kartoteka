@@ -6,16 +6,24 @@ import {
   Banknote,
   BookMarked,
   Building2,
+  Church,
   ClipboardList,
   Coins,
   CreditCard,
+  Cross,
   Eye,
+  Heart,
   HelpCircle,
   Home,
   Inbox,
   Landmark,
   Layers,
+  LogIn,
+  LogOut,
+  PlaneLanding,
+  PlaneTakeoff,
   ScrollText,
+  Sparkles,
   User,
   UserCheck,
   Users2,
@@ -68,9 +76,27 @@ const WEB_TAGNYILVANTARTAS_SUBMENU = [
   { label: 'Választók', href: '/tagnyilvantartas#voters', icon: Vote, gradient: 'from-pink-400 to-rose-500' },
 ] as const
 
+/**
+ * Anyakönyv almenüje a sidebarban (2026-04-28).
+ * 9 fül a /anyakonyv oldalon — hash-alapú navigáció (`#keresztseg` stb.)
+ * a `registry-tabs.tsx` activeTab-jával összehangolva.
+ */
+const WEB_ANYAKONYV_SUBMENU = [
+  { label: 'Áttekintés', href: '/anyakonyv', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Keresztelések', href: '/anyakonyv#keresztseg', icon: Sparkles, gradient: 'from-sky-400 to-cyan-500' },
+  { label: 'Konfirmálások', href: '/anyakonyv#konfirmalas', icon: BookMarked, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Esketések', href: '/anyakonyv#hazassag', icon: Heart, gradient: 'from-rose-400 to-pink-500' },
+  { label: 'Temetések', href: '/anyakonyv#temetes', icon: Cross, gradient: 'from-slate-400 to-slate-600' },
+  { label: 'Beköltözöttek', href: '/anyakonyv#bekoltozott', icon: PlaneLanding, gradient: 'from-teal-400 to-emerald-500' },
+  { label: 'Elköltözöttek', href: '/anyakonyv#elkoltozott', icon: PlaneTakeoff, gradient: 'from-orange-400 to-amber-500' },
+  { label: 'Áttértek', href: '/anyakonyv#attert', icon: LogIn, gradient: 'from-emerald-400 to-green-500' },
+  { label: 'Kitértek', href: '/anyakonyv#kitert', icon: LogOut, gradient: 'from-amber-400 to-yellow-500' },
+] as const
+
 void Banknote
 void BookMarked
 void Users2
+void Church
 
 interface DashboardLayoutClientProps {
   profile: Profile
@@ -142,6 +168,7 @@ export function DashboardLayoutClient({
         activeScope={activeScope}
         financeSubmenu={WEB_FINANCE_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['financeSubmenu']}
         tagnyilvantartasSubmenu={WEB_TAGNYILVANTARTAS_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['tagnyilvantartasSubmenu']}
+        anyakonyvSubmenu={WEB_ANYAKONYV_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['anyakonyvSubmenu']}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
