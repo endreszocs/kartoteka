@@ -45,6 +45,9 @@ interface SpecialFieldsStepProps {
   totalRows?: number
   onBack: () => void
   onContinue: () => void
+  /** Elköltözés profil esetén: sor-szintű célgyülekezet-választó (a fájl
+   *  + state-vel a wizard-ban kezelt). Csak akkor teszi ki, ha file van. */
+  elkoltozottTable?: React.ReactNode
 }
 
 export function SpecialFieldsStep({
@@ -55,6 +58,7 @@ export function SpecialFieldsStep({
   totalRows = 0,
   onBack,
   onContinue,
+  elkoltozottTable,
 }: SpecialFieldsStepProps) {
   const showConfirmationOptions = profileKey === 'confirmation'
   const showMarriageOptions = profileKey === 'marriage'
@@ -225,10 +229,25 @@ export function SpecialFieldsStep({
             </div>
             {config.elkoltozottTargetCongregationId && (
               <p className="mt-2 text-[11px] text-cyan-700">
-                ✓ A sorok importálása után az itt választott gyülekezet lelkésze
-                automatikusan kap egy átjelentkezési értesítést minden tagra.
+                ✓ Az itt választott gyülekezet az ALAPÉRTELMEZETT — ha a sor-szintű
+                táblában (lent) felülírod, az élvez prioritást.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Elköltözés sor-szintű célgyülekezet-tábla (override a globális dropdown felett) */}
+        {showElkoltozottOptions && elkoltozottTable && (
+          <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-cyan-100">
+            <p className="text-sm font-semibold text-slate-800">
+              Sor-szintű célgyülekezet (felülírás)
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Ha a XML-ben különböző tagok különböző gyülekezetekbe mennek,
+              itt sor-szinten választhatsz célgyülekezetet. A rendszer
+              auto-javaslatot készít a Hova-helység és a Megjegyzés alapján.
+            </p>
+            <div className="mt-3">{elkoltozottTable}</div>
           </div>
         )}
 

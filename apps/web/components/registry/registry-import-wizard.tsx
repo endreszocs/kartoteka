@@ -44,6 +44,7 @@ import { ResultStep, type ResultData } from '../members/tagnyilvantartas-import/
 import { RegistryFileUploadStep } from './registry-import/file-upload-step'
 import { PersonLinkStep } from './registry-import/person-link-step'
 import { SpecialFieldsStep, type SpecialFieldsConfig } from './registry-import/special-fields-step'
+import { ElkoltozottTargetTable } from './registry-import/elkoltozott-target-table'
 
 // ─── Konstansok ─────────────────────────────────────────────────────────
 
@@ -245,6 +246,13 @@ export function RegistryImportWizard({
   /** Manuális tag-pick a person-link-step-en — kulcs: "rowIdx_slot", érték: szemely_id.
    *  Ha üres → automatikus quad-lookup eredménye érvényes. */
   const [manualPicks, setManualPicks] = useState<Record<string, number>>({})
+  /** Elköltözés sor-szintű célgyülekezet-választó — kulcs: rowIndex (1-alapú),
+   *  érték: congregation_id (UUID) vagy null = külföldre/nincs notifikáció.
+   *  Felülírja a globális elkoltozottTargetCongregationId-t. 2026-04-30. */
+  const [elkoltozottTargetMap, setElkoltozottTargetMap] = useState<Record<number, string | null>>({})
+  const handleElkoltozottTargetChange = useCallback((rowIndex: number, congregationId: string | null) => {
+    setElkoltozottTargetMap((prev) => ({ ...prev, [rowIndex]: congregationId }))
+  }, [])
   /** A teljes fájlból kinyert egyedi helység-szövegek (a sample 5 sornál
    *  több, mert a server action a TELJES fájlt parse-olja). 2026-04-30. */
   const [fullFileLocalities, setFullFileLocalities] = useState<string[] | null>(null)
@@ -285,6 +293,7 @@ export function RegistryImportWizard({
     setMappingOverrides({})
     setResolvedLocalityMap({})
     setManualPicks({})
+    setElkoltozottTargetMap({})
     setFullFileLocalities(null)
     setImportResult(null)
   }, [])
@@ -481,6 +490,14 @@ export function RegistryImportWizard({
       if (Object.keys(manualPicks).length > 0) {
         formData.append('manualPicks', JSON.stringify(manualPicks))
       }
+      // Elköltözés sor-szintű célgyülekezet (felülírja a globális
+      // specialConfig.elkoltozottTargetCongregationId-t soronként)
+      if (
+        profile.key === 'movement_elkoltozott'
+        && Object.keys(elkoltozottTargetMap).length > 0
+      ) {
+        formData.append('elkoltozottTargetMap', JSON.stringify(elkoltozottTargetMap))
+      }
       if (mode === 'admin' && selectedCongId) {
         formData.append('targetCongregationId', selectedCongId)
       }
@@ -518,7 +535,7 @@ export function RegistryImportWizard({
       }
       router.refresh()
     })
-  }, [file, activeSheet, mode, selectedCongId, profile, localityIdMap, specialConfig, manualPicks, router])
+  }, [file, activeSheet, mode, selectedCongId, profile, localityIdMap, specialConfig, manualPicks, elkoltozottTargetMap, router])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId = stage === 'importing' ? 'preview' : stage
@@ -668,6 +685,16 @@ export function RegistryImportWizard({
           totalRows={activeSheet.rowCount}
           onBack={() => (skipLocality ? setStage('person-link') : setStage('locality'))}
           onContinue={() => setStage('preview')}
+          elkoltozottTable={
+            profile.key === 'movement_elkoltozott' && file ? (
+              <ElkoltozottTargetTable
+                file={file}
+                sheetName={activeSheet.sheetName}
+                targetMap={elkoltozottTargetMap}
+                onTargetChange={handleElkoltozottTargetChange}
+              />
+            ) : undefined
+          }
         />
       )}
 

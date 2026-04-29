@@ -311,6 +311,18 @@ export async function executeRegistryImport(
     }
   }
 
+  // Elköltözés sor-szintű célgyülekezet-mapping (felülírja a globálist soronként)
+  // Kulcs: rowIndex (1-alapú string), érték: congregation_id (UUID) vagy null
+  const elkoltozottTargetMapRaw = formData.get('elkoltozottTargetMap') as string | null
+  let elkoltozottTargetMap: Record<string, string | null> = {}
+  if (elkoltozottTargetMapRaw) {
+    try {
+      elkoltozottTargetMap = JSON.parse(elkoltozottTargetMapRaw)
+    } catch {
+      // ignore
+    }
+  }
+
   // 5. RPC-row építés (helység-resolve + special-fields) + PRE-VALIDÁCIÓ
   // ÚJDONSÁG (2026-04-29): a hiányos sorokat MÉG MIELŐTT az RPC-nek küldenénk
   // szűrjük + részletes hibaüzenettel beletesszük az allErrors-ba. Így a
@@ -323,6 +335,17 @@ export async function executeRegistryImport(
     const r = records[i] as Record<string, unknown>
     const rpcRow = buildRpcRow(r, profileKey, localityIdMap, specialConfig)
     const rowIdx = i + 1 // 1-alapú a felhasználó számára
+
+    // Elköltözés sor-szintű override: felülírja a globális hova_congregation_id-t
+    if (profileKey === 'movement_elkoltozott') {
+      const rowKey = String(rowIdx)
+      if (rowKey in elkoltozottTargetMap) {
+        const overrideId = elkoltozottTargetMap[rowKey]
+        if (overrideId) rpcRow.hova_congregation_id = overrideId
+        else delete rpcRow.hova_congregation_id // explicit "nincs" — külföldre vagy ismeretlen
+      }
+    }
+
     const missing: string[] = []
 
     if (profileKey === 'marriage') {
