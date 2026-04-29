@@ -23,6 +23,59 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-29] — Konfirmáció anyakönyvi szám + import wizard UX javítás
+
+<!-- key: 2026-04-29-konfirmalas-okirat-importwizard-ux -->
+<!-- category: feature + bugfix + improvement -->
+<!-- targets: lelkészek — anyakönyv modul felhasználói -->
+
+Endre tesztelése feltárta, hogy a konfirmáltak listáján nem jelenik meg az
+anyakönyvi szám (mert a `konfirmalas` táblának nem volt `okirat` mezője), és
+az import wizard "új tagok létrehozása" gombja félreérthető volt.
+
+### ✨ Új funkciók
+
+- **Konfirmáció anyakönyvi szám** — új `konfirmalas.okirat` oszlop
+  (`YYYY02NNNN` formátum), automatikus generálás importnál és kézi
+  rögzítésnél, gyülekezetenként + évenként újraszámolt sorszám.
+- **Egyházasság hlevel-oszlop a táblában** — esketéseknél is megjelenik az
+  anyakönyvi szám (`YYYY03NNNN`).
+
+### 🎨 UX javítások
+
+- **Import wizard person-link lépés átszervezve** — a TOP-5 jelölt-választó
+  (létező tagok összekapcsolása) kerül FELÜL, mert ez a leggyakoribb eset.
+  Az "új tagok létrehozása" most másodlagos opció, "végső megoldás" jelölővel.
+- **"Manuális tag-választás" → "Tagok összekapcsolása"** — egyértelműbb
+  szöveg: a TOP-5 picker NEM hoz létre új tagokat, csak a meglevő tagokhoz
+  kapcsolja az anyakönyvi bejegyzést.
+
+### 🐛 Javítások
+
+- **Backfill: meglevő bejegyzések anyakönyvi száma** — a 2026-04-29 előtti
+  importokon (keresztelés, konfirmáció, esketés, temetés) a hiányzó okirat-ok
+  egy SQL migrációval generálódnak (gyülekezetenként, datum szerint
+  növekvő sorrendben sorszámozva).
+
+### 🛠 Technikai
+
+- SQL migráció: `migration-docs/sql/2026-04-29-konfirmalas-okirat-backfill.sql`
+- Frissített: `import_registry_batch` (confirmation ágba okirat insertálás),
+  `generate_egyhazi_anyakonyvi_szam` (confirmation: `okirat` mező használata)
+- TypeScript: `KonfirmalasRecord.okirat: string | null`
+- Komponens: `registry-tabs.tsx` (3 új okirat oszlop), `person-link-step.tsx`
+  (UX átszervezés), `unresolved-candidates-list.tsx` (új szöveg, violet szín)
+
+### 📋 Endre által futtatandó SQL
+
+```sql
+-- migration-docs/sql/2026-04-29-konfirmalas-okirat-backfill.sql
+-- Lefuttatja: ALTER TABLE konfirmalas + import_registry_batch frissítés
+-- + generate_egyhazi_anyakonyvi_szam frissítés + 4 backfill UPDATE
+```
+
+---
+
 ## [2026-04-28] — Anyakönyvi import bővítések (Endre tesztelés alapján)
 
 <!-- key: 2026-04-28-anyakonyv-import-bovitesek -->

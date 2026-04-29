@@ -83,17 +83,19 @@ export function UnresolvedCandidatesList({
   }
 
   return (
-    <div className="rounded-2xl bg-amber-50/60 p-4 ring-1 ring-amber-100">
+    <div className="rounded-2xl bg-violet-50/70 p-4 ring-1 ring-violet-200">
       <div className="mb-3 flex items-start gap-2">
-        <Search className="mt-0.5 size-4 shrink-0 text-amber-700" />
+        <Search className="mt-0.5 size-4 shrink-0 text-violet-700" />
         <div>
-          <p className="text-sm font-semibold text-amber-800">
-            Manuális tag-választás
+          <p className="text-sm font-semibold text-violet-800">
+            Tagok összekapcsolása a már létező tagnyilvántartással
           </p>
-          <p className="mt-0.5 text-xs text-amber-700/90">
-            A {unresolvedRows.length} nem-talált sorhoz alább látod a leghasonlóbb
-            tagokat (pontszám szerint csökkenően). Klikkelj rá a megfelelőre,
-            vagy hagyd kihagyásra (alapértelmezés).
+          <p className="mt-0.5 text-xs text-violet-700/90">
+            {unresolvedRows.length} sornál az automatikus kereső bizonytalan
+            volt. Alább a leghasonlóbb tagokat látod a tagnyilvántartásból
+            (pontszám szerint csökkenően). <strong>Klikkelj rá a megfelelő
+            tagra</strong> a párosításhoz — így az anyakönyvi bejegyzés a már
+            létező taghoz fog kapcsolódni (nem hoz létre új tagot).
           </p>
         </div>
       </div>

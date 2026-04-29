@@ -211,6 +211,7 @@ export interface KonfirmalasRecord extends SyncTrackedRecord {
   megjegyzes: string | null
   helyid: number | null
   munkanaplo_id: number | null
+  okirat: string | null // 2026-04-29: egyházi anyakönyvi szám (YYYY02NNNN)
   congregation_id: string | null
 }
 

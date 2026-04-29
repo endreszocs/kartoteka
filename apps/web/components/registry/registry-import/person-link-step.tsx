@@ -198,51 +198,10 @@ export function PersonLinkStep({
           </div>
         )}
 
-        {/* Nem-talált példák listája */}
-        {!isResolving && result?.unresolvedExamples && result.unresolvedExamples.length > 0 && (
-          <div className="mt-4 rounded-2xl bg-amber-50/60 p-4 ring-1 ring-amber-100">
-            <p className="text-sm font-semibold text-amber-700">
-              Példák a nem-talált sorokra (max 20):
-            </p>
-            <ul className="mt-2 space-y-1 text-xs text-amber-900">
-              {result.unresolvedExamples.map((ex, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="font-mono text-amber-600">{ex.rowIndex}.</span>
-                  <span>{ex.description}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs text-amber-700">
-              Két lehetőség: (a) <strong>új tagokat hozok létre ezekhez</strong> — a
-              rendszer beveszi őket a tagnyilvántartásba alapadatokkal (név,
-              születési dátum, nem); a többi mező később pótolható. (b) Ha mégsem
-              kellenek, kattints csak a Tovább gombra — akkor a rendszer
-              kihagyja őket.
-            </p>
-            <div className="mt-3">
-              <Button
-                type="button"
-                onClick={handleCreateMissing}
-                disabled={isCreating || isResolving}
-                className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
-              >
-                {isCreating ? (
-                  <>
-                    <Loader2 className="mr-1.5 size-4 animate-spin" />
-                    Új tagok létrehozása…
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="mr-1.5 size-4" />
-                    Új tagok létrehozása ezekhez a sorokhoz
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Manuális tag-pick — TOP-5 jelölt pontszámmal a nem-talált sorokhoz */}
+        {/* ELSŐDLEGES ÚT: Manuális tag-pick — TOP-5 jelölt pontszámmal.
+            Ez a legtöbb esetben a megfelelő megoldás: a tagok már a rendszerben
+            vannak, csak az automata quad-lookup nem találta meg őket
+            (elírás, becenév, lánykori név stb.). */}
         {!isResolving && unresolvedTotal > 0 && (
           <div className="mt-4">
             <UnresolvedCandidatesList
@@ -253,6 +212,64 @@ export function PersonLinkStep({
               manualPicks={manualPicks}
               onPickChange={onPickChange}
             />
+          </div>
+        )}
+
+        {/* MÁSODLAGOS ÚT: ha tényleg nem szerepelnek a tagnyilvántartásban,
+            akkor itt lehet egyszerre létrehozni őket. */}
+        {!isResolving && result?.unresolvedExamples && result.unresolvedExamples.length > 0 && (
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+            <p className="text-sm font-semibold text-slate-700">
+              Csak ha biztosan nincs még a rendszerben
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              A fenti listából a megfelelő tagot kiválasztva az anyakönyvi
+              bejegyzés a már létező taghoz kapcsolódik. <strong>Ezt válaszd
+              először</strong>, mert a legtöbb keresztelt/konfirmált tag már a
+              tagnyilvántartásban van — csak az automatikus kereső nem találta
+              meg pontosan (pl. elírás, becenév, lánykori név miatt).
+            </p>
+            <p className="mt-2 text-xs text-slate-600">
+              Az alábbi gomb csak <strong>végső megoldás</strong>: ha tényleg
+              nincs még tag a rendszerben, akkor felveszi a maradék nem-talált
+              sorokhoz a minimális adatokat (név, születési dátum, nem). A
+              többi adat (lakcím, családszerkezet stb.) később pótolható a
+              tagnyilvántartásban.
+            </p>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-700">
+                Mely sorok érintettek? ({result.unresolvedExamples.length} példa)
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                {result.unresolvedExamples.map((ex, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="font-mono text-slate-400">{ex.rowIndex}.</span>
+                    <span>{ex.description}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+            <div className="mt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCreateMissing}
+                disabled={isCreating || isResolving}
+                className="rounded-full border-slate-300 text-slate-700 hover:bg-slate-100"
+              >
+                {isCreating ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-4 animate-spin" />
+                    Új tagok felvétele…
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-1.5 size-4" />
+                    Új tagok felvétele a maradék sorokhoz (végső megoldás)
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
