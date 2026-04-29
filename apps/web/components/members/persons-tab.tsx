@@ -206,9 +206,19 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                         {age !== null ? `${age} év` : '—'}
                       </td>
 
-                      {/* Státusz */}
+                      {/* Státusz + (esetleges) átjelentkezési badge */}
                       <td className="p-3">
-                        <MemberStatusBadge status={m.paymentStatus} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <MemberStatusBadge status={m.paymentStatus} />
+                          {m.pendingTransfer && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                              title={`Átjelentkezés folyamatban: ${m.pendingTransfer.target_congregation_name} (várakozás a célgyülekezet válaszára)`}
+                            >
+                              🚪 Átjelentkezik
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Foglalkozás */}

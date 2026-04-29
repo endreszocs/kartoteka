@@ -120,4 +120,12 @@ export interface MemberRow {
 export interface EnrichedMember extends MemberRow {
   paymentStatus: PaymentStatus
   familyId: number | null
+  /** Átjelentkezési kérelem folyamatban (member_transfer_notifications.status='pending').
+   *  Ha kitöltött, a tagnyilvántartásban 🚪 badge jelenik meg ezzel a célgyülekezettel.
+   *  2026-04-30 — Endre kérése. */
+  pendingTransfer: {
+    id: string
+    target_congregation_name: string
+    created_at: string
+  } | null
 }

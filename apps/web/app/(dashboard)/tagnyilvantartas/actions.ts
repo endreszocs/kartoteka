@@ -72,7 +72,7 @@ export async function getMembers(): Promise<{
 
   const currentYear = new Date().getFullYear()
 
-  const [membersRes, paymentsRes, exemptionsRes, familiesRes, childrenRes, yearlySettingsRes, discountsRes, congregationRes] = await Promise.all([
+  const [membersRes, paymentsRes, exemptionsRes, familiesRes, childrenRes, yearlySettingsRes, discountsRes, congregationRes, pendingTransfersRes] = await Promise.all([
     supabase.from('szemely').select('*, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
     supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
@@ -81,7 +81,30 @@ export async function getMembers(): Promise<{
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(currentYear)),
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true),
     supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
+    // 2026-04-30: pending átjelentkezési kérelmek (a saját gyülekezet a forrás)
+    supabase
+      .from('member_transfer_notifications')
+      .select('id, szemely_id, created_at, target_congregation:congregations!target_congregation_id(name, nev_hu)')
+      .eq('source_congregation_id', congregationId)
+      .eq('status', 'pending'),
   ])
+
+  // pending átjelentkezések map: szemely_id → { id, target_name, created_at }
+  type PendingTransferRow = {
+    id: string
+    szemely_id: number
+    created_at: string
+    target_congregation: { name: string | null; nev_hu: string | null } | { name: string | null; nev_hu: string | null }[] | null
+  }
+  const pendingTransferMap: Record<number, EnrichedMember['pendingTransfer']> = {}
+  ;((pendingTransfersRes.data || []) as PendingTransferRow[]).forEach((row) => {
+    const tc = Array.isArray(row.target_congregation) ? row.target_congregation[0] : row.target_congregation
+    pendingTransferMap[row.szemely_id] = {
+      id: row.id,
+      target_congregation_name: tc?.nev_hu || tc?.name || 'Ismeretlen célgyülekezet',
+      created_at: row.created_at,
+    }
+  })
 
   // Személy → család mapping
   const personToFamilyMap: Record<number, number> = {}
@@ -179,6 +202,7 @@ export async function getMembers(): Promise<{
       ...m,
       paymentStatus,
       familyId,
+      pendingTransfer: pendingTransferMap[m.id] || null,
     }
   })
 
