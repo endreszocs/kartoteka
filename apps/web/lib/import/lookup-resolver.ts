@@ -199,6 +199,11 @@ interface PersonLookupMaps {
    *  ban csak a férjezett családnév szerepel ÉS NINCS szcs_nev mezője.
    *  Csak akkor matchel, ha 1 találat van (különben ambivalens, kihagyjuk). */
   byKnameFerfi: Map<string, string[]>
+  /** Reverse lookup: szemely.id → szemely rekord (csaladnev, k_nev, …).
+   *  A "férj-családnév" alapú menyasszony-keresés használja
+   *  (esketésnél: ha id_ferfi feloldva, akkor a férj csaladnev-jét
+   *  + XML lánykori keresztnevet használhatjuk a menyasszony megtalálásához). */
+  byId: Map<string, LookupRecord>
 }
 
 async function buildPersonLookupMap(
@@ -214,13 +219,14 @@ async function buildPersonLookupMap(
   const byTriple = new Map<string, string[]>()
   const byMaiden = new Map<string, string[]>()
   const byKnameFerfi = new Map<string, string[]>()
+  const byId = new Map<string, LookupRecord>()
 
   const allCnps = Array.from(cnps).filter(Boolean)
   const allNames = Array.from(names).filter(Boolean)
   const allQuads = Array.from(quads).filter(Boolean)
 
   if (allCnps.length === 0 && allNames.length === 0 && allQuads.length === 0) {
-    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
+    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
   }
 
   // A query: szemely táblában csak a saját gyülekezet személyeit nézzük
@@ -232,9 +238,10 @@ async function buildPersonLookupMap(
     .eq('congregation_id', congregationId)
     .eq('isvisible', true)
 
-  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
+  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
 
   for (const row of data as Array<LookupRecord & { isvisible?: boolean }>) {
+    byId.set(row.id, row)
     if (row.cnp) {
       byCnp.set(row.cnp.trim(), row.id)
     }
@@ -303,7 +310,7 @@ async function buildPersonLookupMap(
     }
   }
 
-  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi }
+  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
 }
 
 /**
@@ -646,7 +653,7 @@ export async function resolveLookups(
     cnps.size > 0 || names.size > 0 || needsQuadLookup
       ? buildPersonLookupMap(supabase, congregationId, cnps, names, quads)
       : Promise.resolve<PersonLookupMaps>({
-          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(), byKnameFerfi: new Map(),
+          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(), byKnameFerfi: new Map(), byId: new Map(),
         }),
     records.some(r => typeof r._befizetescel_nev === 'string' && r._befizetescel_nev)
       ? buildCategoryLookupMap(supabase, congregationId, 'befizetescel')
@@ -682,6 +689,70 @@ export async function resolveLookups(
     // Kategória — kiadascel
     if (kiaCatMap.size > 0) {
       resolveCategory(rec, '_kiadascel_nev', 'id_kiadascel', kiaCatMap, stats, i)
+    }
+  }
+
+  // ─── 2. KÖR — Férj-családnév alapján menyasszony-keresés ───────────────
+  //
+  // Endre észrevétele (2026-04-29): "Ha megvan a vőlegény, akkor a vőlegény
+  // családneve és a menyasszony keresztnevével kellene egyeztetni — és ami
+  // megmarad az a lánykori neve."
+  //
+  // Logika a magyar reformárus gyakorlatban:
+  //   - A vőlegény: pl. "Hatházi András" (csaladnev=Hatházi, k_nev=András)
+  //   - Menyasszony XML-ben (lánykori): pl. "Karácsony Irma"
+  //   - A menyasszony MOST a tagnyilv.-ban: pl. "Hatházi Irma"
+  //     (csaladnev=Hatházi a férj nevéről, k_nev=Irma változatlan,
+  //      szcs_nev=Karácsony lánykori).
+  //
+  // Tehát ha id_ferfi feloldva, de id_no nincs → próbáljuk:
+  //   csaladnev = férj.csaladnev AND k_nev = XML._no_k_nev AND ferfi=false
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i]
+    const idFerfi = rec.id_ferfi
+    const idNo = rec.id_no
+    const noKnev = rec._no_k_nev
+    if (
+      (idNo == null || idNo === '')
+      && idFerfi != null && idFerfi !== ''
+      && typeof noKnev === 'string' && noKnev.trim()
+    ) {
+      const ferfiPerson = personMaps.byId.get(String(idFerfi))
+      if (ferfiPerson?.csaladnev) {
+        const csNorm = normalizeNameForQuad(ferfiPerson.csaladnev)
+        const knVariants = knevVariants(noKnev)
+        const noSzDatum = rec._no_sz_datum
+        const dNorm = normalizeDateForQuad(typeof noSzDatum === 'string' ? noSzDatum : noSzDatum != null ? String(noSzDatum) : '')
+
+        let resolved = false
+        // 2a. Quad-key: férj-csaladnev | XML keresztnév | sz_datum | F
+        if (dNorm) {
+          for (const knVar of knVariants) {
+            const quad = `${csNorm}|${knVar}|${dNorm}|F`
+            const id = personMaps.byQuad.get(quad)
+            if (id) {
+              rec.id_no = id
+              stats.personResolved += 1
+              resolved = true
+              break
+            }
+          }
+        }
+
+        // 2b. Triple fallback: férj-csaladnev | XML keresztnév | F (csak 1 jelölt esetén)
+        if (!resolved) {
+          for (const knVar of knVariants) {
+            const tripleKey = `${csNorm}|${knVar}|F`
+            const candidates = personMaps.byTriple.get(tripleKey)
+            if (candidates && candidates.length === 1) {
+              rec.id_no = candidates[0]
+              stats.personResolved += 1
+              resolved = true
+              break
+            }
+          }
+        }
+      }
     }
   }
 

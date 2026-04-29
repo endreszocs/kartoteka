@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-04-29c] — Esketés import: férj-családnév alapú menyasszony-keresés
+
+<!-- key: 2026-04-29c-eskeses-ferj-csaladnev-menyasszony-keresss -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — esketés import felhasználói -->
+
+Endre logikai észrevétele: "Ha megvan a vőlegény, akkor a vőlegény családneve
+és a menyasszony keresztnevével kellene egyeztetni — és ami megmarad az a
+lánykori neve."
+
+A magyar reformárus gyakorlatban: a házassággal a nő `csaladnev`-je gyakran
+a férj nevére változik (pl. `Karácsony Irma` → `Hatházi Irma`), a keresztnév
+változatlan, a lánykori név a `szcs_nev` mezőbe kerül. Ezt a logikát eddig
+nem építettük be a menyasszony-keresésbe.
+
+### ✨ Új funkciók
+
+- **Lookup-resolver 2. kör**: ha id_ferfi feloldva, de id_no nem, akkor
+  próbál a férj-csaladnev + XML keresztnév + sz_datum quad-key-vel keresni.
+  Pl. férj=Hatházi, XML=Karácsony Irma sz: 1990 → automatikusan találja a
+  `Hatházi Irma sz: 1990` tagot, akinek `szcs_nev=Karácsony`.
+- **TOP-5 scoring új tényező**: "Férj családneve egyezik" → +35 pont.
+  Ha a jelölt jelenlegi csaladnev-je egyezik a vőlegény csaladnev-jével,
+  ÉS NEM egyezik a XML-beli (lánykori) csaladnev-vel, akkor erős jel
+  hogy ő a férjezett asszony. Ez kombinálódik a lánykori egyezéssel
+  (+25) és a keresztnévvel (+30) — a férjezett menyasszony így 90+
+  ponttal kerül a TOP-5 élére.
+
+### 🛠 Technikai
+
+- `lookup-resolver.ts`: új `byId: Map<string, LookupRecord>` index
+  (id → person reverse lookup), és 2. kör a marriage profil-on
+- `registry-candidates-action.ts`: `husbandCsaladnev` scoring input,
+  `personsById` reverse map a candidates-action-ben
+
+---
+
 ## [2026-04-29b] — Állami vs egyházi anyakönyvi szám szétválasztása + esketés pár-info
 
 <!-- key: 2026-04-29b-egyhazi-szam-szetvalasztas-eskeses-parinfo -->

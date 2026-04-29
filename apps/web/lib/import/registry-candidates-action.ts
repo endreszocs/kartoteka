@@ -110,6 +110,11 @@ interface ScoringInput {
    *  csak a családnév változhat (lánykori → házassági), a keresztnév nem.
    */
   requireKnevMatch?: boolean
+  /** Esketés menyasszony-keresésnél: a vőlegény csaladnev-je. Ha a jelölt
+   *  jelenlegi `csaladnev`-je egyezik a férj csaladnev-jével → +35 (erős
+   *  jel: ez már a férj nevét viseli). Logika: a magyar gyakorlatban a
+   *  házassággal a nő csaladnev-je gyakran a férj nevére változik. */
+  husbandCsaladnev?: string | null
 }
 
 interface PersonRow {
@@ -172,6 +177,19 @@ function scorePerson(p: PersonRow, s: ScoringInput): { score: number; reasons: s
   if (sCsNorm && pScsNorm && sCsNorm === pScsNorm) {
     score += 25
     reasons.push('Lánykori név egyezik')
+  }
+
+  // ─── Férj családneve (esketés menyasszony) ──────────────────────────────
+  // Endre logikája: ha a férj csaladnev-jét tudjuk, és a jelölt jelenlegi
+  // csaladnev-je egyezik vele → erős jel, hogy ő a férjezett asszony.
+  // Pl. férj=Hatházi, jelölt csaladnev=Hatházi, k_nev=Irma, szcs_nev=Karácsony,
+  // XML=Karácsony Irma → kettős egyezés (lánykori + férj-családnév).
+  if (s.husbandCsaladnev) {
+    const husbandNorm = norm(s.husbandCsaladnev)
+    if (husbandNorm && pCsNorm === husbandNorm && pCsNorm !== sCsNorm) {
+      score += 35
+      reasons.push(`Férj családneve egyezik (${s.husbandCsaladnev})`)
+    }
   }
 
   // ─── Születési dátum ────────────────────────────────────────────────────
@@ -257,6 +275,9 @@ export async function getCandidatesForUnresolvedAction(
 
   if (dbError) return { error: `Tagnyilv. lekérés hiba: ${dbError.message}` }
   const persons: PersonRow[] = (allPersons || []) as PersonRow[]
+  // Reverse map: id → person (a férj-csaladnév kinyeréséhez ha id_ferfi feloldva)
+  const personsById = new Map<number, PersonRow>()
+  for (const p of persons) personsById.set(p.id, p)
 
   // 4. A nem-talált sorokat összegyűjtjük + jelölteket pontozzuk
   const isMarriage = profileKey === 'marriage'
@@ -322,17 +343,33 @@ export async function getCandidatesForUnresolvedAction(
         }
       }
       // Menyasszony ellenőrzés — keresztnév-egyezés KÖTELEZŐ (a házassággal
-      // a családnév változhat, a keresztnév nem)
+      // a családnév változhat, a keresztnév nem). Plus: ha id_ferfi már
+      // feloldott, a férj csaladnev-jét scoring-tényezőnek vesszük.
       if (r.id_no == null || r.id_no === '') {
         const cs = String(noCs || '')
         const k = String(noK || '')
         if (cs.trim() && k.trim()) {
+          // Ha id_ferfi feloldva (lookup-resolver vagy manualPicks alapján)
+          // → kinyerjük a férj csaladnev-jét a scoring-hoz
+          let husbandCsaladnev: string | null = null
+          const idFerfi = r.id_ferfi
+          if (idFerfi != null && idFerfi !== '') {
+            const num = Number(idFerfi)
+            if (Number.isFinite(num)) {
+              const ferfiPerson = personsById.get(num)
+              if (ferfiPerson?.csaladnev) {
+                husbandCsaladnev = ferfiPerson.csaladnev
+              }
+            }
+          }
+
           const candidates = scoreAndPickTop({
             searchCsaladnev: cs,
             searchKnev: k,
             searchSzDatum: noSz,
             searchFerfi: false,
             requireKnevMatch: true,
+            husbandCsaladnev,
           })
           result.push({
             rowIndex: i + 1,
