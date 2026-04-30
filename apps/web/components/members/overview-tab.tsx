@@ -24,9 +24,14 @@ export function OverviewTab({ members }: OverviewTabProps) {
       && m.member_status !== 'kitért'
       && m.member_status !== 'törölt'
     )
+    // 2026-04-30 (Endre szabálya): "Aktív tag = református VAGY bármikor fizetett
+    // egyházfenntartást." A korábbi szabály az ÜRES vallást is reformátusnak
+    // vette — visszavontuk. Az üres-vallású tag csak akkor aktív, ha valaha
+    // fizetett egyházfenntartást.
     const reformed = alive.filter(m => {
       const v = (m.vallas || '').trim().toLowerCase()
-      return v === '' || v === 'református'
+      const isReformatus = v === 'református'
+      return isReformatus || m.hasEverPaid
     })
     const total = reformed.length
     const men = reformed.filter(m => m.ferfi).length

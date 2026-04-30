@@ -62,6 +62,13 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
   const [returnToPersonAfterFamily, setReturnToPersonAfterFamily] = useState(false)
 
   const paidSet = useMemo(() => new Set(paidPersonIds), [paidPersonIds])
+  // 2026-04-30: "Bármikor fizetett" Set — az enrichedMember.hasEverPaid alapján.
+  // Ezt használja az isActiveMember(m, paidSet, everPaidSet) az aktív szabálynak.
+  const everPaidSet = useMemo(() => {
+    const s = new Set<number>()
+    for (const m of members) if (m.hasEverPaid) s.add(m.id)
+    return s
+  }, [members])
 
   // Cross-congregation match notifikációk — a name mellé 🔗 jelölést tesszünk
   const { notifications: crossNotifs } = useCrossCongregationNotifications()
@@ -82,7 +89,7 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
         const addrMatch = `${m.adrlocality?.name || ''} ${m.adrstreet?.name || ''} ${m.c_szam || ''}`.toLowerCase().includes(query)
         if (!nameMatch && !addrMatch) return false
       }
-      if (statusFilter === 'aktív') return isActiveMember(m, paidSet)
+      if (statusFilter === 'aktív') return isActiveMember(m, paidSet, everPaidSet)
       if (statusFilter === 'meghalt') return m.meghalt
       if (statusFilter === 'elkoltozott') return m.member_status === 'elkoltozott' || m.elkoltozott
       if (statusFilter === 'kitert') return m.member_status === 'kitért'
@@ -180,6 +187,20 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                                   <Link2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                                 </span>
                               )}
+                              {/* 2026-04-30: vallás-figyelmeztetés — ha üres és nem fizetett valaha */}
+                              {(() => {
+                                const v = (m.vallas || '').trim()
+                                if (v !== '') return null
+                                if (m.hasEverPaid) return null // mert ő mégis aktív (Endre szabálya)
+                                return (
+                                  <span
+                                    title="Vallás nincs rögzítve — ezért NEM számít aktív tagnak. Ha valaha fizetett egyházfenntartást, vagy reformátussá kell jelölni, akkor aktív lesz."
+                                    className="inline-flex items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700"
+                                  >
+                                    !
+                                  </span>
+                                )
+                              })()}
                             </div>
                             <div className="text-[11px] text-zinc-400 md:hidden">
                               {[

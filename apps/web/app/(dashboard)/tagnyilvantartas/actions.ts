@@ -72,9 +72,13 @@ export async function getMembers(): Promise<{
 
   const currentYear = new Date().getFullYear()
 
-  const [membersRes, paymentsRes, exemptionsRes, familiesRes, childrenRes, yearlySettingsRes, discountsRes, congregationRes, pendingTransfersRes] = await Promise.all([
+  const [membersRes, paymentsRes, everPaidRes, exemptionsRes, familiesRes, childrenRes, yearlySettingsRes, discountsRes, congregationRes, pendingTransfersRes] = await Promise.all([
     supabase.from('szemely').select('*, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
     supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
+    // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
+    // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
+    // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
+    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
     supabase.from('csalad').select('id, id_ferfi, id_no'),
     supabase.from('gyerek').select('id_szemely, id_csalad'),
@@ -137,6 +141,22 @@ export async function getMembers(): Promise<{
   const paidPersonSet = new Set(paidPersonIds)
   const paidFamilySet = new Set(paidFamilyIds)
 
+  // "Bármikor fizetett egyházfenntartást" — Set
+  // Minden olyan szemely_id, akinek volt valaha egyházfenntartási befizetése,
+  // bármelyik évre. Ezt használja az aktív-tag számítás (Endre szabálya:
+  // református VAGY bármikor fizető).
+  const everPaidPersonSet = new Set<number>()
+  const everPaidFamilySet = new Set<number>()
+  ;((everPaidRes.data || []) as Array<{
+    id_szemely: number | null
+    id_csalad: number | null
+    befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
+  }>).forEach((payment) => {
+    if (!isChurchMaintenanceCode(getPaymentGoalCode(payment.befizetescel))) return
+    if (payment.id_szemely) everPaidPersonSet.add(payment.id_szemely)
+    if (payment.id_csalad) everPaidFamilySet.add(payment.id_csalad)
+  })
+
   // Felmentettek
   const exemptPersonIds: number[] = []
   const exemptFamilyIds: number[] = []
@@ -198,11 +218,14 @@ export async function getMembers(): Promise<{
     else if (exemptPersonSet.has(m.id) || (familyId && exemptFamilySet.has(familyId))) paymentStatus = 'felmentett'
     else if (jarulek.expected === 0 || jarulek.paid >= jarulek.expected || paidPersonSet.has(m.id) || (familyId && paidFamilySet.has(familyId))) paymentStatus = 'rendezve'
 
+    const hasEverPaid = everPaidPersonSet.has(m.id) || (familyId != null && everPaidFamilySet.has(familyId))
+
     return {
       ...m,
       paymentStatus,
       familyId,
       pendingTransfer: pendingTransferMap[m.id] || null,
+      hasEverPaid,
     }
   })
 

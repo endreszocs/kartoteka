@@ -128,4 +128,8 @@ export interface EnrichedMember extends MemberRow {
     target_congregation_name: string
     created_at: string
   } | null
+  /** Bármikor fizetett egyházfenntartási járulékot (bármely évben).
+   *  Az aktív-tag számítás használja: református VAGY hasEverPaid → aktív.
+   *  2026-04-30 — Endre kérése. */
+  hasEverPaid: boolean
 }
