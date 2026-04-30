@@ -84,10 +84,10 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
       }
       if (statusFilter === 'aktív') return isActiveMember(m, paidSet)
       if (statusFilter === 'meghalt') return m.meghalt
-      if (statusFilter === 'elkoltozott') return m.elkoltozott
+      if (statusFilter === 'elkoltozott') return m.member_status === 'elkoltozott' || m.elkoltozott
       if (statusFilter === 'kitert') return m.member_status === 'kitért'
       if (statusFilter === 'mas_vallasu') { const v = (m.vallas || '').trim().toLowerCase(); return v !== '' && v !== 'református' && !m.meghalt }
-      if (statusFilter === 'lebego') return m.familyId === null && !m.meghalt && !m.elkoltozott
+      if (statusFilter === 'lebego') return m.familyId === null && !m.meghalt && m.member_status !== 'elkoltozott' && !m.elkoltozott
       return true
     })
 

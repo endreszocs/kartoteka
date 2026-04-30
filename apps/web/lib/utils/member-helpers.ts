@@ -87,7 +87,10 @@ export function isActiveMember(
   m: MemberRow,
   paidPersonIds: Set<number>
 ): boolean {
-  if (m.meghalt || m.elkoltozott || m.member_status === 'kitért' || m.member_status === 'törölt') return false
+  // 2026-04-30 (Endre kérése): a member_status='elkoltozott' tagok kikerülnek
+  // az aktív listából, amíg a célgyülekezet nem fogadta el / utasította el
+  // (pending alatt is). Elutasítás után a member_status='aktív'-re visszaáll.
+  if (m.meghalt || m.elkoltozott || m.member_status === 'elkoltozott' || m.member_status === 'kitért' || m.member_status === 'törölt') return false
   const v = (m.vallas || '').trim().toLowerCase()
   const isRefOrEmpty = v === '' || v === 'református'
   const isPayer = paidPersonIds.has(m.id)

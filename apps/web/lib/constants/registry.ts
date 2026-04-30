@@ -64,5 +64,13 @@ export interface RegistryEntry {
   igazolas?: string
   kulfoldre?: boolean
   adrlocality?: { name: string } | null
+  /** Elköltözés célgyülekezete (2026-04-30) */
+  hova_congregation?: { name: string | null; nev_hu: string | null } | null
+  /** Elköltözés átjelentkezési notifikáció állapota (2026-04-30):
+   *  - pending: célgyülekezet még nem válaszolt
+   *  - accepted: tag átkerült
+   *  - rejected: tag visszakerült
+   *  null: nincs notifikáció (külföldre vagy nincs hova_congregation_id) */
+  transfer_notification?: { id: string; status: 'pending' | 'accepted' | 'rejected'; responded_at: string | null } | { id: string; status: 'pending' | 'accepted' | 'rejected'; responded_at: string | null }[] | null
   [key: string]: unknown
 }

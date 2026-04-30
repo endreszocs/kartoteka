@@ -43,8 +43,9 @@ export async function getRegistryData(tab: string): Promise<RegistryEntry[]> {
       break
     case 'elkoltozott':
       // 2026-04-30 fix: az elkoltozott táblának HOVAID mezője van (NEM honnanid).
-      // Plusz: hova_congregation_id is hozzá van fűzve a célgyülekezet adataival.
-      query = supabase.from('elkoltozott').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!hovaid(name), hova_congregation:congregations!hova_congregation_id(name, nev_hu)')
+      // Plus: hova_congregation_id (célgyülekezet) + member_transfer_notifications
+      // (státusz: pending / accepted / rejected) — a táblázat minden infóval.
+      query = supabase.from('elkoltozott').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, member_status), adrlocality!hovaid(name), hova_congregation:congregations!hova_congregation_id(name, nev_hu), transfer_notification:member_transfer_notifications!elkoltozott_id(id, status, responded_at)')
       break
     case 'kitert':
       // a kitert táblának is HOVAID mezője van

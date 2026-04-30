@@ -254,11 +254,37 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
         <th key="h-tem" className="p-2 text-left">Temetés</th>,
         <th key="h-ok" className="p-2 text-left hidden md:table-cell">Ok</th>,
       )
-    } else if (['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab)) {
+    } else if (activeTab === 'bekoltozott') {
       headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
         <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-honnan" className="p-2 text-left">Honnan</th>,
         <th key="h-dat" className="p-2 text-left">Dátum</th>,
         <th key="h-meg" className="p-2 text-left hidden md:table-cell">Megjegyzés</th>,
+      )
+    } else if (activeTab === 'elkoltozott') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-hova" className="p-2 text-left">Hova / Célgyülekezet</th>,
+        <th key="h-allapot" className="p-2 text-left">Állapot</th>,
+        <th key="h-dat" className="p-2 text-left">Dátum</th>,
+      )
+    } else if (activeTab === 'attert') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-felekezet" className="p-2 text-left">Korábbi felekezet</th>,
+        <th key="h-honnan" className="p-2 text-left hidden md:table-cell">Honnan</th>,
+        <th key="h-dat" className="p-2 text-left">Dátum</th>,
+      )
+    } else if (activeTab === 'kitert') {
+      headerCells.push(
+        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
+        <th key="h-nev" className="p-2 text-left">Név</th>,
+        <th key="h-felekezet" className="p-2 text-left">Új felekezet</th>,
+        <th key="h-hova" className="p-2 text-left hidden md:table-cell">Hova</th>,
+        <th key="h-dat" className="p-2 text-left">Dátum</th>,
       )
     }
     headerCells.push(<th key="h-act" className="p-2 w-20"></th>)
@@ -296,11 +322,64 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
           <td key="c-tem" className="p-2 text-muted-foreground">{d.tdatum?.toString().split('T')[0] || '—'}</td>,
           <td key="c-ok" className="p-2 hidden md:table-cell text-muted-foreground text-xs">{d.hoka || '—'}</td>,
         )
-      } else if (['bekoltozott','elkoltozott','attert','kitert'].includes(activeTab)) {
+      } else if (activeTab === 'bekoltozott') {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
         cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
           <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-honnan" className="p-2 text-xs text-slate-600">{helyseg}</td>,
           <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
           <td key="c-meg" className="p-2 hidden md:table-cell text-muted-foreground text-xs truncate max-w-[200px]">{d.megjegyzes || '—'}</td>,
+        )
+      } else if (activeTab === 'elkoltozott') {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name
+        const targetCong = Array.isArray(d.hova_congregation) ? d.hova_congregation[0] : d.hova_congregation
+        const congName = targetCong?.nev_hu || targetCong?.name
+        const notif = Array.isArray(d.transfer_notification) ? d.transfer_notification[0] : d.transfer_notification
+        const isKulfoldre = (d.kulfoldre as boolean | undefined) === true
+
+        // Állapot-badge
+        let statusBadge: React.ReactNode
+        if (isKulfoldre) {
+          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">🌍 Külföld</span>
+        } else if (!notif) {
+          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">— Nincs cél —</span>
+        } else if (notif.status === 'pending') {
+          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">⏳ Függőben</span>
+        } else if (notif.status === 'accepted') {
+          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">✓ Elfogadva</span>
+        } else {
+          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">✕ Elutasítva (visszakerült)</span>
+        }
+
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-hova" className="p-2 text-xs">
+            {helyseg && <div className="text-slate-700">{helyseg}</div>}
+            {congName && <div className="text-[10px] text-violet-600">{congName}</div>}
+            {!helyseg && !congName && <span className="text-slate-400">—</span>}
+          </td>,
+          <td key="c-allapot" className="p-2">{statusBadge}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+        )
+      } else if (activeTab === 'attert') {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-felekezet" className="p-2 text-xs text-slate-600">{d.felekezet || '—'}</td>,
+          <td key="c-honnan" className="p-2 hidden md:table-cell text-xs text-slate-500">{helyseg}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
+        )
+      } else if (activeTab === 'kitert') {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
+        cells.push(
+          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
+          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
+          <td key="c-felekezet" className="p-2 text-xs text-slate-600">{d.felekezet || '—'}</td>,
+          <td key="c-hova" className="p-2 hidden md:table-cell text-xs text-slate-500">{helyseg}</td>,
+          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
         )
       }
       cells.push(

@@ -193,7 +193,7 @@ export async function getMembers(): Promise<{
 
     let paymentStatus: EnrichedMember['paymentStatus'] = 'hatralekos'
     if (m.meghalt) paymentStatus = 'elhunyt'
-    else if (m.elkoltozott) paymentStatus = 'elkoltozott'
+    else if (m.member_status === 'elkoltozott' || m.elkoltozott) paymentStatus = 'elkoltozott'
     else if (m.member_status === 'kitért') paymentStatus = 'kitert'
     else if (exemptPersonSet.has(m.id) || (familyId && exemptFamilySet.has(familyId))) paymentStatus = 'felmentett'
     else if (jarulek.expected === 0 || jarulek.paid >= jarulek.expected || paidPersonSet.has(m.id) || (familyId && paidFamilySet.has(familyId))) paymentStatus = 'rendezve'

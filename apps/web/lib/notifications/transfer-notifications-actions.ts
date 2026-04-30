@@ -213,15 +213,30 @@ export async function respondToTransferNotification(input: {
 
   if (updateError) return { error: `Frissítési hiba: ${updateError.message}` }
 
-  // 2. ELFOGADÁS esetén: a tag congregation_id-je az új gyülekezetre vált
+  // 2. SZEMELY státusz frissítés (Endre kérése 2026-04-30):
+  //   - 'accepted': congregation_id átkerül + member_status='aktív'
+  //     (a tag az új gyülekezet aktív tagja lesz)
+  //   - 'rejected': member_status='aktív' (vissza a forrás-gyülekezetbe,
+  //     congregation_id változatlan)
   if (parsed.data.status === 'accepted') {
     const { error: szemelyError } = await supabase
       .from('szemely')
-      .update({ congregation_id: notif.target_congregation_id })
+      .update({
+        congregation_id: notif.target_congregation_id,
+        member_status: 'aktív',
+      })
       .eq('id', notif.szemely_id)
     if (szemelyError) {
-      // Ne állítsuk vissza a notifikáció státuszt — Endre megnézi külön
       return { error: `Tag áthelyezés hiba: ${szemelyError.message}` }
+    }
+  } else {
+    // 'rejected' — a tag visszakerül a forrás-gyülekezet AKTÍV tagjai közé
+    const { error: szemelyError } = await supabase
+      .from('szemely')
+      .update({ member_status: 'aktív' })
+      .eq('id', notif.szemely_id)
+    if (szemelyError) {
+      return { error: `Tag státusz visszaállítás hiba: ${szemelyError.message}` }
     }
   }
 
