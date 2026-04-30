@@ -31,6 +31,7 @@ import {
   listCongregationsTree,
   type DioceseTreeNode,
 } from '@/lib/notifications/congregations-tree-action'
+import { CongregationSearchSelect } from '@/components/notifications/congregation-search-select'
 
 interface ElkoltozottTargetTableProps {
   file: File
@@ -249,44 +250,21 @@ export function ElkoltozottTargetTable({
                       <span className="text-[10px] text-slate-400">Nincs javaslat</span>
                     )}
                   </td>
-                  <td className="p-2">
+                  <td className="p-2 min-w-[220px]">
                     {r.is_foreign ? (
                       <span className="text-[10px] text-slate-400 italic">
                         — (külföld, nincs notifikáció)
                       </span>
                     ) : (
-                      <select
-                        value={currentPick || ''}
-                        onChange={(e) => onTargetChange(r.rowIndex, e.target.value || null)}
-                        className={`h-7 w-full rounded border px-1.5 text-[10px] ${
-                          isPicked
-                            ? 'border-emerald-300 bg-emerald-50'
-                            : r.suggested_target
-                              ? 'border-amber-300 bg-amber-50/50'
-                              : 'border-slate-200 bg-white'
-                        }`}
-                      >
-                        <option value="">— Nincs / külföldre —</option>
-                        {tree.map((node) => (
-                          <optgroup key={node.diocese_id} label={node.diocese_name}>
-                            {node.congregations.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                                {c.varos && c.varos !== c.name ? ` — ${c.varos}` : ''}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                        {unassigned.length > 0 && (
-                          <optgroup label="— Egyházmegye nélküli —">
-                            {unassigned.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
+                      <CongregationSearchSelect
+                        value={currentPick || null}
+                        onChange={(id) => onTargetChange(r.rowIndex, id)}
+                        tree={tree}
+                        unassigned={unassigned}
+                        placeholder="— Nincs / külföldre —"
+                        tone="cyan"
+                        compact
+                      />
                     )}
                   </td>
                 </tr>

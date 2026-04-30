@@ -23,6 +23,7 @@ import {
   listCongregationsTree,
   type DioceseTreeNode,
 } from '@/lib/notifications/congregations-tree-action'
+import { CongregationSearchSelect } from '@/components/notifications/congregation-search-select'
 
 export interface SpecialFieldsConfig {
   /** Konfirmáció: ha igaz, a wizard auto-rögzíti a hiányzó keresztseg-rekordokat */
@@ -67,12 +68,14 @@ export function SpecialFieldsStep({
 
   // Egyházmegye-fa lekérése (csak az elkoltozott profil esetén)
   const [tree, setTree] = useState<DioceseTreeNode[]>([])
+  const [unassigned, setUnassigned] = useState<Array<{ id: string; name: string }>>([])
   const [isLoadingTree, startLoadingTree] = useTransition()
   useEffect(() => {
     if (!showElkoltozottOptions) return
     startLoadingTree(async () => {
       const res = await listCongregationsTree()
       if (res.data) setTree(res.data)
+      if (res.unassigned) setUnassigned(res.unassigned.map(c => ({ id: c.id, name: c.name })))
     })
   }, [showElkoltozottOptions])
 
@@ -204,27 +207,19 @@ export function SpecialFieldsStep({
                   Egyházmegyék betöltése…
                 </div>
               ) : (
-                <select
-                  value={config.elkoltozottTargetCongregationId || ''}
-                  onChange={(e) =>
+                <CongregationSearchSelect
+                  value={config.elkoltozottTargetCongregationId || null}
+                  onChange={(id) =>
                     onConfigChange({
                       ...config,
-                      elkoltozottTargetCongregationId: e.target.value || null,
+                      elkoltozottTargetCongregationId: id,
                     })
                   }
-                  className="h-11 w-full rounded-xl border border-cyan-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200"
-                >
-                  <option value="">— Külföldre / ismeretlen (nincs notifikáció) —</option>
-                  {tree.map((node) => (
-                    <optgroup key={node.diocese_id} label={node.diocese_name}>
-                      {node.congregations.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}{c.varos ? ` — ${c.varos}` : ''}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  tree={tree}
+                  unassigned={unassigned}
+                  placeholder="— Külföldre / ismeretlen (nincs notifikáció) —"
+                  tone="cyan"
+                />
               )}
             </div>
             {config.elkoltozottTargetCongregationId && (
