@@ -168,9 +168,9 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
           <p className="mt-1 text-xs text-slate-500">
             Válaszolt: {new Date(notification.responded_at).toLocaleString('hu-HU')}
             {notification.response_note && (
-              <>
+              <span>
                 {' '}— megjegyzés: <em>{notification.response_note}</em>
-              </>
+              </span>
             )}
           </p>
         )}
@@ -198,9 +198,9 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                   className="rounded-full bg-red-600 hover:bg-red-700"
                 >
                   {isResponding ? (
-                    <><Loader2 className="mr-1.5 size-4 animate-spin" />Elutasítás…</>
+                    <span className="inline-flex items-center"><Loader2 className="mr-1.5 size-4 animate-spin" />Elutasítás…</span>
                   ) : (
-                    <><X className="mr-1.5 size-4" />Elutasítás megerősítése</>
+                    <span className="inline-flex items-center"><X className="mr-1.5 size-4" />Elutasítás megerősítése</span>
                   )}
                 </Button>
                 <Button
@@ -226,9 +226,9 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
                 className="rounded-full bg-emerald-600 hover:bg-emerald-700"
               >
                 {isResponding ? (
-                  <><Loader2 className="mr-1.5 size-4 animate-spin" />Elfogadás…</>
+                  <span className="inline-flex items-center"><Loader2 className="mr-1.5 size-4 animate-spin" />Elfogadás…</span>
                 ) : (
-                  <><Check className="mr-1.5 size-4" />Elfogadom</>
+                  <span className="inline-flex items-center"><Check className="mr-1.5 size-4" />Elfogadom</span>
                 )}
               </Button>
               <Button

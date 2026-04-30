@@ -178,17 +178,11 @@ export function CongregationSearchSelect({
         } ${sizeClasses}`}
       >
         <span className={`min-w-0 flex-1 truncate ${selected ? 'text-slate-700' : 'text-slate-400'}`}>
-          {selected ? (
-            <>
-              {selected.name}
-              {selected.diocese_name && (
-                <span className="ml-1.5 text-[10px] text-slate-400">
-                  ({selected.diocese_name})
-                </span>
-              )}
-            </>
-          ) : (
-            placeholder
+          {selected ? selected.name : placeholder}
+          {selected?.diocese_name && (
+            <span className="ml-1.5 text-[10px] text-slate-400">
+              ({selected.diocese_name})
+            </span>
           )}
         </span>
         {selected && (
