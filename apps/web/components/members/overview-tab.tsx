@@ -13,7 +13,17 @@ interface OverviewTabProps {
 export function OverviewTab({ members }: OverviewTabProps) {
   const stats = useMemo(() => {
     const curYear = new Date().getFullYear()
-    const alive = members.filter(m => !m.meghalt && !m.elkoltozott && m.member_status !== 'törölt')
+    // 2026-04-30 fix (Endre kérése): a member_status='elkoltozott' és 'kitért'
+    // tagok kizárása az aktív listából. A korábbi szűrő csak az `m.elkoltozott`
+    // boolean-t nézte, ami a szemely táblában nem is létezik (member_status
+    // szöveg-mező a tényleges forrás).
+    const alive = members.filter(m =>
+      !m.meghalt
+      && !m.elkoltozott
+      && m.member_status !== 'elkoltozott'
+      && m.member_status !== 'kitért'
+      && m.member_status !== 'törölt'
+    )
     const reformed = alive.filter(m => {
       const v = (m.vallas || '').trim().toLowerCase()
       return v === '' || v === 'református'
@@ -73,7 +83,10 @@ export function OverviewTab({ members }: OverviewTabProps) {
     const topLocs = Object.entries(locs).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
     const dead = members.filter(m => m.meghalt).length
-    const moved = members.filter(m => m.elkoltozott).length
+    // 2026-04-30 fix: m.elkoltozott boolean mező nem létezik a szemely
+    // táblában — a member_status='elkoltozott' a tényleges forrás. A régi
+    // boolean-t is megtartjuk fallback-ként ha valamikor visszaállítják.
+    const moved = members.filter(m => m.member_status === 'elkoltozott' || m.elkoltozott).length
     const left = members.filter(m => m.member_status === 'kitért').length
 
     const famNames: Record<string, number> = {}, firstNames: Record<string, number> = {}
