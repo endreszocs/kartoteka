@@ -616,6 +616,10 @@ export const PROFILE_MOVEMENT_BEKOLTOZOTT: ImportProfile = {
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
     { excelHeader: 'Dátum', excelAliases: ['mikor', 'Beköltözés dátuma'], dbColumn: 'mikor', type: 'date', required: true, hint: 'Mikor költözött be' },
+    // Év/Hó/Nap fallback — ha a XML-ben nincs Dátum oszlop, ezekből kompozícióval összerakjuk a `mikor`-t
+    { excelHeader: 'Év', excelAliases: ['ev', 'Year'], dbColumn: '_ev', type: 'number', required: false, hint: 'Csak akkor használjuk, ha nincs Dátum oszlop' },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'hónap', 'Month'], dbColumn: '_ho', type: 'number', required: false },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'Day'], dbColumn: '_nap', type: 'number', required: false },
     { excelHeader: 'Honnan', excelAliases: ['honnan', 'Korábbi helység'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'Honnan érkezett (helység)' },
     { excelHeader: 'Igazolás', excelAliases: ['igazolas', 'Áthelyezési igazolás'], dbColumn: 'igazolas', type: 'string', required: false },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
@@ -643,6 +647,10 @@ export const PROFILE_MOVEMENT_ELKOLTOZOTT: ImportProfile = {
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
     { excelHeader: 'Dátum', excelAliases: ['mikor', 'Elköltözés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    // Év/Hó/Nap fallback
+    { excelHeader: 'Év', excelAliases: ['ev', 'Year'], dbColumn: '_ev', type: 'number', required: false },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'hónap', 'Month'], dbColumn: '_ho', type: 'number', required: false },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'Day'], dbColumn: '_nap', type: 'number', required: false },
     { excelHeader: 'Hova', excelAliases: ['hova', 'Új helység', 'Célhelység'], dbColumn: '_helyseg_text', type: 'string', required: false, hint: 'Hova költözött (helység)' },
     { excelHeader: 'Külföldre', excelAliases: ['kulfoldre', 'Külföld'], dbColumn: 'kulfoldre', type: 'boolean', required: false, hint: 'Külföldre költözött-e' },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },
@@ -669,6 +677,10 @@ export const PROFILE_MOVEMENT_ATTERT: ImportProfile = {
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
     { excelHeader: 'Dátum', excelAliases: ['mikor', 'Áttérés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    // Év/Hó/Nap fallback
+    { excelHeader: 'Év', excelAliases: ['ev', 'Year'], dbColumn: '_ev', type: 'number', required: false },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'hónap', 'Month'], dbColumn: '_ho', type: 'number', required: false },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'Day'], dbColumn: '_nap', type: 'number', required: false },
     { excelHeader: 'Honnan', excelAliases: ['honnan', 'Korábbi helység'], dbColumn: '_helyseg_text', type: 'string', required: false },
     { excelHeader: 'Felekezet', excelAliases: ['felekezet', 'Korábbi felekezet'], dbColumn: 'felekezet', type: 'string', required: false, hint: 'Honnan tért át (pl. római katolikus)' },
     { excelHeader: 'Igazolás', excelAliases: ['igazolas'], dbColumn: 'igazolas', type: 'string', required: false },
@@ -696,6 +708,10 @@ export const PROFILE_MOVEMENT_KITERT: ImportProfile = {
     { excelHeader: 'Született', excelAliases: ['sz_datum'], dbColumn: '_sz_datum', type: 'date', required: false },
     { excelHeader: 'Férfi', excelAliases: ['ferfi', 'Nem'], dbColumn: '_ferfi', type: 'boolean', required: false },
     { excelHeader: 'Dátum', excelAliases: ['mikor', 'Kitérés dátuma'], dbColumn: 'mikor', type: 'date', required: false },
+    // Év/Hó/Nap fallback
+    { excelHeader: 'Év', excelAliases: ['ev', 'Year'], dbColumn: '_ev', type: 'number', required: false },
+    { excelHeader: 'Hó', excelAliases: ['ho', 'hónap', 'Month'], dbColumn: '_ho', type: 'number', required: false },
+    { excelHeader: 'Nap', excelAliases: ['nap', 'Day'], dbColumn: '_nap', type: 'number', required: false },
     { excelHeader: 'Hova', excelAliases: ['hova', 'Új helység'], dbColumn: '_helyseg_text', type: 'string', required: false },
     { excelHeader: 'Felekezet', excelAliases: ['felekezet', 'Új felekezet'], dbColumn: 'felekezet', type: 'string', required: false, hint: 'Hová tért át' },
     { excelHeader: 'Megjegyzés', excelAliases: ['megjegyzes'], dbColumn: 'megjegyzes', type: 'string', required: false },

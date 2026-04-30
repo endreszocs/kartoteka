@@ -202,6 +202,23 @@ function applySyntheticFields(record: Record<string, string | number | boolean |
     }
   }
 
+  // 1c. 2026-04-30 (Endre kérése): a `mikor` mező kompozíciója `_ev/_ho/_nap`-ból.
+  // A mozgások (bekoltozott, elkoltozott, attert, kitert) XML-jeiben az időpont
+  // a `mikor` oszlopba kerül, NEM `datum`-ba. Ha a `mikor` üres és van `_ev`,
+  // ugyanúgy rakjuk össze.
+  const currentMikor = record['mikor']
+  if ((currentMikor === null || currentMikor === undefined || currentMikor === '') &&
+      record['_ev'] != null) {
+    const ev = Number(record['_ev'])
+    const ho = record['_ho'] != null ? Number(record['_ho']) : 1
+    const nap = record['_nap'] != null ? Number(record['_nap']) : 1
+    if (Number.isFinite(ev) && ev > 1800 && ev < 2200) {
+      const validHo = Number.isFinite(ho) && ho >= 1 && ho <= 12 ? ho : 1
+      const validNap = Number.isFinite(nap) && nap >= 1 && nap <= 31 ? nap : 1
+      record['mikor'] = `${ev}-${String(validHo).padStart(2, '0')}-${String(validNap).padStart(2, '0')}`
+    }
+  }
+
   // 2. c_szcim kompozíció Utca + Házszám + Helység-ből
   const currentAddress = record['c_szcim']
   if (currentAddress === null || currentAddress === undefined || currentAddress === '') {
