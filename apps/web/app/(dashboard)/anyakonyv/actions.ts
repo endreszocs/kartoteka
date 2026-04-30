@@ -33,8 +33,25 @@ export async function getRegistryData(tab: string): Promise<RegistryEntry[]> {
     case 'temetes':
       query = supabase.from('temetes').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!thelyid(name)')
       break
-    default: // bekoltozott, elkoltozott, attert, kitert
-      query = supabase.from(tab).select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!honnanid(name)')
+    case 'bekoltozott':
+      // honnan helység (bekoltozott tábla: honnanid mező)
+      query = supabase.from('bekoltozott').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!honnanid(name)')
+      break
+    case 'attert':
+      // honnan helység (attert tábla: honnanid mező)
+      query = supabase.from('attert').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!honnanid(name)')
+      break
+    case 'elkoltozott':
+      // 2026-04-30 fix: az elkoltozott táblának HOVAID mezője van (NEM honnanid).
+      // Plusz: hova_congregation_id is hozzá van fűzve a célgyülekezet adataival.
+      query = supabase.from('elkoltozott').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!hovaid(name), hova_congregation:congregations!hova_congregation_id(name, nev_hu)')
+      break
+    case 'kitert':
+      // a kitert táblának is HOVAID mezője van
+      query = supabase.from('kitert').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!hovaid(name)')
+      break
+    default:
+      query = supabase.from(tab).select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum)')
       break
   }
 
