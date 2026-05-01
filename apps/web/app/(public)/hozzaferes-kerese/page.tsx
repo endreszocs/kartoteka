@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, BookOpen, ClipboardCheck, Hourglass, KeyRound } from 'lucide-react'
 
 import { AccessRequestForm } from '@/components/public/access-request-form'
+import { AuthFooterLinks } from '@/components/auth/auth-footer-links'
 
 export const metadata = {
   title: 'Hozzáférés kérése — Kartotéka',
@@ -114,20 +115,11 @@ export default function AccessRequestPage() {
 
         {/* Footer */}
         <footer className="kt-auth-footer">
-          <div className="kt-auth-footer-left">
-            <svg
-              className="kt-auth-footer-cross"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden
-            >
-              <path d="M11 2h2v6h6v2h-6v12h-2V10H5V8h6V2z" />
-            </svg>
-            <Link href="/login" className="kt-auth-footer-link">Belépés</Link>
-            <Link href="#" className="kt-auth-footer-link">Adatvédelem</Link>
-            <Link href="#" className="kt-auth-footer-link">ÁSZF</Link>
-            <Link href="#" className="kt-auth-footer-link">Súgó</Link>
-          </div>
+          <AuthFooterLinks
+            extraLeading={
+              <Link href="/login" className="kt-auth-footer-link">Belépés</Link>
+            }
+          />
           <div>© {new Date().getFullYear()} Kartotéka — Erdélyi Református Egyházkerület</div>
         </footer>
       </div>

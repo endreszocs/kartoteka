@@ -23,6 +23,86 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02b] — Adatvédelem / ÁSZF / Súgó / Kapcsolat tartalom + kötelező pipa (v0.9.22)
+
+<!-- key: 2026-05-02b-legal-dialog -->
+<!-- category: feature -->
+<!-- version: v0.9.22 (csak web) -->
+<!-- targets: minden anonim és bejelentkező felhasználó -->
+
+A felhasználó kérése: a bejelentkezés / hozzáférés-kérő oldal footer
+linkeit (Adatvédelem, ÁSZF, Súgó, Kapcsolat) tartalommal feltölteni,
+modal-ablakban megnyitni, és a hozzáférés-kérelem beküldésénél kötelező
+elfogadási pipákat tenni.
+
+### 🛠 Új komponensek
+
+- **`apps/web/components/auth/legal-dialog.tsx`** (`LegalDialog`) —
+  egyetlen Dialog komponens 4 `kind` prop-pal:
+  - `privacy` — **Adatvédelmi tájékoztató** (10 szakasz: adatkezelő,
+    cél, jogalap, adatkör, biztonság, hozzáférés, megőrzés, jogok,
+    felelősségi nyilatkozat, kapcsolat)
+  - `terms` — **Általános Szerződési Feltételek** (9 szakasz:
+    szolgáltatás, hozzáférés, felhasználó kötelezettségei, üzemeltető
+    jogai, „as is" jelleg, felelősség-kizárás, szellemi tulajdon,
+    módosítások, joghatóság)
+  - `help` — **Súgó** (7 GYIK: hozzáférés, mire való, jelszó-helyreállítás,
+    adatkör, biztonsági aggály, offline, kit kérdezzek)
+  - `contact` — **Kapcsolat** (adatkezelő, rendszergazda, kapcsolat-témák,
+    szellemi alap, ANSPDCP romániai adatvédelmi hatóság cím)
+- **`apps/web/components/auth/auth-footer-links.tsx`** — a 4 button +
+  `LegalDialog` integráció. `extraLeading` prop a `/hozzaferes-kerese`
+  page-en a "Belépés" linkhez.
+
+### 🎯 Tényalap (NEM találgatva)
+
+- **Adatkezelő**: Erdélyi Református Egyházkerület (EREK)
+- **Rendszergazda**: **Szőcs Endre** — az EREK megbízásából
+- **Szellemi alap**: **Beke Tivadar** egyházi nyilvántartási rendszere
+  (ennek digitális továbbfejlesztése a Kartotéka)
+- **Tárolás**: Supabase Frankfurt am Main, EU
+- **Jog**: GDPR (EU 2016/679) + Romániai 190/2018. sz. törvény
+- **Biztonság**: TLS 1.3, RLS, RBAC, 2FA, naplózás
+- **Adatvédelmi panasz hatóság**: ANSPDCP, Bukarest
+
+### ⚖️ Felelősség-kizáró záradékok (a felhasználó kifejezett kérésére)
+
+A két jogi szövegben (Adatvédelem 9. és ÁSZF 6. szakasz) explicit
+megfogalmazás:
+- A rendszergazda (Szőcs Endre) és a szellemi alapot adó személy (Beke
+  Tivadar) NEM vállal felelősséget az adatok hibájáért, vesztéséért,
+  harmadik fél miatt bekövetkező szolgáltatáskiesésért, vis maior
+  okozta károkért, és a használatból eredő közvetett/következményi
+  károkért.
+- A szolgáltatás „as is" alapon, ingyenesen érhető el — a felelősség
+  mértéke maximum 0 lej.
+- Az adatok pontosságáért a bevitelt végző felhasználó (lelkész,
+  gyülekezet) felel.
+
+### 🛠 AccessRequestForm módosítás
+
+A submit gomb előtt 2 új kötelező checkbox:
+1. „Elolvastam és elfogadom az **Adatvédelmi tájékoztatót**" — link
+   nyitja a privacy dialogot
+2. „Elolvastam és elfogadom az **Általános Szerződési Feltételeket**" —
+   link nyitja a terms dialogot
+
+A submit gomb `disabled` amíg mindkettő nincs bepipálva. Submit-pre-check:
+ha hiányzik, toast.error.
+
+### 🛠 Footer linkek button-okká
+
+Az `(auth)/layout.tsx` és `(public)/hozzaferes-kerese/page.tsx`
+footer-jén a 4 link (Adatvédelem / ÁSZF / Súgó / Kapcsolat) `<Link>`
+helyett `<button>` elem (a `LegalDialog`-ot nyitja). A `kt-auth-footer-link`
+osztály reset-et kap (background: none, border: 0, padding: 0).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02a] — Splash v3: csillagok + EREK aspect-ratio fix (v0.9.21)
 
 <!-- key: 2026-05-02a-splash-stars-erek-aspect -->

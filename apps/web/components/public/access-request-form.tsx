@@ -17,6 +17,7 @@ import { CheckCircle2, Send, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { LegalDialog, type LegalKind } from '@/components/auth/legal-dialog'
 import {
   submitAccessRequest,
   type AccessRequestRole,
@@ -35,6 +36,9 @@ export function AccessRequestForm() {
   const [isPending, startTransition] = useTransition()
   const [submitted, setSubmitted] = useState(false)
   const [submittedEmail, setSubmittedEmail] = useState('')
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false)
+  const [acceptTerms, setAcceptTerms] = useState(false)
+  const [openLegal, setOpenLegal] = useState<LegalKind | null>(null)
 
   const [form, setForm] = useState({
     email: '',
@@ -48,6 +52,10 @@ export function AccessRequestForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!acceptPrivacy || !acceptTerms) {
+      toast.error('Kérjük, fogadja el az Adatvédelmi tájékoztatót és az ÁSZF-et.')
+      return
+    }
     startTransition(async () => {
       const res = await submitAccessRequest({
         email: form.email.trim(),
@@ -207,15 +215,62 @@ export function AccessRequestForm() {
         />
       </div>
 
-      <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+      {/* Kötelező pipák — adatvédelem + ÁSZF (modal-link-kel) */}
+      <div className="space-y-2 pt-3 border-t border-slate-100">
+        <label className="flex items-start gap-2.5 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={acceptPrivacy}
+            onChange={(e) => setAcceptPrivacy(e.target.checked)}
+            disabled={isPending}
+            required
+            className="mt-0.5 size-4 rounded border-slate-300 text-teal-600 focus:ring-2 focus:ring-teal-200"
+          />
+          <span className="text-[12.5px] leading-snug text-slate-700">
+            Elolvastam és elfogadom az{' '}
+            <button
+              type="button"
+              onClick={() => setOpenLegal('privacy')}
+              className="font-semibold text-teal-700 underline-offset-2 hover:underline"
+            >
+              Adatvédelmi tájékoztatót
+            </button>
+            . <span className="text-rose-500">*</span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2.5 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={acceptTerms}
+            onChange={(e) => setAcceptTerms(e.target.checked)}
+            disabled={isPending}
+            required
+            className="mt-0.5 size-4 rounded border-slate-300 text-teal-600 focus:ring-2 focus:ring-teal-200"
+          />
+          <span className="text-[12.5px] leading-snug text-slate-700">
+            Elolvastam és elfogadom az{' '}
+            <button
+              type="button"
+              onClick={() => setOpenLegal('terms')}
+              className="font-semibold text-teal-700 underline-offset-2 hover:underline"
+            >
+              Általános Szerződési Feltételeket
+            </button>
+            . <span className="text-rose-500">*</span>
+          </span>
+        </label>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
         <p className="text-[11px] text-slate-500 leading-relaxed">
-          A kérelem rögzítésével Ön elfogadja, hogy az EREK a megadott adatait a jóváhagyás
-          céljából kezelje (GDPR-alap: jogos érdek).
+          A kérelem rögzítésével Ön a megadott adatok kezeléséhez hozzájárul (GDPR-alap:
+          jogos érdek + hozzájárulás).
         </p>
         <Button
           type="submit"
-          disabled={isPending}
-          className="rounded-xl bg-teal-600 text-white hover:bg-teal-700 gap-1.5 shrink-0"
+          disabled={isPending || !acceptPrivacy || !acceptTerms}
+          className="rounded-xl bg-teal-600 text-white hover:bg-teal-700 gap-1.5 shrink-0 disabled:opacity-60"
         >
           {isPending ? (
             <>
@@ -230,6 +285,14 @@ export function AccessRequestForm() {
           )}
         </Button>
       </div>
+
+      {openLegal && (
+        <LegalDialog
+          open={openLegal !== null}
+          onOpenChange={(o) => !o && setOpenLegal(null)}
+          kind={openLegal}
+        />
+      )}
     </form>
   )
 }

@@ -1280,9 +1280,33 @@
   color: #5b6a62;
   text-decoration: none;
   transition: color 0.2s ease;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
 }
 .kt-auth-footer-link:hover {
   color: #275638;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Legal-dialog tartalom — finom prose-szerű spacing a 4 modal szövegéhez. */
+.kt-legal-content p {
+  margin: 0 0 12px;
+}
+.kt-legal-content ul {
+  margin: 0 0 12px;
+}
+.kt-legal-content strong {
+  color: #1f2a24;
+  font-weight: 600;
+}
+.kt-legal-content em {
+  color: #3a4740;
+  font-style: italic;
 }
 
 /* Reszponzív breakpointok */

@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { SplashScreen } from '@/components/ui/splash-screen'
 import { AuthLeftPane } from '@/components/auth/auth-left-pane'
+import { AuthFooterLinks } from '@/components/auth/auth-footer-links'
 
 /**
  * Auth layout — sablon-konform 2-oszlopos onboarding.
@@ -60,20 +61,7 @@ export default function AuthLayout({
 
         {/* Footer */}
         <footer className="kt-auth-footer">
-          <div className="kt-auth-footer-left">
-            <svg
-              className="kt-auth-footer-cross"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden
-            >
-              <path d="M11 2h2v6h6v2h-6v12h-2V10H5V8h6V2z" />
-            </svg>
-            <Link href="#" className="kt-auth-footer-link">Adatvédelem</Link>
-            <Link href="#" className="kt-auth-footer-link">ÁSZF</Link>
-            <Link href="#" className="kt-auth-footer-link">Súgó</Link>
-            <Link href="#" className="kt-auth-footer-link">Kapcsolat</Link>
-          </div>
+          <AuthFooterLinks />
           <div>© {new Date().getFullYear()} Kartotéka — Minden jog fenntartva.</div>
         </footer>
       </div>
