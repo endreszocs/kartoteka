@@ -23,6 +23,71 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01v] — /hozzaferes-kerese sablon-konform + greeting csere (v0.9.18)
+
+<!-- key: 2026-05-01v-hozzaferes-sablon -->
+<!-- category: improvement -->
+<!-- version: v0.9.18 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a hozzaferes-kerese oldal legyen olyan a
+stílusa mint a bejelentkező oldalnak — építsd be kreatívan és szépen")
++ "Az 'Áldás, békesség!' helyett legyen: 'Békesség Istentől!'" alapján
+két javítás.
+
+### 🎨 /hozzaferes-kerese page redesign
+
+A korábbi `bg-gradient-to-br from-slate-50 via-teal-50/30 to-amber-50/30`
++ központosított max-w-4xl card cseréje a `kt-auth-*` osztály-családra
+(ugyanaz a sablon-stílus, mint a `/login` page-en):
+
+- **Page background**: `/Hatter.png` fixed cover + warm vignette overlay
+  (sablon szerinti)
+- **Brand top-left + back-link**: új `kt-auth-brand-row` flex
+  konténer — bal: KARTOTÉKA brand (64×64 frosted-circle logo + name +
+  tag), jobb: pill-link "← Vissza a bejelentkezéshez" (rounded-full,
+  beige + arany border, hover → zöld)
+- **Main 2-column** (1fr 1fr, gap 64):
+  - **Bal — kreatív bemutatás**: greeting "Csatlakozzon hozzánk!"
+    (Cormorant Garamond 72px) + lede + **3-step process** (ClipboardCheck,
+    Hourglass, KeyRound ikonok + 22×22 zöld gradient számbadge "1/2/3"
+    a bal-felső sarkukon) + verse "Mert ahol ketten vagy hárman..."
+    Máté 18,20 (BookOpen ikonnal)
+  - **Jobb — card**: frosted-glass `kt-auth-card` keret + új card-header
+    (eyebrow "Hozzáférés kérelme" + title "Adatok megadása" Cormorant
+    30px + desc) + meglévő `<AccessRequestForm />` változatlan logikával
+- **Footer**: cross + Belépés / Adatvédelem / ÁSZF / Súgó link + copyright
+
+### 🛠 Új CSS — kartoteka.css
+
+Új osztályok:
+- `kt-auth-brand-row` (flex space-between)
+- `kt-auth-back-link` (rounded-full pill, beige bg, arany border)
+- `kt-auth-step-num` + `kt-auth-step-badge` (22×22 számbadge a feature-
+  ico-n, zöld gradient)
+- `kt-auth-verse-ico` (BookOpen 18×18 + 10px gap a verse-text előtt)
+- `kt-auth-card-header` + `kt-auth-card-eyebrow` + `kt-auth-card-title`
+  + `kt-auth-card-desc` (form-feletti header-block alulnyitott aláhúzás)
+- `kt-auth-verse-text` flex layout (ikon + text)
+
+### 🎨 Greeting csere a /login-on
+
+`AuthLeftPane`: "Áldás, békesség!" → **"Békesség Istentől!"**.
+
+### ✅ Verify (Chrome MCP, localhost:3000)
+
+- /hozzaferes-kerese: `kt-auth-page` ✅, `mainCols: 644px 644px` ✅,
+  `leftGreeting: "Csatlakozzon hozzánk!"`, 3 step-badge, card-header
+  "Adatok megadása", verse Book-ikonnal
+- /login: greeting `"Békesség Istentől!"` ✅
+- TypeScript + build zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01u] — Bejelentkezés card sablon-konform + middleware redirect bug fix (v0.9.17)
 
 <!-- key: 2026-05-01u-bejelentkezes-card-redirect-fix -->

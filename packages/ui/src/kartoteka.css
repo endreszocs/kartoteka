@@ -676,6 +676,37 @@
   gap: 12px;
 }
 
+/* Brand top-left + opcionális jobbra-igazított link (pl. "← Belépés"
+   a /hozzaferes-kerese page-en) */
+.kt-auth-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.kt-auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.55);
+  border: 1px solid rgba(205, 187, 138, 0.45);
+  color: #3a4740;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.kt-auth-back-link:hover {
+  background: rgba(255, 253, 247, 0.85);
+  border-color: #2f5d3f;
+  color: #275638;
+}
+
 /* Brand top-left */
 .kt-auth-brand {
   display: flex;
@@ -783,6 +814,29 @@
     0 4px 14px rgba(60, 52, 38, 0.08);
   color: #2f5d3f;
 }
+
+/* Step number badge — a /hozzaferes-kerese feature-listához */
+.kt-auth-step-num {
+  position: relative;
+}
+.kt-auth-step-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #3a7050, #275638);
+  color: #f6f0dd;
+  font-family: "Cormorant Garamond", serif;
+  font-weight: 600;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 4px 10px rgba(47, 93, 63, 0.35);
+}
 .kt-auth-feat-title {
   font-family: "Inter", sans-serif;
   font-weight: 600;
@@ -813,6 +867,17 @@
   line-height: 1.45;
   color: #3a4740;
   margin: 0 0 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.kt-auth-verse-ico {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: #b48a3b;
+  opacity: 0.75;
 }
 .kt-auth-verse-ref {
   font-family: "Cormorant Garamond", serif;
@@ -843,6 +908,42 @@
   backdrop-filter: blur(28px) saturate(140%);
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   animation: kt-auth-card-in 1.1s 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+
+/* Card header — pl. /hozzaferes-kerese form-feletti rész */
+.kt-auth-card-header {
+  text-align: center;
+  margin: 0 -8px 26px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid rgba(180, 138, 59, 0.22);
+}
+.kt-auth-card-eyebrow {
+  font-family: "Inter", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #2f5d3f;
+  margin: 0;
+}
+.kt-auth-card-title {
+  font-family: "Cormorant Garamond", serif;
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: -0.005em;
+  color: #1f2a24;
+  margin: 6px 0 8px;
+  line-height: 1.1;
+}
+.kt-auth-card-desc {
+  font-family: "Inter", sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #5b6a62;
+  margin: 0;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ── Card belső: tabs ── */

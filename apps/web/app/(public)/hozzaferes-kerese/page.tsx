@@ -1,5 +1,6 @@
+import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, BookOpen, ClipboardCheck, Hourglass, KeyRound } from 'lucide-react'
 
 import { AccessRequestForm } from '@/components/public/access-request-form'
 
@@ -9,98 +10,127 @@ export const metadata = {
     'Hozzáférés-kérelem az Erdélyi Református Egyházkerület Kartotéka rendszeréhez. Lelkészek, esperesek, egyházmegyei vezetők számára.',
 }
 
+const STEPS = [
+  {
+    Icon: ClipboardCheck,
+    title: 'Töltse ki az űrlapot',
+    desc: 'Adja meg az adatait, gyülekezetét és szolgálati szerepkörét — mindössze pár perc.',
+  },
+  {
+    Icon: Hourglass,
+    title: 'Várja meg a jóváhagyást',
+    desc: 'A kerületi rendszergazda 1–3 munkanapon belül átnézi és e-mailen válaszol.',
+  },
+  {
+    Icon: KeyRound,
+    title: 'Lépjen be a rendszerbe',
+    desc: 'Jóváhagyás után belépési linket kap — beállítja jelszavát és kezdheti is.',
+  },
+]
+
 export default function AccessRequestPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50/30 to-amber-50/30">
-      {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition"
-          >
-            <ArrowLeft className="size-4" />
-            Belépés
+    <div className="kt-auth-page">
+      <div aria-hidden className="kt-auth-vignette" />
+
+      <div className="kt-auth-shell">
+        {/* Brand top-left + "← Belépés" link a jobbra */}
+        <header className="kt-auth-brand-row">
+          <div className="kt-auth-brand">
+            <div className="kt-auth-brand-logo">
+              <Image
+                src="/KARTOTEKA_V3.png"
+                alt="Kartotéka logó"
+                width={56}
+                height={56}
+                priority
+              />
+            </div>
+            <div className="kt-auth-brand-text">
+              <span className="kt-auth-brand-name">KARTOTÉKA</span>
+              <span className="kt-auth-brand-tag">Egyházi nyilvántartó rendszer</span>
+            </div>
+          </div>
+
+          <Link href="/login" className="kt-auth-back-link">
+            <ArrowLeft className="size-4" strokeWidth={1.7} />
+            Vissza a bejelentkezéshez
           </Link>
-          <div className="text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-700/80">
-              Kartotéka
+        </header>
+
+        {/* Main 2-column */}
+        <main className="kt-auth-main">
+          {/* Bal oldal — kreatív bemutatás */}
+          <div className="kt-auth-left">
+            <h1 className="kt-auth-greeting">Csatlakozzon hozzánk!</h1>
+            <p className="kt-auth-lede">
+              A Kartotéka rendszerhez új felhasználókat az egyházkerületi rendszergazda
+              hagy jóvá — biztonságos és átlátható módon. A folyamat egyszerű:
             </p>
-            <p className="text-[10px] text-slate-500">Erdélyi Református Egyházkerület</p>
-          </div>
-        </div>
-      </header>
 
-      {/* Main */}
-      <main className="mx-auto max-w-4xl px-4 py-8 md:py-12">
-        <div className="mb-8 text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-teal-700">
-            Hozzáférés kérelme
-          </p>
-          <h1 className="mt-3 font-heading text-3xl md:text-4xl font-bold text-slate-900">
-            Csatlakozzon a Kartotéka rendszerhez
-          </h1>
-          <p className="mt-3 text-sm md:text-base text-slate-600 max-w-2xl mx-auto">
-            A rendszer új felhasználóit az egyházkerületi rendszergazda hagyja jóvá. Kérjük,
-            töltse ki az alábbi űrlapot — válaszra általában 1-3 munkanap alatt számíthat.
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-[1fr_300px]">
-          {/* Űrlap */}
-          <div className="rounded-2xl bg-white p-6 md:p-8 shadow-sm ring-1 ring-slate-200/60">
-            <AccessRequestForm />
-          </div>
-
-          {/* Magyarázó oldalsáv */}
-          <aside className="space-y-4 text-sm text-slate-600">
-            <div className="rounded-2xl bg-teal-50/60 p-5 ring-1 ring-teal-200/60">
-              <h3 className="font-heading text-base font-semibold text-teal-900">
-                Mit várhat a jóváhagyás után?
-              </h3>
-              <ol className="mt-3 space-y-2 list-decimal list-inside text-[13px] text-teal-900/80 leading-relaxed">
-                <li>A rendszergazda átnézi a kérelmét</li>
-                <li>Email-ben kap választ (1-3 munkanap)</li>
-                <li>Ha elfogadott, kap egy belépési linket</li>
-                <li>Beállítja jelszavát, és használhatja</li>
-              </ol>
+            <div className="kt-auth-features">
+              {STEPS.map(({ Icon, title, desc }, i) => (
+                <div
+                  key={title}
+                  className="kt-auth-feature"
+                  style={{ animationDelay: `${0.3 + i * 0.12}s` }}
+                >
+                  <div className="kt-auth-feat-ico kt-auth-step-num" aria-hidden>
+                    <Icon className="size-[22px]" strokeWidth={1.6} />
+                    <span className="kt-auth-step-badge">{i + 1}</span>
+                  </div>
+                  <div>
+                    <h3 className="kt-auth-feat-title">{title}</h3>
+                    <p className="kt-auth-feat-desc">{desc}</p>
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <div className="rounded-2xl bg-amber-50/60 p-5 ring-1 ring-amber-200/60">
-              <h3 className="font-heading text-base font-semibold text-amber-900">
-                Miért nem lehet közvetlenül regisztrálni?
-              </h3>
-              <p className="mt-2 text-[13px] text-amber-900/80 leading-relaxed">
-                A Kartotéka érzékeny gyülekezeti adatokat kezel. A rendszergazda ellenőrzi, hogy
-                a kérelmezőt valóban a megjelölt gyülekezet/egyházmegye delegálja. Ez
-                biztonsági és szervezeti követelmény.
+            <div className="kt-auth-verse">
+              <p className="kt-auth-verse-text">
+                <BookOpen className="kt-auth-verse-ico" strokeWidth={1.5} aria-hidden />
+                „Mert ahol ketten vagy hárman összegyűlnek az én nevemben, ott vagyok közöttük."
               </p>
+              <span className="kt-auth-verse-ref">Máté 18,20</span>
             </div>
+          </div>
 
-            <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-200/60">
-              <h3 className="font-heading text-base font-semibold text-slate-900">
-                Már van fiókja?
-              </h3>
-              <p className="mt-2 text-[13px] text-slate-600 leading-relaxed">
-                Lépjen be közvetlenül:
-              </p>
-              <Link
-                href="/login"
-                className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition"
-              >
-                Belépés →
-              </Link>
+          {/* Jobb oldal — Hozzáférés-kérő card */}
+          <div className="kt-auth-right">
+            <div className="kt-auth-card">
+              <div className="kt-auth-card-header">
+                <p className="kt-auth-card-eyebrow">Hozzáférés kérelme</p>
+                <h2 className="kt-auth-card-title">Adatok megadása</h2>
+                <p className="kt-auth-card-desc">
+                  Az alábbi mezőket kérjük kitölteni — kérdés esetén keressen meg
+                  minket bizalommal a fórumon vagy email-ben.
+                </p>
+              </div>
+              <AccessRequestForm />
             </div>
-          </aside>
-        </div>
+          </div>
+        </main>
 
-        <p className="mt-8 text-center text-xs text-slate-500">
-          Erdélyi Református Egyházkerület · Kartotéka rendszer ·{' '}
-          <Link href="/login" className="hover:text-slate-700 underline">
-            Bejelentkezés
-          </Link>
-        </p>
-      </main>
+        {/* Footer */}
+        <footer className="kt-auth-footer">
+          <div className="kt-auth-footer-left">
+            <svg
+              className="kt-auth-footer-cross"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path d="M11 2h2v6h6v2h-6v12h-2V10H5V8h6V2z" />
+            </svg>
+            <Link href="/login" className="kt-auth-footer-link">Belépés</Link>
+            <Link href="#" className="kt-auth-footer-link">Adatvédelem</Link>
+            <Link href="#" className="kt-auth-footer-link">ÁSZF</Link>
+            <Link href="#" className="kt-auth-footer-link">Súgó</Link>
+          </div>
+          <div>© {new Date().getFullYear()} Kartotéka — Erdélyi Református Egyházkerület</div>
+        </footer>
+      </div>
     </div>
   )
 }

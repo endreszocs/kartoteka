@@ -36,7 +36,7 @@ const FEATURES = [
 export function AuthLeftPane() {
   return (
     <div className="kt-auth-left">
-      <h1 className="kt-auth-greeting">Áldás, békesség!</h1>
+      <h1 className="kt-auth-greeting">Békesség Istentől!</h1>
       <p className="kt-auth-lede">
         Lépj be a Kartotéka Egyházi Nyilvántartó rendszerbe, vagy hozz létre új
         fiókot.
