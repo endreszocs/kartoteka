@@ -1,18 +1,24 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Edit2, Home, MapPin, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Home, MapPin, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteFamily, getFamilies, type FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
 import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
 
+type SortKey = 'head' | 'spouse' | 'address' | 'district' | 'status'
+type SortDir = 'asc' | 'desc'
+type StatusFilter = 'all' | 'active' | 'inactive'
+
 export function FamiliesTab() {
   const [families, setFamilies] = useState<FamilyRow[]>([])
+  const [districts, setDistricts] = useState<DistrictRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -22,6 +28,12 @@ export function FamiliesTab() {
   // 2026-04-19: alapértelmezetten a statisztikai kártyák rejtve,
   // csak a lista látszik. A „Kartonok/statisztikák" gomb mutatja meg.
   const [showCards, setShowCards] = useState(false)
+
+  // 2026-05-02 (Sprint U.3 / 4. pont): sortolás + körzet/státusz szűrés
+  const [sortKey, setSortKey] = useState<SortKey>('head')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [districtFilter, setDistrictFilter] = useState<number | 'all' | 'none'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const loadFamilies = useCallback(async () => {
     const data = await getFamilies()
@@ -34,6 +46,10 @@ export function FamiliesTab() {
     queueMicrotask(() => {
       if (!cancelled) {
         void loadFamilies()
+        // Körzetek a szűrőhöz — csak egyszer
+        getDistricts().then((d) => {
+          if (!cancelled) setDistricts(d)
+        })
       }
     })
     return () => {
@@ -41,16 +57,76 @@ export function FamiliesTab() {
     }
   }, [loadFamilies])
 
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  // ── Szűrés (search + körzet + státusz) ──
+  const searchFiltered = useMemo(() => {
+    let arr = families
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      arr = arr.filter((family) => {
+        const husband = family.ferfi ? `${family.ferfi.csaladnev} ${family.ferfi.k_nev}`.toLowerCase() : ''
+        const wife = family.no ? `${family.no.csaladnev} ${family.no.k_nev}`.toLowerCase() : ''
+        const address = `${family.utca?.name || ''} ${family.c_szam || ''}`.toLowerCase()
+        return husband.includes(query) || wife.includes(query) || address.includes(query)
+      })
+    }
+    if (districtFilter === 'none') {
+      arr = arr.filter((f) => !f.id_csoport)
+    } else if (districtFilter !== 'all') {
+      arr = arr.filter((f) => f.id_csoport === districtFilter)
+    }
+    if (statusFilter === 'active') arr = arr.filter((f) => f.isaktiv)
+    else if (statusFilter === 'inactive') arr = arr.filter((f) => !f.isaktiv)
+    return arr
+  }, [families, searchQuery, districtFilter, statusFilter])
+
+  // ── Sortolás ──
+  const districtNameById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const d of districts) m.set(d.id, d.nev)
+    return m
+  }, [districts])
+
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return families
-    const query = searchQuery.toLowerCase()
-    return families.filter((family) => {
-      const husband = family.ferfi ? `${family.ferfi.csaladnev} ${family.ferfi.k_nev}`.toLowerCase() : ''
-      const wife = family.no ? `${family.no.csaladnev} ${family.no.k_nev}`.toLowerCase() : ''
-      const address = `${family.utca?.name || ''} ${family.c_szam || ''}`.toLowerCase()
-      return husband.includes(query) || wife.includes(query) || address.includes(query)
+    const arr = [...searchFiltered]
+    const dir = sortDir === 'asc' ? 1 : -1
+    arr.sort((a, b) => {
+      const get = (f: FamilyRow): string => {
+        switch (sortKey) {
+          case 'head': {
+            const head = f.ferfi || f.no
+            return head ? `${head.csaladnev || ''} ${head.k_nev || ''}` : ''
+          }
+          case 'spouse': {
+            const spouse = f.ferfi && f.no ? f.no : null
+            return spouse ? `${spouse.csaladnev || ''} ${spouse.k_nev || ''}` : ''
+          }
+          case 'address':
+            return `${f.utca?.name || ''} ${f.c_szam || ''}`.trim()
+          case 'district':
+            return f.id_csoport ? districtNameById.get(f.id_csoport) || '' : ''
+          case 'status':
+            return f.isaktiv ? '1' : '0'
+          default:
+            return ''
+        }
+      }
+      const va = get(a).toLowerCase()
+      const vb = get(b).toLowerCase()
+      if (va < vb) return -1 * dir
+      if (va > vb) return 1 * dir
+      return 0
     })
-  }, [families, searchQuery])
+    return arr
+  }, [searchFiltered, sortKey, sortDir, districtNameById])
 
   const totalFamilies = filtered.length
   const activeFamilies = filtered.filter((family) => family.isaktiv).length
@@ -150,7 +226,7 @@ export function FamiliesTab() {
         </>
       )}
 
-      <div className="card-raised p-3 sm:p-4">
+      <div className="card-raised p-3 sm:p-4 space-y-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative min-w-[16rem] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -185,6 +261,74 @@ export function FamiliesTab() {
             </Button>
           </div>
         </div>
+
+        {/* Szűrők: státusz + körzet (chip-ek) */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-violet-100/70 pt-3">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Státusz:</span>
+          {(['all', 'active', 'inactive'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatusFilter(s)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                statusFilter === s ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+              }`}
+            >
+              {s === 'all' ? 'Mind' : s === 'active' ? 'Aktív' : 'Inaktív'}
+            </button>
+          ))}
+
+          {districts.length > 0 && (
+            <>
+              <span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Körzet:</span>
+              <button
+                type="button"
+                onClick={() => setDistrictFilter('all')}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  districtFilter === 'all' ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                }`}
+              >
+                Mind
+              </button>
+              <button
+                type="button"
+                onClick={() => setDistrictFilter('none')}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  districtFilter === 'none' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Olyan családok, amelyek nincsenek körzethez rendelve"
+              >
+                Körzet nélkül
+              </button>
+              {districts.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setDistrictFilter(d.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    districtFilter === d.id ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                  }`}
+                >
+                  {d.nev}
+                </button>
+              ))}
+            </>
+          )}
+
+          {(statusFilter !== 'all' || districtFilter !== 'all' || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter('all')
+                setDistrictFilter('all')
+                setSearchQuery('')
+              }}
+              className="ml-auto rounded-full px-3 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+            >
+              <X className="size-3" /> Szűrők törlése
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -200,14 +344,15 @@ export function FamiliesTab() {
       ) : (
         <div className="card-raised overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead className="border-b border-white/60 bg-gradient-to-r from-violet-50 via-white to-teal-50">
                 <tr>
-                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Családfő</th>
-                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Társ</th>
+                  <SortableHeader label="Családfő" sortKey="head" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                  <SortableHeader label="Társ" sortKey="spouse" current={sortKey} dir={sortDir} onClick={toggleSort} />
                   <th className="p-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Háztartás képe</th>
-                  <th className="p-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Lakcím</th>
-                  <th className="p-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Állapot</th>
+                  <SortableHeader label="Lakcím" sortKey="address" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                  <SortableHeader label="Körzet" sortKey="district" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                  <SortableHeader label="Állapot" sortKey="status" current={sortKey} dir={sortDir} onClick={toggleSort} align="center" />
                   <th className="p-3 text-right text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Művelet</th>
                 </tr>
               </thead>
@@ -261,6 +406,15 @@ export function FamiliesTab() {
                           {family.utca?.name || 'Nincs utca'} {family.c_szam || ''}
                         </div>
                       </td>
+                      <td className="p-3">
+                        {family.id_csoport ? (
+                          <span className="inline-flex rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                            {districtNameById.get(family.id_csoport) || `#${family.id_csoport}`}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="p-3 text-center">
                         <span
                           className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
@@ -307,6 +461,42 @@ export function FamiliesTab() {
       <FamilyDetailsDialogRefined open={detailsOpen} onOpenChange={setDetailsOpen} familyId={detailsId} />
       <FamilyFormDialog open={formOpen} onOpenChange={handleFormClose} editFamily={editFamily} />
     </div>
+  )
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  current,
+  dir,
+  onClick,
+  align = 'left',
+}: {
+  label: string
+  sortKey: SortKey
+  current: SortKey
+  dir: SortDir
+  onClick: (key: SortKey) => void
+  align?: 'left' | 'center' | 'right'
+}) {
+  const active = current === sortKey
+  const Icon = !active ? ChevronsUpDown : dir === 'asc' ? ArrowUp : ArrowDown
+  return (
+    <th
+      className={`p-3 text-${align} text-xs font-semibold uppercase tracking-[0.18em] text-slate-500`}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(sortKey)}
+        className={`inline-flex items-center gap-1.5 transition hover:text-violet-700 ${
+          active ? 'text-violet-700' : ''
+        }`}
+        title={`Rendezés: ${label} (${active ? (dir === 'asc' ? 'növekvő' : 'csökkenő') : 'kattints'})`}
+      >
+        {label}
+        <Icon className="size-3" strokeWidth={2.2} />
+      </button>
+    </th>
   )
 }
 

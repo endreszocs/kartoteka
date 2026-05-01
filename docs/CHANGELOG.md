@@ -23,6 +23,55 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02k] — Google login + Családok táblázat sortolás/szűrés (v0.9.31)
+
+### ✨ Új funkciók — Login
+
+A login oldalon (`/login`) megjelennek a SSO bejelentkezési gombok:
+- **Google** — már be van kötve (`signInWithOAuth({ provider: 'google' })`,
+  callback `/auth/callback` route-ra megy)
+- **Apple** — placeholder gomb, "hamarosan" jelzéssel — toast.info üzenettel
+
+**Új CSS-osztályok** (`packages/ui/src/kartoteka.css`):
+- `.kt-auth-divider` — "vagy" elválasztó vonal két oldalon arany gradient
+- `.kt-auth-oauth-row` — 2-oszlopos rács, mobile alatt 1-oszlopos
+- `.kt-auth-btn-oauth` — sablonkonform OAuth-gomb (krémszín háttér, arany szegély,
+  hover-emelt árnyék)
+- `.kt-auth-btn-oauth-soon` — "hamarosan" jelölő badge
+
+**Érintett fájlok**:
+- `apps/web/components/auth/oauth-buttons.tsx` — átírva a `kt-auth-*` stílusvilágra
+- `apps/web/components/auth/login-form.tsx` — `<OAuthButtons>` import + render
+
+### ✨ Új funkciók — Családok táblázat (4. pont)
+
+**Érintett fájl**: `apps/web/components/members/families-tab-v2.tsx`
+
+A felhasználó észrevétele: "a táblázat elrendezése nem egyértelmű".
+
+**Új képességek**:
+- **Sortolható oszlopok** (kattintható fejléc, ↑/↓ ikonokkal):
+  Családfő, Társ, Lakcím, Körzet, Állapot
+- **Új oszlop**: Körzet (a `csalad.id_csoport` alapján)
+- **Státusz-szűrő chip-ek**: Mind / Aktív / Inaktív
+- **Körzet-szűrő chip-ek**: Mind / Körzet nélkül / minden körzet egyenként
+- **"Szűrők törlése"** gomb (csak ha aktív szűrő van)
+- A meglévő keresés (név/cím) marad
+
+**Új komponens**: `SortableHeader` — `ChevronsUpDown` / `ArrowUp` / `ArrowDown` ikon
+megjeleníti az aktuális sortolási irányt.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+A 6 pontos észrevétel mind a 6 pontja **kész**. Hátralevő finomítások
+(Sprint U.4+):
+- DuplicateComparisonDialog a hibák modulhoz
+- Excel/CSV export
+
+---
+
 ## [2026-05-02j] — Tagnyilvántartás hibák modul MVP (v0.9.30)
 
 A 6 pontos észrevétel **6. pontja** — Tagnyilvántartás hibák — webes

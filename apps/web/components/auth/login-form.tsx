@@ -9,6 +9,7 @@ import Link from 'next/link'
 
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { signIn } from '@/app/(auth)/login/actions'
+import { OAuthButtons } from './oauth-buttons'
 
 interface LoginFormProps {
   initialError?: string
@@ -181,6 +182,10 @@ export function LoginForm({ initialError }: LoginFormProps) {
           )}
         </button>
       </motion.form>
+
+      <motion.div variants={itemVariants}>
+        <OAuthButtons mode="login" />
+      </motion.div>
 
       <motion.div variants={itemVariants}>
         <Link href="/hozzaferes-kerese" className="kt-auth-btn-secondary">
