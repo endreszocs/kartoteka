@@ -23,6 +23,72 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01q] — Bejelentkezés előtti SplashScreen sablon szerint (v0.9.13)
+
+<!-- key: 2026-05-01q-splash-sablon -->
+<!-- category: improvement -->
+<!-- version: v0.9.13 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("cseréld le a Bejelentkezés előtti splash
+betöltő oldalt erre" — `Kartotéka-handoff-Splash.zip` mellékletre) alapján
+a `SplashScreen` átdolgozása a sablon `screens.jsx → SplashScreen`
+mintájára.
+
+### 🎨 Változások (`apps/web/components/ui/splash-screen.tsx`)
+
+A korábbi `bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900`
++ `reformatus.ro` URL-en hosztolt EREK címer + Máté 18:20 idézet **teljes
+átírva** sablon szerintire:
+
+- **Háttér**: `bg-gradient` → `var(--sidebar)` (téma-aware sötét sidebar
+  szín, kert: `#143030`, parokia: `#1f3a3a`, zsoltaros: `#2a2218`)
+- **Háttér motívum**: koncentrikus körök SVG (640×640, 3 kör + kereszt-
+  tengely, opacity 0.06, currentColor → `var(--sidebar-foreground)`)
+- **Logó**: `reformatus.ro` URL → **lokálisan szervírozott
+  `/kartoteka-logo.png`** 168×168 méretben, `kt-pulse` animáció +
+  drop-shadow
+- **Cím**: "Kartotéka" font-heading 42px (volt: text-4xl bold) +
+  "Egyházi Nyilvántartó Rendszer" uppercase letterSpacing 1.5px (volt:
+  "Erdélyi Református Egyházkerület")
+- **Új elem**: indeterminate progress bar (220×3px, `var(--accent2)`
+  színnel, sliding shimmer animáció `kt-splash-bar` keyframe)
+- **Új elem**: "Adatok szinkronizálása…" felirat
+- **Footer**: copyright a képernyő aljához, sidebar-foreground 50%
+  opacity
+- **Eltávolítva**: a Máté 18:20 idézet (a sablon NEM tartalmaz idézetet
+  a splash-en)
+
+### 🛠 CSS — új keyframe (kartoteka.css)
+
+```css
+@keyframes kt-splash-bar {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(330%); }
+}
+.kt-splash-bar {
+  animation: kt-splash-bar 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+```
+
+A 220px szélességű háttér-pálya egy 1/3 szélességű csúszó kis sávot
+animál — a felhasználó "haladás" benyomást kap.
+
+### 🛠 Új asset
+
+- `apps/web/public/Hatter.png` (1.6 MB) — a sablon zip-ből másolva
+  (jelenleg nincs használva a SplashScreen-ben, de elérhető a jövőbeli
+  használathoz, ha a háttér képet is be akarjuk építeni a sidebar-szín
+  helyett).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). A Splash session-szintű (3.5s után
+elhalványul, és sessionStorage-ben rögzíti, hogy ne jelenjen meg újra
+ugyanabban a tab-ban).
+
+---
+
 ## [2026-05-01p] — RouteLoadingScreen Kartotéka-logóval (v0.9.12)
 
 <!-- key: 2026-05-01p-loading-kartoteka-logo -->

@@ -627,6 +627,16 @@
   100% { transform: translateX(300%); }
 }
 
+/* Splash screen — indeterminate progress bar (sliding 1/3 width).
+   A felhasználó látja a progresszió ütemét amíg az auth-flow betölt. */
+@keyframes kt-splash-bar {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(330%); }
+}
+.kt-splash-bar {
+  animation: kt-splash-bar 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 @keyframes kt-slide-up {
   from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: translateY(0); }

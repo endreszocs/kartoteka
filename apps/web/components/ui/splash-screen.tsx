@@ -1,15 +1,16 @@
 'use client'
 
-/* eslint-disable @next/next/no-img-element */
-
 /**
  * SplashScreen — session-szintű üdvözlő képernyő az auth layout-on.
+ *
+ * Sablon: `Kartoteka-handoff-Splash.zip → screens.jsx → SplashScreen` (2026-05-01).
  *
  * Mount-after rendering pattern (2026-04-23 hydration fix): SSR-en és az első
  * kliens-render-en `null`-t ad vissza, csak a `useEffect` lefutása után jelenik
  * meg. Így nincs HTML-mismatch.
  */
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 
 const SESSION_KEY = 'kartoteka_splash_shown'
@@ -17,11 +18,6 @@ const FADE_DELAY_MS = 3000
 const HIDE_DELAY_MS = 3500
 
 export function SplashScreen() {
-  // SSR és első kliens-render: visible=false → null-t adunk vissza (azonos markup, nincs hydration mismatch).
-  // Az effect conditional setVisible-lel vált át látható állapotra, ha a session még nem mutatta.
-  // (Korábban volt `mounted` flag unconditional setMounted(true)-val az effect elején — az M6.5-ben
-  // React 19 `react-hooks/set-state-in-effect` szabály miatt eltávolítva: a `visible` flag önmagában
-  // ugyanazt a hydration-safe viselkedést biztosítja.)
   const [visible, setVisible] = useState(false)
   const [fading, setFading] = useState(false)
 
@@ -33,7 +29,6 @@ export function SplashScreen() {
     // Szándékos SSR-hydration pattern: a session-flag csak kliensen elérhető,
     // így az első render SSR-en és kliensen azonosan `visible=false` (→ null),
     // és csak a mount-on, conditional setState-tel váltunk át látható állapotra.
-    // Átfogó refaktor (useSyncExternalStore) M15 UI-polírozási fázisban jön.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisible(true)
 
@@ -50,26 +45,77 @@ export function SplashScreen() {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 transition-opacity duration-500 ${
+      className={`fixed inset-0 z-50 overflow-hidden transition-opacity duration-500 ${
         fading ? 'opacity-0' : 'opacity-100'
       }`}
+      style={{ background: 'var(--sidebar)', color: 'var(--sidebar-foreground)' }}
     >
-      <img
-        src="https://reformatus.ro/wp-content/uploads/2020/02/logo-500x800.png"
-        alt="EREK Címer"
-        className="h-32 mb-6 drop-shadow-2xl animate-pulse"
-      />
-      <h1 className="text-4xl font-bold text-white tracking-tight mb-2">
-        Kartotéka
-      </h1>
-      <p className="text-slate-400 text-sm mb-8">
-        Erdélyi Református Egyházkerület
-      </p>
-      <p className="text-slate-500 text-xs italic max-w-md text-center leading-relaxed">
-        &bdquo;Mert ahol ketten vagy hárman összegyűlnek az én nevemben,
-        ott vagyok közöttük.&rdquo;
-        <span className="block mt-1 text-slate-600">— Máté 18:20</span>
-      </p>
+      {/* Halvány koncentrikus motívum középen — sablon SVG */}
+      <div
+        aria-hidden
+        className="absolute inset-0 flex items-center justify-center"
+        style={{ opacity: 0.06 }}
+      >
+        <svg viewBox="0 0 400 400" width="640" height="640">
+          <g fill="none" stroke="currentColor" strokeWidth="0.6">
+            <circle cx="200" cy="200" r="180" />
+            <circle cx="200" cy="200" r="140" />
+            <circle cx="200" cy="200" r="100" />
+            <line x1="20" y1="200" x2="380" y2="200" />
+            <line x1="200" y1="20" x2="200" y2="380" />
+          </g>
+        </svg>
+      </div>
+
+      {/* Logó középen + márkanév + indeterminate progress */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-7">
+        <Image
+          src="/kartoteka-logo.png"
+          alt="Kartotéka"
+          width={168}
+          height={168}
+          className="kt-pulse object-contain drop-shadow-[0_8px_30px_rgba(0,0,0,0.3)]"
+          priority
+        />
+
+        <div className="text-center leading-snug">
+          <div className="font-heading text-[42px] font-medium tracking-[-0.5px] mb-1.5">
+            Kartotéka
+          </div>
+          <div
+            className="text-[14px] uppercase"
+            style={{ opacity: 0.65, letterSpacing: '1.5px' }}
+          >
+            Egyházi Nyilvántartó Rendszer
+          </div>
+        </div>
+
+        {/* Indeterminate progress bar — 220px széles, sliding shimmer */}
+        <div
+          className="relative mt-5 h-[3px] w-[220px] overflow-hidden rounded-full"
+          style={{ background: 'rgba(255,255,255,0.1)' }}
+        >
+          <div
+            className="absolute h-full w-1/3 rounded-full kt-splash-bar"
+            style={{ background: 'var(--accent2)' }}
+          />
+        </div>
+
+        <div
+          className="text-[11.5px]"
+          style={{ opacity: 0.55, letterSpacing: '0.5px' }}
+        >
+          Adatok szinkronizálása…
+        </div>
+      </div>
+
+      {/* Lábrész — copyright */}
+      <div
+        className="absolute bottom-7 left-0 right-0 text-center text-[10.5px]"
+        style={{ color: 'var(--sidebar-foreground)', opacity: 0.5, letterSpacing: '0.5px' }}
+      >
+        © Erdélyi Református Egyházkerület · Kartotéka
+      </div>
     </div>
   )
 }
