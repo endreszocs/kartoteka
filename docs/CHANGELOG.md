@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01o] — Header desktop-on tiszta + RouteLoadingScreen Brand mintára (v0.9.11)
+
+<!-- key: 2026-05-01o-header-desktop-clean-loading-brand -->
+<!-- category: improvement + bugfix -->
+<!-- version: v0.9.11 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzések ("a kartotéka oldalán a sidebar mellett
+megjelent egy kis Kartotéka ikon, arra ott nincs szükség mert a
+sidebar állandóan látszik" + "a Kartotéka másik betöltő képernyőjét
+használd az oldalak közötti váltáskor") alapján két javítás.
+
+### 🐛 Header desktop-on tiszta
+
+A v0.9.8-ban hozzáadott Kartotéka-ikonos sidebar-toggle button (40×40
+`bg-muted` `lg:flex` desktop+mobile) — mostantól **csak `lg:hidden`**,
+azaz csak mobilon (< 1024px) jelenik meg. Desktop-on (≥ 1024px) a
+sidebar állandóan látszik, így ott nincs szükség toggle-re.
+
+A button mostantól csak a `onToggleMobileMenu` callback-et hívja
+(a sablon-szerű chevron toggle nélkül, mert a desktop-igény elesett).
+Az `onToggleSidebar` prop a típus-defin-ban marad backward-compat
+miatt (a `dashboard-shell.tsx` még átadja).
+
+### 🎨 RouteLoadingScreen — BrandLoadingScreen mintára
+
+A felhasználó "másik betöltő képernyő" kérése alapján a v0.9.6-ban
+létrehozott `RouteLoadingScreen` (CalvinSpinner + 4 lépéses
+ellenőrzőlista) ÁTÍRVA a `BrandLoadingScreen` mintájára:
+
+- **80×80 lekerekített** card-raised stílusú konténer + EREK logo
+  (54×54) középen, pulzáló glow-val
+- **Eyebrow**: "Erdélyi Református Egyházkerület" (kicsi uppercase
+  tracking)
+- **Title**: a modul-név (font-heading text-3xl)
+- **Message**: barátságos egy-mondatos üzenet
+- **3 bouncing dot** — `var(--accent)` / `var(--accent2)` /
+  `var(--primary)` színekkel, kis stagger animáció (-0.2s / -0.1s / 0)
+
+A 16 loading.tsx hívás érintetlen — a `<RouteLoadingScreen module="..." />`
+API-ja továbbra is működik, csak a vizuális megjelenés változott a
+`BrandLoadingScreen`-szerű brandelt kép-szerkezetre.
+
+### 🛠 Érintett fájlok
+
+- `apps/web/components/layout/header-refined-v3.tsx` — `lg:hidden`
+  hozzáadva a Kartotéka-ikon button-hez, az onClick egyszerűsítve
+- `apps/web/components/layout/route-loading-screen.tsx` — teljes
+  átírás (CalvinSpinner + 4 lépés → EREK logo + 3 bouncing dot,
+  BrandLoadingScreen-szerű layout)
+
+### ✅ Verify (Chrome MCP, localhost:3000/dashboard)
+
+- Header Kartotéka-ikon **NEM** látszik desktop-on (`visibleAtDesktop:
+  false`) ✅
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01n] — Missziós Műhely Kartotéka-logó Sheet-sidebar (v0.9.10)
 
 <!-- key: 2026-05-01n-misszios-muhely-sheet-sidebar -->

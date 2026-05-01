@@ -92,19 +92,14 @@ export function HeaderRefinedV3({
     <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/74 backdrop-blur-2xl">
       <div className="flex h-full items-center justify-between gap-3.5 px-4 lg:px-7">
         <div className="flex min-w-0 items-center gap-3.5">
-          {/* Kartotéka-ikonos sidebar-toggle button — sablon `shell.jsx → Topbar` minta szerint.
-              Mobilon a mobile-menu-t nyitja (Sheet), desktop-on a sidebart szűkíti/kinyitja. */}
+          {/* Mobile-only Kartotéka-ikonos menu-toggle. A Kartotéka oldalakon a
+              sidebar desktop-on állandóan látszik (lg:flex), így itt nincs
+              szükség desktop toggle-re — ezért `lg:hidden`. */}
           <button
-            onClick={() => {
-              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                onToggleMobileMenu()
-              } else if (onToggleSidebar) {
-                onToggleSidebar()
-              }
-            }}
-            className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground transition hover:bg-muted/70"
-            aria-label="Oldalsáv megjelenítése / elrejtése"
-            title="Oldalsáv megjelenítése / elrejtése"
+            onClick={onToggleMobileMenu}
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground transition hover:bg-muted/70 lg:hidden"
+            aria-label="Menü megnyitása"
+            title="Menü megnyitása"
           >
             <Image
               src="/kartoteka-logo.png"
