@@ -23,6 +23,53 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01n] — Missziós Műhely Kartotéka-logó Sheet-sidebar (v0.9.10)
+
+<!-- key: 2026-05-01n-misszios-muhely-sheet-sidebar -->
+<!-- category: improvement -->
+<!-- version: v0.9.10 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a missziós műhely oldalon ha a Kartotéka
+ikonra kattintok nem jelenik meg a sidebar") alapján a `MuhelyNavbar`
+Kartotéka-logó kattintási viselkedésének átalakítása.
+
+### Probléma
+
+A Missziós Műhely külön top-level route (`app/misszios-muhely/`),
+nem a `(dashboard)` group része — így nincs nála a megszokott
+`SidebarAdaptiveV4`. A Kartotéka-logó pedig egyszerű `<Link>` volt
+(navigál a kezdőlapra), nem nyitott sidebart.
+
+### Megoldás
+
+A Kartotéka-logó Link → button. Kattintásra **Sheet-alapú sidebar**
+nyílik (a fő rendszer mobile-Sheet mintájára):
+
+- `SheetContent side="left" w-[280px] bg-[var(--sidebar)]`
+- Brand-fejléc: 88×88 Kartotéka logó + "Missziós Műhely" alcím
+- Nav lista a sablon SidebarItem mintájára (10px rounded, accent-stripe
+  az aktívnál, sima 18×18 ikon)
+- Két szekció:
+  1. **Műhely**: Kezdőlap, Segédanyagok, Fórum, Jutalmak
+  2. **Kartotéka rendszer**: "Vissza az irányítópultra" (`/dashboard` link)
+- Bezárás: háttér-kattintás vagy Esc
+
+### ✅ Verify (Chrome MCP, localhost:3000/misszios-muhely)
+
+- Brand button `aria-label="Oldalsáv megjelenítése"` ✅
+- Kattintásra Sheet nyílik (sidebar bg `rgb(20,48,48)` kert témán) ✅
+- 5 navItem: Kezdőlap, Segédanyagok, Fórum, Jutalmak, "Vissza az
+  irányítópultra" ✅
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01m] — Missziós Műhely fejléce sablon-konform Kartotéka-ikonnal (v0.9.9)
 
 <!-- key: 2026-05-01m-misszios-muhely-fejlec-sablon -->
