@@ -198,8 +198,9 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
       }
 
       async function fetchByCnp(cnp: string): Promise<PersonRecord | null> {
-        if (!cnp) return null
-        const { data } = await supabase.from('szemely').select('id, cnp, csaladnev, k_nev, ferfi, sz_datum, meghalt, id_apja, id_anyja').eq('cnp', cnp).maybeSingle()
+        const trimmed = cnp?.trim()
+        if (!trimmed) return null
+        const { data } = await supabase.from('szemely').select('id, cnp, csaladnev, k_nev, ferfi, sz_datum, meghalt, id_apja, id_anyja').eq('cnp', trimmed).maybeSingle()
         if (data) visited.add(data.id)
         return (data || null) as PersonRecord | null
       }
@@ -245,11 +246,15 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
         if (currentMother) selfNode.mid = currentMother.id
       }
 
-      const { data: birthFamilyLink } = await supabase
+      // Egy tag több családhoz is tartozhat gyerek-ként (pl. nevelt gyermek,
+      // mostohaszülő-átruházás). `.maybeSingle()` ilyenkor PGRST116 hibát
+      // adna; helyette limit(1) a leg-recent kapcsolatot vesszük.
+      const { data: birthFamilyLinks } = await supabase
         .from('gyerek')
         .select('id_csalad')
         .eq('id_szemely', currentMember.id)
-        .maybeSingle()
+        .limit(1)
+      const birthFamilyLink = birthFamilyLinks?.[0]
 
       if (birthFamilyLink?.id_csalad) {
         const { data: birthFamily } = await supabase
@@ -421,9 +426,13 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
         FamilyTree.templates.no_elhunyt = makeTpl(`<g opacity="0.45">${buildSvg('#94a3b8', '#f8fafc', '#94a3b8', femaleAvatar)}</g>`)
       }
 
-      // Renderelés
-      if (instanceRef.current) { try { instanceRef.current.destroy() } catch {} }
-      if (!containerRef.current) return
+      // Renderelés — előbb defensív takarítás (Balkan instance + DOM-maradék)
+      if (instanceRef.current) {
+        try { instanceRef.current.destroy() } catch {}
+        instanceRef.current = null
+      }
+      if (cancelled || !containerRef.current) return
+      containerRef.current.innerHTML = ''
 
       instanceRef.current = new FamilyTree(containerRef.current, {
         nodes: dedupedNodes,
@@ -450,7 +459,11 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
 
     return () => {
       cancelled = true
-      if (instanceRef.current) { try { instanceRef.current.destroy() } catch {} instanceRef.current = null }
+      if (instanceRef.current) {
+        try { instanceRef.current.destroy() } catch {}
+        instanceRef.current = null
+      }
+      if (containerRef.current) containerRef.current.innerHTML = ''
     }
   }, [open, memberId])
 

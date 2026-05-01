@@ -8,16 +8,21 @@
 -- súlyosság (critical / medium / warning), állapot (open / resolved /
 -- ignored) szerint kategorizáltak. Naplózva az összes manuális művelet.
 --
+-- TÍPUSOK (a meglévő séma alapján):
+--   * szemely.id          = INTEGER  (nextval-os szekvenciából)
+--   * congregations.id    = UUID
+--   * current_user_can_access_congregation(target_cong uuid) → BOOL
+--
 -- ROLLBACK: a tábla DROP-pal eltávolítható, RLS és trigger automatikusan
 -- megszűnnek vele.
 -- ============================================================================
 
 -- ── 1. TÁBLA ───────────────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS member_validation_errors (
+CREATE TABLE IF NOT EXISTS public.member_validation_errors (
   id BIGSERIAL PRIMARY KEY,
-  member_id BIGINT NOT NULL REFERENCES szemely(id) ON DELETE CASCADE,
-  congregation_id BIGINT NOT NULL REFERENCES gyulekezet(id) ON DELETE CASCADE,
+  member_id INTEGER NOT NULL REFERENCES public.szemely(id) ON DELETE CASCADE,
+  congregation_id UUID NOT NULL REFERENCES public.congregations(id) ON DELETE CASCADE,
 
   field_name TEXT NOT NULL,                    -- pl. 'email', 'sz_datum', 'cnp'
   error_type TEXT NOT NULL CHECK (error_type IN (
@@ -32,7 +37,7 @@ CREATE TABLE IF NOT EXISTS member_validation_errors (
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'ignored')),
 
   -- Duplikációkhoz: a feltételezett másik szemely
-  duplicate_of_member_id BIGINT REFERENCES szemely(id) ON DELETE SET NULL,
+  duplicate_of_member_id INTEGER REFERENCES public.szemely(id) ON DELETE SET NULL,
 
   detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ,
@@ -45,22 +50,22 @@ CREATE TABLE IF NOT EXISTS member_validation_errors (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE member_validation_errors IS
+COMMENT ON TABLE public.member_validation_errors IS
   'Automatikusan generált tagnyilvántartási hibák/hiányosságok. A status mező értékei: open/resolved/ignored.';
 
 -- ── 2. INDEXEK ─────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS idx_mve_member ON member_validation_errors(member_id);
-CREATE INDEX IF NOT EXISTS idx_mve_congregation ON member_validation_errors(congregation_id);
-CREATE INDEX IF NOT EXISTS idx_mve_open ON member_validation_errors(status) WHERE status = 'open';
-CREATE INDEX IF NOT EXISTS idx_mve_severity ON member_validation_errors(severity, status);
-CREATE INDEX IF NOT EXISTS idx_mve_field ON member_validation_errors(field_name, error_type);
-CREATE INDEX IF NOT EXISTS idx_mve_duplicate ON member_validation_errors(duplicate_of_member_id)
+CREATE INDEX IF NOT EXISTS idx_mve_member ON public.member_validation_errors(member_id);
+CREATE INDEX IF NOT EXISTS idx_mve_congregation ON public.member_validation_errors(congregation_id);
+CREATE INDEX IF NOT EXISTS idx_mve_open ON public.member_validation_errors(status) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_mve_severity ON public.member_validation_errors(severity, status);
+CREATE INDEX IF NOT EXISTS idx_mve_field ON public.member_validation_errors(field_name, error_type);
+CREATE INDEX IF NOT EXISTS idx_mve_duplicate ON public.member_validation_errors(duplicate_of_member_id)
   WHERE error_type = 'duplicate';
 
 -- ── 3. UPDATED_AT TRIGGER ──────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION mve_set_updated_at()
+CREATE OR REPLACE FUNCTION public.mve_set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
   NEW.updated_at = now();
@@ -68,34 +73,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_mve_updated_at ON member_validation_errors;
+DROP TRIGGER IF EXISTS trg_mve_updated_at ON public.member_validation_errors;
 CREATE TRIGGER trg_mve_updated_at
-  BEFORE UPDATE ON member_validation_errors
-  FOR EACH ROW EXECUTE FUNCTION mve_set_updated_at();
+  BEFORE UPDATE ON public.member_validation_errors
+  FOR EACH ROW EXECUTE FUNCTION public.mve_set_updated_at();
 
 -- ── 4. ROW LEVEL SECURITY ──────────────────────────────────────────────────
--- A `current_user_can_access_congregation()` helper-t feltételezzük, hogy
--- létezik (más migrációk már használják). Ha nem, akkor az alábbi
--- függvénynek a `gy_id` paraméterre kell támaszkodnia és JWT/profile claims
--- alapján döntenie.
+-- A `current_user_can_access_congregation(uuid)` helper a 2026-04-12-phase-0
+-- migrációból érkezik (`public.current_user_can_access_congregation`).
 
-ALTER TABLE member_validation_errors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_validation_errors ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS mve_select ON member_validation_errors;
-CREATE POLICY mve_select ON member_validation_errors FOR SELECT
-  USING (current_user_can_access_congregation(congregation_id));
+DROP POLICY IF EXISTS mve_select ON public.member_validation_errors;
+CREATE POLICY mve_select ON public.member_validation_errors FOR SELECT
+  USING (public.current_user_can_access_congregation(congregation_id));
 
-DROP POLICY IF EXISTS mve_insert ON member_validation_errors;
-CREATE POLICY mve_insert ON member_validation_errors FOR INSERT
-  WITH CHECK (current_user_can_access_congregation(congregation_id));
+DROP POLICY IF EXISTS mve_insert ON public.member_validation_errors;
+CREATE POLICY mve_insert ON public.member_validation_errors FOR INSERT
+  WITH CHECK (public.current_user_can_access_congregation(congregation_id));
 
-DROP POLICY IF EXISTS mve_update ON member_validation_errors;
-CREATE POLICY mve_update ON member_validation_errors FOR UPDATE
-  USING (current_user_can_access_congregation(congregation_id));
+DROP POLICY IF EXISTS mve_update ON public.member_validation_errors;
+CREATE POLICY mve_update ON public.member_validation_errors FOR UPDATE
+  USING (public.current_user_can_access_congregation(congregation_id))
+  WITH CHECK (public.current_user_can_access_congregation(congregation_id));
 
-DROP POLICY IF EXISTS mve_delete ON member_validation_errors;
-CREATE POLICY mve_delete ON member_validation_errors FOR DELETE
-  USING (current_user_can_access_congregation(congregation_id));
+DROP POLICY IF EXISTS mve_delete ON public.member_validation_errors;
+CREATE POLICY mve_delete ON public.member_validation_errors FOR DELETE
+  USING (public.current_user_can_access_congregation(congregation_id));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.member_validation_errors TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE public.member_validation_errors_id_seq TO authenticated;
 
 -- ── 5. SZEMÉLY-VÁLTOZÁS TRIGGER (recheck) ──────────────────────────────────
 -- Ha egy szemely-rekord módosul, a hozzá tartozó nyitott hibák
@@ -111,21 +118,24 @@ CREATE POLICY mve_delete ON member_validation_errors FOR DELETE
 -- a `recheckMember(memberId)` server action-en keresztül történik a
 -- szemely UPDATE után.)
 
--- ── 6. VERIFICATION QUERIES (csak ellenőrzés, NEM kell futtatni) ───────────
+-- ── 6. ELLENŐRZÉS (futtatható, a migráció után visszaolvasható) ───────────
 
--- A tábla szerkezete:
---   SELECT column_name, data_type, is_nullable
---   FROM information_schema.columns
---   WHERE table_name = 'member_validation_errors'
---   ORDER BY ordinal_position;
+-- 6.1 — A tábla szerkezete:
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'member_validation_errors'
+ORDER BY ordinal_position;
 
--- RLS-policy lista:
---   SELECT polname, polcmd, polqual::text
---   FROM pg_policy
---   WHERE polrelid = 'member_validation_errors'::regclass;
+-- 6.2 — RLS engedélyezve és 4 policy:
+SELECT polname, polcmd::text
+FROM pg_policy
+WHERE polrelid = 'public.member_validation_errors'::regclass
+ORDER BY polname;
 
--- Indexek:
---   SELECT indexname FROM pg_indexes WHERE tablename = 'member_validation_errors';
+-- 6.3 — Indexek:
+SELECT indexname FROM pg_indexes
+WHERE schemaname = 'public' AND tablename = 'member_validation_errors'
+ORDER BY indexname;
 
 -- ============================================================================
 -- KÉSZ. A felhasználó (Szőcs Endre rendszergazda) futtatja a Supabase-en.

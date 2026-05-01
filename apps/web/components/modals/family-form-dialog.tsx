@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { toast } from 'sonner'
 
 interface SearchResult {
@@ -35,6 +36,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   const [cSzam, setCSzam] = useState('')
   const [cUtcaid, setCUtcaid] = useState<number | undefined>(undefined)
   const [cUtcaName, setCUtcaName] = useState('')
+  const [idCsoport, setIdCsoport] = useState<string>('')
+  const [districts, setDistricts] = useState<DistrictRow[]>([])
 
   // Keresők
   const [husbandQuery, setHusbandQuery] = useState('')
@@ -52,16 +55,26 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
+      // Körzetek mindig betöltődnek (csak a saját gyülekezeté)
+      getDistricts().then(data => {
+        if (!cancelled) setDistricts(data)
+      })
       if (editFamily) {
         setHusband(editFamily.ferfi ? { id: editFamily.ferfi.id, name: `${editFamily.ferfi.csaladnev} ${editFamily.ferfi.k_nev}` } : null)
         setWife(editFamily.no ? { id: editFamily.no.id, name: `${editFamily.no.csaladnev} ${editFamily.no.k_nev}` } : null)
         setCSzam(editFamily.c_szam || '')
+        setCUtcaName(editFamily.utca?.name || '')
+        setCUtcaid(undefined)
+        setIdCsoport(editFamily.id_csoport ? String(editFamily.id_csoport) : '')
         setChildren([])
       } else {
         setHusband(null)
         setWife(null)
         setChildren([])
         setCSzam('')
+        setCUtcaName('')
+        setCUtcaid(undefined)
+        setIdCsoport('')
       }
       setHusbandQuery('')
       setWifeQuery('')
@@ -122,6 +135,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       gyerekIds: children.map(c => c.id),
       c_utcaid: cUtcaid,
       c_szam: cSzam || undefined,
+      id_csoport: idCsoport ? parseInt(idCsoport) : null,
     })
     if (result.error) toast.error(result.error)
     else { toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!'); onOpenChange(false) }
@@ -211,6 +225,24 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               <Label>Házszám</Label>
               <Input value={cSzam} onChange={e => setCSzam(e.target.value)} placeholder="Pl. 12/A" />
             </div>
+          </div>
+
+          {/* Körzet — opcionális */}
+          <div className="space-y-1.5">
+            <Label>Körzet</Label>
+            <select
+              value={idCsoport}
+              onChange={e => setIdCsoport(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">— Nincs körzet —</option>
+              {districts.map(d => (
+                <option key={d.id} value={d.id}>{d.nev}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              A család körzethez rendelése — a presbiteri látogatások és körzeti riportok ide csoportosítják.
+            </p>
           </div>
 
           <div className="flex gap-2 pt-4 border-t border-zinc-100">

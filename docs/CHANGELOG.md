@@ -23,6 +23,77 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02i] — Smart-search + család-körzet + családfa fix + SQL javítás (v0.9.29)
+
+A 6 pontos észrevétel további feldolgozása (2., 3., 5. pontok), és a 6. pont
+SQL migráció javítása a felhasználó hibajelzése után.
+
+### ✨ Új funkciók (3. pont — Presbiter smart-search bővítés)
+
+**Érintett fájl**: `apps/web/components/modals/presbyter-form-dialog.tsx`
+
+A presbiter-rögzítésnél a tag-keresőben már látszik:
+- **Életkor** (a `sz_datum`-ból `ageFromDate()` helper-rel)
+- **Teljes lakhely** ("Helység, Utca házszám" formátumban)
+
+Mobile/desktop egyaránt olvasható, max-h-64 a görgethetőség miatt.
+
+### ✨ Új funkciók (2. pont — Családok + körzet)
+
+**Érintett fájl**: `apps/web/components/modals/family-form-dialog.tsx`
+
+A `<FamilyFormDialog>`-ban most már:
+- Új **Körzet** `<select>` mező — a `csalad.id_csoport` mentésével
+- A `getDistricts()` action betölti a saját gyülekezet körzeteit
+- Szerkesztés-módban a `editFamily.id_csoport` és `editFamily.utca?.name`
+  is betöltődik a state-be (eddig csak a `c_szam` töltődött)
+
+A backend (`saveFamily`, `familySchema`) már fogadta az `id_csoport`-ot,
+csak a UI hiányzott.
+
+### 🐛 Javítások (5. pont — Családfa diagnosztika)
+
+**Érintett fájl**: `apps/web/components/modals/family-tree-dialog.tsx`
+
+Felhasználó panasza: "hol jól működik hol nem". 4 bug azonosítva és javítva:
+
+1. **`birthFamilyLink.maybeSingle()` PGRST116 hiba**: ha egy tag több
+   családhoz tartozik gyerek-ként (mostohaszülő, nevelt gyermek), a
+   `.maybeSingle()` hibát adott → némán üres fa. Most `.limit(1)` +
+   `[0]` access.
+2. **`fetchByCnp` whitespace érzéketlen**: ha az `id_apja`/`id_anyja`
+   mezőben szóköz volt, sosem talált apát/anyát. Most `cnp.trim()`.
+3. **Race condition**: ha a felhasználó zárja a dialog-ot mid-load,
+   `cancelled` ellenőrzés nélkül tovább rendelt. Most `cancelled || !containerRef.current` check.
+4. **DOM-maradék**: a Balkan FamilyTree `destroy()` nem mindig tisztítja
+   a régi SVG-t, kétszeri nyitásnál vizuális duplikáció. Most explicit
+   `containerRef.current.innerHTML = ''` mind az új instance előtt,
+   mind a cleanup-ben.
+
+### 🔧 Javítás (6. pont — SQL migráció hibajavítás)
+
+**Érintett fájl**: `migration-docs/sql/2026-05-02-member-validation-errors.sql`
+
+A felhasználó futtatáskor hibát kapott: `relation "gyulekezet" does not exist`.
+
+A meglévő séma alapján javítva:
+- `gyulekezet` → **`public.congregations`**
+- `congregation_id BIGINT` → **`UUID`** (a `congregations.id` UUID)
+- `member_id BIGINT` → **`INTEGER`** (a `szemely.id` integer)
+- `duplicate_of_member_id BIGINT` → **`INTEGER`**
+- Minden objektum `public.` prefix-szel
+- Hozzáadva: `GRANT` jogok az `authenticated` szerepkörnek + a sequence-ra
+- Az UPDATE policy `WITH CHECK` is — RLS-helyes
+- Verifikációs SELECT-ek futtatható formában (a feedback_sql_ellenorzes_egyben szabály szerint)
+
+A felhasználó futtatja újra a Supabase SQL editor-ban.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02h] — Settings dialog szélesítés + Sprint U terv-fájlok (v0.9.28)
 
 A felhasználó 6 vegyes pontos észrevétele alapján.

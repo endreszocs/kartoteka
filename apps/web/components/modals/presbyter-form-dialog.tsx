@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { savePresbyter, getDistricts, type DistrictRow, type PresbiterRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { ageFromDate } from '@/lib/utils/date'
 import { toast } from 'sonner'
 
 interface PresbiterFormDialogProps {
@@ -96,14 +97,33 @@ export function PresbiterFormDialog({ open, onOpenChange, editSzemelId, presbite
               <Input placeholder="Keresés név alapján (3+ karakter)..." value={searchQuery} onChange={e => handleSearch(e.target.value)} />
             )}
             {showResults && searchResults.length > 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
-                {searchResults.map(r => (
-                  <div key={r.id} className="p-2 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-0"
-                    onClick={() => { setSzemelId(r.id); setSzemelName(`${r.csaladnev} ${r.k_nev}`); setShowResults(false); setSearchQuery('') }}>
-                    <div className="font-medium">{r.csaladnev} {r.k_nev}</div>
-                    <div className="text-xs text-muted-foreground">{r.adrlocality?.name || ''}</div>
-                  </div>
-                ))}
+              <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-64 overflow-y-auto">
+                {searchResults.map(r => {
+                  const age = ageFromDate(r.sz_datum)
+                  const utca = r.adrstreet?.name || ''
+                  const cszam = r.c_szam || ''
+                  const helyseg = r.adrlocality?.name || ''
+                  // Lakhely: "Helység, Utca 12" / "Helység, Utca" / "Helység" — fokozatos lebontás
+                  const lakhelyParts = [
+                    helyseg,
+                    [utca, cszam].filter(Boolean).join(' '),
+                  ].filter(Boolean)
+                  const lakhely = lakhelyParts.join(', ')
+                  return (
+                    <div key={r.id} className="p-2.5 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-0"
+                      onClick={() => { setSzemelId(r.id); setSzemelName(`${r.csaladnev} ${r.k_nev}`); setShowResults(false); setSearchQuery('') }}>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="font-medium">{r.csaladnev} {r.k_nev}</span>
+                        {age !== null && (
+                          <span className="text-xs text-muted-foreground">• {age} éves</span>
+                        )}
+                      </div>
+                      {lakhely && (
+                        <div className="text-xs text-muted-foreground mt-0.5 truncate">{lakhely}</div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
