@@ -23,6 +23,46 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01s] — Splash bug-fix: inline-style opacity + EREK logó méret (v0.9.15)
+
+<!-- key: 2026-05-01s-splash-bugfix-inline -->
+<!-- category: bugfix -->
+<!-- version: v0.9.15 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+### 🐛 Splash opacity bug
+
+A v0.9.14-ben bevezetett SplashScreen-en csak a beige `#d8cfba` stage-háttér
+látszott — a logók, headline, footer mind opacity 0-on maradtak annak
+ellenére, hogy a `s-on s-sides s-center s-headline s-text` stage osztály
+helyesen érvényesült. Az ok: a CSS class-cascade-en alapuló opacity-vezérlés
+megbízhatatlan volt (Tailwind 4 layer-prioritás vagy strict-mode timing
+ütközés). `!important` se javított.
+
+**Fix**: az opacity/transform/filter értékek mostantól **inline `style`
+prop-ban** kapcsolódnak a `phases.has('s-...')` kifejezésekhez. A komponens
+React render-jében közvetlenül érvényesülnek, függetlenül a CSS cascade-től.
+
+A `SESSION_KEY` setItem az `hideTimer`-be (NEM a useEffect elejére), hogy
+a strict-mode 2-szeres futtatás ne idézze elő a "splash már látott"
+bélyeget az 1. cleanup után.
+
+### 🎨 EREK logó méret-korrekció
+
+A felhasználó visszajelzése: "az EREK ikon nagyobb" — a két oldalsó címer
+optikailag nem volt egyforma méretű. Az ok az eltérő natural aspect-ratio
+(EREK PNG nem 1:1, hanem magasabb).
+
+**Fix**: az EREK `<Image>` mostantól explicit **238×238 px** (a 280×280 KEREK
+85%-a), `objectFit: contain` mellett. Így optikailag mindkét logó hasonló
+méretben jelenik meg.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01r] — SplashScreen v2 — 1920×1080 cinematic 5-fázisú animáció (v0.9.14)
 
 <!-- key: 2026-05-01r-splash-v2-cinematic -->
