@@ -26,6 +26,7 @@ import {
 
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
+import { SidebarDecor } from '@/components/layout/sidebar-decor'
 
 interface SidebarProps {
   isMasterAdmin: boolean
@@ -489,6 +490,9 @@ function SidebarNav({
         <div className="absolute left-[-3.5rem] top-[-2rem] h-36 w-36 rounded-full bg-amber-300/18 blur-3xl" />
         <div className="absolute bottom-8 right-[-2.5rem] h-32 w-32 rounded-full bg-cyan-300/14 blur-3xl" />
       </div>
+
+      {/* Sablon-szerű téma-specifikus motívum-overlay (Trellis/Dove) */}
+      <SidebarDecor />
 
       <div className="relative flex h-full min-h-0 flex-col">
         <button

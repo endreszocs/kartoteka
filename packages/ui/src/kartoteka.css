@@ -304,6 +304,51 @@
   }
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Sablon-szerű page transition (sablon `shell.jsx` → kt-page-enter)
+   Rövid fade + lift, ami minden view-váltáskor lefut.
+   ────────────────────────────────────────────────────────────── */
+
+@keyframes kt-page-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.kt-page-enter {
+  animation: kt-page-enter 0.32s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Stat-arch — Parókia témán a stat-kártya tetején lévő ívelt
+   `border-bottom: none` arch. Sablon `themes.jsx → ThemeParokia`
+   szerint csak a Parókia témánál; Kerített kert + Zsoltáros NEM
+   használja (sima sarok).
+   ────────────────────────────────────────────────────────────── */
+
+[data-theme="parokia"] .stat-arch {
+  position: relative;
+}
+
+[data-theme="parokia"] .stat-arch::before {
+  content: "";
+  position: absolute;
+  top: 0.25rem;
+  left: 50%;
+  width: 70%;
+  height: 3.5rem;
+  border: 1.2px solid color-mix(in oklab, var(--accent) 20%, transparent);
+  border-bottom: none;
+  border-radius: 50% 50% 0 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 @media (max-height: 860px) {
   .sidebar-adaptive .sidebar-brand > h2 {
     font-size: 1.25rem;

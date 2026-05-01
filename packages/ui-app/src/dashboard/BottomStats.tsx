@@ -55,7 +55,7 @@ export function BottomStats({
       {STATS.map((stat) => {
         const Icon = stat.Icon
         return (
-          <div key={stat.key} className="card-raised relative overflow-hidden p-4 text-center">
+          <div key={stat.key} className="card-raised stat-arch relative overflow-hidden p-4 text-center">
             <div
               className="absolute inset-x-6 top-0 h-16 rounded-full blur-2xl"
               style={{ background: 'color-mix(in oklab, var(--accent2) 20%, transparent)' }}

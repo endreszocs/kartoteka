@@ -23,6 +23,120 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01k] — Sablon szép elemek beépítése: SidebarDecor + BottomVerse + page transition + stat-arch (v0.9.7)
+
+<!-- key: 2026-05-01k-sablon-szep-elemek -->
+<!-- category: improvement -->
+<!-- version: v0.9.7 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("keress a sablon és a jelenlegi oldal között
+különbségeket és építsd be a sablon szép elemeit") alapján négy téma-aware
+finomítás a Claude Design Handoff `shell.jsx` + `themes.jsx` + `motifs.jsx`
+mintájára.
+
+### 🎨 1. SidebarDecor — téma-specifikus motívum-overlay
+
+Új komponens: `apps/web/components/layout/sidebar-decor.tsx`. A
+`documentElement.data-theme` attribútumot figyeli (MutationObserver), és
+a megfelelő motívumot rendereli:
+
+- **Kerített kert** (default): teljes-területű **Trellis** rácsos minta,
+  `var(--accent2)` színen, opacity 0.045
+- **Zsoltáros**: alsó-középső **Dove** galamb, `var(--accent2)` színen,
+  opacity 0.25 × 0.7
+- **Csendes parókia**: nincs (a sablonban is `() => null`)
+
+A `packages/ui/src/index.ts` mostantól re-exportálja a teljes
+`./motifs` modult (7 SVG: Church, Bible, Olive, Dove, Cross, Star4,
+Trellis), így a webes és asztali oldal egyaránt elérheti.
+
+### 🎨 2. BottomVerse — fix igeszakasz csík
+
+Új komponens: `apps/web/components/layout/bottom-verse.tsx`. A
+`DashboardShell` után a layout aljára kerül. Sablon `shell.jsx →
+BottomVerse` szerint:
+
+- `border-t border-border bg-background/40 px-7 py-3.5`
+- Quote-ikon + igeszakasz idézet (`font-heading italic`) + igehely
+- Csak `sm:flex` (mobilon elrejtve)
+- Aktuális szöveg: „Én veled vagyok minden napon a világ végezetéig.
+  Máté 28,20"
+
+### 🎨 3. kt-page-enter — page transition
+
+Új CSS animáció a `packages/ui/src/kartoteka.css`-ben:
+
+```css
+@keyframes kt-page-enter {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.kt-page-enter { animation: kt-page-enter 0.32s cubic-bezier(0.4,0,0.2,1) both; }
+```
+
+Beépítve a `dashboard-shell.tsx` content-wrapperébe (a `page-shell`
+class mellé). Minden route-váltáskor automatikusan újrafut a Next.js
+re-mount miatt — sablon `shell.jsx → Content` `viewKey`-mintájához
+hasonló UX.
+
+### 🎨 4. Stat-arch — Parókia témán íves stat-tile
+
+Új CSS szabály (kartoteka.css):
+
+```css
+[data-theme="parokia"] .stat-arch::before {
+  /* 70% szélességű, alulnyitott ívelt arch a stat-tile felett */
+  content: "";
+  position: absolute;
+  top: 0.25rem; left: 50%;
+  width: 70%; height: 3.5rem;
+  border: 1.2px solid color-mix(in oklab, var(--accent) 20%, transparent);
+  border-bottom: none;
+  border-radius: 50% 50% 0 0;
+  transform: translateX(-50%);
+}
+```
+
+A `BottomStats.tsx` 7 stat-tile mostantól `card-raised stat-arch` osztályt
+kap. **Csak a Parókia témán látható** az arch — Kerített kert + Zsoltáros
+témán a `[data-theme="parokia"]` szelektor nem matchel, így rejtett.
+
+Sablon `themes.jsx → ThemeParokia.statRadius` és `statArch: true`
+értékéhez hasonló koncepció.
+
+### 🛠 Érintett fájlok
+
+- **Új**:
+  - `apps/web/components/layout/sidebar-decor.tsx` (53 sor)
+  - `apps/web/components/layout/bottom-verse.tsx` (37 sor)
+- **Módosított**:
+  - `packages/ui/src/index.ts` — `./motifs` re-export
+  - `packages/ui/src/kartoteka.css` — `kt-page-enter` + `stat-arch`
+  - `apps/web/components/layout/sidebar-adaptive-v4.tsx` — `<SidebarDecor />`
+    integráció
+  - `apps/web/components/layout/dashboard-layout-client.tsx` — `<BottomVerse />`
+  - `apps/web/components/layout/dashboard-shell.tsx` — `kt-page-enter`
+    osztály a content-wrapperen
+  - `packages/ui-app/src/dashboard/BottomStats.tsx` — `stat-arch` osztály
+    a 7 tile-on
+
+### ✅ Verify (Chrome MCP, localhost:3000, /dashboard)
+
+- **Sidebar SVG-k**: 14 (volt: 13 — új motívum SVG)
+- **BottomVerse**: `display: flex`, `height: 53.67px`, `border-top` jelen ✅
+- **Page transition**: `animationName: kt-page-enter` ✅
+- **Build** (next build --webpack) zöld
+- **TypeScript** (tsc --noEmit) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Desktop NEM kap új release-t — de a
+közös packages (motifs re-export, BottomStats stat-arch, kartoteka.css
+new keyframes) automatikusan átkerülnek a következő desktop release-nél.
+
+---
+
 ## [2026-05-01j] — Sidebar w-full bug fix + header sablon + RouteLoadingScreen (v0.9.6)
 
 <!-- key: 2026-05-01j-sidebar-bug-header-loading-sablon -->

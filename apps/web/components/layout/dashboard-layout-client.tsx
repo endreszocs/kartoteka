@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { SidebarAdaptiveV4 } from './sidebar-adaptive-v4'
 import { DashboardShell } from './dashboard-shell'
+import { BottomVerse } from './bottom-verse'
 import { DioceseSetupBanner } from './diocese-setup-banner'
 import { CongregationSetupBanner } from './congregation-setup-banner'
 import type { Profile } from '@/lib/types/auth'
@@ -202,6 +203,9 @@ export function DashboardLayoutClient({
           )}
           {children}
         </DashboardShell>
+
+        {/* Sablon-szerű napi igeszakasz csík a layout alján */}
+        <BottomVerse />
       </div>
     </div>
   )

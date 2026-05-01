@@ -101,7 +101,7 @@ export function DashboardShell({
       />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="page-shell min-h-full p-4 md:p-6 lg:p-7">
+        <div className="page-shell kt-page-enter min-h-full p-4 md:p-6 lg:p-7">
           {children}
         </div>
       </main>

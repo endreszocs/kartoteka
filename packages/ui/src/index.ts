@@ -51,3 +51,8 @@ export * from './components/textarea'
 export * from './layout/kartoteka-sidebar'
 export * from './layout/kartoteka-header'
 export * from './layout/kartoteka-shell'
+
+// ─────────────────────────────────────────────────────────────────────────
+// Motívumok — vízjelszerű református SVG-k a témákhoz
+// ─────────────────────────────────────────────────────────────────────────
+export * from './motifs'
