@@ -1,9 +1,16 @@
 'use client'
 
 /**
- * SplashScreen — session-szintű üdvözlő képernyő az auth layout-on.
+ * SplashScreen — Bejelentkezés előtti üdvözlő képernyő.
  *
- * Sablon: `Kartoteka-handoff-Splash.zip → screens.jsx → SplashScreen` (2026-05-01).
+ * Sablon: `Kartotéka-handoff-Splash-v2 → Splash.html` (2026-05-01q).
+ *
+ * 1920×1080 stage scale-elve a viewport-ra. 5-fázisos animáció:
+ *   0–20% (s-on)        — háttér fade-in (Hatter.png + vignette + por + napsugarak)
+ *   20–40% (s-sides)    — KEREK + EREK egyházkerületi címerek megjelennek
+ *   40–60% (s-center)   — KARTOTEKA_V3 logó zoom + halo
+ *   60–80% (s-headline) — "✦ Békesség Istentől!" + ornament-line
+ *   60–100% (s-text)    — "Egyházi nyilvántartó rendszer" + tagline + loader
  *
  * Mount-after rendering pattern (2026-04-23 hydration fix): SSR-en és az első
  * kliens-render-en `null`-t ad vissza, csak a `useEffect` lefutása után jelenik
@@ -11,31 +18,85 @@
  */
 
 import Image from 'next/image'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const SESSION_KEY = 'kartoteka_splash_shown'
-const FADE_DELAY_MS = 3000
-const HIDE_DELAY_MS = 3500
+const DURATION_MS = 5000
+const FADE_DELAY_MS = 5500
+const HIDE_DELAY_MS = 6500
+
+const HEADLINE = 'Békesség Istentől!'
+const SUBTITLE = 'Egyházi nyilvántartó rendszer'
+const TAGLINE = 'Hit. Hagyomány. Közösség. Szolgálat.'
+const LOADER_LABEL = 'Betöltés...'
+
+type Phase = 's-on' | 's-sides' | 's-center' | 's-headline' | 's-text'
+
+function useStageScale() {
+  const [scale, setScale] = useState(1)
+  useEffect(() => {
+    function onResize() {
+      const sx = window.innerWidth / 1920
+      const sy = window.innerHeight / 1080
+      setScale(Math.min(sx, sy))
+    }
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return scale
+}
 
 export function SplashScreen() {
   const [visible, setVisible] = useState(false)
   const [fading, setFading] = useState(false)
+  const [phases, setPhases] = useState<Set<Phase>>(new Set())
+  const [progress, setProgress] = useState(0)
+  const startRef = useRef(0)
+  const scale = useStageScale()
 
   useEffect(() => {
     const alreadyShown = sessionStorage.getItem(SESSION_KEY)
     if (alreadyShown) return
 
     sessionStorage.setItem(SESSION_KEY, '1')
-    // Szándékos SSR-hydration pattern: a session-flag csak kliensen elérhető,
-    // így az első render SSR-en és kliensen azonosan `visible=false` (→ null),
-    // és csak a mount-on, conditional setState-tel váltunk át látható állapotra.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisible(true)
+    startRef.current = performance.now()
+
+    const D = DURATION_MS
+    const t1 = setTimeout(() => setPhases(p => new Set(p).add('s-on')), 80)
+    const t2 = setTimeout(() => setPhases(p => new Set(p).add('s-sides')), D * 0.2)
+    const t3 = setTimeout(() => setPhases(p => new Set(p).add('s-center')), D * 0.4)
+    const t4 = setTimeout(() => setPhases(p => new Set(p).add('s-headline')), D * 0.6)
+    const t5 = setTimeout(() => setPhases(p => new Set(p).add('s-text')), D * 0.65)
+
+    const startAt = D * 0.6
+    const endAt = D * 0.98
+    let raf = 0
+    function tick() {
+      const now = performance.now() - startRef.current
+      if (now < startAt) {
+        setProgress(0)
+      } else if (now > endAt) {
+        setProgress(100)
+      } else {
+        setProgress(((now - startAt) / (endAt - startAt)) * 100)
+      }
+      if (now < D) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
 
     const fadeTimer = setTimeout(() => setFading(true), FADE_DELAY_MS)
     const hideTimer = setTimeout(() => setVisible(false), HIDE_DELAY_MS)
 
     return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+      clearTimeout(t4)
+      clearTimeout(t5)
+      cancelAnimationFrame(raf)
       clearTimeout(fadeTimer)
       clearTimeout(hideTimer)
     }
@@ -43,78 +104,88 @@ export function SplashScreen() {
 
   if (!visible) return null
 
+  const stageClasses = ['kt-splash-stage', ...Array.from(phases)].join(' ')
+  const containerClasses = `kt-splash-host fixed inset-0 z-50 transition-opacity duration-700 ${fading ? 'opacity-0' : 'opacity-100'}`
+
   return (
-    <div
-      className={`fixed inset-0 z-50 overflow-hidden transition-opacity duration-500 ${
-        fading ? 'opacity-0' : 'opacity-100'
-      }`}
-      style={{ background: 'var(--sidebar)', color: 'var(--sidebar-foreground)' }}
-    >
-      {/* Halvány koncentrikus motívum középen — sablon SVG */}
-      <div
-        aria-hidden
-        className="absolute inset-0 flex items-center justify-center"
-        style={{ opacity: 0.06 }}
-      >
-        <svg viewBox="0 0 400 400" width="640" height="640">
-          <g fill="none" stroke="currentColor" strokeWidth="0.6">
-            <circle cx="200" cy="200" r="180" />
-            <circle cx="200" cy="200" r="140" />
-            <circle cx="200" cy="200" r="100" />
-            <line x1="20" y1="200" x2="380" y2="200" />
-            <line x1="200" y1="20" x2="200" y2="380" />
-          </g>
-        </svg>
-      </div>
-
-      {/* Logó középen + márkanév + indeterminate progress */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-7">
+    <div className={containerClasses}>
+      <div className={stageClasses} style={{ transform: `scale(${scale})` }}>
+        {/* Háttér rétegek */}
         <Image
-          src="/kartoteka-logo.png"
-          alt="Kartotéka"
-          width={168}
-          height={168}
-          className="kt-pulse object-contain drop-shadow-[0_8px_30px_rgba(0,0,0,0.3)]"
+          src="/Hatter.png"
+          alt=""
+          fill
           priority
+          aria-hidden
+          className="kt-splash-bg-img"
+          sizes="1920px"
         />
+        <div aria-hidden className="kt-splash-rays" />
+        <div aria-hidden className="kt-splash-vignette" />
+        <div aria-hidden className="kt-splash-motes" />
 
-        <div className="text-center leading-snug">
-          <div className="font-heading text-[42px] font-medium tracking-[-0.5px] mb-1.5">
-            Kartotéka
+        {/* Headline */}
+        <div className="kt-splash-headline">
+          <div className="kt-splash-cross">✦</div>
+          <h1 className="kt-splash-h1">{HEADLINE}</h1>
+          <div className="kt-splash-ornament">
+            <div className="kt-splash-ornament-line" />
+            <div className="kt-splash-ornament-dot" />
+            <div className="kt-splash-ornament-diamond" />
+            <div className="kt-splash-ornament-dot" />
+            <div className="kt-splash-ornament-line" />
           </div>
-          <div
-            className="text-[14px] uppercase"
-            style={{ opacity: 0.65, letterSpacing: '1.5px' }}
-          >
-            Egyházi Nyilvántartó Rendszer
+        </div>
+
+        {/* Center row — 3 logo */}
+        <div className="kt-splash-center-row">
+          <div className="kt-splash-side-logo kt-splash-side-left">
+            <Image
+              src="/KEREK.png"
+              alt="Királyhágómelléki Református Egyházkerület címere"
+              width={280}
+              height={280}
+              priority
+            />
+          </div>
+
+          <div className="kt-splash-center-logo">
+            <div aria-hidden className="kt-splash-center-halo" />
+            <Image
+              src="/KARTOTEKA_V3.png"
+              alt="Kartotéka"
+              width={460}
+              height={460}
+              priority
+            />
+          </div>
+
+          <div className="kt-splash-side-logo kt-splash-side-right">
+            <Image
+              src="/EREK.png"
+              alt="Erdélyi Református Egyházkerület címere"
+              width={280}
+              height={280}
+              priority
+            />
           </div>
         </div>
 
-        {/* Indeterminate progress bar — 220px széles, sliding shimmer */}
-        <div
-          className="relative mt-5 h-[3px] w-[220px] overflow-hidden rounded-full"
-          style={{ background: 'rgba(255,255,255,0.1)' }}
-        >
-          <div
-            className="absolute h-full w-1/3 rounded-full kt-splash-bar"
-            style={{ background: 'var(--accent2)' }}
-          />
+        {/* Center meta */}
+        <div className="kt-splash-meta">
+          <p className="kt-splash-meta-title">{SUBTITLE}</p>
+          <div className="kt-splash-meta-rule" />
+          <p className="kt-splash-meta-tag">{TAGLINE}</p>
         </div>
 
-        <div
-          className="text-[11.5px]"
-          style={{ opacity: 0.55, letterSpacing: '0.5px' }}
-        >
-          Adatok szinkronizálása…
+        {/* Footer / loader */}
+        <div className="kt-splash-footer">
+          <div className="kt-splash-loader-label">{LOADER_LABEL}</div>
+          <div className="kt-splash-loader-track">
+            <div className="kt-splash-loader-fill" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="kt-splash-loader-leaf">҂ ҂ ҂</div>
         </div>
-      </div>
-
-      {/* Lábrész — copyright */}
-      <div
-        className="absolute bottom-7 left-0 right-0 text-center text-[10.5px]"
-        style={{ color: 'var(--sidebar-foreground)', opacity: 0.5, letterSpacing: '0.5px' }}
-      >
-        © Erdélyi Református Egyházkerület · Kartotéka
       </div>
     </div>
   )

@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01r] — SplashScreen v2 — 1920×1080 cinematic 5-fázisú animáció (v0.9.14)
+
+<!-- key: 2026-05-01r-splash-v2-cinematic -->
+<!-- category: improvement -->
+<!-- version: v0.9.14 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("Nem jó splash screent tettél be, javítsd
+a legújabbra" — `Kartotéka-handoff-Splash-v2.zip → Splash.html`) alapján
+a `SplashScreen` teljes átdolgozása az új sablon szerint.
+
+### 🎨 Az új design
+
+A v0.9.13-as koncentrikus körök mintával ellentétben az új splash
+**1920×1080 cinematic stage**, amely a viewport méretére scale-elődik.
+A Kartotéka **3 logóval** köszönt: a középen a teljes Kartotéka
+emblémát, baloldalt a **Királyhágómelléki Református Egyházkerület**
+(KEREK), jobboldalt az **Erdélyi Református Egyházkerület** (EREK)
+címerével.
+
+### 🛠 5-fázisú animáció (5 mp default)
+
+- **0–20%** (`s-on`): háttér fade-in (`Hatter.png` zoom 1.04→1.0,
+  vignette, por-szemcsék drift, conic-gradient napsugarak)
+- **20–40%** (`s-sides`): a 2 oldalsó címer megjelenik (translate +
+  scale 0.94→1.0)
+- **40–60%** (`s-center`): a központi `KARTOTEKA_V3.png` logó zoom-in
+  (scale 0.86→1.0, blur 8→0) + halo radial-gradient mögötte
+- **60–80%** (`s-headline`): "✦ Békesség Istentől!" Cormorant Garamond
+  italic 96px + arany ornament-line
+- **60–100%** (`s-text`): "Egyházi nyilvántartó rendszer" + arany rule
+  + "HIT. HAGYOMÁNY. KÖZÖSSÉG. SZOLGÁLAT." tagline + "Betöltés..."
+  italic + zöld→arany gradient progress bar
+
+### 🛠 Implementáció
+
+- **Új komponens**: `apps/web/components/ui/splash-screen.tsx` —
+  teljes átírás. State machine (`Set<Phase>`), `useStageScale` (resize-
+  aware 1920×1080 scaler), animation loop (`requestAnimationFrame` a
+  loader progress-hez).
+- **Új CSS** (kartoteka.css): `kt-splash-*` osztály-család, ~250 sor
+  (stage, bg-img, vignette, motes, rays, headline, ornament, center
+  row, side logo, center logo, halo, meta, footer, loader). Az
+  összes animáció CSS-vel (transition + keyframe), nem JS.
+- **Új assetek** (`apps/web/public/`):
+  - `Hatter.png` (1.66 MB — háttér-festmény)
+  - `KEREK.png` (227 KB — Királyhágómelléki Református Egyházkerület)
+  - `KARTOTEKA_V3.png` (483 KB — főlogó)
+- **Időzítések**: `DURATION_MS=5000`, `FADE_DELAY_MS=5500`,
+  `HIDE_DELAY_MS=6500` (a 3.5 mp helyett 6.5 mp, hogy az 5 mp animáció
+  lefusson).
+
+### ✅ Verify
+
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). A Splash session-szintű
+(sessionStorage flag, csak első tab-megnyitásnál látszik).
+
+---
+
 ## [2026-05-01q] — Bejelentkezés előtti SplashScreen sablon szerint (v0.9.13)
 
 <!-- key: 2026-05-01q-splash-sablon -->
