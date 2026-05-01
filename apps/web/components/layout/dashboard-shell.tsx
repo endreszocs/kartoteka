@@ -38,6 +38,8 @@ interface DashboardShellProps {
   scopeNames?: Record<string, string>
   children: React.ReactNode
   onToggleMobileMenu: () => void
+  /** Sidebar collapse/expand toggle — a header Kartotéka-ikonjához kötve. */
+  onToggleSidebar?: () => void
 }
 
 export function DashboardShell({
@@ -54,6 +56,7 @@ export function DashboardShell({
   scopeNames = {},
   children,
   onToggleMobileMenu,
+  onToggleSidebar,
 }: DashboardShellProps) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [congregationOpen, setCongregationOpen] = useState(false)
@@ -98,6 +101,7 @@ export function DashboardShell({
         onOpenCongregation={() => setCongregationOpen(true)}
         onOpenGodMode={isMasterAdmin && !isGodMode ? () => setGodModeOpen(true) : undefined}
         onToggleMobileMenu={onToggleMobileMenu}
+        onToggleSidebar={onToggleSidebar}
       />
 
       <main className="flex-1 overflow-y-auto">

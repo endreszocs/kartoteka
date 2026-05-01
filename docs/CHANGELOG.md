@@ -23,6 +23,67 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01l] — Missziós Műhely full-width + header Kartotéka-ikonos sidebar toggle (v0.9.8)
+
+<!-- key: 2026-05-01l-misszios-muhely-fullwidth-kartoteka-toggle -->
+<!-- category: bugfix + improvement -->
+<!-- version: v0.9.8 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a missziós műhely két oldalán két nagy
+üres rész van", "a fejléc legyen ugyanolyan mint a sablonban", "ha a
+Kartotéka ikonra kattint a lelkész akkor jelenjen meg a sidebar még
+egy kattintásra tűnjön el") alapján két javítás.
+
+### 🐛 Missziós Műhely full-width fix
+
+A `app/misszios-muhely/layout.tsx`-en a `<main>` osztálya
+`max-w-7xl mx-auto` (1280px max-width) volt — a felhasználó 2560px-es
+képernyőjén `632px üres rész volt mindkét oldalon`. Cserélve sima
+`w-full` szélességre. Más route-ok (a `(dashboard)`-os group) NEM
+érintettek — azok már full-width-ek.
+
+Verify: `main_w: 2545px` (volt: 1280px) ✅.
+
+### 🎨 Header Kartotéka-ikonos sidebar toggle
+
+A sablon `shell.jsx → Topbar` 205-224 sor mintájára a header bal oldalán
+mostantól egy 40×40-es **Kartotéka-ikonos toggle button** van:
+
+- Asset: `/kartoteka-logo.png` 24×24 méretben
+- Mobilon (< 1024px): a mobile-menu-Sheet-et nyitja (`onToggleMobileMenu`)
+- Desktop-on (≥ 1024px): a sidebar-t collapse-eli/expand-elja
+  (`onToggleSidebar` → `sidebarCollapsed` toggle, 288px ↔ 92px)
+
+A button háttér: `bg-muted` 40×40 `rounded-xl` — sablon-konform icon-button
+stílus. A `aria-label="Oldalsáv megjelenítése / elrejtése"`.
+
+### 🛠 Érintett fájlok
+
+- `apps/web/app/misszios-muhely/layout.tsx` — `max-w-7xl mx-auto` →
+  `w-full`
+- `apps/web/components/layout/header-refined-v3.tsx` — Menu-icon →
+  Kartotéka-icon button (Image src=/kartoteka-logo.png), responsive
+  toggle viselkedés
+- `apps/web/components/layout/dashboard-shell.tsx` — új `onToggleSidebar`
+  prop, átadás a Header-hez
+- `apps/web/components/layout/dashboard-layout-client.tsx` — az
+  `onToggleSidebar` callback bekötése a `setSidebarCollapsed` toggle-höz
+
+### ✅ Verify (Chrome MCP, localhost:3000)
+
+- Missziós Műhely `/misszios-muhely`: `main_w: 2545px` ✅
+- Dashboard header: `Kartotéka icon 24×24px` ✅, `aria-label "Oldalsáv
+  megjelenítése / elrejtése"` ✅
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Desktop NEM kap új release-t.
+
+---
+
 ## [2026-05-01k] — Sablon szép elemek beépítése: SidebarDecor + BottomVerse + page transition + stat-arch (v0.9.7)
 
 <!-- key: 2026-05-01k-sablon-szep-elemek -->

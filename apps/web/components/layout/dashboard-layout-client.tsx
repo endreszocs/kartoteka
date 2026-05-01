@@ -186,6 +186,7 @@ export function DashboardLayoutClient({
           activeProfileRoleId={activeProfileRoleId}
           scopeNames={scopeNames}
           onToggleMobileMenu={() => setMobileOpen(prev => !prev)}
+          onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
         >
           {/* Egyházmegyei setup banner — csak diocese scope-ban, ha hiányosak az adatok */}
           {dioceseSetupNeeded && dioceseSetupId && (

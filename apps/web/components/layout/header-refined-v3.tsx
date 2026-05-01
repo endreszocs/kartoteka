@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, Menu, Settings, Shield, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, Settings, Shield, Trash2, User } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -36,6 +37,8 @@ interface HeaderProps {
   onOpenCongregation?: () => void
   onOpenGodMode?: () => void
   onToggleMobileMenu: () => void
+  /** Sidebar collapse/expand toggle — a Kartotéka-ikonra kattintásra. */
+  onToggleSidebar?: () => void
 }
 
 function getRoleLabel(role: string) {
@@ -63,6 +66,7 @@ export function HeaderRefinedV3({
   onOpenCongregation,
   onOpenGodMode,
   onToggleMobileMenu,
+  onToggleSidebar,
 }: HeaderProps) {
   const hasMultipleRoles = profileRoles.length > 1
   const [signingOut, setSigningOut] = useState(false)
@@ -88,12 +92,28 @@ export function HeaderRefinedV3({
     <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/74 backdrop-blur-2xl">
       <div className="flex h-full items-center justify-between gap-3.5 px-4 lg:px-7">
         <div className="flex min-w-0 items-center gap-3.5">
+          {/* Kartotéka-ikonos sidebar-toggle button — sablon `shell.jsx → Topbar` minta szerint.
+              Mobilon a mobile-menu-t nyitja (Sheet), desktop-on a sidebart szűkíti/kinyitja. */}
           <button
-            onClick={onToggleMobileMenu}
-            className="inline-flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground transition hover:bg-muted lg:hidden"
-            aria-label="Menü megnyitása"
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                onToggleMobileMenu()
+              } else if (onToggleSidebar) {
+                onToggleSidebar()
+              }
+            }}
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground transition hover:bg-muted/70"
+            aria-label="Oldalsáv megjelenítése / elrejtése"
+            title="Oldalsáv megjelenítése / elrejtése"
           >
-            <Menu className="size-5" />
+            <Image
+              src="/kartoteka-logo.png"
+              alt="Kartotéka"
+              width={24}
+              height={24}
+              className="size-6 object-contain"
+              priority
+            />
           </button>
 
           {/* Sablon-szerű "input-szerű" gyülekezet chip — címer + 2 sor szöveg */}
