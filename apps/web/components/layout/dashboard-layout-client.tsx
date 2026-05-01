@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import {
+  AlertTriangle,
   ArrowLeftRight,
   Banknote,
   BookMarked,
@@ -75,6 +76,7 @@ const WEB_TAGNYILVANTARTAS_SUBMENU = [
   { label: 'Presbiterek', href: '/tagnyilvantartas#presbyters', icon: UserCheck, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Körzetek', href: '/tagnyilvantartas#districts', icon: Layers, gradient: 'from-cyan-400 to-teal-500' },
   { label: 'Választók', href: '/tagnyilvantartas#voters', icon: Vote, gradient: 'from-pink-400 to-rose-500' },
+  { label: 'Hibák', href: '/tagnyilvantartas#errors', icon: AlertTriangle, gradient: 'from-rose-400 to-red-500' },
 ] as const
 
 /**

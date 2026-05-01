@@ -23,6 +23,63 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02j] — Tagnyilvántartás hibák modul MVP (v0.9.30)
+
+A 6 pontos észrevétel **6. pontja** — Tagnyilvántartás hibák — webes
+implementáció MVP. (A SQL migráció v0.9.29-cel sikeresen lefutott.)
+
+### ✨ Új funkciók
+
+**Új fájlok**:
+
+- `lib/members/validation-engine.ts` — pure validation function pack
+  - `validateMember(m)` — egyetlen tag szabálykészletes ellenőrzése
+  - `findDuplicates(members[])` — CNP / email / név+sz_datum duplikációk
+  - `validateAll(members)` — gyülekezet-szintű teljes validáció
+  - 3 súlyosság: critical / medium / warning
+  - 4 típus: missing / format / logic / duplicate
+
+- `app/(dashboard)/tagnyilvantartas/validation-actions.ts` — server actions
+  - `runValidation()` — INSERT új hibák, UPDATE meglévő üzenet, RESOLVE eltűntek
+  - `recheckMember(id)` — egyetlen tag újraértékelése
+  - `getValidationErrors(filters)` — szűrt lekérdezés (status, severity, type, search)
+  - `getValidationStats()` — KPI-számok
+  - `resolveError(id)` / `ignoreError(id, reason)` / `reopenError(id)`
+
+- `components/members/validation-errors-tab.tsx` — UI
+  - 6 KPI kártya (nyitott / kritikus / közepes / figyelm. / duplikációk / mai javítások)
+  - "Hibák újraellenőrzése" gomb (Server Action useTransition-nel)
+  - 3-csoportos filter chip-sor (status / severity / errorType)
+  - Debounced search (300ms)
+  - Sortable táblázat severity → detected_at szerint
+  - Sor-akciók: Javítva / Figyelmen kívül / Újra megnyit
+  - IgnoreDialog kötelező indoklással
+
+### 🔌 Integráció
+
+- `member-tabs-v4.tsx`: új `'errors'` fül (red szín, AlertTriangle ikon)
+- `dashboard-layout-client.tsx`: új sidebar almenü `/tagnyilvantartas#errors`
+- Hash-routing: `VALID_TAB_HASHES` bővítve `'errors'`-vel
+
+### 🛡️ Biztonság
+
+- A validation-actions.ts MINDEN művelete a `getEffectiveCongregationContext()`-en
+  keresztül szűr — más gyülekezet hibái nem szivároghatnak ki
+- A `member_validation_errors` tábla RLS-policy-i (v0.9.29 SQL) duplán védenek
+- Az `ignoreError` `userId`-t és időbélyeget naplóz (audit trail)
+
+### 📋 Hátralevő (Sprint U.3+)
+
+- DuplicateComparisonDialog — két tag side-by-side összehasonlítása
+- Excel/CSV export
+- 4. pont: családok táblázat sortolás/szűrés
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). A felhasználónak már nem kell SQL-t futtatnia.
+
+---
+
 ## [2026-05-02i] — Smart-search + család-körzet + családfa fix + SQL javítás (v0.9.29)
 
 A 6 pontos észrevétel további feldolgozása (2., 3., 5. pontok), és a 6. pont

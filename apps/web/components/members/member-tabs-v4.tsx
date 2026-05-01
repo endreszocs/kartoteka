@@ -9,11 +9,12 @@ import { FamiliesTab } from './families-tab-v2'
 import { OverviewTab } from './overview-tab'
 import { PersonsTab } from './persons-tab'
 import { PresbytersTab } from './presbyters-tab'
+import { ValidationErrorsTab } from './validation-errors-tab'
 import { VotersTab } from './voters-tab'
 
 // Hash-routing — a sidebar almenüből (`/tagnyilvantartas#persons` stb.) közvetlen tab-ugrás.
 // Az érvényes value-k egyezniek kell a `tabs` array-vel.
-const VALID_TAB_HASHES = new Set(['overview', 'persons', 'families', 'presbyters', 'districts', 'voters'])
+const VALID_TAB_HASHES = new Set(['overview', 'persons', 'families', 'presbyters', 'districts', 'voters', 'errors'])
 const DEFAULT_TAB = 'overview'
 
 function getTabFromHash(hash: string): string {
@@ -102,6 +103,7 @@ export function MemberTabsV4({
       { value: 'presbyters', label: 'Presbiterek', color: 'amber' },
       { value: 'districts', label: 'Körzetek', color: 'cyan' },
       { value: 'voters', label: 'Választók', color: 'pink' },
+      { value: 'errors', label: 'Hibák', color: 'red' },
     ],
     [],
   )
@@ -173,6 +175,7 @@ export function MemberTabsV4({
         {activeTab === 'presbyters' && <PresbytersTab />}
         {activeTab === 'districts' && <DistrictsTab />}
         {activeTab === 'voters' && <VotersTab />}
+        {activeTab === 'errors' && <ValidationErrorsTab />}
       </div>
     </div>
   )
