@@ -1,48 +1,31 @@
-import { redirect } from 'next/navigation'
-import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { getMissionProgress } from '@/lib/missions/gamification'
-import { loadHomePageData, loadWhatsNew } from './community-actions'
-import { MuhelyHero } from '@/components/muhely/home/muhely-hero'
-import { MuhelyEncouragement } from '@/components/muhely/home/muhely-encouragement'
-import { MuhelyQuickStats } from '@/components/muhely/home/muhely-quick-stats'
-import { MuhelyRecentActivity } from '@/components/muhely/home/muhely-recent-activity'
-import { MuhelyWhatsNew } from '@/components/muhely/home/muhely-whats-new'
+'use client'
 
-export default async function MissziosMuhelyPage() {
-  const { user } = await getEffectiveAccessContext()
-  if (!user) redirect('/login')
+/**
+ * Missziós Műhely — home / landing oldal (Sprint R F3 · v0.8.5).
+ *
+ * A `layout.tsx` (sor 12) kezeli az auth-gate-et — itt CSAK a UI render.
+ * A teljes UI a `packages/ui-app/src/missziosmuhely/`-ben van shared
+ * komponensként (MissionWorkshop), web és desktop pixel-egyezően.
+ *
+ * Az aloldalak (segedanyagok, forum, jutalmak, profil) érintetlen maradnak —
+ * a felhasználó kérése szerint a táblázatos szerkezet változatlan, csak a
+ * home oldal kapja meg az új design-nyelvet.
+ *
+ * A meglévő `loadHomePageData` / `loadWhatsNew` server actionök és az
+ * `MuhelyHero/Encouragement/QuickStats/RecentActivity/WhatsNew` MVP
+ * komponensek a `apps/web/components/muhely/home/`-ban érintetlenek
+ * maradnak — ha valaki később a régi MVP-re akar visszanézni, ott vannak.
+ */
 
-  const [data, whatsNew] = await Promise.all([
-    loadHomePageData(),
-    loadWhatsNew(),
-  ])
+import { useRouter } from 'next/navigation'
+import { MissionWorkshop } from '@kartoteka/ui-app'
 
-  if ('error' in data) redirect('/login')
-
-  const progress = getMissionProgress(data.myStats.osszpontszam || 0)
-
+export default function MissziosMuhelyPage() {
+  const router = useRouter()
   return (
-    <div className="space-y-8">
-      <MuhelyHero
-        viewer={{ fullName: data.viewer.fullName }}
-        level={progress.current}
-        points={data.myStats.osszpontszam || 0}
-        percent={progress.percent}
-        nextLevel={progress.next}
-      />
-
-      {/* What's new since last visit */}
-      <MuhelyWhatsNew items={whatsNew.items} lastVisit={whatsNew.lastVisit} />
-
-      <MuhelyEncouragement />
-
-      <MuhelyQuickStats stats={data.communityStats} />
-
-      <MuhelyRecentActivity
-        materials={data.recentMaterials}
-        ideas={data.recentIdeas}
-        topContributors={data.topContributors}
-      />
-    </div>
+    <MissionWorkshop
+      assetBase="/misszios-muhely"
+      onNavigate={(href) => router.push(href)}
+    />
   )
 }
