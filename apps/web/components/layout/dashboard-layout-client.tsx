@@ -5,28 +5,38 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Banknote,
+  Bell,
   BookMarked,
   Building2,
+  Calculator,
   Church,
   ClipboardList,
   Coins,
   CreditCard,
   Cross,
+  Database,
+  Download,
   Eye,
+  Flame,
   Heart,
   HelpCircle,
   Home,
   Inbox,
+  Key,
   Landmark,
   Layers,
+  LifeBuoy,
   LogIn,
   LogOut,
+  PiggyBank,
   PlaneLanding,
   PlaneTakeoff,
   ScrollText,
+  ShieldAlert,
   Sparkles,
   User,
   UserCheck,
+  Users,
   Users2,
   Vote,
   Wallet,
@@ -77,6 +87,27 @@ const WEB_TAGNYILVANTARTAS_SUBMENU = [
   { label: 'Körzetek', href: '/tagnyilvantartas#districts', icon: Layers, gradient: 'from-cyan-400 to-teal-500' },
   { label: 'Választók', href: '/tagnyilvantartas#voters', icon: Vote, gradient: 'from-pink-400 to-rose-500' },
   { label: 'Hibák', href: '/tagnyilvantartas#errors', icon: AlertTriangle, gradient: 'from-rose-400 to-red-500' },
+] as const
+
+/**
+ * Admin Panel almenüje a sidebarban (2026-05-02, Sprint U.4 / 7. észrevétel).
+ * 13 önálló oldal — minden eddigi fülből külön /admin/<slug> útvonal.
+ * A sorrend megegyezik a régi `AdminTabsV3` TABS array-jával (felhasználó kérése).
+ */
+const WEB_ADMIN_SUBMENU = [
+  { label: 'Áttekintés', href: '/admin', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Hozzáférés-kérelmek', href: '/admin/hozzaferes-kerelmek', icon: Inbox, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Gyülekezetek', href: '/admin/gyulekezetek', icon: Church, gradient: 'from-emerald-400 to-teal-500' },
+  { label: 'Felhasználók', href: '/admin/felhasznalok', icon: Users, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Szerepkörök', href: '/admin/szerepkorok', icon: Key, gradient: 'from-indigo-400 to-blue-500' },
+  { label: 'Könyvelők / számvevők', href: '/admin/konyvelok', icon: Calculator, gradient: 'from-teal-400 to-cyan-500' },
+  { label: 'Eszközök és napló', href: '/admin/eszkozok', icon: Database, gradient: 'from-cyan-400 to-sky-500' },
+  { label: 'Frissítések', href: '/admin/frissitesek', icon: Bell, gradient: 'from-orange-400 to-amber-500' },
+  { label: 'Támogatás', href: '/admin/tamogatas', icon: LifeBuoy, gradient: 'from-yellow-400 to-amber-500' },
+  { label: 'Import', href: '/admin/import', icon: Download, gradient: 'from-pink-400 to-rose-500' },
+  { label: 'Rendszer pénzügyei', href: '/admin/penzugy', icon: PiggyBank, gradient: 'from-rose-400 to-pink-500' },
+  { label: 'Rendszer', href: '/admin/rendszer', icon: ShieldAlert, gradient: 'from-red-400 to-rose-500' },
+  { label: 'Veszélyes zóna', href: '/admin/veszelyes-zona', icon: Flame, gradient: 'from-red-500 to-red-700' },
 ] as const
 
 /**
@@ -172,6 +203,7 @@ export function DashboardLayoutClient({
         financeSubmenu={WEB_FINANCE_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['financeSubmenu']}
         tagnyilvantartasSubmenu={WEB_TAGNYILVANTARTAS_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['tagnyilvantartasSubmenu']}
         anyakonyvSubmenu={WEB_ANYAKONYV_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['anyakonyvSubmenu']}
+        adminSubmenu={WEB_ADMIN_SUBMENU as unknown as Parameters<typeof SidebarAdaptiveV4>[0]['adminSubmenu']}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

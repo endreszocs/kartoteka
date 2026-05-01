@@ -23,6 +23,64 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02l] — Admin Központ átalakítása oldalakra + áttekintő (v0.9.32)
+
+A felhasználó kérése: az admin felületen a 13 fül legyen önálló oldal, és a
+főképernyő legyen áttekintő (fontos üzenetek, elbírálások, pénzügyi és
+határidős részek, hibák). A sidebarban az "Admin Panel" alatt jelenjenek meg
+a részek ikonokkal — a tagnyilvántartás/anyakönyv almenü mintájára.
+
+### ✨ Új struktúra
+
+**13 önálló oldal** az `/admin/<slug>/page.tsx` mintán:
+
+| Útvonal | Komponens |
+|---------|-----------|
+| `/admin` | **AdminOverviewDashboard** (új áttekintés) |
+| `/admin/hozzaferes-kerelmek` | AccessRequestsTab |
+| `/admin/gyulekezetek` | CongregationsTab |
+| `/admin/felhasznalok` | UsersTab |
+| `/admin/szerepkorok` | ProfileRolesTab |
+| `/admin/konyvelok` | ProfileCongregationsTab |
+| `/admin/eszkozok` | DevicesLicensesTab |
+| `/admin/frissitesek` | BroadcastsTab |
+| `/admin/tamogatas` | SupportTab |
+| `/admin/import` | TagnyilvantartasImportWizard + ImportLogList (god mode) |
+| `/admin/penzugy` | SystemFinanceTab |
+| `/admin/rendszer` | SecuritySettingsTabV2 |
+| `/admin/veszelyes-zona` | DataWipeTab |
+
+### 🔌 Új közös elemek
+
+- **`/admin/layout.tsx`** — közös auth-guard + gradient header
+  (a `getEffectiveAccessContext()` alapján admin-ellenőrzés;
+  scope-mismatch esetén redirect)
+- **`AdminOverviewDashboard`** komponens — új főképernyő tartalma:
+  - 4 akcionálható KPI kártya (Elbírálandó kérelmek, Friss üzenetek,
+    Rendszer pénzügyei, Támogatási jegyek) — kattintással átvisz a megfelelő
+    aloldalra
+  - "Legutóbbi üzenetek" lista (top 5 broadcast)
+  - 12-modul rács — minden adminmodul ikonnal és rövid leírással
+  - "Részletes statisztikák" szekció (a régi `OverviewTabRefined` recycled)
+  - Adatminőségi banner — link a tagnyilvántartás "Hibák" fülére
+
+### 🧭 Sidebar bővítés
+
+- Új `WEB_ADMIN_SUBMENU` (13 elem) a `dashboard-layout-client.tsx`-ben
+- `SidebarAdaptiveV4` új `adminSubmenu` prop — az "Admin Panel" menüpont
+  kibontható almenüt kap (a tagnyilvántartás/anyakönyv mintájára)
+
+### 🗑️ Régi struktúra
+
+- Az `AdminTabsV3` komponens még megvan, de már **nincs használatban**
+  (jövőben törölhető Sprint U.5-ben)
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02k] — Google login + Családok táblázat sortolás/szűrés (v0.9.31)
 
 ### ✨ Új funkciók — Login

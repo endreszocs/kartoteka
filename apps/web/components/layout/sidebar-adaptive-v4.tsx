@@ -59,6 +59,9 @@ interface SidebarProps {
   /** Az Anyakönyv menüpont kibontható almenüje (2026-04-28).
    *  Hash-alapú navigáció: `/anyakonyv#keresztseg` stb. */
   anyakonyvSubmenu?: MenuItem[]
+  /** Az Admin Panel kibontható almenüje (2026-05-02, Sprint U.4).
+   *  13 önálló /admin/<slug> oldal. */
+  adminSubmenu?: MenuItem[]
 }
 
 interface MenuItem {
@@ -333,6 +336,7 @@ function SidebarNav({
   financeSubmenu,
   tagnyilvantartasSubmenu,
   anyakonyvSubmenu,
+  adminSubmenu,
 }: {
   isEsperes: boolean
   isAdmin: boolean
@@ -358,6 +362,8 @@ function SidebarNav({
   tagnyilvantartasSubmenu?: MenuItem[]
   /** Az Anyakönyv menüpont kibontható almenüje (2026-04-28). */
   anyakonyvSubmenu?: MenuItem[]
+  /** Az Admin Panel kibontható almenüje (2026-05-02, Sprint U.4). */
+  adminSubmenu?: MenuItem[]
 }) {
   const pathname = usePathname()
   const sections: MenuSection[] = []
@@ -476,8 +482,14 @@ function SidebarNav({
 
   // Admin Panel: az admin szerepkör és master admin is láthatja
   // (eddig CSAK a master admin látta — ez változás!)
+  // 2026-05-02 (Sprint U.4): az Admin Panel menüpont kibontható almenüt kap,
+  // 13 önálló /admin/<slug> oldal — a régi tab-szerkezet helyett.
   if (showAdminSection) {
-    sections.push({ title: 'Rendszerszint', items: adminItems })
+    const adminMenuItem: MenuItem = {
+      ...adminItems[0],
+      ...(adminSubmenu && adminSubmenu.length > 0 ? { children: adminSubmenu } : {}),
+    }
+    sections.push({ title: 'Rendszerszint', items: [adminMenuItem] })
   }
 
   return (
@@ -576,6 +588,7 @@ export function SidebarAdaptiveV4({
   financeSubmenu,
   tagnyilvantartasSubmenu,
   anyakonyvSubmenu,
+  adminSubmenu,
 }: SidebarProps) {
   const navProps = {
     isEsperes,
@@ -591,6 +604,7 @@ export function SidebarAdaptiveV4({
     financeSubmenu,
     tagnyilvantartasSubmenu,
     anyakonyvSubmenu,
+    adminSubmenu,
   }
   // Sprint S F1 — téma-aware sidebar háttér (a hardkódolt #14514b→#16334e
   // gradient cserélődött a `--sidebar` CSS-vars-ra, ami a 3 téma szerint
