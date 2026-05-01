@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, Menu, Settings, Shield, Sparkles, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, Menu, Settings, Shield, Trash2, User } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -85,41 +85,37 @@ export function HeaderRefinedV3({
   }
 
   return (
-    <header className="sticky top-0 z-30 shrink-0 border-b border-white/60 bg-background/74 backdrop-blur-2xl">
-      <div className="flex min-h-16 items-center justify-between gap-3 px-3 py-3 lg:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+    <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/74 backdrop-blur-2xl">
+      <div className="flex h-full items-center justify-between gap-3.5 px-4 lg:px-7">
+        <div className="flex min-w-0 items-center gap-3.5">
           <button
             onClick={onToggleMobileMenu}
-            className="inline-flex size-10 items-center justify-center rounded-2xl border border-white/70 bg-white/72 text-slate-700 shadow-[0_12px_28px_-22px_rgba(16,70,63,0.45)] transition hover:bg-white lg:hidden"
+            className="inline-flex size-10 items-center justify-center rounded-xl border border-border bg-card text-foreground transition hover:bg-muted lg:hidden"
             aria-label="Menü megnyitása"
           >
             <Menu className="size-5" />
           </button>
 
-          <div className="hidden size-11 items-center justify-center overflow-hidden rounded-2xl border border-white/70 bg-white/80 shadow-[0_14px_30px_-20px_rgba(16,70,63,0.32)] sm:flex">
-            {congregationLogo ? (
-              <div
-                aria-hidden="true"
-                className="size-full bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: `url(${congregationLogo})` }}
-              />
-            ) : (
-              <Church className="size-5 text-primary" />
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-primary/70">
-              Szolgálati tér
-            </p>
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="min-w-0 truncate font-heading text-xl leading-none text-slate-800 sm:text-2xl">
+          {/* Sablon-szerű "input-szerű" gyülekezet chip — címer + 2 sor szöveg */}
+          <div className="flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-1.5">
+            <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg" style={{ background: 'var(--accent)' }}>
+              {congregationLogo ? (
+                <div
+                  aria-hidden="true"
+                  className="size-full bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${congregationLogo})` }}
+                />
+              ) : (
+                <Church className="size-5 text-white" />
+              )}
+            </div>
+            <div className="min-w-0 leading-tight">
+              <div className="truncate font-heading text-[14.5px] font-semibold text-foreground">
                 {congregationName || 'Várakozás a jóváhagyásra'}
-              </h2>
-              <span className="hidden items-center gap-1 rounded-full bg-accent/16 px-2.5 py-1 text-[11px] font-medium text-primary/85 md:inline-flex">
-                <Sparkles className="size-3.5" />
-                Átlátható központ
-              </span>
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                Erdélyi Református Egyházkerület
+              </div>
             </div>
           </div>
         </div>
@@ -128,11 +124,11 @@ export function HeaderRefinedV3({
           <button
             type="button"
             onClick={() => setSupportOpen(true)}
-            className="inline-flex size-10 items-center justify-center rounded-2xl border border-white/70 bg-white/78 text-slate-600 shadow-[0_16px_34px_-24px_rgba(16,70,63,0.38)] transition hover:bg-white hover:text-primary"
+            className="inline-flex size-10 items-center justify-center rounded-[10px] bg-muted text-foreground transition hover:bg-muted/70"
             aria-label="Segítség és támogatás"
             title="Segítség és támogatás"
           >
-            <HelpCircle className="size-[18px]" />
+            <HelpCircle className="size-[17px]" />
           </button>
 
           <SupportDialog open={supportOpen} onOpenChange={setSupportOpen} />
@@ -140,17 +136,20 @@ export function HeaderRefinedV3({
           <NotificationBellRefined userId={profile.id} />
 
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-[1.2rem] border border-white/70 bg-white/78 px-2.5 py-2 shadow-[0_16px_34px_-24px_rgba(16,70,63,0.38)] transition outline-none hover:bg-white">
-              <div className="hidden text-right sm:block">
-                <p className="text-[13px] font-semibold leading-tight text-slate-700">{fullName}</p>
-                <p className="text-[11px] leading-tight text-primary/70">{roleLabel}</p>
-              </div>
-              <Avatar className="h-10 w-10 ring-2 ring-white/75">
-                <AvatarFallback className="bg-gradient-to-br from-amber-500 via-orange-500 to-teal-600 text-sm font-bold text-white">
+            <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-xl bg-muted px-2.5 py-1.5 transition outline-none hover:bg-muted/70">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback
+                  className="text-[13px] font-semibold text-white"
+                  style={{ background: 'var(--accent)' }}
+                >
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <ChevronDown className="hidden size-4 text-slate-400 sm:block" />
+              <div className="hidden text-left leading-tight sm:block">
+                <p className="text-[12.5px] font-semibold text-foreground">{fullName}</p>
+                <p className="text-[10.5px] text-muted-foreground">{roleLabel}</p>
+              </div>
+              <ChevronDown className="hidden size-3.5 text-muted-foreground sm:block" />
             </DropdownMenuTrigger>
 
             <DropdownMenuContent

@@ -481,7 +481,7 @@ function SidebarNav({
 
   return (
     <div
-      className="sidebar-adaptive relative flex h-full flex-col overflow-hidden"
+      className="sidebar-adaptive relative flex h-full w-full flex-col overflow-hidden"
       data-walkthrough="sidebar"
       suppressHydrationWarning
     >

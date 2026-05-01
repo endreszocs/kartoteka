@@ -23,6 +23,88 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01j] — Sidebar w-full bug fix + header sablon + RouteLoadingScreen (v0.9.6)
+
+<!-- key: 2026-05-01j-sidebar-bug-header-loading-sablon -->
+<!-- category: bugfix + improvement -->
+<!-- version: v0.9.6 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a sidebar valami baj van, mintha keskenyebb
+lenne", "a fejléc legyen ugyanolyan mint a sablonban", "betöltő képernyők
+legyenek a sablon szerintiek, ne skeleton") alapján három javítás.
+
+### 🐛 Sidebar bug fix
+
+A diagnosztika feltárta: a `.sidebar-adaptive` belső div szélessége
+**241px** volt, miközben a szülő `<aside>` **287px**. A flex layout-on
+belüli inner div `w-full` nélkül auto-fitelt → 47px elveszett a jobb
+oldalon. Fix: `w-full` osztályt adva mindkét sidebar verzióban
+(`sidebar-adaptive-v4.tsx` + shared `kartoteka-sidebar.tsx`). Ellenőrizve
+Chrome MCP-vel: `inner_w: 287px` ✅.
+
+### 🎨 Header (Topbar) sablon szerint
+
+A `header-refined-v3.tsx` átdolgozva a sablon `shell.jsx` Topbar
+mintájára:
+
+- **Magasság**: `min-h-16 py-3` → `h-16` (sablon: 64px)
+- **Padding**: `px-3 lg:px-6` → `px-4 lg:px-7` (sablon: 28)
+- **Gyülekezet chip**: a sablon "input-szerű" stílussal (border-border
+  bg-card rounded-[10px] px-3.5 py-1.5), 36×36 címer accent-háttéren,
+  2 sor szöveg (név + alcím "Erdélyi Református Egyházkerület").
+  Eltávolítva: "Szolgálati tér" eyebrow + "Átlátható központ"
+  Sparkles-chip.
+- **Icon-buttonok** (Help): sablon szerint `bg-muted` 40×40
+  `rounded-[10px]` (volt: border + bg-white/78 + bonyolult shadow).
+- **Profile DropdownTrigger**: sablon szerint `bg-muted px-2.5 py-1.5
+  rounded-xl` + 32×32 avatar accent-háttéren (volt: border + bg-white/78
+  + 40×40 avatar gradient + ring).
+- **Border**: `border-white/60` → `border-border` (téma-aware).
+
+### 🎨 Új komponens: RouteLoadingScreen
+
+A 16 loading.tsx fájl mind átalakítva — **eltávolítva minden Skeleton**
+és `animate-pulse` placeholder használat. Az új közös komponens
+(`apps/web/components/layout/route-loading-screen.tsx`) a sablon
+`screens.jsx → LoadingScreen` mintájára épül:
+
+- **CalvinSpinner-szerű** dupla forgó kör + középső pulzáló pötty
+  (téma `var(--accent)` és `var(--accent2)` színekkel).
+- **Modul-specifikus cím** (`Tagnyilvántartás betöltése`, `Pénzügy —
+  Befizetések betöltése` stb.).
+- **4 lépéses ellenőrzőlista**: Kapcsolódás → Helyi DB → Aktuális
+  rekordok szinkronizálása (active) → Modul beállítások.
+- **Card-raised** konténer + 2 háttér blur-pötty (accent + primary).
+
+Érintett fájlok (16 db):
+- `app/loading.tsx`, `app/(dashboard)/loading.tsx`,
+  `app/(dashboard)/dashboard/loading.tsx` (volt: BrandLoadingScreen +
+  pulse skeleton)
+- `app/(dashboard)/{tagnyilvantartas,anyakonyv,jegyzokonyvek,sirhelyek,leltar}/loading.tsx`
+  (volt: Sprint S F5 SkeletonTable/SkeletonCard)
+- `app/(dashboard)/penzugy/{befizetes,kiadas}/loading.tsx`
+- `app/misszios-muhely/{loading,forum/loading,forum/[ideaId]/loading,jutalmak/loading,profil/loading,segedanyagok/loading}.tsx`
+  (volt: animate-pulse blokk-skeleton)
+
+A `BrandLoadingScreen`, `SkeletonTable`, `SkeletonCard` komponensek
+**érintetlen** — más helyen (statisztika dashboard, profile betöltés,
+splash screen) még használat alatt maradhatnak.
+
+### ✅ Verify (Chrome MCP, localhost:3000, /dashboard)
+
+- **Sidebar**: `aside_w: 287px`, `inner_w: 287px` ✅ (volt: 241px),
+  `nav_w: 267px` ✅ (volt: 221px)
+- **Header**: `height: 64px` ✅ (sablon: 64), congregation chip látható
+- **Build** (next build --webpack) zöld
+- **TypeScript** (tsc --noEmit) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Desktop NEM kap új release-t.
+
+---
+
 ## [2026-05-01i] — Sidebar fejléc + hero + nav sablon szerinti egységesítés (v0.9.5)
 
 <!-- key: 2026-05-01i-sidebar-hero-nav-sablon-egyseges -->
