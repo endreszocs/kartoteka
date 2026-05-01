@@ -23,6 +23,72 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02c] — Legal-dialog tartalom: laikus, lelkipásztorbarát, bővebb (v0.9.23)
+
+<!-- key: 2026-05-02c-legal-laikus -->
+<!-- category: improvement -->
+<!-- version: v0.9.23 (csak web) -->
+<!-- targets: minden lelkipásztor, esperes, anonim felhasználó -->
+
+A felhasználó kérése: a 4 jogi tartalom (Adatvédelem / ÁSZF / Súgó /
+Kapcsolat) **bővebben, laikus-barát, megnyugtató** hangvételben legyen
+megfogalmazva, **minden szakkifejezés és rövidítés** alaposan magyarázva,
+**bátorítással**, hogy mennyire megéri a rendszer használata. Plus
+**Szőcs Endre lelkipásztor** mind az adatkezelő, mind a rendszergazda.
+
+### 🛠 Tartalom-átdolgozás
+
+A `legal-dialog.tsx` 4 függvényének (Privacy/Terms/Help/Contact) teljes
+átírása:
+
+- **Adatvédelem** (12 szakasz): adatkezelő-rendszergazda (Szőcs Endre
+  lelkipásztor), szellemi alap (Beke Tivadar), tárolás („felhő"
+  magyarázat), célok (6 modul felsorolva), jogalap (GDPR + Ro 190/2018
+  rövidítés-magyarázat), adatkör (10 pont), biztonsági rétegek (TLS,
+  RLS, RBAC, 2FA, naplózás minden definíciójával), hozzáférés
+  (5 szerepkör), megőrzés, érintetti jogok (6 GDPR-jog), panasz-csatorna,
+  felelősségi nyilatkozat, záró bátorítás
+- **ÁSZF** (11 szakasz): mi a Kartotéka, hozzáférés (kerületi jóváhagyás
+  magyarázat), <strong>INGYENES</strong> kihangsúlyozás, felhasználói
+  kötelezettségek (5 pont), üzemeltető jogai, „as is" elv (vis maior
+  magyarázat), felelősség-kizárás (5 pont, max 0 lej), adatvédelem
+  hivatkozás, szellemi tulajdon, módosítások, joghatóság, záró bátorítás
+- **Súgó** (10 GYIK): hozzáférés, modulok (10 modul felsorolva), jelszó-
+  helyreállítás (3 lépés), adatkör, biztonsági aggályok (4 jelzés +
+  phishing magyarázat), offline használat, multi-gyülekezet, nyomtatás
+  (5 PDF-export), publikus oldal, kit kérdezzek + bátorítás
+- **Kapcsolat**: rendszergazda card (Szőcs Endre — kiemelt amber
+  háttér), szellemi alap card (Beke Tivadar — emerald háttér), kapcsolat-
+  témakörök (6 pont), sürgős esetek (4 jelzés), ANSPDCP teljes adatok
+  (név, cím Bukarest, web), ANSPDCP rövidítés-magyarázat, egyházi csatorna
+  (esperesi/egyházmegyei/kerületi), záró bátorítás
+
+### ✨ Új UI elemek
+
+- **`<Note>`**: zöld háttéres bátorító/figyelmeztető blokk (minden
+  szövegben 2-3 db, megnyugtató hangvételben)
+- **`<Term>`**: szakkifejezés-definíció kiemelése (15+ definíció a
+  Kartotéka kifejezésekre: GDPR, RLS, RBAC, 2FA, TLS 1.3, Naplózás,
+  „as is", Vis maior, Phishing, ÁSZF, ANSPDCP, kerületi jóváhagyás,
+  felhő/cloud, Supabase, adatkezelő, rendszergazda)
+
+### 🛠 Technikai
+
+A `<Term def="...">` prop-ok template-string formára cserélve
+(`def={'...'}`), mert a magyar idézőjeleken („ ") belüli ASCII `"`
+karakterek lezárták volna a JSX-string-et.
+
+### ✅ Verify
+
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02b] — Adatvédelem / ÁSZF / Súgó / Kapcsolat tartalom + kötelező pipa (v0.9.22)
 
 <!-- key: 2026-05-02b-legal-dialog -->
