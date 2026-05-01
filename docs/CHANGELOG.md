@@ -23,6 +23,46 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02h] — Settings dialog szélesítés + Sprint U terv-fájlok (v0.9.28)
+
+A felhasználó 6 vegyes pontos észrevétele alapján.
+
+### ✅ Beépítve (1. pont)
+
+A `settings-dialog.tsx` UX-finomítás:
+- DialogContent max-width: `sm:max-w-3xl` → **`sm:max-w-5xl lg:max-w-6xl`**
+  (768px → 1152px / 1280px)
+- Bal sidebar (TabsList wrapper): `w-44 sm:w-52` → **`w-48 sm:w-60`**
+  (180/208 → 192/240px)
+- Tabs gap: `4 sm:gap-5` → **`5 sm:gap-7`** szellősebb tartalom-elhelyezés
+
+### 📋 Tervezve (2-6. pont)
+
+Részletes Sprint-terv a `docs/project-tracking/KARTOTEKA-tagnyilv-vegyes-
+finomitas-2026-05-02.md`-ben:
+
+- **2.** Családok szerkesztése + körzet rögzítés (~1 ó)
+- **3.** Presbiter smart-search bővítés — életkor + lakhely (~30 perc)
+- **4.** Családok táblázat sortolás/keresés/szűrés (~3 ó)
+- **5.** Családfa bug-vizsgálat + javítás (~2 ó)
+- **6.** Tagnyilvántartás hibák modul (~9-10 ó)
+  - SQL migráció (új `member_validation_errors` tábla, RLS,
+    trigger): `migration-docs/sql/2026-05-02-member-validation-errors.sql`
+  - Validation engine
+  - Server actions
+  - UI komponensek (KPI card-ok, sortable table, filter sor,
+    duplikáció-összehasonlító dialog, ignore dialog admin-mal)
+  - Excel/CSV export
+
+A felhasználó futtatja a Supabase-en a 6.1 SQL-t. A 6.2-6.4 webes
+implementáció Sprint U.2-ben — külön munkaülés.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02g] — Súgó modul-térkép + 3-nyelvű (HU/RO/EN) Legal-dialog (v0.9.27)
 
 A felhasználó kérése: bővebb modul-leírás a Súgóban + 3-nyelvű

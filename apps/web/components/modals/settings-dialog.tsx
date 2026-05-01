@@ -125,7 +125,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl lg:max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
             <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-white shadow-sm">
@@ -137,8 +137,8 @@ export function SettingsDialog({
 
         {/* Bal oldalsáv MINDEN méretben — Endre kérése (v0.5.4 paritás): a tabok mindig
             vertikálisan a dialog bal oldalán, a tartalom jobbra. */}
-        <Tabs defaultValue="ertesitesek" className="flex flex-row gap-4 sm:gap-5">
-          <div className="flex w-44 shrink-0 flex-col gap-3 self-start sm:w-52">
+        <Tabs defaultValue="ertesitesek" className="flex flex-row gap-5 sm:gap-7">
+          <div className="flex w-48 shrink-0 flex-col gap-3 self-start sm:w-60">
             <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
               <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">
                 <Bell className="mr-2 size-4" />
