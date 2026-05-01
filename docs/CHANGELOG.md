@@ -23,6 +23,44 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02e] — Adatvédelem: Supabase + Railway + GDPR + egyházi hierarchia (v0.9.25)
+
+A felhasználó kérése: bővebb tartalom a Supabase-ről, biztonsági
+rendszerekről, GDPR-megfelelőségről, Railway hostról, és az egyházi
+hierarchiáról (kerület → megye → gyülekezet) — különösen, hogy ki mit
+lát, és hogy a kerület/megye CSAK az évi kötelező összesítőket láthatja,
+teljes hozzáféréshez a gyülekezeti lelkész engedélye szükséges (még a
+rendszergazdának is).
+
+Adatvédelem teljes átdolgozás (12 → 15 szakasz):
+- 3. szakasz: Supabase + Railway részletek (Frankfurt + Amszterdam,
+  Cloudflare DDoS, EU-tárolás), AES-256 + SOC 2 + ISO 27001 magyarázattal
+- 4. szakasz (új): GDPR-megfelelőség konkretizálva: adatminimalizálás,
+  célhoz kötöttség, EU-tárolás, titkosítás, naplózás, érintetti jogok,
+  panaszjog, DPA (data processing agreement)
+- 9-11. szakasz (új): Egyházi hierarchia részletesen
+  * Lelkész — saját gyülekezet teljes adata
+  * Könyvelő — csak pénzügyi, csak a saját gyülekezet
+  * Esperes/egyházmegyei admin — KIZÁRÓLAG az éves kötelező összesítők
+  * Számvevő — csak ellenőrzési időszakban, csak pénzügyi
+  * Kerületi admin — kerület-szintű AGREGÁLT összesítők; egyéni tag
+    személyes adatához NEM fér hozzá
+  * Rendszergazda (Szőcs Endre) — gyülekezeti adatokhoz CSAK lelkészi
+    engedéllyel, időkorláttal, naplózva, célhoz kötötten
+  * Lelkész bármikor visszavonhatja az engedélyt 1 kattintással
+  * RLS technikailag is kényszeríti — nem csak ígéret
+- 11. Naplózás-szakasz (új): tag bármikor megkérdezheti "ki látta", és
+  pontos választ kap
+
+Új Term-definíciók: Supabase, Railway, DDoS, PostgreSQL, AES-256,
+SOC 2 Type 2, ISO 27001, DPA. Összesen 8 új szakkifejezés.
+
+Verify: TypeScript + build zöld.
+
+Csak webes release.
+
+---
+
 ## [2026-05-02d] — Sidebar click bug fix + "üzleti termék" tisztítás (v0.9.24)
 
 ### 🐛 KRITIKUS BUG FIX: sidebar nav-link click

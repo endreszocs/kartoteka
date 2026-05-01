@@ -159,25 +159,102 @@ function PrivacyContent() {
 
       <SectionTitle>3. Hol vannak az adatok? (a „felhő")</SectionTitle>
       <p>
-        Az adatok egy <strong>biztonságos európai adatközpontban</strong> tárolódnak,
-        Frankfurtban (Németország), egy <em>Supabase</em> nevű szolgáltatáson keresztül.
+        Az adatokat <strong>két, egymástól független professzionális európai
+        szolgáltató</strong> kezeli a tőlünk telhető legmagasabb biztonsági szinten:
       </p>
+
+      <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          1. Supabase — adatbázis és felhasználói azonosítás
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          Tárolási hely: <strong>Frankfurt am Main, Németország (EU)</strong>. Az adatbázis
+          PostgreSQL alapú — ez a világ legmegbízhatóbb adatbázis-rendszereinek egyike,
+          banki és kormányzati rendszerek is ezt használják.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          2. Railway — alkalmazás-host (a weboldal kiszolgálása)
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          Tárolási hely: <strong>Amszterdam, Hollandia (EU)</strong>. Cloudflare védelem a
+          támadások (DDoS) ellen, automatikus szerver-újraindítás, folyamatos terheléskiegyenlítés.
+        </p>
+      </div>
+
       <Term
         word="Felhő (cloud)"
-        def={'távoli, professzionális szervergép, ahol az adatok tárolva vannak. Olyan, mint egy „távoli iratszekrény" — biztonságos épületben, kettős zárral, riasztóval.'}
+        def={'távoli, professzionális szervergép, ahol az adatok tárolva vannak. Olyan, mint egy „távoli iratszekrény" — biztonságos épületben, kettős zárral, riasztóval, 24/7 felügyelettel.'}
       />
       <Term
         word="Supabase"
-        def="egy ismert, európai jogi szabályoknak megfelelő technológiai szolgáltató. Ők tartják fent a szervert, mi viszont a teljes adatot titkosítva küldjük át — ők sem látják belülről."
+        def="európai jogi szabályoknak megfelelő technológiai szolgáltató. Az infrastruktúrája SOC 2 Type 2 és ISO 27001 tanúsítvánnyal rendelkezik — ezek nemzetközi információbiztonsági szabványok. Az adatainkat AES-256 titkosítással tárolják; ez ugyanaz a szint, amit a NATO és banki rendszerek használnak."
       />
+      <Term
+        word="Railway"
+        def="modern, fejlesztőbarát alkalmazás-hosting platform, amely az EU-n belül szolgál ki minket (Amszterdam). Folyamatos szervermonitoring, automatikus mentés, és a Cloudflare globális hálózata véd a túlterheléses támadások (DDoS) ellen."
+      />
+      <Term
+        word="DDoS"
+        def="„Distributed Denial of Service" — magyarul „elosztott szolgáltatásmegtagadási támadás". Ez azt jelenti, amikor sok ezer számítógép egyszerre próbálja meglátogatni a szervert, hogy az lefagyjon. A Cloudflare automatikusan kiszűri az ilyen támadási kísérleteket, mielőtt elérnék a Kartotékát."
+      />
+      <Term
+        word="PostgreSQL"
+        def="nyílt forráskódú, ipari szabványnak számító adatbázis-rendszer. Több mint 30 éve fejlesztik világszerte, és a legbiztosabb módon kezeli a tranzakciókat — soha nem veszhet el adat egy félbeszakadt mentés miatt."
+      />
+      <Term
+        word="AES-256 titkosítás"
+        def="„Advanced Encryption Standard" 256 bites kulcsa. Ezt használja az amerikai Nemzetbiztonsági Hivatal a szigorúan titkos adatok védelmére. Egy mai szuperszámítógépnek is évmilliárdokba telne feltörni."
+      />
+      <Term
+        word="SOC 2 Type 2 tanúsítvány"
+        def="„Service Organization Control 2 Type 2" — független könyvvizsgálók által több hónapon át elvégzett, részletes biztonsági audit. Csak az a szolgáltató kapja meg, aki bizonyíthatóan védi az ügyfél-adatait."
+      />
+      <Term
+        word="ISO 27001 tanúsítvány"
+        def="nemzetközi információbiztonsági szabvány. Az ezzel rendelkező szervezetek formálisan dokumentált, ellenőrzött folyamatokkal védik az adatokat — nemcsak technikailag, hanem szervezeti szinten is."
+      />
+
       <Note>
         <strong>Miért jó ez Önnek?</strong> Mert így nem kell papírdobozokban őrizni az
         anyakönyvet, nem ázik be, nem lopható el, nem menthető le illetéktelenül USB-re, és
         bárhonnan elérhető — például egy vasárnapi szolgálat előtt mobilon ellenőrizhető a
-        családi háttér.
+        családi háttér. Ráadásul a tárolás <strong>Európában történik</strong>, így a
+        GDPR teljes körű védelme alatt áll — nem kerülnek át USA-ba, ahol más jogrend
+        érvényes.
       </Note>
 
-      <SectionTitle>4. Mire használjuk az adatokat?</SectionTitle>
+      <SectionTitle>4. GDPR-megfelelőség — mit jelent ez konkrétan?</SectionTitle>
+      <p>
+        A Kartotéka rendszer minden eleme <strong>GDPR-konform</strong>, ami azt jelenti, hogy
+        megfelel az Európai Unió 2018-ban hatályba lépett legszigorúbb adatvédelmi
+        szabályainak.
+      </p>
+      <p>Ez konkrétan a következőket jelenti:</p>
+      <ul className="list-disc pl-6 space-y-1.5">
+        <li><strong>Adatminimalizálás</strong> — csak azokat az adatokat kezeljük, amelyek
+          a gyülekezeti élethez TÉNYLEG szükségesek. Nem gyűjtünk „mert hátha jó lesz".</li>
+        <li><strong>Célhoz kötöttség</strong> — minden adatnak van egy konkrét, dokumentált
+          célja (pl. anyakönyv, járulék-kimutatás). Más célra nem használjuk.</li>
+        <li><strong>EU-n belüli tárolás</strong> — Frankfurt és Amszterdam mindkettő uniós
+          tagország. Az adatok soha nem kerülnek át harmadik országba.</li>
+        <li><strong>Titkosítás</strong> mind átvitelkor (TLS 1.3), mind tárolásakor (AES-256)</li>
+        <li><strong>Hozzáférési naplózás</strong> — minden lekérdezés rögzített, ki, mit, mikor
+          látott</li>
+        <li><strong>Érintetti jogok</strong> — a tagok bármikor kérhetik adataikat, helyesbítést,
+          tiltakozhatnak</li>
+        <li><strong>Adatvédelmi panaszjog</strong> — a romániai ANSPDCP-nél tehető panasz</li>
+        <li><strong>Adatfeldolgozói szerződések</strong> — a Supabase és Railway szolgáltatókkal
+          GDPR-konform Data Processing Agreement (DPA) van kötve</li>
+      </ul>
+      <Term
+        word="DPA (Data Processing Agreement)"
+        def="adatfeldolgozói szerződés. Ezt az EU-jog kötelezővé teszi, ha valaki a nevünkben adatot kezel. Tartalmazza, hogy a szolgáltató mit tehet az adatainkkal, mit nem, és hogyan jár el adatszivárgás esetén."
+      />
+
+      <SectionTitle>5. Mire használjuk az adatokat?</SectionTitle>
       <p>
         Kizárólag a <strong>gyülekezet egyházi életének</strong> támogatására:
       </p>
@@ -198,7 +275,7 @@ function PrivacyContent() {
         adjuk át, és nem értékesítjük. A Kartotéka nem reklámozó vállalkozás — egyházi szolgálat.
       </Note>
 
-      <SectionTitle>5. Milyen jogi alapon kezeljük az adatokat?</SectionTitle>
+      <SectionTitle>6. Milyen jogi alapon kezeljük az adatokat?</SectionTitle>
       <p>
         Két jogi alapra támaszkodunk, mindkettő <em>az érintett védelmét szolgálja</em>:
       </p>
@@ -217,7 +294,7 @@ function PrivacyContent() {
         def={'„General Data Protection Regulation" — az Európai Unió 2016/679-es rendelete, amely 2018 óta hatályos. Azért született, hogy a polgárok adatait minden uniós országban azonos szigorral védjék. Magyarul „Általános Adatvédelmi Rendelet".'}
       />
 
-      <SectionTitle>6. Milyen adatokat kezelünk pontosan?</SectionTitle>
+      <SectionTitle>7. Milyen adatokat kezelünk pontosan?</SectionTitle>
       <p>A gyülekezeti életéhez szükséges mértékben, és nem többet:</p>
       <ul className="list-disc pl-6 space-y-1">
         <li>Név (előtag, vezetéknév, keresztnév, leánykori név)</li>
@@ -233,7 +310,7 @@ function PrivacyContent() {
         <li>Belépés időpontja, kilépés időpontja</li>
       </ul>
 
-      <SectionTitle>7. Hogyan védjük az adatokat? (a biztonsági rétegek)</SectionTitle>
+      <SectionTitle>8. Hogyan védjük az adatokat? (a biztonsági rétegek)</SectionTitle>
       <p>
         A Kartotéka <strong>több, egymásra épülő biztonsági réteget</strong> használ. Ezek
         ugyanolyanok, mint amit a banki rendszerek alkalmaznak:
@@ -265,25 +342,124 @@ function PrivacyContent() {
         nem lehet visszaállítani semmit.
       </Note>
 
-      <SectionTitle>8. Ki láthatja az adatokat?</SectionTitle>
+      <SectionTitle>9. Az egyházi hierarchia és a hozzáférések</SectionTitle>
       <p>
-        Csak az, akinek hozzáférése van — és aki a saját gyülekezetének adatait nézheti.
+        A Kartotéka rendszer pontosan tükrözi az <strong>egyházi szervezeti rendet</strong>:
+        kerület → egyházmegye → gyülekezet. Mindenki csak azt látja, ami a szerepköréhez
+        tartozik — sem többet, sem kevesebbet.
       </p>
-      <ul className="list-disc pl-6 space-y-1.5">
-        <li><strong>A gyülekezet lelkésze</strong> — a saját gyülekezete teljes adatát</li>
-        <li><strong>A kerületi/egyházmegyei adminisztrátor</strong> — összesített, statisztikai
-          adatokat (pl. „hány keresztelés volt egy évben")</li>
-        <li><strong>Könyvelő</strong> — csak a pénzügyi adatokat, csak az ő gyülekezetéből</li>
-        <li><strong>Számvevő</strong> — szintén csak pénzügyi és csak ellenőrzési időszakban</li>
-        <li><strong>Rendszergazda (Szőcs Endre)</strong> — csak technikai gondnál, a lelkész
-          előzetes engedélyével, időkorláttal és <em>naplózással</em></li>
-      </ul>
+
       <Note>
-        Ha egy gyülekezeti tag rákérdez: „ki látta az adataimat?" — bármikor pontos választ
-        tudunk adni, mert minden hozzáférés naplózva van.
+        <strong>Ne féljen!</strong> Ez a legfontosabb biztosíték: <em>a kerület és az
+        egyházmegye CSAK az évente kötelezően leadott összesítő adatokat látja</em>. A
+        gyülekezet egyéni tagjainak részletes adataihoz <strong>kizárólag a gyülekezeti
+        lelkész engedélyével</strong> férnek hozzá — még a rendszergazda is csak így!
       </Note>
 
-      <SectionTitle>9. Meddig őrizzük az adatokat?</SectionTitle>
+      <SectionTitle>10. Ki mit lát pontosan?</SectionTitle>
+
+      <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Gyülekezet — Lelkipásztor
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          A <strong>saját gyülekezetének teljes</strong> adatát látja: tagokat, családokat,
+          anyakönyvi eseményeket, pénzügyet, programokat, sírhelyeket, a saját pasztorális
+          jegyzeteit. Más gyülekezetbe NEM lát be. A pasztorális (lelkészi) jegyzetekhez
+          rajta kívül senki más nem fér hozzá — ezeket az ő szolgálati titkaként kezeljük.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Gyülekezet — Könyvelő
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          CSAK az általa kiszolgált gyülekezet <strong>pénzügyi adatait</strong> látja
+          (befizetések, kiadások). A személyes, anyakönyvi, pasztorális adatokhoz NEM fér
+          hozzá. Egy könyvelő több gyülekezetet is segíthet — ez a profilváltási rendszerrel
+          történik.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Egyházmegye — Esperes / Egyházmegyei admin
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          KIZÁRÓLAG az <strong>egyházmegyéhez tartozó gyülekezetek éves kötelező
+          összesítőit</strong> látja: éves tagság-számokat, keresztelések száma, házasságok,
+          temetések száma, gyülekezeti járulékok összesítve. <strong>Egyetlen tag személyes
+          adatát sem látja!</strong> Ha mégis részletes információra van szüksége
+          (pl. fegyelmi eljárás), azt a gyülekezet lelkészével közvetlenül egyezteti.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Egyházmegye — Számvevő (pénzügyi ellenőr)
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          CSAK <strong>az ellenőrzési időszakban</strong> és CSAK a <strong>pénzügyi
+          összesítőket</strong> látja. Nem férhet hozzá tagok személyes adataihoz, lelkészi
+          jegyzetekhez. Az ellenőrzési időszak végén a hozzáférése automatikusan korlátozódik.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-rose-50/50 p-4 border border-rose-200/50 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Egyházkerület — Egyházkerületi admin / EREK hivatalvezető
+        </p>
+        <p className="text-[13px] text-slate-600 mt-1">
+          CSAK a <strong>kerület-szintű, agregált összesítőket</strong> látja: az
+          egyházmegyéktől beérkező éves jelentések összesítését. Az egyes gyülekezeti tagok
+          személyes adataihoz <strong>NEM fér hozzá</strong>. A rendszer szerkezete éppen erre
+          van tervezve: a kerület a STATISZTIKA és a JELENTÉSEK szintjén dolgozik, nem a
+          személyes adat szintjén.
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-slate-100 p-4 border border-slate-300 my-3">
+        <p className="text-[14px] font-semibold text-slate-900 mb-1">
+          Rendszergazda — Szőcs Endre lelkipásztor
+        </p>
+        <p className="text-[13px] text-slate-700 mt-1">
+          Technikai jogkörben gondozza a rendszert: hibakeresés, frissítések, biztonsági
+          mentés. <strong>Egy gyülekezet adataihoz CSAK az adott gyülekezet lelkészének
+          előzetes és kifejezett engedélyével férhet hozzá.</strong> Ez az engedély:
+        </p>
+        <ul className="list-disc pl-6 space-y-1 text-[13px] text-slate-700 mt-2">
+          <li><strong>Időkorláthoz kötött</strong> — csak a megegyezett ideig (pl. 30 perc)
+            láthatja az adatokat</li>
+          <li><strong>Naplózott</strong> — minden lépése rögzítve van, percre pontosan</li>
+          <li><strong>Konkrét célhoz kötött</strong> — pl. „segíteni egy hiba megtalálásában",
+            nem tetszőleges böngészés</li>
+          <li><strong>A lelkész bármikor visszavonhatja</strong> — egy kattintással</li>
+        </ul>
+      </div>
+
+      <Note>
+        <strong>Ez nem üres ígéret — a rendszer technikailag kényszeríti ki!</strong>
+        A „Row Level Security" (RLS) szabályok minden lekérdezésnél ellenőrzik, hogy az adott
+        felhasználónak van-e joga az adott adat látásához. Ha nincs, a szervergép automatikusan
+        üres választ ad — még akkor is, ha valaki technikailag próbálná megkerülni a
+        jogosultságot.
+      </Note>
+
+      <SectionTitle>11. Ki látta az adataimat? — naplózás</SectionTitle>
+      <p>
+        Ha egy gyülekezeti tag rákérdez: „ki látta az adataimat?" — <strong>bármikor pontos
+        választ tudunk adni</strong>. Minden hozzáférést rögzítünk: ki jelentkezett be, mit
+        nézett meg, mit módosított, mikor. Ezeket a naplókat a rendszergazda sem tudja
+        törölni — egyfajta „adatvédelmi feketedoboz" a Kartoteka mélyén.
+      </p>
+      <p>
+        Ha egy érintett (tag) kéri, megmutatjuk neki a saját adatait érintő összes
+        naplóbejegyzést — átláthatóan, érthető magyar nyelven, nem pedig technikai naplók
+        formájában.
+      </p>
+
+      <SectionTitle>12. Meddig őrizzük az adatokat?</SectionTitle>
       <p>
         Az <strong>egyházi anyakönyvi adatokat</strong> (keresztelés, házasság, temetés) az
         egyházi rend szerint <strong>tartósan</strong> megőrizzük — éppúgy, ahogy a régi
@@ -296,7 +472,7 @@ function PrivacyContent() {
         szükség, a rendszergazda kéréskor törli vagy archiválja.
       </p>
 
-      <SectionTitle>10. Milyen jogai vannak Önnek és a tagoknak?</SectionTitle>
+      <SectionTitle>13. Milyen jogai vannak Önnek és a tagoknak?</SectionTitle>
       <p>A GDPR az érintetteknek (nálunk: a tagoknak és a hozzátartozóknak) <strong>hat alapvető jogot</strong> ad:</p>
       <ul className="list-disc pl-6 space-y-1.5">
         <li><strong>Tájékoztatás</strong> — bárki kérheti, milyen adatait kezeljük</li>
@@ -312,7 +488,7 @@ function PrivacyContent() {
         leadni; általában 30 napon belül válaszolunk.
       </p>
 
-      <SectionTitle>11. Mit tegyen, ha úgy érzi, valami nem stimmel?</SectionTitle>
+      <SectionTitle>14. Mit tegyen, ha úgy érzi, valami nem stimmel?</SectionTitle>
       <p>
         Ha bármilyen aggálya van az adatkezelés körül:
       </p>
@@ -324,7 +500,7 @@ function PrivacyContent() {
           olvassa)</li>
       </ol>
 
-      <SectionTitle>12. Felelősségi nyilatkozat</SectionTitle>
+      <SectionTitle>15. Felelősségi nyilatkozat</SectionTitle>
       <p>
         Tisztelettel közöljük, hogy a Kartotéka rendszert <em>úgy ahogy van</em> állítjuk
         rendelkezésre — a tőlünk telhető legnagyobb gondossággal építettük és tartjuk karban.
