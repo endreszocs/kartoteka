@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02a] — Splash v3: csillagok + EREK aspect-ratio fix (v0.9.21)
+
+<!-- key: 2026-05-02a-splash-stars-erek-aspect -->
+<!-- category: improvement -->
+<!-- version: v0.9.21 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználó új splash design-t küldött (`Kartotéka-handoff-Splash` v3,
+URL: `IP4GQtEbfsvsuaGTvzuVhA`) és észrevette, hogy "az egyházkerületek
+címereinek méretarányát mert most sem az igazi".
+
+### 🎨 v3 vs v2 különbség
+
+A diff egyetlen sor: a `loader-leaf` jelzés cseréje. Korábban
+`҂ ҂ ҂` (cirill kereszt-jel), mostantól **`✦ ✦ ✦`** (négyágú csillag) —
+illeszkedik a sablon eyebrow-arany csillaghoz a headline felett.
+
+### 🐛 EREK aspect-ratio fix
+
+A natural-méretek vizsgálatából (Chrome MCP `Image.naturalWidth/Height`):
+
+| Asset | Natural | Aspect |
+|---|---|---|
+| KEREK.png | 432×432 | **1.000** (négyzet) |
+| KARTOTEKA_V3.png | 1375×1375 | **1.000** (négyzet) |
+| EREK.png | **250×400** | **0.625** (keskeny/magas, NEM négyzet!) |
+
+A v0.9.15-ben behozott 238×238-as forced méret **eltorzította** az EREK
+aspect-ratio-ját. A felhasználó ezért látta továbbra is mérethibásnak.
+
+**Fix**: az EREK `<Image>` mostantól **175×280** (height: 280 teljes,
+width: 175 = 280×0.625, megőrzi az aspect-ratio-t). A 280×280 wrapper
+`placeItems: center` automatikusan vízszintesen középre igazítja, így
+a KEREK (280×280) és EREK (175×280) **optikailag azonos magasságúak**,
+és az EREK keskenyebb-magasabb formája megőrződik.
+
+### ✅ Verify
+
+- TypeScript + build zöld
+- Localhost ellenőrzés: a felhasználó inkognitó-tab-ban tudja
+  validálni a splash-t (a session-aktív tab-on a `/login` redirect-el)
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01x] — AccessRequestForm "Gyülekezet" label tisztítás (v0.9.20)
 
 <!-- key: 2026-05-01x-access-form-gyulekezet-label -->

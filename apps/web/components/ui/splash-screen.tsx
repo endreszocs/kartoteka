@@ -346,8 +346,9 @@ export function SplashScreen() {
             />
           </div>
 
-          {/* Side right — EREK (a natural arány miatt 85%-osra skálázva,
-              hogy a KEREK-tel optikailag egyforma méretű legyen). */}
+          {/* Side right — EREK. Natural aspect-ratio 0.625 (250×400 px, keskeny/magas).
+              A wrapper 280×280, és az EREK kép 175×280-as megjelenéssel (height
+              teljes, width arányos), így a KEREK-tel optikailag azonos magasságú. */}
           <div
             style={{
               width: 280,
@@ -367,10 +368,10 @@ export function SplashScreen() {
             <Image
               src="/EREK.png"
               alt="Erdélyi Református Egyházkerület címere"
-              width={238}
-              height={238}
+              width={175}
+              height={280}
               priority
-              style={{ width: 238, height: 238, objectFit: 'contain' }}
+              style={{ width: 175, height: 280, objectFit: 'contain' }}
             />
           </div>
         </div>
@@ -473,7 +474,7 @@ export function SplashScreen() {
             />
           </div>
           <div style={{ marginTop: 12, color: 'rgba(47,93,63,.55)', fontSize: 18, letterSpacing: '8px' }}>
-            ҂ ҂ ҂
+            ✦ ✦ ✦
           </div>
         </div>
       </div>
