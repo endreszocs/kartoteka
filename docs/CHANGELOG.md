@@ -23,6 +23,71 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01t] — Bejelentkezés oldal sablon szerint (v0.9.16)
+
+<!-- key: 2026-05-01t-bejelentkezes-sablon -->
+<!-- category: improvement -->
+<!-- version: v0.9.16 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a bejelentkezés/regisztrációs képernyő nem
+változott — javítsd a legfrissebb sablon szerint, legyen reszponzív")
+alapján az auth-layout teljes átdolgozása a `Kartotéka-handoff-
+bejelentkezes → Bejelentkezes.html` sablon szerint.
+
+### 🎨 Új layout-szerkezet
+
+A korábbi 50/50 split-panel (bal: form, jobb: gradient-hero EREK + Zsolt 23
+idézet) helyett a sablon szerinti:
+
+- **Háttér**: `/Hatter.png` (fixed, cover) + warm vignette overlay
+- **Brand top-left** (64×64 frosted-circle + KARTOTÉKA + tagline)
+- **Main 2-column** (1fr 1fr, gap 64):
+  - **Bal**: Greeting "Áldás, békesség!" (Cormorant Garamond 72px) + lede
+    + 3 features (Biztonságos hozzáférés, Online/Offline, Lelkészekre szabott)
+    + Verse (Róma 15,33)
+  - **Jobb**: Frosted-glass card (rgba(252,248,238,.62) + backdrop-blur 28px
+    + saturate 140%) — a `children` (LoginForm) ide kerül
+- **Footer**: cross + Adatvédelem + ÁSZF + Súgó + Kapcsolat + copyright
+
+### 📐 Reszponzív breakpointok (sablon szerint)
+
+- **≥ 980px**: 2 oszlop, brand padding 28×56, greeting 72px
+- **< 980px**: 1 oszlop, brand padding 22×24, greeting 56px, max-w 560
+- **< 540px**: brand 52×52, greeting 44px, card padding 28×22 + radius 20
+
+### 🛠 Új komponensek + módosítások
+
+- **`apps/web/components/auth/auth-left-pane.tsx`** (új) — Greeting + lede
+  + 3 lucide-react ikonos feature + verse
+- **`apps/web/app/(auth)/layout.tsx`** — teljes átírás: 50/50 split-panel
+  → sablon-szerű 1-frame brand + 2-col main + footer
+- **`packages/ui/src/kartoteka.css`** — új `kt-auth-*` osztály-család
+  (~350 sor): page-bg, vignette, shell, brand, main, left, features,
+  verse, card, footer + 2 média-query
+
+### 🛠 LoginForm
+
+A `login-form.tsx` belső struktúrája MEGMARAD egyelőre (a Tailwind 4
+Input/Label/Button shadcn-alapú komponensek a frosted-glass card-ban
+természetesen szerepelnek). A sablon ikonos `<Field>` komponens teljes
+implementációja (mail+lock+eye+reveal) későbbi finomítás (külön task).
+
+### ✅ Verify (Chrome MCP, localhost:3000/login)
+
+- `pageBg: url("/Hatter.png")` ✅
+- `mainCols: "644px 644px"` ✅ (2-oszlop)
+- `leftFeatures: 3` ✅
+- `cardBg: rgba(252, 248, 238, 0.62)` ✅
+- `greeting Cormorant Garamond 72px` ✅
+- `brandLogoImgSize: 56×56` ✅
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01s] — Splash bug-fix: inline-style opacity + EREK logó méret (v0.9.15)
 
 <!-- key: 2026-05-01s-splash-bugfix-inline -->
