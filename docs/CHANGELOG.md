@@ -23,6 +23,56 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01w] — Auth-card szélesebb + jobb reszponzivitás (v0.9.19)
+
+<!-- key: 2026-05-01w-auth-wider-responsive -->
+<!-- category: improvement -->
+<!-- version: v0.9.19 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a Hozzáférés kérelme / Adatok megadása
+ablaka egy kicsit szélesebb, van még hely a Csatlakozzon hozzánk!
+… szöveg fele. Figyelj arra hogy legyen reszponzív!!") alapján a card
+kibővítése + új breakpointok.
+
+### 🎨 Card szélesebb
+
+- `kt-auth-main grid-template-columns: 1fr 1fr` →
+  `minmax(0, 1fr) minmax(0, 1.3fr)` — a jobb oldali card 30%-kal több
+  helyet kap
+- `kt-auth-main gap: 64px` → `56px`, `max-width: 1400px` → `1500px`
+- `kt-auth-card max-width: 460px` → `560px`, padding `36px 40px` →
+  `36px 44px`
+- `≥ 1500px` viewporton a card maximum **600px** szélességig nyúlhat
+- `kt-auth-left max-width: 520` → `540`
+
+### 📐 Új reszponzív breakpointok (5 szint)
+
+- **≥ 1500px**: card max 600px
+- **1280–1500px**: 1fr / 1.15fr arány, gap 48, greeting 64px
+- **1100–1280px**: 1fr / 1.05fr arány, gap 40, greeting 56px, padding
+  szűkül
+- **980–1100px**: tablet, kompakt 2-col
+- **< 980px**: 1 oszlop, card max 600px center-elve, greeting 52px,
+  text-align left
+- **< 540px**: phone, brand 52×52, greeting 40px, card 26×20+radius 20,
+  back-link kompakt
+
+### ✅ Verify (Chrome MCP, localhost:3000/hozzaferes-kerese)
+
+Desktop 2560×1271 viewporton:
+- `mainCols: 606.948px 789.052px` ✅ (1.3:1 arány)
+- `cardWidth: 599px` ✅ (volt: 460)
+- `leftWidth: 540px` ✅
+- `greeting: 72px` ✅
+- TypeScript + build zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01v] — /hozzaferes-kerese sablon-konform + greeting csere (v0.9.18)
 
 <!-- key: 2026-05-01v-hozzaferes-sablon -->
