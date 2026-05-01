@@ -23,6 +23,85 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01i] — Sidebar fejléc + hero + nav sablon szerinti egységesítés (v0.9.5)
+
+<!-- key: 2026-05-01i-sidebar-hero-nav-sablon-egyseges -->
+<!-- category: improvement -->
+<!-- version: v0.9.5 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzések ("Sidebar legyen a sablon szerinti",
+"Hero kibontott Mai Ige panelnél a köszöntés alulra ragad", "Fő modulok
+és almenük megjelenése legyen a sablon alapján") alapján három
+összefüggő vizuális javítás:
+
+### 🎨 1. Sidebar fejléc sablon szerint
+
+A korábbi buborékos brand-card (border + bg-white/10 + 36×36 logo +
+"Kartotéka" cím + "EREK nyilvántartási rendszer" alcím + collapse
+chevron) eltávolítva. Helyette a sablon szerinti **108×108 px Kartotéka
+logó**, középen, padding `px-5 pb-4 pt-6`. Reszponzív (88×88 / 72×72 /
+40×40 collapsed). Új asset: `apps/web/public/kartoteka-logo.png`.
+
+### 🎨 2. Hero banner — köszöntés a tetejéhez ragad
+
+A `lg:items-end` cseréje `lg:items-start`-ra mind a 4 hero variánsban
+(`HeroBannerScripture`, `hero-banner-scripture`, `hero-banner-refined`,
+`hero-banner-scripture-v2`). Korábban: ha a "Mai Ige" panel kibontva
+(több sor), a bal oldali "Jó napot, Endre!" köszöntés **alulra ragadt**
+a hero alján — ez most a tetejéhez tapad.
+
+### 🎨 3. Sidebar Nav (Section + Item) sablon szerint
+
+A `SidebarItem` és `SidebarSection` redesign a sablon `shell.jsx`
+Sidebar nav blokkja alapján:
+
+- **Ikon-keret eltávolítva** (volt: `size-8 rounded-[0.95rem] border
+  bg-white/10` + `bg-gradient-to-br from-X to-Y` aktív gradient).
+  Helyette: **sima 18×18 ikon**, accent-színű (`var(--accent2)`)
+  amikor aktív, fehér 68% alapértelmezetten.
+- **Item button**: `px-3.5 py-2.5 rounded-[10px] text-[13px]` (sablon:
+  11×14, 10px radius, 14px font). Active: `bg-white/12 font-semibold`,
+  + bal oldali **3px függőleges accent-stripe** (`var(--accent2)`).
+- **Almenü-elemek**: `pl-7` indent (a parent ikon utáni 12px gap-pel
+  igazodik), border-l vertikális vonal eltávolítva (sablon nem
+  használja), accent-pötty az aktív gyermeknél.
+- **Hover**: `hover:bg-white/8` + `text-white` (volt: `border` +
+  bonyolultabb shadow).
+
+### 🛠 Érintett fájlok
+
+- `apps/web/components/layout/sidebar-adaptive-v4.tsx` — fejléc + nav
+  refactor (kb. -113/+85 sor).
+- `packages/ui/src/layout/kartoteka-sidebar.tsx` — shared verzió, ugyanaz.
+- `apps/web/components/dashboard/{hero-banner-scripture,hero-banner-scripture-v2,hero-banner-refined}.tsx`
+  — `lg:items-end` → `lg:items-start`.
+- `packages/ui-app/src/dashboard/HeroBannerScripture.tsx` — ugyanaz.
+- `apps/web/public/kartoteka-logo.png` — új asset (a handoff
+  `assets/kartoteka-logo.png`-ből).
+
+### ✅ Verify (Chrome MCP, localhost:3000)
+
+- **Hero**: `computed alignItems: flex-start` ✅ (köszöntés a hero
+  tetejéhez igazítva még akkor is, ha a Mai Ige panel kibontott).
+- **Sidebar nav** (Irányítópult aktív):
+  - `padding 10px 14px`, `borderRadius 10px`, `fontSize 13px`
+  - `iconSize 18×18` (sablon: 18) ✅
+  - `hasStripe: true` az aktív item-en, `false` a többieken ✅
+  - Active háttér: `bg-white/12` (oklab opacity .12) ✅
+  - **Nincs ikon-keret** a többi navigációs item-en ✅
+- **Sidebar fejléc**: 108×108 logo, `headers_in_sidebar: 0` mindhárom
+  témán (kert/parokia/zsoltaros).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Desktop NEM kap új release-t —
+a `desktop-shell.tsx` továbbra is `logoSrc="/EREK.png"`-vel hívja a
+`KartotekaShell`-t (a shared `kartoteka-sidebar.tsx` nav redesign-jét
+azonban a desktop is megkapja a következő desktop release-nél).
+
+---
+
 ## [2026-05-01h] — Sprint S follow-up · Hardcoded hero/dialog gradient hot-fix (v0.9.4)
 
 <!-- key: 2026-05-01h-sprint-s-followup-hardcoded-gradient-hotfix -->

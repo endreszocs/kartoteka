@@ -10,7 +10,6 @@ import {
   Building2,
   Castle,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   ClipboardList,
   FileText,
@@ -192,29 +191,29 @@ function SidebarItem({
           data-walkthrough={walkthroughKey}
           suppressHydrationWarning
           className={cn(
-            'group flex w-full items-center gap-2 rounded-[0.95rem] border px-2.5 py-2 text-[12px] transition [@media(max-height:1040px)]:gap-1.5 [@media(max-height:1040px)]:rounded-[0.9rem] [@media(max-height:1040px)]:px-2 [@media(max-height:1040px)]:py-1.5 [@media(max-height:1040px)]:text-[11px] [@media(max-height:820px)]:gap-1.5 [@media(max-height:820px)]:rounded-[0.85rem] [@media(max-height:820px)]:px-1.5 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+            'group relative flex w-full items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[13px] font-medium transition [@media(max-height:820px)]:py-2 [@media(max-height:820px)]:text-[12px]',
             active
-              ? 'border-white/18 bg-white/14 text-white shadow-[0_18px_28px_-24px_rgba(0,0,0,0.55)]'
-              : 'border-transparent text-white/76 hover:border-white/10 hover:bg-white/8 hover:text-white',
-            collapsed && 'justify-center rounded-[0.9rem] px-1.5 py-1.5',
+              ? 'bg-white/12 text-white font-semibold'
+              : 'text-white/78 hover:bg-white/8 hover:text-white',
+            collapsed && 'justify-center px-2 py-2.5',
             hasChildren && !collapsed && 'pr-9',
           )}
         >
-          <div
-            className={cn(
-              'flex size-8 shrink-0 items-center justify-center rounded-[0.95rem] border border-white/15 bg-white/10 transition [@media(max-height:820px)]:size-7',
-              active && `bg-gradient-to-br ${item.gradient} border-white/20`,
-              collapsed && 'size-8',
-            )}
-          >
-            <Icon className={cn('size-3.5', active ? 'text-white' : 'text-white/75')} />
-          </div>
-
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium leading-tight">{item.label}</p>
-            </div>
+          {active && !collapsed && (
+            <span
+              aria-hidden
+              className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r"
+              style={{ background: 'var(--accent2)' }}
+            />
           )}
+          <Icon
+            className={cn(
+              'size-[18px] shrink-0 transition-colors',
+              active ? 'text-white' : 'text-white/68 group-hover:text-white/90',
+            )}
+            style={active ? { color: 'var(--accent2)' } : undefined}
+          />
+          {!collapsed && <span className="min-w-0 flex-1 truncate leading-tight">{item.label}</span>}
         </Link>
 
         {hasChildren && !collapsed && (
@@ -227,10 +226,7 @@ function SidebarItem({
             }}
             aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
             aria-expanded={expanded}
-            className={cn(
-              'absolute right-1 top-1/2 -translate-y-1/2 flex size-7 items-center justify-center rounded-[0.7rem] text-white/65 hover:bg-white/10 hover:text-white transition',
-              '[@media(max-height:820px)]:size-6',
-            )}
+            className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[0.7rem] text-white/65 transition hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
           >
             {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
@@ -238,7 +234,7 @@ function SidebarItem({
       </div>
 
       {showChildren && (
-        <div className="mt-0.5 ml-3 space-y-0.5 border-l border-white/10 pl-2">
+        <div className="mt-0.5 space-y-0.5 pl-7">
           {item.children!.map((child) => {
             const [childPath, childHash] = child.href.split('#')
             const isChildActive = childHash
@@ -256,17 +252,19 @@ function SidebarItem({
                 data-walkthrough={childWalkthroughKey}
                 suppressHydrationWarning
                 className={cn(
-                  'group flex w-full items-center gap-2 rounded-[0.7rem] px-2.5 py-1.5 text-[11px] transition [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[10px]',
+                  'group flex w-full items-center gap-2.5 rounded-[8px] px-3 py-1.5 text-[12px] transition [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11px]',
                   isChildActive
                     ? 'bg-white/12 text-white font-semibold'
-                    : 'text-white/68 hover:bg-white/6 hover:text-white',
+                    : 'text-white/65 hover:bg-white/6 hover:text-white',
                 )}
               >
                 <span
+                  aria-hidden
                   className={cn(
-                    'inline-block size-1.5 shrink-0 rounded-full',
-                    isChildActive ? 'bg-white' : 'bg-white/40',
+                    'inline-block size-1.5 shrink-0 rounded-full transition-colors',
+                    isChildActive ? '' : 'bg-white/35',
                   )}
+                  style={isChildActive ? { background: 'var(--accent2)' } : undefined}
                 />
                 <span className="truncate leading-tight">{child.label}</span>
               </Link>
@@ -493,46 +491,31 @@ function SidebarNav({
       </div>
 
       <div className="relative flex h-full min-h-0 flex-col">
-        <div className="px-2.5 pb-2.5 pt-3 [@media(max-height:1040px)]:px-2.5 [@media(max-height:1040px)]:pb-2 [@media(max-height:1040px)]:pt-2.5 [@media(max-height:820px)]:px-2 [@media(max-height:820px)]:pb-1.5 [@media(max-height:820px)]:pt-2">
-          <button
-            type="button"
-            onClick={allowCollapse ? onToggleCollapsed : undefined}
+        <button
+          type="button"
+          onClick={allowCollapse ? onToggleCollapsed : undefined}
+          aria-label={collapsed ? 'Oldalsáv kinyitása' : 'Oldalsáv összecsukása'}
+          className={cn(
+            'group flex w-full flex-col items-center gap-2 transition-[padding] duration-300',
+            collapsed
+              ? 'px-2 pb-2.5 pt-3.5'
+              : 'px-5 pb-4 pt-6 [@media(max-height:980px)]:pb-3 [@media(max-height:980px)]:pt-4 [@media(max-height:820px)]:pb-2 [@media(max-height:820px)]:pt-3'
+          )}
+        >
+          <Image
+            src="/kartoteka-logo.png"
+            alt="Kartotéka"
+            width={collapsed ? 40 : 108}
+            height={collapsed ? 40 : 108}
             className={cn(
-              'sidebar-brand-card relative flex w-full items-center rounded-[1.4rem] border border-white/14 bg-white/10 p-3 text-left shadow-[0_24px_45px_-32px_rgba(0,0,0,0.6)] backdrop-blur-xl transition hover:bg-white/12 [@media(max-height:1040px)]:rounded-[1.2rem] [@media(max-height:1040px)]:p-2.5 [@media(max-height:820px)]:rounded-[1rem] [@media(max-height:820px)]:p-2',
-              collapsed ? 'justify-center px-2 py-2.5' : 'gap-2.5'
+              'object-contain transition-[width,height] duration-300 drop-shadow-[0_12px_22px_rgba(0,0,0,0.28)]',
+              collapsed
+                ? 'size-10'
+                : 'size-[108px] [@media(max-height:980px)]:size-[88px] [@media(max-height:820px)]:size-[72px]'
             )}
-            aria-label={collapsed ? 'Oldalsáv kinyitása' : 'Oldalsáv összecsukása'}
-          >
-            <div className={cn('flex size-11 items-center justify-center rounded-[1rem] [@media(max-height:1040px)]:size-10 [@media(max-height:820px)]:size-9', collapsed && 'size-10')}>
-              <Image src="/EREK.png" alt="Kartotéka" width={38} height={38} className="object-contain drop-shadow-[0_10px_16px_rgba(0,0,0,0.22)]" />
-            </div>
-
-            {!collapsed && (
-              <>
-                <div className="sidebar-brand min-w-0 flex-1">
-                  <h2 className="font-heading text-[1.46rem] leading-none text-white [@media(max-height:1040px)]:text-[1.3rem] [@media(max-height:820px)]:text-[1.08rem]">
-                    Kartotéka
-                  </h2>
-                  <p className="mt-1 text-[10px] leading-tight text-white/68 [@media(max-height:980px)]:hidden">
-                    EREK nyilvántartási rendszer
-                  </p>
-                </div>
-
-                {allowCollapse && (
-                  <div className="flex size-7 items-center justify-center rounded-2xl bg-white/10 text-white/78 [@media(max-height:820px)]:size-6">
-                    <ChevronLeft className="size-4" />
-                  </div>
-                )}
-              </>
-            )}
-
-            {collapsed && allowCollapse && (
-              <div className="absolute bottom-2 right-2 flex size-6 items-center justify-center rounded-full bg-white/12 text-white/78">
-                <ChevronRight className="size-3.5" />
-              </div>
-            )}
-          </button>
-        </div>
+            priority
+          />
+        </button>
 
         <nav
           className={cn(

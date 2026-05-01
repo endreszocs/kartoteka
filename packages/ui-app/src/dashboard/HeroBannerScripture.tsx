@@ -74,7 +74,7 @@ export function HeroBannerScripture({
       <div className="absolute right-[-2rem] top-[-3rem] h-48 w-48 rounded-full bg-white/[0.06] blur-3xl" />
       <div className="absolute bottom-[-2rem] left-[-2rem] h-40 w-40 rounded-full bg-amber-200/14 blur-3xl" />
 
-      <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-sm font-medium tracking-wide text-teal-50/82">{dateText || '\u00A0'}</p>
           <h1 className="font-heading text-3xl font-semibold drop-shadow-sm md:text-4xl">
