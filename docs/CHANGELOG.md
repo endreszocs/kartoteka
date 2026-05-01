@@ -23,6 +23,32 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01p] — RouteLoadingScreen Kartotéka-logóval (v0.9.12)
+
+<!-- key: 2026-05-01p-loading-kartoteka-logo -->
+<!-- category: improvement -->
+<!-- version: v0.9.12 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a betöltő képernyőn a Kartotéka logója
+legyen") alapján a `RouteLoadingScreen`-en az EREK logó cseréje
+Kartotéka logóra:
+
+- `<Image src="/EREK.png" width=54 height=54>` → `<Image
+  src="/kartoteka-logo.png" width=64 height=64 priority>`
+- A 80×80 card-keret + pulzáló glow változatlan
+- Az "Erdélyi Református Egyházkerület" eyebrow + modul-név + 3 bouncing
+  dot változatlan
+
+A logó priority-vel töltődik (LCP candidate, mert a betöltő képernyő
+a felhasználó által először látott elem a route-átmeneteken).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01o] — Header desktop-on tiszta + RouteLoadingScreen Brand mintára (v0.9.11)
 
 <!-- key: 2026-05-01o-header-desktop-clean-loading-brand -->
