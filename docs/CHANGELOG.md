@@ -23,6 +23,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02g] — Súgó modul-térkép + 3-nyelvű (HU/RO/EN) Legal-dialog (v0.9.27)
+
+A felhasználó kérése: bővebb modul-leírás a Súgóban + 3-nyelvű
+támogatás (magyar/román/angol) minden tájékoztatóban.
+
+Súgó bővítése (magyar):
+- A teljes 12+ modul részletes leírása (kategorizált formában):
+  Irányítópult, Tagnyilvántartás, Anyakönyv, Pénzügy (incl. Oblio,
+  chitanta, BCR/CEC import), Munkanapló, Leltár, Iktatás,
+  Jegyzőkönyvek, Sírhelyek, Éves jelentés, Publikus gyülekezeti oldal,
+  Missziós Műhely, Beállítások és Profil, Admin, Kuka, Támogatás
+- Záró Note: 12+ modul, összekapcsolódó hálózat ("rendszer él")
+
+3-nyelvű implementáció:
+- LegalDialog komponensbe `lang` state ('hu' | 'ro' | 'en'), default
+  'hu'
+- LangSwitcher komponens a dialog header-ben (HU / RO / EN button-trio)
+- TITLES objektum 3 nyelvre (Adatvédelmi tájékoztató / Politica de
+  confidențialitate / Privacy notice — stb.)
+- 8 új tartalom-funkció: PrivacyRO, TermsRO, HelpRO, ContactRO,
+  PrivacyEN, TermsEN, HelpEN, ContactEN — tömörebb mint a magyar, de
+  teljes fő-tartalommal (operatőr, hierarchia, GDPR, biztonság,
+  felelősség-kizárás, ANSPDCP cím)
+- Bezárás gomb 3 nyelven: Bezárás / Închidere / Close
+
+Verify: TypeScript + build zöld.
+
+---
+
 ## [2026-05-02f] — Hot-fix: 3 új Term def prop string-zárás javítása (v0.9.26)
 
 A v0.9.25 commit-ban 3 új `<Term def="...">` prop magyar idézőjeleken

@@ -14,11 +14,14 @@
  * egyházi nyilvántartási rendszere.
  */
 
+import { useState } from 'react'
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { BookOpen, Mail, Shield, ScrollText } from 'lucide-react'
 
 export type LegalKind = 'privacy' | 'terms' | 'help' | 'contact'
+export type LegalLang = 'hu' | 'ro' | 'en'
 
 interface LegalDialogProps {
   open: boolean
@@ -26,11 +29,25 @@ interface LegalDialogProps {
   kind: LegalKind
 }
 
-const TITLES: Record<LegalKind, string> = {
-  privacy: 'Adatvédelmi tájékoztató',
-  terms: 'Általános Szerződési Feltételek',
-  help: 'Súgó és gyakori kérdések',
-  contact: 'Kapcsolat',
+const TITLES: Record<LegalLang, Record<LegalKind, string>> = {
+  hu: {
+    privacy: 'Adatvédelmi tájékoztató',
+    terms: 'Általános Szerződési Feltételek',
+    help: 'Súgó és gyakori kérdések',
+    contact: 'Kapcsolat',
+  },
+  ro: {
+    privacy: 'Politica de confidențialitate',
+    terms: 'Termeni și condiții',
+    help: 'Ajutor și întrebări frecvente',
+    contact: 'Contact',
+  },
+  en: {
+    privacy: 'Privacy notice',
+    terms: 'Terms of service',
+    help: 'Help and FAQ',
+    contact: 'Contact',
+  },
 }
 
 const ICONS: Record<LegalKind, typeof Shield> = {
@@ -41,41 +58,81 @@ const ICONS: Record<LegalKind, typeof Shield> = {
 }
 
 export function LegalDialog({ open, onOpenChange, kind }: LegalDialogProps) {
+  const [lang, setLang] = useState<LegalLang>('hu')
   const Icon = ICONS[kind]
-  const title = TITLES[kind]
+  const title = TITLES[lang][kind]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <span
-              className="flex size-10 items-center justify-center rounded-xl"
-              style={{
-                background: 'rgba(74, 135, 98, 0.1)',
-                border: '1px solid rgba(74, 135, 98, 0.25)',
-                color: '#275638',
-              }}
-              aria-hidden
-            >
-              <Icon className="size-5" strokeWidth={1.6} />
-            </span>
-            <span className="font-heading text-xl">{title}</span>
-          </DialogTitle>
+          <div className="flex items-center justify-between gap-3">
+            <DialogTitle className="flex items-center gap-3">
+              <span
+                className="flex size-10 items-center justify-center rounded-xl"
+                style={{
+                  background: 'rgba(74, 135, 98, 0.1)',
+                  border: '1px solid rgba(74, 135, 98, 0.25)',
+                  color: '#275638',
+                }}
+                aria-hidden
+              >
+                <Icon className="size-5" strokeWidth={1.6} />
+              </span>
+              <span className="font-heading text-xl">{title}</span>
+            </DialogTitle>
+            <LangSwitcher lang={lang} onChange={setLang} />
+          </div>
         </DialogHeader>
 
         <div className="kt-legal-content space-y-3 text-[14px] leading-relaxed text-slate-700">
-          {kind === 'privacy' && <PrivacyContent />}
-          {kind === 'terms' && <TermsContent />}
-          {kind === 'help' && <HelpContent />}
-          {kind === 'contact' && <ContactContent />}
+          {lang === 'hu' && kind === 'privacy' && <PrivacyContent />}
+          {lang === 'hu' && kind === 'terms' && <TermsContent />}
+          {lang === 'hu' && kind === 'help' && <HelpContent />}
+          {lang === 'hu' && kind === 'contact' && <ContactContent />}
+          {lang === 'ro' && kind === 'privacy' && <PrivacyRO />}
+          {lang === 'ro' && kind === 'terms' && <TermsRO />}
+          {lang === 'ro' && kind === 'help' && <HelpRO />}
+          {lang === 'ro' && kind === 'contact' && <ContactRO />}
+          {lang === 'en' && kind === 'privacy' && <PrivacyEN />}
+          {lang === 'en' && kind === 'terms' && <TermsEN />}
+          {lang === 'en' && kind === 'help' && <HelpEN />}
+          {lang === 'en' && kind === 'contact' && <ContactEN />}
         </div>
 
         <div className="flex justify-end pt-4 border-t border-slate-100">
-          <Button onClick={() => onOpenChange(false)}>Bezárás</Button>
+          <Button onClick={() => onOpenChange(false)}>
+            {lang === 'hu' ? 'Bezárás' : lang === 'ro' ? 'Închidere' : 'Close'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function LangSwitcher({ lang, onChange }: { lang: LegalLang; onChange: (l: LegalLang) => void }) {
+  const langs: Array<{ value: LegalLang; label: string }> = [
+    { value: 'hu', label: 'HU' },
+    { value: 'ro', label: 'RO' },
+    { value: 'en', label: 'EN' },
+  ]
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted p-0.5 shrink-0">
+      {langs.map((l) => (
+        <button
+          key={l.value}
+          type="button"
+          onClick={() => onChange(l.value)}
+          className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+            lang === l.value
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -741,30 +798,175 @@ function HelpContent() {
         e-mailben kap egy belépési linket, amelyen beállíthatja a saját jelszavát.
       </p>
 
-      <SectionTitle>Mire való a Kartotéka rendszer?</SectionTitle>
+      <SectionTitle>Mire való a Kartotéka rendszer? (a teljes modul-térkép)</SectionTitle>
       <p>
-        A Kartotéka egy <strong>teljes gyülekezeti nyilvántartó program</strong>. Az alábbi
-        moduljai vannak:
+        A Kartotéka egy <strong>teljes körű gyülekezeti nyilvántartó program</strong>, amely
+        a református lelkészi munka minden napi területét lefedi. Az alábbiakban a teljes
+        modul-listát találja, részletes magyarázattal.
       </p>
-      <ul className="list-disc pl-6 space-y-1.5">
-        <li><strong>Tagnyilvántartás</strong> — egyének, családok, körzetek, presbiterek,
-          választók</li>
-        <li><strong>Anyakönyv</strong> — keresztelés, házasság, temetés, konfirmáció</li>
-        <li><strong>Pénzügy</strong> — befizetések, kiadások, éves egyházi járulék, adományok,
-          chitanta-kiadás (Romániai elismervény)</li>
-        <li><strong>Munkanapló</strong> — lelkészi szolgálatok rögzítése (igehirdetés, látogatás,
-          temetés stb.)</li>
-        <li><strong>Leltár</strong> — gyülekezeti vagyontárgyak nyilvántartása</li>
-        <li><strong>Iktatás</strong> — bejövő és kimenő iratok</li>
-        <li><strong>Jegyzőkönyvek</strong> — presbiteri ülések, közgyűlések jegyzőkönyveinek
-          generálása sablon alapján</li>
-        <li><strong>Sírhelyek</strong> — temető-nyilvántartás</li>
-        <li><strong>Missziós Műhely</strong> — közösségi tér, ahol a lelkészek megoszthatnak
-          ötleteket, segédanyagokat, és gamification-rendszer (pontok, jelvények) bátorít a
-          szolgálatra</li>
-        <li><strong>Publikus gyülekezeti oldal</strong> — saját, nyilvános weboldal a
-          gyülekezetnek (alkalmak, hírek, lelkész-elérhetőség)</li>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        🏠 Irányítópult (kezdőlap)
+      </h4>
+      <p>
+        A bejelentkezés utáni első oldal. Egy pillantásra látja: tagok száma, családok száma,
+        éves pénzforgalom, születésnapok, közelgő alkalmak, koreloszlás-grafikon, friss
+        bejegyzések.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        👥 Tagnyilvántartás
+      </h4>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Tagok és családok</strong> — egyének, családi kapcsolatok, családfa</li>
+        <li><strong>Körzetek</strong> — gyülekezeti területi felosztás (presbiteri gondozás)</li>
+        <li><strong>Presbiterek</strong> — gondozott körzetek és tisztségek</li>
+        <li><strong>Választók</strong> — választói névjegyzék</li>
+        <li><strong>Áttekintés</strong> — összesített statisztikák</li>
       </ul>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📖 Anyakönyv (8 fül)
+      </h4>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Keresztelés</strong> — felnőtt és gyermek</li>
+        <li><strong>Konfirmáció</strong></li>
+        <li><strong>Házasság</strong> — egyházi esketés</li>
+        <li><strong>Temetés</strong></li>
+        <li><strong>Beköltözött / Áttért</strong> — tagsági mozgások</li>
+        <li><strong>Importálás</strong> — régi anyakönyvi adatok beolvasása Excel-ből</li>
+      </ul>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        💰 Pénzügy
+      </h4>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Befizetés</strong> — egyházi járulék, adományok, célgyűjtés rögzítése</li>
+        <li><strong>Kiadás</strong> — gyülekezeti költségek, számlák</li>
+        <li><strong>Tartozás-kezelés</strong> — automatikus emlékeztető listák</li>
+        <li><strong>Cashbook (kasszakönyv)</strong> — havi pénzforgalmi áttekintés</li>
+        <li><strong>Bankszámla-kivonat import</strong> — BCR/CEC bank kivonat XLS feltöltése</li>
+        <li><strong>Chitanta-kiadás</strong> — Romániai bevételi elismervény (sorszámozott,
+          PDF-nyomtatható)</li>
+        <li><strong>Oblio integráció</strong> — Romániai elektronikus számlázási rendszer</li>
+        <li><strong>Audit, devizaértékelés, belső átvezetés</strong></li>
+      </ul>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📅 Munkanapló
+      </h4>
+      <p>
+        Lelkészi szolgálatok rögzítése: igehirdetés, igét hirdetett (vasárnap, ünnep), keresztelés,
+        házasságkötés, temetés, látogatás, jubileumi alkalom, hivatalos egyházi tanácskozás.
+        Havi és éves összegzés.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📦 Leltár
+      </h4>
+      <p>
+        Gyülekezeti vagyontárgyak nyilvántartása: liturgikus tárgyak (kelyhek, anyakönyvek),
+        bútorok, hangszerek, ingatlanok, anyagraktár (építőanyag, takarítószer). Mozgások:
+        kölcsönvétel, javítás, elhasználás.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📁 Iktatás
+      </h4>
+      <p>
+        Bejövő és kimenő iratok nyilvántartása sorszámmal, dátummal, tárggyal,
+        címzettel/feladóval. Iktatókönyv-nyomtatás, keresés, archiválás.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📜 Jegyzőkönyvek
+      </h4>
+      <p>
+        Presbiteri ülések, közgyűlések jegyzőkönyveinek <strong>sablon-alapú generálása</strong>:
+        napirend, határozatok, jelenlét rögzítése. PDF-export. Régi jegyzőkönyvek importja Excel-ből.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        ⚰️ Sírhelyek
+      </h4>
+      <p>
+        Temető-nyilvántartás: parcella, sor, sír-szám, megváltási idő, családi kapcsolatok,
+        sírkő-állapot. Térkép-szerű elrendezés, lekérdezhető temetésekkel.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📊 Éves jelentés
+      </h4>
+      <p>
+        Az év végén kötelező egyházmegyei jelentés <strong>automatikus generálása</strong> a
+        rendszer-adatokból. PDF + prezentáció-nézet a presbiteri ülésre. Az esperes csak az
+        elkészült jelentést látja, részletes adatokhoz nem fér.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        🌐 Publikus gyülekezeti oldal
+      </h4>
+      <p>
+        A gyülekezet saját, nyilvános weboldala (`gy/[slug]`). <strong>Egyetlen kapcsolóval
+        bekapcsolható</strong>. Tartalom: alkalmak, hírek, kapcsolat, magazin (cikk-szerű
+        bejegyzések), „Rólunk" oldal. A téma a gyülekezet választott vizuális témájához
+        igazodik (Csendes parókia / Kerített kert / Zsoltáros).
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        💡 Missziós Műhely
+      </h4>
+      <p>
+        Közösségi tér, ahol a lelkészek megoszthatnak ötleteket, segédanyagokat, és kérdéseket.
+        <strong> Gamification-rendszer</strong>: pontok, jelvények, szintek bátorítanak a
+        közösségi szolgálatra. Almenük: Kezdőlap, Segédanyagok, Fórum, Jutalmak, Profil.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        ⚙️ Beállítások és Profil
+      </h4>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Profil</strong> — saját adatok, jelszóváltás, szerepkörök</li>
+        <li><strong>Kapcsolatok</strong> — meghívók, közös munkacsoportok</li>
+        <li><strong>Vizuális téma</strong> — 3 választható: Csendes parókia, Kerített kert,
+          Zsoltáros (világos/sötét móddal)</li>
+        <li><strong>Értesítések</strong> — e-mail, in-app jelzések finomhangolása</li>
+        <li><strong>Offline</strong> — diagnosztika, manuális szinkron, full backup</li>
+      </ul>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        🔧 Admin (csak rendszergazdai szerepkörrel)
+      </h4>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Felhasználók kezelése, hozzáférés-kérelmek elbírálása</li>
+        <li>Gyülekezetek és egyházmegyék felvitele</li>
+        <li>Eszközök / licencek</li>
+        <li>Broadcast-üzenet (rendszer-szintű hírek minden felhasználónak)</li>
+        <li>Adatminőségi jelzések, audit-naplók</li>
+      </ul>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        🗑️ Kuka és Visszaállítás
+      </h4>
+      <p>
+        Törölt elemek 30 napig visszaállíthatók a Kukából. Utána automatikusan végleges
+        törlés.
+      </p>
+
+      <h4 className="mt-5 mb-2 font-heading text-[14px] font-semibold text-emerald-800">
+        📞 Támogatás
+      </h4>
+      <p>
+        Beépített hibajegy-rendszer (support ticket) — nem kell külön e-mailt írni, a rendszerből
+        is jelezhet hibát vagy kérdezhet.
+      </p>
+
+      <Note>
+        <strong>Bátorítás:</strong> 12+ modul, rengeteg funkció, és minden összefügg egymással.
+        Egy nyilvántartott tagra rákattintva azonnal látja az anyakönyvi eseményeit, a
+        befizetéseit, a családját. Egy keresztelés-rögzítés automatikusan frissíti a tagot.
+        A rendszer így „él" — nem 12 különálló füzet, hanem egy összekapcsolódó hálózat.
+      </Note>
 
       <SectionTitle>Elfelejtettem a jelszavam — mit tegyek?</SectionTitle>
       <p>
@@ -981,6 +1183,673 @@ function ContactContent() {
         Minden visszajelzés, minden kérdés, minden javaslat <em>épít</em>: a rendszer a
         gyülekezetekre van szabva, és csak akkor lesz egyre jobb, ha a használók megosztják
         a tapasztalataikat. Bátran írjon — Isten áldása legyen a szolgálatán.
+      </Note>
+    </>
+  )
+}
+
+/* ================== ROMÁN — PRIVACY ================== */
+
+function PrivacyRO() {
+  return (
+    <>
+      <p>
+        Stimate Pastor! Vă mulțumim că ați ales sistemul Kartotéka pentru gestionarea vieții
+        congregației. Această notă privind confidențialitatea descrie modul în care protejăm
+        datele dumneavoastră, ale congregației și ale familiilor pastorale.
+      </p>
+
+      <Note>
+        <strong>Încurajare:</strong> Kartotéka este una dintre cele mai sigure forme de
+        gestionare digitală a datelor, special concepute pentru viața bisericească reformată.
+        Securitatea îndeplinește standardele bancare internaționale.
+      </Note>
+
+      <SectionTitle>1. Operatorul de date și administratorul sistemului</SectionTitle>
+      <p>
+        Operatorul de date și administratorul sistemului este același —{' '}
+        <strong>pastorul reformat Endre Szőcs</strong>. El construiește, întreține și
+        supraveghează accesul la Kartotéka.
+      </p>
+
+      <SectionTitle>2. Baza spirituală a sistemului</SectionTitle>
+      <p>
+        Baza spirituală a sistemului este sistemul de evidență bisericească al lui{' '}
+        <strong>Tivadar Beke</strong>, dezvoltat în formă digitală cu respect și fidelitate
+        față de tradiția reformată.
+      </p>
+
+      <SectionTitle>3. Unde sunt stocate datele?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Supabase</strong> (Frankfurt am Main, Germania, UE) — bază de date
+          PostgreSQL cu criptare AES-256, certificare SOC 2 Type 2 și ISO 27001</li>
+        <li><strong>Railway</strong> (Amsterdam, Olanda, UE) — găzduire aplicație, protecție
+          Cloudflare împotriva atacurilor DDoS, restart automat</li>
+      </ul>
+      <Note>
+        Toate datele sunt stocate <strong>exclusiv în UE</strong>, sub protecția deplină a
+        GDPR.
+      </Note>
+
+      <SectionTitle>4. Conformitate GDPR</SectionTitle>
+      <p>Sistemul Kartotéka este conform cu GDPR (Regulamentul UE 2016/679):</p>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Minimizarea datelor — colectăm doar ce este necesar</li>
+        <li>Limitarea scopului — utilizare exclusiv pentru viața bisericească</li>
+        <li>Stocare în UE</li>
+        <li>Criptare TLS 1.3 (transmisie) + AES-256 (stocare)</li>
+        <li>Jurnalizare a accesului</li>
+        <li>Drepturile persoanelor vizate (acces, rectificare, ștergere etc.)</li>
+        <li>Drept de plângere la ANSPDCP</li>
+        <li>Acord de prelucrare a datelor (DPA) cu Supabase și Railway</li>
+      </ul>
+
+      <SectionTitle>5. Scopul prelucrării</SectionTitle>
+      <p>
+        Exclusiv pentru sprijinirea vieții bisericești: evidența membrilor, registrele
+        ecleziastice (botez, cununie, înmormântare), contribuții, vizite pastorale, programe.
+      </p>
+
+      <SectionTitle>6. Temei legal</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>GDPR art. 9 alin. (2) lit. d) — activități legitime ale comunității religioase</li>
+        <li>Legea românească 190/2018 — implementarea GDPR</li>
+      </ul>
+
+      <SectionTitle>7. Datele prelucrate</SectionTitle>
+      <p>
+        Nume, data nașterii, adresă, telefon, e-mail, religia, starea civilă, evenimente
+        ecleziastice (botez, cununie, înmormântare), contribuții bisericești.
+      </p>
+
+      <SectionTitle>8. Securitatea datelor</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>TLS 1.3</strong> — criptare a comunicării</li>
+        <li><strong>RLS (Row Level Security)</strong> — verificare la nivel de înregistrare</li>
+        <li><strong>RBAC</strong> — control bazat pe roluri</li>
+        <li><strong>2FA</strong> — autentificare în doi pași pentru operațiuni administrative</li>
+        <li><strong>Jurnalizare</strong> — toate accesurile înregistrate</li>
+      </ul>
+
+      <SectionTitle>9. Ierarhia bisericească și accesul</SectionTitle>
+      <Note>
+        <strong>Nu vă temeți!</strong> Districtul și protopopiatul văd <em>doar rapoartele
+        anuale obligatorii</em>. Pentru date detaliate este necesar acordul pastorului
+        congregației — chiar și administratorul sistemului poate accesa datele exclusiv cu
+        permisiunea expresă a pastorului.
+      </Note>
+
+      <SectionTitle>10. Cine vede ce?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1.5">
+        <li><strong>Pastorul</strong> — datele complete ale propriei congregații</li>
+        <li><strong>Contabilul</strong> — doar date financiare, doar pentru congregația sa</li>
+        <li><strong>Protopop / Admin protopopiat</strong> — exclusiv rapoartele anuale
+          agregate, fără date personale individuale</li>
+        <li><strong>Cenzor (auditor)</strong> — doar în perioada de control, doar date
+          financiare</li>
+        <li><strong>Admin district (KEK)</strong> — doar statistici la nivel de district</li>
+        <li><strong>Administrator sistem (Endre Szőcs)</strong> — la datele unei congregații
+          DOAR cu acordul prealabil al pastorului, limitat în timp, jurnalizat, pentru un
+          scop concret</li>
+      </ul>
+
+      <SectionTitle>11. Drepturile persoanelor vizate</SectionTitle>
+      <p>
+        Conform GDPR aveți drept la informare, acces, rectificare, ștergere (limitat pentru
+        evidențele bisericești permanente), restricționare, opoziție.
+      </p>
+
+      <SectionTitle>12. Contact și plângeri</SectionTitle>
+      <p>
+        Întrebări de confidențialitate: la administratorul sistemului. Plângeri oficiale: la
+        ANSPDCP (Autoritatea Națională de Supraveghere a Prelucrării Datelor cu Caracter
+        Personal), B-dul G-ral. Gheorghe Magheru 28-30, București.
+      </p>
+
+      <SectionTitle>13. Limitarea răspunderii</SectionTitle>
+      <p>
+        Sistemul este furnizat „așa cum este". Administratorul (Endre Szőcs) și persoana
+        bazei spirituale (Tivadar Beke) nu răspund pentru: erori de introducere, pierderi
+        cauzate de utilizator, întreruperi cauzate de terți, forță majoră, daune indirecte.
+      </p>
+    </>
+  )
+}
+
+/* ================== ROMÁN — TERMS ================== */
+
+function TermsRO() {
+  return (
+    <>
+      <p>
+        Stimate Pastor! Aceste reguli stabilesc folosirea pașnică și clară a sistemului
+        Kartotéka pentru toți utilizatorii.
+      </p>
+
+      <Note>
+        <strong>Încurajare:</strong> Kartotéka este un instrument de slujire bisericească.
+        Termenii sunt scriși pentru folosirea cu conștiință curată — orice congregație poate
+        beneficia de pe urma sa.
+      </Note>
+
+      <SectionTitle>1. Sistemul Kartotéka</SectionTitle>
+      <p>
+        Operator: pastorul reformat Endre Szőcs. Bază spirituală: sistemul de evidență
+        bisericească al lui Tivadar Beke, dezvoltat digital.
+      </p>
+
+      <SectionTitle>2. Acces</SectionTitle>
+      <p>
+        Accesul necesită <strong>aprobare la nivel de district</strong> de către
+        administratorul sistemului. Răspunsul ajunge de obicei în 1–3 zile lucrătoare. Accesul
+        este personal și netransferabil.
+      </p>
+
+      <SectionTitle>3. Tarifare</SectionTitle>
+      <p>
+        Despre tariful și condițiile sistemului congregațiile primesc informații prin canalele
+        administrative ale districtului.
+      </p>
+
+      <SectionTitle>4. Obligațiile utilizatorului</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Utilizare exclusiv în scop bisericesc</li>
+        <li>Date corecte și actualizate</li>
+        <li>Confidențialitatea parolei (schimbată anual)</li>
+        <li>Anunțarea imediată a oricărei suspiciuni administratorului</li>
+        <li>Interzisă ocolirea mecanismelor de securitate</li>
+      </ul>
+
+      <SectionTitle>5. Drepturile operatorului</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Întreruperi de mentenanță (cu anunțare prealabilă)</li>
+        <li>Suspendarea accesului în caz de încălcare a regulilor</li>
+        <li>Dezvoltarea și modificarea sistemului</li>
+      </ul>
+
+      <SectionTitle>6. Principiul „as is"</SectionTitle>
+      <p>
+        Sistemul este furnizat în forma actuală — cu toate caracteristicile și limitările
+        sale. Nu se garantează funcționare fără erori sau disponibilitate continuă.
+      </p>
+
+      <SectionTitle>7. Limitarea răspunderii</SectionTitle>
+      <p>
+        Administratorul (Endre Szőcs) și persoana bazei spirituale (Tivadar Beke) nu
+        răspund pentru: date introduse greșit, pierderi cauzate de utilizator, întreruperi de
+        servicii ale terților, forță majoră (dezastre naturale, atacuri cibernetice), daune
+        indirecte sau consecutive.
+      </p>
+
+      <SectionTitle>8. Confidențialitate</SectionTitle>
+      <p>
+        Detalii separate în Politica de confidențialitate.
+      </p>
+
+      <SectionTitle>9. Proprietate intelectuală</SectionTitle>
+      <p>
+        Codul, designul și documentația sunt proprietatea intelectuală a dezvoltatorului
+        (Endre Szőcs). Congregațiile primesc drept de utilizare. Denumirea „Kartotéka" și
+        baza ecleziastică se trag din munca lui Tivadar Beke.
+      </p>
+
+      <SectionTitle>10. Modificarea termenilor</SectionTitle>
+      <p>
+        Termenii pot fi modificați. Schimbările importante sunt anunțate. Utilizarea continuă
+        înseamnă acceptarea noilor termeni.
+      </p>
+
+      <SectionTitle>11. Jurisdicție</SectionTitle>
+      <p>
+        Acestor termeni li se aplică legea română. Pentru dispute se urmărește mai întâi
+        rezolvarea pașnică; în caz contrar, jurisdicția aparține instanțelor române
+        competente.
+      </p>
+    </>
+  )
+}
+
+/* ================== ROMÁN — HELP ================== */
+
+function HelpRO() {
+  return (
+    <>
+      <p>
+        Stimate Pastor! Aici găsiți răspunsuri la întrebările frecvente. Pentru alte întrebări,
+        contactați administratorul sistemului (pastorul reformat Endre Szőcs).
+      </p>
+
+      <SectionTitle>Cum solicit acces?</SectionTitle>
+      <p>
+        Pe pagina de autentificare apăsați „Creare cont nou" / „Új fiók létrehozása". Completați
+        formularul (nume, e-mail, rol, congregație). Răspunsul ajunge în 1–3 zile lucrătoare.
+      </p>
+
+      <SectionTitle>Module ale sistemului</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Tablou de bord</strong> — privire de ansamblu</li>
+        <li><strong>Evidența membrilor</strong> — persoane, familii, presbiteri, alegători</li>
+        <li><strong>Registre bisericești</strong> — botez, cununie, înmormântare, confirmare</li>
+        <li><strong>Finanțe</strong> — contribuții, cheltuieli, chitanță, integrare Oblio</li>
+        <li><strong>Jurnal de lucru</strong> — slujbe pastorale</li>
+        <li><strong>Inventar</strong> — bunuri ale congregației</li>
+        <li><strong>Înregistrare documente</strong> — registru intrare/ieșire</li>
+        <li><strong>Procese-verbale</strong> — generare automată din șabloane</li>
+        <li><strong>Locuri de veci</strong> — evidența cimitirului</li>
+        <li><strong>Raport anual</strong> — generare automată pentru protopopiat</li>
+        <li><strong>Pagină web publică</strong> — site al congregației</li>
+        <li><strong>Atelier misionar</strong> — spațiu comunitar pentru pastori</li>
+      </ul>
+
+      <SectionTitle>Am uitat parola</SectionTitle>
+      <p>
+        Pe pagina de autentificare — „Parolă uitată?" / „Elfelejtett jelszó?". Veți primi un
+        link de resetare.
+      </p>
+
+      <SectionTitle>Utilizare offline</SectionTitle>
+      <p>
+        Da, datele deja încărcate pot fi vizualizate fără internet, modificările se
+        sincronizează automat la revenirea conexiunii.
+      </p>
+
+      <SectionTitle>Tipărire</SectionTitle>
+      <p>
+        Toate modulele oferă vizualizare pentru tipărire (PDF). Chitanțele sunt în format
+        românesc.
+      </p>
+
+      <SectionTitle>La cine să mă adresez?</SectionTitle>
+      <p>La administratorul sistemului — pastorul reformat Endre Szőcs.</p>
+    </>
+  )
+}
+
+/* ================== ROMÁN — CONTACT ================== */
+
+function ContactRO() {
+  return (
+    <>
+      <p>
+        Stimate Pastor! Mai jos găsiți pe cine să contactați pentru întrebări despre Kartotéka.
+      </p>
+
+      <SectionTitle>Operator de date și administrator sistem</SectionTitle>
+      <div className="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/50">
+        <p className="text-[15px] font-semibold text-slate-900 mb-1">
+          Pastorul reformat Endre Szőcs
+        </p>
+        <p className="text-[13px] text-slate-600">
+          Dezvoltatorul, operatorul și administratorul sistemului Kartotéka, în numele
+          Eparhiei Reformate din Ardeal (KEK).
+        </p>
+      </div>
+
+      <SectionTitle>Baza spirituală</SectionTitle>
+      <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-200/50">
+        <p className="text-[15px] font-semibold text-slate-900 mb-1">
+          Tivadar Beke
+        </p>
+        <p className="text-[13px] text-slate-600">
+          Sistemul de evidență bisericească dezvoltat de el constituie baza spirituală a
+          Kartotékăi.
+        </p>
+      </div>
+
+      <SectionTitle>Când să scrieți?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Solicitări de acces, schimbări de rol</li>
+        <li>Probleme de autentificare</li>
+        <li>Cereri privind protecția datelor</li>
+        <li>Erori tehnice, sugestii</li>
+      </ul>
+
+      <SectionTitle>Plângeri oficiale privind protecția datelor</SectionTitle>
+      <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
+        <p className="text-[14px] font-semibold text-slate-900">
+          ANSPDCP — Autoritatea Națională de Supraveghere a Prelucrării Datelor cu
+          Caracter Personal
+        </p>
+        <p className="text-[12.5px] text-slate-600 mt-1">
+          B-dul G-ral. Gheorghe Magheru 28-30, 010336 București
+        </p>
+        <p className="text-[12.5px] text-slate-600 mt-1">
+          Web: <em>www.dataprotection.ro</em>
+        </p>
+      </div>
+
+      <Note>
+        Binecuvântarea Domnului fie peste slujirea dumneavoastră!
+      </Note>
+    </>
+  )
+}
+
+/* ================== ENGLISH — PRIVACY ================== */
+
+function PrivacyEN() {
+  return (
+    <>
+      <p>
+        Dear Pastor! Thank you for choosing Kartotéka for managing your congregation's life.
+        This privacy notice describes how we protect the data of you, your congregation, and
+        the families under pastoral care.
+      </p>
+
+      <Note>
+        <strong>Encouragement:</strong> Kartotéka is one of the most secure forms of digital
+        data management, specifically designed for Reformed church life. Security meets
+        international banking standards.
+      </Note>
+
+      <SectionTitle>1. Data Controller and System Administrator</SectionTitle>
+      <p>
+        The data controller and system administrator is the same person —{' '}
+        <strong>Reverend Endre Szőcs</strong> (Reformed pastor). He builds, maintains, and
+        oversees access to the Kartotéka system.
+      </p>
+
+      <SectionTitle>2. The system's spiritual foundation</SectionTitle>
+      <p>
+        The spiritual foundation of the system is <strong>Tivadar Beke</strong>'s church
+        record-keeping system, faithfully developed into digital form with respect for the
+        Reformed tradition.
+      </p>
+
+      <SectionTitle>3. Where is the data stored?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Supabase</strong> (Frankfurt am Main, Germany, EU) — PostgreSQL database
+          with AES-256 encryption, SOC 2 Type 2 and ISO 27001 certified</li>
+        <li><strong>Railway</strong> (Amsterdam, Netherlands, EU) — application hosting,
+          Cloudflare DDoS protection, automatic restart and load balancing</li>
+      </ul>
+      <Note>
+        All data is stored <strong>exclusively within the EU</strong>, under full GDPR
+        protection.
+      </Note>
+
+      <SectionTitle>4. GDPR compliance</SectionTitle>
+      <p>The Kartotéka system is fully compliant with GDPR (EU Regulation 2016/679):</p>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Data minimization — we only collect what is necessary</li>
+        <li>Purpose limitation — exclusively for church life</li>
+        <li>Storage within the EU</li>
+        <li>Encryption: TLS 1.3 (in transit) + AES-256 (at rest)</li>
+        <li>Access logging</li>
+        <li>Data subject rights (access, rectification, erasure, etc.)</li>
+        <li>Right to lodge a complaint at ANSPDCP (Romanian DPA)</li>
+        <li>Data Processing Agreement (DPA) with Supabase and Railway</li>
+      </ul>
+
+      <SectionTitle>5. Purpose of processing</SectionTitle>
+      <p>
+        Solely to support church life: member records, ecclesiastical registers (baptism,
+        marriage, funeral), contributions, pastoral visits, programs.
+      </p>
+
+      <SectionTitle>6. Legal basis</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>GDPR Article 9(2)(d) — legitimate activities of religious communities</li>
+        <li>Romanian Law 190/2018 — implementation of GDPR</li>
+      </ul>
+
+      <SectionTitle>7. Data processed</SectionTitle>
+      <p>
+        Name, date of birth, address, phone, e-mail, religion, marital status, ecclesiastical
+        events (baptism, marriage, funeral), church contributions.
+      </p>
+
+      <SectionTitle>8. Data security</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>TLS 1.3</strong> — communication encryption</li>
+        <li><strong>RLS (Row Level Security)</strong> — record-level verification</li>
+        <li><strong>RBAC</strong> — role-based access control</li>
+        <li><strong>2FA</strong> — two-factor authentication for sensitive operations</li>
+        <li><strong>Logging</strong> — all access events recorded</li>
+      </ul>
+
+      <SectionTitle>9. Church hierarchy and access</SectionTitle>
+      <Note>
+        <strong>Do not be afraid!</strong> The district and presbytery only see <em>the
+        annual mandatory summary reports</em>. For detailed data the congregation pastor's
+        permission is required — even the system administrator can only access congregation
+        data with the explicit prior consent of the pastor.
+      </Note>
+
+      <SectionTitle>10. Who sees what?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1.5">
+        <li><strong>Pastor</strong> — full data of own congregation</li>
+        <li><strong>Bookkeeper</strong> — financial data only, only for own congregation</li>
+        <li><strong>Dean / Presbytery admin</strong> — only annual aggregated reports, no
+          individual personal data</li>
+        <li><strong>Auditor</strong> — only during audit period, only financial data</li>
+        <li><strong>District admin (EREK)</strong> — district-level statistics only</li>
+        <li><strong>System administrator (Endre Szőcs)</strong> — congregation data ONLY
+          with pastor's prior consent, time-limited, logged, purpose-bound</li>
+      </ul>
+
+      <SectionTitle>11. Data subject rights</SectionTitle>
+      <p>
+        Under GDPR you have the right to information, access, rectification, erasure (limited
+        for permanent church records), restriction, and objection.
+      </p>
+
+      <SectionTitle>12. Contact and complaints</SectionTitle>
+      <p>
+        Privacy questions: contact the system administrator. Official complaints: ANSPDCP
+        (Romanian DPA), B-dul G-ral. Gheorghe Magheru 28-30, Bucharest.
+      </p>
+
+      <SectionTitle>13. Liability disclaimer</SectionTitle>
+      <p>
+        The system is provided „as is". The administrator (Endre Szőcs) and the spiritual
+        foundation source (Tivadar Beke) are not liable for: input errors, user-caused
+        losses, third-party service interruptions, force majeure, indirect damages.
+      </p>
+    </>
+  )
+}
+
+/* ================== ENGLISH — TERMS ================== */
+
+function TermsEN() {
+  return (
+    <>
+      <p>
+        Dear Pastor! These rules establish the peaceful and clear use of the Kartotéka system
+        for all users.
+      </p>
+
+      <Note>
+        <strong>Encouragement:</strong> Kartotéka is a tool for church service. The terms
+        are written for use with a clear conscience — every congregation can benefit from
+        it.
+      </Note>
+
+      <SectionTitle>1. The Kartotéka system</SectionTitle>
+      <p>
+        Operator: Reverend Endre Szőcs. Spiritual foundation: Tivadar Beke's church
+        record-keeping system, developed in digital form.
+      </p>
+
+      <SectionTitle>2. Access</SectionTitle>
+      <p>
+        Access requires <strong>district-level approval</strong> by the system administrator.
+        Response usually within 1–3 business days. Access is personal and non-transferable.
+      </p>
+
+      <SectionTitle>3. Pricing</SectionTitle>
+      <p>
+        Information about the system's pricing and conditions is provided to congregations
+        through district administrative channels.
+      </p>
+
+      <SectionTitle>4. User obligations</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Use exclusively for church purposes</li>
+        <li>Accurate and current data entry</li>
+        <li>Password confidentiality (changed annually)</li>
+        <li>Immediately notify administrator of any suspicion</li>
+        <li>Bypassing security mechanisms is prohibited</li>
+      </ul>
+
+      <SectionTitle>5. Operator's rights</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Maintenance windows (with advance notice)</li>
+        <li>Suspending access in case of rule violation</li>
+        <li>Developing and modifying the system</li>
+      </ul>
+
+      <SectionTitle>6. „As is" principle</SectionTitle>
+      <p>
+        The system is provided in its current form — with all its features and limitations.
+        No guarantee of error-free operation or continuous availability.
+      </p>
+
+      <SectionTitle>7. Liability disclaimer</SectionTitle>
+      <p>
+        The administrator (Endre Szőcs) and the spiritual foundation source (Tivadar Beke)
+        are not liable for: incorrectly entered data, user-caused losses, third-party service
+        interruptions, force majeure (natural disasters, cyber-attacks), indirect or
+        consequential damages.
+      </p>
+
+      <SectionTitle>8. Privacy</SectionTitle>
+      <p>
+        Detailed privacy rules are described in the separate Privacy Notice.
+      </p>
+
+      <SectionTitle>9. Intellectual property</SectionTitle>
+      <p>
+        The code, design, and documentation are the intellectual property of the developer
+        (Endre Szőcs). Congregations receive a usage right. The name „Kartotéka" and the
+        ecclesiastical foundation derive from Tivadar Beke's work.
+      </p>
+
+      <SectionTitle>10. Modification of terms</SectionTitle>
+      <p>
+        Terms may be modified. Significant changes are announced. Continued use means
+        acceptance of new terms.
+      </p>
+
+      <SectionTitle>11. Jurisdiction</SectionTitle>
+      <p>
+        Romanian law applies. Disputes are first resolved peacefully; otherwise, competent
+        Romanian courts have jurisdiction.
+      </p>
+    </>
+  )
+}
+
+/* ================== ENGLISH — HELP ================== */
+
+function HelpEN() {
+  return (
+    <>
+      <p>
+        Dear Pastor! Here you find answers to frequent questions. For other questions,
+        contact the system administrator (Reverend Endre Szőcs).
+      </p>
+
+      <SectionTitle>How do I request access?</SectionTitle>
+      <p>
+        On the login page, click „Create new account" / „Új fiók létrehozása". Fill in the form
+        (name, e-mail, role, congregation). Response within 1–3 business days.
+      </p>
+
+      <SectionTitle>System modules</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li><strong>Dashboard</strong> — overview at a glance</li>
+        <li><strong>Member registry</strong> — individuals, families, presbyters, voters</li>
+        <li><strong>Ecclesiastical registers</strong> — baptism, confirmation, marriage,
+          funeral</li>
+        <li><strong>Finance</strong> — contributions, expenses, receipts (chitanță), Oblio
+          integration</li>
+        <li><strong>Work log</strong> — pastoral services</li>
+        <li><strong>Inventory</strong> — congregation assets</li>
+        <li><strong>Document registry</strong> — incoming/outgoing register</li>
+        <li><strong>Minutes</strong> — automatic generation from templates</li>
+        <li><strong>Cemetery</strong> — burial plot records</li>
+        <li><strong>Annual report</strong> — automatic generation for the presbytery</li>
+        <li><strong>Public website</strong> — congregation's website</li>
+        <li><strong>Mission Workshop</strong> — community space for pastors</li>
+      </ul>
+
+      <SectionTitle>Forgot password</SectionTitle>
+      <p>
+        On the login page — „Forgot password?". You will receive a reset link.
+      </p>
+
+      <SectionTitle>Offline use</SectionTitle>
+      <p>
+        Yes, already loaded data can be viewed without internet; changes auto-sync upon
+        reconnection.
+      </p>
+
+      <SectionTitle>Printing</SectionTitle>
+      <p>
+        All modules offer print views (PDF). Receipts are in Romanian format.
+      </p>
+
+      <SectionTitle>Whom should I contact?</SectionTitle>
+      <p>The system administrator — Reverend Endre Szőcs.</p>
+    </>
+  )
+}
+
+/* ================== ENGLISH — CONTACT ================== */
+
+function ContactEN() {
+  return (
+    <>
+      <p>
+        Dear Pastor! Below you find whom to contact for Kartotéka questions.
+      </p>
+
+      <SectionTitle>Data Controller and System Administrator</SectionTitle>
+      <div className="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/50">
+        <p className="text-[15px] font-semibold text-slate-900 mb-1">
+          Reverend Endre Szőcs
+        </p>
+        <p className="text-[13px] text-slate-600">
+          Developer, operator, and administrator of the Kartotéka system, on behalf of the
+          Reformed Church District of Transylvania (EREK).
+        </p>
+      </div>
+
+      <SectionTitle>Spiritual foundation</SectionTitle>
+      <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-200/50">
+        <p className="text-[15px] font-semibold text-slate-900 mb-1">
+          Tivadar Beke
+        </p>
+        <p className="text-[13px] text-slate-600">
+          His church record-keeping system constitutes the spiritual foundation of Kartotéka.
+        </p>
+      </div>
+
+      <SectionTitle>When to write?</SectionTitle>
+      <ul className="list-disc pl-6 space-y-1">
+        <li>Access requests, role changes</li>
+        <li>Login problems</li>
+        <li>Data protection requests</li>
+        <li>Technical errors, suggestions</li>
+      </ul>
+
+      <SectionTitle>Official data protection complaints</SectionTitle>
+      <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
+        <p className="text-[14px] font-semibold text-slate-900">
+          ANSPDCP — Romanian Data Protection Authority
+        </p>
+        <p className="text-[12.5px] text-slate-600 mt-1">
+          B-dul G-ral. Gheorghe Magheru 28-30, 010336 Bucharest, Romania
+        </p>
+        <p className="text-[12.5px] text-slate-600 mt-1">
+          Web: <em>www.dataprotection.ro</em>
+        </p>
+      </div>
+
+      <Note>
+        May the Lord's blessing be upon your service!
       </Note>
     </>
   )
