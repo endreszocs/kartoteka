@@ -75,10 +75,10 @@ export function LoginForm({ initialError }: LoginFormProps) {
       className="space-y-5"
     >
       <motion.div variants={itemVariants} className="text-center">
-        <h1 className="font-heading text-3xl font-bold tracking-tight text-slate-900">
+        <h1 className="font-heading text-3xl text-foreground">
           Lépjen be a fiókjába
         </h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-muted-foreground">
           Jelentkezzen be a regisztrált e-mail címével és jelszavával.
         </p>
       </motion.div>
@@ -97,7 +97,7 @@ export function LoginForm({ initialError }: LoginFormProps) {
       <motion.form
         variants={itemVariants}
         onSubmit={handleSubmit(onSubmit)}
-        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        className="card-raised space-y-4 p-6"
       >
         <div className="space-y-1.5">
           <Label htmlFor="email">E-mail cím</Label>
@@ -136,16 +136,16 @@ export function LoginForm({ initialError }: LoginFormProps) {
         </div>
 
         {/* Maradjak bejelentkezve checkbox */}
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 transition hover:bg-slate-100">
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-muted px-3 py-2.5 transition hover:bg-muted/70">
           <input
             type="checkbox"
             id="rememberMe"
-            className="mt-0.5 size-4 rounded border-slate-300 text-primary focus:ring-2 focus:ring-primary/40"
+            className="mt-0.5 size-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/40"
             {...register('rememberMe')}
           />
-          <span className="select-none text-sm text-slate-700">
+          <span className="select-none text-sm text-foreground">
             <span className="font-medium">Maradjak bejelentkezve</span>
-            <span className="block text-xs text-slate-500">
+            <span className="block text-xs text-muted-foreground">
               Ha bekapcsolod, hosszú ideig nem kell újra belépni. Ha kikapcsolod,
               egy nap múlva újra meg kell adnod a jelszavadat.
             </span>

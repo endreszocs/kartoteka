@@ -23,6 +23,97 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01g] — Sprint S · Vizuális egységesítés a teljes web-appra (v0.9.3)
+
+<!-- key: 2026-05-01g-sprint-s-vizualis-egysegesites -->
+<!-- category: feature + improvement -->
+<!-- version: v0.9.3 (csak web) -->
+<!-- targets: minden webes felhasználó (lelkészek, esperesek, admin) -->
+
+A felhasználói visszajelzés ("a Sprint R csak a témákat hozta, a teljes UI nem
+követi a sablont") nyomán **a teljes webes Kartotéka vizuálisan egységesítve
+lett a 3 témához**. A korábbi **289 hardkódolt komponens** (78%) immár téma-aware
+**egyetlen CSS-overrides rétegen keresztül**, és a `card-raised` custom class
+(47+ használat) is a téma `--card`, `--border`, `--radius-card`, `--shadow-card`
+értékeit használja.
+
+A 3 téma vizuálisan markánsan más megjelenést ad:
+- **Csendes parókia**: 16px ívelt soft kártyák, mély kékeszöld sidebar, Cormorant
+  Garamond serif címek, krém háttér
+- **Kerített kert** *(default)*: 12px szögletes minimal kártyák, hűvös zöld
+  paletta, Fraunces + Geist betűk
+- **Zsoltáros**: 6px klasszikus kártyák, mély barna sidebar narancsos akcenttel,
+  Roboto Slab címek
+
+### ✨ Új funkciók
+
+- **Új réteg: `packages/ui/src/utility-overrides.css`** — globális Tailwind
+  utility-class felülírások a `[data-theme="..."]` szelektorokon át. Minden
+  `text-slate-*` (1023×), `bg-white` (404×), `bg-slate-50` (386×),
+  `border-slate-200` (395×) automatikusan a téma-vars szerint cserélődik.
+  Plus a `bg-{amber,emerald,sky,rose,violet,indigo,cyan,teal}-50` info-tinták
+  a téma `--accent` halvány keverékére.
+- **Bővített téma-vars** (`packages/ui/src/themes.css`) — minden 6 blokkba
+  (3 téma × light/dark) új vars: `--radius-card/stat/mod/input/nav`,
+  `--shadow-card/-hover`, `--page-bg-overlay-1/2`, `--h1-size/weight/spacing`,
+  `--h3-size/weight`. Sötét módban a shadow erősebb (a téma-vars szín nem
+  látszik a sötét háttéren).
+- **Custom class-ok refaktora** (`packages/ui/src/kartoteka.css`) —
+  `card-raised`, `icon-raised`, `modal-input`, `page-shell` mind a téma-vars-ok
+  szerint épülnek; a `body` háttér is `--page-bg-overlay-1/2` overlay-ket
+  használ a fix amber/teal helyett.
+- **Téma-aware tipográfia** — `:where([data-theme]) h1/h2/h3` base layer
+  a `--font-serif`, `--h1-size`, `--h1-weight`, `--h1-spacing` vars-ot
+  használja. A `:where()` selector 0 specificitása miatt az explicit
+  Tailwind `text-{size}` osztályok mindig felülírják.
+
+### 🎨 UX javítások
+
+- **Dashboard widgetek** (`packages/ui-app/src/dashboard/`):
+  - **KpiCards** — 5 KPI ikon-gradient és blur-pötty `var(--accent)/--accent2`
+    color-mix-szel; eyebrow chipek `border-border bg-card text-muted-foreground`.
+    A pénzügyi szemantika (`text-emerald-{500,600}` bevétel, `text-red-{400,500}`
+    kiadás) **megmarad**.
+  - **BottomStats** — 7 stat-tile gradient mező eltávolítva, mind
+    `linear-gradient(135deg, var(--accent), var(--accent2))`. Balance
+    `text-emerald-600`/`text-red-600` jelzés marad.
+  - **Celebrations** — highlight gomb és blur-pöttyök téma-aware-é.
+  - **UpcomingPrograms** — emoji-tile gradient és blur-pötty téma-aware.
+  - **AgeDistribution** — blur-pöttyök és heading-ikon téma-aware. A 5 sávos
+    `BUCKET_GRADIENTS` data-viz **érintetlen** (kategorikus szín).
+- **Login/Register branded** — `(auth)/layout.tsx` jobb-panel téma-aware
+  (`var(--sidebar)` háttér, accent-color overlay-k). A login-form
+  `border-slate-200 bg-white shadow-sm` → `card-raised` osztály.
+
+### 🛠 Technikai
+
+- **Bug fix**: `packages/ui/src/components/input.tsx:12` — `focus-visible:bg-white`
+  → `focus-visible:bg-card` (sötét módban szürke-szürke kontrasztot okozott).
+- A meglévő `apps/web/components/muhely/`, modálok (57), admin (25), finance
+  (33) komponensek **érintetlen** kódjai — az utility-override automatikusan
+  cseréli a hardkódolt szürke/fehér színeket. Pénzügyi és státusz-intent
+  színek (zöld/piros/sárga) megmaradnak.
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (53 oldal Next.js webpack)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite, kontroll)
+
+### 📦 Release
+
+Ez a Sprint S egyetlen release-e (F1+F2+F3+F4 együtt). Webes Railway
+auto-deploy a `main` push-szal. Desktop NEM kap új release-t — a Sprint R
+v0.8.5 marad érvényben asztalon.
+
+### Sprint T előjegyzés
+
+- IncomeDialog (873s) port a `packages/ui-app/finance/`-ba (eredeti Sprint Q F3.2)
+- Tauri-mini installer wrapper-app (Sprint R F6 halasztott)
+- `feedback_modal_design_system` szabvány teljes 57-fájlos átszorítása
+
+---
+
 ## [2026-05-01f] — Sprint R F6 · Telepítő wizard UI + Sprint R LEZÁRVA (v0.8.5)
 
 <!-- key: 2026-05-01f-sprint-r-f6-telepito-wizard-ui -->

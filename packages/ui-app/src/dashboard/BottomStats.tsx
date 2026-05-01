@@ -17,17 +17,18 @@ interface StatDef {
   key: string
   label: string
   Icon: LucideIcon
-  gradient: string
 }
 
+// Sprint S F3 — gradient mező eltávolítva, mind a 7 stat-tile
+// `var(--accent)` + `var(--accent2)` témára érzékeny gradient-et kap.
 const STATS: StatDef[] = [
-  { key: 'men', label: 'Férfiak', Icon: User, gradient: 'from-blue-500 to-blue-600' },
-  { key: 'women', label: 'Nők', Icon: UserRound, gradient: 'from-pink-500 to-rose-500' },
-  { key: 'children', label: 'Gyermekek', Icon: Baby, gradient: 'from-amber-400 to-amber-500' },
-  { key: 'avgAge', label: 'Átlagéletkor', Icon: BarChart3, gradient: 'from-violet-500 to-violet-600' },
-  { key: 'payers', label: 'Fizetők idén', Icon: Coins, gradient: 'from-emerald-500 to-emerald-600' },
-  { key: 'presb', label: 'Presbiterek', Icon: ClipboardCheck, gradient: 'from-orange-500 to-orange-600' },
-  { key: 'balance', label: 'Egyenleg', Icon: Banknote, gradient: 'from-teal-500 to-teal-600' },
+  { key: 'men', label: 'Férfiak', Icon: User },
+  { key: 'women', label: 'Nők', Icon: UserRound },
+  { key: 'children', label: 'Gyermekek', Icon: Baby },
+  { key: 'avgAge', label: 'Átlagéletkor', Icon: BarChart3 },
+  { key: 'payers', label: 'Fizetők idén', Icon: Coins },
+  { key: 'presb', label: 'Presbiterek', Icon: ClipboardCheck },
+  { key: 'balance', label: 'Egyenleg', Icon: Banknote },
 ]
 
 export function BottomStats({
@@ -55,8 +56,14 @@ export function BottomStats({
         const Icon = stat.Icon
         return (
           <div key={stat.key} className="card-raised relative overflow-hidden p-4 text-center">
-            <div className="absolute inset-x-6 top-0 h-16 rounded-full bg-white/40 blur-2xl" />
-            <div className={`icon-raised w-9 h-9 mx-auto bg-gradient-to-br ${stat.gradient}`}>
+            <div
+              className="absolute inset-x-6 top-0 h-16 rounded-full blur-2xl"
+              style={{ background: 'color-mix(in oklab, var(--accent2) 20%, transparent)' }}
+            />
+            <div
+              className="icon-raised w-9 h-9 mx-auto"
+              style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent2))' }}
+            >
               <Icon className="w-4 h-4 text-white" />
             </div>
             <p
@@ -65,12 +72,12 @@ export function BottomStats({
                   ? balance >= 0
                     ? 'text-emerald-600'
                     : 'text-red-600'
-                  : 'text-slate-800'
+                  : 'text-foreground'
               }`}
             >
               {values[stat.key]}
             </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-0.5 uppercase tracking-wider">
+            <p className="text-[10px] text-muted-foreground font-medium mt-0.5 uppercase tracking-wider">
               {stat.label}
             </p>
           </div>

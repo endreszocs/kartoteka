@@ -117,7 +117,10 @@ function progLabel(e: UpcomingProgramEntry): string {
 export function UpcomingPrograms({ entries, onEntryClick, onShowAllClick }: UpcomingProgramsProps) {
   return (
     <div className="card-raised relative overflow-hidden p-5 sm:p-6">
-      <div className="absolute -right-6 -top-6 h-28 w-28 rounded-full bg-violet-200/35 blur-3xl" />
+      <div
+        className="absolute -right-6 -top-6 h-28 w-28 rounded-full blur-3xl"
+        style={{ background: 'color-mix(in oklab, var(--accent) 25%, transparent)' }}
+      />
 
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -167,11 +170,12 @@ export function UpcomingPrograms({ entries, onEntryClick, onShowAllClick }: Upco
                     } ${interactive ? 'hover:border-slate-300 hover:bg-white' : ''}`}
                   >
                     <span
-                      className={`flex size-10 shrink-0 items-center justify-center rounded-xl text-lg ${
-                        isToday
-                          ? 'bg-gradient-to-br from-amber-400 to-orange-500'
-                          : 'bg-gradient-to-br from-violet-400 to-purple-500'
-                      } text-white`}
+                      className="flex size-10 shrink-0 items-center justify-center rounded-xl text-lg text-white"
+                      style={{
+                        background: isToday
+                          ? 'linear-gradient(135deg, var(--accent), var(--accent2))'
+                          : 'linear-gradient(135deg, var(--primary), var(--accent))',
+                      }}
                       aria-hidden
                     >
                       {progEmoji(e)}
@@ -208,8 +212,9 @@ export function UpcomingPrograms({ entries, onEntryClick, onShowAllClick }: Upco
                     </div>
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                        isToday ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'
+                        isToday ? 'text-accent-foreground' : 'bg-muted text-muted-foreground'
                       }`}
+                      style={isToday ? { background: 'var(--accent)' } : undefined}
                     >
                       {daysUntilLabel(days)}
                     </span>

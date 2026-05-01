@@ -18,7 +18,7 @@ export default function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="relative min-h-screen bg-slate-50">
+    <div className="relative min-h-screen bg-background">
       <SplashScreen />
 
       <div className="lg:grid lg:grid-cols-2 lg:min-h-screen">
@@ -34,10 +34,10 @@ export default function AuthLayout({
                 height={64}
                 className="mx-auto mb-3 object-contain drop-shadow-md"
               />
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              <h1 className="font-heading text-2xl text-foreground">
                 Kartotéka
               </h1>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-muted-foreground">
                 Erdélyi Református Egyházkerület
               </p>
             </div>
@@ -46,23 +46,34 @@ export default function AuthLayout({
           </div>
         </div>
 
-        {/* ─── JOBB OLDAL — Hero panel (csak desktop) ─── */}
-        <div className="relative hidden overflow-hidden lg:block">
-          {/* Alap gradient */}
+        {/* ─── JOBB OLDAL — Hero panel (csak desktop) — Sprint S F4 téma-aware ─── */}
+        <div
+          className="relative hidden overflow-hidden lg:block"
+          style={{
+            background: 'var(--sidebar)',
+            color: 'var(--sidebar-foreground)',
+          }}
+        >
+          {/* Alap radial-overlay-k a téma accent-jei alapján */}
           <div
             className="absolute inset-0"
             style={{
               backgroundImage: `
-                radial-gradient(circle at 20% 30%, rgba(255, 206, 145, 0.25), transparent 40%),
-                radial-gradient(circle at 80% 70%, rgba(88, 172, 161, 0.28), transparent 45%),
-                linear-gradient(140deg, #0f3f3d 0%, #1a5a55 40%, #103745 100%)
+                radial-gradient(circle at 20% 30%, color-mix(in oklab, var(--accent) 30%, transparent), transparent 40%),
+                radial-gradient(circle at 80% 70%, color-mix(in oklab, var(--accent2) 32%, transparent), transparent 45%)
               `,
             }}
           />
 
-          {/* Dekoratív orbok */}
-          <div className="absolute left-1/4 top-1/3 h-96 w-96 -translate-x-1/2 rounded-full bg-amber-300/10 blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 h-80 w-80 translate-x-1/2 rounded-full bg-teal-300/10 blur-3xl" />
+          {/* Dekoratív orbok — téma-szín */}
+          <div
+            className="absolute left-1/4 top-1/3 h-96 w-96 -translate-x-1/2 rounded-full blur-3xl"
+            style={{ background: 'color-mix(in oklab, var(--accent) 18%, transparent)' }}
+          />
+          <div
+            className="absolute bottom-1/4 right-1/4 h-80 w-80 translate-x-1/2 rounded-full blur-3xl"
+            style={{ background: 'color-mix(in oklab, var(--accent2) 16%, transparent)' }}
+          />
 
           {/* Subtle grain texture (SVG inline data URI) */}
           <div
@@ -74,7 +85,7 @@ export default function AuthLayout({
           />
 
           {/* Tartalom */}
-          <div className="relative z-10 flex h-full flex-col justify-between p-12 text-white">
+          <div className="relative z-10 flex h-full flex-col justify-between p-12">
             {/* Felső: logó + név */}
             <div className="flex items-center gap-3">
               <Image
@@ -86,29 +97,29 @@ export default function AuthLayout({
               />
               <div>
                 <p className="font-heading text-xl font-semibold">Kartotéka</p>
-                <p className="text-xs text-white/60">Pásztori nyilvántartás</p>
+                <p className="text-xs opacity-60">Pásztori nyilvántartás</p>
               </div>
             </div>
 
             {/* Középen: biblia idézet */}
             <blockquote className="max-w-md space-y-4">
-              <p className="font-heading text-2xl leading-snug text-white/95 xl:text-3xl">
+              <p className="font-heading text-2xl leading-snug opacity-95 xl:text-3xl">
                 &bdquo;Az Úr a pásztorom; nem szűkölködöm.
                 <br />
                 Fűvellő mezőkön legeltet engem, s csendes vizekhez terelget engem.&rdquo;
               </p>
-              <footer className="flex items-center gap-3 text-sm text-white/70">
-                <div className="h-px w-8 bg-white/40" />
+              <footer className="flex items-center gap-3 text-sm opacity-70">
+                <div className="h-px w-8 opacity-40" style={{ background: 'currentColor' }} />
                 <span>Zsoltárok 23:1–2</span>
               </footer>
             </blockquote>
 
             {/* Alján: kerület info */}
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50">
+              <p className="text-xs uppercase tracking-[0.2em] opacity-50">
                 Erdélyi Református Egyházkerület
               </p>
-              <p className="mt-1 text-sm text-white/70">
+              <p className="mt-1 text-sm opacity-70">
                 Digitális pásztori nyilvántartás · Áldás kísérje szolgálatodat
               </p>
             </div>

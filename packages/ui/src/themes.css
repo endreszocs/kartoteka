@@ -1,9 +1,15 @@
 /**
- * Kartotéka — 3 vizuális téma CSS-vars rétege (Sprint R · Vizuális megújulás).
+ * Kartotéka — 3 vizuális téma CSS-vars rétege (Sprint R + Sprint S).
  *
  * Forrása `packages/design-tokens/src/themes.ts` (kézi sync, mert Tailwind 4
  * inline `@theme` build-script overhead nélkül). Mindhárom téma (Csendes
  * parókia, Kerített kert, Zsoltáros) light + dark variánssal — összesen 6 blokk.
+ *
+ * Sprint S (2026-05-01) bővítés: minden téma-blokk megkapja a saját
+ * radius/shadow/font-size/page-bg-overlay CSS-vars-okat. Ezek alapján a
+ * `kartoteka.css` `card-raised`, `icon-raised`, `modal-input`, `page-shell`
+ * custom class-ok automatikusan téma-aware-é válnak (Parókia 16px ívelt soft,
+ * Kert 12px szögletes minimal, Zsoltáros 6px klasszikus).
  *
  * A `kartoteka.css` `:root` és `.dark` (sor 73-143) **változatlan** marad
  * (current paletta, fallback). A téma-választás `[data-theme="..."]` attr-en
@@ -47,6 +53,22 @@
   --sidebar-ring: #9bbf6e;
   --font-sans: "Geist Variable", "Inter", system-ui, sans-serif;
   --font-serif: "Fraunces", "Source Serif Pro", Georgia, serif;
+
+  /* Sprint S — radius / shadow / typography / page-bg per theme */
+  --radius-card: 12px;
+  --radius-stat: 12px;
+  --radius-mod: 10px;
+  --radius-input: 8px;
+  --radius-nav: 7px;
+  --shadow-card: 0 1px 2px rgba(28, 42, 38, 0.04);
+  --shadow-card-hover: 0 2px 4px rgba(28, 42, 38, 0.06), 0 8px 24px rgba(28, 42, 38, 0.06);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(107, 142, 78, 0.12), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(38, 78, 74, 0.10), transparent 22rem);
+  --h1-size: 2.125rem;       /* 34px */
+  --h1-weight: 500;
+  --h1-spacing: -0.6px;
+  --h3-size: 1rem;           /* 16px */
+  --h3-weight: 600;
 }
 
 [data-theme="kert"].dark,
@@ -77,8 +99,13 @@
   --sidebar-primary-foreground: #0e1f1f;
   --sidebar-accent: rgba(107, 142, 78, 0.18);
   --sidebar-accent-foreground: #e4e8de;
-  --sidebar-border: rgba(228, 232, 222, 0.08);
+  --sidebar-border: rgba(232, 225, 210, 0.08);
   --sidebar-ring: #9bbf6e;
+  /* Sprint S — dark-mode shadow erősebb (sötét háttéren a light shadow eltűnik) */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px rgba(0, 0, 0, 0.3);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(155, 191, 110, 0.06), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(38, 78, 74, 0.08), transparent 22rem);
 }
 
 /* ───────────────────────────────────────────────────────────────────
@@ -115,6 +142,24 @@
   --sidebar-ring: #a4c98a;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: "Cormorant Garamond", "Source Serif Pro", Georgia, serif;
+
+  /* Sprint S — radius / shadow / typography / page-bg per theme */
+  --radius-card: 16px;
+  /* Stat-card ívelt arch: 50% 50% felül + 14px alul */
+  --radius-stat: 14px 14px 14px 14px;
+  --radius-stat-arch: 50% 50% 14px 14px / 30% 30% 14px 14px;
+  --radius-mod: 14px;
+  --radius-input: 10px;
+  --radius-nav: 9px;
+  --shadow-card: 0 1px 2px rgba(31, 58, 58, 0.04), 0 8px 24px rgba(31, 58, 58, 0.06);
+  --shadow-card-hover: 0 1px 2px rgba(31, 58, 58, 0.04), 0 14px 32px rgba(31, 58, 58, 0.1);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(164, 201, 138, 0.18), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(31, 58, 58, 0.10), transparent 22rem);
+  --h1-size: 2.375rem;       /* 38px */
+  --h1-weight: 500;
+  --h1-spacing: -0.5px;
+  --h3-size: 1.125rem;       /* 18px */
+  --h3-weight: 500;
 }
 
 [data-theme="parokia"].dark,
@@ -147,6 +192,10 @@
   --sidebar-accent-foreground: #faf6ed;
   --sidebar-border: rgba(247, 243, 234, 0.1);
   --sidebar-ring: #a4c98a;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.35), 0 14px 32px rgba(0, 0, 0, 0.4);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(164, 201, 138, 0.05), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(31, 58, 58, 0.10), transparent 22rem);
 }
 
 /* ───────────────────────────────────────────────────────────────────
@@ -183,6 +232,22 @@
   --sidebar-ring: #c97a3f;
   --font-sans: "Inter", system-ui, sans-serif;
   --font-serif: "Roboto Slab", "Source Serif Pro", Georgia, serif;
+
+  /* Sprint S — radius / shadow / typography / page-bg per theme */
+  --radius-card: 6px;
+  --radius-stat: 6px;
+  --radius-mod: 6px;
+  --radius-input: 4px;
+  --radius-nav: 4px;
+  --shadow-card: 0 1px 0 rgba(42, 34, 24, 0.04), 0 4px 14px rgba(42, 34, 24, 0.06);
+  --shadow-card-hover: 0 1px 0 rgba(42, 34, 24, 0.04), 0 8px 22px rgba(42, 34, 24, 0.1);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(201, 122, 63, 0.12), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(44, 74, 62, 0.10), transparent 22rem);
+  --h1-size: 2.25rem;        /* 36px */
+  --h1-weight: 500;
+  --h1-spacing: -0.3px;
+  --h3-size: 1.0625rem;      /* 17px */
+  --h3-weight: 600;
 }
 
 [data-theme="zsoltaros"].dark,
@@ -215,6 +280,10 @@
   --sidebar-accent-foreground: #f6efe1;
   --sidebar-border: rgba(246, 239, 225, 0.1);
   --sidebar-ring: #c97a3f;
+  --shadow-card: 0 1px 0 rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 1px 0 rgba(0, 0, 0, 0.35), 0 8px 22px rgba(0, 0, 0, 0.45);
+  --page-bg-overlay-1: radial-gradient(circle at top left, rgba(201, 122, 63, 0.06), transparent 22rem);
+  --page-bg-overlay-2: radial-gradient(circle at top right, rgba(44, 74, 62, 0.10), transparent 22rem);
 }
 
 /* ───────────────────────────────────────────────────────────────────

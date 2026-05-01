@@ -32,6 +32,7 @@
    szelektorokon keresztül felülírja a CSS-vars értékeit. */
 @import "./fonts/fonts.css";
 @import "./themes.css";
+@import "./utility-overrides.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -161,81 +162,110 @@
   body {
     @apply text-foreground;
     min-height: 100vh;
+    /* Sprint S F1 — téma-aware page-bg overlay (a `themes.css`-ben definiált
+       `--page-bg-overlay-1/2` radial-gradient-okat használja, így a 3 téma
+       saját accent-tinttel jelenik meg az egész oldal hátterén). */
     background:
-      radial-gradient(circle at top left, rgba(248, 183, 101, 0.24), transparent 19rem),
-      radial-gradient(circle at top right, rgba(66, 153, 144, 0.18), transparent 21rem),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(247, 250, 247, 0.92)),
+      var(--page-bg-overlay-1, radial-gradient(circle at top left, rgba(248, 183, 101, 0.24), transparent 19rem)),
+      var(--page-bg-overlay-2, radial-gradient(circle at top right, rgba(66, 153, 144, 0.18), transparent 21rem)),
       var(--background);
     background-attachment: fixed;
   }
   ::selection {
-    background: rgba(245, 177, 78, 0.24);
+    background: color-mix(in oklab, var(--accent) 28%, transparent);
     color: inherit;
+  }
+
+  /* Sprint S F2 — téma-aware tipográfia base layer.
+     A `:where()` selectorral 0 specificitásra állítjuk, így a Tailwind
+     explicit `text-{size}` osztályok mindig felülírhatják (komponens-szintű
+     döntés mindig erősebb mint a téma-default). A 3 téma 3 különböző serif
+     fontját alkalmazzuk a címekre (Cormorant Garamond / Fraunces / Roboto Slab). */
+  :where([data-theme]) h1 {
+    font-family: var(--font-serif), Georgia, serif;
+    font-size: var(--h1-size, 1.875rem);
+    font-weight: var(--h1-weight, 600);
+    letter-spacing: var(--h1-spacing, -0.025em);
+    line-height: 1.1;
+  }
+  :where([data-theme]) h2 {
+    font-family: var(--font-serif), Georgia, serif;
+    font-weight: var(--h1-weight, 600);
+    letter-spacing: var(--h1-spacing, -0.02em);
+  }
+  :where([data-theme]) h3 {
+    font-family: var(--font-serif), Georgia, serif;
+    font-size: var(--h3-size, 1.125rem);
+    font-weight: var(--h3-weight, 600);
   }
 }
 
-/* ── Rendszerszintű domborított stílusok ─── */
+/* ── Rendszerszintű domborított stílusok (Sprint S F1 — téma-aware) ─── */
 @layer components {
+  /* `card-raised` — a leggyakrabban használt custom class (47+ helyen).
+     Sprint S F1 előtt fix amber/teal árnyékkal és fehér hátérrel volt; most
+     a téma-vars-okra (`--card`, `--border`, `--radius-card`, `--shadow-card*`)
+     épül, így a 3 téma vizuálisan markánsan más megjelenést ad
+     (Parókia 16px ívelt soft / Kert 12px szögletes minimal / Zsoltáros 6px klasszikus). */
   .card-raised {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 251, 245, 0.86));
-    border: 1px solid rgba(255, 255, 255, 0.82);
-    border-radius: 1.4rem;
-    box-shadow:
-      0 24px 55px -34px rgba(16, 70, 63, 0.38),
-      0 14px 30px -26px rgba(194, 141, 61, 0.32),
-      inset 0 1px 0 rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(14px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card, 1.4rem);
+    box-shadow: var(--shadow-card, 0 1px 2px rgba(0, 0, 0, 0.04));
     transition:
       box-shadow 0.25s ease,
       transform 0.25s ease,
       border-color 0.25s ease;
   }
   .card-raised:hover {
-    box-shadow:
-      0 28px 60px -34px rgba(16, 70, 63, 0.42),
-      0 18px 34px -26px rgba(194, 141, 61, 0.34),
-      inset 0 1px 0 rgba(255, 255, 255, 0.84);
-    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-card-hover, var(--shadow-card, 0 2px 4px rgba(0, 0, 0, 0.06)));
     transform: translateY(-2px);
   }
+
+  /* `icon-raised` — gradient háttért a komponens style="" inline-on át kapja
+     (KpiCards 5 kártyája különböző gradient-tel). Ez a class csak a layout-ot,
+     keretet és belső shadow-t adja, hogy karakteres legyen téma-aware módon. */
   .icon-raised {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: var(--radius-mod, 1rem);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
     box-shadow:
-      0 18px 30px -22px rgba(12, 55, 50, 0.52),
-      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 18px 30px -22px color-mix(in oklab, var(--primary) 50%, transparent),
+      inset 0 1px 0 color-mix(in oklab, white 45%, transparent),
       inset 0 -1px 2px rgba(0, 0, 0, 0.08);
   }
 
-  /* ── Modal input stílus ─── */
+  /* `modal-input` — a meglévő űrlap-mezők stílusa (60+ használat) */
   .modal-input {
     width: 100%;
-    border: 1px solid rgba(124, 151, 145, 0.26);
-    border-radius: 1rem;
-    background: rgba(255, 255, 255, 0.76);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-input, 0.5rem);
+    background: var(--card);
     padding: 0.625rem 1rem;
     font-size: 0.875rem;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    color: var(--foreground);
     transition:
       border-color 0.15s ease,
       box-shadow 0.15s ease,
       background-color 0.15s ease;
   }
+  .modal-input::placeholder {
+    color: var(--muted-foreground);
+  }
   .modal-input:focus {
     outline: none;
-    border-color: rgba(33, 124, 114, 0.46);
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 0 0 4px rgba(33, 124, 114, 0.12);
+    border-color: var(--ring);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 18%, transparent);
   }
 
   /* ── Serif heading ─── */
   .font-heading {
     font-family: var(--font-serif), "Cormorant Garamond", Georgia, serif;
   }
+
+  /* `page-shell` — a fő oldalwrappers, téma-aware overlay-jel */
   .page-shell {
     position: relative;
     isolation: isolate;
@@ -246,8 +276,8 @@
     inset: 0;
     z-index: -2;
     background:
-      radial-gradient(circle at 0% 0%, rgba(255, 208, 146, 0.22), transparent 22rem),
-      radial-gradient(circle at 100% 0%, rgba(97, 180, 167, 0.14), transparent 22rem);
+      var(--page-bg-overlay-1, radial-gradient(circle at 0% 0%, rgba(255, 208, 146, 0.22), transparent 22rem)),
+      var(--page-bg-overlay-2, radial-gradient(circle at 100% 0%, rgba(97, 180, 167, 0.14), transparent 22rem));
   }
   .page-shell::after {
     content: "";
@@ -255,7 +285,7 @@
     inset: 0;
     z-index: -1;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0)),
+      linear-gradient(180deg, color-mix(in oklab, var(--card) 10%, transparent), transparent),
       transparent;
     pointer-events: none;
   }

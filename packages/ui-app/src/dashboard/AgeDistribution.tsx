@@ -40,8 +40,14 @@ export function AgeDistribution({ buckets }: AgeDistributionProps) {
 
   return (
     <div className="card-raised relative overflow-hidden p-5 sm:p-6">
-      <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-violet-200/35 blur-3xl" />
-      <div className="absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-sky-200/30 blur-3xl" />
+      <div
+        className="absolute -right-8 -top-8 h-32 w-32 rounded-full blur-3xl"
+        style={{ background: 'color-mix(in oklab, var(--accent) 25%, transparent)' }}
+      />
+      <div
+        className="absolute -left-6 bottom-0 h-24 w-24 rounded-full blur-3xl"
+        style={{ background: 'color-mix(in oklab, var(--accent2) 22%, transparent)' }}
+      />
 
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -53,7 +59,10 @@ export function AgeDistribution({ buckets }: AgeDistributionProps) {
               Korelosztás
             </h2>
           </div>
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-white shadow-[0_14px_24px_-18px_rgba(91,33,182,0.55)]">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_14px_24px_-18px_rgba(0,0,0,0.45)]"
+            style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+          >
             <BarChart3 className="size-4" />
           </span>
         </div>

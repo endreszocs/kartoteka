@@ -52,20 +52,26 @@ export function KpiCards({
     <div className={gridCols}>
       {/* Aktív tagok */}
       <div className="card-raised group relative cursor-default overflow-hidden p-4 pt-11 sm:p-5 sm:pt-11">
-        <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-cyan-100/55 blur-3xl" />
-        <div className="absolute left-4 top-4 rounded-full border border-teal-200/60 bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-teal-700/75">
+        <div
+          className="absolute right-0 top-0 h-24 w-24 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent2) 25%, transparent)' }}
+        />
+        <div className="absolute left-4 top-4 rounded-full border border-border bg-card/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Közösség
         </div>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Aktív tagok
             </p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5">
+            <p className="text-xl sm:text-2xl font-bold text-foreground mt-1.5">
               {activeMemberCount > 0 ? activeMemberCount.toLocaleString('hu') : '—'}
             </p>
           </div>
-          <div className="icon-raised w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-teal-500 to-cyan-600 transition-transform duration-300 group-hover:scale-110">
+          <div
+            className="icon-raised w-9 h-9 sm:w-11 sm:h-11 transition-transform duration-300 group-hover:scale-110"
+            style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+          >
             <Users className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>
@@ -73,20 +79,26 @@ export function KpiCards({
 
       {/* Családok */}
       <div className="card-raised group relative cursor-default overflow-hidden p-4 pt-11 sm:p-5 sm:pt-11">
-        <div className="absolute left-2 top-1 h-24 w-24 rounded-full bg-emerald-100/60 blur-3xl" />
-        <div className="absolute left-4 top-4 rounded-full border border-emerald-200/60 bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700/75">
+        <div
+          className="absolute left-2 top-1 h-24 w-24 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent) 22%, transparent)' }}
+        />
+        <div className="absolute left-4 top-4 rounded-full border border-border bg-card/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Családok
         </div>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Családok
             </p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5">
+            <p className="text-xl sm:text-2xl font-bold text-foreground mt-1.5">
               {familyCount > 0 ? familyCount.toLocaleString('hu') : '—'}
             </p>
           </div>
-          <div className="icon-raised w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-emerald-500 to-emerald-600 transition-transform duration-300 group-hover:scale-110">
+          <div
+            className="icon-raised w-9 h-9 sm:w-11 sm:h-11 transition-transform duration-300 group-hover:scale-110"
+            style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent2))' }}
+          >
             <Home className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>
@@ -94,13 +106,16 @@ export function KpiCards({
 
       {/* Havi bevétel + kiadás */}
       <div className="card-raised group relative cursor-default overflow-hidden p-4 pt-11 sm:p-5 sm:pt-11">
-        <div className="absolute right-2 top-0 h-24 w-24 rounded-full bg-amber-100/65 blur-3xl" />
-        <div className="absolute left-4 top-4 rounded-full border border-amber-200/60 bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700/75">
+        <div
+          className="absolute right-2 top-0 h-24 w-24 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent2) 28%, transparent)' }}
+        />
+        <div className="absolute left-4 top-4 rounded-full border border-border bg-card/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Pénzügy {currentYear}
         </div>
         <div className="flex items-start justify-between">
           <div className="space-y-1.5">
-            <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Éves pénzforgalom
             </p>
             <div className="flex items-center gap-1.5">
@@ -116,7 +131,7 @@ export function KpiCards({
               </span>
             </div>
             {(monthlyIncome > 0 || monthlyExpense > 0) && (
-              <p className="pt-1 text-[10px] text-slate-400">
+              <p className="pt-1 text-[10px] text-muted-foreground">
                 E havi:{' '}
                 <span className="font-mono text-emerald-600">
                   +{monthlyIncome.toLocaleString('hu')}
@@ -128,7 +143,10 @@ export function KpiCards({
               </p>
             )}
           </div>
-          <div className="icon-raised w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-amber-500 to-orange-500 transition-transform duration-300 group-hover:scale-110">
+          <div
+            className="icon-raised w-9 h-9 sm:w-11 sm:h-11 transition-transform duration-300 group-hover:scale-110"
+            style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent2))' }}
+          >
             <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>
@@ -144,26 +162,30 @@ export function KpiCards({
           onPublicSiteClick ? 'cursor-pointer transition hover:shadow-lg' : 'cursor-default'
         }`}
       >
-        <div className="absolute left-0 top-0 h-24 w-24 rounded-full bg-emerald-100/70 blur-3xl" />
         <div
-          className={`absolute left-4 top-4 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
-            publicSiteStatus?.isPublished
-              ? 'border-emerald-200/60 bg-emerald-50/70 text-emerald-700/75'
-              : 'border-slate-200/60 bg-white/70 text-slate-500/75'
-          }`}
+          className="absolute left-0 top-0 h-24 w-24 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent) 25%, transparent)' }}
+        />
+        <div
+          className={`absolute left-4 top-4 rounded-full border border-border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+            publicSiteStatus?.isPublished ? 'text-emerald-700' : 'text-muted-foreground'
+          } bg-card/70`}
         >
           {publicSiteStatus?.isPublished ? 'Élő' : 'Weboldal'}
         </div>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Gyülekezeti weboldal
             </p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5">
+            <p className="text-xl sm:text-2xl font-bold text-foreground mt-1.5">
               {publicSiteStatus ? `${publicSiteStatus.postCount} poszt` : 'Beállítás →'}
             </p>
           </div>
-          <div className="icon-raised w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-emerald-500 to-teal-600 transition-transform duration-300 group-hover:scale-110">
+          <div
+            className="icon-raised w-9 h-9 sm:w-11 sm:h-11 transition-transform duration-300 group-hover:scale-110"
+            style={{ background: 'linear-gradient(135deg, var(--accent), var(--primary))' }}
+          >
             <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>
@@ -177,18 +199,24 @@ export function KpiCards({
           onPresentationClick ? 'cursor-pointer transition hover:shadow-lg' : 'cursor-default'
         }`}
       >
-        <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-violet-100/70 blur-3xl" />
-        <div className="absolute left-4 top-4 rounded-full border border-violet-200/60 bg-violet-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-700/75">
+        <div
+          className="absolute right-0 top-0 h-24 w-24 rounded-full blur-3xl"
+          style={{ background: 'color-mix(in oklab, var(--accent2) 25%, transparent)' }}
+        />
+        <div className="absolute left-4 top-4 rounded-full border border-border bg-card/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Bemutató
         </div>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Prezentáció
             </p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5">Éves beszámoló →</p>
+            <p className="text-xl sm:text-2xl font-bold text-foreground mt-1.5">Éves beszámoló →</p>
           </div>
-          <div className="icon-raised w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-violet-500 to-purple-600 transition-transform duration-300 group-hover:scale-110">
+          <div
+            className="icon-raised w-9 h-9 sm:w-11 sm:h-11 transition-transform duration-300 group-hover:scale-110"
+            style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent2))' }}
+          >
             <Presentation className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>

@@ -48,8 +48,14 @@ export function Celebrations({ entries, onEntryClick, onPrintClick }: Celebratio
 
   return (
     <div className="card-raised relative overflow-hidden p-5 sm:p-6">
-      <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-pink-200/35 blur-3xl" />
-      <div className="absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-amber-200/30 blur-3xl" />
+      <div
+        className="absolute -right-8 -top-8 h-32 w-32 rounded-full blur-3xl"
+        style={{ background: 'color-mix(in oklab, var(--accent2) 28%, transparent)' }}
+      />
+      <div
+        className="absolute -left-6 bottom-0 h-24 w-24 rounded-full blur-3xl"
+        style={{ background: 'color-mix(in oklab, var(--accent) 22%, transparent)' }}
+      />
 
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -137,11 +143,12 @@ function CelebrationItem({ entry, onClick, highlight }: CelebrationItemProps) {
         } ${interactive ? 'hover:border-slate-300 hover:bg-white' : ''}`}
       >
         <span
-          className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-white"
+          style={
             highlight
-              ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
-              : 'bg-pink-100 text-pink-700'
-          }`}
+              ? { background: 'linear-gradient(135deg, var(--accent), var(--accent2))' }
+              : { background: 'color-mix(in oklab, var(--accent2) 35%, var(--card))', color: 'var(--accent-foreground)' }
+          }
         >
           <Gift className="size-4" />
         </span>
@@ -153,8 +160,9 @@ function CelebrationItem({ entry, onClick, highlight }: CelebrationItemProps) {
         </div>
         <span
           className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-            highlight ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'
+            highlight ? 'text-accent-foreground' : 'bg-muted text-muted-foreground'
           }`}
+          style={highlight ? { background: 'var(--accent)' } : undefined}
         >
           {daysUntilLabel(entry.daysUntil)}
         </span>
