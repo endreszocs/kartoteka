@@ -80,7 +80,20 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
+/* Sprint S F1 hotfix (2026-05-01i) — `:root` → `:where(:root)` és `.dark` →
+   `:where(.dark)` átírás, hogy a 0 specificity miatt a `[data-theme="..."]`
+   szelektorok (`(0,1,0)`) MINDIG felülírják ezeket. A korábbi `:root` blokk
+   ugyanis `(0,1,0)` specificity-jű volt a `[data-theme="kert"]`-tal egyenlő,
+   és source-order szerint utolsó-deklarált → felülírta a téma-blokkokat
+   (a `--background` `#f5fbf7` érték érvényesült `#f3f1ec` Kerített kert
+   helyett). Most a `[data-theme=kert/parokia/zsoltaros]` mindig nyer.
+
+   Ez a blokk továbbra is FALLBACK: ha valamiért nincs `data-theme` attr az
+   `<html>` rooton (pl. SSR előtt, vagy publikus bot), a current paletta
+   használt. A web (apps/web/app/layout.tsx) és desktop (index.html) viszont
+   mindig `data-theme="kert"` attr-rel indul, tehát a fallback szinte sose
+   jut érvényre. */
+:where(:root) {
   --font-sans: "Segoe UI", "Trebuchet MS", "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --font-serif: "Palatino Linotype", "Book Antiqua", "Cormorant Garamond", Georgia, Cambria, serif;
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -118,7 +131,7 @@
   --sidebar-ring: #f3c061;
 }
 
-.dark {
+:where(.dark) {
   --background: #21343a;
   --foreground: #f4f7f3;
   --card: #284148;
