@@ -160,7 +160,7 @@ export function AccessRequestForm() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="ar-congregation">Gyülekezet (ha tudja)</Label>
+          <Label htmlFor="ar-congregation">Gyülekezet</Label>
           <Input
             id="ar-congregation"
             value={form.congregation_slug}

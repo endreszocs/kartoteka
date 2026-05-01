@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01x] — AccessRequestForm "Gyülekezet" label tisztítás (v0.9.20)
+
+<!-- key: 2026-05-01x-access-form-gyulekezet-label -->
+<!-- category: improvement -->
+<!-- version: v0.9.20 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a Hozzáférés kérelme / Adatok megadása
+résznél a '(ha tudja)' szöveget töröld") alapján az
+`access-request-form.tsx` 163. sorában a `Label` szövege:
+
+- "Gyülekezet (ha tudja)" → "Gyülekezet"
+
+Csak webes release.
+
+---
+
 ## [2026-05-01w] — Auth-card szélesebb + jobb reszponzivitás (v0.9.19)
 
 <!-- key: 2026-05-01w-auth-wider-responsive -->
