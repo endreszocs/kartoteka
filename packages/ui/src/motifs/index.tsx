@@ -172,7 +172,9 @@ export function MotifTrellis({ opacity = 0.05, style, className }: Omit<MotifPro
       width="100%"
       height="100%"
       preserveAspectRatio="xMidYMid slice"
-      style={{ position: 'absolute', inset: 0, opacity, ...style }}
+      // pointer-events: none — kritikus! A `position: absolute; inset: 0` SVG
+      // overlay különben elfogná a sidebar nav-link click-jeit.
+      style={{ position: 'absolute', inset: 0, opacity, pointerEvents: 'none', ...style }}
       className={className}
       aria-hidden="true"
     >

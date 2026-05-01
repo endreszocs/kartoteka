@@ -369,10 +369,9 @@ function TermsContent() {
 
       <Note>
         <strong>Bátorítás:</strong> ne ijedjen meg a jogi nyelvezettől — a Kartotéka egy{' '}
-        <em>egyházi szolgálati eszköz</em>, nem üzleti termék. Ezeket a feltételeket kifejezetten
-        azért írtuk meg, hogy Ön nyugodtan, jó lelkiismerettel használhassa, és a gyülekezet is
-        tudja, hogy minden átlátható. A rendszer ingyenes, és minden gyülekezetnek <em>áldás</em>{' '}
-        lehet, ha helyesen használjuk.
+        <em>egyházi szolgálati eszköz</em>. Ezeket a feltételeket kifejezetten azért írtuk meg,
+        hogy Ön nyugodtan, jó lelkiismerettel használhassa, és a gyülekezet is tudja, hogy
+        minden átlátható. Minden gyülekezetnek <em>áldás</em> lehet, ha helyesen használjuk.
       </Note>
 
       <SectionTitle>1. Mi a Kartotéka rendszer?</SectionTitle>
@@ -405,19 +404,19 @@ function TermsContent() {
         keresztül lehet jelezni.
       </p>
 
-      <SectionTitle>3. A Kartotéka <em>ingyenes</em></SectionTitle>
+      <SectionTitle>3. A szolgáltatás díjazása</SectionTitle>
       <p>
-        A rendszer minden EREK-gyülekezet számára <strong>teljesen ingyenes</strong>. Nincs
-        havi díj, nincs tagdíj, nincs „prémium" verzió. Ez a Kartotéka <em>szolgálati
-        ajándék</em> a református közösség számára — a fejlesztő szabad idejében, lelkipásztori
-        szolgálata mellett építi és gondozza.
+        A Kartotéka rendszer használati díjáról és feltételeiről az EREK-gyülekezetek a
+        kerületi adminisztratív csatornákon keresztül kapnak részletes tájékoztatást.
+        A rendszergazda a szolgáltatás működtetésével és karbantartásával kapcsolatos
+        kérdésekben mindig a gyülekezetek mellett áll.
       </p>
 
       <SectionTitle>4. Mire kéri Önt a rendszer?</SectionTitle>
       <p>A felhasználó kötelezettségei egyszerűek és tiszták:</p>
       <ul className="list-disc pl-6 space-y-1.5">
-        <li><strong>Csak egyházi célra</strong> használja a rendszert. Ez nem üzleti, nem
-          marketing, nem politikai eszköz.</li>
+        <li><strong>Csak egyházi célra</strong> használja a rendszert — szolgálati feladatok
+          támogatására, gyülekezeti élet nyilvántartására.</li>
         <li><strong>Pontosan adja be az adatokat.</strong> Egy elgépelt cím, egy rossz dátum
           ugyanúgy okozhat problémát digitálisan, mint a papíron.</li>
         <li><strong>Tartsa titokban a jelszavát.</strong> Senkinek ne adja át, és kerülje az olyan
@@ -475,9 +474,10 @@ function TermsContent() {
         def={'latin: „nagyobb erő". Olyan helyzet, amit emberi módon nem lehet befolyásolni — pl. földrengés, tűzvész, háború, járvány, hatósági lezárás, kibertámadás. A jog elismeri, hogy ilyen esetekben senki nem felel azért, ami elromlik.'}
       />
       <p>
-        A felelősség mértéke — amennyiben a jog ezt megengedi — minden esetben legfeljebb{' '}
-        <strong>0 (nulla) lej</strong>, mivel a Kartotéka teljesen <em>ingyenes
-        szolgálati ajándék</em>.
+        A felelősség mértékét a vonatkozó jogszabályok és a szolgáltatás jellege szerint
+        a lehető legkisebbre korlátozzuk. Az üzemeltető és a szellemi alapot adó személy
+        felelőssége — amennyiben a jog ezt megengedi — minden esetben a vonatkozó
+        szerződéses keretek által meghatározott mértékre szorítkozik.
       </p>
 
       <SectionTitle>8. Adatvédelem</SectionTitle>
@@ -801,10 +801,10 @@ function ContactContent() {
       </ul>
 
       <Note>
-        <strong>Záró bátorítás:</strong> a Kartotéka rendszer szolgálati eszköz, nem üzleti
-        termék. Minden visszajelzés, minden kérdés, minden javaslat<em>épít</em>: a rendszer a
-        gyülekezetekre van szabva, és csak akkor lesz egyre jobb, ha a használók megosztják a
-        tapasztalataikat. Bátran írjon — Isten áldása legyen a szolgálatán.
+        <strong>Záró bátorítás:</strong> a Kartotéka rendszer egyházi szolgálati eszköz.
+        Minden visszajelzés, minden kérdés, minden javaslat <em>épít</em>: a rendszer a
+        gyülekezetekre van szabva, és csak akkor lesz egyre jobb, ha a használók megosztják
+        a tapasztalataikat. Bátran írjon — Isten áldása legyen a szolgálatán.
       </Note>
     </>
   )

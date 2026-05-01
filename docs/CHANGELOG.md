@@ -23,6 +23,91 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02d] — Sidebar click bug fix + "üzleti termék" tisztítás (v0.9.24)
+
+### 🐛 KRITIKUS BUG FIX: sidebar nav-link click
+
+A felhasználó panasza: "A sidebar-ban ha kattintok egy oldalra vagy
+almenüre akkor nem vezet át oda!". Diagnosztika: a v0.9.7 sablon-elemekből
+származó `<MotifTrellis>` SVG (kerített kert sidebar-decor) `position:
+absolute; inset: 0`-val a sidebar tartalma **fölött** áll. Az SVG
+alapból `pointer-events: auto` — `aria-hidden` a felhasználó nem látta,
+de a click NEM ért el a `<Link>`-ekhez.
+
+**Fix**: `pointerEvents: 'none'` az `MotifTrellis` SVG inline-style-jában.
+A click most átmegy az SVG-overlay-en a nav-link-ekhez.
+
+### 🧹 "Üzleti termék" / "ingyenes" / "0 lej" tisztítás (v0.9.23-ból)
+
+A felhasználó észrevétele: "A nem üzleti termék részt töröld mindenhonnan
+mert valószínüleg ezért a gyülekzeteknek majd fizetniük kell". A
+legal-dialog.tsx-ből az alábbiak módosítása:
+
+- ÁSZF Note: "nem üzleti termék" + "rendszer ingyenes" → semleges
+  megfogalmazás ("egyházi szolgálati eszköz", "minden gyülekezetnek
+  áldás lehet")
+- ÁSZF 3. szakasz: "A Kartotéka *ingyenes*" → "A szolgáltatás díjazása"
+  (kerületi adminisztratív csatornán keresztül kapnak tájékoztatást)
+- ÁSZF 4. szakasz "csak egyházi célra" pont: "Ez nem üzleti, nem marketing,
+  nem politikai eszköz" → "szolgálati feladatok támogatására, gyülekezeti
+  élet nyilvántartására"
+- Felelősség-kizárás: "max 0 (nulla) lej, mivel ingyenes szolgálati
+  ajándék" → "vonatkozó jogszabályok és szolgáltatás jellege szerint a
+  lehető legkisebbre korlátozzuk"
+- Kapcsolat záró bátorítás: "szolgálati eszköz, nem üzleti termék" →
+  "egyházi szolgálati eszköz"
+
+A megfogalmazás most jövő-biztos: nem zárja ki sem a díj-mentes
+használatot, sem a későbbi díjbevezetést.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
+## [2026-05-02c] — Legal-dialog tartalom: laikus, lelkipásztorbarát, bővebb (v0.9.23)
+
+(felülről eltolva)
+
+
+
+<!-- key: 2026-05-02d-sidebar-click-fix -->
+<!-- category: bugfix -->
+<!-- version: v0.9.24 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+### 🐛 Bug
+
+A felhasználó panasza: "A sidebar-ban ha kattintok egy oldalra vagy
+almenüre akkor nem vezet át oda!". Diagnosztikával derült ki: a
+v0.9.7-es sablon-elemekből származó `<MotifTrellis>` SVG (kerített kert
+téma sidebar-decor-jaként) `position: absolute; inset: 0`-val a sidebar
+tartalma **fölött** áll. Az SVG-knek alapból `pointer-events: auto`
+értékük van, így a click-eket az SVG kapta el — és mivel `aria-hidden`,
+a felhasználó nem látta hogy ott van valami fölött. A click NEM ért el a
+`<Link>` navigációs elemekhez.
+
+### ✅ Fix
+
+A `packages/ui/src/motifs/index.tsx` `MotifTrellis` SVG inline-style-jában
+hozzáadva: `pointerEvents: 'none'`. Ezzel a sidebar nav-link click-jei
+most átmennek az SVG-overlay-en és helyesen aktiválják a Next.js Link
+navigációt.
+
+A többi motívum (Church, Bible, Olive, Dove, Cross, Star4) jelenleg
+NEM `position: absolute` overlay-ben renderelődik (csak inline content-ben),
+így ezek nem érintettek — de jó-gyakorlat-szerűen érdemes lenne nekik is
+hozzáadni a `pointer-events: none`-t. Ez későbbi finomítás.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Mind a 3 téma érintett (a Trellis a
+Kerített kert default témán használt sidebar-decor-ként; a Csendes
+parókia és Zsoltáros eltérő motivumokat használ).
+
+---
+
 ## [2026-05-02c] — Legal-dialog tartalom: laikus, lelkipásztorbarát, bővebb (v0.9.23)
 
 <!-- key: 2026-05-02c-legal-laikus -->
