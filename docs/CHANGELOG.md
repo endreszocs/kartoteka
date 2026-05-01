@@ -23,6 +23,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02f] — Hot-fix: 3 új Term def prop string-zárás javítása (v0.9.26)
+
+A v0.9.25 commit-ban 3 új `<Term def="...">` prop magyar idézőjeleken
+belüli ASCII " karakterek miatt nem fordult le tsc-strict alatt
+(a Railway build elhalt). Javítás: a `def="..."` → `def={'...'}`
+template-string formára cserélve a 3 érintett Term-en (DDoS, AES-256
+titkosítás, SOC 2 Type 2 tanúsítvány).
+
+Verify: TypeScript + build zöld.
+
+---
+
 ## [2026-05-02e] — Adatvédelem: Supabase + Railway + GDPR + egyházi hierarchia (v0.9.25)
 
 A felhasználó kérése: bővebb tartalom a Supabase-ről, biztonsági

@@ -198,7 +198,7 @@ function PrivacyContent() {
       />
       <Term
         word="DDoS"
-        def="„Distributed Denial of Service" — magyarul „elosztott szolgáltatásmegtagadási támadás". Ez azt jelenti, amikor sok ezer számítógép egyszerre próbálja meglátogatni a szervert, hogy az lefagyjon. A Cloudflare automatikusan kiszűri az ilyen támadási kísérleteket, mielőtt elérnék a Kartotékát."
+        def={'„Distributed Denial of Service" — magyarul „elosztott szolgáltatásmegtagadási támadás". Ez azt jelenti, amikor sok ezer számítógép egyszerre próbálja meglátogatni a szervert, hogy az lefagyjon. A Cloudflare automatikusan kiszűri az ilyen támadási kísérleteket, mielőtt elérnék a Kartotékát.'}
       />
       <Term
         word="PostgreSQL"
@@ -206,11 +206,11 @@ function PrivacyContent() {
       />
       <Term
         word="AES-256 titkosítás"
-        def="„Advanced Encryption Standard" 256 bites kulcsa. Ezt használja az amerikai Nemzetbiztonsági Hivatal a szigorúan titkos adatok védelmére. Egy mai szuperszámítógépnek is évmilliárdokba telne feltörni."
+        def={'„Advanced Encryption Standard" 256 bites kulcsa. Ezt használja az amerikai Nemzetbiztonsági Hivatal a szigorúan titkos adatok védelmére. Egy mai szuperszámítógépnek is évmilliárdokba telne feltörni.'}
       />
       <Term
         word="SOC 2 Type 2 tanúsítvány"
-        def="„Service Organization Control 2 Type 2" — független könyvvizsgálók által több hónapon át elvégzett, részletes biztonsági audit. Csak az a szolgáltató kapja meg, aki bizonyíthatóan védi az ügyfél-adatait."
+        def={'„Service Organization Control 2 Type 2" — független könyvvizsgálók által több hónapon át elvégzett, részletes biztonsági audit. Csak az a szolgáltató kapja meg, aki bizonyíthatóan védi az ügyfél-adatait.'}
       />
       <Term
         word="ISO 27001 tanúsítvány"
