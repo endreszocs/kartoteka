@@ -25,7 +25,18 @@
 /* ===================================================================
    Light + dark mód mindkettőre érvényes (selector-szempontból azonos
    az `[data-theme="X"]` mert a téma-vars már light/dark-aware)
+
+   FONTOS — `@layer utilities` wrapper (Sprint S F1 hotfix, 2026-05-01h):
+   A Tailwind 4 a `.text-slate-500`, `.bg-white` stb. utility-class-okat
+   `@layer utilities`-ba teszi. A CSS-layerek prioritása `utilities >
+   components > base > nincs-layer`. Ha az enyéim `@layer utilities`-en
+   KÍVÜL vannak, a Tailwind utility-class felülírja őket — még akkor is,
+   ha az enyém specificity-je magasabb. **A `@layer utilities` wrapper
+   biztosítja, hogy a téma-aware override-jaim ugyanabban a layer-ben
+   szerepeljenek, így a magasabb specificity (`(0,2,0)` vs `(0,1,0)`) nyer.**
    =================================================================== */
+
+@layer utilities {
 
 [data-theme="kert"],
 [data-theme="parokia"],
@@ -251,3 +262,5 @@
     color: color-mix(in oklab, var(--accent2) 80%, var(--foreground));
   }
 }
+
+} /* end @layer utilities */
