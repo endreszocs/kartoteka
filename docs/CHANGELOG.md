@@ -23,6 +23,55 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01m] — Missziós Műhely fejléce sablon-konform Kartotéka-ikonnal (v0.9.9)
+
+<!-- key: 2026-05-01m-misszios-muhely-fejlec-sablon -->
+<!-- category: improvement -->
+<!-- version: v0.9.9 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+A felhasználói visszajelzés ("a missziós műhely fejléce legyen pont olyan
+mint a sablonban, az ikon legyen a Kartotéka ikonja") alapján a
+`MuhelyNavbar` átdolgozása a sablon `mission.jsx → MMTopbar`
+mintájára.
+
+### 🎨 Változások (`MuhelyNavbar`)
+
+- **Brand ikon**: 36×36 emerald-gradient `<Sparkles />` ikon → **44×44
+  Kartotéka logó** (`/kartoteka-logo.png`, transzparens háttér).
+- **Modul-név**: `font-heading text-xl font-semibold` → kicsi, uppercase,
+  `text-[13px] font-semibold tracking-[0.12em] text-muted-foreground` +
+  kicsi accent-színű fa-ág SVG ikon a sablon szerint.
+- **Háttér**: `bg-white/80 backdrop-blur-xl` → krém-átlátszó
+  `color-mix(in oklab, var(--background) 60%, transparent)` + `backdrop-blur-md`.
+- **Border**: `border-emerald-100/60` → `border-border` (téma-aware).
+- **Width-wrapper**: `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8` → `w-full
+  px-4 sm:px-6 lg:px-7` (full-width, sablon px-7 padding).
+- **Aktív nav-link**: `bg-emerald-50 text-emerald-700` → `bg-card`
+  + inline `color: var(--accent2)` + accent-szín shadow (téma-aware).
+- **Mobile dropdown** + **mobile bottom tab bar**: emerald/slate színek
+  cseréje `border-border bg-popover text-muted-foreground` +
+  `var(--accent2)` aktív állapotban.
+
+### ✅ Verify (Chrome MCP, localhost:3000/misszios-muhely)
+
+| elem | sablon | jelenlegi |
+|---|---|---|
+| nav height | 64px | 64px ✅ |
+| Kartotéka logó | 44×44 | 44×44 ✅ |
+| modul-név | uppercase, 13.5px | uppercase, 13px ✅ |
+| háttér | átlátszó krém | `oklab(.958 / 0.6)` ✅ |
+| border-bottom | t.divider | `rgba(28,42,38,0.08)` ✅ |
+
+- TypeScript (tsc --noEmit) zöld
+- Build (next build --webpack) zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Desktop NEM kap új release-t.
+
+---
+
 ## [2026-05-01l] — Missziós Műhely full-width + header Kartotéka-ikonos sidebar toggle (v0.9.8)
 
 <!-- key: 2026-05-01l-misszios-muhely-fullwidth-kartoteka-toggle -->
