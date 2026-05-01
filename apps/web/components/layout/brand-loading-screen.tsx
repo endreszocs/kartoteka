@@ -16,7 +16,7 @@ export function BrandLoadingScreen({
   compact = false,
 }: BrandLoadingScreenProps) {
   return (
-    <div className="relative isolate overflow-hidden rounded-[2rem] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,252,249,0.88))] p-6 shadow-[0_30px_70px_-45px_rgba(16,70,63,0.35)]">
+    <div className="card-raised relative isolate overflow-hidden p-6">
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(243,192,97,0.22),transparent_15rem),radial-gradient(circle_at_top_right,rgba(54,162,152,0.16),transparent_17rem)]" />
       <div className="absolute left-[-2rem] top-[-2rem] -z-10 h-28 w-28 rounded-full bg-amber-200/30 blur-3xl" />
       <div className="absolute bottom-[-2rem] right-[-2rem] -z-10 h-28 w-28 rounded-full bg-teal-200/30 blur-3xl" />

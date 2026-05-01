@@ -347,7 +347,7 @@ export function SidebarAdaptive({
 }: SidebarProps) {
   const navProps = { role, isEsperes, isAdmin, isMasterAdmin, hasCongregation, isGodMode }
   const shellClassName =
-    'relative h-dvh shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'
+    'relative h-dvh shrink-0 overflow-hidden border-r border-white/10 bg-[var(--sidebar)] text-[var(--sidebar-foreground)]'
 
   return (
     <>

@@ -605,8 +605,12 @@ export function SidebarAdaptiveV4({
     tagnyilvantartasSubmenu,
     anyakonyvSubmenu,
   }
+  // Sprint S F1 — téma-aware sidebar háttér (a hardkódolt #14514b→#16334e
+  // gradient cserélődött a `--sidebar` CSS-vars-ra, ami a 3 téma szerint
+  // változik: Kerített kert #143030, Csendes parókia #1f3a3a, Zsoltáros #2a2218.
+  // A finom gradient-effektust egy halvány overlay-jel megtartjuk.
   const shellBaseClassName =
-    'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'
+    'relative shrink-0 overflow-hidden border-r border-white/10 text-[var(--sidebar-foreground)] bg-[var(--sidebar)]'
   const desktopShellClassName = cn(shellBaseClassName, 'h-dvh')
   const mobileShellClassName = cn(shellBaseClassName, 'h-dvh min-h-dvh')
 

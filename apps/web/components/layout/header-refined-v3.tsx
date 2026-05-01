@@ -155,7 +155,7 @@ export function HeaderRefinedV3({
 
             <DropdownMenuContent
               align="end"
-              className="w-72 rounded-[1.4rem] border-white/70 bg-[rgba(255,255,255,0.95)] p-2 shadow-[0_24px_50px_-30px_rgba(16,70,63,0.44)] backdrop-blur-xl"
+              className="w-72 rounded-[1.4rem] border border-border bg-popover p-2 shadow-lg backdrop-blur-xl"
             >
               {hasMultipleRoles && (
                 <>

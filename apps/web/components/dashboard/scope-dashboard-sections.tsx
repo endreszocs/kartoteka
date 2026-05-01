@@ -73,7 +73,10 @@ export function ScopeHero({
   chips: string[]
 }) {
   return (
-    <section className="relative overflow-hidden rounded-[2rem] border border-white/16 bg-[linear-gradient(135deg,#14514b_0%,#1b6a63_44%,#264f69_100%)] px-6 py-7 text-white shadow-[0_34px_90px_-46px_rgba(11,44,54,0.74)] md:px-8 md:py-8">
+    <section
+      className="relative overflow-hidden rounded-[2rem] border border-white/16 px-6 py-7 text-white shadow-[0_34px_90px_-46px_rgba(11,44,54,0.74)] md:px-8 md:py-8"
+      style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--primary) 60%, var(--sidebar) 100%)' }}
+    >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,224,173,0.22),transparent_17rem),radial-gradient(circle_at_bottom_right,rgba(184,240,228,0.18),transparent_18rem)]" />
       <div className="relative z-10">
         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-teal-50/74">{eyebrow}</p>
@@ -220,8 +223,8 @@ export function RoleDistributionCard({ rows }: { rows: { role: string; count: nu
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,#1f9d8f_0%,#3ba6d6_100%)]"
-                style={{ width: `${Math.max(8, Math.min(100, row.count * 12))}%` }}
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, var(--accent), var(--accent2))', width: `${Math.max(8, Math.min(100, row.count * 12))}%` }}
               />
             </div>
           </div>
