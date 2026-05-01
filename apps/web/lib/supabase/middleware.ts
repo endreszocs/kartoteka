@@ -6,12 +6,22 @@ import { SESSION_MODE_COOKIE } from '@/lib/auth/session-mode'
 // Lelkészi auth útvonalak — bejelentkezett usernek nem kell ide visszamennie
 const PASTOR_AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/oauth-complete', '/auth/callback']
 
+// Publikus auth-related útvonalak — anonim user is elérheti (pl. hozzáférés-kérő űrlap).
+// A `(public)` Next.js route-group NEM jelenik meg a pathname-ben, ezért szükség
+// van explicit whitelistre. (2026-05-01: a `/login` page-en a "Kérjen hozzáférést"
+// gomb mutatott ide, de a middleware visszairányított /login-ra → loop.)
+const PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese']
+
 // Web-onboarding wizard útvonala (M6.3 2026-04-22 óta a /api/standalone/*
 // route-ok kivezetve — a portable Inno Setup build megszüntetve).
 const SETUP_ROUTES = ['/welcome']
 
 function isPastorAuthRoute(pathname: string): boolean {
   return PASTOR_AUTH_ROUTES.some(route => pathname.startsWith(route))
+}
+
+function isPublicAuthRoute(pathname: string): boolean {
+  return PUBLIC_AUTH_ROUTES.some(route => pathname.startsWith(route))
 }
 
 function isSetupRoute(pathname: string): boolean {
@@ -64,6 +74,11 @@ export async function updateSession(request: NextRequest) {
 
   // Publikus gyülekezeti oldalak → mindig átengedünk
   if (isPublicCongregationRoute(pathname)) {
+    return supabaseResponse
+  }
+
+  // Publikus auth-related oldalak (hozzáférés-kérő űrlap stb.) → mindig átengedünk
+  if (isPublicAuthRoute(pathname)) {
     return supabaseResponse
   }
 

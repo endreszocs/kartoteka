@@ -23,6 +23,76 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01u] — Bejelentkezés card sablon-konform + middleware redirect bug fix (v0.9.17)
+
+<!-- key: 2026-05-01u-bejelentkezes-card-redirect-fix -->
+<!-- category: bugfix + improvement -->
+<!-- version: v0.9.17 (csak web) -->
+<!-- targets: minden webes felhasználó -->
+
+### 🐛 Diagnosztika: /hozzaferes-kerese redirect-loop bug
+
+A felhasználó észrevette, hogy a "Kérjen hozzáférést!" gomb (login page)
+nem működik — visszaviszi a `/login`-ra. Diagnosztikával derült ki, hogy
+a `lib/supabase/middleware.ts` 90. sora minden anonim user-t a
+`/login`-ra redirect-el, ha az URL nem `PASTOR_AUTH_ROUTES`-ban van.
+
+A `/hozzaferes-kerese` page a `(public)` Next.js route-group-ban van, de
+a Next.js group-name (`(public)`) NEM jelenik meg a pathname-ben — így
+a middleware nem ismerte fel publikusként, és anonim user-eket
+visszairányított.
+
+**Fix**: új `PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese']` whitelist és
+`isPublicAuthRoute()` helper. Az `updateSession()` early-return-öl, ha
+a path egyezik, és nem fut le az anonim-redirect logika.
+
+### 🎨 LoginForm sablon-konform card-belső
+
+A felhasználó visszajelzése: "a bejelentkezés és a regisztráció kis
+ablak nem egyezik tökéletesen a sablon dizájnjával". A `LoginForm`
+teljes átírása a `Bejelentkezes.html → AuthCard + LoginForm` szerint.
+
+**Új struktúra**:
+- **Tabs** (Bejelentkezés / Regisztráció — utóbbi link a `/hozzaferes-
+  kerese`-re), grid 1fr 1fr, alul arany aláhúzás + zöld active-indikátor
+- **Field** komponens: 48 px magasságú `input-wrap` keret, balra ikon
+  (44 px ico-cella), jobbra `<input>`, jelszónál reveal eye gomb
+  (`Eye`/`EyeOff` toggle). Focus-state: zöld border + 3 px green-glow.
+  Error-state: piros border + 3 px red-glow + alatta `field-msg`.
+- **Row-between**: bal "Emlékezz rám" check (custom 18×18 box, zöld
+  pipa) + jobb "Elfelejtett jelszó?" zöld link
+- **Primary button**: 52 px, `linear-gradient(180deg, #3a7050, #275638)`
+  zöld gradient + Arrow ikon, `loading` esetén Loader2 spin
+- **Secondary button**: "Új fiók létrehozása" link a `/hozzaferes-
+  kerese`-re, arany border, hover → zöld
+- **Badge**: "Szinkronizálható offline módban" zöld pill (Cloud ikon)
+- **Fineprint**: "A regisztráció kerületi jóváhagyáshoz kötött."
+
+### 🛠 Új CSS — kartoteka.css
+
+`kt-auth-tabs`, `kt-auth-tab`, `kt-auth-tab-indicator`, `kt-auth-form`,
+`kt-auth-field`, `kt-auth-input-wrap`, `kt-auth-input-ico`,
+`kt-auth-reveal`, `kt-auth-row-between`, `kt-auth-check`,
+`kt-auth-check-box`, `kt-auth-link`, `kt-auth-btn-primary`,
+`kt-auth-btn-secondary`, `kt-auth-badge`, `kt-auth-fineprint`,
+`kt-auth-server-error` — összesen ~280 sor új CSS, sablon-szín-paletta
+(beige/gold/green) + box-shadow + transition-állapotok.
+
+### ✅ Verify (Chrome MCP, localhost:3000)
+
+- `/login`: 2 tab, 2 ikonos input (mail+lock), reveal eye, "Belépés"
+  primary, "Új fiók létrehozása" secondary, "Szinkronizálható offline
+  módban" badge ✅
+- `/hozzaferes-kerese`: NEM redirect-el `/login`-ra; `h1: "Csatlakozzon
+  a Kartotéka rendszerhez"` ✅
+- TypeScript + build zöld
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-01t] — Bejelentkezés oldal sablon szerint (v0.9.16)
 
 <!-- key: 2026-05-01t-bejelentkezes-sablon -->
