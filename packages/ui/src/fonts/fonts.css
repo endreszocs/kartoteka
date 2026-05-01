@@ -1,0 +1,40 @@
+/**
+ * Kartotéka — self-hosted betűcsaládok (Sprint R · Vizuális megújulás).
+ *
+ * 5 család a 3 témához (`packages/design-tokens/src/themes.ts` szerint):
+ *   - Csendes parókia: Cormorant Garamond (display) + Inter (body)
+ *   - Kerített kert:    Fraunces (display)            + Geist (body)   ← default
+ *   - Zsoltáros:        Roboto Slab (display)         + Inter (body)
+ *
+ * Self-hosted (`@fontsource/*` csomagok) — GDPR-barát, offline-ready, desktop
+ * Tauri WebView-ban is működik (nincs Google Fonts CDN-függés).
+ *
+ * A latin-ext subset minden családnál benne van (magyar é, ő, ű támogatás).
+ */
+
+/* Cormorant Garamond — Csendes parókia display */
+@import "@fontsource/cormorant-garamond/400.css";
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/cormorant-garamond/700.css";
+
+/* Fraunces — Kerített kert display */
+@import "@fontsource/fraunces/400.css";
+@import "@fontsource/fraunces/500.css";
+@import "@fontsource/fraunces/600.css";
+@import "@fontsource/fraunces/700.css";
+
+/* Roboto Slab — Zsoltáros display */
+@import "@fontsource/roboto-slab/400.css";
+@import "@fontsource/roboto-slab/500.css";
+@import "@fontsource/roboto-slab/600.css";
+@import "@fontsource/roboto-slab/700.css";
+
+/* Inter — Csendes parókia + Zsoltáros body */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+/* Geist Variable — Kerített kert body (DEFAULT) */
+@import "@fontsource-variable/geist";

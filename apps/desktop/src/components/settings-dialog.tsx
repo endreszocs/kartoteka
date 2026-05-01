@@ -41,6 +41,7 @@ import {
   TabsTrigger,
   cn,
 } from '@kartoteka/ui'
+import { ThemePicker, useThemeStyle } from '@kartoteka/ui-app'
 
 import { AdatBiztonsagPanel } from './settings/adat-biztonsag-panel'
 import { FrissitesPanel } from './settings/frissites-panel'
@@ -134,6 +135,7 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS)
   const [theme, setThemeState] = useState<ThemeMode>('system')
+  const { theme: themeStyle, setTheme: setThemeStyle } = useThemeStyle()
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
 
   // Hidratáljuk a user prefs-et a dialog megnyitásakor (SSR-safe módon)
@@ -301,7 +303,22 @@ export function SettingsDialog({
 
             {/* ── MEGJELENÉS ── */}
             <TabsContent value="megjelenes" className="space-y-4">
-              <SettingsSection title="Téma" icon={<Palette className="size-4" />}>
+              <SettingsSection title="Téma stílusa" icon={<Palette className="size-4" />}>
+                <ThemePicker
+                  value={themeStyle}
+                  onChange={(next) => {
+                    setThemeStyle(next)
+                    flashSaveMsg()
+                  }}
+                />
+                <p className="mt-3 text-[11px] text-slate-500">
+                  Az alapértelmezett a <strong>Kerített kert</strong>. A választott téma az
+                  oldalsávra, a fejlécekre, a kártyákra és a betűkre is hatással van — a
+                  táblázatok elrendezése változatlan.
+                </p>
+              </SettingsSection>
+
+              <SettingsSection title="Sötét/világos mód" icon={<Sun className="size-4" />}>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <ThemeCard
                     icon={<Sun className="size-5" />}

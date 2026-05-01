@@ -1,0 +1,226 @@
+/**
+ * Kartotéka — 3 vizuális téma CSS-vars rétege (Sprint R · Vizuális megújulás).
+ *
+ * Forrása `packages/design-tokens/src/themes.ts` (kézi sync, mert Tailwind 4
+ * inline `@theme` build-script overhead nélkül). Mindhárom téma (Csendes
+ * parókia, Kerített kert, Zsoltáros) light + dark variánssal — összesen 6 blokk.
+ *
+ * A `kartoteka.css` `:root` és `.dark` (sor 73-143) **változatlan** marad
+ * (current paletta, fallback). A téma-választás `[data-theme="..."]` attr-en
+ * keresztül történik az HTML rooton — a `ThemeStyleProvider` állítja be.
+ *
+ * Default a Kerített kert: az `apps/web/app/layout.tsx` és
+ * `apps/desktop/index.html` `<html data-theme="kert">` kezdőértéket állít.
+ */
+
+/* ───────────────────────────────────────────────────────────────────
+   1. Kerített kert — modern SaaS, hűvös zöld (DEFAULT)
+   ─────────────────────────────────────────────────────────────────── */
+
+[data-theme="kert"] {
+  --background: #f3f1ec;
+  --foreground: #1c2a26;
+  --card: #ffffff;
+  --card-foreground: #1c2a26;
+  --popover: #ffffff;
+  --popover-foreground: #1c2a26;
+  --primary: #264e4a;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f5f0;
+  --secondary-foreground: #1c2a26;
+  --muted: #f7f5f0;
+  --muted-foreground: #6e7a72;
+  --accent: #6b8e4e;
+  --accent-foreground: #ffffff;
+  --accent2: #9bbf6e;
+  --destructive: #c44a3a;
+  --border: rgba(28, 42, 38, 0.08);
+  --input: #ffffff;
+  --ring: #264e4a;
+  --sidebar: #143030;
+  --sidebar-foreground: rgba(228, 232, 222, 0.85);
+  --sidebar-primary: #9bbf6e;
+  --sidebar-primary-foreground: #143030;
+  --sidebar-accent: rgba(107, 142, 78, 0.18);
+  --sidebar-accent-foreground: #e4e8de;
+  --sidebar-border: rgba(228, 232, 222, 0.08);
+  --sidebar-ring: #9bbf6e;
+  --font-sans: "Geist Variable", "Inter", system-ui, sans-serif;
+  --font-serif: "Fraunces", "Source Serif Pro", Georgia, serif;
+}
+
+[data-theme="kert"].dark,
+.dark [data-theme="kert"],
+[data-theme="kert"] .dark {
+  --background: #1a1f1d;
+  --foreground: #e8e1d2;
+  --card: #22282a;
+  --card-foreground: #e8e1d2;
+  --popover: #22282a;
+  --popover-foreground: #e8e1d2;
+  --primary: #6b8e4e;
+  --primary-foreground: #ffffff;
+  --secondary: #2a3230;
+  --secondary-foreground: #e8e1d2;
+  --muted: #2a3230;
+  --muted-foreground: #8a8474;
+  --accent: #9bbf6e;
+  --accent-foreground: #1a1f1d;
+  --accent2: #b6cf8c;
+  --destructive: #d96a5a;
+  --border: rgba(232, 225, 210, 0.08);
+  --input: rgba(232, 225, 210, 0.05);
+  --ring: #9bbf6e;
+  --sidebar: #0e1f1f;
+  --sidebar-foreground: rgba(228, 232, 222, 0.85);
+  --sidebar-primary: #9bbf6e;
+  --sidebar-primary-foreground: #0e1f1f;
+  --sidebar-accent: rgba(107, 142, 78, 0.18);
+  --sidebar-accent-foreground: #e4e8de;
+  --sidebar-border: rgba(228, 232, 222, 0.08);
+  --sidebar-ring: #9bbf6e;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   2. Csendes parókia — meleg, lelkipásztori, klasszikus serif
+   ─────────────────────────────────────────────────────────────────── */
+
+[data-theme="parokia"] {
+  --background: #faf6ed;
+  --foreground: #22332e;
+  --card: #fffdf7;
+  --card-foreground: #22332e;
+  --popover: #fffdf7;
+  --popover-foreground: #22332e;
+  --primary: #1f3a3a;
+  --primary-foreground: #faf6ed;
+  --secondary: rgba(31, 58, 58, 0.05);
+  --secondary-foreground: #22332e;
+  --muted: rgba(31, 58, 58, 0.05);
+  --muted-foreground: #6b7669;
+  --accent: #5a8a48;
+  --accent-foreground: #faf6ed;
+  --accent2: #a4c98a;
+  --destructive: #a3551c;
+  --border: rgba(31, 58, 58, 0.08);
+  --input: rgba(31, 58, 58, 0.05);
+  --ring: #1f3a3a;
+  --sidebar: #1f3a3a;
+  --sidebar-foreground: rgba(247, 243, 234, 0.85);
+  --sidebar-primary: #a4c98a;
+  --sidebar-primary-foreground: #1f3a3a;
+  --sidebar-accent: rgba(247, 243, 234, 0.1);
+  --sidebar-accent-foreground: #faf6ed;
+  --sidebar-border: rgba(247, 243, 234, 0.1);
+  --sidebar-ring: #a4c98a;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: "Cormorant Garamond", "Source Serif Pro", Georgia, serif;
+}
+
+[data-theme="parokia"].dark,
+.dark [data-theme="parokia"],
+[data-theme="parokia"] .dark {
+  --background: #1a1f1d;
+  --foreground: #e8e1d2;
+  --card: #22282a;
+  --card-foreground: #e8e1d2;
+  --popover: #22282a;
+  --popover-foreground: #e8e1d2;
+  --primary: #5a8a48;
+  --primary-foreground: #faf6ed;
+  --secondary: #2a3230;
+  --secondary-foreground: #e8e1d2;
+  --muted: #2a3230;
+  --muted-foreground: #8a8474;
+  --accent: #a4c98a;
+  --accent-foreground: #1a1f1d;
+  --accent2: #c0dfa6;
+  --destructive: #d97a4f;
+  --border: rgba(232, 225, 210, 0.08);
+  --input: rgba(232, 225, 210, 0.05);
+  --ring: #a4c98a;
+  --sidebar: #131e1d;
+  --sidebar-foreground: rgba(247, 243, 234, 0.85);
+  --sidebar-primary: #a4c98a;
+  --sidebar-primary-foreground: #131e1d;
+  --sidebar-accent: rgba(247, 243, 234, 0.08);
+  --sidebar-accent-foreground: #faf6ed;
+  --sidebar-border: rgba(247, 243, 234, 0.1);
+  --sidebar-ring: #a4c98a;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   3. Zsoltáros — klasszikus, méltóságteljes, slab serif
+   ─────────────────────────────────────────────────────────────────── */
+
+[data-theme="zsoltaros"] {
+  --background: #f6efe1;
+  --foreground: #2a2218;
+  --card: #fdf9ed;
+  --card-foreground: #2a2218;
+  --popover: #fdf9ed;
+  --popover-foreground: #2a2218;
+  --primary: #2c4a3e;
+  --primary-foreground: #f6efe1;
+  --secondary: #f6efe1;
+  --secondary-foreground: #2a2218;
+  --muted: #f6efe1;
+  --muted-foreground: #7a6e58;
+  --accent: #a3551c;
+  --accent-foreground: #f6efe1;
+  --accent2: #c97a3f;
+  --destructive: #a3551c;
+  --border: rgba(42, 34, 24, 0.1);
+  --input: rgba(255, 255, 255, 0.5);
+  --ring: #2c4a3e;
+  --sidebar: #2a2218;
+  --sidebar-foreground: rgba(246, 239, 225, 0.85);
+  --sidebar-primary: #c97a3f;
+  --sidebar-primary-foreground: #2a2218;
+  --sidebar-accent: rgba(163, 85, 28, 0.2);
+  --sidebar-accent-foreground: #f6efe1;
+  --sidebar-border: rgba(246, 239, 225, 0.1);
+  --sidebar-ring: #c97a3f;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-serif: "Roboto Slab", "Source Serif Pro", Georgia, serif;
+}
+
+[data-theme="zsoltaros"].dark,
+.dark [data-theme="zsoltaros"],
+[data-theme="zsoltaros"] .dark {
+  --background: #1f1814;
+  --foreground: #e8e1d2;
+  --card: #2a2218;
+  --card-foreground: #e8e1d2;
+  --popover: #2a2218;
+  --popover-foreground: #e8e1d2;
+  --primary: #5a8a48;
+  --primary-foreground: #f6efe1;
+  --secondary: #2f2722;
+  --secondary-foreground: #e8e1d2;
+  --muted: #2f2722;
+  --muted-foreground: #a59881;
+  --accent: #c97a3f;
+  --accent-foreground: #1f1814;
+  --accent2: #e09661;
+  --destructive: #d97a4f;
+  --border: rgba(232, 225, 210, 0.1);
+  --input: rgba(232, 225, 210, 0.05);
+  --ring: #c97a3f;
+  --sidebar: #15110d;
+  --sidebar-foreground: rgba(246, 239, 225, 0.85);
+  --sidebar-primary: #c97a3f;
+  --sidebar-primary-foreground: #15110d;
+  --sidebar-accent: rgba(163, 85, 28, 0.2);
+  --sidebar-accent-foreground: #f6efe1;
+  --sidebar-border: rgba(246, 239, 225, 0.1);
+  --sidebar-ring: #c97a3f;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   Mindegyik témára közös: a heading (serif) class is a téma-fontot kapja
+   ─────────────────────────────────────────────────────────────────── */
+
+[data-theme] .font-heading {
+  font-family: var(--font-serif), Georgia, serif;
+}

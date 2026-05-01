@@ -24,6 +24,15 @@
    `./` = `packages/ui/src/` — ezt scanneli minden app Tailwind-je. */
 @source "./";
 
+/* Sprint R · Vizuális megújulás (v0.8.0+) — self-hosted betűcsaládok és
+   3 vizuális téma (Csendes parókia, Kerített kert, Zsoltáros) CSS-vars rétege.
+   A `:root` / `.dark` blokkok (lent) változatlanul a current paletta — fallback
+   ha valamiért nincs `data-theme` attr az HTML rooton. A téma-választás a
+   `[data-theme="kert"]` (default) / `[data-theme="parokia"]` / `[data-theme="zsoltaros"]`
+   szelektorokon keresztül felülírja a CSS-vars értékeit. */
+@import "./fonts/fonts.css";
+@import "./themes.css";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -463,6 +472,93 @@
   .kartoteka-print-slide:last-child {
     page-break-after: auto;
   }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Sprint R Fázis 4 (v0.8.3) — Mikro-interakció keyframes
+   A `packages/ui-app/src/loading/`-ben élő komponensek (SplashScreen,
+   LoadingScreen, Skeleton*, PageTransition, IndeterminateBar) ezekre
+   az animációkra építenek. A design-handoff `Kartoteka.html` inline
+   `<style>` blokkjából portolva.
+   ────────────────────────────────────────────────────────────── */
+
+@keyframes kt-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes kt-page-enter {
+  from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+.kt-page-enter {
+  animation: kt-page-enter .42s cubic-bezier(.2, .7, .2, 1);
+}
+
+@keyframes kt-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.kt-skeleton {
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, .06) 0%,
+    rgba(0, 0, 0, .12) 50%,
+    rgba(0, 0, 0, .06) 100%);
+  background-size: 200% 100%;
+  animation: kt-shimmer 1.6s linear infinite;
+  border-radius: 6px;
+}
+.kt-skeleton-dark {
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, .06) 0%,
+    rgba(255, 255, 255, .14) 50%,
+    rgba(255, 255, 255, .06) 100%);
+  background-size: 200% 100%;
+  animation: kt-shimmer 1.6s linear infinite;
+  border-radius: 6px;
+}
+
+@keyframes kt-spin {
+  to { transform: rotate(360deg); }
+}
+.kt-spin {
+  animation: kt-spin 1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes kt-pulse {
+  0%, 100% { transform: scale(1);    opacity: .92; }
+  50%      { transform: scale(1.04); opacity: 1; }
+}
+.kt-pulse {
+  animation: kt-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes kt-progress-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@keyframes kt-slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kt-slide-up {
+  animation: kt-slide-up .5s cubic-bezier(.2, .7, .2, 1);
+}
+
+@keyframes kt-pop {
+  0%   { transform: scale(.7);  opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+.kt-pop {
+  animation: kt-pop .45s cubic-bezier(.2, .7, .2, 1);
+}
+
+@keyframes kt-caret {
+  0%, 50%       { opacity: 1; }
+  50.01%, 100%  { opacity: 0; }
 }
 </content>
 </invoke>

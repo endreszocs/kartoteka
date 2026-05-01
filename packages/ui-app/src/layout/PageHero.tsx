@@ -22,7 +22,7 @@ export function PageHero({ eyebrow, title, description, Icon, actions, stats }: 
 
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] text-[var(--primary-foreground)] shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}>
             <Icon className="size-7" />
           </div>
           <div className="min-w-0">

@@ -7,6 +7,7 @@ import { AnyakonyvPage } from './pages/anyakonyv-page'
 import { BankImportPage } from './pages/bank-import-page'
 import { LeltarPage } from './pages/leltar-page'
 import { IktatoPage } from './pages/iktato-page'
+import { InstallerPreviewPage } from './pages/installer-preview-page'
 import { JegyzokonyvekPage } from './pages/jegyzokonyvek-page'
 import { JegyzokonyvDetailPage } from './pages/jegyzokonyv-detail-page'
 import { SirhelyekPage } from './pages/sirhelyek-page'
@@ -19,6 +20,7 @@ import { DashboardPage } from './pages/dashboard-page'
 import { FamiliesPage } from './pages/families-page'
 import { KiadasPage } from './pages/kiadas-page'
 import { MembersPage } from './pages/members-page'
+import { MissziosMuhelyPage } from './pages/misszios-muhely-page'
 import { MunkanaploPage } from './pages/munkanaplo-page'
 import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
 import { PenzugyLandingPage } from './pages/penzugy-landing-page'
@@ -69,7 +71,9 @@ function App() {
           <Route path="/jegyzokonyvek/:id" element={<JegyzokonyvDetailPage />} />
           <Route path="/sirhelyek" element={<SirhelyekPage />} />
           <Route path="/eves-jelentes" element={<EvesJelentesPage />} />
+          <Route path="/misszios-muhely" element={<MissziosMuhelyPage />} />
           <Route path="/dev" element={<DashboardPage />} />
+          <Route path="/dev/installer-preview" element={<InstallerPreviewPage />} />
           <Route path="*" element={<PlaceholderPage />} />
         </Route>
       </Routes>

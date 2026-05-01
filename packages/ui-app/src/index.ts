@@ -26,6 +26,16 @@
 
 export * from './layout/PageHero'
 export * from './form/ModalField'
+// Sprint R · Vizuális megújulás (v0.8.1) — téma-választó réteg
+export * from './theme'
+// Sprint R · Vizuális megújulás (v0.8.2) — Missziós Műhely home
+export * from './missziosmuhely'
+// Sprint R · Vizuális megújulás (v0.8.3) — mikro-interakciók
+export * from './loading'
+// Sprint R · Vizuális megújulás (v0.8.4) — onboarding wizard (csak web)
+export * from './onboarding'
+// Sprint R · Vizuális megújulás (v0.8.5) — Telepítő wizard UI (preview)
+export * from './installer'
 export * from './indicators/SessionStatusBadge'
 export * from './indicators/SyncStatusBadge'
 export * from './dashboard/HeroBannerScripture'

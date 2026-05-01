@@ -23,6 +23,560 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01f] — Sprint R F6 · Telepítő wizard UI + Sprint R LEZÁRVA (v0.8.5)
+
+<!-- key: 2026-05-01f-sprint-r-f6-telepito-wizard-ui -->
+<!-- category: feature -->
+<!-- version: v0.8.5 -->
+<!-- targets: lelkészek (preview); fejlesztő — telepítő integráció Sprint S F2-be -->
+
+A Windows-telepítőhöz tervezett **980×660 px modern wizard UI** elkészült
+shared komponensként — Windows 11 stílusú title-bar, mély kékeszöld
+oldalsáv, 5 lépéses flow (üdvözlés, licenc, telepítés helye, komponensek,
+folyamat-sáv, befejezés). Desktop preview a `/dev/installer-preview`
+route-on érhető el.
+
+**A teljes Tauri-mini installer wrapper-app (Rust + Vite + ezen UI)
+SPRINT S F2-be kerül**, akkor a `release-build.ps1` build-pipeline
+integrációval, sign-flow-val és Supabase Storage uploaddal együtt. Most
+**csak a UI réteg** készült el — kockázatmentesen tesztelhető a meglévő
+desktop appon belül.
+
+### ✨ Új funkciók
+
+- **`InstallerWizard` komponens** — `packages/ui-app/src/installer/index.tsx`:
+  body-pattern, `initialStep` + `logoSrc` + `version` + `onFinish` + `onCancel`
+  props. 5 lépés state-tel, Windows 11 stílus.
+- **`WinButton`** — primary / secondary / disabled variants, hover állapot.
+- **5 step-body** — `InstallerWelcome`, `LicenceBody` (checkbox-szal),
+  `DestinationBody` (mappa-tallózó), `ComponentsBody` (6 opció checkbox-szal),
+  `ProgressBody` (animált progressbar + console-log), `InstallerFinish`
+  (pipa + 3 utólagos opció).
+- **Desktop preview oldal** — `apps/desktop/src/pages/installer-preview-page.tsx`,
+  `<DesktopShell>` keretben, sötét háttéren.
+- **`/dev/installer-preview`** route — a `apps/desktop/src/App.tsx`-ben
+  regisztrálva.
+
+### 🛠 Technikai
+
+- `packages/ui-app/src/index.ts` — `export * from './installer'`
+- `packages/ui/src/kartoteka.css` — `kt-caret` keyframe (a ProgressBody
+  console blink kurzorához)
+- A jelenlegi NSIS bundle (`apps/desktop/src-tauri/tauri.conf.json:55-66`)
+  **érintetlen** marad — a wrapper integráció Sprint S F2-be megy.
+
+### 🛑 Sprint S F2 előjegyzés (a teljes wrapper)
+
+A jelenlegi desktop NSIS bundle wrapper-éhez új `apps/desktop-installer/`
+workspace package készül:
+- Rust + Tauri 2 + Vite + React + Tailwind 4 (980×660 fix ablak,
+  decorations: true, transparent: false, resizable: false)
+- A `<InstallerWizard>` UI ezen a wrapper-app-on belül fut
+- Rust backend: `Command::new(bundled_nsis_path).args(["/S"]).spawn()` +
+  stdout figyelés event-rel
+- `release-build.ps1` bővítés: két NSIS build (fő app + wrapper) +
+  másol resources-be + sign mindkettő + GH release wrapper-rel mint fő asset
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite)
+
+### 🏁 Sprint R · Vizuális megújulás — LEZÁRVA
+
+| Fázis | Verzió | Tartalom |
+|---|---|---|
+| ✅ F1 | v0.8.0 | Téma-réteg infrastruktúra |
+| ✅ F2 | v0.8.1 | Téma-választó GA |
+| ✅ F3 | v0.8.2 | Missziós Műhely home + desktop paritás |
+| ✅ F4 | v0.8.3 | Mikro-interakciók (Splash, Loading, Skeleton, page transition) |
+| ✅ F5 | v0.8.4 | Onboarding wizard (csak web) |
+| ✅ F6 | **v0.8.5** | **Telepítő wizard UI + desktop preview (LEZÁRVA)** |
+
+**Sprint S előjegyzés:**
+- F1: Login/Register vizuális redesign
+- F2: Tauri-mini installer wrapper-app + build-pipeline integráció
+- F3: IncomeDialog (873s) port a `packages/ui-app/finance/`-ba (Sprint Q F3.2)
+- F4+: Tauri SQLite write flow + offline outbox
+
+---
+
+## [2026-05-01e] — Sprint R F5 · Onboarding wizard (csak web) (v0.8.4)
+
+<!-- key: 2026-05-01e-sprint-r-f5-onboarding-wizard -->
+<!-- category: feature -->
+<!-- version: v0.8.4 -->
+<!-- targets: webes lelkészek — első bejelentkezés / új user flow -->
+
+A webes Kartotékában új user-eknek **4 lépéses bevezető wizard** fut a
+`/onboarding` URL-en. A bal oldalon a téma `--sidebar` színe + Bibliai
+idézet + központi vizuális (templom kép, sugárzó Biblia, vagy pipa-kör),
+a jobb oldalon a step-progress sáv + cím + szöveg + step-specifikus widget +
+navigáció. A „Kihagyom" link és a „Belépés a Kartotékába" CTA egyaránt
+a `/dashboard`-ra navigál.
+
+A desktop appot ez NEM érinti — ott a session a webes bejelentkezésből
+érkezik (közös Supabase auth).
+
+### ✨ Új funkciók
+
+- **`OnboardingScreen` komponens** — `packages/ui-app/src/onboarding/index.tsx`:
+  body-pattern, `assetBase` + `onComplete` + `onSkip` + `initialStep` props.
+  4 lépés: `welcome`, `church`, `import`, `done`. Step indikátor 4-bar,
+  „N / 4" számláló és „Kihagyom" link az 1-3. lépésen.
+- **`ChurchSetupWidget` és `ImportWidget`** — beágyazott step-widget-ek a
+  2. és 3. lépéshez. Most mock-ok (Kolozsvár-Belváros előnézet, fájl-tallózó
+  drop-zone) — a tényleges form-mező és import-flow integráció későbbi
+  iterációkban (Sprint S+).
+- **Új web route** — `apps/web/app/onboarding/page.tsx` `'use client'`,
+  `useRouter()`-rel a CTA-knál.
+- **2 design asset bemásolva** — `apps/web/public/onboarding/` mappába
+  `27-church.png` és `28-bible-rays.png` (a Missziós Műhely-mappából
+  duplikálva, hogy az onboarding asset-jei tisztán szervezve legyenek).
+
+### 🛠 Technikai
+
+- `packages/ui-app/src/index.ts` — `export * from './onboarding'`
+- A meglévő `(auth)` route-csoport (`login`, `register`, `forgot-password`,
+  `oauth-complete`, `pending`) **érintetlen** marad.
+
+### 🛑 Halasztva
+
+A **login és register vizuális redesign** (a design-handoff `LoginScreen`
+komponense) **Sprint S F1-re halasztva**. Indok: a meglévő `LoginForm` és
+`RegisterForm` éles Supabase auth-flow-t tartalmaz (signin, OAuth, session
+refresh, password validation, rate-limit). Vizuális sebészete kockázatos
+lenne, és a felhasználói élmény szempontjából most másodlagos. Sprint S F1
+külön foglalkozik vele, alapos teszttel.
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (53 oldal, +1 új `/onboarding`)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite)
+
+---
+
+## [2026-05-01d] — Sprint R F4 · Mikro-interakciók (v0.8.3)
+
+<!-- key: 2026-05-01d-sprint-r-f4-mikro-interakciok -->
+<!-- category: feature + improvement -->
+<!-- version: v0.8.3 -->
+<!-- targets: lelkészek — minden modul felhasználói (web + desktop) -->
+
+A betöltések, oldalváltások és indítás simábban, finomabban érződnek. A
+desktop appnál indításkor megjelenik a Kartotéka logós **Splash képernyő**
+(1.5 mp, mély kékeszöld háttér, lágy pulzálás), a webes oldalak váltakozásakor
+a tartalom **fade + translateY + blur** átvezetéssel cserélődik (420ms,
+lágy görbével). A hosszú lekérdezésekhez **Skeleton-vázak** és
+**Loading képernyő** állnak rendelkezésre.
+
+### ✨ Új funkciók (UX réteg)
+
+- **`SplashScreen`** — full-screen overlay, `<html data-theme>` aware (a Splash
+  háttere a választott téma sidebar-színe, így mindhárom téma harmonikus).
+  Logó pulse + cím + alcím + indeterminate progress + status-szöveg + verzió.
+- **`LoadingScreen`** + **`DelayedLoading`** — a teljes nézetet kitakaró
+  loading képernyő spinner-rel (Calvin csillag vagy ring) + opcionális
+  lépéses checklist. A `DelayedLoading` csak >800ms után jelenik meg
+  (UX best practice — rövid lekérdezésnél nem villog).
+- **`Skeleton`, `SkeletonCard`, `SkeletonRow`, `SkeletonTable`** — shimmer
+  animációval, light/dark változat. A jövőben a Suspense fallback-ekbe
+  illeszthetők.
+- **`PageTransition`** wrapper — fade + translateY + blur, 420ms.
+- **`CalvinSpinner`, `RingSpinner`** — két spinner stílus.
+- **`IndeterminateBar`, `ProgressBar`** — folyamat-jelzők.
+
+### 🎨 UX javítások
+
+- **Web `app/template.tsx`** — minden navigation újrarendereli a
+  PageTransition-t. Next.js 16 App Router `template.tsx` minden oldalra.
+- **Desktop `main.tsx`** — `AppWithSplash` wrapper, 1.5s után eltűnik.
+  Az `<App>` már a háttérben mountol, így a tényleges idle nem nőtt meg.
+
+### 🛠 Technikai
+
+- `packages/ui-app/src/loading/index.tsx` — 11 export (Spinner-ek, Skeleton-ek,
+  Progress-ek, Splash, Loading, DelayedLoading, PageTransition + típusok)
+- `packages/ui/src/kartoteka.css` — 7 új keyframe (kt-fade-in, kt-page-enter,
+  kt-shimmer, kt-spin, kt-pulse, kt-progress-bar, kt-slide-up, kt-pop) +
+  utility class-ok
+- `packages/ui-app/src/index.ts` — `export * from './loading'`
+- `apps/web/app/template.tsx` (új)
+- `apps/desktop/src/main.tsx` — Splash mount
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (52 oldal)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite)
+
+---
+
+## [2026-05-01c] — Sprint R F3 · Missziós Műhely home (v0.8.2)
+
+<!-- key: 2026-05-01c-sprint-r-f3-misszios-muhely-home -->
+<!-- category: feature -->
+<!-- version: v0.8.2 -->
+<!-- targets: lelkészek — Missziós Műhely modul felhasználói (web és desktop) -->
+
+A Missziós Műhely modul kezdőoldala teljesen megújult — meleg krém keret,
+lelkipásztori dizájn, kiemelt gyűjtemények, témák, letölthető csomagok és
+kategória-rács. **A webes és desktop verzió pixel-pontosan egyezik**, ugyanazt
+a `MissionWorkshop` shared komponenst használja a `packages/ui-app`-ből.
+
+A modul aloldalai (segédanyagok, fórum, jutalmak, profil) **érintetlen** maradtak
+— a felhasználó kifejezett kérése szerint a táblázatos szerkezet változatlan,
+csak a home oldal kapja meg az új designt. A CTA-k és kategória-csempék az
+aloldalakra navigálnak, amikor azok későbbi fázisokban elkészülnek.
+
+### ✨ Új funkciók
+
+- **`MissionWorkshop` + 7 részkomponens** — `packages/ui-app/src/missziosmuhely/`:
+  `MMBackground` (templom + sarok-levelek + hills watermarkok), `MMHero` (cím + ige
+  + hero-mug), `MMFeaturedCollections` (4 kép-kártya), `MMThemes` (5-tagú lista),
+  `MMDownloads` (3 letölthető csomag), `MMRecommendations` (közösségi idézet +
+  avatar-stack), `MMCategoryGrid` (6 csempés rács). Mind body-pattern, `assetBase`
+  + `onNavigate` callback prop-pal.
+- **18 design asset bemásolva** — `apps/web/public/misszios-muhely/` és
+  `apps/desktop/public/misszios-muhely/`: hero-mug, 4 kollekció-kép, 6 kategória
+  ikon, 6 watermark (templom, sarok-levelek, hills).
+- **Web route** — `apps/web/app/(dashboard)/misszios-muhely/page.tsx` ÚJ
+  (eddig 404 / placeholder volt). A `(dashboard)` layout adja a sidebar-t.
+- **Desktop oldal** — `apps/desktop/src/pages/misszios-muhely-page.tsx` ÚJ +
+  `apps/desktop/src/App.tsx` `<Route path="/misszios-muhely">` regisztráció.
+  Eddig a desktop a `PlaceholderPage`-re ment a sidebar menüpontról.
+
+### 🎨 UX javítások
+
+- **Mt 28,19–20 ige** középre, a hero két oszlopa közé — szabad szemnek olvasható.
+- **Hero-mug** csésze + Biblia + olajág kompozíció `drop-shadow`-val a
+  jobb oldalon.
+- **`mix-blend-mode: multiply`** a watermark-okon — beleég a krém háttérbe.
+
+### 🛠 Technikai
+
+- `packages/ui-app/src/index.ts` — `export * from './missziosmuhely'`
+- A meglévő `apps/web/components/muhely/` MVP komponensek (45+ fájl)
+  **érintetlen** — később lesz hozzájuk dedikált aloldal-route a sprint S+ ben.
+- Az `mm_*` táblák (16 db) RLS-védettek — ehhez nem nyúltunk, új SQL nincs.
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (52 oldal, +1 új)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite, 5.13s)
+
+---
+
+## [2026-05-01b] — Sprint R F2 · Téma-választó GA (v0.8.1)
+
+<!-- key: 2026-05-01b-sprint-r-f2-tema-valaszto-ga -->
+<!-- category: feature -->
+<!-- version: v0.8.1 -->
+<!-- targets: lelkészek — Beállítások › Megjelenés alatt választható téma -->
+
+A Beállítások › Megjelenés alatt mostantól **3 vizuális téma közül választhatsz**:
+**Csendes parókia** (meleg, lelkipásztori — Cormorant Garamond), **Kerített kert**
+(modern, alapértelmezett — Fraunces + Geist), **Zsoltáros** (klasszikus, méltóságteljes
+— Roboto Slab). A választás azonnal érvénybe lép, minden megnyitott fülön szinkronizál,
+és F5 után is megmarad. A meglévő világos / sötét / rendszer mód minden témával kompatibilis.
+
+A táblázatok elrendezése **változatlan** marad — csak a színek, fontok és kártya-keretek
+követik a választott témát.
+
+### ✨ Új funkciók
+
+- **`ThemePicker` komponens** — `packages/ui-app/src/theme/index.tsx`: 3 preview-kártya
+  mini sidebar-ral, accent-swatch-csal és font-mintával. Body-pattern, callback-prop,
+  web és desktop egyaránt használja.
+- **`ThemeStyleProvider` + `useThemeStyle()` hook** — perzisztens téma-választás a
+  `kartoteka-theme-style-v1` localStorage kulcson keresztül; cross-tab szinkron
+  (storage event); a `<html data-theme="...">` attr-t a Provider állítja.
+- **Új `Téma stílusa` szekció** — Beállítások › Megjelenés tab tetején, a meglévő
+  „Sötét/világos mód" elé. Pasztorális visszajelzés: *"Téma mentve. A kinézet azonnal
+  frissül."*
+- **A meglévő „Téma" szekció átnevezve** — `Sötét/világos mód`-ra (a két beállítás
+  függetlenül választható).
+
+### 🛠 Technikai
+
+- `packages/ui-app/package.json` — új workspace dep: `@kartoteka/design-tokens: "*"`
+- `packages/ui-app/src/index.ts` — `export * from './theme'`
+- `apps/web/components/layout/theme-provider.tsx` — `<ThemeStyleProvider>` mount
+  a `NextThemesProvider` belsejében (két ortogonális réteg)
+- `apps/desktop/src/main.tsx` — `<ThemeStyleProvider>` mount az `<App />` köré
+- `apps/web/components/modals/settings-dialog.tsx:303-340` — új SettingsSection
+- `apps/desktop/src/components/settings-dialog.tsx:303-340` — új SettingsSection
+
+### ✅ Build verify (mind 3 zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (51 oldal Next.js webpack)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite, 50+ font asset)
+
+### 📦 Release
+
+Ez a Sprint R első kiadása (Fázis 1 + 2 együtt). Az `ops/release-build.ps1`
+futtatásával készül a desktop NSIS + MSI bundle, GH release a 4 fájllal
+(`.exe`, `.msi`, `latest.json`, `.sig`). Az auto-updater a meglévő ütemterv
+szerint frissít minden v0.7.x desktopot.
+
+---
+
+## [2026-05-01] — Sprint R F1 · Téma-réteg infrastruktúra (v0.8.0)
+
+<!-- key: 2026-05-01-sprint-r-f1-tema-reteg-infrastruktura -->
+<!-- category: feature + improvement -->
+<!-- version: v0.8.0 -->
+<!-- targets: lelkészek — később (Beállítások › Megjelenés alatt választható téma); fejlesztő — most -->
+
+Sprint R · Vizuális megújulás indul az [Anthropic Design Handoff](https://api.anthropic.com/v1/design/h/DdN6y8xEibDv8ysyTK0wJg)
+alapján. A Fázis 1-ben a téma-réteg infrastruktúrát építjük be: a 3 vizuális
+téma (Csendes parókia, Kerített kert, Zsoltáros) CSS-vars értékei, 5
+self-hosted betűcsalád és 7 motívum SVG **bekerült** a közös csomagba.
+
+A v0.8.0-ban a **viselkedés még változatlan** a felhasználó számára — a
+`<html data-theme="kert">` default-ot rendelünk az új SSOT-ra (Kerített kert),
+de a téma-választó és a perzisztens preferencia a **v0.8.1-ben (Fázis 2)** érkezik.
+Release csak a Fázis 2 végén megy ki — most kód-szintű előkészület.
+
+### ✨ Új funkciók (infrastruktúra)
+
+- **3 téma SSOT** — `packages/design-tokens/src/themes.ts`: `ThemeParokia`,
+  `ThemeKert` (default), `ThemeZsoltaros` típusozott objektumok + `darken()`
+  helper. Származás: a design handoff `shared/themes.jsx` fájljának pontos
+  TS portja, magyar UX-szöveggel.
+- **CSS-vars rétege** — `packages/ui/src/themes.css`: 6 blokk
+  (`[data-theme="kert"]`, `[data-theme="parokia"]`, `[data-theme="zsoltaros"]`
+  + mindegyikhez `.dark` variáns). Tailwind utility-class-ok érintetlenek,
+  csak a `--background`, `--foreground`, `--primary`, `--card`, `--sidebar`,
+  `--font-sans`, `--font-serif` (és társai) értékei cserélődnek a téma szerint.
+- **5 self-hosted betűcsalád** — `@fontsource/cormorant-garamond`,
+  `@fontsource/fraunces`, `@fontsource/roboto-slab`, `@fontsource/inter` és
+  `@fontsource-variable/geist`. GDPR-barát, offline-ready (Tauri WebView).
+  Latin-ext subset benne (magyar é/ő/ű támogatás).
+- **7 motívum SVG** — `packages/ui/src/motifs/`: `MotifChurch`, `MotifBible`,
+  `MotifOlive`, `MotifDove`, `MotifCross`, `MotifStar4`, `MotifTrellis`. TSX
+  port, `currentColor` + `opacity` props.
+- **`packages/ui/src/kartoteka.css` `:root` és `.dark` változatlan** — fallback
+  marad. A `[data-theme="..."]` szelektorok csak felülírják a CSS-vars-okat.
+
+### 🛠 Technikai
+
+- `packages/ui/src/kartoteka.css` — 2 új `@import` sor (fonts.css + themes.css)
+- `packages/ui-app/src/layout/PageHero.tsx:25` — hardkódolt
+  `from-violet-500 to-indigo-600` → semantikus
+  `linear-gradient(135deg, var(--primary), var(--accent))` (téma-aware)
+- `apps/web/app/layout.tsx:37` — `<html lang="hu" data-theme="kert">`
+- `apps/desktop/index.html:2` — `<html lang="hu" data-theme="kert">`
+- `packages/design-tokens/src/index.ts` — placeholder `export {}` lecserélve
+  valódi exportra (`themes`, `ThemeName`, `ThemeMode`, `ThemeTokens`, `darken`)
+
+### ✅ Build verify (mindhárom zöld, 2026-05-01)
+
+- `npm run typecheck --workspace=@kartoteka/ui-app` — zöld
+- `npm run build --workspace=@kartoteka/web` — zöld (51 oldal Next.js webpack)
+- `npm run build --workspace=@kartoteka/desktop` — zöld (Vite, 10.48s)
+
+### 🎁 Sprint R hátralévő fázisai (a tervből)
+
+| Fázis | Verzió | Tartalom |
+|---|---|---|
+| F2 | v0.8.1 | Beállítások › Megjelenés bővítés ThemePicker-rel + first release |
+| F3 | v0.8.2 | Missziós Műhely home átépítés + desktop paritás |
+| F4 | v0.8.3 | Mikro-interakciók (Splash, Loading, Skeleton, page transition) |
+| F5 | v0.8.4 | Onboarding & Auth (csak web) |
+| F6 | v0.8.5 | Tauri-mini installer app (980×660 wizard) |
+
+---
+
+## [2026-04-30l] — Diagnosztika + szülő-text-fallback + család-backfill
+
+<!-- key: 2026-04-30l-szulok-diagnosztika-backfill -->
+<!-- category: bugfix + improvement -->
+<!-- targets: lelkészek — anyakönyv modul; karbantartó — backfill SQL -->
+
+Endre észrevétele: "Keresztelésnél nem jelenik meg az édesapa és az édesanya!".
+A diagnosztika kimutatta: a 2010 utáni, importtal jött gyerekeknek csak a
+`szemely.apjaneve`/`anyjaneve` SZÖVEG-mezőjük van — `id_apja`/`id_anyja` CNP
+NULL, és a `gyerek` táblában sincs rekordjuk. A `getParentsForChild` mind a
+3 ágon üresen tért vissza.
+
+### 🐛 Javítások
+
+- **`getParentsForChild` defensive JOIN handling** — a `csalad:csalad!id_csalad`
+  JOIN néha array-ként, néha object-ként jön vissza Supabase-től; mindkettőt
+  kezeljük most.
+- **TEXT-fallback (3) ág implementálva** — a `szemely.apjaneve`/`anyjaneve`
+  szöveges szülő-neveket mostantól visszaadjuk a `apjaneveText`/`anyjaneveText`
+  mezőkben. A baptism-dialog egy SÁRGA BANNERBEN mutatja: *"A korábbi adatok
+  szerint a szülők neve: ..."* + felhívás a kézi rákeresésre.
+- **`saveBaptism` szerkesztéskor is létrehozza a csalad+gyerek rekordot** —
+  korábban csak ÚJ kereszteléskor. Mostantól ha a felhasználó utólag rendel
+  szülőket, a következő nyitásnál a zöld badge (auto-load) megjelenik.
+- **Diagnosztikai panel a baptism-dialog-ban** — ha kiválasztott tag van, de
+  semmilyen szülő-adat nem található (sem ID, sem text), egy szürke debug-szöveg
+  pontosan kiírja: *"A tag nincs családhoz rendelve / Van csalad-rekord, de
+  nincs apa/anya / id_apja CNP nem oldható fel..."*. A felhasználó látja MIÉRT.
+
+### 🛠 Technikai
+
+- `apps/web/app/(dashboard)/anyakonyv/actions.ts` — `getParentsForChild`
+  refaktor:
+  - 3 fallback-szint (csalad → CNP → text)
+  - `ParentInfo` új mezők: `apjaneveText`, `anyjaneveText`, `diagnostic`
+  - Server-side `console.log [getParentsForChild] id=X: {...}` Vercel/Railway
+    logokon nyomon követhető
+- `apps/web/components/modals/baptism-dialog.tsx`:
+  - `apjaneveText` / `anyjaneveText` state + sárga banner
+  - `parentDiag` state + szürke debug-banner ha sehol nincs adat
+  - `handlePersonChange` reseteli minden szülő-state-et új tag választáskor
+  - F12 console-on `[baptism-dialog] szülő-load indul / válasz: {...}` log
+
+### 🗄 SQL
+
+- `migration-docs/sql/2026-04-30k-diagnoszt-baptism-szulok.sql` (új) —
+  6+1 stand-alone SELECT egy konkrét tagra (cseréld a `1163` ID-t).
+  Megmondja MELYIK forrásban van adat.
+- `migration-docs/sql/2026-04-30l-backfill-csalad-text-szulokbol.sql` (új) —
+  két szakasz: DRY-RUN előnézet + (kommentelt) BEGIN/COMMIT backfill.
+  Megpróbálja a `csaladnev k_nev` egyezés alapján automatikusan feloldani
+  a szöveges szülő-neveket szemely-ID-re, létrehozni a `csalad`+`gyerek`
+  rekordot, és kitölteni az `id_apja`/`id_anyja` CNP-eket. Csak ott fut, ahol
+  PONTOSAN 1 találat van — több találat / nincs találat manuális marad.
+
+---
+
+## [2026-04-30k] — Anyakönyvi modul: család-auto, új-személy, részletes nézet, sortálás
+
+<!-- key: 2026-04-30k-anyakonyvi-csalad-detail-sortalas -->
+<!-- category: feature + improvement -->
+<!-- targets: lelkészek — anyakönyv modul felhasználói -->
+
+Endre öt észrevétele alapján öt összefüggő funkciót adtunk a modulhoz, hogy
+a kézi rögzítés és a böngészés egyaránt gördülékenyebb legyen.
+
+### ✨ Új funkciók
+
+- **Szülők automatikus kitöltése keresztelésnél** — ha a kiválasztott
+  keresztelendő már családhoz van rendelve (`gyerek` táblában), a szülők
+  neveit a `csalad` táblából vesszük és előtöltjük a két `MemberSearchSelect`
+  mezőbe (apa + anya). Az anya `szcs_nev`-jéből a leánykori név is automatikus.
+  Egy zöld badge jelzi, hogy "Családi adatokból kitöltve". Ha a tag nincs
+  családhoz rendelve, a kereső mezők használhatók manuális hozzárendelésre.
+- **Új személy hozzáadása keresztelés-dialógból** — egy "Új személy a
+  tagnyilvántartáshoz" gomb beágyazza a `MemberFormDialog`-ot a baptism
+  dialog tetején. Mentés után a felhasználó a kereső mezőben rögtön
+  megtalálja, és kiválasztja kereszteléshez.
+- **Sorra kattintás → részletes nézet** (mind a 8 fülön) — a `RegistryDetailDialog`
+  egy fülönként profilozott, olvasható ablakot mutat: a teljes adattartalom
+  (név, dátumok, szám, lelkész, szülők, helyszín, állapot, célgyülekezet,
+  átjelentkezési notifikáció státusza stb.) szépen formázva. A "Szerkesztés"
+  gomb átvált edit módba, a "Törlés" gomb azonnal törli (megerősítéssel).
+- **Konfirmáció szerkesztés** — eddig csak batch-rögzítés volt, mostantól
+  egy meglévő konfirmáció is szerkeszthető (✏️ gomb): új `saveConfirmationSingle`
+  server action.
+
+### 🎨 UX javítások
+
+- **Sortálás minden oszlopra mind a 8 fülön** — kattintható oszlopfejek
+  ChevronUp/ChevronDown indikátorral, magyar locale-aware string-rendezéssel
+  (`localeCompare(a, b, 'hu')`). Külön "Rendezés: <oszlop> ▲/▼" badge
+  jelzi az aktív rendezést, X-szel törölhető.
+- A táblázat **sor-hover** kék színűre vált (`hover:bg-blue-50/50 cursor-pointer`),
+  jelzi hogy kattintható.
+- A részletes ablak fejlécében az **egyházi anyakönyvi szám** font-mono
+  violet badge-ben látszik — egy pillantásra megvan az azonosító.
+
+### 🛠 Technikai
+
+- `apps/web/components/registry/registry-detail-dialog.tsx` (új): közös
+  read-only nézet 8 anyakönyvi profilra. `Field` és `PersonCard` belső
+  komponensek a konzisztens megjelenítéshez.
+- `apps/web/components/registry/registry-tabs.tsx`: refaktorálva — a
+  fülönkénti oszlopok most `getColumns(tab)` adat-első deklaráció (ColDef
+  array), ami egyszerre kezeli a fejlécet, a sortáláshoz használt értéket
+  és a cella-rendert. Ez majdnem feleakkora kód mint a korábbi 3-helyen
+  ismételt `if/else if` ágak.
+- `apps/web/app/(dashboard)/anyakonyv/actions.ts`:
+  - `getParentsForChild(personId)`: 3 fallback-szintű szülő-lookup
+    (csalad → szemely.id_apja/id_anyja CNP → text), `MemberSearchResult`
+    kompatibilis return.
+  - `saveConfirmationSingle(data)`: új action a konfirmáció szerkesztéshez.
+- `apps/web/components/modals/baptism-dialog.tsx`: új `MemberFormDialog`
+  beágyazás (UserPlus gomb), automatikus szülő-load `useEffect`-ben
+  (csak új-rögzítésnél, ha még nincs manuális választás), `handlePersonChange`
+  reseteli az auto-load flag-et.
+- `apps/web/components/modals/confirmation-dialog.tsx`: dual-mode
+  (batch / single edit) — a `editEntry` prop kapcsol át edit módba.
+- `apps/web/lib/validations/registry.ts`: új `confirmationSingleSchema`.
+
+---
+
+## [2026-04-30j] — Anyakönyvi modálok: okos kereső + automatikus egyházi szám
+
+<!-- key: 2026-04-30j-anyakonyvi-modalok-okos-kereso-egyhazi-szam -->
+<!-- category: improvement -->
+<!-- targets: lelkészek — anyakönyv modul felhasználói -->
+
+Endre két kérése: "Az okos keresőkben látszódjon az életkor, a lakhely és
+utca is, hogy az azonos nevűekkel ne akadjunk össze!" + "az egyházi
+anyakönyvi szám pedig automatikusan legyen kitöltött mező". Az 5 manuális
+rögzítő dialógot (keresztelés, konfirmáció, esketés, temetés, mozgás) így
+egységesítettük, és a táblázat-fülek oszlopaival is összhangba hoztuk.
+
+### ✨ Új funkciók
+
+- **MemberSearchSelect** új közös komponens — az 5 dialógban használt egységes
+  okos kereső. Találatonként mutatja: családnév + keresztnév, ♂/♀, életkor,
+  születési dátum, és — ha van — lakhely + utca + házszám. Az azonos
+  nevűek így könnyen elkülöníthetők.
+- **Egyházi anyakönyvi szám automatikusan** — minden új rögzítésnél a
+  `generate_egyhazi_anyakonyvi_szam` RPC tölti elő a `YYYYTTNNNN` számot.
+  Konfirmáció batch-nél a kezdősorszámból folyamatosan inkrementáljuk a
+  többi konfirmandus számát, hogy ne ütközzenek.
+- **Új mezők a dialógokban** — a táblázatban már látszó adatok rögzíthetők is:
+  - Esketés: `vegyes` házasság jelölőnégyzet (egyik fél nem református).
+  - Temetés: `okirat` (állami halotti anyakönyvi szám) külön mező.
+  - Elköltözés: `hova_congregation_id` célgyülekezet választó (kereshető,
+    egyházmegyei csoportosítás) — kiváltja az automatikus átjelentkezési
+    notifikációt.
+
+### 🎨 UX javítások
+
+- Minden dialógban **az állami szám és az egyházi szám szét van választva**
+  (Endre szabálya, 2026-04-29 óta DB-szinten is): a violet-700 szám a
+  generált egyházi azonosító, az állami szám opcionális szürke mező.
+- Konfirmáció dialógban kis **előnézet** mutatja, milyen sorszámmal indul
+  a következő batch — így a lelkész látja, mi lesz a "kezdő" egyházi szám.
+- Kereszteltek dialógban a szülő-keresők is `MemberSearchSelect`-et
+  használnak (genderFilter true/false), és a CNP automatikusan jön a
+  kiválasztott személyből.
+
+### 🛠 Technikai
+
+- `apps/web/components/registry/member-search-select.tsx` (új): közös
+  reusable kereső, 300ms debounce, `searchMemberForRegistry` action-en
+  keresztül. Mutatja a tag JOIN-olt `adrlocality.name` + `adrstreet.name`
+  + `c_szam` adatait.
+- `apps/web/app/(dashboard)/anyakonyv/actions.ts`: új `getNextEgyhaziSzam`
+  server action, az `generate_egyhazi_anyakonyvi_szam` RPC wrappere.
+  Az 5 mentő action (`saveBaptism` / `saveConfirmationBatch` /
+  `saveMarriage` / `saveBurial` / `saveMovement`) most az `egyhazi_szam`
+  mezőt is feltölti — ha a kliens nem küldi, server-side hívja az RPC-t.
+- `apps/web/lib/validations/registry.ts`: minden Zod séma megkapta az
+  `egyhazi_szam: z.string().nullable().optional()` mezőt; `okirat` és
+  `hlevel` mostantól opcionális (Endre szabálya: állami szám lehet üres),
+  marriage-ben `vegyes`, movement-ben `hova_congregation_id` is bekerült.
+- 5 modál újraírva: `baptism-dialog.tsx`, `confirmation-dialog.tsx`,
+  `marriage-dialog.tsx`, `burial-dialog.tsx`, `movement-dialog.tsx` —
+  mind a `MemberSearchSelect`-et használja, a dátum + típus alapján auto-tölti
+  az egyházi számot.
+
+---
+
 ## [2026-04-29c] — Esketés import: férj-családnév alapú menyasszony-keresés
 
 <!-- key: 2026-04-29c-eskeses-ferj-csaladnev-menyasszony-keresss -->
