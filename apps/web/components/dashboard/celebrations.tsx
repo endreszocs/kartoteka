@@ -74,7 +74,7 @@ export function Celebrations({
           <div className="space-y-1.5">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Születésnap</p>
             {limitedBirthdays.map((b, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-amber-100/70 bg-[linear-gradient(180deg,rgba(255,251,235,0.96),rgba(255,247,219,0.84))] px-3 py-2.5"
+              <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2.5"
                 style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div className="icon-raised w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-500 shrink-0">
                   <Cake className="w-3.5 h-3.5 text-white" />
@@ -96,7 +96,7 @@ export function Celebrations({
           <div className="space-y-1.5">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Névnap</p>
             {limitedNamedays.map((name, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-pink-100/70 bg-[linear-gradient(180deg,rgba(253,242,248,0.96),rgba(252,231,243,0.84))] px-3 py-2.5"
+              <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2.5"
                 style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div className="icon-raised w-8 h-8 bg-gradient-to-br from-pink-400 to-rose-500 shrink-0">
                   <Flower2 className="w-3.5 h-3.5 text-white" />

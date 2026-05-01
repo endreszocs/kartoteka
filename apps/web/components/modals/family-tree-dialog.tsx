@@ -460,41 +460,44 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
         className="flex max-h-[92vh] !w-[min(1260px,calc(100vw-2rem))] !max-w-[min(1260px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1320px,calc(100vw-3rem))] sm:!max-w-[min(1320px,calc(100vw-3rem))]"
         showCloseButton={false}
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(247,251,250,0.98)_100%)] shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70">
-        <div className="px-6 pt-5 pb-3 border-b border-zinc-100 flex items-center justify-between shrink-0">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
+        <div className="px-6 pt-5 pb-3 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shadow-md"
+              style={{ background: 'linear-gradient(135deg, var(--accent), var(--primary))' }}
+            >
               <GitBranch className="w-5 h-5 text-white" />
             </div>
             <div>
               <DialogTitle className="font-heading text-lg">Családfa</DialogTitle>
-              <p className="text-xs text-zinc-400">{nodeCount > 0 ? `${nodeCount} személy` : 'Betöltés...'}</p>
+              <p className="text-xs text-muted-foreground">{nodeCount > 0 ? `${nodeCount} személy` : 'Betöltés...'}</p>
             </div>
           </div>
-          <button onClick={() => onOpenChange(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors" aria-label="Bezárás">
+          <button onClick={() => onOpenChange(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" aria-label="Bezárás">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
         {/* Családfa container */}
-        <div className="flex-1 relative bg-zinc-50">
+        <div className="flex-1 relative bg-muted">
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-              <GitBranch className="w-12 h-12 text-emerald-300 animate-pulse mb-3" />
-              <p className="text-sm text-zinc-500">Családfa betöltése...</p>
+              <GitBranch className="w-12 h-12 text-accent animate-pulse mb-3" />
+              <p className="text-sm text-muted-foreground">Családfa betöltése...</p>
             </div>
           )}
           {error && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center">
-              <GitBranch className="w-16 h-16 text-zinc-200 mb-4" />
-              <p className="text-zinc-500 font-medium">{error}</p>
+              <GitBranch className="w-16 h-16 text-muted-foreground/40 mb-4" />
+              <p className="text-muted-foreground font-medium">{error}</p>
             </div>
           )}
           <div ref={containerRef} className="w-full h-full min-h-[400px]" />
         </div>
 
-        <div className="px-6 py-3 border-t border-zinc-100 flex justify-end shrink-0">
-          <Button variant="outline" size="sm" className="rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border-zinc-200" onClick={() => onOpenChange(false)}>
+        <div className="px-6 py-3 border-t border-border flex justify-end shrink-0">
+          <Button variant="outline" size="sm" className="rounded-xl bg-muted hover:bg-muted/70 text-muted-foreground border-border" onClick={() => onOpenChange(false)}>
             Vissza az adatlaphoz
           </Button>
         </div>

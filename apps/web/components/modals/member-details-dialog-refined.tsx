@@ -129,10 +129,10 @@ export function MemberDetailsDialogRefined({
         className="max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:w-[calc(100vw-3rem)] sm:!max-w-[calc(100vw-3rem)] lg:w-[calc(100vw-5rem)] lg:!max-w-[calc(100vw-5rem)] xl:w-[1080px] xl:!max-w-[1080px]"
         showCloseButton={false}
       >
-        <div className="relative overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,250,249,0.98)_100%)] shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70">
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
           <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-amber-200/40 blur-3xl" />
-            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full bg-teal-200/35 blur-3xl" />
+            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent) 30%, transparent)' }} />
+            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 25%, transparent)' }} />
           </div>
 
           <button

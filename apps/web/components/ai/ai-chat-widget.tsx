@@ -148,7 +148,8 @@ export function AiChatWidget({ hasApiKey = true }: { hasApiKey?: boolean }) {
         <div className="fixed bottom-5 right-5 z-50 sm:bottom-6 sm:right-6">
           <button
             onClick={() => setIsOpen(true)}
-            className="group relative flex h-16 items-center gap-3 rounded-full border border-white/60 bg-[linear-gradient(135deg,rgba(13,148,136,0.96),rgba(15,118,110,0.96)_55%,rgba(234,179,8,0.92))] px-4 text-white shadow-[0_24px_50px_-22px_rgba(15,118,110,0.7)] transition hover:scale-[1.02] hover:shadow-[0_28px_56px_-24px_rgba(15,118,110,0.78)]"
+            className="group relative flex h-16 items-center gap-3 rounded-full border border-white/60 px-4 text-white shadow-lg transition hover:scale-[1.02]"
+            style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 60%, var(--accent2) 100%)' }}
             title="Aladár megnyitása"
             aria-label="Aladár megnyitása"
           >
@@ -168,8 +169,11 @@ export function AiChatWidget({ hasApiKey = true }: { hasApiKey?: boolean }) {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-0 right-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden border border-white/60 bg-[rgba(247,250,249,0.98)] shadow-[0_32px_80px_-38px_rgba(15,23,42,0.55)] backdrop-blur-2xl sm:bottom-6 sm:right-6 sm:h-[min(78vh,760px)] sm:max-h-[78vh] sm:w-[420px] sm:rounded-[2rem]">
-          <div className="relative overflow-hidden border-b border-white/70 bg-[linear-gradient(135deg,rgba(13,148,136,0.98),rgba(15,118,110,0.96)_58%,rgba(245,158,11,0.96))] px-5 py-4 text-white">
+        <div className="fixed bottom-0 right-0 z-50 flex h-[100dvh] w-full flex-col overflow-hidden border border-border bg-popover shadow-2xl backdrop-blur-2xl sm:bottom-6 sm:right-6 sm:h-[min(78vh,760px)] sm:max-h-[78vh] sm:w-[420px] sm:rounded-[2rem]">
+          <div
+            className="relative overflow-hidden border-b border-border px-5 py-4 text-white"
+            style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 60%, var(--accent2) 100%)' }}
+          >
             <div className="absolute right-[-1rem] top-[-1.5rem] h-24 w-24 rounded-full bg-white/14 blur-2xl" />
             <div className="absolute bottom-[-1rem] left-[-1rem] h-20 w-20 rounded-full bg-amber-200/20 blur-2xl" />
             <div className="relative flex items-start justify-between gap-3">

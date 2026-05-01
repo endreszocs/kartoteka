@@ -23,6 +23,80 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-01h] — Sprint S follow-up · Hardcoded hero/dialog gradient hot-fix (v0.9.4)
+
+<!-- key: 2026-05-01h-sprint-s-followup-hardcoded-gradient-hotfix -->
+<!-- category: bugfix + improvement -->
+<!-- version: v0.9.4 (csak web) -->
+<!-- targets: minden webes felhasználó (lelkészek, esperesek, admin) -->
+
+A Sprint S után végzett iteratív vizuális audit (Chrome MCP, localhost) feltárta,
+hogy néhány **kulcs-felületi hero/dialog konténer** még mindig hardkódolt
+`#14514b`/`#0f766e`/`#1e1b4b`/`rgba(255,255,255,0.98)` gradient-et használ —
+ezek ellenálltak a Sprint S utility-overrides rétegnek, mert arbitrary
+`bg-[linear-gradient(...)]` Tailwind class formában voltak. A téma-váltás így
+az érintett felületeken **láthatatlan** maradt.
+
+Mind a **8 hely** átalakítva: hardkódolt gradient hex/rgb értékek →
+`var(--sidebar)`, `var(--primary)`, `var(--accent)`, `var(--accent2)`,
+`var(--card)`, `var(--border)` — az `inline style` minta pontosan úgy, ahogy
+a Sprint R/S már bevált a HeroBanner-en és a PageHero-n.
+
+### 🐛 Javítások
+
+- **Admin Központ hero** (`apps/web/app/(dashboard)/admin/page.tsx`) —
+  `#1e1b4b → #312e81 → #4338ca` mély-indigo gradient → `var(--sidebar) →
+  var(--primary) → var(--accent)`. Az "Indigo katedrális" hatás eltűnt;
+  most a téma sidebar-szín dominál.
+- **Missziós Műhely v3 hero** (`apps/web/components/missions/mission-workshop-v3.tsx`)
+  és **v1 hero** (`mission-workshop.tsx`) — `#0f766e/#155e75/#1f9d8f/#f0b66d`
+  teal-amber gradient → `var(--sidebar) → var(--primary) → var(--sidebar) →
+  var(--accent)`.
+- **Member/Family details dialog refined + v2 + family-tree-dialog** — a
+  `bg-[linear-gradient(180deg,rgba(255,255,255,0.98)...)]` konténer-réteg
+  cseréje `bg-card`-ra. A blur-pötty overlay-k `color-mix(in oklab, var(--accent)
+  30%, transparent)` formára. A dialog stb. shadow és ring témára
+  kötött (`ring-border`).
+- **PageHero (`packages/ui-app/src/layout/PageHero.tsx`)** — közös shared
+  komponens, ami sok desktop oldalon szerepel: `bg-card` + accent2/primary
+  blur-pöttyök. Egycsapásra javul minden desktop oldal hero-ja.
+- **HeroBannerScripture (`packages/ui-app/src/dashboard/HeroBannerScripture.tsx`)** —
+  shared dashboard hero: `var(--sidebar) → var(--primary) → var(--sidebar)`
+  gradient inline style-ban. A 4 dashboard scope (gyülekezet, kerület, admin,
+  egyházmegye) mind átveszi.
+- **kartoteka-sidebar** (`packages/ui/src/layout/kartoteka-sidebar.tsx`) —
+  shellBaseClassName: `bg-[linear-gradient(180deg,#14514b...)]` → `bg-[var(--sidebar)]
+  text-[var(--sidebar-foreground)]`. A desktop oldalsáv is most a téma
+  szerint változik (eddig csak a `sidebar-adaptive-v4.tsx` web verzió volt jó).
+
+### ✅ Verify (Chrome MCP, localhost:3000, 3 téma)
+
+A `/dashboard` route-on JS-audit minden 3 témán (`localStorage.kt-theme`):
+
+| téma | sidebar | card | radius | font-serif | accent |
+|---|---|---|---|---|---|
+| **kert** (default) | `#143030` | `#fff` | 12px | Fraunces | `#6b8e4e` zöld |
+| **parokia** | `#1f3a3a` | `#fffdf7` | 16px | Cormorant Garamond | `#5a8a48` zöld |
+| **zsoltaros** | `#2a2218` | `#fdf9ed` | 6px | Roboto Slab | `#a3551c` narancs-barna |
+
+A DOM-ban hardkódolt teal/dark `linear-gradient()` előfordulások száma:
+**0** (az auditor regex `#14|#0f|#11|rgb(20|rgb(31` pattern-eket keresett).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy a `main` push-szal). Desktop NEM kap új
+release-t — a Sprint R v0.8.5 marad érvényben asztalon (a shared csomag
+változások a desktop következő release-ben fognak átfutni, addig a régi
+asztali oldalsáv-szín marad).
+
+### Felhasználói teendő (cache törlés)
+
+Ha a böngészőben még a régi (Sprint R/S) megjelenés látszik a deploy után:
+**Ctrl+Shift+R** (hard reload), vagy DevTools › Application › Service Workers
+› Unregister + Application › Storage › Clear site data.
+
+---
+
 ## [2026-05-01g] — Sprint S · Vizuális egységesítés a teljes web-appra (v0.9.3)
 
 <!-- key: 2026-05-01g-sprint-s-vizualis-egysegesites -->

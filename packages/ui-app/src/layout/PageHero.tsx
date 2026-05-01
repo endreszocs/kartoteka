@@ -14,10 +14,10 @@ export interface PageHeroProps {
 
 export function PageHero({ eyebrow, title, description, Icon, actions, stats }: PageHeroProps) {
   return (
-    <div className="relative overflow-hidden rounded-[1.75rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(247,251,250,0.98)_100%)] p-5 shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-slate-200/70 sm:p-6">
+    <div className="relative overflow-hidden rounded-[1.75rem] bg-card p-5 shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border sm:p-6">
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1.75rem]">
-        <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-violet-200/35 blur-3xl" />
-        <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full bg-teal-200/30 blur-3xl" />
+        <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent2) 30%, transparent)' }} />
+        <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 25%, transparent)' }} />
       </div>
 
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

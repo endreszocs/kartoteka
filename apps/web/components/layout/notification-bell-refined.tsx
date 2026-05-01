@@ -224,7 +224,7 @@ export function NotificationBellRefined({ userId }: { userId: string }) {
         </Button>
 
         {dropdownOpen && (
-          <div className="absolute right-0 top-full z-50 mt-3 w-[22rem] overflow-hidden rounded-[1.6rem] border border-white/70 bg-[rgba(255,255,255,0.96)] shadow-[0_30px_60px_-28px_rgba(16,70,63,0.52)] backdrop-blur-xl">
+          <div className="absolute right-0 top-full z-50 mt-3 w-[22rem] overflow-hidden rounded-[1.6rem] border border-border bg-popover shadow-lg backdrop-blur-xl">
             {/* Header gradient-es sávval */}
             <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-white to-teal-50 px-4 py-3.5 border-b border-border/70">
               <div className="absolute -right-4 -top-4 size-20 rounded-full bg-amber-200/30 blur-2xl" />

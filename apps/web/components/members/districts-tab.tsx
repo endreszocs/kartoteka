@@ -108,7 +108,7 @@ export function DistrictsTab() {
         <Button size="sm" className="rounded-lg shadow-sm" onClick={() => openForm()}>+ Új körzet</Button>
       </div>
 
-      <div className="card-raised border-cyan-100/70 bg-[linear-gradient(180deg,rgba(236,254,255,0.96),rgba(240,253,250,0.88))] px-4 py-3 text-xs leading-5 text-cyan-800">
+      <div className="card-raised px-4 py-3 text-xs leading-5 text-muted-foreground">
         A rendszer itt csak azokat a körzeteket mutatja, amelyek ehhez a gyülekezethez kapcsolódnak, vagy még sehol nincsenek használatban. Ez segít megelőzni, hogy más gyülekezet adatai véletlenül megjelenjenek vagy szerkeszthetővé váljanak.
       </div>
 

@@ -110,7 +110,10 @@ export function MissionWorkshop({ userName }: { userName: string }) {
   // ═══════════════════════════════════════
   if (view === 'home') return (
     <div className="space-y-10 pb-8">
-      <section className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-[linear-gradient(135deg,#0f766e_0%,#0f766e_18%,#1f9d8f_48%,#f0b66d_100%)] px-6 py-8 text-white shadow-[0_30px_90px_-48px_rgba(15,118,110,0.65)] md:px-8 md:py-10">
+      <section
+        className="relative overflow-hidden rounded-[2.25rem] border border-white/70 px-6 py-8 text-white shadow-[0_30px_90px_-48px_rgba(15,118,110,0.65)] md:px-8 md:py-10"
+        style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--sidebar) 18%, var(--primary) 48%, var(--accent) 100%)' }}
+      >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_20rem),radial-gradient(circle_at_bottom_right,rgba(255,240,210,0.18),transparent_18rem)]" />
         <div className="absolute -left-10 top-6 h-36 w-36 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute -right-8 bottom-4 h-32 w-32 rounded-full bg-amber-100/20 blur-3xl" />
@@ -337,7 +340,7 @@ export function MissionWorkshop({ userName }: { userName: string }) {
             {ideas.slice(0, 3).map((idea, index) => (
               <div
                 key={idea.id}
-                className="rounded-[1.5rem] border border-slate-100 bg-[linear-gradient(180deg,#ffffff_0%,#fff9ef_100%)] p-4 shadow-[0_16px_35px_-26px_rgba(245,158,11,0.22)]"
+                className="rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_16px_35px_-26px_rgba(245,158,11,0.22)]"
               >
                 <div className="flex items-start gap-4">
                   <button
@@ -473,7 +476,7 @@ export function MissionWorkshop({ userName }: { userName: string }) {
           />
 
           <div className="mt-5 grid gap-4 md:grid-cols-[0.9fr_1.1fr]">
-            <div className="rounded-[1.6rem] bg-[linear-gradient(180deg,#effcf8_0%,#ffffff_100%)] p-5">
+            <div className="rounded-[1.6rem] bg-muted p-5">
               <div className="flex items-center gap-3">
                 <div className="flex size-11 items-center justify-center rounded-2xl bg-teal-500 text-white">
                   <ImageIcon className="size-5" />

@@ -23,11 +23,14 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-[2rem] border border-indigo-100/70 bg-[linear-gradient(135deg,#1e1b4b_0%,#312e81_56%,#4338ca_100%)] px-6 py-6 text-white shadow-[0_34px_80px_-40px_rgba(30,27,75,0.55)] md:px-8 md:py-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_18rem),radial-gradient(circle_at_bottom_right,rgba(129,140,248,0.22),transparent_18rem)]" />
+      <div
+        className="relative overflow-hidden rounded-[2rem] border border-border px-6 py-6 text-white shadow-[0_34px_80px_-40px_rgba(15,23,42,0.55)] md:px-8 md:py-8"
+        style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--primary) 56%, var(--accent) 100%)' }}
+      >
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_18rem),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.12),transparent_18rem)]" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-50/86">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/86">
               <Shield className="size-3.5" />
               Rendszerszintű felügyelet
             </div>
@@ -35,7 +38,7 @@ export default async function AdminPage() {
             <h1 className="mt-4 font-heading text-3xl text-white md:text-4xl">
               Admin Központ
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-indigo-100/82 md:text-base">
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/82 md:text-base">
               A gyülekezetek, felhasználók, támogatási jegyek és adatminőségi jelzések egy helyen, áttekinthető rendszerben.
             </p>
           </div>
@@ -50,7 +53,7 @@ export default async function AdminPage() {
             </Link>
             <Link
               href="/dashboard-kerulet"
-              className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-[0_20px_30px_-24px_rgba(255,255,255,0.9)] transition hover:bg-indigo-50"
+              className="inline-flex items-center gap-2 rounded-2xl bg-card px-4 py-2.5 text-sm font-semibold text-primary shadow-[0_20px_30px_-24px_rgba(255,255,255,0.9)] transition hover:bg-muted"
             >
               <Building2 className="size-4" />
               Kerületi központ

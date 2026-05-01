@@ -74,7 +74,10 @@ export function HeroBannerScripture({
   }, [])
 
   return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/18 bg-[linear-gradient(135deg,#14514b_0%,#1b6a63_48%,#264f69_100%)] p-6 text-white shadow-[0_36px_90px_-48px_rgba(11,44,54,0.78)] md:p-8">
+    <div
+      className="relative overflow-hidden rounded-[2rem] border border-white/18 p-6 text-white shadow-[0_36px_90px_-48px_rgba(11,44,54,0.78)] md:p-8"
+      style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--primary) 60%, var(--sidebar) 100%)' }}
+    >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,214,153,0.24),transparent_18rem),radial-gradient(circle_at_88%_18%,rgba(182,235,225,0.18),transparent_16rem)]" />
       <div className="absolute right-[-2rem] top-[-3rem] h-48 w-48 rounded-full bg-white/[0.06] blur-3xl" />
       <div className="absolute bottom-[-2rem] left-[-2rem] h-40 w-40 rounded-full bg-amber-200/14 blur-3xl" />

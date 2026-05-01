@@ -231,7 +231,10 @@ export function MissionWorkshopV3() {
   return (
     <>
       <div className="space-y-5">
-        <section className="relative overflow-hidden rounded-[2.35rem] border border-white/70 bg-[linear-gradient(135deg,#0f766e_0%,#155e75_38%,#0f766e_62%,#f0b66d_100%)] px-6 py-7 text-white shadow-[0_36px_90px_-52px_rgba(15,118,110,0.72)] md:px-8 md:py-8">
+        <section
+          className="relative overflow-hidden rounded-[2.35rem] border border-white/70 px-6 py-7 text-white shadow-[0_36px_90px_-52px_rgba(15,118,110,0.72)] md:px-8 md:py-8"
+          style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--primary) 38%, var(--sidebar) 62%, var(--accent) 100%)' }}
+        >
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.2),transparent_20rem),radial-gradient(circle_at_bottom_right,rgba(255,244,214,0.22),transparent_18rem)]" />
           <div className="relative grid gap-6 xl:grid-cols-[1.1fr_0.9fr] xl:items-end">
             <div>

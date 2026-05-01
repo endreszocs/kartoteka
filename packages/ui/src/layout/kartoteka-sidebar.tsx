@@ -638,7 +638,7 @@ export function KartotekaSidebar({
     financeSubmenu,
   }
   const shellBaseClassName =
-    'relative shrink-0 overflow-hidden border-r border-white/10 bg-[linear-gradient(180deg,#14514b_0%,#11454a_52%,#16334e_100%)] text-white'
+    'relative shrink-0 overflow-hidden border-r border-white/10 bg-[var(--sidebar)] text-[var(--sidebar-foreground)]'
   const desktopShellClassName = cn(shellBaseClassName, 'h-dvh')
   const mobileShellClassName = cn(shellBaseClassName, 'h-dvh min-h-dvh')
 

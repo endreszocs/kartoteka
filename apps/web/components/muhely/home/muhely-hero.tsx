@@ -14,7 +14,10 @@ export function MuhelyHero({ viewer, level, points, percent, nextLevel }: Muhely
   const firstName = viewer.fullName.split(' ').pop() || viewer.fullName
 
   return (
-    <section className="relative overflow-hidden rounded-3xl bg-[linear-gradient(135deg,#0f766e_0%,#155e75_38%,#0f766e_62%,#d4a04a_100%)] p-6 sm:p-8 lg:p-10">
+    <section
+      className="relative overflow-hidden rounded-3xl p-6 sm:p-8 lg:p-10 text-white"
+      style={{ background: 'linear-gradient(135deg, var(--sidebar) 0%, var(--primary) 50%, var(--accent) 100%)' }}
+    >
       {/* Decorative circles */}
       <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-white/5" />
       <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-white/5" />
