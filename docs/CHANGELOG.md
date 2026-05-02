@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02s] — Felhasználó-listázás bug fix + telefonszám kötelező (v0.9.39)
+
+### 🐛 KRITIKUS BUG FIX — auth.users → profiles szinkronizáció hiánya
+
+**Felhasználó panasza**: "Az autentifikált usereknél megjelenik még egy másik
+személy is, de a rendszer nem mutatja!"
+
+**Gyökér-ok**: a v0.9.37-es signUp-flow `supabase.auth.signUp()`-pal létrehozza
+az `auth.users` sort, DE a `public.profiles` táblába automatikusan NEM kerül
+be sor — mert nincs `handle_new_user` DB-trigger! Ezért a regisztrált user
+láthatatlan az admin felületen (UsersTab a profiles-ot olvassa).
+
+**Új SQL fix**: `migration-docs/sql/2026-05-02-handle-new-user-trigger.sql`
+
+- Új `handle_new_user()` PL/pgSQL függvény (SECURITY DEFINER)
+- Új TRIGGER `on_auth_user_created` AFTER INSERT ON auth.users
+  - Minden új auth.users-re létrehoz egy 'pending' státuszú profile-sort
+  - A `raw_user_meta_data->>'full_name'` és `'requested_role'` mezőket átveszi
+  - `ON CONFLICT (id) DO NOTHING` — idempotens
+- **Backfill**: a meglévő auth.users sorokra is létrehozza a hiányzó profile-okat
+- 3 ellenőrző SELECT a végén (trigger létezik, hianyzo_profile=0, top 20 új profile)
+
+A felhasználónak **futtatnia kell** a Supabase-en — addig az új signUp-on érkezett
+user-ek továbbra sem látszanak.
+
+### ✨ Telefonszám kötelezővé tétele
+
+**Felhasználó kérése**: "a telefonszám nem opcionális!"
+
+- `access-request-form.tsx`: a label-ből eltünt az "(opcionális)", piros csillaggal
+  kötelező; `required` HTML attribute; client-side validáció
+- `actions.ts`: server-side validáció — ha üres, hibaüzenet
+- `autoComplete="tel"` — böngésző-autofill barát
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+**A felhasználónak SQL futtatás KÖTELEZŐ**:
+- `migration-docs/sql/2026-05-02-handle-new-user-trigger.sql`
+
+---
+
 ## [2026-05-02r] — Név szétválasztás + Szerepkörök UI újragondolás (v0.9.38)
 
 ### ✨ Név szétválasztása (1.)

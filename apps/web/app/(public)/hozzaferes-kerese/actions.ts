@@ -95,6 +95,10 @@ export async function submitAccessRequest(
   if (password.length > 72) {
     return { success: false, error: 'A jelszó legfeljebb 72 karakter lehet (bcrypt limit).' }
   }
+  // 2026-05-02 (v0.9.39) — Telefonszám kötelezővé téve.
+  if (!input.phone?.trim()) {
+    return { success: false, error: 'A telefonszám megadása kötelező.' }
+  }
 
   // ── 2. IP-hash (GDPR-kompatibilis: csak hash, nem IP) ───────
   const requestHeaders = await headers()

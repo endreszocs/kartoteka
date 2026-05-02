@@ -68,6 +68,10 @@ export function AccessRequestForm() {
       toast.error('Kérjük, adja meg a vezetéknevét és a keresztnevét.')
       return
     }
+    if (!form.phone.trim()) {
+      toast.error('Kérjük, adja meg a telefonszámát.')
+      return
+    }
     if (password.length < 8) {
       toast.error('A jelszó legalább 8 karakter hosszú legyen.')
       return
@@ -301,14 +305,18 @@ export function AccessRequestForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ar-phone">Telefonszám (opcionális)</Label>
+          <Label htmlFor="ar-phone">
+            Telefonszám <span className="text-rose-500">*</span>
+          </Label>
           <Input
             id="ar-phone"
             type="tel"
+            required
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             placeholder="pl. +40 720 123 456"
             disabled={isPending}
+            autoComplete="tel"
           />
         </div>
       </div>
