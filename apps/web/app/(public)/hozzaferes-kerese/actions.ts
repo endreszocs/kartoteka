@@ -108,7 +108,13 @@ export async function submitAccessRequest(
   }
 
   // ── 5. INSERT ──────────────────────────────────────────────
-  const { data: inserted, error: insErr } = await supabase
+  // 2026-05-02 (v0.9.35) — KRITIKUS BUG-FIX: az `.insert(...).select('id')`
+  // kombináció `permission denied for table access_requests` hibát adott.
+  // A `.select(...)` az anon-nak SELECT jogot követel a táblára, de a
+  // POLICY az anon-ra csak INSERT-et enged. A `returning` jog hiánya is
+  // okozhatja. A megoldás: csak a `.insert(...)` hívás, error-jelzéssel.
+  // (Az `inserted.id`-t máshol nem használjuk a flow-ban.)
+  const { error: insErr } = await supabase
     .from('access_requests')
     .insert({
       email,
@@ -121,13 +127,11 @@ export async function submitAccessRequest(
       ip_hash: ipHash,
       user_agent: userAgent,
     })
-    .select('id')
-    .maybeSingle()
 
-  if (insErr || !inserted) {
+  if (insErr) {
     return {
       success: false,
-      error: insErr?.message || 'Nem sikerült rögzíteni a kérelmet.',
+      error: insErr.message || 'Nem sikerült rögzíteni a kérelmet.',
     }
   }
 

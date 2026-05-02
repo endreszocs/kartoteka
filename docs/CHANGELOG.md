@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02o] — Access requests gyökér-ok fix (v0.9.35)
+
+A v0.9.34 SQL fix után a felhasználó MÉG MINDIG "permission denied for table
+access_requests" hibát kapott, pedig az `anon | INSERT` GRANT megvolt.
+
+### 🐛 GYÖKÉR-OK
+
+**Érintett fájl**: `apps/web/app/(public)/hozzaferes-kerese/actions.ts`
+
+```ts
+// ELŐTTE — 'permission denied for table access_requests' hibát adott:
+const { data: inserted, error: insErr } = await supabase
+  .from('access_requests')
+  .insert({...})
+  .select('id')              // ← EZ A GYILKOS SOR!
+  .maybeSingle()
+```
+
+A `.insert(...).select('id')` kombináció a Supabase-ben **SELECT jogot is
+megkövetel** a táblára, mert a returning-et SELECT-ként ellenőrzi az RLS.
+Az anon-nak **NINCS** SELECT joga (csak admin-nak van SELECT POLICY-ja).
+
+**Fix**: a `.select('id').maybeSingle()` eltávolítva — csak a `.insert(...)`
+hívás, az error elegendő a hibajelzéshez. Az `inserted.id`-t a flow máshol
+nem használja.
+
+### 📜 Új SQL fix-fájl (alapos reset)
+
+`migration-docs/sql/2026-05-02-fix-access-requests-COMPLETE.sql`:
+- 1.1, 1.2: jelenlegi POLICY + GRANT állapot diagnosztika
+- 2: TELJES POLICY-reset — minden drop, újra-create explicit szerepkörökkel
+- 3: GRANT-ek a táblára (anon + authenticated + service_role)
+- 4: GRANT EXECUTE a `check_access_request_rate_limit` függvényre
+- 5: PostgREST cache-reload (`NOTIFY pgrst, 'reload schema'`)
+- 6: ELLENŐRZÉS — várt eredmények dokumentáltan
+
+A felhasználónak **futtatnia kell** ezt is — különösen a NOTIFY pgrst sort,
+ami az új POLICY-t a Supabase REST cache-ébe továbbítja.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+A felhasználónak SQL futtatás:
+- `migration-docs/sql/2026-05-02-fix-access-requests-COMPLETE.sql`
+
+---
+
 ## [2026-05-02n] — Railway build hotfix + 5 új észrevétel javítása (v0.9.34)
 
 ### 🚨 Railway build-fix (kritikus)
