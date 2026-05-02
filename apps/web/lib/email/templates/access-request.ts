@@ -79,7 +79,7 @@ A kérelmét rögzítettük, és az egyházkerületi rendszergazda rövidesen á
 Ha bármilyen kérdése van, válaszoljon erre az emailre.
 
 Áldott napot kíván:
-Az Erdélyi Református Egyházkerület Kartotéka rendszere`
+A Kartotéka rendszer`
 
   const html = layout({
     accentColor: '#1e40af',
@@ -100,7 +100,7 @@ Az Erdélyi Református Egyházkerület Kartotéka rendszere`
       </div>
 
       <p style="margin-top:24px;font-style:italic;color:#64748b;">Áldott napot kíván:<br/>
-      Az Erdélyi Református Egyházkerület Kartotéka rendszere</p>
+      A Kartotéka rendszer</p>
     `,
     footerNote: 'Ez egy automatikus visszaigazolás — a rendszer generálta.',
   })
@@ -220,7 +220,7 @@ ${args.inviteUrl}
 Ez a link 7 napig érvényes.
 
 Üdvözlettel:
-Az Erdélyi Református Egyházkerület Kartotéka rendszere`
+A Kartotéka rendszer`
 
   const html = layout({
     accentColor: '#166534',
@@ -246,7 +246,7 @@ Az Erdélyi Református Egyházkerület Kartotéka rendszere`
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;"/>
 
       <p style="margin-top:16px;font-style:italic;color:#64748b;">Áldott napot kíván:<br/>
-      Az Erdélyi Református Egyházkerület Kartotéka rendszere</p>
+      A Kartotéka rendszer</p>
     `,
   })
 
@@ -274,7 +274,7 @@ ${args.rejectionReason}
 Ha a kérdés tisztázódik, nyugodtan küldjön új kérelmet vagy válaszoljon erre az emailre.
 
 Üdvözlettel:
-Az Erdélyi Református Egyházkerület Kartotéka rendszere`
+A Kartotéka rendszer`
 
   const html = layout({
     accentColor: '#991b1b',
@@ -294,7 +294,7 @@ Az Erdélyi Református Egyházkerület Kartotéka rendszere`
       a rendszergazda látni fogja.</p>
 
       <p style="margin-top:24px;font-style:italic;color:#64748b;">Üdvözlettel:<br/>
-      Az Erdélyi Református Egyházkerület Kartotéka rendszere</p>
+      A Kartotéka rendszer</p>
     `,
   })
 

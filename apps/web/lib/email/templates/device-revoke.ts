@@ -92,7 +92,7 @@ Az adott eszközön ezentúl nem tud bejelentkezni. A rendszer automatikusan kij
 Ha ezt tévedésnek tartja, keresse fel az egyházkerületi rendszergazdát, aki a hozzáférést ismét engedélyezheti.
 
 Áldott napot kíván:
-Az Erdélyi Református Egyházkerület Kartotéka rendszere`
+A Kartotéka rendszer`
 
   const html = layout({
     accentColor: '#b91c1c',
@@ -118,7 +118,7 @@ Az Erdélyi Református Egyházkerület Kartotéka rendszere`
       aki a hozzáférést ismét engedélyezheti.</p>
 
       <p style="margin-top:24px;font-style:italic;color:#64748b;">Áldott napot kíván:<br/>
-      Az Erdélyi Református Egyházkerület Kartotéka rendszere</p>
+      A Kartotéka rendszer</p>
     `,
     footerNote: 'Ez az email a rendszergazda által indított visszavonásra automatikusan keletkezett.',
   })
@@ -151,7 +151,7 @@ Feloldás időpontja: ${whenLabel}
 Az adott eszközön újra bejelentkezhet.
 
 Áldott napot kíván:
-Az Erdélyi Református Egyházkerület Kartotéka rendszere`
+A Kartotéka rendszer`
 
   const html = layout({
     accentColor: '#047857',
@@ -171,7 +171,7 @@ Az Erdélyi Református Egyházkerület Kartotéka rendszere`
       <p>Az adott eszközön újra bejelentkezhet a Kartotéka rendszerbe.</p>
 
       <p style="margin-top:24px;font-style:italic;color:#64748b;">Áldott napot kíván:<br/>
-      Az Erdélyi Református Egyházkerület Kartotéka rendszere</p>
+      A Kartotéka rendszer</p>
     `,
     footerNote: 'Ez az email a rendszergazda által indított feloldásra automatikusan keletkezett.',
   })

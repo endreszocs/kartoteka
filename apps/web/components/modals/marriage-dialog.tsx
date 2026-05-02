@@ -5,28 +5,39 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { saveMarriage, getNextOkiratNumber, searchMemberForRegistry } from '@/app/(dashboard)/anyakonyv/actions'
+import { saveMarriage, getNextEgyhaziSzam } from '@/app/(dashboard)/anyakonyv/actions'
+import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
 import { toast } from 'sonner'
 
-interface MarriageDialogProps { open: boolean; onOpenChange: (open: boolean) => void; editEntry?: { id: number; datum?: string; hlevel?: string; lelkeszneve?: string; tanuk?: string; ferfi?: { id: number; csaladnev: string; k_nev: string } | null; no?: { id: number; csaladnev: string; k_nev: string } | null; [key: string]: unknown } | null }
+interface MarriageDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  editEntry?: {
+    id: number
+    datum?: string
+    hlevel?: string
+    egyhazi_szam?: string
+    lelkeszneve?: string
+    tanuk?: string
+    vegyes?: boolean
+    megjegyzes?: string
+    ferfi?: { id: number; csaladnev: string; k_nev: string } | null
+    no?: { id: number; csaladnev: string; k_nev: string } | null
+    [key: string]: unknown
+  } | null
+}
 
 export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [groomId, setGroomId] = useState<number | null>(null)
-  const [groomName, setGroomName] = useState('')
-  const [brideId, setBrideId] = useState<number | null>(null)
-  const [brideName, setBrideName] = useState('')
+  const [groom, setGroom] = useState<MemberSearchResult | null>(null)
+  const [bride, setBride] = useState<MemberSearchResult | null>(null)
   const [datum, setDatum] = useState('')
+  const [egyhaziSzam, setEgyhaziSzam] = useState('')
   const [hlevel, setHlevel] = useState('')
   const [lelkesz, setLelkesz] = useState('')
   const [tanuk, setTanuk] = useState('')
-  const [groomSearch, setGroomSearch] = useState('')
-  const [brideSearch, setBrideSearch] = useState('')
-  const [groomResults, setGroomResults] = useState<{ id: number; csaladnev: string; k_nev: string }[]>([])
-  const [brideResults, setBrideResults] = useState<{ id: number; csaladnev: string; k_nev: string }[]>([])
-  const [showGroom, setShowGroom] = useState(false)
-  const [showBride, setShowBride] = useState(false)
+  const [vegyes, setVegyes] = useState(false)
+  const [megj, setMegj] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -34,33 +45,48 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
     queueMicrotask(() => {
       if (cancelled) return
       if (editEntry) {
-        setGroomId(editEntry.ferfi?.id || null); setGroomName(editEntry.ferfi ? `${editEntry.ferfi.csaladnev} ${editEntry.ferfi.k_nev}` : '')
-        setBrideId(editEntry.no?.id || null); setBrideName(editEntry.no ? `${editEntry.no.csaladnev} ${editEntry.no.k_nev}` : '')
-        setDatum((editEntry.datum as string)?.split('T')[0] || ''); setHlevel((editEntry.hlevel as string) || '')
-        setLelkesz((editEntry.lelkeszneve as string) || ''); setTanuk((editEntry.tanuk as string) || '')
-        setGroomSearch(''); setBrideSearch('')
+        setGroom(editEntry.ferfi
+          ? { id: editEntry.ferfi.id, csaladnev: editEntry.ferfi.csaladnev, k_nev: editEntry.ferfi.k_nev, ferfi: true, sz_datum: null, cnp: null, c_szam: null }
+          : null)
+        setBride(editEntry.no
+          ? { id: editEntry.no.id, csaladnev: editEntry.no.csaladnev, k_nev: editEntry.no.k_nev, ferfi: false, sz_datum: null, cnp: null, c_szam: null }
+          : null)
+        setDatum((editEntry.datum as string)?.split('T')[0] || '')
+        setEgyhaziSzam((editEntry.egyhazi_szam as string) || '')
+        setHlevel((editEntry.hlevel as string) || '')
+        setLelkesz((editEntry.lelkeszneve as string) || '')
+        setTanuk((editEntry.tanuk as string) || '')
+        setVegyes(!!editEntry.vegyes)
+        setMegj((editEntry.megjegyzes as string) || '')
         return
       }
-      setGroomId(null); setGroomName(''); setBrideId(null); setBrideName('')
-      setDatum(new Date().toISOString().slice(0, 10)); setLelkesz(''); setTanuk('')
-      setGroomSearch(''); setBrideSearch('')
-      getNextOkiratNumber('hazassag', new Date().getFullYear()).then(value => {
-        if (!cancelled) setHlevel(value)
+      setGroom(null); setBride(null)
+      setDatum(new Date().toISOString().slice(0, 10))
+      setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMegj('')
+      // Auto-fill egyházi anyakönyvi szám
+      getNextEgyhaziSzam('marriage', new Date().getFullYear()).then(v => {
+        if (!cancelled) setEgyhaziSzam(v)
       })
     })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [open, editEntry])
 
-  async function searchGroom(val: string) { setGroomSearch(val); if (val.length < 2) { setShowGroom(false); return }; const r = await searchMemberForRegistry(val, true); setGroomResults(r as unknown as typeof groomResults); setShowGroom(true) }
-  async function searchBride(val: string) { setBrideSearch(val); if (val.length < 2) { setShowBride(false); return }; const r = await searchMemberForRegistry(val, false); setBrideResults(r as unknown as typeof brideResults); setShowBride(true) }
-
   async function handleSubmit() {
-    if (!groomId || !brideId) { toast.error('Mindkét fél kötelező!'); return }
+    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return }
     if (!datum) { toast.error('A dátum kötelező!'); return }
     setLoading(true)
-    const result = await saveMarriage({ id: editEntry?.id, id_ferfi: groomId, id_no: brideId, datum, hlevel, lelkeszneve: lelkesz || null, tanuk: tanuk || null })
+    const result = await saveMarriage({
+      id: editEntry?.id,
+      id_ferfi: groom.id,
+      id_no: bride.id,
+      datum,
+      hlevel: hlevel || null,
+      egyhazi_szam: egyhaziSzam || null,
+      lelkeszneve: lelkesz || null,
+      tanuk: tanuk || null,
+      vegyes,
+      megjegyzes: megj || null,
+    })
     if (result.error) toast.error(result.error)
     else { toast.success('Házasság rögzítve!'); onOpenChange(false) }
     setLoading(false)
@@ -68,29 +94,48 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Házasságkötés rögzítése</DialogTitle></DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>{editEntry ? 'Házasságkötés szerkesztése' : 'Házasságkötés rögzítése'}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5 relative">
+            <div className="space-y-1.5">
               <Label>Vőlegény *</Label>
-              {groomId ? <div className="flex items-center gap-2"><Badge className="bg-blue-100 text-blue-700">{groomName}</Badge><Button variant="ghost" size="sm" className="h-6 text-xs text-red-500" onClick={() => { setGroomId(null); setGroomName('') }}>✕</Button></div>
-                : <Input value={groomSearch} onChange={e => searchGroom(e.target.value)} placeholder="Keresés (férfi)..." />}
-              {showGroom && groomResults.length > 0 && <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-32 overflow-y-auto">{groomResults.map(r => <div key={r.id} className="p-2 hover:bg-slate-50 cursor-pointer text-xs border-b" onClick={() => { setGroomId(r.id); setGroomName(`${r.csaladnev} ${r.k_nev}`); setShowGroom(false); setGroomSearch('') }}>{r.csaladnev} {r.k_nev}</div>)}</div>}
+              <MemberSearchSelect value={groom} onChange={setGroom} genderFilter={true} placeholder="Vőlegény keresése (férfi)…" />
             </div>
-            <div className="space-y-1.5 relative">
+            <div className="space-y-1.5">
               <Label>Menyasszony *</Label>
-              {brideId ? <div className="flex items-center gap-2"><Badge className="bg-pink-100 text-pink-700">{brideName}</Badge><Button variant="ghost" size="sm" className="h-6 text-xs text-red-500" onClick={() => { setBrideId(null); setBrideName('') }}>✕</Button></div>
-                : <Input value={brideSearch} onChange={e => searchBride(e.target.value)} placeholder="Keresés (nő)..." />}
-              {showBride && brideResults.length > 0 && <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-32 overflow-y-auto">{brideResults.map(r => <div key={r.id} className="p-2 hover:bg-slate-50 cursor-pointer text-xs border-b" onClick={() => { setBrideId(r.id); setBrideName(`${r.csaladnev} ${r.k_nev}`); setShowBride(false); setBrideSearch('') }}>{r.csaladnev} {r.k_nev}</div>)}</div>}
+              <MemberSearchSelect value={bride} onChange={setBride} genderFilter={false} placeholder="Menyasszony keresése (nő)…" />
             </div>
           </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5"><Label>Házassági levél *</Label><Input value={hlevel} onChange={e => setHlevel(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Dátum *</Label><Input type="date" value={datum} onChange={e => setDatum(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Egyházi anyakönyvi szám
+                <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
+              </Label>
+              <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className="font-mono text-violet-700" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Állami házassági levél</Label>
+              <Input value={hlevel} onChange={e => setHlevel(e.target.value)} placeholder="opcionális" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Dátum *</Label>
+              <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
+            </div>
           </div>
-          <div className="space-y-1.5"><Label>Tanúk</Label><Input value={tanuk} onChange={e => setTanuk(e.target.value)} placeholder="Tanúk neve" /></div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Tanúk</Label><Input value={tanuk} onChange={e => setTanuk(e.target.value)} placeholder="Tanúk neve" /></div>
+          </div>
+          <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} /></div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={vegyes} onChange={e => setVegyes(e.target.checked)} />
+            Vegyes házasság (egyik fél nem református)
+          </label>
+
           <div className="flex gap-2 pt-4 border-t border-zinc-100">
             <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
             <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleSubmit} disabled={loading}>{loading ? 'Mentés...' : 'Mentés'}</Button>

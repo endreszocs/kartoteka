@@ -151,7 +151,19 @@ export async function approveAccessRequest(
   // ── 2. Supabase Auth user létrehozás (service_role) ──────────
   // A `getSupabaseAdminClient()` throw-ol, ha nincs SUPABASE_SERVICE_ROLE_KEY.
   // Graceful fail: a status már approved — admin kézzel pótolhatja az invite-et.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  //
+  // 2026-05-02 (v0.9.34): a felhasználó panasza — az emailben szereplő
+  // "Belépés beállítása" gomb localhost-ra mutatott. Ok: a Railway env-ben
+  // a NEXT_PUBLIC_APP_URL nem volt beállítva, így a localhost:3000 fallback
+  // került be a Supabase invite-linkbe. Production-ben (NODE_ENV='production')
+  // most explicit a Railway URL a fallback. A FELHASZNÁLÓNAK MÉGIS érdemes
+  // beállítania a Railway-en: `NEXT_PUBLIC_APP_URL=https://kartotekaweb-production.up.railway.app`
+  // és a Supabase dashboard → Authentication → URL Configuration → Site URL
+  // ugyanezt.
+  const PRODUCTION_FALLBACK = 'https://kartotekaweb-production.up.railway.app'
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NODE_ENV === 'production' ? PRODUCTION_FALLBACK : 'http://localhost:3000')
   let resultingUserId: string | null = null
   let inviteUrl: string | null = null
   let inviteWarning: string | null = null

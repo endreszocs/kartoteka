@@ -23,6 +23,109 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02n] — Railway build hotfix + 5 új észrevétel javítása (v0.9.34)
+
+### 🚨 Railway build-fix (kritikus)
+
+A v0.9.33 push után a Railway buildje elhalt:
+```
+./app/(dashboard)/anyakonyv/actions.ts
+Type error: Module '"@/lib/validations/registry"' has no exported member 'confirmationSingleSchema'.
+```
+
+**Ok**: a v0.9.33 commit-ben már szerepelt a `confirmationSingleSchema` import,
+de a hozzá tartozó export csak az uncommitált working tree-ben volt
+(`apps/web/lib/validations/registry.ts`). Most pótlólag commitálva az anyakönyvi
+feature-csomag teljes uncommitált része.
+
+**Érintett fájlok** (most pótlólag committelve):
+- `apps/web/lib/validations/registry.ts` — új `confirmationSingleSchema` export
+- `apps/web/components/modals/baptism-dialog.tsx`
+- `apps/web/components/modals/burial-dialog.tsx`
+- `apps/web/components/modals/confirmation-dialog.tsx`
+- `apps/web/components/modals/marriage-dialog.tsx`
+- `apps/web/components/modals/movement-dialog.tsx`
+- `apps/web/components/registry/registry-tabs.tsx`
+- **Új**: `apps/web/components/registry/member-search-select.tsx`
+- **Új**: `apps/web/components/registry/registry-detail-dialog.tsx`
+
+### 🐛 Javítás (3. pont — KRITIKUS: anon nem tud regisztrálni)
+
+**Új SQL**: `migration-docs/sql/2026-05-02-fix-access-requests-anon-insert.sql`
+
+A felhasználó panasza: a publikus regisztrációs űrlap submit-je
+"permission denied for table access_requests" hibát ad.
+
+**Ok**: a 2026-04-22 migráció létrehozta a `"Anyone can submit an access request"`
+POLICY-t, **DE** elfelejtett `GRANT INSERT TO anon`-ot kiadni. A PostgreSQL
+RLS modellje: a POLICY csak akkor enged át egy műveletet, ha a base
+TABLE PRIVILEGE is megvan.
+
+**Fix**: SQL-fájl ami `GRANT INSERT TO anon, authenticated` + a POLICY
+újra-create explicit `TO anon, authenticated` paraméterrel.
+**A felhasználónak FUTTATNIA KELL a Supabase-en — addig nincs új regisztráció!**
+
+### 🐛 Javítás (1. pont — email link localhost-ra mutatott)
+
+**Érintett fájl**: `apps/web/app/(dashboard)/admin/access-requests-actions.ts`
+
+A felhasználó panasza: az elfogadó email "Belépés beállítása" gombja
+`http://localhost:3000`-ra vezetett.
+
+**Ok**: a `NEXT_PUBLIC_APP_URL` env-var nincs beállítva a Railway-en,
+így a default `http://localhost:3000` került be a Supabase invite-linkbe.
+
+**Fix**: a fallback most production-ban a Railway URL-t használja:
+`https://kartotekaweb-production.up.railway.app`. **A felhasználónak ÉRDEMES**
+beállítania a Railway env-vart és a Supabase Site URL-t is.
+
+### ✨ Csere (2. pont — email aláírás)
+
+**Érintett fájlok**: `apps/web/lib/email/templates/{access-request,device-revoke}.ts`
+
+8 helyen cserélve: "Az Erdélyi Református Egyházkerület Kartotéka rendszere"
+→ "A Kartotéka rendszer".
+
+### 🎨 Javítás (5. pont — Settings dialog két-oszlopos layout)
+
+**Érintett fájl**: `apps/web/components/modals/settings-dialog.tsx`
+
+A felhasználó panasza: a Beállítások ablakban a sidebar (Értesítések,
+Megjelenés, ..., Tudtad?, Bejelentkezve mint) UTÁN/ALATT jelent meg a
+tartalom (Téma stílusa, Sötét/világos mód, Betűméret), nem MELLETTE.
+
+**Ok**: a parent `DialogContent` `grid grid-cols-1` display-je felülírta a
+`<Tabs className="flex flex-row">`-ot.
+
+**Fix**: a `<Tabs>` className-jét `flex flex-row` helyett **explicit**
+`grid grid-cols-[200px_1fr] sm:grid-cols-[240px_1fr]`-re átírva. A két
+oszlop most explicit grid template-tel garantált.
+
+### ℹ️ Diagnosztika (4. pont — Wizard ellenőrzés)
+
+A welcome wizard megvan és az infrastruktúra fut:
+- `getWelcomeWizardStatus()` ellenőrzi a hiányzó adatokat (gyülekezet név,
+  cím, járulék, határidő, lelkész név)
+- `welcome-wizard-client.tsx` 2-5. lépésekkel
+- Új user invite-után automatikusan triggerelődik
+
+Konkrét bug nem azonosított — élő teszteléskor, ha valami nem stimmel,
+jelezz vissza.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+**A felhasználónak SQL-t kell futtatnia**:
+- `migration-docs/sql/2026-05-02-fix-access-requests-anon-insert.sql`
+  (KRITIKUS — addig nincs új regisztráció!)
+
+**A felhasználónak Railway env-vart kell beállítania**:
+- `NEXT_PUBLIC_APP_URL=https://kartotekaweb-production.up.railway.app`
+  (akkor is fut nélküle, csak a fallback érvényesül)
+
+---
+
 ## [2026-05-02m] — 5 vegyes észrevétel javítása + sebesség-optimalizálás (v0.9.33)
 
 A felhasználó 5 új észrevétele alapján.

@@ -136,9 +136,12 @@ export function SettingsDialog({
         </DialogHeader>
 
         {/* Bal oldalsáv MINDEN méretben — Endre kérése (v0.5.4 paritás): a tabok mindig
-            vertikálisan a dialog bal oldalán, a tartalom jobbra. */}
-        <Tabs defaultValue="ertesitesek" className="flex flex-row gap-5 sm:gap-7">
-          <div className="flex w-48 shrink-0 flex-col gap-3 self-start sm:w-60">
+            vertikálisan a dialog bal oldalán, a tartalom jobbra.
+            2026-05-02 (v0.9.34) — explicit `grid grid-cols-[240px_1fr]` a parent DialogContent
+            `grid grid-cols-1` felülírására. A `flex flex-row` korábban nem hatott át
+            a Radix Tabs.Root display-jén. */}
+        <Tabs defaultValue="ertesitesek" className="grid grid-cols-[200px_1fr] gap-5 sm:grid-cols-[240px_1fr] sm:gap-7">
+          <div className="flex flex-col gap-3 self-start min-w-0">
             <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
               <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">
                 <Bell className="mr-2 size-4" />

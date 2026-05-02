@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -8,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { RegistryOverview } from './registry-overview'
+import { RegistryDetailDialog } from './registry-detail-dialog'
 import { getRegistryData, deleteRegistryEntry } from '@/app/(dashboard)/anyakonyv/actions'
 import { REGISTRY_TABS, REGISTRY_TAB_LABELS, REGISTRY_BUTTON_CONFIG } from '@/lib/constants/registry'
 import type { RegistryTab, RegistryEntry } from '@/lib/constants/registry'
@@ -33,6 +35,136 @@ function getTabFromHash(hash: string): RegistryTab {
   return VALID_TAB_HASHES.has(clean) ? (clean as RegistryTab) : DEFAULT_TAB
 }
 
+// Sortálható oszlop deklaráció
+interface ColDef {
+  key: string
+  label: string
+  /** A sortáláshoz kinyert érték — string vagy number. */
+  sortVal: (d: RegistryEntry) => string | number
+  /** Megjelenítés cellában. */
+  render: (d: RegistryEntry) => React.ReactNode
+  /** Kis méretű képernyőn elrejtve? */
+  hidden?: 'md' | 'lg'
+  className?: string
+}
+
+function fmtName(d: RegistryEntry): string {
+  return d.szemely ? `${d.szemely.csaladnev} ${d.szemely.k_nev}` : '—'
+}
+function fmtDate(s?: string | null): string {
+  if (!s) return '—'
+  return s.toString().split('T')[0]
+}
+function lowerKey(d: RegistryEntry, key: string): string {
+  const v = (d as Record<string, unknown>)[key]
+  return String(v || '').toLowerCase()
+}
+
+// ── Oszlop-konfiguráció fülönként ────────────────────────────
+function getColumns(tab: RegistryTab): ColDef[] {
+  if (tab === 'keresztseg') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'okirat', label: 'Állami szám', hidden: 'lg', sortVal: d => String(d.okirat || ''), render: d => <span className="text-xs text-slate-500">{d.okirat || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    { key: 'datum', label: 'Dátum', sortVal: d => String(d.datum || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.datum as string)}</span> },
+    { key: 'lelkeszneve', label: 'Lelkész', hidden: 'md', sortVal: d => lowerKey(d, 'lelkeszneve'), render: d => <span className="text-muted-foreground">{d.lelkeszneve || '—'}</span> },
+  ]
+
+  if (tab === 'konfirmalas') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)} {d.szemely?.ferfi !== null && d.szemely?.ferfi !== undefined ? (d.szemely.ferfi ? '♂' : '♀') : ''}</span> },
+    { key: 'datum', label: 'Dátum', sortVal: d => String(d.datum || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.datum as string)}</span> },
+    { key: 'lelkeszneve', label: 'Lelkész', hidden: 'md', sortVal: d => lowerKey(d, 'lelkeszneve'), render: d => <span className="text-muted-foreground">{d.lelkeszneve || '—'}</span> },
+  ]
+
+  if (tab === 'hazassag') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'hlevel', label: 'Hlevel', hidden: 'lg', sortVal: d => String(d.hlevel || ''), render: d => <span className="text-xs text-slate-500">{(d.hlevel as string) || '—'}</span> },
+    { key: 'volegeny', label: 'Vőlegény', sortVal: d => d.ferfi ? `${d.ferfi.csaladnev} ${d.ferfi.k_nev}` : '', render: d => <span className="font-medium">{d.ferfi ? `${d.ferfi.csaladnev} ${d.ferfi.k_nev}` : '—'}</span> },
+    { key: 'menyasszony', label: 'Menyasszony', sortVal: d => d.no ? `${d.no.csaladnev} ${d.no.k_nev}` : '', render: d => <span className="font-medium">{d.no ? `${d.no.csaladnev} ${d.no.k_nev}` : '—'}</span> },
+    { key: 'datum', label: 'Dátum', sortVal: d => String(d.datum || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.datum as string)}</span> },
+  ]
+
+  if (tab === 'temetes') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    { key: 'hdatum', label: 'Halál', sortVal: d => String(d.hdatum || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.hdatum as string)}</span> },
+    { key: 'tdatum', label: 'Temetés', sortVal: d => String(d.tdatum || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.tdatum as string)}</span> },
+    { key: 'hoka', label: 'Ok', hidden: 'md', sortVal: d => lowerKey(d, 'hoka'), render: d => <span className="text-muted-foreground text-xs">{d.hoka || '—'}</span> },
+  ]
+
+  if (tab === 'bekoltozott') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    { key: 'honnan', label: 'Honnan', sortVal: d => (d.adrlocality?.name || '').toLowerCase(), render: d => <span className="text-xs text-slate-600">{(d.adrlocality as { name: string } | null)?.name || '—'}</span> },
+    { key: 'mikor', label: 'Dátum', sortVal: d => String(d.mikor || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.mikor as string)}</span> },
+    { key: 'megjegyzes', label: 'Megjegyzés', hidden: 'md', sortVal: d => lowerKey(d, 'megjegyzes'), render: d => <span className="text-muted-foreground text-xs truncate max-w-[200px] inline-block">{d.megjegyzes || '—'}</span> },
+  ]
+
+  if (tab === 'elkoltozott') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    {
+      key: 'hova', label: 'Hova / Célgyülekezet',
+      sortVal: d => {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name || ''
+        const target = Array.isArray(d.hova_congregation) ? d.hova_congregation[0] : d.hova_congregation
+        return (helyseg + ' ' + (target?.nev_hu || target?.name || '')).toLowerCase()
+      },
+      render: d => {
+        const helyseg = (d.adrlocality as { name: string } | null)?.name
+        const target = Array.isArray(d.hova_congregation) ? d.hova_congregation[0] : d.hova_congregation
+        const congName = target?.nev_hu || target?.name
+        return (
+          <span className="text-xs">
+            {helyseg && <div className="text-slate-700">{helyseg}</div>}
+            {congName && <div className="text-[10px] text-violet-600">{congName}</div>}
+            {!helyseg && !congName && <span className="text-slate-400">—</span>}
+          </span>
+        )
+      },
+    },
+    {
+      key: 'allapot', label: 'Állapot',
+      sortVal: d => {
+        const isKulfoldre = (d.kulfoldre as boolean | undefined) === true
+        const notif = Array.isArray(d.transfer_notification) ? d.transfer_notification[0] : d.transfer_notification
+        if (isKulfoldre) return '0-kulfold'
+        if (!notif) return '1-nincs'
+        return `2-${notif.status}`
+      },
+      render: d => {
+        const isKulfoldre = (d.kulfoldre as boolean | undefined) === true
+        const notif = Array.isArray(d.transfer_notification) ? d.transfer_notification[0] : d.transfer_notification
+        if (isKulfoldre) return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">🌍 Külföld</span>
+        if (!notif) return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">— Nincs cél —</span>
+        if (notif.status === 'pending') return <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">⏳ Függőben</span>
+        if (notif.status === 'accepted') return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">✓ Elfogadva</span>
+        return <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">✕ Elutasítva</span>
+      },
+    },
+    { key: 'mikor', label: 'Dátum', sortVal: d => String(d.mikor || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.mikor as string)}</span> },
+  ]
+
+  if (tab === 'attert') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    { key: 'felekezet', label: 'Korábbi felekezet', sortVal: d => lowerKey(d, 'felekezet'), render: d => <span className="text-xs text-slate-600">{d.felekezet || '—'}</span> },
+    { key: 'honnan', label: 'Honnan', hidden: 'md', sortVal: d => (d.adrlocality?.name || '').toLowerCase(), render: d => <span className="text-xs text-slate-500">{(d.adrlocality as { name: string } | null)?.name || '—'}</span> },
+    { key: 'mikor', label: 'Dátum', sortVal: d => String(d.mikor || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.mikor as string)}</span> },
+  ]
+
+  if (tab === 'kitert') return [
+    { key: 'egyhazi_szam', label: 'Egyházi szám', sortVal: d => String(d.egyhazi_szam || ''), render: d => <span className="font-mono text-xs text-violet-700">{(d.egyhazi_szam as string) || '—'}</span> },
+    { key: 'nev', label: 'Név', sortVal: fmtName, render: d => <span className="font-medium">{fmtName(d)}</span> },
+    { key: 'felekezet', label: 'Új felekezet', sortVal: d => lowerKey(d, 'felekezet'), render: d => <span className="text-xs text-slate-600">{d.felekezet || '—'}</span> },
+    { key: 'hova', label: 'Hova', hidden: 'md', sortVal: d => (d.adrlocality?.name || '').toLowerCase(), render: d => <span className="text-xs text-slate-500">{(d.adrlocality as { name: string } | null)?.name || '—'}</span> },
+    { key: 'mikor', label: 'Dátum', sortVal: d => String(d.mikor || ''), render: d => <span className="text-muted-foreground">{fmtDate(d.mikor as string)}</span> },
+  ]
+
+  return []
+}
+
 export function RegistryTabs({ congregationName }: RegistryTabsProps) {
   const [activeTab, setActiveTab] = useState<RegistryTab>(DEFAULT_TAB)
   const [allData, setAllData] = useState<RegistryEntry[]>([])
@@ -49,6 +181,10 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
   const [burialOpen, setBurialOpen] = useState(false)
   const [movementOpen, setMovementOpen] = useState(false)
   const [editEntry, setEditEntry] = useState<RegistryEntry | null>(null)
+
+  // Részletes nézet (Endre kérése: kattintásra megnyíló olvasó dialog)
+  const [detailEntry, setDetailEntry] = useState<RegistryEntry | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const resetViewState = useCallback(() => {
     setFilterYear('')
@@ -83,9 +219,7 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     }
   }, [activeTab, loadData])
 
-  // Hash-routing — sidebar almenüből (`/anyakonyv#keresztseg` stb.) tab-ugrás.
-  // pushState monkey-patch: a Next.js Link `pushState`-tel navigál, ami nem
-  // trigger-eli a hashchange-et — saját HashChangeEvent dispatch-szel pótoljuk.
+  // Hash-routing
   useEffect(() => {
     const apply = () => setActiveTab(getTabFromHash(window.location.hash))
     apply()
@@ -117,8 +251,6 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     }
   }, [])
 
-  // (A handleTabChange az alábbi function declaration-ben van, ami a hash-t is frissíti)
-
   // Év opciók
   const yearOptions = useMemo(() => {
     const years: Record<string, boolean> = {}
@@ -129,6 +261,8 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     })
     return Object.keys(years).sort().reverse()
   }, [allData])
+
+  const columns = useMemo(() => getColumns(activeTab), [activeTab])
 
   // Szűrt + rendezett adat
   const filtered = useMemo(() => {
@@ -151,21 +285,30 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
           d.lelkeszneve || '', d.okirat || '', (d.egyhazi_szam as string | undefined) || '',
           (d.hlevel as string | undefined) || '', d.megjegyzes || '', d.tanuk || '',
           d.felekezet || '', d.hoka || '', d.igazolas || '',
+          (d.adrlocality as { name: string } | null)?.name || '',
         ].join(' ').toLowerCase()
         return fields.includes(q)
       })
     }
 
     if (sortCol) {
-      result = [...result].sort((a, b) => {
-        const va = String((a as Record<string, unknown>)[sortCol] || '')
-        const vb = String((b as Record<string, unknown>)[sortCol] || '')
-        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va)
-      })
+      const col = columns.find(c => c.key === sortCol)
+      if (col) {
+        result = [...result].sort((a, b) => {
+          const va = col.sortVal(a)
+          const vb = col.sortVal(b)
+          if (typeof va === 'number' && typeof vb === 'number') {
+            return sortAsc ? va - vb : vb - va
+          }
+          return sortAsc
+            ? String(va).localeCompare(String(vb), 'hu')
+            : String(vb).localeCompare(String(va), 'hu')
+        })
+      }
     }
 
     return result
-  }, [allData, filterYear, searchText, sortCol, sortAsc])
+  }, [allData, filterYear, searchText, sortCol, sortAsc, columns])
 
   function handleSort(col: string) {
     if (sortCol === col) setSortAsc(!sortAsc)
@@ -181,15 +324,15 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     else setMovementOpen(true)
   }
 
-  function openEdit(d: RegistryEntry) {
-    openModal(d)
+  function openDetail(d: RegistryEntry) {
+    setDetailEntry(d)
+    setDetailOpen(true)
   }
 
   function handleTabChange(tab: RegistryTab) {
     resetViewState()
     setLoading(tab !== 'attekinto')
     setActiveTab(tab)
-    // Bookmarkolható URL: a hash-t is frissítjük (sidebar almenüvel együttműködik)
     if (typeof window !== 'undefined') {
       const newHash = tab === DEFAULT_TAB ? '' : `#${tab}`
       if (window.location.hash !== newHash) {
@@ -212,196 +355,74 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     refreshData(activeTab)
   }
 
-  // Táblázat oszlopok fülönként
+  function SortIcon({ col }: { col: string }) {
+    if (sortCol !== col) return <ChevronsUpDown className="size-3 inline-block ml-1 text-slate-300" />
+    return sortAsc
+      ? <ChevronUp className="size-3 inline-block ml-1 text-slate-600" />
+      : <ChevronDown className="size-3 inline-block ml-1 text-slate-600" />
+  }
+
   function renderTable() {
     if (filtered.length === 0) return <Card><CardContent className="py-8 text-center text-muted-foreground">Nincs bejegyzés.</CardContent></Card>
-
-    const getName = (d: RegistryEntry) => d.szemely ? `${d.szemely.csaladnev} ${d.szemely.k_nev}` : '—'
-    const getDate = (d: RegistryEntry) => (d.datum || d.mikor || d.hdatum || '')?.toString().split('T')[0] || '—'
-
-    // Fejlécek a profil szerint — array, kulcsokkal (a Fragment-ek React keys-warningot
-    // okoztak Next 16-ban a `<tr>`-ben, mert több feltételes <>...</> szomszédja
-    // listának látszott). Az array-elemek explicit key-vel megoldják.
-    const headerCells: React.ReactNode[] = []
-    if (activeTab === 'keresztseg') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-aszam" className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('okirat')}>Állami szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
-        <th key="h-lel" className="p-2 text-left hidden md:table-cell">Lelkész</th>,
-      )
-    } else if (activeTab === 'konfirmalas') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
-        <th key="h-lel" className="p-2 text-left hidden md:table-cell">Lelkész</th>,
-      )
-    } else if (activeTab === 'hazassag') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-hlev" className="p-2 text-left hidden lg:table-cell cursor-pointer" onClick={() => handleSort('hlevel')}>Hlevel</th>,
-        <th key="h-vol" className="p-2 text-left">Vőlegény</th>,
-        <th key="h-men" className="p-2 text-left">Menyasszony</th>,
-        <th key="h-dat" className="p-2 text-left cursor-pointer" onClick={() => handleSort('datum')}>Dátum</th>,
-      )
-    } else if (activeTab === 'temetes') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-hal" className="p-2 text-left">Halál</th>,
-        <th key="h-tem" className="p-2 text-left">Temetés</th>,
-        <th key="h-ok" className="p-2 text-left hidden md:table-cell">Ok</th>,
-      )
-    } else if (activeTab === 'bekoltozott') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-honnan" className="p-2 text-left">Honnan</th>,
-        <th key="h-dat" className="p-2 text-left">Dátum</th>,
-        <th key="h-meg" className="p-2 text-left hidden md:table-cell">Megjegyzés</th>,
-      )
-    } else if (activeTab === 'elkoltozott') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-hova" className="p-2 text-left">Hova / Célgyülekezet</th>,
-        <th key="h-allapot" className="p-2 text-left">Állapot</th>,
-        <th key="h-dat" className="p-2 text-left">Dátum</th>,
-      )
-    } else if (activeTab === 'attert') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-felekezet" className="p-2 text-left">Korábbi felekezet</th>,
-        <th key="h-honnan" className="p-2 text-left hidden md:table-cell">Honnan</th>,
-        <th key="h-dat" className="p-2 text-left">Dátum</th>,
-      )
-    } else if (activeTab === 'kitert') {
-      headerCells.push(
-        <th key="h-eszam" className="p-2 text-left cursor-pointer" onClick={() => handleSort('egyhazi_szam')}>Egyházi szám</th>,
-        <th key="h-nev" className="p-2 text-left">Név</th>,
-        <th key="h-felekezet" className="p-2 text-left">Új felekezet</th>,
-        <th key="h-hova" className="p-2 text-left hidden md:table-cell">Hova</th>,
-        <th key="h-dat" className="p-2 text-left">Dátum</th>,
-      )
-    }
-    headerCells.push(<th key="h-act" className="p-2 w-20"></th>)
-
-    function rowCells(d: RegistryEntry): React.ReactNode[] {
-      const cells: React.ReactNode[] = []
-      if (activeTab === 'keresztseg') {
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-aszam" className="p-2 hidden lg:table-cell text-xs text-slate-500">{d.okirat || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-          <td key="c-lel" className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td>,
-        )
-      } else if (activeTab === 'konfirmalas') {
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)} {d.szemely?.ferfi ? '♂' : '♀'}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-          <td key="c-lel" className="p-2 hidden md:table-cell text-muted-foreground">{d.lelkeszneve || '—'}</td>,
-        )
-      } else if (activeTab === 'hazassag') {
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-hlev" className="p-2 hidden lg:table-cell text-xs text-slate-500">{(d.hlevel as string | undefined) || '—'}</td>,
-          <td key="c-vol" className="p-2 font-medium">{d.ferfi ? `${d.ferfi.csaladnev} ${d.ferfi.k_nev}` : '—'}</td>,
-          <td key="c-men" className="p-2 font-medium">{d.no ? `${d.no.csaladnev} ${d.no.k_nev}` : '—'}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-        )
-      } else if (activeTab === 'temetes') {
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-hal" className="p-2 text-muted-foreground">{d.hdatum?.toString().split('T')[0] || '—'}</td>,
-          <td key="c-tem" className="p-2 text-muted-foreground">{d.tdatum?.toString().split('T')[0] || '—'}</td>,
-          <td key="c-ok" className="p-2 hidden md:table-cell text-muted-foreground text-xs">{d.hoka || '—'}</td>,
-        )
-      } else if (activeTab === 'bekoltozott') {
-        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-honnan" className="p-2 text-xs text-slate-600">{helyseg}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-          <td key="c-meg" className="p-2 hidden md:table-cell text-muted-foreground text-xs truncate max-w-[200px]">{d.megjegyzes || '—'}</td>,
-        )
-      } else if (activeTab === 'elkoltozott') {
-        const helyseg = (d.adrlocality as { name: string } | null)?.name
-        const targetCong = Array.isArray(d.hova_congregation) ? d.hova_congregation[0] : d.hova_congregation
-        const congName = targetCong?.nev_hu || targetCong?.name
-        const notif = Array.isArray(d.transfer_notification) ? d.transfer_notification[0] : d.transfer_notification
-        const isKulfoldre = (d.kulfoldre as boolean | undefined) === true
-
-        // Állapot-badge
-        let statusBadge: React.ReactNode
-        if (isKulfoldre) {
-          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">🌍 Külföld</span>
-        } else if (!notif) {
-          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">— Nincs cél —</span>
-        } else if (notif.status === 'pending') {
-          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">⏳ Függőben</span>
-        } else if (notif.status === 'accepted') {
-          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">✓ Elfogadva</span>
-        } else {
-          statusBadge = <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">✕ Elutasítva (visszakerült)</span>
-        }
-
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-hova" className="p-2 text-xs">
-            {helyseg && <div className="text-slate-700">{helyseg}</div>}
-            {congName && <div className="text-[10px] text-violet-600">{congName}</div>}
-            {!helyseg && !congName && <span className="text-slate-400">—</span>}
-          </td>,
-          <td key="c-allapot" className="p-2">{statusBadge}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-        )
-      } else if (activeTab === 'attert') {
-        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-felekezet" className="p-2 text-xs text-slate-600">{d.felekezet || '—'}</td>,
-          <td key="c-honnan" className="p-2 hidden md:table-cell text-xs text-slate-500">{helyseg}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-        )
-      } else if (activeTab === 'kitert') {
-        const helyseg = (d.adrlocality as { name: string } | null)?.name || '—'
-        cells.push(
-          <td key="c-eszam" className="p-2 text-xs font-mono text-violet-700">{(d.egyhazi_szam as string | undefined) || '—'}</td>,
-          <td key="c-nev" className="p-2 font-medium">{getName(d)}</td>,
-          <td key="c-felekezet" className="p-2 text-xs text-slate-600">{d.felekezet || '—'}</td>,
-          <td key="c-hova" className="p-2 hidden md:table-cell text-xs text-slate-500">{helyseg}</td>,
-          <td key="c-dat" className="p-2 text-muted-foreground">{getDate(d)}</td>,
-        )
-      }
-      cells.push(
-        <td key="c-act" className="p-2 text-right flex gap-1 justify-end">
-          {activeTab !== 'konfirmalas' && (
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs text-blue-500 hover:text-blue-700" onClick={() => openEdit(d)}>✏️</Button>
-          )}
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => handleDelete(d.id)}>✕</Button>
-        </td>
-      )
-      return cells
-    }
 
     return (
       <div className="border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b">
-            <tr>{headerCells}</tr>
+            <tr>
+              {columns.map(c => (
+                <th
+                  key={`h-${c.key}`}
+                  className={`p-2 text-left cursor-pointer select-none hover:bg-slate-100 transition-colors ${c.hidden === 'md' ? 'hidden md:table-cell' : c.hidden === 'lg' ? 'hidden lg:table-cell' : ''}`}
+                  onClick={() => handleSort(c.key)}
+                  title="Kattints a rendezéshez"
+                >
+                  {c.label}
+                  <SortIcon col={c.key} />
+                </th>
+              ))}
+              <th key="h-act" className="p-2 w-20"></th>
+            </tr>
           </thead>
           <tbody>
             {filtered.map(d => (
-              <tr key={d.id} className="border-b hover:bg-slate-50">{rowCells(d)}</tr>
+              <tr
+                key={d.id}
+                className="border-b hover:bg-blue-50/50 cursor-pointer transition-colors"
+                onClick={() => openDetail(d)}
+                title="Kattints a részletek megtekintéséhez"
+              >
+                {columns.map(c => (
+                  <td
+                    key={`c-${c.key}`}
+                    className={`p-2 ${c.hidden === 'md' ? 'hidden md:table-cell' : c.hidden === 'lg' ? 'hidden lg:table-cell' : ''}`}
+                  >
+                    {c.render(d)}
+                  </td>
+                ))}
+                <td key="c-act" className="p-2 text-right">
+                  <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-xs text-blue-500 hover:text-blue-700"
+                      onClick={() => openModal(d)}
+                      title="Szerkesztés"
+                    >
+                      ✏️
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                      onClick={() => handleDelete(d.id)}
+                      title="Törlés"
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -443,7 +464,6 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
 
         {REGISTRY_TABS.filter(t => t !== 'attekinto').map(tab => (
           <TabsContent key={tab} value={tab} className="mt-4 space-y-3">
-            {/* Szűrő sáv + gomb */}
             <div className="flex flex-wrap items-center gap-3">
               <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
                 <option value="">Minden év</option>
@@ -451,6 +471,19 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
               </select>
               <Input placeholder="Keresés..." value={searchText} onChange={e => setSearchText(e.target.value)} className="w-48" />
               <Badge variant="secondary" className="text-xs">{filtered.length}{filterYear || searchText ? ` / ${allData.length}` : ''} bejegyzés</Badge>
+              {sortCol && (
+                <Badge variant="outline" className="text-[10px] gap-1">
+                  Rendezés: {columns.find(c => c.key === sortCol)?.label} {sortAsc ? '▲' : '▼'}
+                  <button
+                    type="button"
+                    onClick={() => setSortCol(null)}
+                    className="ml-1 text-slate-400 hover:text-slate-700"
+                    aria-label="Rendezés törlése"
+                  >
+                    ✕
+                  </button>
+                </Badge>
+              )}
               {btnConfig && (
                 <div className="ml-auto">
                   <Button size="sm" className={`text-white ${btnConfig.color}`} onClick={() => openModal()}>{btnConfig.label}</Button>
@@ -463,9 +496,19 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
         ))}
       </Tabs>
 
+      {/* Részletes olvasó dialog */}
+      <RegistryDetailDialog
+        open={detailOpen}
+        onOpenChange={(o) => { setDetailOpen(o); if (!o) setDetailEntry(null) }}
+        entry={detailEntry}
+        tab={activeTab}
+        onEdit={() => detailEntry && openModal(detailEntry)}
+        onDelete={() => detailEntry && handleDelete(detailEntry.id)}
+      />
+
       {/* Modal-ok */}
       <BaptismDialog open={baptismOpen} onOpenChange={closeAndRefresh} congregationName={congregationName} editEntry={editEntry} />
-      <ConfirmationDialog open={confirmationOpen} onOpenChange={closeAndRefresh} />
+      <ConfirmationDialog open={confirmationOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <MarriageDialog open={marriageOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <BurialDialog open={burialOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <MovementDialog open={movementOpen} onOpenChange={closeAndRefresh} movementType={activeTab as 'bekoltozott' | 'elkoltozott' | 'attert' | 'kitert'} editEntry={editEntry} />
