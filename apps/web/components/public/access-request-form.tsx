@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LegalDialog, type LegalKind } from '@/components/auth/legal-dialog'
+import { ContactSysadminDialog } from '@/components/public/contact-sysadmin-dialog'
 import {
   submitAccessRequest,
   type AccessRequestRole,
@@ -39,6 +40,7 @@ export function AccessRequestForm() {
   const [acceptPrivacy, setAcceptPrivacy] = useState(false)
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [openLegal, setOpenLegal] = useState<LegalKind | null>(null)
+  const [contactOpen, setContactOpen] = useState(false)
 
   const [form, setForm] = useState({
     email: '',
@@ -81,23 +83,39 @@ export function AccessRequestForm() {
 
   if (submitted) {
     return (
-      <div className="py-8 text-center">
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-100">
-          <CheckCircle2 className="size-7 text-emerald-600" />
-        </div>
-        <h2 className="font-heading text-2xl font-bold text-slate-900">Kérelmét rögzítettük</h2>
-        <p className="mt-3 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-          Visszaigazoló emailt küldtünk a{' '}
-          <strong className="text-slate-900">{submittedEmail}</strong> címre. A rendszergazda
-          rövidesen átnézi a kérelmét — általában <strong>1-3 munkanap</strong> alatt válaszolunk.
-        </p>
-        <div className="mt-6 rounded-xl bg-amber-50/60 p-4 ring-1 ring-amber-200/60 max-w-md mx-auto text-left">
-          <p className="text-[13px] text-amber-900/80 leading-relaxed">
-            <strong>Nem kapja meg az emailt?</strong> Ellenőrizze a spam mappát is. Ha 10 percen
-            belül sem érkezik meg, kérjük lépjen kapcsolatba az egyházkerületi hivatallal.
+      <>
+        <div className="py-8 text-center">
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-100">
+            <CheckCircle2 className="size-7 text-emerald-600" />
+          </div>
+          <h2 className="font-heading text-2xl font-bold text-slate-900">Kérelmét rögzítettük</h2>
+          <p className="mt-3 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+            Visszaigazoló emailt küldtünk a{' '}
+            <strong className="text-slate-900">{submittedEmail}</strong> címre. A rendszergazda
+            rövidesen átnézi a kérelmét — általában <strong>1-3 munkanap</strong> alatt válaszolunk.
           </p>
+          <div className="mt-6 rounded-xl bg-amber-50/60 p-4 ring-1 ring-amber-200/60 max-w-md mx-auto text-left">
+            <p className="text-[13px] text-amber-900/80 leading-relaxed">
+              <strong>Nem kapja meg az emailt?</strong> Ellenőrizze a spam mappát is. Ha 10 percen
+              belül sem érkezik meg, kérjük lépjen kapcsolatba a{' '}
+              <button
+                type="button"
+                onClick={() => setContactOpen(true)}
+                className="font-semibold text-amber-900 underline decoration-amber-400 underline-offset-2 hover:text-amber-950 hover:decoration-amber-600 transition"
+              >
+                rendszergazdával
+              </button>
+              .
+            </p>
+          </div>
         </div>
-      </div>
+        <ContactSysadminDialog
+          open={contactOpen}
+          onOpenChange={setContactOpen}
+          defaultEmail={submittedEmail}
+          defaultName={form.full_name.trim()}
+        />
+      </>
     )
   }
 

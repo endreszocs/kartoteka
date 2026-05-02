@@ -23,6 +23,45 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02p] — Kapcsolatfelvétel a rendszergazdával modal (v0.9.36)
+
+A felhasználó kérése: a hozzáférés-kérelem sikeres beküldése utáni
+amber-blokkban szereplő szöveget cseréljük le, és a "rendszergazdával"
+legyen kattintható link → ablak → email küldés `endreszocs@gmail.com`-ra.
+
+### ✨ Új funkciók
+
+**Új fájl**: `apps/web/app/(public)/hozzaferes-kerese/contact-actions.ts`
+- `contactSysadmin({ fromEmail, fromName, message })` Server Action
+- Brevo-n keresztül küld emailt a `SYSADMIN_EMAIL = endreszocs@gmail.com`-ra
+- Reply-To = a felhasználó email-je → admin közvetlenül válaszolhat
+- Validáció: email, név (min 2), üzenet (10-5000 karakter)
+
+**Új fájl**: `apps/web/components/public/contact-sysadmin-dialog.tsx`
+- `ContactSysadminDialog` modal komponens
+- 3 mező: név, email, üzenet (textarea)
+- Loading-state + success-state ("Üzenet elküldve" + check ikon)
+- A submitted-state-en a defaultEmail/defaultName már elő van töltve
+
+### 🔄 Módosítás
+
+**Érintett fájl**: `apps/web/components/public/access-request-form.tsx`
+
+A success-screen (kérelem rögzítve) amber-blokkjának szövege:
+```diff
+- ...kérjük lépjen kapcsolatba az egyházkerületi hivatallal.
++ ...kérjük lépjen kapcsolatba a rendszergazdával.
+```
+
+A "rendszergazdával" most **kattintható link** — megnyitja az új
+`ContactSysadminDialog` modalt, ami a felhasználó adatait előre kitölti.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02o] — Access requests gyökér-ok fix (v0.9.35)
 
 A v0.9.34 SQL fix után a felhasználó MÉG MINDIG "permission denied for table
