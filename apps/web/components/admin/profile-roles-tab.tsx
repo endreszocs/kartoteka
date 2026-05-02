@@ -350,6 +350,30 @@ export function ProfileRolesTab() {
 // User card — 1 user 1 sor, szerepkörökkel
 // ────────────────────────────────────────────────────────────────────────────
 
+// Szerep-opciók a cél-scope alapján
+const ROLE_OPTIONS_BY_SCOPE: Record<ProfileRoleScope, Array<{ value: ProfileRoleType; label: string }>> = {
+  system: [{ value: 'admin', label: 'Rendszergazda' }],
+  district: [{ value: 'egyhazkeruleti_admin', label: 'Egyházkerületi admin' }],
+  diocese: [
+    { value: 'esperes', label: 'Esperes' },
+    { value: 'egyhazmegyei_admin', label: 'Egyházmegyei admin' },
+    { value: 'egyhazmegyei_szamvevo', label: 'Egyházmegyei számvevő' },
+  ],
+  congregation: [
+    { value: 'lelkesz', label: 'Lelkipásztor' },
+    { value: 'konyvelo', label: 'Könyvelő' },
+  ],
+}
+
+interface ScopeTarget {
+  key: string
+  scope: ProfileRoleScope
+  scopeId: string | null
+  label: string
+  hint?: string
+  groupLabel: string
+}
+
 function UserAssignmentCard({
   user,
   roles,
@@ -369,21 +393,96 @@ function UserAssignmentCard({
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [popSearch, setPopSearch] = useState('')
+  // 2-lépcsős flow: 1) cél kiválasztás, 2) szerep választás
+  const [selectedTarget, setSelectedTarget] = useState<ScopeTarget | null>(null)
+  const [selectedRole, setSelectedRole] = useState<ProfileRoleType | null>(null)
 
-  // Aktív szerepkörök ID-i — ezek nem ajánljuk újra
-  const activeKeys = new Set(
-    roles
-      .filter((r) => r.approval_status !== 'revoked' && r.approval_status !== 'rejected')
-      .map((r) => `${r.scope === 'system' ? 'system' : r.scope === 'district' ? 'district' : r.scope === 'diocese' ? 'diocese' : 'cong'}::${r.scope_id || ''}::${r.role}`),
+  // Aktív (key) — ami már ki van osztva, kihagyjuk a quickOptions-ből (lásd lent)
+  const activeKeys = useMemo(
+    () => new Set(
+      roles
+        .filter((r) => r.approval_status !== 'revoked' && r.approval_status !== 'rejected')
+        .map((r) => `${r.scope === 'system' ? 'system' : r.scope === 'district' ? 'district' : r.scope === 'diocese' ? 'diocese' : 'cong'}::${r.scope_id || ''}::${r.role}`),
+    ),
+    [roles],
   )
 
-  const filteredOptions = useMemo(() => {
+  // ── Csoportosított cél-lista (az összes lehetséges hatókör) ──
+  const targets = useMemo<ScopeTarget[]>(() => {
+    // A quickOptions-ből vesszük a scope-okat, de duplikációk nélkül
+    const seen = new Set<string>()
+    const out: ScopeTarget[] = []
+    for (const opt of quickOptions) {
+      const targetKey = `${opt.scope}::${opt.scopeId || ''}`
+      if (seen.has(targetKey)) continue
+      seen.add(targetKey)
+      const groupLabel =
+        opt.scope === 'system' ? 'Rendszerszint' :
+        opt.scope === 'district' ? 'Egyházkerületek' :
+        opt.scope === 'diocese' ? 'Egyházmegyék' :
+        'Gyülekezetek'
+      // A label-ből vágjuk le a "Lelkész — " részt — csak a cél-nevet
+      const cleanLabel =
+        opt.scope === 'system' ? 'Rendszer (globális)' :
+        opt.label.replace(/^[^—]+ — /, '')
+      out.push({
+        key: targetKey,
+        scope: opt.scope,
+        scopeId: opt.scopeId,
+        label: cleanLabel,
+        hint: opt.hint,
+        groupLabel,
+      })
+    }
+    return out
+  }, [quickOptions])
+
+  const filteredTargets = useMemo(() => {
     const q = popSearch.trim().toLowerCase()
-    return quickOptions
-      .filter((o) => !activeKeys.has(o.key)) // már megvan? kihagyjuk
-      .filter((o) => !q || o.label.toLowerCase().includes(q) || (o.hint || '').toLowerCase().includes(q))
-      .slice(0, 50)
-  }, [quickOptions, activeKeys, popSearch])
+    if (!q) return targets
+    return targets.filter((t) =>
+      t.label.toLowerCase().includes(q) ||
+      (t.hint || '').toLowerCase().includes(q) ||
+      t.groupLabel.toLowerCase().includes(q),
+    )
+  }, [targets, popSearch])
+
+  // Csoportosítás scope szerint a megjelenítéshez
+  const groupedTargets = useMemo(() => {
+    const groups = new Map<string, ScopeTarget[]>()
+    for (const t of filteredTargets) {
+      const arr = groups.get(t.groupLabel) || []
+      arr.push(t)
+      groups.set(t.groupLabel, arr)
+    }
+    return Array.from(groups.entries())
+  }, [filteredTargets])
+
+  // A kiválasztott cél-hez tartozó szerep-opciók — szűrjük az aktív key-ek alapján
+  const availableRoles = useMemo(() => {
+    if (!selectedTarget) return []
+    const opts = ROLE_OPTIONS_BY_SCOPE[selectedTarget.scope] || []
+    return opts.filter((r) => {
+      const key = `${selectedTarget.scope === 'system' ? 'system' : selectedTarget.scope === 'district' ? 'district' : selectedTarget.scope === 'diocese' ? 'diocese' : 'cong'}::${selectedTarget.scopeId || ''}::${r.value}`
+      return !activeKeys.has(key)
+    })
+  }, [selectedTarget, activeKeys])
+
+  function resetPopover() {
+    setSelectedTarget(null)
+    setSelectedRole(null)
+    setPopSearch('')
+    setPopoverOpen(false)
+  }
+
+  function handleAssign() {
+    if (!selectedTarget || !selectedRole) return
+    const key = `${selectedTarget.scope === 'system' ? 'system' : selectedTarget.scope === 'district' ? 'district' : selectedTarget.scope === 'diocese' ? 'diocese' : 'cong'}::${selectedTarget.scopeId || ''}::${selectedRole}`
+    const matchingOpt = quickOptions.find((o) => o.key === key)
+    if (!matchingOpt) return
+    resetPopover()
+    onQuickAssign(matchingOpt)
+  }
 
   return (
     <div className="card-raised p-4 sm:p-5">
@@ -398,11 +497,14 @@ function UserAssignmentCard({
           <p className="text-xs text-muted-foreground truncate">{user.email}</p>
         </div>
 
-        {/* "+ Új szerepkör" — gyors-kiosztás popover */}
+        {/* "+ Új szerepkör" — 2-lépcsős popover (cél → szerep) */}
         <div className="relative">
           <Button
             size="sm"
-            onClick={() => setPopoverOpen((o) => !o)}
+            onClick={() => {
+              if (popoverOpen) resetPopover()
+              else setPopoverOpen(true)
+            }}
             className="gap-1.5 bg-indigo-600 hover:bg-indigo-700"
           >
             <Plus className="size-3.5" />
@@ -414,72 +516,154 @@ function UserAssignmentCard({
             <>
               <div
                 className="fixed inset-0 z-30"
-                onClick={() => setPopoverOpen(false)}
+                onClick={resetPopover}
                 aria-hidden
               />
-              <div className="absolute right-0 top-full mt-2 w-[min(380px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white shadow-xl z-40 overflow-hidden">
-                <div className="border-b border-slate-100 p-3">
-                  <div className="flex items-center gap-2">
-                    <Search className="size-4 text-slate-400" />
-                    <Input
-                      autoFocus
-                      value={popSearch}
-                      onChange={(e) => setPopSearch(e.target.value)}
-                      placeholder="Keresés gyülekezet vagy szerep alapján..."
-                      className="h-8 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setPopoverOpen(false)}
-                      className="text-slate-400 hover:text-slate-700"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="max-h-[60vh] overflow-y-auto p-1">
-                  {filteredOptions.length === 0 ? (
-                    <p className="p-4 text-xs text-slate-400 italic text-center">
-                      {popSearch ? 'Nincs találat.' : 'Minden lehetséges szerep már kiosztva.'}
-                    </p>
-                  ) : (
-                    filteredOptions.map((opt) => {
-                      const Icon = SCOPE_ICONS[opt.scope]
-                      return (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          onClick={() => {
-                            setPopoverOpen(false)
-                            setPopSearch('')
-                            onQuickAssign(opt)
-                          }}
-                          className="w-full text-left rounded-lg px-3 py-2 text-sm flex items-center gap-3 hover:bg-indigo-50 transition"
-                        >
-                          <Icon className="size-4 shrink-0 text-slate-500" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-800 truncate">{opt.label}</p>
-                            {opt.hint && (
-                              <p className="text-[11px] text-muted-foreground truncate">{opt.hint}</p>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-                <div className="border-t border-slate-100 p-2">
+              <div className="absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white shadow-xl z-40 overflow-hidden">
+                {/* Lépés-jelző */}
+                <div className="border-b border-slate-100 px-4 py-2.5 bg-indigo-50/50 text-xs font-semibold text-indigo-700 flex items-center justify-between">
+                  <span>
+                    {selectedTarget
+                      ? '2. lépés — Szerepkör választása'
+                      : '1. lépés — Hova tartozik?'}
+                  </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setPopoverOpen(false)
-                      onAdvanced()
-                    }}
-                    className="w-full text-center text-xs text-indigo-600 hover:text-indigo-800 py-1.5 rounded-md hover:bg-indigo-50 transition"
+                    onClick={resetPopover}
+                    className="text-slate-400 hover:text-slate-700"
                   >
-                    Részletes (egyedi szerep, indoklás) →
+                    <X className="size-4" />
                   </button>
                 </div>
+
+                {/* 1. lépés — cél kiválasztás */}
+                {!selectedTarget && (
+                  <>
+                    <div className="border-b border-slate-100 p-3">
+                      <div className="flex items-center gap-2">
+                        <Search className="size-4 text-slate-400" />
+                        <Input
+                          autoFocus
+                          value={popSearch}
+                          onChange={(e) => setPopSearch(e.target.value)}
+                          placeholder="Keresés gyülekezet, megye, kerület..."
+                          className="h-8 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-[55vh] overflow-y-auto">
+                      {groupedTargets.length === 0 ? (
+                        <p className="p-4 text-xs text-slate-400 italic text-center">
+                          Nincs találat — próbálkozzon más kereséssel.
+                        </p>
+                      ) : (
+                        groupedTargets.map(([groupLabel, group]) => (
+                          <div key={groupLabel} className="py-1">
+                            <p className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                              {groupLabel}
+                            </p>
+                            {group.map((t) => {
+                              const Icon = SCOPE_ICONS[t.scope]
+                              return (
+                                <button
+                                  key={t.key}
+                                  type="button"
+                                  onClick={() => setSelectedTarget(t)}
+                                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-3 hover:bg-indigo-50 transition"
+                                >
+                                  <Icon className="size-4 shrink-0 text-slate-500" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-slate-800 truncate">{t.label}</p>
+                                    {t.hint && (
+                                      <p className="text-[11px] text-muted-foreground truncate">{t.hint}</p>
+                                    )}
+                                  </div>
+                                  <ChevronDown className="size-4 -rotate-90 text-slate-300" />
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="border-t border-slate-100 p-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetPopover()
+                          onAdvanced()
+                        }}
+                        className="w-full text-center text-xs text-indigo-600 hover:text-indigo-800 py-1.5 rounded-md hover:bg-indigo-50 transition"
+                      >
+                        Részletes (egyedi szerep, indoklás) →
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* 2. lépés — szerep választás */}
+                {selectedTarget && (
+                  <>
+                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        Kiválasztott cél
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        {(() => {
+                          const Icon = SCOPE_ICONS[selectedTarget.scope]
+                          return <Icon className="size-4 text-slate-600 shrink-0" />
+                        })()}
+                        <p className="font-semibold text-slate-800 truncate flex-1">{selectedTarget.label}</p>
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedTarget(null); setSelectedRole(null) }}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Csere
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-2">
+                      <p className="text-sm font-medium text-slate-700">Mi lesz a szerepe ezen a hatókörön?</p>
+                      {availableRoles.length === 0 ? (
+                        <p className="text-xs text-amber-700 italic">
+                          Ezen a hatókörön minden lehetséges szerep már ki van osztva ennek a felhasználónak.
+                        </p>
+                      ) : (
+                        availableRoles.map((r) => (
+                          <button
+                            key={r.value}
+                            type="button"
+                            onClick={() => setSelectedRole(r.value)}
+                            className={`w-full text-left rounded-xl border-2 px-3 py-2.5 text-sm transition ${
+                              selectedRole === r.value
+                                ? 'border-indigo-500 bg-indigo-50 text-indigo-800 shadow-sm'
+                                : 'border-slate-200 bg-white hover:border-indigo-200'
+                            }`}
+                          >
+                            <span className="font-semibold">{r.label}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="border-t border-slate-100 p-3 flex justify-end gap-2 bg-slate-50/30">
+                      <Button size="sm" variant="outline" onClick={resetPopover}>
+                        Mégse
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleAssign}
+                        disabled={!selectedRole}
+                        className="bg-indigo-600 hover:bg-indigo-700 gap-1"
+                      >
+                        <Plus className="size-3.5" />
+                        Hozzáadás
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}

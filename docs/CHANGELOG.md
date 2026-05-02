@@ -23,6 +23,69 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02x] — Reset password flow + Szerepkörök 2-lépcsős UI (v0.9.44)
+
+### 🐛 KRITIKUS FIX — Elfelejtett jelszó funkció
+
+A felhasználó panasza: az elfelejtett jelszó funkció nem működött rendesen.
+
+**Két probléma**:
+1. A `resetPasswordForEmail` hívásnál **HIÁNYZOTT** a `redirectTo` opció →
+   a magic-link a default Site URL-re ment (vagy egy nemlétező oldalra)
+2. **NINCS** `/reset-password` oldal ami fogadná a magic-link tokent és új jelszót kérne!
+
+**Új fájlok**:
+- `apps/web/app/(auth)/reset-password/page.tsx` — új oldal
+- `apps/web/components/auth/reset-password-form.tsx` — `ResetPasswordForm`
+
+**Javítás**: `apps/web/app/(auth)/forgot-password/actions.ts`
+- `resetPassword` mostantól `redirectTo: ${appUrl}/reset-password` paraméterrel hív
+- Új action: `setNewPassword(newPassword)` — `auth.updateUser({ password })`
+
+**ResetPasswordForm flow**:
+1. Token-ellenőrzés a betöltéskor (`getUser()`-rel)
+2. Ha lejárt/érvénytelen → "Új link kérése" képernyő
+3. Ha érvényes → új jelszó form (eye-icon, validáció, mismatch jelzés)
+4. Submit → `setNewPassword` → "Jelszó beállítva" → 2 mp után átirányítás `/login`-ra
+
+### ✨ Szerepkörök 2-lépcsős UI + keresés
+
+A felhasználó kérése: külön kiválasztani a célt, aztán a szerepet.
+Pl. lelkész → Maksai gyülekezet → Lelkipásztor.
+
+**Érintett fájl**: `apps/web/components/admin/profile-roles-tab.tsx`
+
+**Új flow** a "+ Új szerepkör" popoverben:
+- **1. lépés** — "Hova tartozik?":
+  - Kereshető (gyülekezet/megye/kerület/rendszer)
+  - Csoportosítva: Rendszerszint / Egyházkerületek / Egyházmegyék / Gyülekezetek
+  - Cél kiválasztva → 2. lépésre vált
+- **2. lépés** — "Mi lesz a szerepe ezen a hatókörön?":
+  - Csak az adott hatókörhöz illeszkedő szerepek (radio-rács):
+    - Gyülekezet → Lelkipásztor / Könyvelő
+    - Egyházmegye → Esperes / Egyházmegyei admin / Számvevő
+    - Kerület → Egyházkerületi admin
+    - Rendszer → Rendszergazda
+  - Aktív szerepkörök kihagyva (duplikáció elkerülés)
+  - "Csere" link → vissza az 1. lépésre
+- **Hozzáadás** gomb csak akkor enged, ha cél + szerep is megvan
+
+**Új konstans**: `ROLE_OPTIONS_BY_SCOPE` — typescript-friendly map a szerepek
+csoportosításához.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nem kell SQL.
+
+**Tesztelés a felhasználó által** (reset password):
+1. `/login` → "Elfelejtett jelszó?" link
+2. Email megadás → "Jelszó-visszaállító linket sikeresen elküldtük"
+3. Email-en kattintás a magic-linkre → `/reset-password` oldal nyílik meg
+4. Új jelszó megadás (kétszer) → "Jelszó beállítva" → 2 mp után `/login`
+5. Belépés az új jelszóval
+
+---
+
 ## [2026-05-02w] — Email-foglalt képernyő a regisztrációkor (v0.9.43)
 
 A felhasználó kérdésére: "ha valaki úgy akar regisztrálni, hogy az email
