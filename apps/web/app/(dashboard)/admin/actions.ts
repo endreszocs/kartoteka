@@ -334,6 +334,214 @@ export async function getAllUsers() {
   return { data: data || [] }
 }
 
+// 2026-05-02 (v0.9.45) — Új action: a teljes user-listához a teljes hierarchikus
+// kontextust is JOIN-oljuk — gyülekezet + egyházmegye + egyházkerület. A profile_roles
+// táblát is bevonjuk, mert egy user több hatókörhöz is tartozhat (multi-role).
+//
+// VISSZAADJA:
+//   - Minden profile-sort (status-tól függetlenül)
+//   - + minden hozzá tartozó profile_role
+//   - JOIN-olt scope-nevek (kerület/megye/gyülekezet)
+//
+// A UI kibontja minden user-nél a kontextust.
+
+export interface UserWithScope {
+  id: string
+  full_name: string | null
+  email: string
+  role: string | null
+  status: string | null
+  created_at: string | null
+  // Profile-szintű elsődleges hozzárendelés
+  primary_congregation_id: string | null
+  primary_congregation_name: string | null
+  primary_diocese_name: string | null
+  primary_district_name: string | null
+  // Profile_roles bővebben — minden aktív szerepkör + scope
+  profile_roles: Array<{
+    role: string
+    scope: 'system' | 'district' | 'diocese' | 'congregation'
+    scope_id: string | null
+    scope_name: string | null
+    approval_status: string
+    custom_label: string | null
+  }>
+}
+
+export async function getAllUsersWithScope(): Promise<{
+  data?: UserWithScope[]
+  error?: string
+}> {
+  const { supabase } = await requireMasterAdmin()
+
+  // 1. Profiles + congregation + diocese + district (3-szintes join)
+  type ProfileRow = {
+    id: string
+    full_name: string | null
+    email: string
+    role: string | null
+    status: string | null
+    congregation_id: string | null
+    created_at: string | null
+    congregations?: {
+      nev_hu?: string | null
+      name?: string | null
+      diocese_id?: string | null
+      dioceses?: {
+        name?: string | null
+        district_id?: string | null
+        districts?: { name?: string | null } | null
+      } | null
+    } | null
+  }
+  const { data: profilesRaw, error: pErr } = await supabase
+    .from('profiles')
+    .select(
+      'id, full_name, email, role, status, congregation_id, created_at, ' +
+        'congregations:congregation_id(nev_hu, name, diocese_id, dioceses:diocese_id(name, district_id, districts:district_id(name)))',
+    )
+    .order('created_at', { ascending: false })
+
+  if (pErr) return { error: pErr.message }
+  const profiles: ProfileRow[] = (profilesRaw || []) as unknown as ProfileRow[]
+
+  // 2. Profile_roles minden user-re — egyetlen lekérdezésben
+  const userIds = profiles.map((p) => p.id)
+  let allRoles: Array<{
+    profile_id: string
+    role: string
+    scope: 'system' | 'district' | 'diocese' | 'congregation'
+    scope_id: string | null
+    approval_status: string
+    custom_label: string | null
+    active: boolean
+  }> = []
+
+  if (userIds.length > 0) {
+    const { data: rolesData } = await supabase
+      .from('profile_roles')
+      .select('profile_id, role, scope, scope_id, approval_status, custom_label, active')
+      .in('profile_id', userIds)
+      .neq('approval_status', 'rejected')
+      .neq('approval_status', 'revoked')
+
+    allRoles = (rolesData || []) as typeof allRoles
+  }
+
+  // 3. Scope-name map: minden scope_id-hoz a név
+  const congIds = new Set<string>()
+  const dioIds = new Set<string>()
+  const distIds = new Set<string>()
+  for (const r of allRoles) {
+    if (!r.scope_id) continue
+    if (r.scope === 'congregation') congIds.add(r.scope_id)
+    else if (r.scope === 'diocese') dioIds.add(r.scope_id)
+    else if (r.scope === 'district') distIds.add(r.scope_id)
+  }
+  const [congs, dios, dists] = await Promise.all([
+    congIds.size > 0
+      ? supabase.from('congregations').select('id, nev_hu, name').in('id', Array.from(congIds))
+      : Promise.resolve({ data: [] }),
+    dioIds.size > 0
+      ? supabase.from('dioceses').select('id, name').in('id', Array.from(dioIds))
+      : Promise.resolve({ data: [] }),
+    distIds.size > 0
+      ? supabase.from('districts').select('id, name').in('id', Array.from(distIds))
+      : Promise.resolve({ data: [] }),
+  ])
+  const scopeNameMap = new Map<string, string>()
+  ;((congs.data || []) as Array<{ id: string; nev_hu?: string | null; name?: string | null }>).forEach((c) =>
+    scopeNameMap.set(c.id, c.nev_hu || c.name || c.id.slice(0, 8)),
+  )
+  ;((dios.data || []) as Array<{ id: string; name: string }>).forEach((d) =>
+    scopeNameMap.set(d.id, d.name),
+  )
+  ;((dists.data || []) as Array<{ id: string; name: string }>).forEach((d) =>
+    scopeNameMap.set(d.id, d.name),
+  )
+
+  // 4. Csoportosítás profile_id szerint
+  const rolesByUser = new Map<string, UserWithScope['profile_roles']>()
+  for (const r of allRoles) {
+    const arr = rolesByUser.get(r.profile_id) || []
+    arr.push({
+      role: r.role,
+      scope: r.scope,
+      scope_id: r.scope_id,
+      scope_name: r.scope_id ? scopeNameMap.get(r.scope_id) || null : null,
+      approval_status: r.approval_status,
+      custom_label: r.custom_label,
+    })
+    rolesByUser.set(r.profile_id, arr)
+  }
+
+  // 5. Eredmény-objektumok
+  const result: UserWithScope[] = profiles.map((p) => {
+    const congRel = p.congregations || null
+    return {
+      id: p.id,
+      full_name: p.full_name,
+      email: p.email,
+      role: p.role,
+      status: p.status,
+      created_at: p.created_at,
+      primary_congregation_id: p.congregation_id,
+      primary_congregation_name: congRel?.nev_hu || congRel?.name || null,
+      primary_diocese_name: congRel?.dioceses?.name ?? null,
+      primary_district_name: congRel?.dioceses?.districts?.name ?? null,
+      profile_roles: rolesByUser.get(p.id) || [],
+    }
+  })
+
+  return { data: result }
+}
+
+// 2026-05-02 (v0.9.45) — Felhasználó törlése a rendszerből.
+//
+// A `auth.admin.deleteUser` (service-role) törli az auth.users sort. Az ON CASCADE
+// FK-k (profiles, profile_roles, ertesitesek, stb.) automatikusan törlődnek.
+//
+// FONTOS: a master admin önmagát NEM törölheti (védelem).
+export async function deleteUser(userId: string): Promise<{ success?: boolean; error?: string }> {
+  const { supabase, user } = await requireMasterAdmin()
+  if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
+  if (user?.id === userId) return { error: 'Nem törölheted a saját fiókodat.' }
+
+  // Audit-log mentés (best-effort)
+  try {
+    await supabase.from('ertesitesek').insert({
+      user_id: user?.id || null,
+      type: 'system',
+      title: 'Felhasználó törölve',
+      body: `Az admin törölte a ${userId.slice(0, 8)} azonosítójú felhasználót a rendszerből.`,
+    })
+  } catch {
+    // tovább megyünk — a törlés a fontosabb
+  }
+
+  // Service-role admin client a törléshez
+  const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+  let adminClient
+  try {
+    adminClient = getSupabaseAdminClient()
+  } catch (err) {
+    return {
+      error: `Service-role admin kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}. ` +
+        'Ellenőrizd a SUPABASE_SERVICE_ROLE_KEY env-vart a Railway-en.',
+    }
+  }
+
+  const { error: delErr } = await adminClient.auth.admin.deleteUser(userId)
+  if (delErr) return { error: `A törlés nem sikerült: ${delErr.message}` }
+
+  // A profiles sort a CASCADE már törölte, de biztonság kedvéért is:
+  await supabase.from('profiles').delete().eq('id', userId)
+
+  revalidatePath('/admin/felhasznalok')
+  revalidatePath('/admin')
+  return { success: true }
+}
+
 // 2026-05-02 (v0.9.42) — GYORS jóváhagyás gyülekezet nélkül.
 // A meglévő `approveUser` egyházmegyét + gyülekezet-nevet KÖTELEZ — ami egy
 // új lelkész esetén indokolt. DE Google-loginnal érkezett vagy más fiókoknak

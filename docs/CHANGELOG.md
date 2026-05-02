@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02y] — Felhasználók oldal teljes újragondolás (v0.9.45)
+
+A felhasználó kérése: minden user megjelenjen + scope-info (kerület/megye/
+gyülekezet) + törlés + Excel export.
+
+### ✨ Új actions
+
+**`apps/web/app/(dashboard)/admin/actions.ts`**:
+
+- `getAllUsersWithScope()` — profile + congregation + diocese + district 3-szintes JOIN +
+  profile_roles bevonás (multi-role) + scope-name JOIN (külön lekérdezés)
+- `deleteUser(userId)` — service-role `auth.admin.deleteUser` + ON CASCADE FK-k
+  törlik a profiles/profile_roles/ertesitesek-et; védelem: master admin
+  önmagát NEM törölheti
+
+### ✨ UsersTab teljes refactor
+
+**`apps/web/components/admin/users-tab.tsx`** — átírva (~430 sor):
+
+- Egy egyesített lista (Mind / Aktív / Várakozó / Egyéb chip-szűrőkkel)
+- Keresés: név + email + gyülekezet + megye + kerület + szerep
+- **Scope-lánc** minden user-nél: `Egyházkerület › Egyházmegye › Gyülekezet`
+  ikon-csíkban (Castle / Building2 / Church)
+- **Multi-role badge-ek** — minden szerepkör listázva scope-névvel és
+  approval_status jelzővel
+- Sor-akciók: **Gyors jóváhagyás** (zöld, pending), **Részletes jóváhagyás**
+  (egyházmegye + gyülekezet, pending), **Törlés** (vörös, mind)
+- **Excel export** gomb — `xlsx` lib (dinamikus import), 9 oszlopban:
+  ID / Teljes név / Email / Elsődleges szerepkör / Státusz /
+  Egyházkerület / Egyházmegye / Egyházközség / További szerepkörök / Regisztrált
+- Fájlnév: `kartoteka-felhasznalok-YYYY-MM-DD.xlsx`
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nem kell SQL.
+
+### 🚨 BIZTONSÁGI MEGJEGYZÉS
+
+A `deleteUser` a SUPABASE_SERVICE_ROLE_KEY-t igényli (Railway env). Ha nincs,
+hibaüzenet jön. A master admin (Endre) önmagát NEM tudja törölni.
+
+---
+
 ## [2026-05-02x] — Reset password flow + Szerepkörök 2-lépcsős UI (v0.9.44)
 
 ### 🐛 KRITIKUS FIX — Elfelejtett jelszó funkció
