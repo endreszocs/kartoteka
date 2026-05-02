@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02w] — Email-foglalt képernyő a regisztrációkor (v0.9.43)
+
+A felhasználó kérdésére: "ha valaki úgy akar regisztrálni, hogy az email
+már szerepel a rendszerben, akkor mi történik?"
+
+A v0.9.42-ig CSENDBEN folytattuk az `access_requests` insert-jét — a user
+"Kérelmét rögzítettük" üzenetet kapott, de NEM kapott emailt. Zavart
+okozhatott.
+
+### ✨ Új flow
+
+**Server action** (`hozzaferes-kerese/actions.ts`):
+- A `SubmitResult` interfészbe új `alreadyExists?: boolean` mező
+- Ha a `signUp` "already exists" hibát ad → visszatér `alreadyExists: true`
+  + konkrét hibaüzenet (NEM csendben halad tovább)
+
+**UI** (`access-request-form.tsx`):
+- Új speciális képernyő: "Ez az email már regisztrálva van"
+- Mail-ikon (amber)
+- Konkrét magyarázat
+- 2 akcionálható gomb:
+  - **Belépés a meglévő fiókkal** (zöld, primary) → `/login`
+  - **Elfelejtettem a jelszót** (kontúros) → `/forgot-password`
+- "Más email-cím megadása" link a vissza-vál-tartáshoz (a többi mező megmarad)
+
+### Filozófia
+
+Egy belső gyülekezeti rendszerben (max 1000-2000 lelkész) az
+email-enumeration kockázata alacsony — a UX fontosabb. A user PONTOSAN
+tudja, mit tegyen.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nem kell SQL.
+
+---
+
 ## [2026-05-02v] — Gyors jóváhagyás (gyülekezet nélkül) (v0.9.42)
 
 A diagnosztikai SQL eredménye alapján: a két új user (Zoltan Ferenczi,

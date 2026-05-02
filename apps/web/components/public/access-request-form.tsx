@@ -11,8 +11,9 @@
  */
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
-import { CheckCircle2, Eye, EyeOff, Lock, Send, Loader2 } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Lock, LogIn, Mail, Send, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,6 +38,7 @@ export function AccessRequestForm() {
   const [isPending, startTransition] = useTransition()
   const [submitted, setSubmitted] = useState(false)
   const [submittedEmail, setSubmittedEmail] = useState('')
+  const [alreadyExists, setAlreadyExists] = useState(false)
   const [acceptPrivacy, setAcceptPrivacy] = useState(false)
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [openLegal, setOpenLegal] = useState<LegalKind | null>(null)
@@ -98,12 +100,69 @@ export function AccessRequestForm() {
         setSubmittedEmail(form.email.trim())
         setSubmitted(true)
         toast.success('Kérelmét rögzítettük — email-t kapott.')
+      } else if (res.alreadyExists) {
+        // Email-foglalt — speciális képernyőre váltunk a Belépés / Elfelejtett jelszó link-ekkel
+        setSubmittedEmail(form.email.trim())
+        setAlreadyExists(true)
       } else if (res.rateLimited) {
         toast.error(res.error || 'Túl sok kérelem ebből az eszközből.')
       } else {
         toast.error(res.error || 'Hiba történt a kérelem rögzítése során.')
       }
     })
+  }
+
+  // ── Email-foglalt képernyő ─────────────────────────────────────────────
+  // 2026-05-02 (v0.9.43): a felhasználó kérése — ha az email már regisztrálva
+  // van, mondjuk meg konkrétan, és kínáljuk fel a Belépés + Elfelejtett jelszó
+  // gombokat (ne csendben fogadjuk el a kérelmet, ne hagyjuk találgatni).
+  if (alreadyExists) {
+    return (
+      <div className="py-8 text-center">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-amber-100">
+          <Mail className="size-7 text-amber-700" />
+        </div>
+        <h2 className="font-heading text-2xl font-bold text-slate-900">
+          Ez az email már regisztrálva van
+        </h2>
+        <p className="mt-3 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+          A <strong className="text-slate-900">{submittedEmail}</strong> email-cím már szerepel a
+          Kartotéka rendszerben. Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza
+          az <em>Elfelejtett jelszó</em> oldalon.
+        </p>
+
+        <div className="mt-6 space-y-2 max-w-sm mx-auto">
+          <Link
+            href="/login"
+            className="flex items-center justify-center gap-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3 font-semibold transition shadow-sm"
+          >
+            <LogIn className="size-4" />
+            Belépés a meglévő fiókkal
+            <ArrowRight className="size-4" />
+          </Link>
+
+          <Link
+            href="/forgot-password"
+            className="flex items-center justify-center gap-2 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50 text-slate-700 px-4 py-3 font-medium transition"
+          >
+            <KeyRound className="size-4 text-amber-700" />
+            Elfelejtettem a jelszót
+          </Link>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setAlreadyExists(false)
+            // Új email-re újra próbálni — a többi mezőt megtartjuk
+            setForm({ ...form, email: '' })
+          }}
+          className="mt-6 text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2"
+        >
+          ← Más email-cím megadása
+        </button>
+      </div>
+    )
   }
 
   if (submitted) {

@@ -55,6 +55,9 @@ export interface SubmitResult {
   success: boolean
   error?: string
   rateLimited?: boolean
+  /** 2026-05-02 (v0.9.43): jelzi, hogy az email már regisztrálva van —
+   *  a UI ekkor egy speciális képernyőt mutat: "Belépés / Elfelejtett jelszó". */
+  alreadyExists?: boolean
 }
 
 /**
@@ -153,17 +156,28 @@ export async function submitAccessRequest(
   })
 
   if (signUpErr) {
-    // Ha a fiók már létezik, NEM blokkoljuk: csak az access_requests sorra van szükség
+    // 2026-05-02 (v0.9.43) — Felhasználó kérése: ha az email már létezik,
+    // konkrét üzenetet adjunk, NE pedig csendben folytassuk az access_request
+    // insertet (mert a user nem értené miért nem kap email-t).
+    //
+    // Egy belső gyülekezeti rendszerben az email-enumeration kockázata
+    // alacsony — a UX fontosabb: a usert átirányítjuk a Belépés vagy az
+    // Elfelejtett jelszó oldalra.
     const isUserExists =
       /already registered|already exists|user_already_exists/i.test(signUpErr.message)
-    if (!isUserExists) {
+    if (isUserExists) {
       return {
         success: false,
-        error: `A fiók-létrehozás nem sikerült: ${signUpErr.message}`,
+        alreadyExists: true,
+        error:
+          'Ez az email-cím már regisztrálva van a Kartotéka rendszerben. ' +
+          'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.',
       }
     }
-    // user létezett: simán engedjük tovább az access_requests insert-et
-    console.warn('[access-request] user már létezik a Supabase-ben:', email)
+    return {
+      success: false,
+      error: `A fiók-létrehozás nem sikerült: ${signUpErr.message}`,
+    }
   }
 
   // ── 6. INSERT az access_requests-be (admin elbírálás listája) ───────
