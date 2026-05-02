@@ -53,17 +53,25 @@ export async function listProfileRoles(): Promise<{ data?: ProfileRoleRow[]; err
 }
 
 export async function listAssignableProfiles(): Promise<{
-  data?: Array<{ id: string; full_name: string | null; email: string | null; role: string }>
+  data?: Array<{ id: string; full_name: string | null; email: string | null; role: string; status?: string }>
   error?: string
 }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
 
+  // 2026-05-02 (v0.9.41) — Felhasználó panasza: az új regisztrált+elfogadott
+  // user nem jelenik meg a Szerepkörök fülön. Az ok: az `eq('status', 'active')`
+  // szűrő kizárja a 'pending' user-eket — még akkor is, ha őket az admin az
+  // /admin/hozzaferes-kerelmek-ben elfogadta (mert ott csak az access_request
+  // státusz változik, nem feltétlenül a profile.status).
+  //
+  // Most engedjük át a 'pending' és 'active' user-eket egyaránt — az UI
+  // jelölje meg melyik a pending. A 'denied'/'rejected' továbbra is kihagyva.
   const { data, error } = await access.supabase
     .from('profiles')
-    .select('id, full_name, email, role')
-    .eq('status', 'active')
+    .select('id, full_name, email, role, status')
+    .in('status', ['active', 'pending'])
     .order('full_name', { nullsFirst: false })
 
   if (error) return { error: error.message }

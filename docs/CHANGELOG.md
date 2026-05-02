@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02u] — Diagnosztika + Szerepkörök fülön pending is látható (v0.9.41)
+
+A felhasználó panasza: "Az admin oldalon, sem a felhasználóknál sem a
+szerepköröknél nem jelenik meg a regisztrált és elfogadott új felhasználó!"
+
+### 🔍 Diagnosztikai SQL
+
+**Új fájl**: `migration-docs/sql/2026-05-02-diagnose-users-visibility.sql`
+
+A 6 SELECT-blokk pontosan kideríti, miért nem látszik egy user:
+- 1: auth.users összes sorai (provider, metadata)
+- 2: profiles összes sorai
+- 3: KÜLÖNBSÉG — kik az auth.users-ek profile NÉLKÜL
+- 4: STATUS-ELEMZÉS (mennyien vannak active/pending/...)
+- 5: javító UPDATE (kommentelve, csak ha tényleg kell)
+- 6: ÖSSZESÍTŐ — kik fognak látszódni hol
+
+A felhasználó futtatja és visszaküldi az eredményt — abból azonnal látom a bajt.
+
+### 🔧 listAssignableProfiles bővítés
+
+**Érintett fájl**: `apps/web/app/(dashboard)/admin/profile-roles-actions.ts`
+
+A jelenlegi SELECT csak `status='active'`-ot adott. Az új signUp-os user-ek
+azonban `pending`-ben vannak — a Szerepkörök fülön nem jelentek meg, akkor
+sem ha az admin az `/admin/hozzaferes-kerelmek`-ben elfogadta őket.
+
+**Fix**: `eq('status', 'active')` → `in('status', ['active', 'pending'])`.
+A Szerepkörök fülön most a pending user-ek is megjelennek (kiosztáshoz
+elérhetők).
+
+### ➕ Új action: getAllUsers
+
+**Érintett fájl**: `apps/web/app/(dashboard)/admin/actions.ts`
+
+`getAllUsers()` — a profiles ÖSSZES sorát adja vissza, status-tól függetlenül.
+A jövőben a UsersTab "Mind" tabbal bővülhet ezzel.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+A felhasználónak ajánlott:
+- `migration-docs/sql/2026-05-02-diagnose-users-visibility.sql` futtatás
+  (csak SELECT-ek, semmit nem ír) — küldd vissza a 6. SELECT eredményét
+
+---
+
 ## [2026-05-02t] — Jelszó beállítása/módosítása a Beállításokban (v0.9.40)
 
 ### ✨ ÚJ — Jelszó-szekció a Beállítások → Adat & biztonság fülön

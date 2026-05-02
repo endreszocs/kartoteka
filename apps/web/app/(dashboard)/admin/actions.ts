@@ -318,6 +318,22 @@ export async function getActiveUsers() {
   return { data: data || [] }
 }
 
+// 2026-05-02 (v0.9.41) — Új action: minden user, status-tól függetlenül.
+// Felhasználó panasza alapján — az új signUp-os user-ek 'pending'-ben
+// vannak, és az "Aktív" lista nem mutatja őket. Ez az action vissza-
+// adja az ÖSSZESET, és a UI szűr/csoportosít státusz szerint.
+export async function getAllUsers() {
+  const { supabase } = await requireMasterAdmin()
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role, status, congregation_id, created_at, congregations(nev_hu, name)')
+    .order('created_at', { ascending: false })
+
+  if (error) return { error: error.message }
+  return { data: data || [] }
+}
+
 export async function getDioceses() {
   const { supabase } = await requireMasterAdmin()
   const { data } = await supabase.from('dioceses').select('id, name').order('name')
