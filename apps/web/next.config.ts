@@ -67,6 +67,15 @@ const nextConfig: NextConfig = {
   // a korábbi Kartotéka portable Inno Setup "standalone"-nal (M6.3-ban
   // kivezetve). Ez csak egy Next.js build flag.
   output: 'standalone',
+  // 2026-05-02 (v0.9.33) — Sebesség-optimalizálás: gzip a HTML/JSON/JS válaszokra
+  // (Railway proxy is támogatja), és a `X-Powered-By` header elrejtése (apró
+  // info-leak elkerülése).
+  compress: true,
+  poweredByHeader: false,
+  // 2026-05-02 — react-strict-mode kifejezetten production-ben is true-ként
+  // jelölve (a Next 16 alapból true, de explicit hogy a téma-aware rendering
+  // ne fusson kétszer felesleges effektusokkal):
+  reactStrictMode: true,
   // Üres turbopack config: jelzi a Next 16-nak, hogy Turbopack alatt
   // nem kell webpack-konfigot fordítania (Serwist prod build-nél a --webpack
   // flag miatt kapcsol át webpack-re automatikusan)
@@ -109,6 +118,30 @@ const nextConfig: NextConfig = {
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+      // 2026-05-02 (v0.9.33) — Sebesség-optimalizálás: a Next.js statikus
+      // asset-jei (immutable hashed file-ek) tartós cache-szel (1 év).
+      // A böngésző NEM kérdezi le újra, így a navigation visszafelé/előre
+      // pillanat alatti.
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      // A statikus képek (icon, favicon, kép-asset) szintén hosszú cache-szel.
+      {
+        source: '/icons/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=2592000' }, // 30 nap
+        ],
+      },
+      // A szervált fontok 1 hónap cache.
+      {
+        source: '/fonts/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=2592000, immutable' },
         ],
       },
     ]

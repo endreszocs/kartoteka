@@ -23,6 +23,107 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02m] — 5 vegyes észrevétel javítása + sebesség-optimalizálás (v0.9.33)
+
+A felhasználó 5 új észrevétele alapján.
+
+### 🐛 Javítás (2. — anyakönyvi temetés bug)
+
+**Érintett fájl**: `apps/web/app/(dashboard)/anyakonyv/actions.ts`
+
+A felhasználó panasza: "a temetések rögzítve vannak az adatbázisban, de nem
+jelennek meg az oldalon az eltemetetteknél" — azaz a tag továbbra is élőként
+szerepel a tagnyilvántartásban.
+
+**Ok**: a `saveBurial` action **CSAK** a `temetes` táblába írt, a
+`szemely.meghalt` és `member_status` mezőket nem állította át. (A
+`tagnyilvantartas/removeMember` action `reason='meghalt'` ágában mindkettőt
+csinálja — itt is meg kell.)
+
+**Fix**: a `saveBurial` végén `UPDATE szemely SET meghalt=true,
+member_status='elhunyt' WHERE id=id_szemely`. Try/catch védelem — ha a
+szemely-frissítés fail-el, a temetés rögzítve marad. `revalidatePath` mind
+a két útra (`/anyakonyv`, `/tagnyilvantartas`).
+
+### 🔧 Javítás (3. — Supabase RLS hiba)
+
+**Új fájl**: `migration-docs/sql/2026-05-02-rls-fix-merge-v7-result.sql`
+
+A Supabase Advisor kritikus figyelmeztetése: a `public._merge_v7_result`
+táblán nincs RLS engedélyezve. Ez egy ideiglenes diagnosztikai tábla a
+2026-04-26 v7 merge-spouses migrációból — **törölhető**.
+
+A SQL fix:
+- 1. blokk: `DROP TABLE IF EXISTS public._merge_v7_result`
+- 2. blokk: diagnosztikai SELECT — minden RLS-mentes publikus tábla listája
+- 3. blokk: a Master admin profile `role='admin'` ellenőrzés (5. ponthoz)
+
+### 🔧 Javítás (5. — gyülekezeti oldal jogosultsági hiba)
+
+**Érintett fájl**: `apps/web/app/(dashboard)/publikus-oldal/actions.ts`
+
+A felhasználó panasza: a publikus oldal beállításnál "Nincs jogosultságod
+ehhez a művelethez" hibát ad. Ennek **legvalószínűbb oka**: az APP
+`MASTER_ADMIN_EMAIL` env-var alapján admin-rangra emeli a felhasználót,
+**de** a Supabase RLS a `profiles.role = 'admin'` mezőt nézi. Ha a master
+admin-nak `profiles.role != 'admin'`, az RLS visszadob 42501-gyel.
+
+**Megoldás**:
+- App-szintű: a 42501 error pontosabb diagnosztikai üzenetet kap, a
+  felhasználó tudja merre induljon
+- DB-szintű: a SQL fixfájl 3.1-3.2 blokkja diagnosztizálja és (manuálisan)
+  javítja a profile-t
+
+### ✨ Refaktor (4. — admin oldalak teljes értékűek)
+
+**Érintett fájlok**: `apps/web/app/(dashboard)/admin/{*/page.tsx,layout.tsx}`,
+**új**: `apps/web/components/admin/admin-page-header.tsx`
+
+A felhasználó kérése: az admin aloldalak ne fülek tartalmaként, hanem
+önálló oldalakként jelenjenek meg.
+
+**Változtatás**:
+- `layout.tsx`: a gradient banner KIKERÜLT (csak az `/admin` főoldalon
+  marad, az `AdminOverviewDashboard`-ban)
+- Új `<AdminPageHeader>` komponens: ikon, gradient hátterű kis blur,
+  cím + leírás + "Vissza az áttekintőhöz" link
+- Mind a 12 aloldal kapott saját AdminPageHeader-t saját ikonnal,
+  gradient-tel, leírással
+
+### ⚡ Sebesség-optimalizálás (1. — gyors win-ek)
+
+**Érintett fájl**: `apps/web/next.config.ts`
+
+A felhasználó panasza: a Railway-en hosztolt webhely lassú. Beépítettem
+néhány azonnali optimalizálást:
+
+- `compress: true` — gzip a HTML/JSON/JS válaszokra (Railway proxy is
+  továbbítja)
+- `poweredByHeader: false` — `X-Powered-By: Next.js` info-leak elrejtése
+- `reactStrictMode: true` — explicit, hogy a téma-aware rendering ne
+  fusson kétszer felesleges effektusokkal
+- `Cache-Control: public, max-age=31536000, immutable` a `/_next/static/*`
+  asseteknek — a böngésző NEM kérdezi le újra hashed fájlokat
+- `Cache-Control: public, max-age=2592000` az `/icons/*`-nek (30 nap)
+- `Cache-Control: public, max-age=2592000, immutable` a `/fonts/*`-nek
+
+**További javasolt lépések** (későbbi sprintben):
+- Server Action-ök közötti round-trip csökkentés (parallel `Promise.all`)
+- Egyes nagy listák kötegelt lekérdezése (`limit + offset` paging)
+- Képek WebP konverziója + `next/image` mindenütt használata
+- Railway region áthelyezése EU-ba ha nincs ott (a Supabase Frankfurt-ban van)
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+A SQL fix-fájlt **futtatnod kell** a Supabase-en:
+1. `migration-docs/sql/2026-05-02-rls-fix-merge-v7-result.sql` 1. blokkja
+   (RLS hiba megoldása)
+2. (Ha a 3.1 ⚠ jelet ad) a 3.2 UPDATE blokkja (jogosultsági hiba megoldása)
+
+---
+
 ## [2026-05-02l] — Admin Központ átalakítása oldalakra + áttekintő (v0.9.32)
 
 A felhasználó kérése: az admin felületen a 13 fül legyen önálló oldal, és a

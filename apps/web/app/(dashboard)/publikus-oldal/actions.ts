@@ -32,9 +32,16 @@ function handleDbError(error: { code?: string; message?: string } | null, contex
   if (error.code === '23503') {
     return 'Érvénytelen hivatkozás. A mentés nem sikerült.'
   }
-  // Permission denied
+  // Permission denied — RLS policy violation
+  // 2026-05-02: pontosabb diagnosztika a master admin / role-mismatch esetére
   if (error.code === '42501') {
-    return 'Nincs jogosultságod ehhez a művelethez.'
+    return (
+      'Nincs jogosultságod ehhez a művelethez. ' +
+      'Ha rendszergazda vagy és ezt látod, nagy valószínűséggel a profilodban a ' +
+      '`role` mező nincs `admin` értékre állítva. ' +
+      'Lépj kapcsolatba a rendszergazdával vagy futtasd a ' +
+      '`migration-docs/sql/2026-05-02-rls-fix-merge-v7-result.sql` 3.1-3.2 blokkját.'
+    )
   }
   // Általános generic üzenet
   return 'Adatbázis hiba. Kérjük, próbálja később.'

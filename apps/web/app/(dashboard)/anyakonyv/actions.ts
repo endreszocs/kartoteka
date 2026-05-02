@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { baptismSchema, marriageSchema, burialSchema, movementSchema, confirmationBatchSchema } from '@/lib/validations/registry'
-import type { BaptismInput, MarriageInput, BurialInput, MovementInput, ConfirmationBatchInput } from '@/lib/validations/registry'
+import { baptismSchema, marriageSchema, burialSchema, movementSchema, confirmationBatchSchema, confirmationSingleSchema } from '@/lib/validations/registry'
+import type { BaptismInput, MarriageInput, BurialInput, MovementInput, ConfirmationBatchInput, ConfirmationSingleInput } from '@/lib/validations/registry'
 import type { RegistryEntry } from '@/lib/constants/registry'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
@@ -87,6 +87,48 @@ export async function getNextOkiratNumber(tab: string, year: number): Promise<st
   return String(maxNum + 1)
 }
 
+// ── Egyházi anyakönyvi szám generálás (YYYYTTNNNN) ───────────
+//
+// Endre kérése (2026-04-30): a manuális rögzítő dialógokban az
+// egyházi anyakönyvi szám automatikusan ki legyen töltve.
+//
+// A tényleges sorszám-számítás a `generate_egyhazi_anyakonyvi_szam`
+// PostgreSQL függvényben él (lásd 2026-04-29b-egyhazi-szam-szetvalasztas.sql),
+// így a webes és a desktop kliens ugyanazt a számot adja, és a sorrend
+// nem ütközhet párhuzamos rögzítésnél sem.
+//
+// `profileKey` értékek:
+//   'baptism' | 'confirmation' | 'marriage' | 'burial'
+//   'movement_bekoltozott' | 'movement_elkoltozott'
+//   'movement_attert' | 'movement_kitert'
+
+export type EgyhaziProfileKey =
+  | 'baptism'
+  | 'confirmation'
+  | 'marriage'
+  | 'burial'
+  | 'movement_bekoltozott'
+  | 'movement_elkoltozott'
+  | 'movement_attert'
+  | 'movement_kitert'
+
+export async function getNextEgyhaziSzam(profileKey: EgyhaziProfileKey, year?: number): Promise<string> {
+  const { supabase, congId } = await getCongregation()
+  const v_year = year ?? new Date().getFullYear()
+  if (!congId) return `${v_year}000001`
+
+  const { data, error } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+    p_target_congregation_id: congId,
+    p_profile_key: profileKey,
+    p_year: v_year,
+  })
+  if (error || !data) {
+    console.warn('[getNextEgyhaziSzam] RPC hiba:', error?.message)
+    return ''
+  }
+  return String(data)
+}
+
 // ── Áttekintő statisztikák ───────────────────────────────────
 
 export async function getRegistryStats() {
@@ -136,6 +178,188 @@ export async function getRegistryStats() {
   }
 }
 
+// ── Szülők lekérdezése egy gyerekhez ─────────────────────────
+//
+// Endre kérése (2026-04-30): "A kereszteléseknél, ellenőrizd, ha már van
+// családhoz rendelve a személy, akkor a szülők nevei is jelenjenek meg."
+//
+// Több helyről kérhetjük a szülőket:
+//   1) gyerek tábla → csalad tábla → id_ferfi + id_no → szemely
+//   2) szemely.id_apja / szemely.id_anyja CNP-k (régebbi adatformátum)
+//   3) szemely.apjaneve / szemely.anyjaneve text-ek (legrégebbi — csak
+//      szövegként, mert nincs feloldható ID)
+//
+// A return: legjobb ami megvan — ha az 1) vagy 2) ágról van teljes
+// MemberSearchResult, azt adjuk; ha csak text (3) van, azt is jelezzük.
+//
+// 2026-04-30 bug-fix: a `csalad:csalad!id_csalad(...)` JOIN néha array-ként
+// jön vissza Supabase-től — defensive handling. Plus: server-side console.log
+// diagnoszika a Vercel/Railway logokba (`[getParentsForChild] ...`).
+
+export interface ParentInfo {
+  fromCsalad: boolean
+  apa: {
+    id: number | null
+    csaladnev: string | null
+    k_nev: string | null
+    cnp: string | null
+    sz_datum: string | null
+    adrlocality: { name: string | null } | null
+    adrstreet: { name: string | null } | null
+    c_szam: string | null
+  } | null
+  anya: {
+    id: number | null
+    csaladnev: string | null
+    k_nev: string | null
+    cnp: string | null
+    sz_datum: string | null
+    adrlocality: { name: string | null } | null
+    adrstreet: { name: string | null } | null
+    c_szam: string | null
+  } | null
+  /** Az anya leánykori neve (szemely.szcs_nev) — ha az anya megtalálható. */
+  anyaLeanyneve: string | null
+  /** TEXT-csak szülő-nevek (szemely.apjaneve / anyjaneve) — akkor is
+   *  visszaadjuk, ha az ID-feloldás sikerült, hogy a UI tudja melyik
+   *  szöveggel-szemben dönt majd a felhasználó. NULL ha nincs adat. */
+  apjaneveText: string | null
+  anyjaneveText: string | null
+  /** Diagnosztika: melyik ágon talált adatot. Console-ra is kiíródik. */
+  diagnostic: {
+    hasGyerekRow: boolean
+    csaladId: number | null
+    csaladFerfiId: number | null
+    csaladNoId: number | null
+    szemelyApjaCnp: string | null
+    szemelyAnyjaCnp: string | null
+    szemelyApjaCnpResolved: boolean
+    szemelyAnyjaCnpResolved: boolean
+  }
+}
+
+export async function getParentsForChild(personId: number): Promise<ParentInfo> {
+  const diagnostic: ParentInfo['diagnostic'] = {
+    hasGyerekRow: false,
+    csaladId: null,
+    csaladFerfiId: null,
+    csaladNoId: null,
+    szemelyApjaCnp: null,
+    szemelyAnyjaCnp: null,
+    szemelyApjaCnpResolved: false,
+    szemelyAnyjaCnpResolved: false,
+  }
+  const empty: ParentInfo = {
+    fromCsalad: false, apa: null, anya: null, anyaLeanyneve: null,
+    apjaneveText: null, anyjaneveText: null, diagnostic,
+  }
+  const { supabase, congId } = await getCongregation()
+  if (!congId) {
+    console.warn('[getParentsForChild] Nincs congregation_id — visszaadom üresen.')
+    return empty
+  }
+
+  // ── A gyermek alapadatait egy lekérdezésben (apjaneve/anyjaneve text fallback-hez)
+  const { data: childRow, error: childErr } = await supabase.from('szemely')
+    .select('id, apjaneve, anyjaneve, id_apja, id_anyja')
+    .eq('id', personId).eq('congregation_id', congId).limit(1)
+
+  if (childErr) {
+    console.error(`[getParentsForChild] szemely lekérdezés hiba (id=${personId}):`, childErr.message)
+    return empty
+  }
+  const child = childRow?.[0]
+  if (!child) {
+    console.warn(`[getParentsForChild] Nem találom a tagot (id=${personId}, congId=${congId}).`)
+    return empty
+  }
+
+  const apjaneveText = (child.apjaneve as string | null) || null
+  const anyjaneveText = (child.anyjaneve as string | null) || null
+  diagnostic.szemelyApjaCnp = (child.id_apja as string | null) || null
+  diagnostic.szemelyAnyjaCnp = (child.id_anyja as string | null) || null
+
+  // ── 1) gyerek → csalad → id_ferfi + id_no
+  const { data: gyerekRows, error: gyerekErr } = await supabase.from('gyerek')
+    .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
+    .eq('id_szemely', personId).limit(1)
+
+  if (gyerekErr) {
+    console.error(`[getParentsForChild] gyerek lekérdezés hiba (id=${personId}):`, gyerekErr.message)
+  }
+
+  // Defensive: a Supabase a "to-one" embedded join-t néha array-ként,
+  // néha object-ként adja vissza, a kapcsolati metaadatoktól függően.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gyerekRaw = (gyerekRows?.[0] as any)?.csalad
+  const csalad = (Array.isArray(gyerekRaw) ? gyerekRaw[0] : gyerekRaw) as
+    | { id: number; id_ferfi: number | null; id_no: number | null; isaktiv: boolean | null }
+    | null
+    | undefined
+
+  diagnostic.hasGyerekRow = !!gyerekRows?.[0]
+  diagnostic.csaladId = csalad?.id ?? null
+  diagnostic.csaladFerfiId = csalad?.id_ferfi ?? null
+  diagnostic.csaladNoId = csalad?.id_no ?? null
+
+  let ferfiId: number | null = csalad?.id_ferfi || null
+  let noId: number | null = csalad?.id_no || null
+
+  // ── 2) Fallback: szemely.id_apja / szemely.id_anyja CNP-k
+  if (!ferfiId && diagnostic.szemelyApjaCnp) {
+    const { data: a } = await supabase.from('szemely').select('id').eq('cnp', diagnostic.szemelyApjaCnp).eq('congregation_id', congId).limit(1)
+    if (a?.[0]) {
+      ferfiId = a[0].id
+      diagnostic.szemelyApjaCnpResolved = true
+    }
+  }
+  if (!noId && diagnostic.szemelyAnyjaCnp) {
+    const { data: m } = await supabase.from('szemely').select('id').eq('cnp', diagnostic.szemelyAnyjaCnp).eq('congregation_id', congId).limit(1)
+    if (m?.[0]) {
+      noId = m[0].id
+      diagnostic.szemelyAnyjaCnpResolved = true
+    }
+  }
+
+  // Apa + anya teljes adatainak lekérdezése (ha van ID)
+  let apa: ParentInfo['apa'] = null
+  let anya: ParentInfo['anya'] = null
+  let anyaLeanyneve: string | null = null
+
+  if (ferfiId) {
+    const { data: a, error: apaErr } = await supabase.from('szemely')
+      .select('id, csaladnev, k_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+      .eq('id', ferfiId).limit(1)
+    if (apaErr) console.error('[getParentsForChild] apa szemely lekérdezés hiba:', apaErr.message)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (a?.[0]) apa = a[0] as any
+  }
+  if (noId) {
+    const { data: m, error: anyaErr } = await supabase.from('szemely')
+      .select('id, csaladnev, k_nev, szcs_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+      .eq('id', noId).limit(1)
+    if (anyaErr) console.error('[getParentsForChild] anya szemely lekérdezés hiba:', anyaErr.message)
+    if (m?.[0]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      anya = m[0] as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      anyaLeanyneve = (m[0] as any).szcs_nev || null
+    }
+  }
+
+  // Diagnosztika a szerver logokba — Vercel / Railway látható
+  console.log(`[getParentsForChild] id=${personId}:`, JSON.stringify({
+    diagnostic, hasApa: !!apa, hasAnya: !!anya, apjaneveText, anyjaneveText,
+  }))
+
+  return {
+    fromCsalad: !!csalad,
+    apa, anya, anyaLeanyneve,
+    apjaneveText, anyjaneveText,
+    diagnostic,
+  }
+}
+
 // ── Személy keresés ──────────────────────────────────────────
 
 export async function searchMemberForRegistry(query: string, genderFilter?: boolean | null) {
@@ -174,10 +398,26 @@ export async function saveBaptism(data: BaptismInput) {
   if (d.anya_vallas) sablon.anya_vallas = d.anya_vallas
   if (Object.keys(sablon).length > 0) megjegyzes = `${megjegyzes}|sablon:${JSON.stringify(sablon)}`
 
+  // Egyházi anyakönyvi szám: ha a kliens nem küldi el, automatikusan
+  // generálódik a `generate_egyhazi_anyakonyvi_szam` RPC-vel (lásd
+  // 2026-04-29b-egyhazi-szam-szetvalasztas.sql). Az `okirat` mező az
+  // ÁLLAMI anyakönyvi szám (Endre szabálya), és lehet üres.
+  let egyhaziSzam = d.egyhazi_szam || null
+  if (!d.id && !egyhaziSzam) {
+    const year = parseInt(d.datum.slice(0, 4)) || new Date().getFullYear()
+    const { data: rpcData } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+      p_target_congregation_id: congId,
+      p_profile_key: 'baptism',
+      p_year: year,
+    })
+    egyhaziSzam = rpcData ? String(rpcData) : null
+  }
+
   const record: Record<string, unknown> = {
     id_szemely: d.id_szemely,
     datum: d.datum,
-    okirat: d.okirat,
+    okirat: d.okirat || null,
+    egyhazi_szam: egyhaziSzam,
     helyid: d.helyid || null,
     lelkeszneve: d.lelkeszneve || null,
     keresztszulok: d.keresztszulok || null,
@@ -187,37 +427,41 @@ export async function saveBaptism(data: BaptismInput) {
     congregation_id: congId,
   }
 
+  let isInsert = false
   if (d.id) {
     const { error } = await supabase.from('keresztseg').update(record).eq('id', d.id).eq('congregation_id', congId)
     if (error) return { error: `Hiba: ${error.message}` }
   } else {
-    const { data: inserted, error } = await supabase.from('keresztseg').insert([record]).select('id')
+    isInsert = true
+    const { error } = await supabase.from('keresztseg').insert([record]).select('id')
     if (error) return { error: `Hiba: ${error.message}` }
+  }
 
-    // Szülő összekötés a szemely táblában
-    const szemelyUpdate: Record<string, unknown> = {}
-    if (d.apjaneve) szemelyUpdate.apjaneve = d.apjaneve
-    if (d.anyjaneve) szemelyUpdate.anyjaneve = d.anyjaneve
-    if (d.id_apja_cnp) szemelyUpdate.id_apja = d.id_apja_cnp
-    if (d.id_anyja_cnp) szemelyUpdate.id_anyja = d.id_anyja_cnp
-    if (Object.keys(szemelyUpdate).length > 0) {
-      await supabase.from('szemely').update(szemelyUpdate).eq('id', d.id_szemely)
-    }
+  // Szülő-csatolás a szemely táblában — MIND insert MIND update esetén.
+  // (Endre 2026-04-30: ha az anyakönyvező csak a SZERKESZTÉS során rendel
+  // szülőket, akkor is jönnie kell létre a csalad+gyerek rekordnak, hogy
+  // a következő baptism-megnyitáskor a zöld badge megjelenjen.)
+  const szemelyUpdate: Record<string, unknown> = {}
+  if (d.apjaneve) szemelyUpdate.apjaneve = d.apjaneve
+  if (d.anyjaneve) szemelyUpdate.anyjaneve = d.anyjaneve
+  if (d.id_apja_cnp) szemelyUpdate.id_apja = d.id_apja_cnp
+  if (d.id_anyja_cnp) szemelyUpdate.id_anyja = d.id_anyja_cnp
+  if (Object.keys(szemelyUpdate).length > 0) {
+    await supabase.from('szemely').update(szemelyUpdate).eq('id', d.id_szemely).eq('congregation_id', congId)
+  }
 
-    // Automatikus család létrehozás
-    if (d.id_apja_cnp || d.id_anyja_cnp) {
-      await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
-    }
+  if (d.id_apja_cnp || d.id_anyja_cnp) {
+    await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
+  }
 
-    // Munkanapló
-    if (d.munkanaploba && inserted?.[0]) {
-      try {
-        await supabase.from('munkanaplo').insert([{
-          idopont: d.datum, jellege: 'Keresztelő', cim: `Keresztelés: ${d.alapige || ''}`.trim(),
-          congregation_id: congId,
-        }])
-      } catch { /* munkanaplo tábla nem létezik → skip */ }
-    }
+  // Munkanapló — csak új kereszteléskor, hogy ne duplikáljunk
+  if (isInsert && d.munkanaploba) {
+    try {
+      await supabase.from('munkanaplo').insert([{
+        idopont: d.datum, jellege: 'Keresztelő', cim: `Keresztelés: ${d.alapige || ''}`.trim(),
+        congregation_id: congId,
+      }])
+    } catch { /* munkanaplo tábla nem létezik → skip */ }
   }
 
   revalidatePath('/anyakonyv')
@@ -278,7 +522,32 @@ export async function saveMarriage(data: MarriageInput) {
   const { supabase, congId } = await getCongregation()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
-  const record = { id_ferfi: d.id_ferfi, id_no: d.id_no, datum: d.datum, hlevel: d.hlevel, lelkeszneve: d.lelkeszneve || null, tanuk: d.tanuk || null, helyid: d.helyid || null, munkanaploba: d.munkanaploba ?? false, megjegyzes: d.megjegyzes || null, congregation_id: congId }
+
+  let egyhaziSzam = d.egyhazi_szam || null
+  if (!d.id && !egyhaziSzam) {
+    const year = parseInt(d.datum.slice(0, 4)) || new Date().getFullYear()
+    const { data: rpcData } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+      p_target_congregation_id: congId,
+      p_profile_key: 'marriage',
+      p_year: year,
+    })
+    egyhaziSzam = rpcData ? String(rpcData) : null
+  }
+
+  const record = {
+    id_ferfi: d.id_ferfi,
+    id_no: d.id_no,
+    datum: d.datum,
+    hlevel: d.hlevel || null,
+    egyhazi_szam: egyhaziSzam,
+    lelkeszneve: d.lelkeszneve || null,
+    tanuk: d.tanuk || null,
+    helyid: d.helyid || null,
+    vegyes: d.vegyes ?? false,
+    munkanaploba: d.munkanaploba ?? false,
+    megjegyzes: d.megjegyzes || null,
+    congregation_id: congId,
+  }
   if (d.id) { const { error } = await supabase.from('hazassag').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
   else { const { error } = await supabase.from('hazassag').insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
   revalidatePath('/anyakonyv')
@@ -293,14 +562,63 @@ export async function saveBurial(data: BurialInput) {
   const { supabase, congId } = await getCongregation()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
-  const record = { id_szemely: d.id_szemely, hdatum: d.hdatum, tdatum: d.tdatum, hoka: d.hoka || null, hhelyid: d.hhelyid || null, thelyid: d.thelyid || null, lelkeszneve: d.lelkeszneve || null, munkanaploba: d.munkanaploba, megjegyzes: d.megjegyzes || null, congregation_id: congId }
+
+  let egyhaziSzam = d.egyhazi_szam || null
+  if (!d.id && !egyhaziSzam) {
+    const year = parseInt(d.tdatum.slice(0, 4)) || new Date().getFullYear()
+    const { data: rpcData } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+      p_target_congregation_id: congId,
+      p_profile_key: 'burial',
+      p_year: year,
+    })
+    egyhaziSzam = rpcData ? String(rpcData) : null
+  }
+
+  const record = {
+    id_szemely: d.id_szemely,
+    hdatum: d.hdatum,
+    tdatum: d.tdatum,
+    hoka: d.hoka || null,
+    okirat: d.okirat || null,
+    egyhazi_szam: egyhaziSzam,
+    hhelyid: d.hhelyid || null,
+    thelyid: d.thelyid || null,
+    lelkeszneve: d.lelkeszneve || null,
+    munkanaploba: d.munkanaploba,
+    megjegyzes: d.megjegyzes || null,
+    congregation_id: congId,
+  }
   if (d.id) { const { error } = await supabase.from('temetes').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
   else {
     const { error } = await supabase.from('temetes').insert([record])
     if (error) return { error: `Hiba: ${error.message}` }
     if (d.munkanaploba) { try { await supabase.from('munkanaplo').insert([{ idopont: d.tdatum, jellege: 'Temetés', cim: 'Temetési szertartás', congregation_id: congId }]) } catch {} }
   }
+
+  // 2026-05-02 (v0.9.33) — Felhasználó panasza: "a temetések rögzítve vannak az
+  // adatbázisban, de nem jelennek meg az oldalon az eltemetetteknél" — azaz a
+  // tag továbbra is élőként szerepel a tagnyilvántartásban.
+  //
+  // Ok: a saveBurial korábban CSAK a `temetes` táblába írt, a `szemely.meghalt`
+  // és `member_status` mezőket nem állította át. (A `tagnyilvantartas/removeMember`
+  // action `reason='meghalt'` ágában mindkettőt csinálja — itt is meg kell.)
+  //
+  // Az `id_szemely`-re a meghalt+member_status frissítése (idempotens — szerkesztéskor
+  // sem ártalmas, ha már true):
+  try {
+    await supabase
+      .from('szemely')
+      .update({ meghalt: true, member_status: 'elhunyt' })
+      .eq('id', d.id_szemely)
+      .eq('congregation_id', congId)
+  } catch {
+    // Ha a szemely-re nincs jogosultság vagy más hiba — a temetés-rögzítést NEM
+    // blokkoljuk emiatt. A user explicit hibát látna a tag-frissítésről, de a
+    // temetés már rögzítve van a temetes táblában.
+  }
+
   revalidatePath('/anyakonyv')
+  revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
 
@@ -314,9 +632,28 @@ export async function saveMovement(data: MovementInput) {
   const d = parsed.data
   const table = d.tipus
   const dateField = 'mikor'
-  const record: Record<string, unknown> = { id_szemely: d.id_szemely, [dateField]: d.datum, megjegyzes: d.megjegyzes || null, congregation_id: congId }
+
+  const profileKey = `movement_${d.tipus}` as EgyhaziProfileKey
+  let egyhaziSzam = d.egyhazi_szam || null
+  if (!d.id && !egyhaziSzam && d.datum) {
+    const year = parseInt(d.datum.slice(0, 4)) || new Date().getFullYear()
+    const { data: rpcData } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+      p_target_congregation_id: congId,
+      p_profile_key: profileKey,
+      p_year: year,
+    })
+    egyhaziSzam = rpcData ? String(rpcData) : null
+  }
+
+  const record: Record<string, unknown> = {
+    id_szemely: d.id_szemely,
+    [dateField]: d.datum,
+    egyhazi_szam: egyhaziSzam,
+    megjegyzes: d.megjegyzes || null,
+    congregation_id: congId,
+  }
   if (d.tipus === 'bekoltozott') { record.honnanid = d.helyid || null; record.igazolas = d.igazolas || null }
-  if (d.tipus === 'elkoltozott') { record.hovaid = d.helyid || null; record.kulfoldre = d.kulfoldre || false }
+  if (d.tipus === 'elkoltozott') { record.hovaid = d.helyid || null; record.kulfoldre = d.kulfoldre || false; record.hova_congregation_id = d.hova_congregation_id || null }
   if (d.tipus === 'attert' || d.tipus === 'kitert') { record.felekezet = d.felekezet || null; if (d.tipus === 'attert') record.honnanid = d.helyid || null; else record.hovaid = d.helyid || null }
   if (d.id) { const { error } = await supabase.from(table).update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
   else { const { error } = await supabase.from(table).insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
@@ -339,12 +676,58 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
   const newCandidates = d.candidates.filter(id => !confirmedIds.has(id))
   if (newCandidates.length === 0) return { error: 'Minden kiválasztott személy már konfirmálva van.' }
 
-  const records = newCandidates.map(id => ({ id_szemely: id, datum: d.datum, lelkeszneve: d.lelkeszneve || null, megjegyzes: d.megjegyzes || null, congregation_id: congId }))
+  // Egyházi anyakönyvi szám: minden új konfirmandus saját sorszámot kap
+  // (gyülekezetenként + évenként újraszámolt). Az első RPC-hívás adja a
+  // kezdősorszámot, utána a többit lokálisan inkrementáljuk, hogy ne
+  // ütközhessenek párhuzamos hívásnál (a táblába még nincs beszúrva).
+  const year = parseInt(d.datum.slice(0, 4)) || new Date().getFullYear()
+  let firstSzam: string | null = null
+  const { data: rpcStart } = await supabase.rpc('generate_egyhazi_anyakonyvi_szam', {
+    p_target_congregation_id: congId,
+    p_profile_key: 'confirmation',
+    p_year: year,
+  })
+  firstSzam = rpcStart ? String(rpcStart) : null
+
+  // Várt formátum: YYYY02NNNN — a sorszám az utolsó 4 karakter.
+  const szamPrefix = firstSzam ? firstSzam.slice(0, 6) : `${year}02`
+  const startSeq = firstSzam ? parseInt(firstSzam.slice(6)) || 1 : 1
+
+  const records = newCandidates.map((id, i) => ({
+    id_szemely: id,
+    datum: d.datum,
+    lelkeszneve: d.lelkeszneve || null,
+    egyhazi_szam: `${szamPrefix}${String(startSeq + i).padStart(4, '0')}`,
+    megjegyzes: d.megjegyzes || null,
+    congregation_id: congId,
+  }))
   const { error } = await supabase.from('konfirmalas').insert(records)
   if (error) return { error: `Hiba: ${error.message}` }
   if (d.munkanaploba) { try { await supabase.from('munkanaplo').insert([{ idopont: d.datum, jellege: 'Konfirmáció', cim: `Konfirmáció (${d.candidates.length} fő)`, congregation_id: congId }]) } catch {} }
   revalidatePath('/anyakonyv')
   return { success: true, count: d.candidates.length }
+}
+
+// ── Konfirmáció EGYETLEN bejegyzés szerkesztés (✏️ gomb) ─────
+
+export async function saveConfirmationSingle(data: ConfirmationSingleInput) {
+  const parsed = confirmationSingleSchema.safeParse(data)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const { supabase, congId } = await getCongregation()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const d = parsed.data
+
+  const record = {
+    id_szemely: d.id_szemely,
+    datum: d.datum,
+    egyhazi_szam: d.egyhazi_szam || null,
+    lelkeszneve: d.lelkeszneve || null,
+    megjegyzes: d.megjegyzes || null,
+  }
+  const { error } = await supabase.from('konfirmalas').update(record).eq('id', d.id).eq('congregation_id', congId)
+  if (error) return { error: `Hiba: ${error.message}` }
+  revalidatePath('/anyakonyv')
+  return { success: true }
 }
 
 // ── Bejegyzés törlés ─────────────────────────────────────────
