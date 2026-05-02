@@ -180,17 +180,21 @@ export async function approveAccessRequest(
 
     if (existingUser) {
       // User már létezik — csak a profiles + access_requests frissítés
+      // 2026-05-02 (v0.9.37): status 'approved' → 'active'. Az auth-flow
+      // (callback, login, setup, oauth-complete, pending) MIND `status==='active'`-ot
+      // követel. Az 'approved' egy korábbi flow-ból maradt szemantika ami sehol nem
+      // konvertálódik tovább 'active'-re. → Az admin elfogadás után azonnal aktív.
       resultingUserId = existingUser.id
       await ctx.supabase
         .from('profiles')
-        .update({ status: 'approved' })
+        .update({ status: 'active' })
         .eq('id', resultingUserId)
       await ctx.supabase
         .from('access_requests')
         .update({ resulting_user_id: resultingUserId })
         .eq('id', input.id)
       inviteUrl = `${appUrl}/login`
-      inviteWarning = 'A user már létezett (pl. saját admin fiók) — csak a státuszt frissítettük.'
+      inviteWarning = 'A user már létezett (pl. saját admin fiók vagy korábbi Google-bejelentkezés) — csak a státuszt frissítettük active-re.'
     } else {
       // Új user — inviteUserByEmail
       const { data: inviteData, error: inviteErr } =
@@ -210,10 +214,11 @@ export async function approveAccessRequest(
         resultingUserId = inviteData.user.id
         inviteUrl = `${appUrl}/login?invited=1`
 
+        // 2026-05-02 (v0.9.37): status 'active' (lásd fent a magyarázatot)
         await ctx.supabase
           .from('profiles')
           .update({
-            status: 'approved',
+            status: 'active',
             role: req.requested_role,
             full_name: req.full_name,
           })

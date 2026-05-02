@@ -39,6 +39,12 @@ export interface SubmitAccessRequestInput {
   email: string
   full_name: string
   requested_role: AccessRequestRole
+  /** Új mező (v0.9.37): a kérelmező itt adja meg a saját jelszavát.
+   *  A signUp() egyből Supabase-user fiókot is létrehoz az `auth.users`-ben,
+   *  `email_confirmed_at = null` állapotban. Az admin elfogadás után
+   *  `profiles.status = 'active'` lesz, és a user a megadott jelszóval beléphet.
+   *  Min. 8 karakter. */
+  password: string
   congregation_slug?: string
   phone?: string
   justification?: string
@@ -71,6 +77,7 @@ export async function submitAccessRequest(
   const email = (input.email || '').trim().toLowerCase()
   const fullName = (input.full_name || '').trim()
   const role = input.requested_role
+  const password = input.password || ''
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, error: 'Érvényes email-címet adjon meg.' }
@@ -80,6 +87,13 @@ export async function submitAccessRequest(
   }
   if (!VALID_ROLES.includes(role)) {
     return { success: false, error: 'Érvénytelen szerepkör.' }
+  }
+  // 2026-05-02 (v0.9.37) — Jelszó-mező kötelezővé téve a felhasználó kérésére.
+  if (!password || password.length < 8) {
+    return { success: false, error: 'A jelszó legalább 8 karakter hosszú legyen.' }
+  }
+  if (password.length > 72) {
+    return { success: false, error: 'A jelszó legfeljebb 72 karakter lehet (bcrypt limit).' }
   }
 
   // ── 2. IP-hash (GDPR-kompatibilis: csak hash, nem IP) ───────
@@ -107,13 +121,48 @@ export async function submitAccessRequest(
     }
   }
 
-  // ── 5. INSERT ──────────────────────────────────────────────
-  // 2026-05-02 (v0.9.35) — KRITIKUS BUG-FIX: az `.insert(...).select('id')`
-  // kombináció `permission denied for table access_requests` hibát adott.
-  // A `.select(...)` az anon-nak SELECT jogot követel a táblára, de a
-  // POLICY az anon-ra csak INSERT-et enged. A `returning` jog hiánya is
-  // okozhatja. A megoldás: csak a `.insert(...)` hívás, error-jelzéssel.
-  // (Az `inserted.id`-t máshol nem használjuk a flow-ban.)
+  // ── 5. SUPABASE SIGN-UP — user fiók létrehozás a megadott jelszóval ─
+  // 2026-05-02 (v0.9.37): a felhasználó kérése — a kérelmező adja meg a
+  // jelszavát az űrlapon. A signUp() létrehoz egy auth.users sort
+  // (email_confirmed_at = null), és emailt küld a Supabase-en keresztül
+  // (vagy a Brevo SMTP-n, ha be van állítva a Supabase-ben).
+  //
+  // A POSTGRES "profiles" trigger automatikusan létrehoz egy 'pending' státuszú
+  // profil-sort. Az admin elfogadás → status='active' → a user beléphet.
+  //
+  // Ha az email már foglalt (signUp 422), bizonyos Supabase-verziók
+  // sikeres válasszal térnek vissza — csak nem küldenek email-t. Ez
+  // intentional anti-enumeration. Ekkor mi még meg tudjuk csinálni az
+  // access_requests insert-et, ami az admin szempontjából elegendő.
+  const { error: signUpErr } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: fullName,
+        requested_role: role,
+      },
+      emailRedirectTo:
+        (process.env.NEXT_PUBLIC_APP_URL || 'https://kartotekaweb-production.up.railway.app') +
+        '/login?confirmed=1',
+    },
+  })
+
+  if (signUpErr) {
+    // Ha a fiók már létezik, NEM blokkoljuk: csak az access_requests sorra van szükség
+    const isUserExists =
+      /already registered|already exists|user_already_exists/i.test(signUpErr.message)
+    if (!isUserExists) {
+      return {
+        success: false,
+        error: `A fiók-létrehozás nem sikerült: ${signUpErr.message}`,
+      }
+    }
+    // user létezett: simán engedjük tovább az access_requests insert-et
+    console.warn('[access-request] user már létezik a Supabase-ben:', email)
+  }
+
+  // ── 6. INSERT az access_requests-be (admin elbírálás listája) ───────
   const { error: insErr } = await supabase
     .from('access_requests')
     .insert({

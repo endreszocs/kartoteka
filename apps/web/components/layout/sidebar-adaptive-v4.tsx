@@ -482,14 +482,16 @@ function SidebarNav({
 
   // Admin Panel: az admin szerepkör és master admin is láthatja
   // (eddig CSAK a master admin látta — ez változás!)
-  // 2026-05-02 (Sprint U.4): az Admin Panel menüpont kibontható almenüt kap,
-  // 13 önálló /admin/<slug> oldal — a régi tab-szerkezet helyett.
+  //
+  // 2026-05-02 (v0.9.37) — felhasználó kérése: az "Admin Panel" eddig egy
+  // kibontható menüpont volt, alatta 13 almenü. Most mind a 13 EGYENRANGÚ
+  // főmenüpont a "Rendszerszint" szekcióban, saját ikonokkal. A submenu
+  // pattern megszűnt — a felhasználó tisztább, áttekinthetőbb listát kért.
   if (showAdminSection) {
-    const adminMenuItem: MenuItem = {
-      ...adminItems[0],
-      ...(adminSubmenu && adminSubmenu.length > 0 ? { children: adminSubmenu } : {}),
-    }
-    sections.push({ title: 'Rendszerszint', items: [adminMenuItem] })
+    const adminMainItems: MenuItem[] = adminSubmenu && adminSubmenu.length > 0
+      ? adminSubmenu.map((m) => ({ ...m })) // shallow copy, children nélkül
+      : [adminItems[0]] // fallback: csak az "Admin Panel" link
+    sections.push({ title: 'Rendszerszint', items: adminMainItems })
   }
 
   return (

@@ -23,6 +23,73 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02q] — Sidebar admin egyenrangú + Google login fix + jelszó-mezők (v0.9.37)
+
+3 párhuzamos észrevétel, ALAPOS megoldással.
+
+### ✨ Sidebar — admin egyenrangú menüpontok
+
+A felhasználó kérése: az "Admin Panel" eddig egy kibontható menüpont volt
+13 almenüvel. Most mind a 13 **egyenrangú főmenüpont** a "Rendszerszint"
+szekcióban, **saját ikonokkal**.
+
+**Érintett**: `apps/web/components/layout/sidebar-adaptive-v4.tsx`
+- A `adminItems[0].children = adminSubmenu` pattern megszűnt
+- Helyette: `adminMainItems = adminSubmenu.map(m => ({ ...m }))` —
+  flat lista, mindegyik MenuItem mint top-level
+
+### 🐛 KRITIKUS FIX — Google login: status 'approved' → 'active'
+
+A felhasználó panasza: a Google-fiókkal NEM tud belépni, pedig az admin
+elfogadta. Részletes vizsgálat:
+
+**Gyökér-ok**:
+- `approveAccessRequest` action a `profiles.status`-t `'approved'`-ra állította
+- DE az auth-flow MINDEN ellenőrzése (`callback/route.ts:86`,
+  `login/actions.ts:42`, `(setup)/layout.tsx:48`, `oauth-complete/page.tsx:22`,
+  `pending/page.tsx:41,45`) **`status === 'active'`**-ot követel
+- Az `'approved'` egy korábbi flow-ból maradt szemantika ami sehol nem
+  konvertálódik tovább `'active'`-ra
+- Csak a master admin (Szőcs Endre, email-alapú) léphet be — más senki
+
+**Fix kód-oldalon**: `access-requests-actions.ts` mostantól `'active'`-ot ír
+(2 helyen: existingUser + új signUp branch).
+
+**Fix DB-oldalon**: új SQL migráció `2026-05-02-profiles-approved-to-active.sql`
+- `UPDATE profiles SET status='active' WHERE status='approved'`
+- A felhasználónak **futtatnia kell** — különben a meglevő approved-ek nem
+  tudnak belépni!
+
+### ✨ ÚJ: Jelszó + jelszó-megerősítés a hozzáférés-kérelem űrlapon
+
+A felhasználó kérése: "Nem kértünk be jelszót és jelszó megerősítését! Ez
+súlyos gond!"
+
+**Új flow** (`access-request-form.tsx` + `actions.ts`):
+1. A kérelmező a publikus űrlapon megad **jelszót + megerősítést** (min 8,
+   max 72 karakter)
+2. UI-validáció: mindkét mező kötelező, eye-ikon megjelenítés/elrejtés,
+   "nem egyezik" inline figyelmeztetés
+3. Server action: `supabase.auth.signUp({ email, password, options })` →
+   user fiók létrejön (auth.users), `email_confirmed_at = null`
+4. INSERT az `access_requests`-be (változatlan)
+5. Admin elfogadja → `profiles.status = 'active'` (lásd fent)
+6. User már a megadott jelszóval beléphet (email-cím + jelszó)
+
+**Edge-case**: ha az email már létezik a Supabase-ben (`user_already_exists`),
+NEM blokkolunk — csak az `access_requests` insert megy, és az admin a
+meglévő fiókot frissíti elfogadáskor. (Anti-enumeration: ugyanaz a UX, mint
+új email esetén.)
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+**A felhasználónak SQL futtatás KÖTELEZŐ**:
+- `migration-docs/sql/2026-05-02-profiles-approved-to-active.sql`
+
+---
+
 ## [2026-05-02p] — Kapcsolatfelvétel a rendszergazdával modal (v0.9.36)
 
 A felhasználó kérése: a hozzáférés-kérelem sikeres beküldése utáni

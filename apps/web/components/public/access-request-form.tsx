@@ -12,7 +12,7 @@
 
 import { useState, useTransition } from 'react'
 import { toast } from 'sonner'
-import { CheckCircle2, Send, Loader2 } from 'lucide-react'
+import { CheckCircle2, Eye, EyeOff, Lock, Send, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,6 +41,9 @@ export function AccessRequestForm() {
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [openLegal, setOpenLegal] = useState<LegalKind | null>(null)
   const [contactOpen, setContactOpen] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [password, setPassword] = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
 
   const [form, setForm] = useState({
     email: '',
@@ -58,11 +61,20 @@ export function AccessRequestForm() {
       toast.error('Kérjük, fogadja el az Adatvédelmi tájékoztatót és az ÁSZF-et.')
       return
     }
+    if (password.length < 8) {
+      toast.error('A jelszó legalább 8 karakter hosszú legyen.')
+      return
+    }
+    if (password !== passwordConfirm) {
+      toast.error('A jelszó és a megerősítése nem egyezik.')
+      return
+    }
     startTransition(async () => {
       const res = await submitAccessRequest({
         email: form.email.trim(),
         full_name: form.full_name.trim(),
         requested_role: form.requested_role,
+        password,
         congregation_slug: form.congregation_slug.trim() || undefined,
         phone: form.phone.trim() || undefined,
         justification: form.justification.trim() || undefined,
@@ -150,6 +162,70 @@ export function AccessRequestForm() {
             placeholder="pl. lelkesz@example.com"
             disabled={isPending}
           />
+        </div>
+      </div>
+
+      {/* Jelszó-mezők — v0.9.37 felhasználó kérése.
+          A signUp() ezzel a jelszóval hozza létre az auth.users sort. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="ar-password">
+            Jelszó <span className="text-rose-500">*</span>
+          </Label>
+          <div className="relative">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="ar-password"
+              type={showPassword ? 'text' : 'password'}
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Min. 8 karakter"
+              disabled={isPending}
+              autoComplete="new-password"
+              className="pl-9 pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+              aria-label={showPassword ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+            >
+              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Erre a jelszóra fog majd belépni az admin elfogadása után.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="ar-password-confirm">
+            Jelszó megerősítése <span className="text-rose-500">*</span>
+          </Label>
+          <div className="relative">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="ar-password-confirm"
+              type={showPassword ? 'text' : 'password'}
+              required
+              minLength={8}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              placeholder="Írja be újra a jelszót"
+              disabled={isPending}
+              autoComplete="new-password"
+              className={`pl-9 ${
+                passwordConfirm && password !== passwordConfirm
+                  ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200'
+                  : ''
+              }`}
+            />
+          </div>
+          {passwordConfirm && password !== passwordConfirm && (
+            <p className="text-[11px] text-rose-600">A két jelszó nem egyezik.</p>
+          )}
         </div>
       </div>
 
