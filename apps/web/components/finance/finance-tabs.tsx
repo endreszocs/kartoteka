@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, Building2, CalendarRange, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, CalendarRange, Download, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import Link from 'next/link'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -256,6 +257,17 @@ export function FinanceTabs({
               <Printer className="mr-1 size-3.5" />
               Nyomtatási központ
             </Button>
+            {/* Pénzügyi import — csak rendszergazdai módban érhető el. A v1-ben
+                a Kassza fül beolvasását kínálja az admin oldalra ugorva. */}
+            {isGodMode && (
+              <Link
+                href="/admin/finance-import"
+                className="inline-flex h-9 items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-background px-3 text-sm font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+              >
+                <Download className="mr-1 size-3.5" />
+                Adatok importálása
+              </Link>
+            )}
             {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
           </div>
         </div>

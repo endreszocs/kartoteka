@@ -23,6 +23,381 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-03c] — Pénzügyi import-wizard v1 LEZÁRVA: 7-9. lépés + import (v0.9.46)
+<!-- key: 2026-05-03c-finance-import-fazis-6 -->
+<!-- category: feature -->
+<!-- version: 0.9.46 -->
+<!-- targets: rendszergazda -->
+
+A pénzügyi import-wizard **end-to-end élesben fut**. Endre a hivatalos EREK
+kasszakönyv Excel-fájlt a `/admin/finance-import` oldalon (god-mode aktiválás
+után) feltöltheti, végigmehet a 9 lépésen, és az importálás `import_finance_batch`
+RPC-ren keresztül egyetlen tranzakcióban menti a tételeket.
+
+### ✨ 7. lépés — végleges előnézet + Monetar diagnosztika
+
+`apps/web/components/finance/finance-import/steps/preview-step.tsx`:
+- 3 KpiCard: bevételek + kiadások + kihagyott sorok
+- **Monetar diagnosztikai panel**: kalkulált záró-egyenleg vs. Monetar fülön
+  szereplő kasszaegyenleg, eltérés-számítás, warning-ok
+- Skip-okok bontása group-olva (occurrence-szám szerint)
+- Első 8 példa-tétel táblázat a végleges DB-formátumban
+- Visszavonhatatlan figyelmeztetés-panel az import gomb fölött
+
+### ✨ 8. lépés — importálás folyamatban
+
+`apps/web/components/finance/finance-import/steps/importing-step.tsx`:
+- Központosított "Importálás folyamatban…" panel
+- Indeterminate progress bar
+- Pasztorális üzenet ("Egy nagy lélegzettel, együtt csendben odáig várunk.")
+
+### ✨ 9. lépés — eredmény
+
+`apps/web/components/finance/finance-import/steps/result-step.tsx`:
+- Banner (success / warning / error)
+- 3 KpiCard: sikeresen mentve + kihagyva + cég/intézmény szám
+- Hibás sorok collapsible (max 50)
+- **Cég-lista panel** — Endre listát kap az adott évben szereplő szervezetekről
+- 2 CTA: "Új import indítása" + "Tovább a pénzügyi oldalra"
+
+### ✨ Item-builder helper
+
+`apps/web/components/finance/finance-import/helpers/item-builder.ts`:
+- A wizard kliens-állapotából `FinanceImportItem[]` tömböt épít
+- Skip-okok gyűjtése (rowIndex + reason)
+- A belső mozgás (Kassza ↔ Bank) sorok a v1-ben **NEM** importálódnak — a
+  Bank A/B fülek importja a v2-re marad
+
+### ✨ Új server action-ök
+
+`apps/web/app/(dashboard)/penzugy/finance-import-actions.ts`:
+- `getMonetarDiagnostic(formData, totalIncome, totalExpense, nyitoEgyenleg)` —
+  Monetar fül diagnosztika (kasszaegyenleg-ellenőrzés)
+- `executeFinanceImport(items, fileName)` — RPC hívás +
+  `logImportRun` audit-rekord rögzítés
+
+### 🛠️ analyzeKasszaSheet bővítés
+
+A skip-kategóriához mostantól megőrizzük a `donorString` és `amount` mezőket,
+hogy a Monetar diagnosztika ki tudja olvasni a "Előző évi készpénzegyenleg"
+sor értékét nyitó-egyenlegként.
+
+### 📦 Release
+
+Webes patch-bump: v0.9.45 → v0.9.46. Railway auto-deploy a `main` push-szal.
+Desktop NEM érintett. 3-build mind zöld + 74/74 smoke teszt.
+
+### 🔜 v2 ütemezés
+
+A v1 lezárása után a következő iterációkban várhatóak:
+- Bank A (RON) és Bank B (EUR) fülek importja (belső mozgások valódi rögzítése)
+- XML egyházfenntartás import duplikáció-ellenőrzéssel
+- Költségvetés (Koltsegvetes lap) import
+- Inline befizetescel/kiadascel létrehozás a wizardon belül
+
+---
+
+## [2026-05-03b] — Pénzügyi import-wizard Fázis 5: Wizard UI 4-6. lépés
+<!-- key: 2026-05-03b-finance-import-fazis-5 -->
+<!-- category: feature -->
+<!-- targets: rendszergazda -->
+
+A wizard "lényegi" középső szakasza: **Endre a 6. lépésig el tud menni egy
+valós Kassza-fájllal** — látja a klasszifikációt, a kódokat és a
+befizetők azonosítását. **Élesben látható** a `/admin/finance-import`
+oldalon, god-mode aktiválás után.
+
+### ✨ 4. lépés — sor-szétválasztás
+
+`apps/web/components/finance/finance-import/steps/kassza-split-step.tsx`:
+- 5 KpiCard a klasszifikáció statisztikáihoz
+- Importálandó tételek-kártya (zöld) az össz-számmal
+- Csoportonként összecsukható listák (income/expense/internal-transfer-in/
+  internal-transfer-out/skip), első 25 sor preview-zelve, "és további N sor"
+- Auto-trigger az `analyzeKasszaRows` server action-re
+- Pasztorális tipp ha a sor nem oda került, ahova szerinted való
+
+### ✨ 5. lépés — költségvetési kódok
+
+`apps/web/components/finance/finance-import/steps/budget-code-step.tsx`:
+- 4 KpiCard: bevételi / kiadási / belső mozgás / ismeretlen kódok (sor)
+- Ismeretlen kódok figyelmeztetés-panel 2 lépéses döntéssel
+- Kódok táblázata: rawKod / normalizedKod / kategória-badge / cél / occurrence
+- Csak unknown kódoknál checkbox a "Hagyja ki" művelethez
+- Blocker a Tovább gombnál ha unknown van és nem mind skipre állítva
+- Auto-trigger a `resolveBudgetCodes` server action-re
+
+### ✨ 6. lépés — befizetők azonosítása
+
+`apps/web/components/finance/finance-import/steps/donor-resolve-step.tsx`:
+- 4 KpiCard: egyértelműen feloldva / több jelölt / tagnyilv-ban nincs / cég
+- 4 collapsible szekció (ambiguous + not-found + cégek nyitva, resolved zárva)
+- Ambiguous esetekhez candidate-grid: családnév + keresztnév + lánykori név +
+  születési dátum + nem, kiválasztott zölddel jelölve
+- **Cég-lista panel** — Endre listát kap az adott évben szereplő szervezetekről
+- Blocker a Tovább gombnál ha ambiguous van és nem mindegyikre választottál
+- Auto-trigger a `resolveDonors` server action-re
+
+### ✨ Wizard orchestrator bővítés
+
+5 új state + 5 új handler + 4 useTransition (parsing/analyzing/resolving codes/
+resolving donors). A 7-9. lépés placeholder-je megmarad, Fázis 6 hozza el.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nincs verzió-bump. 3-build mind zöld + 74/74
+smoke teszt.
+
+### 🔜 Mi következik
+
+Fázis 6: preview-step + importing-step + result-step + `executeFinanceImport`
+action + `import-log` integráció.
+
+---
+
+## [2026-05-03a] — Pénzügyi import-wizard Fázis 4: Wizard UI 1-3. lépés
+<!-- key: 2026-05-03a-finance-import-fazis-4 -->
+<!-- category: feature -->
+<!-- targets: rendszergazda -->
+
+Az első UI a pénzügyi import-wizardhoz. **Élesben már látható** a
+`/admin/finance-import` URL-en (god-mode aktiválás szükséges).
+
+### ✨ Új admin oldal `/admin/finance-import`
+
+`apps/web/app/(dashboard)/admin/finance-import/page.tsx`:
+- `AdminPageHeader` Wallet ikonnal (emerald-teal gradient)
+- Csak god-mode aktiválása után jelenik meg a wizard
+- Pasztorális üzenet ha a god-mode nincs aktiválva
+
+### ✨ CTA gomb a pénzügy oldalon
+
+`apps/web/components/finance/finance-tabs.tsx`:
+- Új "Adatok importálása" link a header gombsorban
+- Csak rendszergazdai módban látható (`isGodMode === true`)
+- A `/admin/finance-import` oldalra navigál
+
+### ✨ 9-lépéses wizard 1-3. lépéssel
+
+`apps/web/components/finance/finance-import/penzugy-import-wizard.tsx`
++ `steps/source-type-step.tsx`
++ `steps/sheet-pick-step.tsx`
++ `steps/column-mapping-step.tsx`:
+
+- **1. lépés**: Forrástípus választás — 4 kártya (Kassza aktív, XML / Bank A / Bank B
+  szürkítve "Hamarosan" badge-dzsel) + drag-drop fájl-feltöltő
+- **2. lépés**: Munkalap kiválasztása — fájl-info + sheet-lista (csak Kassza
+  választható), auto-pick ha egyetlen Kassza fül van
+- **3. lépés**: Oszlop-párosítás — Excel fejléc → DB virtuális mező mapping
+  auto-suggestion-nel és felhasználói override-dal, 3 stat (felismert/kihagyott/
+  hiányzó), profil-tippek
+
+A 4-9. lépésre placeholder "Itt tartunk a fejlesztésben" panel kerül —
+a sor-szétválasztás, kódfeloldás, befizető-resolver, előnézet és import a
+következő iterációban érkezik.
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy a push-szal). Nincs verzió-bump. 3-build mind
+zöld, 67 oldal.
+
+### 🔜 Mi következik
+
+Fázis 5: kassza-split-step + budget-code-step + donor-resolve-step (a 4-6.
+lépés UI). Fázis 6: preview-step + import + result.
+
+---
+
+## [2026-05-02z3] — Pénzügyi import-wizard Fázis 3: Server action-ök + SQL RPC
+<!-- key: 2026-05-02z3-finance-import-fazis-3 -->
+<!-- category: feature -->
+<!-- targets: rendszergazda -->
+
+A Fázis 2 helper-implementációk köré szervezett 4 server action + 1 RPC:
+a wizard backend-rétege. **Élesben még semmi nem látható** — a UI-t a
+Fázis 4-6 hozza.
+
+### ✨ `lookup-resolver.ts` — két új public export
+
+`apps/web/lib/import/lookup-resolver.ts`:
+- `PersonLookupMaps` interface most `export`
+- `buildAllPersonsLookupMap(supabase, congregationId)` — minden látható
+  gyülekezeti tagot betölt 6 keresési Map-be
+- `lookupPersonByQuadAttempt(...)` — 6-lépéses fallback chain public API
+
+### ✨ 4 server action a pénzügy oldalon
+
+`apps/web/app/(dashboard)/penzugy/finance-import-actions.ts`:
+- `parseAndPreviewFinance` — fájl parse + sheet előnézet
+- `analyzeKasszaRows` — Kassza fül `splitKasszaRow` batch + statisztika
+- `resolveBudgetCodes` — `buildBudgetCodeMaps` + kódok feloldása
+- `resolveDonors` — `parseDonorString` + `lookupPersonByQuadAttempt` minden
+  egyedi donorra
+
+Auth: `requireFinanceImportAccess` — csak admin-jellegű role
+(`master`/`admin`/`egyhazkeruletiAdmin`/`konyvelo` approved+active).
+
+### ✨ Megosztott típusok
+
+`apps/web/app/(dashboard)/penzugy/finance-import-types.ts`:
+5 csoportba szervezett típus: parse, analízis, kód-feloldás, donor-feloldás,
+import végrehajtás (Fázis 6 előkészítés).
+
+### 🛠️ SQL migráció — `import_finance_batch` RPC
+
+`migration-docs/sql/2026-05-02-finance-import-rpc.sql`:
+
+`SECURITY DEFINER` PL/pgSQL függvény, `(p_congregation_id, p_user_id, p_items)`
+→ `{inserted, skipped, errors}`. Auth a `profile_roles` táblán keresztül
+(admin-jellegű role-okra).
+
+4 kind: `income` (befizetes INSERT), `expense` (kiadas INSERT),
+`internal-transfer-out` (kassza→bank: kiadas+befizetes+belsomozgas), és
+`internal-transfer-in` (bank→kassza: ugyanaz fordítva). Minden tétel saját
+EXCEPTION blokkban — egy hibás sor nem dobja a teljes batch-et.
+
+**Endre futtatja Supabase Studio-ban.**
+
+### 📦 Release
+
+Csak előkészítés, nincs verzió-bump. 3-build mind zöld + 74/74 smoke teszt.
+
+### 🔜 Mi következik
+
+Fázis 4: `penzugy-import-wizard.tsx` orchestrator + 1-3. lépés UI komponensek
+(source-type, sheet-pick, column-mapping) + admin oldal.
+
+---
+
+## [2026-05-02z2] — Pénzügyi import-wizard Fázis 2: Helper-implementációk
+<!-- key: 2026-05-02z2-finance-import-fazis-2 -->
+<!-- category: feature -->
+<!-- targets: rendszergazda -->
+
+A Fázis 1-ben létrehozott 5 helper-szkelet algoritmusainak teljes implementációja
+a valós EREK 2025 Kassza-fülre kalibrálva (994 sor). **Élesben semmi nem
+látható** — Fázis 3-ban jönnek a server action-ök, Fázis 4-6-ban a wizard UI.
+
+### ✨ `detectCompany` token-szintű regex-set
+
+A magyar `é`/`á`/`ő` betűk melletti ASCII `\b` szóhatár-bug megkerülése: token-
+szintű regex helyett a stringet szóközökkel felbontjuk és minden tokenre
+ellenőrizzük az illeszkedést. Eredmény: a "Kiss Csabáné Lénárt Rita" többé NEM
+minősül RT-cégnek.
+
+A 36 egyedi cég 100%-osan helyesen detektált, 367 magánszemély közül egyik sem
+téves cég. A regex set: SC/Fundatia/Parohia/CN/Comuna/Pago*/Referinta/Depunere
+prefix; SRL/SA/PFA/IF/SCM/KFT/BT/RT/ZRT/NYRT/KKT token; CSUPA NAGYBETŰS rövidítés.
+
+### ✨ `parseDonorString` teljes algoritmus
+
+`apps/web/components/finance/finance-import/helpers/donor-string-parser.ts`:
+- Cég-flag → azonnali kilépés
+- Splitelés `" - "` separator-okkal
+- Cím-rész utolsó tokene = `houseNumber`, többi = `street`
+- Prefix-detekció (Özv./Elv./Dr./id./ifj./Br./Gr.)
+- **Token-szintű "né" check** (a `\b` bug megkerülése)
+- Női férjes-név: férj családneve + férjes-név + opcionális lánykori családnév
+  + saját keresztnév (pl. "Beder Béláné Finta Vilma")
+- Confidence (high/medium/low)
+
+### ✨ `splitKasszaRow` 994-sorra kalibrálva
+
+5 kategória: income/expense/internal-transfer-in/internal-transfer-out/skip.
+Belső mozgás detektálás: 400.xx kód VAGY "Készpénzletétel"/"Készpénzfelvétel"
+kifejezés. Tájékoztató sorok skip ("Előző évi készpénzegyenleg", "Napi bevétel"
+stb.). Magyar tizedesvessző elfogadott.
+
+Eredmény a 994-soros valós fájlon: 478 income + 64 expense + 16 internal-
+transfer + 9453 skip.
+
+### ✨ `buildBudgetCodeMaps` Supabase batch SELECT
+
+3 batch SELECT (szamadasicel, befizetescel, kiadascel), Map-ek szamadasicel.id
+kulccsal. `resolveBudgetCode(kod, maps)` egy kódra: income/expense/internal-
+transfer/unknown. Konvenció: 100-prefix → bevétel, 200-prefix → kiadás,
+400-prefix → belső mozgás.
+
+### ✨ `diagnoseMonetar` parser
+
+A Monetar fülből kiolvassa: Kasszaegyenleg, Készpénzegyenleg összesen, 12
+címlet darabszám-szorzat. Kiszámítja az eltérést a Kassza-fülön kalkulált
+záró-egyenleghez képest. Pasztorális hangnemű warning-ok (pl. "0.26 RON-nal
+kisebb"). **Csak diagnosztika** — nem ír DB-be.
+
+### ✨ Smoke-test runner script-ek
+
+- `apps/web/scripts/test-finance-import-helpers.ts` — 74 unit teszt (mind zöld)
+- `apps/web/scripts/test-finance-import-fullfile.ts` — a teljes 994-soros valós
+  Kassza-fájl klasszifikáció + 36 egyedi cég-lista
+
+### 📦 Release
+
+Csak előkészítés, nincs verzió-bump. 3-build mind zöld (typecheck, web, desktop).
+
+### 🔜 Mi következik
+
+Fázis 3: server action-ök (`finance-import-actions.ts`) + `import_finance_batch`
+RPC SQL migráció.
+
+---
+
+## [2026-05-02z] — Pénzügyi import-wizard Fázis 1: Foundation
+<!-- key: 2026-05-02z-finance-import-fazis-1 -->
+<!-- category: feature -->
+<!-- targets: rendszergazda -->
+
+A hivatalos EREK könyvelési Excel ("Adatok_2025.xlsx" Kassza fül, 994 sor) +
+egyházfenntartás XML import-wizardjának első fázisa: alapok lefektetése. Élesben
+**semmi nem látható** — csak előkészítés a következő fázisokhoz.
+
+### ✨ Új közös import-infrastruktúra
+
+- `apps/web/components/import-shared/wizard-stepper.tsx` — kiemelve a
+  tagnyilvántartás-importból, hogy a pénzügyi import is használhassa
+- `apps/web/components/import-shared/file-drop-zone.tsx` — generikus drag-drop
+  zóna fájl-kártyával és tovább-gombbal. A modulspecifikus mode-választókat a
+  modulok saját step-komponensei rajzolják köré.
+- A tagnyilvántartás-import-wizard változatlan UI-ja megőrzött (re-export pajzs)
+
+### ✨ Új PROFILE_KASSZA import-profil
+
+`apps/web/lib/import/import-profiles.ts:401-498` — a Kassza fül 2-oszlopos
+formátumát (Bev. - Összeg / Kiad. - Összeg) kezelő profil. Virtuális mezők
+(`_donor_string`, `_bev_osszeg`, `_kia_osszeg`, `_szamadasicel_kod` stb.)
+a Fázis 2 helper-eknek.
+
+### ✨ 5 helper-fájl szkeletonja
+
+`apps/web/components/finance/finance-import/helpers/`:
+- `company-detector.ts` — SRL/KFT/SA/Bt/RT cég-felismerés
+- `donor-string-parser.ts` — "Beder Győzőné Elvira - Főút 27" struktúrált adattá
+- `kassza-row-classifier.ts` — sor → income/expense/internal-transfer/skip
+- `budget-code-resolver.ts` — szamadasicel "101.01" → befizetescel/kiadascel ID
+- `monetar-diagnostic.ts` — kasszaegyenleg diagnosztika
+
+A teljes algoritmusok a Fázis 2-ben.
+
+### 🛠️ SQL migráció
+
+`migration-docs/sql/2026-05-02-finance-dup-lookup-indexes.sql` — két partial
+index (`(congregation_id, datum, osszeg, bankszamla_id) WHERE deleted = false`)
+a `befizetes` és `kiadas` táblákon a duplikáció-detektálás gyorsítására. A
+banki import is profitál belőle.
+
+**Endre futtatja Supabase Studio-ban.**
+
+### 📦 Release
+
+Csak előkészítés, nincs verzió-bump. Webes Railway auto-deploy a `main` push-szal
+csak felépül, élesben még semmi nem aktív.
+
+### 🔜 Mi következik
+
+Fázis 2: a helper-algoritmusok teljes implementációja + smoke-test runner.
+
+---
+
 ## [2026-05-02y] — Felhasználók oldal teljes újragondolás (v0.9.45)
 
 A felhasználó kérése: minden user megjelenjen + scope-info (kerület/megye/

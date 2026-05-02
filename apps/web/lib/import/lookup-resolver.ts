@@ -185,7 +185,7 @@ function splitName(fullName: string): { vezetek: string; kereszt: string } {
  * Batch-lel lekérdezi a szemely táblát az összes CNP-hez és névhez.
  * Visszaad egy Map-et: kulcs (CNP vagy normalizált név) → id_szemely.
  */
-interface PersonLookupMaps {
+export interface PersonLookupMaps {
   byCnp: Map<string, string>
   byName: Map<string, string>
   /** Pontos egyezés: csaladnev|k_nev|sz_datum|ferfi */
@@ -311,6 +311,194 @@ async function buildPersonLookupMap(
   }
 
   return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+}
+
+/**
+ * Public wrapper a `buildPersonLookupMap`-hez — minden látható (`isvisible=true`)
+ * tagot betölt a megadott gyülekezetből, és az összes 6 keresési-Map-et felépíti.
+ *
+ * A pénzügyi import-wizard használja a `donor-string-parser` által szétbontott
+ * név-mezők → `id_szemely` feloldásához. Mivel a Kassza/XML-ben sem CNP, sem
+ * pontos quad-kulcs nincs, üres set-eket adunk át — a függvény ekkor üres
+ * map-ekkel tér vissza, ezért ez a wrapper egyetlen, "load-everything" mód.
+ *
+ * @param supabase Server-side Supabase kliens (`createClient` a server-utils-ból)
+ * @param congregationId Gyülekezet UUID
+ * @returns A 6 keresési Map-pel feltöltött `PersonLookupMaps`
+ */
+export async function buildAllPersonsLookupMap(
+  supabase: SupabaseClient,
+  congregationId: string,
+): Promise<PersonLookupMaps> {
+  const byCnp = new Map<string, string>()
+  const byName = new Map<string, string>()
+  const byQuad = new Map<string, string>()
+  const byTriple = new Map<string, string[]>()
+  const byMaiden = new Map<string, string[]>()
+  const byKnameFerfi = new Map<string, string[]>()
+  const byId = new Map<string, LookupRecord>()
+
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('id, cnp, csaladnev, k_nev, sz_datum, ferfi, isvisible, szcs_nev')
+    .eq('congregation_id', congregationId)
+    .eq('isvisible', true)
+
+  if (error || !data) {
+    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+  }
+
+  for (const row of data as Array<LookupRecord & { isvisible?: boolean }>) {
+    byId.set(row.id, row)
+    if (row.cnp) {
+      byCnp.set(row.cnp.trim(), row.id)
+    }
+    const csal = normalizeString(row.csaladnev)
+    const ker = normalizeString(row.k_nev)
+    if (csal && ker) {
+      byName.set(`${csal} ${ker}`, row.id)
+      byName.set(`${ker} ${csal}`, row.id)
+    }
+    if (row.csaladnev && row.k_nev) {
+      const dbFerfiFlag = ferfiToFlag(row.ferfi)
+      const csNorm = normalizeNameForQuad(row.csaladnev)
+      const knVariants = knevVariants(row.k_nev)
+      const dNorm = normalizeDateForQuad(row.sz_datum)
+
+      for (const knVar of knVariants) {
+        const quad = `${csNorm}|${knVar}|${dNorm}|${dbFerfiFlag}`
+        if (!byQuad.has(quad)) byQuad.set(quad, row.id)
+
+        const triple = `${csNorm}|${knVar}|${dbFerfiFlag}`
+        const arr = byTriple.get(triple) || []
+        if (!arr.includes(row.id)) arr.push(row.id)
+        byTriple.set(triple, arr)
+
+        const tripleNoFerfi = `${csNorm}|${knVar}|?`
+        const arr2 = byTriple.get(tripleNoFerfi) || []
+        if (!arr2.includes(row.id)) arr2.push(row.id)
+        byTriple.set(tripleNoFerfi, arr2)
+      }
+
+      if (row.szcs_nev && row.szcs_nev.trim() !== '') {
+        const szcsNorm = normalizeNameForQuad(row.szcs_nev)
+        for (const knVar of knVariants) {
+          const maidenKey = `${szcsNorm}|${knVar}|${dbFerfiFlag}`
+          const arr = byMaiden.get(maidenKey) || []
+          if (!arr.includes(row.id)) arr.push(row.id)
+          byMaiden.set(maidenKey, arr)
+          const maidenKeyNoFerfi = `${szcsNorm}|${knVar}|?`
+          const arr2 = byMaiden.get(maidenKeyNoFerfi) || []
+          if (!arr2.includes(row.id)) arr2.push(row.id)
+          byMaiden.set(maidenKeyNoFerfi, arr2)
+        }
+      }
+
+      for (const knVar of knVariants) {
+        const knFerfiKey = `${knVar}|${dbFerfiFlag}`
+        const arr = byKnameFerfi.get(knFerfiKey) || []
+        if (!arr.includes(row.id)) arr.push(row.id)
+        byKnameFerfi.set(knFerfiKey, arr)
+      }
+    }
+  }
+
+  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+}
+
+/**
+ * Quad-alapú személy-feloldás 6-lépéses fallback chain-nel.
+ *
+ * Public változata a finance-import-hoz — a sztring-alapú normalizálást
+ * már a hívó (donor-string-parser) végezte el. A fallback-lánc:
+ *   1. Quad exact (csaladnev|k_nev|sz_datum|ferfi)
+ *   2. Triple no date (csaladnev|k_nev|ferfi)
+ *   3. Triple no ferfi (csaladnev|k_nev|?)
+ *   4. Maiden (szcs_nev|k_nev|ferfi)
+ *   5. K-nev + ferfi (utolsó esély, csak 1 találat esetén)
+ *   6. fail → null
+ *
+ * @returns `{ id }` ha pontos egyezés; `{ candidates }` ha több jelölt;
+ *   `null` ha 0 találat
+ */
+export function lookupPersonByQuadAttempt(
+  csaladnev: string | null,
+  k_nev: string | null,
+  szcs_nev: string | null,
+  sz_datum: string | null,
+  ferfi: 'M' | 'F' | '?',
+  maps: PersonLookupMaps,
+): { id: string } | { candidates: string[] } | null {
+  const csNorm = csaladnev ? normalizeNameForQuad(csaladnev) : ''
+  const kNorm = k_nev ? normalizeNameForQuad(k_nev) : ''
+  const szcsNorm = szcs_nev ? normalizeNameForQuad(szcs_nev) : ''
+  const dNorm = sz_datum ? normalizeDateForQuad(sz_datum) : ''
+  const knVariants = kNorm ? knevVariants(kNorm) : []
+
+  if (!csNorm && !szcsNorm && knVariants.length === 0) return null
+
+  let lastCandidates: string[] | null = null
+
+  // 1. Quad exact
+  if (csNorm && kNorm && dNorm) {
+    const quad = `${csNorm}|${kNorm}|${dNorm}|${ferfi}`
+    const id = maps.byQuad.get(quad)
+    if (id) return { id }
+  }
+
+  // 2. Triple (csaladnev|k_nev_variant|ferfi)
+  if (csNorm) {
+    for (const knVar of knVariants) {
+      const tripleKey = `${csNorm}|${knVar}|${ferfi}`
+      const candidates = maps.byTriple.get(tripleKey)
+      if (candidates && candidates.length === 1) return { id: candidates[0] }
+      if (candidates && candidates.length > 1) lastCandidates = candidates
+    }
+  }
+
+  // 3. Triple no ferfi (csaladnev|k_nev|?)
+  if (csNorm) {
+    for (const knVar of knVariants) {
+      const tripleNoFerfiKey = `${csNorm}|${knVar}|?`
+      const candidates = maps.byTriple.get(tripleNoFerfiKey)
+      if (candidates && candidates.length === 1) return { id: candidates[0] }
+      if (candidates && candidates.length > 1) lastCandidates = candidates
+    }
+  }
+
+  // 4. Maiden (szcs_nev|k_nev|ferfi)
+  if (szcsNorm) {
+    for (const knVar of knVariants) {
+      const maidenKey = `${szcsNorm}|${knVar}|${ferfi}`
+      const candidates = maps.byMaiden.get(maidenKey)
+      if (candidates && candidates.length === 1) return { id: candidates[0] }
+      if (candidates && candidates.length > 1) lastCandidates = candidates
+    }
+  }
+
+  // 4b. Maiden no ferfi
+  if (szcsNorm) {
+    for (const knVar of knVariants) {
+      const maidenKey = `${szcsNorm}|${knVar}|?`
+      const candidates = maps.byMaiden.get(maidenKey)
+      if (candidates && candidates.length === 1) return { id: candidates[0] }
+      if (candidates && candidates.length > 1) lastCandidates = candidates
+    }
+  }
+
+  // 5. K-nev + ferfi (utolsó esély, csak 1 jelölt esetén)
+  for (const knVar of knVariants) {
+    const knFerfiKey = `${knVar}|${ferfi}`
+    const candidates = maps.byKnameFerfi.get(knFerfiKey)
+    if (candidates && candidates.length === 1) return { id: candidates[0] }
+    if (candidates && candidates.length > 1) lastCandidates = candidates
+  }
+
+  // 6. Fail — visszaadjuk az utolsó nem-egyértelmű jelölt-listát is
+  if (lastCandidates && lastCandidates.length > 1) {
+    return { candidates: lastCandidates }
+  }
+  return null
 }
 
 /**

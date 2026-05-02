@@ -398,6 +398,129 @@ export const PROFILE_EXPENSE: ImportProfile = {
   sheetHints: ['Kiadások', 'Expense', 'kiadás'],
 }
 
+// ---------------------------------------------------------------------------
+// PROFILE_KASSZA — hivatalos EREK könyvelési Excel "Kassza" füle
+// ---------------------------------------------------------------------------
+//
+// A meglévő `PROFILE_INCOME` és `PROFILE_EXPENSE` egy-oszlopos formátumot vár
+// (egy sor = egy bevétel **vagy** egy kiadás). Az EREK Kassza fül viszont
+// **két párhuzamos összeg-oszlopot** tartalmaz: `Bev. - Összeg` és
+// `Kiad. - Összeg`. Egy sor csak az egyiket használja, a másik üres.
+//
+// A Kassza-import wizard ezért:
+//   1. Beolvassa a Kassza fület a PROFILE_KASSZA-val (virtuális mezőkbe).
+//   2. A `splitKasszaRow()` helper a 4. lépésben szétválogatja a sorokat
+//      `income` / `expense` / `internal-transfer` / `skip` kategóriákba.
+//   3. A költségvetési kód oszlop ("101.01") a `resolveBudgetCode()` helper-rel
+//      `befizetescel.id` vagy `kiadascel.id` FK-ra fordul.
+//   4. A "Név" oszlop a `parseDonorString()` helper-rel struktúrált befizető
+//      ID-ra (`id_szemely`) vagy cég-flag-re fordul.
+//
+// Lásd: docs/project-tracking/KARTOTEKA-finance-import-wizard-FAZIS-1-2026-05-02.md
+export const PROFILE_KASSZA: ImportProfile = {
+  key: 'kassza',
+  module: 'finance',
+  label: 'EREK kasszakönyv',
+  description:
+    'A hivatalos EREK könyvelési Excel "Kassza" füle — bevételek és kiadások egy táblázatban, oszloponként szétbontva.',
+  targetTable: 'befizetes',
+  columnMap: [
+    {
+      excelHeader: 'Dátum',
+      excelAliases: ['datum', 'Datum'],
+      dbColumn: 'datum',
+      type: 'date',
+      required: true,
+      hint: 'A tétel könyvelési dátuma (ÉÉÉÉ-HH-NN vagy Excel dátumszerű)',
+    },
+    {
+      excelHeader: 'Iratszám',
+      excelAliases: ['iratszam'],
+      dbColumn: 'iratszam',
+      type: 'string',
+      required: false,
+      hint: 'A nyugtán/számlán szereplő szám',
+    },
+    {
+      excelHeader: 'Irattip.',
+      excelAliases: ['irattipus', 'Irattípus', 'Irattip'],
+      dbColumn: 'irattipus',
+      type: 'string',
+      required: false,
+      hint: 'Pl. Chit. / Fact.+Bon. / Disp. Plata',
+    },
+    {
+      excelHeader: 'Név',
+      excelAliases: ['Nev', 'Forrás', 'Befizető', 'Forrasa'],
+      dbColumn: '_donor_string',
+      type: 'string',
+      required: false,
+      hint: 'Befizető vagy átvevő szöveges megjelölése (név + cím)',
+    },
+    {
+      excelHeader: 'Bev. - Összeg',
+      excelAliases: ['Bevétel - Összeg', 'Bevétel'],
+      dbColumn: '_bev_osszeg',
+      type: 'number',
+      required: false,
+      hint: 'Bevétel összege RON-ban (üres, ha kiadás)',
+    },
+    {
+      excelHeader: 'Bevétel - Költ.vet. név',
+      excelAliases: ['Bevétel kategória', 'Bev cél'],
+      dbColumn: '_bev_cel_nev',
+      type: 'string',
+      required: false,
+      hint: 'Pl. Egyházfenntartói járulék',
+    },
+    {
+      excelHeader: 'Kiad. - Összeg',
+      excelAliases: ['Kiadás - Összeg', 'Kiadás'],
+      dbColumn: '_kia_osszeg',
+      type: 'number',
+      required: false,
+      hint: 'Kiadás összege RON-ban (üres, ha bevétel)',
+    },
+    {
+      excelHeader: 'Kiadás - költ.vet. név',
+      excelAliases: ['Kiadás kategória', 'Kiad cél'],
+      dbColumn: '_kia_cel_nev',
+      type: 'string',
+      required: false,
+      hint: 'Pl. Egyháztagok segélyezése',
+    },
+    {
+      excelHeader: 'Megjegyzés',
+      excelAliases: ['Megjegyzes'],
+      dbColumn: 'megjegyzes',
+      type: 'string',
+      required: false,
+    },
+    {
+      excelHeader: 'Költségvetési szám',
+      excelAliases: ['Koltsegvetesi szam', 'Költs. szám', 'KöltsSzám', 'szám'],
+      dbColumn: '_szamadasicel_kod',
+      type: 'string',
+      required: false,
+      hint: 'Pl. 101.01 (Egyházfenntartói járulék) — magyar tizedesvessző elfogadott',
+    },
+  ],
+  autoColumns: [
+    { dbColumn: 'congregation_id', source: 'congregation_id' },
+    { dbColumn: 'userid', source: 'user_id' },
+    { dbColumn: 'created', source: 'now' },
+    { dbColumn: 'deleted', source: 'false' },
+  ],
+  hints: [
+    'A Kassza fül 2 párhuzamos összeg-oszlopot tartalmaz: "Bev. - Összeg" és "Kiad. - Összeg".',
+    'Egy sor csak az egyiket használja — a wizard automatikusan szétválasztja bevétel/kiadás/belső mozgás kategóriákba.',
+    'A Költségvetési szám oszlop a számadási kódot adja meg (pl. 101.01 = Egyházfenntartói járulék).',
+    'A magyar tizedesvesszős értékek (pl. "102,14") automatikusan átalakulnak.',
+    'A "Készpénzletétel a(z) A számlára" típusú sorok belső mozgásként kerülnek be.',
+  ],
+  sheetHints: ['Kassza'],
+}
+
 // ===========================
 // 3. ANYAKÖNYV (Registry) — quad-lookup pattern (csaladnev + k_nev + sz_datum + ferfi)
 // ===========================
@@ -870,6 +993,7 @@ export const MEMBER_PROFILES: ImportProfile[] = [
 export const FINANCE_PROFILES: ImportProfile[] = [
   PROFILE_INCOME,
   PROFILE_EXPENSE,
+  PROFILE_KASSZA,
 ]
 
 export const REGISTRY_PROFILES: ImportProfile[] = [
