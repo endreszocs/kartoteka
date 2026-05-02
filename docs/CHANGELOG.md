@@ -23,6 +23,43 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02v] — Gyors jóváhagyás (gyülekezet nélkül) (v0.9.42)
+
+A diagnosztikai SQL eredménye alapján: a két új user (Zoltan Ferenczi,
+endreszocsai) `pending`-ben volt. A meglévő `approveUser` action egyházmegye +
+gyülekezet-nevet KÖTELEZ ami nem mindig kívánatos (pl. Google-loginnal jött user).
+
+### ✨ Új funkció — Gyors jóváhagyás
+
+**Új server action**: `apps/web/app/(dashboard)/admin/actions.ts`
+
+```ts
+export async function quickApproveUser(userId: string)
+```
+
+- Egyetlen klikkel `pending → active` (nem kér gyülekezetet)
+- A user a következő bejelentkezésnél a wizard-on választ gyülekezetet
+- Értesítés: "Hozzáférése aktiválva. A bejelentkezés után az induló wizard segít beállítani a gyülekezetet…"
+- `revalidatePath('/admin/felhasznalok')` + `/admin`
+
+**UsersTab Pending listán** (`apps/web/components/admin/users-tab.tsx`):
+
+Két gomb a felhasználó mellett:
+- **"Gyors jóváhagyás"** (zöld) — egy kattintás + confirm → aktív (gyülekezet nélkül)
+- **"Jóváhagyás gyülekezettel…"** (kontúros, meglévő flow) — a régi `approveUser` egyházmegye + gyülekezet-nevet kér
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nem kell SQL.
+
+A felhasználó most:
+1. Frissítse az `/admin/felhasznalok` oldalt
+2. A Pending listában megjelenik Zoltan Ferenczi és endreszocsai
+3. **"Gyors jóváhagyás"** zöld gombra kattint → confirm → aktív
+4. Az "Aktív" listában megjelennek + a Szerepkörök fülön is osztható szerepkör
+
+---
+
 ## [2026-05-02u] — Diagnosztika + Szerepkörök fülön pending is látható (v0.9.41)
 
 A felhasználó panasza: "Az admin oldalon, sem a felhasználóknál sem a

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { getPendingUsers, getActiveUsers, getDioceses, approveUser, updateUserRole } from '@/app/(dashboard)/admin/actions'
+import { getPendingUsers, getActiveUsers, getDioceses, approveUser, quickApproveUser, updateUserRole } from '@/app/(dashboard)/admin/actions'
 import { toast } from 'sonner'
 
 interface PendingUser {
@@ -115,7 +115,7 @@ export function UsersTab() {
           )}
           {pending.map(u => (
             <div key={u.id} className="border-b last:border-0 py-3">
-              <div className="flex justify-between items-start">
+              <div className="flex justify-between items-start gap-2">
                 <div>
                   <p className="font-medium text-sm">{u.full_name || 'Névtelen'}</p>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
@@ -124,12 +124,34 @@ export function UsersTab() {
                     {u.congregation_name_input && ` · Gyülekezet: ${u.congregation_name_input}`}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => {
-                  if (approveId === u.id) { setApproveId(null) }
-                  else { setApproveId(u.id); setSelectedDiocese('') }
-                }}>
-                  {approveId === u.id ? 'Mégse' : 'Jóváhagyás'}
-                </Button>
+                <div className="flex flex-col gap-1.5 items-end">
+                  {/* Gyors jóváhagyás — gyülekezet nélkül; a user a wizard-on
+                      kiválaszt egyet később */}
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={async () => {
+                      if (!confirm(`Biztosan jóváhagyod a felhasználót gyülekezet hozzárendelése nélkül?\n\n${u.full_name || u.email}\n\nAz onboarding wizard-on a felhasználó később választhat gyülekezetet.`)) return
+                      const res = await quickApproveUser(u.id)
+                      if ('error' in res && res.error) {
+                        toast.error(res.error)
+                      } else {
+                        toast.success('Felhasználó aktiválva.')
+                        setPending(prev => prev.filter(p => p.id !== u.id))
+                        const aRes = await getActiveUsers()
+                        if ('data' in aRes) setActive(aRes.data as unknown as ActiveUser[])
+                      }
+                    }}
+                  >
+                    Gyors jóváhagyás
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => {
+                    if (approveId === u.id) { setApproveId(null) }
+                    else { setApproveId(u.id); setSelectedDiocese('') }
+                  }}>
+                    {approveId === u.id ? 'Mégse' : 'Jóváhagyás gyülekezettel...'}
+                  </Button>
+                </div>
               </div>
 
               {approveId === u.id && (

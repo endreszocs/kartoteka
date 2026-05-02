@@ -334,6 +334,44 @@ export async function getAllUsers() {
   return { data: data || [] }
 }
 
+// 2026-05-02 (v0.9.42) — GYORS jóváhagyás gyülekezet nélkül.
+// A meglévő `approveUser` egyházmegyét + gyülekezet-nevet KÖTELEZ — ami egy
+// új lelkész esetén indokolt. DE Google-loginnal érkezett vagy más fiókoknak
+// nem akarunk azonnal gyülekezetet rendelni (a wizard-on majd kiválaszt).
+//
+// Ez az action:
+//   - Pending → active (egyetlen klikk)
+//   - NEM kér gyülekezetet — a user később onboard-ol
+//   - Megnyitja a wizard-utat (next login)
+export async function quickApproveUser(userId: string) {
+  const { supabase } = await requireMasterAdmin()
+
+  const { error: updateErr, count } = await supabase
+    .from('profiles')
+    .update({ status: 'active' })
+    .eq('id', userId)
+    .eq('status', 'pending')
+
+  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
+  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
+
+  // Értesítés (best-effort, nem blokkol)
+  try {
+    await supabase.from('ertesitesek').insert({
+      user_id: userId,
+      type: 'system',
+      title: 'Hozzáférése aktiválva',
+      body: 'Az admin elfogadta a hozzáférés-kérelmét. A bejelentkezés után az induló wizard segít beállítani a gyülekezetet és a többi adatot.',
+    })
+  } catch {
+    // ertesitesek tábla esetlegesen nem érhető el, de a fő művelet sikeres
+  }
+
+  revalidatePath('/admin/felhasznalok')
+  revalidatePath('/admin')
+  return { success: true }
+}
+
 export async function getDioceses() {
   const { supabase } = await requireMasterAdmin()
   const { data } = await supabase.from('dioceses').select('id, name').order('name')
