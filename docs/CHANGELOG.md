@@ -23,6 +23,39 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02t] — Jelszó beállítása/módosítása a Beállításokban (v0.9.40)
+
+### ✨ ÚJ — Jelszó-szekció a Beállítások → Adat & biztonság fülön
+
+**Felhasználó kérdése**: "Mi lesz azzal, aki úgy jelentkezett be hogy nem volt
+még jelszava (Google OAuth). Adjunk neki egy jelszót, és azt a beállításoknál
+megváltoztathatja!"
+
+**Új server action**: `apps/web/app/(dashboard)/profile/actions.ts`
+- `updatePassword(newPassword: string)` — `supabase.auth.updateUser({ password })`
+- Validáció: 8-72 karakter (bcrypt limit)
+- A hívó saját session-jével hitelesít — más user jelszavát NEM tudja módosítani
+
+**Új UI komponens**: `PasswordChangeForm` a `settings-dialog.tsx` végén
+- 2 mező: új jelszó + megerősítés
+- Eye-icon megjelenítés/elrejtés
+- Inline validáció: `tooShort`, `mismatch` piros figyelmeztetéssel
+- Submit gomb csak akkor enged, ha minden OK
+- A jelenlegi jelszót **NEM** kérjük (a Supabase session-token önmagában
+  hitelesít — egyforma flow Google-OAuth és sima jelszavas user-eknek)
+
+**Egyforma flow**:
+- Google-OAuth user (akinek nincs jelszava) → ugyanezzel az űrlappal állít be
+  egy jelszót → ezután akár Google-fiókkal, akár email + jelszó kombinációval
+  is be tud lépni
+- Sima jelszavas user → jelszó-módosítás ugyanezzel az űrlappal
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). Nem kell SQL.
+
+---
+
 ## [2026-05-02s] — Felhasználó-listázás bug fix + telefonszám kötelező (v0.9.39)
 
 ### 🐛 KRITIKUS BUG FIX — auth.users → profiles szinkronizáció hiánya

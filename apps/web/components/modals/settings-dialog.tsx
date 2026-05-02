@@ -19,9 +19,13 @@ import { useTheme } from 'next-themes'
 import { useRouter } from 'next/navigation'
 import {
   Bell,
+  Eye,
+  EyeOff,
   Globe,
   HardDrive,
+  KeyRound,
   Languages,
+  Loader2,
   LogOut,
   Moon,
   Palette,
@@ -35,8 +39,12 @@ import { ThemePicker, useThemeStyle } from '@kartoteka/ui-app'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+
+import { updatePassword } from '@/app/(dashboard)/profile/actions'
 
 interface SettingsDialogProps {
   open: boolean
@@ -430,6 +438,13 @@ export function SettingsDialog({
 
             {/* ─── ADAT & BIZTONSÁG ─── */}
             <TabsContent value="adatbiztonsag" className="space-y-4">
+              {/* JELSZÓ — v0.9.40, 2026-05-02
+                  A felhasználó kérése: "aki Google-loginnal jött és nincs jelszava,
+                  állíthasson be egy jelszót, amit a beállításoknál meg is változtathat" */}
+              <SettingsSection title="Jelszó beállítása vagy módosítása" icon={<KeyRound className="size-4" />}>
+                <PasswordChangeForm />
+              </SettingsSection>
+
               <SettingsSection title="Offline gyorstár" icon={<HardDrive className="size-4" />}>
                 <p className="mb-3 text-sm text-slate-600">
                   Az offline gyorstár lehetővé teszi, hogy az adatok elérhetők legyenek
@@ -603,5 +618,102 @@ function SizeCard({
       <span className={cn('font-serif font-bold text-slate-800', sampleSize)}>{sample}</span>
       <span className="text-xs font-medium text-slate-600">{label}</span>
     </button>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Jelszó-megváltoztatás komponens (v0.9.40, 2026-05-02)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Egyforma flow Google-OAuth user-eknek (akinek nincs még jelszava) és sima
+// jelszavas user-eknek (jelszó megváltoztatás):
+//   - 2 mező: új jelszó + megerősítés
+//   - eye-icon megjelenítés/elrejtés
+//   - Inline validáció: min 8, max 72, mezők egyezése
+//   - Submit → updatePassword server action → toast
+//   - A jelenlegi jelszót NEM kérjük (a Supabase session-token önmagában
+//     hitelesít — ha valaki idegen rászakad a fiókra, már így is hozzáfér)
+
+function PasswordChangeForm() {
+  const [pwd, setPwd] = useState('')
+  const [pwd2, setPwd2] = useState('')
+  const [show, setShow] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const tooShort = pwd.length > 0 && pwd.length < 8
+  const mismatch = pwd2.length > 0 && pwd !== pwd2
+  const canSubmit = pwd.length >= 8 && pwd === pwd2 && !busy
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setBusy(true)
+    const res = await updatePassword(pwd)
+    setBusy(false)
+    if (res.error) {
+      toast.error(res.error)
+      return
+    }
+    toast.success('A jelszó sikeresen frissítve. A következő bejelentkezésnél már ezzel léphet be.')
+    setPwd('')
+    setPwd2('')
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Ha még nem volt jelszava (pl. Google-fiókkal lépett be), itt állíthat be egyet.
+        Ezután akár Google-fiókkal, akár email + jelszó kombinációval is be tud lépni.
+      </p>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="settings-password">Új jelszó</Label>
+        <div className="relative">
+          <Input
+            id="settings-password"
+            type={show ? 'text' : 'password'}
+            value={pwd}
+            onChange={(e) => setPwd(e.target.value)}
+            placeholder="Min. 8 karakter"
+            autoComplete="new-password"
+            className={cn('pr-10', tooShort && 'border-rose-400 focus:border-rose-500')}
+            disabled={busy}
+          />
+          <button
+            type="button"
+            onClick={() => setShow((s) => !s)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+            aria-label={show ? 'Jelszó elrejtése' : 'Jelszó megjelenítése'}
+          >
+            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+        {tooShort && <p className="text-xs text-rose-600">A jelszó legalább 8 karakter legyen.</p>}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="settings-password-confirm">Új jelszó megerősítése</Label>
+        <Input
+          id="settings-password-confirm"
+          type={show ? 'text' : 'password'}
+          value={pwd2}
+          onChange={(e) => setPwd2(e.target.value)}
+          placeholder="Írja be újra a jelszót"
+          autoComplete="new-password"
+          className={mismatch ? 'border-rose-400 focus:border-rose-500' : ''}
+          disabled={busy}
+        />
+        {mismatch && <p className="text-xs text-rose-600">A két jelszó nem egyezik.</p>}
+      </div>
+
+      <Button type="submit" disabled={!canSubmit} className="w-full">
+        {busy ? (
+          <Loader2 className="mr-2 size-4 animate-spin" />
+        ) : (
+          <KeyRound className="mr-2 size-4" />
+        )}
+        Jelszó mentése
+      </Button>
+    </form>
   )
 }

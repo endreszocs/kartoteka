@@ -287,3 +287,44 @@ export async function saveProfileDetails(payload: z.infer<typeof profileSchema>)
     data: 'data' in latest ? latest.data : null,
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// JELSZÓ kezelés (v0.9.40, 2026-05-02)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// A felhasználó kérése: "Mi lesz azzal, aki úgy jelentkezett be hogy nem volt
+// még jelszava (Google OAuth). Adjunk neki egy jelszót, és azt a beállításoknál
+// megváltoztathatja!"
+//
+// Implementáció:
+//   - `updatePassword(newPassword)` server action — bárki magának
+//   - A Supabase `auth.updateUser({ password })` API-t hívja
+//   - Az API mind a "jelszó beállítás" (Google-only user) mind a "jelszó
+//     megváltoztatás" esetét egyformán kezeli — felülírja
+//   - Validáció: 8-72 karakter (bcrypt limit)
+//
+// BIZTONSÁG: a hívó az aktuális session-jével hitelesít. Más user jelszavát
+// MEM TUDJA módosítani — csak a sajátját.
+
+export async function updatePassword(newPassword: string): Promise<{
+  success?: boolean
+  error?: string
+}> {
+  if (!newPassword || newPassword.length < 8) {
+    return { error: 'A jelszó legalább 8 karakter hosszú legyen.' }
+  }
+  if (newPassword.length > 72) {
+    return { error: 'A jelszó legfeljebb 72 karakter lehet (bcrypt limit).' }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { error: `A jelszó frissítése nem sikerült: ${error.message}` }
+
+  return { success: true }
+}
