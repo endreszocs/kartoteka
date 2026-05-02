@@ -47,7 +47,10 @@ export function AccessRequestForm() {
 
   const [form, setForm] = useState({
     email: '',
-    full_name: '',
+    // 2026-05-02 (v0.9.38): a teljes név két mezőből áll össze (magyar
+    // konvenció szerint: vezetéknév előbb, keresztnév utána)
+    family_name: '',
+    given_name: '',
     requested_role: 'lelkesz' as AccessRequestRole,
     congregation_slug: '',
     phone: '',
@@ -61,6 +64,10 @@ export function AccessRequestForm() {
       toast.error('Kérjük, fogadja el az Adatvédelmi tájékoztatót és az ÁSZF-et.')
       return
     }
+    if (!form.family_name.trim() || !form.given_name.trim()) {
+      toast.error('Kérjük, adja meg a vezetéknevét és a keresztnevét.')
+      return
+    }
     if (password.length < 8) {
       toast.error('A jelszó legalább 8 karakter hosszú legyen.')
       return
@@ -70,9 +77,11 @@ export function AccessRequestForm() {
       return
     }
     startTransition(async () => {
+      // Magyar konvenció: vezetéknév + keresztnév (Szőcs Endre)
+      const fullName = `${form.family_name.trim()} ${form.given_name.trim()}`
       const res = await submitAccessRequest({
         email: form.email.trim(),
-        full_name: form.full_name.trim(),
+        full_name: fullName,
         requested_role: form.requested_role,
         password,
         congregation_slug: form.congregation_slug.trim() || undefined,
@@ -125,7 +134,7 @@ export function AccessRequestForm() {
           open={contactOpen}
           onOpenChange={setContactOpen}
           defaultEmail={submittedEmail}
-          defaultName={form.full_name.trim()}
+          defaultName={`${form.family_name.trim()} ${form.given_name.trim()}`.trim()}
         />
       </>
     )
@@ -133,36 +142,55 @@ export function AccessRequestForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Név — 2 mező magyar konvenció szerint (vezetéknév előbb) */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="ar-name">
-            Teljes név <span className="text-rose-500">*</span>
+          <Label htmlFor="ar-family-name">
+            Vezetéknév <span className="text-rose-500">*</span>
           </Label>
           <Input
-            id="ar-name"
+            id="ar-family-name"
             required
-            minLength={3}
-            value={form.full_name}
-            onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-            placeholder="pl. Szőcs Endre"
+            minLength={2}
+            value={form.family_name}
+            onChange={(e) => setForm({ ...form, family_name: e.target.value })}
+            placeholder="pl. Szőcs"
             disabled={isPending}
+            autoComplete="family-name"
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ar-email">
-            Email-cím <span className="text-rose-500">*</span>
+          <Label htmlFor="ar-given-name">
+            Keresztnév <span className="text-rose-500">*</span>
           </Label>
           <Input
-            id="ar-email"
-            type="email"
+            id="ar-given-name"
             required
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="pl. lelkesz@example.com"
+            minLength={2}
+            value={form.given_name}
+            onChange={(e) => setForm({ ...form, given_name: e.target.value })}
+            placeholder="pl. Endre"
             disabled={isPending}
+            autoComplete="given-name"
           />
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="ar-email">
+          Email-cím <span className="text-rose-500">*</span>
+        </Label>
+        <Input
+          id="ar-email"
+          type="email"
+          required
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          placeholder="pl. lelkesz@example.com"
+          disabled={isPending}
+          autoComplete="email"
+        />
       </div>
 
       {/* Jelszó-mezők — v0.9.37 felhasználó kérése.

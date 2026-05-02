@@ -23,6 +23,57 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-02r] — Név szétválasztás + Szerepkörök UI újragondolás (v0.9.38)
+
+### ✨ Név szétválasztása (1.)
+
+**Érintett fájl**: `apps/web/components/public/access-request-form.tsx`
+
+A felhasználó kérése: a "Teljes név" mező helyett vezetéknév + keresztnév.
+
+- Új: 2 mező (vezetéknév előbb, magyar konvenció szerint)
+- Validáció: mindkettő kötelező, min 2 karakter
+- A submit a két mezőt összeilleszti `${family_name} ${given_name}` alakban,
+  és a `submitAccessRequest({ full_name })` változatlan signature-rel kapja
+- `autoComplete="family-name"` / `autoComplete="given-name"` — böngésző-autofill barát
+
+### ✨ Szerepkörök UI teljes újragondolás (2.)
+
+**Érintett fájl**: `apps/web/components/admin/profile-roles-tab.tsx` (~600 sor)
+
+A felhasználó panasza: "a szerepkörök adása nem egyértelmű — gondold újra,
+egy személy egy sor, két kattintással lehessen szerepkört adni".
+
+**ÚJ KONCEPCIÓ**: 1 user = 1 sor, kibontható szerepkörökkel + 2-kattintásos
+gyors-kiosztás:
+
+- **`UserAssignmentCard`** — minden user saját kártyán: avatar + név + email
+  + "+ Új szerepkör" gomb
+- A user-kártya ALATT inline szerepkör-badge-ek (`RoleBadgeInline`):
+  ikon (scope) + szerep neve + scope-név + status-jelző + hover-beli ✕ visszavon
+- **Quick-assign popover**: a "+ Új szerepkör" gombra kattintva 1 popover nyílik
+  EGY KOMBINÁLT comboboxszal:
+  - "Lelkipásztor — Barátosi gyülekezet"
+  - "Esperes — Sepsi egyházmegye"
+  - "Egyházkerületi admin — EREK"
+  - "Rendszergazda"
+  - "Könyvelő — Barátosi gyülekezet"
+  - … minden lehetséges scope+role kombináció előre legenerálva
+- Search-mező a popoverben: gyülekezet- vagy szerep-név alapján szűr
+- A már aktív szerepkörök NEM jelennek meg a quick-listában (duplikáció elkerülés)
+- Egy kattintás: opció kiválasztva → action-hívás → toast + reload
+- **2 kattintás** összesen: 1) "+ Új szerepkör"  2) opció a listából
+
+**Részletes (custom + indoklás) modal** — a popover alján egy "Részletes (egyedi
+szerep, indoklás) →" link nyitja meg, kevés esetnek (titkárnő, saját szerep-név,
+formális indoklás).
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy).
+
+---
+
 ## [2026-05-02q] — Sidebar admin egyenrangú + Google login fix + jelszó-mezők (v0.9.37)
 
 3 párhuzamos észrevétel, ALAPOS megoldással.

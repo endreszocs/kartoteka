@@ -1,28 +1,41 @@
 'use client'
 
 /**
- * Admin "Multi-role szerepkörök" fül.
+ * Admin "Szerepkörök" fül — v0.9.38 ÚJRAGONDOLT.
  *
- * Itt adhatók ki profile_roles hozzárendelések — csak admin / egyházkerületi
- * admin számára.
+ * Az új koncepció (felhasználó kérése): EGY USER = EGY SOR. Minden sorban
+ * látszik a user, alatta inline a kiosztott szerepkörök badge-ekben.
+ * A "+ Új szerepkör" gomb egy kompakt popovert nyit, ami egyetlen combobox-szal
+ * kínálja az ÖSSZES kombinált opciót:
+ *   - Lelkész — Barátosi gyülekezet
+ *   - Esperes — Sepsi egyházmegye
+ *   - Egyházkerületi admin — EREK
+ *   - Rendszergazda
+ *   - Könyvelő — Barátosi gyülekezet
+ *   ... stb.
  *
- * Fázis 7 MVP (2026-04-18): alap CRUD + szerepkör-sablonok használata.
- * A permissions x-elő UI (custom finomhangolás) külön dialogban, későbbi iteráció.
+ * Két kattintás: 1) "+ Új szerepkör"  2) opció kiválasztása. Custom szerepkör
+ * vagy indoklás → a részletes modal (alul) jelenik meg (kevés esetnek).
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import {
   Building2,
+  Castle,
   Check,
+  ChevronDown,
+  Church,
   Clock,
   Globe,
-  Landmark,
   Loader2,
+  Plus,
   Search,
   ShieldOff,
   Sparkles,
+  UserCircle2,
   UserPlus,
+  X,
   XCircle,
 } from 'lucide-react'
 
@@ -62,9 +75,19 @@ interface DistrictLite { id: string; name: string }
 
 const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: string }>> = {
   system: Globe,
-  district: Landmark,
+  district: Castle,
   diocese: Building2,
-  congregation: Building2,
+  congregation: Church,
+}
+
+// ── Kombinált opciók típusa a quick-assign comboboxhoz ──────────────────────
+interface QuickOption {
+  key: string
+  scope: ProfileRoleScope
+  scopeId: string | null
+  role: ProfileRoleType
+  label: string // "Lelkész — Barátosi gyül."
+  hint?: string // "Sepsi egyházmegye"
 }
 
 export function ProfileRolesTab() {
@@ -75,8 +98,8 @@ export function ProfileRolesTab() {
   const [dioceses, setDioceses] = useState<DioceseLite[]>([])
   const [districts, setDistricts] = useState<DistrictLite[]>([])
   const [search, setSearch] = useState('')
-  const [createOpen, setCreateOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
+  const [advancedDialog, setAdvancedDialog] = useState<{ user: UserLite } | null>(null)
+  const [, startTransition] = useTransition()
 
   async function reload() {
     const [r, u, s] = await Promise.all([
@@ -111,11 +134,16 @@ export function ProfileRolesTab() {
     return () => { cancelled = true }
   }, [])
 
-  const userMap = useMemo(() => {
-    const m = new Map<string, UserLite>()
-    for (const u of users) m.set(u.id, u)
+  // ── Csoportosítás user-szerint: 1 user → összes szerepköre ──
+  const rolesByUser = useMemo(() => {
+    const m = new Map<string, ProfileRoleRow[]>()
+    for (const r of rows) {
+      const arr = m.get(r.profile_id) || []
+      arr.push(r)
+      m.set(r.profile_id, arr)
+    }
     return m
-  }, [users])
+  }, [rows])
 
   const scopeNameMap = useMemo(() => {
     const m = new Map<string, string>()
@@ -125,22 +153,108 @@ export function ProfileRolesTab() {
     return m
   }, [congregations, dioceses, districts])
 
-  const filtered = useMemo(() => {
+  // ── Kombinált quick-options, scope szerint csoportosítva ──
+  const quickOptions = useMemo(() => {
+    const opts: QuickOption[] = []
+    // System
+    opts.push({
+      key: 'system::admin',
+      scope: 'system',
+      scopeId: null,
+      role: 'admin',
+      label: 'Rendszergazda',
+      hint: 'Teljes hozzáférés',
+    })
+    // Districts
+    for (const d of districts) {
+      opts.push({
+        key: `district::${d.id}::egyhazkeruleti_admin`,
+        scope: 'district',
+        scopeId: d.id,
+        role: 'egyhazkeruleti_admin',
+        label: `Egyházkerületi admin — ${d.name}`,
+      })
+    }
+    // Dioceses
+    for (const d of dioceses) {
+      opts.push({
+        key: `diocese::${d.id}::esperes`,
+        scope: 'diocese',
+        scopeId: d.id,
+        role: 'esperes',
+        label: `Esperes — ${d.name}`,
+      })
+      opts.push({
+        key: `diocese::${d.id}::egyhazmegyei_admin`,
+        scope: 'diocese',
+        scopeId: d.id,
+        role: 'egyhazmegyei_admin',
+        label: `Egyházmegyei admin — ${d.name}`,
+      })
+      opts.push({
+        key: `diocese::${d.id}::egyhazmegyei_szamvevo`,
+        scope: 'diocese',
+        scopeId: d.id,
+        role: 'egyhazmegyei_szamvevo',
+        label: `Egyházmegyei számvevő — ${d.name}`,
+      })
+    }
+    // Congregations
+    for (const c of congregations) {
+      const dioName = c.diocese_id ? scopeNameMap.get(c.diocese_id) : ''
+      opts.push({
+        key: `cong::${c.id}::lelkesz`,
+        scope: 'congregation',
+        scopeId: c.id,
+        role: 'lelkesz',
+        label: `Lelkipásztor — ${c.name}`,
+        hint: dioName || undefined,
+      })
+      opts.push({
+        key: `cong::${c.id}::konyvelo`,
+        scope: 'congregation',
+        scopeId: c.id,
+        role: 'konyvelo',
+        label: `Könyvelő — ${c.name}`,
+        hint: dioName || undefined,
+      })
+    }
+    return opts
+  }, [districts, dioceses, congregations, scopeNameMap])
+
+  // ── Kereshető user-lista ──
+  const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => {
-      const user = userMap.get(r.profile_id)
-      const searchable = [
-        user?.full_name || '',
-        user?.email || '',
-        r.role,
-        r.custom_label || '',
-        r.scope,
-        r.scope_id ? (scopeNameMap.get(r.scope_id) || '') : '',
-      ].join(' ').toLowerCase()
+    if (!q) return users
+    return users.filter((u) => {
+      const userRoles = rolesByUser.get(u.id) || []
+      const roleNames = userRoles.map((r) => {
+        const roleLabel = r.role === 'custom' ? r.custom_label || 'Egyedi' : ROLE_LABELS[r.role]
+        return `${roleLabel} ${r.scope_id ? scopeNameMap.get(r.scope_id) || '' : ''}`
+      }).join(' ')
+      const searchable = `${u.full_name || ''} ${u.email || ''} ${u.role} ${roleNames}`.toLowerCase()
       return searchable.includes(q)
     })
-  }, [rows, userMap, scopeNameMap, search])
+  }, [users, search, rolesByUser, scopeNameMap])
+
+  function handleQuickAssign(user: UserLite, opt: QuickOption) {
+    startTransition(async () => {
+      const result = await createProfileRole({
+        profileId: user.id,
+        scope: opt.scope,
+        scopeId: opt.scopeId,
+        role: opt.role,
+        customLabel: null,
+        reason: undefined,
+      })
+      if ('error' in result && result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(`Szerepkör kiosztva: ${opt.label}`)
+      await reload()
+    })
+  }
 
   function handleRevoke(row: ProfileRoleRow) {
     const reason = prompt('Miért vonja vissza ezt a szerepkört? (kötelező, min. 5 karakter)')
@@ -167,144 +281,291 @@ export function ProfileRolesTab() {
         <div className="flex items-start gap-3">
           <Sparkles className="size-5 text-indigo-600 mt-0.5" />
           <div>
-            <h2 className="font-heading text-lg text-slate-800">Multi-role szerepkörök</h2>
+            <h2 className="font-heading text-lg text-slate-800">Szerepkörök kiosztása</h2>
             <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Egy felhasználónak több szerepköre is lehet (pl. gyülekezeti lelkész + egyházmegyei
-              admin + egyházkerületi admin). A felhasználó a fejlécben lévő profilváltóval
-              válthat közöttük. Gyülekezeti scope-ra — a lelkész kivételével — lelkészi jóváhagyás
-              szükséges.
+              Egy felhasználónak több szerepköre is lehet (pl. lelkész + esperes).
+              Egyetlen kattintással keresd ki a felhasználót, majd a "<strong>+ Új szerepkör</strong>"
+              gombra kattintva válaszd ki a szerep + gyülekezet/egyházmegye kombinációt egy
+              listából. Gyülekezeti kiosztás esetén a lelkész jóváhagyása szükséges (kivéve a
+              lelkipásztori szerepkört).
             </p>
           </div>
         </div>
       </div>
 
-      {/* Kereső + új gomb */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 card-raised p-2 flex items-center gap-2">
-          <Search className="size-4 text-slate-400 ml-2" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Keresés név / email / szerep / egység alapján..."
-            className="h-9 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
-          />
-          <span className="text-xs text-slate-400 mr-2">{filtered.length}/{rows.length}</span>
-        </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
-          <UserPlus className="size-4" />
-          Új szerepkör
-        </Button>
+      {/* Kereső */}
+      <div className="card-raised p-2 flex items-center gap-2">
+        <Search className="size-4 text-slate-400 ml-2" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Keresés név / email / szerepkör / gyülekezet alapján..."
+          className="h-9 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
+        />
+        <span className="text-xs text-slate-400 mr-2">{filteredUsers.length}/{users.length}</span>
       </div>
 
-      {/* Lista */}
-      <div className="card-raised divide-y divide-slate-100">
-        {filtered.length === 0 ? (
-          <p className="p-8 text-sm text-slate-500 text-center italic">
-            {search ? 'Nincs találat a keresésre.' : 'Még nincs szerepkör kiosztva.'}
-          </p>
+      {/* User-soros lista */}
+      <div className="space-y-2">
+        {filteredUsers.length === 0 ? (
+          <div className="card-raised p-8 text-sm text-slate-500 text-center italic">
+            {search ? 'Nincs találat a keresésre.' : 'Még nincs felhasználó.'}
+          </div>
         ) : (
-          filtered.map((row) => (
-            <RoleRow
-              key={row.id}
-              row={row}
-              user={userMap.get(row.profile_id) || null}
-              scopeName={row.scope_id ? scopeNameMap.get(row.scope_id) || '—' : ''}
-              onRevoke={() => handleRevoke(row)}
-              isPending={isPending}
+          filteredUsers.map((user) => (
+            <UserAssignmentCard
+              key={user.id}
+              user={user}
+              roles={rolesByUser.get(user.id) || []}
+              scopeNameMap={scopeNameMap}
+              quickOptions={quickOptions}
+              onQuickAssign={(opt) => handleQuickAssign(user, opt)}
+              onRevoke={handleRevoke}
+              onAdvanced={() => setAdvancedDialog({ user })}
             />
           ))
         )}
       </div>
 
-      {/* Új hozzárendelés modal */}
-      <CreateProfileRoleDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        users={users}
-        congregations={congregations}
-        dioceses={dioceses}
-        districts={districts}
-        onSaved={async () => {
-          setCreateOpen(false)
-          await reload()
-        }}
-      />
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Belső komponensek
-// ---------------------------------------------------------------------------
-
-function RoleRow({
-  row,
-  user,
-  scopeName,
-  onRevoke,
-  isPending,
-}: {
-  row: ProfileRoleRow
-  user: UserLite | null
-  scopeName: string
-  onRevoke: () => void
-  isPending: boolean
-}) {
-  const Icon = SCOPE_ICONS[row.scope]
-  const roleLabel = row.role === 'custom' ? row.custom_label || 'Egyedi' : ROLE_LABELS[row.role]
-  return (
-    <div className="px-5 py-3 flex items-center gap-3">
-      <div className="rounded-lg bg-slate-50 p-2 shrink-0">
-        <Icon className="size-4 text-slate-600" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-semibold text-slate-800 truncate">
-            {user?.full_name || user?.email || row.profile_id.slice(0, 8)}
-          </p>
-          <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 border">{roleLabel}</Badge>
-          <StatusBadge status={row.approval_status as ApprovalStatus} />
-        </div>
-        <p className="text-xs text-slate-500 mt-0.5 truncate">
-          {user?.email} · {SCOPE_LABELS[row.scope]}{scopeName ? ` — ${scopeName}` : ''}
-        </p>
-      </div>
-      {row.approval_status === 'approved' && row.active && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 rounded-full border-red-200 text-red-600 hover:bg-red-50 gap-1"
-          onClick={onRevoke}
-          disabled={isPending}
-        >
-          <ShieldOff className="size-3.5" />
-          Visszavon
-        </Button>
+      {/* Részletes (custom + indoklás) modal */}
+      {advancedDialog && (
+        <CreateProfileRoleDialog
+          open={!!advancedDialog}
+          onOpenChange={(o) => !o && setAdvancedDialog(null)}
+          user={advancedDialog.user}
+          congregations={congregations}
+          dioceses={dioceses}
+          districts={districts}
+          onSaved={async () => {
+            setAdvancedDialog(null)
+            await reload()
+          }}
+        />
       )}
     </div>
   )
 }
 
-function StatusBadge({ status }: { status: ApprovalStatus }) {
-  const map: Record<ApprovalStatus, { cls: string; icon: React.ComponentType<{ className?: string }> }> = {
-    pending: { cls: 'bg-amber-100 text-amber-800 border-amber-200', icon: Clock },
-    approved: { cls: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: Check },
-    rejected: { cls: 'bg-red-100 text-red-800 border-red-200', icon: XCircle },
-    revoked: { cls: 'bg-slate-200 text-slate-700 border-slate-300', icon: ShieldOff },
-  }
-  const { cls, icon: Icon } = map[status]
+// ────────────────────────────────────────────────────────────────────────────
+// User card — 1 user 1 sor, szerepkörökkel
+// ────────────────────────────────────────────────────────────────────────────
+
+function UserAssignmentCard({
+  user,
+  roles,
+  scopeNameMap,
+  quickOptions,
+  onQuickAssign,
+  onRevoke,
+  onAdvanced,
+}: {
+  user: UserLite
+  roles: ProfileRoleRow[]
+  scopeNameMap: Map<string, string>
+  quickOptions: QuickOption[]
+  onQuickAssign: (opt: QuickOption) => void
+  onRevoke: (row: ProfileRoleRow) => void
+  onAdvanced: () => void
+}) {
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [popSearch, setPopSearch] = useState('')
+
+  // Aktív szerepkörök ID-i — ezek nem ajánljuk újra
+  const activeKeys = new Set(
+    roles
+      .filter((r) => r.approval_status !== 'revoked' && r.approval_status !== 'rejected')
+      .map((r) => `${r.scope === 'system' ? 'system' : r.scope === 'district' ? 'district' : r.scope === 'diocese' ? 'diocese' : 'cong'}::${r.scope_id || ''}::${r.role}`),
+  )
+
+  const filteredOptions = useMemo(() => {
+    const q = popSearch.trim().toLowerCase()
+    return quickOptions
+      .filter((o) => !activeKeys.has(o.key)) // már megvan? kihagyjuk
+      .filter((o) => !q || o.label.toLowerCase().includes(q) || (o.hint || '').toLowerCase().includes(q))
+      .slice(0, 50)
+  }, [quickOptions, activeKeys, popSearch])
+
   return (
-    <Badge className={`${cls} border gap-1`}>
-      <Icon className="size-3" />
-      {APPROVAL_STATUS_LABELS[status]}
-    </Badge>
+    <div className="card-raised p-4 sm:p-5">
+      <div className="flex items-start gap-3 flex-wrap">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+          <UserCircle2 className="size-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-slate-800 truncate">
+            {user.full_name || user.email || user.id.slice(0, 8)}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+        </div>
+
+        {/* "+ Új szerepkör" — gyors-kiosztás popover */}
+        <div className="relative">
+          <Button
+            size="sm"
+            onClick={() => setPopoverOpen((o) => !o)}
+            className="gap-1.5 bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Plus className="size-3.5" />
+            Új szerepkör
+            <ChevronDown className={`size-3.5 transition ${popoverOpen ? 'rotate-180' : ''}`} />
+          </Button>
+
+          {popoverOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setPopoverOpen(false)}
+                aria-hidden
+              />
+              <div className="absolute right-0 top-full mt-2 w-[min(380px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white shadow-xl z-40 overflow-hidden">
+                <div className="border-b border-slate-100 p-3">
+                  <div className="flex items-center gap-2">
+                    <Search className="size-4 text-slate-400" />
+                    <Input
+                      autoFocus
+                      value={popSearch}
+                      onChange={(e) => setPopSearch(e.target.value)}
+                      placeholder="Keresés gyülekezet vagy szerep alapján..."
+                      className="h-8 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPopoverOpen(false)}
+                      className="text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-[60vh] overflow-y-auto p-1">
+                  {filteredOptions.length === 0 ? (
+                    <p className="p-4 text-xs text-slate-400 italic text-center">
+                      {popSearch ? 'Nincs találat.' : 'Minden lehetséges szerep már kiosztva.'}
+                    </p>
+                  ) : (
+                    filteredOptions.map((opt) => {
+                      const Icon = SCOPE_ICONS[opt.scope]
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => {
+                            setPopoverOpen(false)
+                            setPopSearch('')
+                            onQuickAssign(opt)
+                          }}
+                          className="w-full text-left rounded-lg px-3 py-2 text-sm flex items-center gap-3 hover:bg-indigo-50 transition"
+                        >
+                          <Icon className="size-4 shrink-0 text-slate-500" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-800 truncate">{opt.label}</p>
+                            {opt.hint && (
+                              <p className="text-[11px] text-muted-foreground truncate">{opt.hint}</p>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+                <div className="border-t border-slate-100 p-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPopoverOpen(false)
+                      onAdvanced()
+                    }}
+                    className="w-full text-center text-xs text-indigo-600 hover:text-indigo-800 py-1.5 rounded-md hover:bg-indigo-50 transition"
+                  >
+                    Részletes (egyedi szerep, indoklás) →
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Inline szerepkörök */}
+      {roles.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+          {roles.map((r) => (
+            <RoleBadgeInline
+              key={r.id}
+              row={r}
+              scopeName={r.scope_id ? scopeNameMap.get(r.scope_id) || '—' : ''}
+              onRevoke={() => onRevoke(r)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Inline szerepkör-badge (a user-card belül)
+// ────────────────────────────────────────────────────────────────────────────
+
+function RoleBadgeInline({
+  row,
+  scopeName,
+  onRevoke,
+}: {
+  row: ProfileRoleRow
+  scopeName: string
+  onRevoke: () => void
+}) {
+  const Icon = SCOPE_ICONS[row.scope]
+  const roleLabel = row.role === 'custom' ? row.custom_label || 'Egyedi' : ROLE_LABELS[row.role]
+
+  const statusStyles: Record<ApprovalStatus, string> = {
+    pending: 'bg-amber-50 text-amber-800 border-amber-200',
+    approved: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    rejected: 'bg-red-50 text-red-700 border-red-200 line-through opacity-60',
+    revoked: 'bg-slate-100 text-slate-500 border-slate-200 line-through opacity-60',
+  }
+  const StatusIcon: Record<ApprovalStatus, React.ComponentType<{ className?: string }>> = {
+    pending: Clock,
+    approved: Check,
+    rejected: XCircle,
+    revoked: ShieldOff,
+  }
+  const StatusIconComp = StatusIcon[row.approval_status as ApprovalStatus]
+
+  return (
+    <div className={`group inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border ${statusStyles[row.approval_status as ApprovalStatus]}`}>
+      <Icon className="size-3" />
+      <span className="font-semibold">{roleLabel}</span>
+      {scopeName && (
+        <span className="text-[10px] opacity-75">— {scopeName}</span>
+      )}
+      <span className="ml-1 inline-flex items-center gap-0.5 opacity-70">
+        <StatusIconComp className="size-2.5" />
+        {APPROVAL_STATUS_LABELS[row.approval_status as ApprovalStatus]}
+      </span>
+      {row.approval_status === 'approved' && row.active && (
+        <button
+          type="button"
+          onClick={onRevoke}
+          className="ml-1 -mr-1 size-4 rounded-full text-slate-400 hover:bg-red-100 hover:text-red-700 inline-flex items-center justify-center transition opacity-0 group-hover:opacity-100"
+          title="Visszavonás"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Részletes (custom + indoklás) modal — ritkán, de elérhető
+// ────────────────────────────────────────────────────────────────────────────
 
 function CreateProfileRoleDialog({
   open,
   onOpenChange,
-  users,
+  user,
   congregations,
   dioceses,
   districts,
@@ -312,37 +573,33 @@ function CreateProfileRoleDialog({
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
-  users: UserLite[]
+  user: UserLite
   congregations: CongLite[]
   dioceses: DioceseLite[]
   districts: DistrictLite[]
   onSaved: () => Promise<void>
 }) {
-  const [profileId, setProfileId] = useState('')
   const [scope, setScope] = useState<ProfileRoleScope>('congregation')
   const [scopeId, setScopeId] = useState<string | null>(null)
   const [role, setRole] = useState<ProfileRoleType>('konyvelo')
   const [customLabel, setCustomLabel] = useState('')
   const [reason, setReason] = useState('')
-  const [userSearch, setUserSearch] = useState('')
   const [isPending, startTransition] = useTransition()
 
-  // Szerep-opciók scope szerint
   const roleOptions = useMemo(() => {
     if (scope === 'system') return [{ value: 'admin' as ProfileRoleType, label: 'Rendszergazda' }]
     if (scope === 'district')
       return [
         { value: 'egyhazkeruleti_admin' as ProfileRoleType, label: 'Egyházkerületi admin' },
-        { value: 'custom' as ProfileRoleType, label: 'Egyedi szerep (szabadon nevezhető)' },
+        { value: 'custom' as ProfileRoleType, label: 'Egyedi szerep' },
       ]
     if (scope === 'diocese')
       return [
         { value: 'esperes' as ProfileRoleType, label: 'Esperes' },
         { value: 'egyhazmegyei_admin' as ProfileRoleType, label: 'Egyházmegyei admin' },
         { value: 'egyhazmegyei_szamvevo' as ProfileRoleType, label: 'Egyházmegyei számvevő' },
-        { value: 'custom' as ProfileRoleType, label: 'Egyedi szerep (szabadon nevezhető)' },
+        { value: 'custom' as ProfileRoleType, label: 'Egyedi szerep' },
       ]
-    // congregation
     return [
       { value: 'lelkesz' as ProfileRoleType, label: 'Lelkipásztor' },
       { value: 'konyvelo' as ProfileRoleType, label: 'Könyvelő' },
@@ -353,7 +610,6 @@ function CreateProfileRoleDialog({
   function handleScopeChange(next: ProfileRoleScope) {
     setScope(next)
     setScopeId(null)
-    // A scope-hoz illeszkedő default role kiválasztása
     const defaults: Record<ProfileRoleScope, ProfileRoleType> = {
       system: 'admin',
       district: 'egyhazkeruleti_admin',
@@ -362,14 +618,6 @@ function CreateProfileRoleDialog({
     }
     setRole(defaults[next])
   }
-
-  const filteredUsers = useMemo(() => {
-    const q = userSearch.trim().toLowerCase()
-    if (!q) return users.slice(0, 20)
-    return users
-      .filter((u) => (u.full_name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q))
-      .slice(0, 20)
-  }, [users, userSearch])
 
   const scopeOptions = useMemo(() => {
     if (scope === 'system') return []
@@ -382,7 +630,7 @@ function CreateProfileRoleDialog({
   function handleSave() {
     startTransition(async () => {
       const result = await createProfileRole({
-        profileId,
+        profileId: user.id,
         scope,
         scopeId: scope === 'system' ? null : scopeId,
         role,
@@ -394,7 +642,6 @@ function CreateProfileRoleDialog({
         return
       }
       toast.success('Szerepkör kiosztva.')
-      setProfileId('')
       setScopeId(null)
       setCustomLabel('')
       setReason('')
@@ -409,42 +656,10 @@ function CreateProfileRoleDialog({
       <DialogContent className="max-w-xl bg-white p-0 overflow-hidden">
         <DialogHeader className="px-6 py-4 border-b border-indigo-100 bg-indigo-50/40">
           <DialogTitle className="font-heading text-xl text-slate-800">
-            Új szerepkör kiosztása
+            Részletes szerepkör — {user.full_name || user.email}
           </DialogTitle>
         </DialogHeader>
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* User választó */}
-          <div>
-            <Label>Felhasználó</Label>
-            <Input
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              placeholder="Keresés név / email alapján..."
-              className="mt-1"
-            />
-            <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-              {filteredUsers.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setProfileId(u.id)}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition hover:bg-slate-50 ${
-                    profileId === u.id ? 'bg-indigo-50 text-indigo-700' : ''
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{u.full_name || '—'}</p>
-                    <p className="text-xs text-slate-500 truncate">{u.email}</p>
-                  </div>
-                  {profileId === u.id && <Check className="size-4 text-indigo-600 shrink-0" />}
-                </button>
-              ))}
-              {filteredUsers.length === 0 && (
-                <p className="p-3 text-sm text-slate-400 italic">Nincs találat.</p>
-              )}
-            </div>
-          </div>
-
           {/* Scope */}
           <div>
             <Label>Hatókör</Label>
@@ -466,7 +681,6 @@ function CreateProfileRoleDialog({
             </div>
           </div>
 
-          {/* Scope ID (ha nem system) */}
           {scope !== 'system' && (
             <div>
               <Label>
@@ -485,7 +699,6 @@ function CreateProfileRoleDialog({
             </div>
           )}
 
-          {/* Role */}
           <div>
             <Label>Szerepkör</Label>
             <select
@@ -499,7 +712,6 @@ function CreateProfileRoleDialog({
             </select>
           </div>
 
-          {/* Custom label (ha custom) */}
           {role === 'custom' && (
             <div>
               <Label>Egyedi szerepkör neve</Label>
@@ -510,14 +722,9 @@ function CreateProfileRoleDialog({
                 className="mt-1"
                 maxLength={64}
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Alapértelmezetten üres engedélyekkel jön létre — a Szerepkörök lista sorára kattintva
-                finomhangolhatók a modul/action szintű jogok (egy következő iterációban).
-              </p>
             </div>
           )}
 
-          {/* Indok */}
           <div>
             <Label>Indoklás (opcionális)</Label>
             <Input
@@ -528,11 +735,11 @@ function CreateProfileRoleDialog({
             />
           </div>
 
-          {/* Pending figyelmeztetés */}
           {pastorApprovalNeeded && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 text-sm text-amber-800">
-              <strong>Lelkészi jóváhagyás szükséges</strong> — a hozzárendelés PENDING állapotban jön létre.
-              A gyülekezet lelkésze a saját /profile/kapcsolatok oldalán hagyja jóvá vagy utasítja el.
+              <strong>Lelkészi jóváhagyás szükséges</strong> — a hozzárendelés PENDING állapotban
+              jön létre. A gyülekezet lelkésze a saját /profile/kapcsolatok oldalán hagyja jóvá vagy
+              utasítja el.
             </div>
           )}
         </div>
@@ -542,7 +749,7 @@ function CreateProfileRoleDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={isPending || !profileId || (scope !== 'system' && !scopeId) || (role === 'custom' && !customLabel.trim())}
+            disabled={isPending || (scope !== 'system' && !scopeId) || (role === 'custom' && !customLabel.trim())}
             className="bg-indigo-600 hover:bg-indigo-700 gap-2"
           >
             {isPending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
