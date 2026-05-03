@@ -180,7 +180,16 @@ export function BroadcastsTab() {
     })
   }
 
-  function handleChangelogSend(entry: ChangelogEntry) {
+  function handleChangelogSend(entry: ChangelogEntry, options?: { force?: boolean }) {
+    const force = options?.force ?? false
+    if (force) {
+      const ok = window.confirm(
+        `Az "${entry.title}" frissítést újra kiküldjük minden kiválasztott címzettnek` +
+          (sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)') +
+          '. Folytatja?',
+      )
+      if (!ok) return
+    }
     startTransition(async () => {
       const result = await sendChangelogBroadcast({
         changelogKey: entry.key,
@@ -191,12 +200,14 @@ export function BroadcastsTab() {
         targetDistrictIds: scope === 'district' ? selectedDistrictIds : undefined,
         sendEmail,
         hivatkozas: null,
+        force,
       })
       if ('error' in result && result.error) {
         toast.error(result.error)
         return
       }
-      toast.success(`Frissítés közzétéve ${result.recipientCount} címzettnek.`)
+      const verb = (result as { resent?: boolean }).resent ? 'újra elküldve' : 'közzétéve'
+      toast.success(`Frissítés ${verb} ${result.recipientCount} címzettnek.`)
       reload()
     })
   }
@@ -256,6 +267,7 @@ export function BroadcastsTab() {
                   key={e.key}
                   entry={e}
                   onSend={() => handleChangelogSend(e)}
+                  onResend={() => handleChangelogSend(e, { force: true })}
                   isPending={isPending}
                   scopeLabel={describeScope(scope, targetRole, {
                     congs: selectedCongIds.length,
@@ -350,6 +362,7 @@ export function BroadcastsTab() {
 function ChangelogEntryCard({
   entry,
   onSend,
+  onResend,
   isPending,
   scopeLabel,
   sendEmail,
@@ -358,6 +371,7 @@ function ChangelogEntryCard({
 }: {
   entry: ChangelogEntry
   onSend: () => void
+  onResend: () => void
   isPending: boolean
   scopeLabel: string
   sendEmail: boolean
@@ -434,9 +448,25 @@ function ChangelogEntryCard({
               </span>
             </>
           ) : (
-            <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-              Közzétéve
-            </Badge>
+            <>
+              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                Közzétéve
+              </Badge>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onResend}
+                disabled={isPending}
+                className="gap-1.5 mt-1"
+                title="Újra elküldjük a frissítést a kiválasztott címzetteknek (új értesítés + email)"
+              >
+                <Send className="size-3.5" />
+                Újraküldés
+              </Button>
+              <span className="text-[10px] text-slate-400">
+                {scopeLabel}{sendEmail ? ' + email' : ''}
+              </span>
+            </>
           )}
         </div>
       </div>

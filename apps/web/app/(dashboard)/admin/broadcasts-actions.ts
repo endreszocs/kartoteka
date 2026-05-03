@@ -335,7 +335,10 @@ export async function sendChangelogBroadcast(args: {
   targetDistrictIds?: string[]
   sendEmail: boolean
   hivatkozas?: string | null
-}): Promise<{ success?: boolean; error?: string; id?: string; recipientCount?: number }> {
+  /** Ha true, akkor újra elküldhető a már korábban broadcast-olt CHANGELOG bejegyzés.
+   *  Új system_broadcasts row jön létre, és új ertesitesek-rekordok minden címzettnek. */
+  force?: boolean
+}): Promise<{ success?: boolean; error?: string; id?: string; recipientCount?: number; resent?: boolean }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
@@ -344,17 +347,24 @@ export async function sendChangelogBroadcast(args: {
   const entry = entries.find((e) => e.key === args.changelogKey)
   if (!entry) return { error: 'A CHANGELOG bejegyzés nem található.' }
 
-  // Már elküldve?
+  // Már elküldve? Ha igen ÉS nincs force flag, akkor blokkolunk.
+  // Force=true esetén egy új broadcast row jön létre — a régi marad archívumként.
+  let isResend = false
   const { data: existing } = await access.supabase
     .from('system_broadcasts')
     .select('id')
     .eq('release_changelog_key', args.changelogKey)
+    .order('sent_at', { ascending: false })
+    .limit(1)
     .maybeSingle()
   if (existing) {
-    return { error: 'Ez a bejegyzés már ki lett broadcastolva.' }
+    if (!args.force) {
+      return { error: 'Ez a bejegyzés már ki lett broadcast-olva. Az "Újraküldés" gombbal újra kiküldhető.' }
+    }
+    isResend = true
   }
 
-  return await sendBroadcast({
+  const result = await sendBroadcast({
     cim: entry.title,
     uzenet: entry.bodyMarkdown,
     tipus: 'release',
@@ -369,6 +379,8 @@ export async function sendChangelogBroadcast(args: {
     releaseCategory: entry.category as ReleaseCategory | null,
     releaseChangelogKey: entry.key,
   })
+
+  return { ...result, resent: isResend }
 }
 
 // ---------------------------------------------------------------------------
