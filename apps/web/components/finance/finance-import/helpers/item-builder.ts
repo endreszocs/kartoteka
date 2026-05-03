@@ -106,13 +106,18 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
     // celId megállapítása a sor kategóriája és a kód kategóriája szerint
     const celId = pickCelId(row.kind, budget)
     if (celId === null) {
-      // Speciális üzenet a belső mozgásra (v1 nem támogatja)
-      const reason =
-        row.kind === 'internal-transfer-in' || row.kind === 'internal-transfer-out'
-          ? 'Belső mozgás (Kassza ↔ Bank) — a v1-ben nem importálható, kézzel rögzítendő'
-          : `Sor ${row.kind} kategóriájához nem találtuk a megfelelő ${
-              row.kind === 'income' ? 'befizetescel' : 'kiadascel'
-            }-t a ${budget.rawKod} kódhoz`
+      // Speciális üzenet a belső mozgásra: ha hiányzik a 400.xx-hez tartozó
+      // befizetescel vagy kiadascel, az adminban kell létrehozni
+      let reason: string
+      if (row.kind === 'internal-transfer-out') {
+        reason = `Belső mozgás (Kassza→Bank): a ${budget.rawKod} kódhoz nincs kiadascel rekord — futtasd a 2026-05-03-finance-belso-mozgas-celok.sql-t Supabase Studio-ban`
+      } else if (row.kind === 'internal-transfer-in') {
+        reason = `Belső mozgás (Bank→Kassza): a ${budget.rawKod} kódhoz nincs befizetescel rekord — futtasd a 2026-05-03-finance-belso-mozgas-celok.sql-t Supabase Studio-ban`
+      } else {
+        reason = `Sor ${row.kind} kategóriájához nem találtuk a megfelelő ${
+          row.kind === 'income' ? 'befizetescel' : 'kiadascel'
+        }-t a ${budget.rawKod} kódhoz`
+      }
       skippedReasons.push({ rowIndex: row.rowIndex, reason })
       continue
     }
@@ -138,8 +143,20 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
     // Fizetett év (a dátum első 4 karaktere)
     const fizetettev = parseIntSafe(row.datum.slice(0, 4)) ?? new Date().getFullYear()
 
+    // A belső mozgás sorokat (400.xx) a v1-ben **egyszerűsítve** importáljuk:
+    // a kassza-oldal sora egyetlen `kiadas` (out) vagy `befizetes` (in)
+    // rekordba kerül, `bankszamla_id=NULL`. A bank-oldali párt majd a Bank A/B
+    // import (v2) hozza. Tehát az RPC felé `expense`/`income` típusként
+    // küldjük, hogy ne kelljen párosítani.
+    const importKind: FinanceImportItem['kind'] =
+      row.kind === 'internal-transfer-out'
+        ? 'expense'
+        : row.kind === 'internal-transfer-in'
+          ? 'income'
+          : row.kind
+
     items.push({
-      kind: row.kind,
+      kind: importKind,
       datum: row.datum,
       osszeg: row.amount,
       celId,
@@ -176,14 +193,13 @@ function pickCelId(
   if (rowKind === 'expense' && budget.kind === 'expense') {
     return budget.kiadascelId ?? null
   }
-  if (
-    (rowKind === 'internal-transfer-in' || rowKind === 'internal-transfer-out') &&
-    budget.kind === 'internal-transfer'
-  ) {
-    // A v1-ben a belső mozgás (Kassza ↔ Bank) NEM importálható — a Bank A/B
-    // fülek importja a v2-ben jön. A 16 belső-mozgás sort a felhasználónak
-    // utólag, manuálisan kell rögzítenie a meglévő pénzügyi UI-val.
-    return null
+  if (rowKind === 'internal-transfer-out' && budget.kind === 'internal-transfer') {
+    // Kassza→Bank: a kassza-oldal kiadás-rekord, kell a kiadascelId
+    return budget.kiadascelId ?? null
+  }
+  if (rowKind === 'internal-transfer-in' && budget.kind === 'internal-transfer') {
+    // Bank→Kassza: a kassza-oldal bevétel-rekord, kell a befizetescelId
+    return budget.befizetescelId ?? null
   }
   // Mismatch (pl. income sor + expense kód) — gyakran a felhasználó által
   // kategorizált sor és a kód típusa nem stimmel

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, Building2, CalendarRange, Download, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, CalendarRange, Printer, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -258,19 +258,8 @@ export function FinanceTabs({
               <Printer className="mr-1 size-3.5" />
               Nyomtatási központ
             </Button>
-            {/* Pénzügyi import — csak rendszergazdai módban látható.
-                A "Rendszergazdai importáló" fülre vált, ahol a wizard él. */}
-            {isGodMode && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setActiveTab('admin_import')}
-                className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50"
-              >
-                <Download className="mr-1 size-3.5" />
-                Adatok importálása
-              </Button>
-            )}
+            {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
+                belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
             {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
           </div>
         </div>
@@ -317,6 +306,12 @@ export function FinanceTabs({
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <ColorTabs
           tabs={[
+            // Rendszergazdai importáló — csak god-mode aktiválás esetén látszik.
+            // ELŐL helyezzük el (közvetlenül az Áttekintés után), mert a sor
+            // jobb szélén nem fér ki és nem található.
+            ...(isGodMode ? [
+              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'rose' as const },
+            ] : []),
             { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
             { value: 'cashbook', label: 'Kassza', color: 'emerald' },
             { value: 'bank', label: 'Bank', color: 'violet' },
@@ -331,11 +326,6 @@ export function FinanceTabs({
               { value: 'oblio_ellenorzes', label: 'Oblio ellenőrzés', color: 'cyan' },
             ]),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
-            // Rendszergazdai importáló — csak god-mode aktiválás esetén látszik.
-            // A hivatalos EREK kasszakönyv Excel-fájl importja.
-            ...(isGodMode ? [
-              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'rose' as const },
-            ] : []),
           ]}
           active={activeTab}
           onChange={setActiveTab}

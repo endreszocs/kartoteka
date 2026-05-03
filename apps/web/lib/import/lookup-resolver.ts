@@ -204,6 +204,9 @@ export interface PersonLookupMaps {
    *  (esketésnél: ha id_ferfi feloldva, akkor a férj csaladnev-jét
    *  + XML lánykori keresztnevet használhatjuk a menyasszony megtalálásához). */
   byId: Map<string, LookupRecord>
+  /** szemely.id → cím (utca + házszám) — a finance-import utca-alapú
+   *  ambiguous-feloldáshoz használja. Üres a tagnyilvántartás-import-hoz. */
+  addressById: Map<string, { streetName: string | null; houseNumber: string | null }>
 }
 
 async function buildPersonLookupMap(
@@ -220,13 +223,16 @@ async function buildPersonLookupMap(
   const byMaiden = new Map<string, string[]>()
   const byKnameFerfi = new Map<string, string[]>()
   const byId = new Map<string, LookupRecord>()
+  // A privát buildPersonLookupMap-nak (anyakönyvi import) nem szüksége van
+  // utca-info-ra; üres map-mel térünk vissza, hogy a típus stimmeljen.
+  const addressById = new Map<string, { streetName: string | null; houseNumber: string | null }>()
 
   const allCnps = Array.from(cnps).filter(Boolean)
   const allNames = Array.from(names).filter(Boolean)
   const allQuads = Array.from(quads).filter(Boolean)
 
   if (allCnps.length === 0 && allNames.length === 0 && allQuads.length === 0) {
-    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId, addressById }
   }
 
   // A query: szemely táblában csak a saját gyülekezet személyeit nézzük
@@ -238,7 +244,7 @@ async function buildPersonLookupMap(
     .eq('congregation_id', congregationId)
     .eq('isvisible', true)
 
-  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+  if (error || !data) return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId, addressById }
 
   for (const row of data as Array<LookupRecord & { isvisible?: boolean }>) {
     byId.set(row.id, row)
@@ -310,7 +316,7 @@ async function buildPersonLookupMap(
     }
   }
 
-  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId, addressById }
 }
 
 /**
@@ -337,19 +343,56 @@ export async function buildAllPersonsLookupMap(
   const byMaiden = new Map<string, string[]>()
   const byKnameFerfi = new Map<string, string[]>()
   const byId = new Map<string, LookupRecord>()
+  const addressById = new Map<string, { streetName: string | null; houseNumber: string | null }>()
 
+  // 1. szemely-rekord + az utca FK
   const { data, error } = await supabase
     .from('szemely')
-    .select('id, cnp, csaladnev, k_nev, sz_datum, ferfi, isvisible, szcs_nev')
+    .select('id, cnp, csaladnev, k_nev, sz_datum, ferfi, isvisible, szcs_nev, c_utcaid, c_szam')
     .eq('congregation_id', congregationId)
     .eq('isvisible', true)
 
   if (error || !data) {
-    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+    return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId, addressById }
   }
 
-  for (const row of data as Array<LookupRecord & { isvisible?: boolean }>) {
+  // 2. utca-rekordok lekérdezése — egyetlen batch-ben
+  type SzemelyRow = LookupRecord & {
+    isvisible?: boolean
+    c_utcaid?: number | null
+    c_szam?: string | null
+  }
+  const utcaIds = new Set<number>()
+  for (const row of data as SzemelyRow[]) {
+    if (typeof row.c_utcaid === 'number') utcaIds.add(row.c_utcaid)
+  }
+  const utcaNevById = new Map<number, string>()
+  if (utcaIds.size > 0) {
+    const { data: utcaRows } = await supabase
+      .from('adrstreet')
+      .select('id, name, name_hu')
+      .in('id', Array.from(utcaIds))
+    for (const u of utcaRows || []) {
+      const id = (u as { id: number }).id
+      const nev = ((u as { name_hu?: string | null; name?: string | null }).name_hu ||
+        (u as { name?: string | null }).name ||
+        '') as string
+      if (id) utcaNevById.set(id, nev)
+    }
+  }
+
+  for (const row of data as SzemelyRow[]) {
     byId.set(row.id, row)
+    // Cím-rekord
+    if (typeof row.c_utcaid === 'number') {
+      const streetName = utcaNevById.get(row.c_utcaid) || null
+      addressById.set(row.id, {
+        streetName,
+        houseNumber: row.c_szam || null,
+      })
+    } else {
+      addressById.set(row.id, { streetName: null, houseNumber: row.c_szam || null })
+    }
     if (row.cnp) {
       byCnp.set(row.cnp.trim(), row.id)
     }
@@ -403,7 +446,7 @@ export async function buildAllPersonsLookupMap(
     }
   }
 
-  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId }
+  return { byCnp, byName, byQuad, byTriple, byMaiden, byKnameFerfi, byId, addressById }
 }
 
 /**
@@ -418,6 +461,11 @@ export async function buildAllPersonsLookupMap(
  *   5. K-nev + ferfi (utolsó esély, csak 1 találat esetén)
  *   6. fail → null
  *
+ * **Utca-alapú szűrés**: ha a hívó megadja az `street` és `houseNumber`
+ * paramétereket, és valamelyik lépésben több jelölt jön, az utca+házszám
+ * kombinációval szűrünk. Ez segít a "Beder Győző: Főút 27 / Főút 144"
+ * típusú azonos-nevű, eltérő-című esetekben.
+ *
  * @returns `{ id }` ha pontos egyezés; `{ candidates }` ha több jelölt;
  *   `null` ha 0 találat
  */
@@ -428,7 +476,54 @@ export function lookupPersonByQuadAttempt(
   sz_datum: string | null,
   ferfi: 'M' | 'F' | '?',
   maps: PersonLookupMaps,
+  street?: string | null,
+  houseNumber?: string | null,
 ): { id: string } | { candidates: string[] } | null {
+  /**
+   * Utca-alapú szűrés: ha több jelölt jön, és van street/houseNumber
+   * paraméterünk, akkor az utca+házszám kombinációval szűrünk.
+   *
+   * Két szintű:
+   *   1. utca + házszám pontos egyezés (legszigorúbb)
+   *   2. csak utca pontos egyezés (ha a házszám nem stimmel, de utca igen)
+   */
+  function filterByAddress(candidates: string[]): string[] {
+    if (!street || candidates.length <= 1) return candidates
+    const streetNorm = normalizeNameForQuad(street)
+    const houseNorm = (houseNumber || '').trim().toLowerCase()
+
+    // 1. utca + házszám pontos egyezés
+    const exactMatches = candidates.filter((id) => {
+      const addr = maps.addressById.get(id)
+      if (!addr || !addr.streetName) return false
+      const dbStreet = normalizeNameForQuad(addr.streetName)
+      const dbHouse = (addr.houseNumber || '').trim().toLowerCase()
+      return dbStreet === streetNorm && dbHouse === houseNorm
+    })
+    if (exactMatches.length > 0) return exactMatches
+
+    // 2. csak utca pontos egyezés
+    const streetMatches = candidates.filter((id) => {
+      const addr = maps.addressById.get(id)
+      if (!addr || !addr.streetName) return false
+      const dbStreet = normalizeNameForQuad(addr.streetName)
+      return dbStreet === streetNorm
+    })
+    if (streetMatches.length > 0) return streetMatches
+
+    return candidates
+  }
+
+  /**
+   * Egy candidate-listát visszaad: 1 elemnél `{ id }`, többnél utca-szűréssel.
+   */
+  function resolveCandidates(candidates: string[]): { id: string } | { candidates: string[] } {
+    if (candidates.length === 1) return { id: candidates[0] }
+    const filtered = filterByAddress(candidates)
+    if (filtered.length === 1) return { id: filtered[0] }
+    return { candidates: filtered }
+  }
+
   const csNorm = csaladnev ? normalizeNameForQuad(csaladnev) : ''
   const kNorm = k_nev ? normalizeNameForQuad(k_nev) : ''
   const szcsNorm = szcs_nev ? normalizeNameForQuad(szcs_nev) : ''
@@ -451,8 +546,11 @@ export function lookupPersonByQuadAttempt(
     for (const knVar of knVariants) {
       const tripleKey = `${csNorm}|${knVar}|${ferfi}`
       const candidates = maps.byTriple.get(tripleKey)
-      if (candidates && candidates.length === 1) return { id: candidates[0] }
-      if (candidates && candidates.length > 1) lastCandidates = candidates
+      if (candidates && candidates.length > 0) {
+        const r = resolveCandidates(candidates)
+        if ('id' in r) return r
+        lastCandidates = r.candidates
+      }
     }
   }
 
@@ -461,8 +559,11 @@ export function lookupPersonByQuadAttempt(
     for (const knVar of knVariants) {
       const tripleNoFerfiKey = `${csNorm}|${knVar}|?`
       const candidates = maps.byTriple.get(tripleNoFerfiKey)
-      if (candidates && candidates.length === 1) return { id: candidates[0] }
-      if (candidates && candidates.length > 1) lastCandidates = candidates
+      if (candidates && candidates.length > 0) {
+        const r = resolveCandidates(candidates)
+        if ('id' in r) return r
+        lastCandidates = r.candidates
+      }
     }
   }
 
@@ -471,8 +572,11 @@ export function lookupPersonByQuadAttempt(
     for (const knVar of knVariants) {
       const maidenKey = `${szcsNorm}|${knVar}|${ferfi}`
       const candidates = maps.byMaiden.get(maidenKey)
-      if (candidates && candidates.length === 1) return { id: candidates[0] }
-      if (candidates && candidates.length > 1) lastCandidates = candidates
+      if (candidates && candidates.length > 0) {
+        const r = resolveCandidates(candidates)
+        if ('id' in r) return r
+        lastCandidates = r.candidates
+      }
     }
   }
 
@@ -481,17 +585,23 @@ export function lookupPersonByQuadAttempt(
     for (const knVar of knVariants) {
       const maidenKey = `${szcsNorm}|${knVar}|?`
       const candidates = maps.byMaiden.get(maidenKey)
-      if (candidates && candidates.length === 1) return { id: candidates[0] }
-      if (candidates && candidates.length > 1) lastCandidates = candidates
+      if (candidates && candidates.length > 0) {
+        const r = resolveCandidates(candidates)
+        if ('id' in r) return r
+        lastCandidates = r.candidates
+      }
     }
   }
 
-  // 5. K-nev + ferfi (utolsó esély, csak 1 jelölt esetén)
+  // 5. K-nev + ferfi (utolsó esély — utca-szűréssel itt is mehet)
   for (const knVar of knVariants) {
     const knFerfiKey = `${knVar}|${ferfi}`
     const candidates = maps.byKnameFerfi.get(knFerfiKey)
-    if (candidates && candidates.length === 1) return { id: candidates[0] }
-    if (candidates && candidates.length > 1) lastCandidates = candidates
+    if (candidates && candidates.length > 0) {
+      const r = resolveCandidates(candidates)
+      if ('id' in r) return r
+      lastCandidates = r.candidates
+    }
   }
 
   // 6. Fail — visszaadjuk az utolsó nem-egyértelmű jelölt-listát is
@@ -873,7 +983,7 @@ export async function resolveLookups(
     cnps.size > 0 || names.size > 0 || needsQuadLookup
       ? buildPersonLookupMap(supabase, congregationId, cnps, names, quads)
       : Promise.resolve<PersonLookupMaps>({
-          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(), byKnameFerfi: new Map(), byId: new Map(),
+          byCnp: new Map(), byName: new Map(), byQuad: new Map(), byTriple: new Map(), byMaiden: new Map(), byKnameFerfi: new Map(), byId: new Map(), addressById: new Map(),
         }),
     records.some(r => typeof r._befizetescel_nev === 'string' && r._befizetescel_nev)
       ? buildCategoryLookupMap(supabase, congregationId, 'befizetescel')

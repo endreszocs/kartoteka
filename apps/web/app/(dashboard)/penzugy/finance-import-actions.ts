@@ -257,6 +257,11 @@ export async function analyzeKasszaRows(
 /**
  * Kassza fül analízisének belső megvalósítása — egy `ParsedSheet` bemenet,
  * a klasszifikáció + statisztika.
+ *
+ * **Dátum-örökítés**: a hivatalos EREK könyvelési Excel "Kassza" fülén az
+ * azonos napra eső sorok közül csak az ELSŐ kapott dátumot — a többi sor
+ * dátum-mezője üres, és vizuálisan a fenti sor dátumát örökli. Ezt itt
+ * forward-fill-jük, hogy minden importálandó tételhez legyen érvényes dátum.
  */
 function analyzeKasszaSheet(kasszaSheet: ParsedSheet): KasszaAnalysisResult {
   const stats: KasszaStats = {
@@ -272,9 +277,24 @@ function analyzeKasszaSheet(kasszaSheet: ParsedSheet): KasszaAnalysisResult {
   const uniqueBudgetCodes = new Set<string>()
   const uniqueDonorStrings = new Set<string>()
 
+  // Forward-fill változó: az utolsó nem-üres dátum, amit ezután következő üres
+  // dátumú soroknak átörökítünk. Az "Előző évi készpénzegyenleg" sornál is van
+  // dátum, így ezzel kezdődik.
+  let lastDatum: string | null = null
+
   for (let i = 0; i < kasszaSheet.rows.length; i++) {
     const rawRow = kasszaSheet.rows[i]
     const record = kasszaRowToRecord(rawRow, kasszaSheet.headers)
+
+    // Dátum-örökítés a record beállítása előtt: ha a sor dátum-mezője üres,
+    // de van fenti dátumunk, ezt használjuk a record.datum-hoz is, hogy a
+    // splitKasszaRow valós dátummal kapja meg.
+    if (typeof record.datum === 'string' && record.datum.trim() !== '') {
+      lastDatum = record.datum
+    } else if (lastDatum) {
+      record.datum = lastDatum
+    }
+
     const classified = splitKasszaRow(record)
 
     stats.total++
@@ -447,10 +467,14 @@ export async function resolveBudgetCodes(
         occurrenceCount: count,
       })
     } else if (result.kind === 'internal-transfer') {
+      // 400.xx kódoknál mindkét cel-ID visszamehet — ez teszi lehetővé a
+      // kassza→bank és bank→kassza átvitelek importálását.
       resolutions.push({
         rawKod,
         normalizedKod: result.szamadasicel,
         kind: 'internal-transfer',
+        befizetescelId: result.befizetescelId,
+        kiadascelId: result.kiadascelId,
         szamadasicelNev: result.nev,
         occurrenceCount: count,
       })
@@ -578,6 +602,8 @@ function resolveSingleDonor(
   // ha "né"-jelölés nincs és prefix='Elv.' nélküli, akkor ?-nek hagyjuk
   const ferfiFlag: 'M' | 'F' | '?' = parsed.husbandName ? 'F' : '?'
 
+  // Utca-alapú szűrés: ha a parsed adott utca + házszámot, használjuk
+  // az ambiguous-ok eldöntéséhez (pl. "Beder Győző: Főút 27 / Főút 144")
   const lookup = lookupPersonByQuadAttempt(
     csaladnev,
     k_nev,
@@ -585,6 +611,8 @@ function resolveSingleDonor(
     null,
     ferfiFlag,
     personMaps,
+    parsed.street,
+    parsed.houseNumber,
   )
 
   if (!lookup) {

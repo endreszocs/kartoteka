@@ -25,7 +25,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export type BudgetCodeResolution =
   | { kind: 'income'; befizetescelId: number; szamadasicel: string; nev: string }
   | { kind: 'expense'; kiadascelId: number; szamadasicel: string; nev: string }
-  | { kind: 'internal-transfer'; szamadasicel: string; nev: string }
+  | {
+      kind: 'internal-transfer'
+      szamadasicel: string
+      nev: string
+      /** A 400.xx kódhoz tartozó befizetescel ID (kassza→bank esetén bank-oldal) */
+      befizetescelId: number | null
+      /** A 400.xx kódhoz tartozó kiadascel ID (kassza→bank esetén kassza-oldal) */
+      kiadascelId: number | null
+    }
   | { kind: 'unknown'; reason: string; rawKod: string }
 
 export interface BudgetCodeMaps {
@@ -158,12 +166,19 @@ export function resolveBudgetCode(
     }
   }
 
-  // Belső mozgás (400-as prefix)
+  // Belső mozgás (400-as prefix) — készpénz-bank közötti átvitel.
+  // Mindkét oldal ID-ját megpróbáljuk kiolvasni: a párhuzamos befizetes +
+  // kiadas INSERT-hez kell a kassza-oldal `kiadascel.id` és a bank-oldal
+  // `befizetescel.id` (vagy fordítva, az iránytól függően).
   if (normalized.startsWith('400')) {
+    const bef = maps.befizetescel.get(normalized) || null
+    const kia = maps.kiadascel.get(normalized) || null
     return {
       kind: 'internal-transfer',
       szamadasicel: normalized,
       nev: sz.nev,
+      befizetescelId: bef?.id ?? null,
+      kiadascelId: kia?.id ?? null,
     }
   }
 

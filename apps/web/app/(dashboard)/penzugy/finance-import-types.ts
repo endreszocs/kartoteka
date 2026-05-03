@@ -97,10 +97,10 @@ export interface BudgetCodeResolution {
   rawKod: string
   normalizedKod: string | null
   kind: 'income' | 'expense' | 'internal-transfer' | 'unknown'
-  /** A feloldott befizetescel.id (ha kind=income) */
-  befizetescelId?: number
-  /** A feloldott kiadascel.id (ha kind=expense) */
-  kiadascelId?: number
+  /** A feloldott befizetescel.id (income vagy internal-transfer esetén) */
+  befizetescelId?: number | null
+  /** A feloldott kiadascel.id (expense vagy internal-transfer esetén) */
+  kiadascelId?: number | null
   /** A szamadasicel név (ha találtunk a szamadasicel-ben) */
   szamadasicelNev?: string
   /** Reason (ha kind=unknown) */
