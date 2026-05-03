@@ -23,6 +23,139 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-04] — Admin felület tisztítás: szerepkör-aktiválás, gyülekezetek áttekintése, dizájn (v0.9.48)
+<!-- key: 2026-05-04-admin-csiszolas-aktivalas -->
+<!-- category: improvement -->
+<!-- version: 0.9.48 -->
+<!-- targets: rendszergazda, egyházkerületi admin -->
+
+Kedves Rendszergazdák, kerületi adminok!
+
+Ez a frissítés az admin felület számos aprójavítását hozza, valamint
+megjavítottunk egy fontos hibát, ami miatt a frissen jóváhagyott felhasználók
+néha mégsem tudtak belépni.
+
+### 🔧 Megjavítva: szerepkör-aktiválás
+
+- **Egyetlen kattintással aktiválás:** Ha most egy várakozó (új regisztrált)
+  felhasználónak hozzárendelsz egy szerepkört (pl. *Lelkipásztor — Barátosi
+  gyülekezet*), a fiók egyúttal **azonnal aktiválódik is**, a gyülekezethez
+  rendelődik, és bekerül a megfelelő egyházmegye/egyházkerület alá. Nincs
+  külön gomb hozzá.
+- **Hibás üzenetek:** A "permission denied" technikai hiba megszűnt.
+  A háttérben átálltunk egy biztonságosabb adatbázis-hívási mechanizmusra,
+  ami a kerületi adminoknak is megengedi az aktiválást.
+- **Várakozás-szöveg:** Ha valamiért már aktivált fiókra kattintasz az
+  "Aktiválás" gombra, mostantól nem ijesztő hibaüzenetet kapsz, hanem
+  kedves jelzést: *"A fiók már aktív volt — valószínűleg a szerepkör-
+  kiosztáskor automatikusan aktiválódott."*
+
+### 🎨 Felhasználók és szerepkörök oldal — díszesebb és világosabb
+
+- **Színkódolt szerepkörök:** Minden szerepnek saját színe és ikonja van —
+  Lelkipásztor zöld, Esperes lila, Egyházmegyei admin kék, Könyvelő narancs,
+  Számvevő türkíz, Rendszergazda sötétszürke, Egyedi szerep magenta.
+- **Avatar inicialokkal:** A felhasználók kerek avatarja most a nevük
+  kezdőbetűit mutatja, a "legmagasabb" szerepkörükhöz illő színnel.
+- **Várakozó banner:** Ha egy fiók még várakozó, a kártya közepén egy
+  jól látható sárga sávban jelennek meg az aktiválási lehetőségek —
+  nem keverednek a többi gombbal.
+- **"Funkciók" gomb:** Új modal mutatja modul × művelet bontásban, hogy
+  a kiválasztott felhasználó pontosan mit lát és mit szerkeszthet a
+  rendszerben, az összes szerepköre alapján egyesítve. Reszponzív, akár
+  3 oszlopban is áttekinthető.
+
+### 🏛 Gyülekezetek oldal — egyházmegyénként, számozva
+
+A `/admin/gyulekezetek` oldal teljesen átdolgozva:
+
+- A gyülekezetek **egyházmegyénként csoportosítva** jelennek meg, kibontható
+  szakaszokkal (Mind nyit / Mind zár gombok).
+- Egyházmegyén belül **1-től számozva**, a kívánt sorrendben (Név /
+  Tagszám / Felhasználók-szám szerint).
+- Mindenhol **keresés** — a gyülekezet, egyházmegye VAGY a hozzátartozó
+  felhasználók nevére is.
+- Minden gyülekezet alatt **felsorolva a hozzá tartozó felhasználók**,
+  színkódolt szerepkör-jelzéssel.
+
+### 🔝 Fejléc: tudja, melyik kontextusban dolgozol
+
+A bal felső sarokban a chip mostantól **az aktív kontextusra** reagál:
+- Rendszergazdai felületen: *"Rendszergazdai felület / Kartotéka rendszer"*
+- Egyházkerületi nézetben: *"Egyházkerületi felület / Erdélyi Református Egyházkerület"*
+- Egyházmegyei nézetben: *az egyházmegye neve / Erdélyi Református Egyházkerület*
+- Gyülekezeti nézetben (lelkészként): *gyülekezet neve / az egyházmegye neve*
+
+A profil-váltó (avatar dropdown) a több szerepkörrel rendelkezőknek elérhető
+— egy kattintással lehet egyik kontextusból a másikba lépni.
+
+### 📦 Apróbb javítások
+
+- **Import oldal**: nem kell már külön "rendszergazdai módba lépni" — admin
+  jogosultsággal azonnal használható a tagnyilvántartás-importáló.
+- **Frissítések oldal**: a CHANGELOG.md-bejegyzések most már megjelennek
+  a `/admin/frissitesek` oldalon (eddig egy build-konfigurációs hiba miatt
+  nem volt elérhető a rendszer számára a fájl).
+- **Aktiválás-gomb feliratok** egyértelműsítve: *"Felhasználó aktiválása"*
+  (gyors út) és *"Elutasítás"* (ha valakit nem engedünk be).
+- **Popover stacking**: a "+ Új szerepkör" felugró menü most a többi kártya
+  fölött jelenik meg (eddig néha alá szorult).
+
+Köszönöm a türelmet és az alapos visszajelzéseket! Áldott szolgálatot!
+
+---
+
+## [2026-05-03f] — Felhasználók és szerepkörök egyesítve egy oldalra (v0.9.47)
+<!-- key: 2026-05-03f-felhasznalok-szerepkorok-egyesites -->
+<!-- category: feature -->
+<!-- version: 0.9.47 -->
+<!-- targets: rendszergazda, egyházkerületi admin -->
+
+Kedves Rendszergazdák!
+
+Korábban két különálló oldal kezelte ugyanazt a felhasználói listát — két
+különböző UX-szel. Mostantól **egyetlen, egységes oldal** — `/admin/felhasznalok` —
+fogadja az adminisztrátort. A régi `/admin/szerepkorok` URL automatikusan
+átirányít az új közös oldalra.
+
+### ✨ Mit hozott az egyesítés
+
+- **Egy felhasználó = egy kártya**, ahol minden látszik: név, email, státusz,
+  hierarchikus kontextus (egyházkerület › egyházmegye › gyülekezet) és az
+  összes kiosztott szerepkör színes jelvényekkel.
+- **Egyetlen "+ Új szerepkör" gomb** — két kattintással hozzárendel egy
+  szerepet a kiválasztott hatókörhöz (rendszer / egyházkerület / egyházmegye
+  / gyülekezet).
+- **Egyetlen audit-napló minden szerepkör-műveletre** — kiosztás, visszavonás,
+  jóváhagyás, elutasítás. Mostantól pontosan visszakövethető, ki, mikor,
+  kinek, milyen indoklással adott vagy vont vissza szerepkört.
+- **Pasztorálisabb üzenetek** — a "Fiókja még jóváhagyásra vár a kerületi
+  SzuperAdmin által!" technikai szöveg helyett: *"Fiókja még jóváhagyásra
+  vár — a rendszergazda értesítve van. Türelmét kérjük."*
+
+### 🛠 Javítva: a szerepkör-kiosztás aktiválja a fiókot is
+
+Korábban, ha az admin a Szerepkörök oldalon szerepkört adott egy várakozó
+felhasználónak, az illető csak a szerepkör-jelvényt kapta meg, de a fiókja
+`pending` állapotban maradt. Belépéskor mégis azt látta: *"Fiókja még
+jóváhagyásra vár"*. Mostantól a szerepkör-kiosztás egyben aktiválja is a
+fiókot, és a popover tetején figyelmeztető banner jelzi ezt az adminnak.
+
+### 📨 Most már tényleg megérkeznek az értesítések
+
+Az admin által küldött értesítések ("Fiókja jóváhagyva", "Hozzáférése
+aktiválva") korábban a háttérben silent fail-eltek — a tábla mezőnevei nem
+stimmeltek. Most rendezve: minden admin-művelet után tényleg odaér az
+értesítés a felhasználó dashboardjára.
+
+### 🔑 Egyenlő admin-jogosultság
+
+A kerületi adminisztrátorok eddig a felületet ugyan elérték, de minden gomb
+hibára futott. Most már a felhasználók kezelése konzisztens: a master, az
+admin és az egyházkerületi admin egyaránt használhatja a felhasználói modult.
+
+---
+
 ## [2026-05-03e] — Pénzügyi import-wizard v2 — egyszerűsítés (3 lépés)
 <!-- key: 2026-05-03e-finance-import-wizard-v2 -->
 <!-- category: improvement -->
