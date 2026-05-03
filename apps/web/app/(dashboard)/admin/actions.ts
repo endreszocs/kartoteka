@@ -203,15 +203,8 @@ export async function getCongregationsByDiocese(): Promise<{
 
   if (cErr) return { error: `Gyülekezetek hibája: ${cErr.message}` }
 
-  // 3. Profiles (csak aktív + congregation_id-vel rendelkezők — a "primary" hozzárendelés)
-  const { data: profiles, error: pErr } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, status, congregation_id')
-    .not('congregation_id', 'is', null)
-
-  if (pErr) return { error: `Felhasználók hibája: ${pErr.message}` }
-
-  // 4. Profile_roles a congregation scope-ban (approved + active)
+  // 3. Profile_roles a congregation scope-ban (approved + active) — ELŐSZÖR,
+  //    mert kell a profile_id lista a profiles lekérdezéshez
   const { data: roles, error: rErr } = await supabase
     .from('profile_roles')
     .select('profile_id, role, custom_label, scope_id')
@@ -220,6 +213,18 @@ export async function getCongregationsByDiocese(): Promise<{
     .eq('active', true)
 
   if (rErr) return { error: `Szerepkörök hibája: ${rErr.message}` }
+
+  // 4. Profiles — minden active+pending user, függetlenül attól, hogy van-e
+  //    primary congregation_id. FIX 2026-05-04: a korábbi
+  //    `not('congregation_id', 'is', null)` szűrő kizárta azokat, akiknek csak
+  //    profile_role-jük van (primary mező nélkül) — emiatt nem jelentek meg
+  //    a Gyülekezetek oldal user-listájában.
+  const { data: profiles, error: pErr } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role, status, congregation_id')
+    .in('status', ['active', 'pending'])
+
+  if (pErr) return { error: `Felhasználók hibája: ${pErr.message}` }
 
   // 5. Tagok száma gyülekezetenként (best-effort)
   const memberCountMap = new Map<string, number>()
@@ -244,17 +249,17 @@ export async function getCongregationsByDiocese(): Promise<{
     const cid = c.id as string
     const did = (c.diocese_id as string | null) || ''
 
-    // A user-eket szűrjük: minden user, aki a primary congregation-je VAGY van profile_role rá
-    const primaryUsers = (profiles || []).filter((p) => p.congregation_id === cid)
+    // A user-eket szűrjük: minden user, aki a primary congregation-je VAGY van profile_role rá.
+    // A Map dedupol az id alapján (egy user egyszer szerepel akkor is, ha mindkét feltétel igaz).
     const additionalUserIds = new Set(
       (roles || []).filter((r) => r.scope_id === cid).map((r) => r.profile_id as string),
     )
-    const additionalUsers = (profiles || []).filter(
-      (p) => additionalUserIds.has(p.id as string) && p.congregation_id !== cid,
+    const matchingUsers = (profiles || []).filter(
+      (p) => p.congregation_id === cid || additionalUserIds.has(p.id as string),
     )
 
     const allUserMap = new Map<string, CongregationUserSummary>()
-    for (const p of [...primaryUsers, ...additionalUsers]) {
+    for (const p of matchingUsers) {
       const userRoles = (roles || [])
         .filter((r) => r.profile_id === p.id && r.scope_id === cid)
         .map((r) => ({
