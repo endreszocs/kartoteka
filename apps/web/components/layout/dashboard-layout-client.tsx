@@ -150,6 +150,8 @@ interface DashboardLayoutClientProps {
   godModeExpiresAt: number | null
   congregationName: string | null
   congregationLogo: string | null
+  /** A gyülekezet egyházmegyéjének neve (header chip secondary felirathoz). */
+  congregationDioceseName?: string | null
   override: { active: boolean; congregationName?: string; remainingMinutes?: number }
   /** Multi-role profilváltás (2026-04-17, Fázis 4). */
   profileRoles?: ProfileRoleRow[]
@@ -172,7 +174,7 @@ interface DashboardLayoutClientProps {
 export function DashboardLayoutClient({
   profile, congregationId, master, admin, egyhazkeruletiAdmin = false, esperes,
   konyvelo = false, szamvevo = false, hasCongregation, assignedCongregationsCount = 0,
-  isGodMode, godModeExpiresAt, congregationName, congregationLogo,
+  isGodMode, godModeExpiresAt, congregationName, congregationLogo, congregationDioceseName = null,
   override, profileRoles = [], activeProfileRoleId = null, scopeNames = {}, activeScope = null,
   dioceseSetupNeeded = false, dioceseSetupId = null, dioceseSetupMissing = [],
   congregationSetupNeeded = false, congregationSetupId = null, congregationSetupMissing = [],
@@ -210,6 +212,7 @@ export function DashboardLayoutClient({
           congregationId={congregationId}
           congregationName={congregationName}
           congregationLogo={congregationLogo}
+          congregationDioceseName={congregationDioceseName}
           isMasterAdmin={master}
           isGodMode={isGodMode}
           godModeExpiresAt={godModeExpiresAt}

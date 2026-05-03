@@ -27,6 +27,8 @@ interface HeaderProps {
   profile: Profile
   congregationName: string | null
   congregationLogo: string | null
+  /** A gyülekezet egyházmegyéjének neve — congregation scope-ban a chip secondary felirata. */
+  congregationDioceseName?: string | null
   profileRoles?: ProfileRoleRow[]
   activeProfileRoleId?: string | null
   scopeNames?: Record<string, string>
@@ -67,6 +69,7 @@ export function HeaderRefinedV3({
   profile,
   congregationName,
   congregationLogo,
+  congregationDioceseName = null,
   profileRoles = [],
   activeProfileRoleId = null,
   scopeNames = {},
@@ -117,10 +120,12 @@ export function HeaderRefinedV3({
         secondary: 'Erdélyi Református Egyházkerület',
       }
     }
-    // congregation (vagy null) — eredeti viselkedés
+    // congregation (vagy null) — gyülekezet neve / egyházmegye neve
+    // (Endre kérése 2026-05-03: a kerület helyett a gyülekezet egyházmegyéje
+    // szerepeljen másodlagosként, mert lelkészi nézetben ez a releváns.)
     return {
       primary: congregationName || 'Várakozás a jóváhagyásra',
-      secondary: 'Erdélyi Református Egyházkerület',
+      secondary: congregationDioceseName || 'Erdélyi Református Egyházkerület',
     }
   })()
 

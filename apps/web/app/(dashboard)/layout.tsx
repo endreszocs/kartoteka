@@ -46,6 +46,7 @@ export default async function DashboardLayout({
     assignedCongregations,
     congregationName,
     congregationLogo,
+    congregationDioceseName,
     override,
     missingPrimaryRole,
     profileRoles,
@@ -198,6 +199,7 @@ export default async function DashboardLayout({
         godModeExpiresAt={godMode.expiresAt}
         congregationName={congregationName}
         congregationLogo={congregationLogo}
+        congregationDioceseName={congregationDioceseName}
         override={override}
         profileRoles={profileRoles}
         activeProfileRoleId={activeProfileRole?.id ?? null}

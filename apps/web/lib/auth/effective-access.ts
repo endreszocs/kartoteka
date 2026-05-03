@@ -42,6 +42,8 @@ type CongregationSummary = {
   nev_hu: string | null
   name: string | null
   cimer_url: string | null
+  /** A gyülekezet egyházmegyéjének neve (header-chip secondary felirathoz). */
+  diocese_name: string | null
 }
 
 type OverrideRow = {
@@ -105,6 +107,8 @@ export interface EffectiveAccessContext {
   effectiveCongregationId: string | null
   congregationName: string | null
   congregationLogo: string | null
+  /** A gyülekezet egyházmegyéjének neve (header chip secondary felirathoz). */
+  congregationDioceseName: string | null
   hasCongregation: boolean
   /** Approved profile_congregations sorok (csak konyvelo / szamvevo szerepkör esetén nem üres). */
   assignedCongregations: AssignedCongregation[]
@@ -136,11 +140,27 @@ async function getCongregationSummary(
 
   const { data } = await supabase
     .from('congregations')
-    .select('id, nev_hu, name, cimer_url')
+    .select('id, nev_hu, name, cimer_url, dioceses:diocese_id(name)')
     .eq('id', congregationId)
     .maybeSingle()
 
-  return data ?? null
+  if (!data) return null
+
+  // A `dioceses` lehet objektum vagy tömb (a Supabase relációs select néha tömböt ad vissza)
+  const diocesesRel = (data as { dioceses?: { name?: string | null } | { name?: string | null }[] | null }).dioceses
+  const dioceseName = diocesesRel
+    ? Array.isArray(diocesesRel)
+      ? diocesesRel[0]?.name ?? null
+      : diocesesRel.name ?? null
+    : null
+
+  return {
+    id: data.id as string,
+    nev_hu: (data.nev_hu as string | null) ?? null,
+    name: (data.name as string | null) ?? null,
+    cimer_url: (data.cimer_url as string | null) ?? null,
+    diocese_name: dioceseName,
+  }
 }
 
 async function getAssignedCongregations(
@@ -251,6 +271,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
       effectiveCongregationId: null,
       congregationName: null,
       congregationLogo: null,
+      congregationDioceseName: null,
       hasCongregation: false,
       assignedCongregations: [],
       override: { active: false },
@@ -329,6 +350,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
           nev_hu: override.congregationName || null,
           name: override.congregationName || null,
           cimer_url: override.congregationLogo || null,
+          diocese_name: null,
         }
       : await getCongregationSummary(supabase, effectiveCongregationId)
     : null
@@ -350,6 +372,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     effectiveCongregationId,
     congregationName: congregation?.nev_hu || congregation?.name || null,
     congregationLogo: congregation?.cimer_url || null,
+    congregationDioceseName: congregation?.diocese_name || null,
     hasCongregation: !!effectiveCongregationId,
     assignedCongregations,
     override,

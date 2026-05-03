@@ -29,6 +29,8 @@ interface DashboardShellProps {
   congregationId: string | null
   congregationName: string | null
   congregationLogo: string | null
+  /** A gyülekezet egyházmegyéjének neve (header chip secondary felirathoz). */
+  congregationDioceseName?: string | null
   isMasterAdmin?: boolean
   isGodMode?: boolean
   godModeExpiresAt?: number | null
@@ -51,6 +53,7 @@ export function DashboardShell({
   congregationId,
   congregationName,
   congregationLogo,
+  congregationDioceseName = null,
   isMasterAdmin,
   isGodMode,
   godModeExpiresAt,
@@ -100,6 +103,7 @@ export function DashboardShell({
         profile={profile}
         congregationName={congregationName}
         congregationLogo={congregationLogo}
+        congregationDioceseName={congregationDioceseName}
         profileRoles={profileRoles}
         activeProfileRoleId={activeProfileRoleId}
         scopeNames={scopeNames}
