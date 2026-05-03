@@ -103,21 +103,36 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       continue
     }
 
+    // ─── A v1-ben a belső mozgás (Kassza ↔ Bank, 400.xx kód) sorokat
+    //     NEM importáljuk ─────────────────────────────────────────────────
+    // A meglévő `bank-import-actions.ts` páros tételeket hoz létre
+    // (kassza-oldali `kiadas` + bank-oldali `befizetes` + `belsomozgas` audit)
+    // közös `belso_mozgas_xkey` UUID-vel. Ha a v1 importunk csak a kassza-
+    // oldalt rögzítené, azzal ÜTKÖZNE a meglévő rendszerrel:
+    //   - a `computeReceiptHealth` tévesen nyugtás-kifizetésnek venné
+    //   - a Bank A import (v2) később nem tudná párba állítani
+    // Ezért a 400.xx sorokat skip-pelni szükséges. Endre a meglévő Decont /
+    // belső-mozgás dialógus-szal kézzel rögzítheti, vagy a Bank A/B import
+    // (v2) hozza majd.
+    if (
+      row.kind === 'internal-transfer-out' ||
+      row.kind === 'internal-transfer-in'
+    ) {
+      const direction =
+        row.kind === 'internal-transfer-out' ? 'Kassza → Bank' : 'Bank → Kassza'
+      skippedReasons.push({
+        rowIndex: row.rowIndex,
+        reason: `Belső mozgás (${direction}, kód ${budget.rawKod}) — a v1-ben nem importálódik. A meglévő pénzügyi rendszer páros tételként rögzíti (kassza + bank oldal). Használd a Bank A/B importot vagy a Decont dialógust.`,
+      })
+      continue
+    }
+
     // celId megállapítása a sor kategóriája és a kód kategóriája szerint
     const celId = pickCelId(row.kind, budget)
     if (celId === null) {
-      // Speciális üzenet a belső mozgásra: ha hiányzik a 400.xx-hez tartozó
-      // befizetescel vagy kiadascel, az adminban kell létrehozni
-      let reason: string
-      if (row.kind === 'internal-transfer-out') {
-        reason = `Belső mozgás (Kassza→Bank): a ${budget.rawKod} kódhoz nincs kiadascel rekord — futtasd a 2026-05-03-finance-belso-mozgas-celok.sql-t Supabase Studio-ban`
-      } else if (row.kind === 'internal-transfer-in') {
-        reason = `Belső mozgás (Bank→Kassza): a ${budget.rawKod} kódhoz nincs befizetescel rekord — futtasd a 2026-05-03-finance-belso-mozgas-celok.sql-t Supabase Studio-ban`
-      } else {
-        reason = `Sor ${row.kind} kategóriájához nem találtuk a megfelelő ${
-          row.kind === 'income' ? 'befizetescel' : 'kiadascel'
-        }-t a ${budget.rawKod} kódhoz`
-      }
+      const reason = `Sor ${row.kind} kategóriájához nem találtuk a megfelelő ${
+        row.kind === 'income' ? 'befizetescel' : 'kiadascel'
+      }-t a ${budget.rawKod} kódhoz`
       skippedReasons.push({ rowIndex: row.rowIndex, reason })
       continue
     }
@@ -143,20 +158,10 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
     // Fizetett év (a dátum első 4 karaktere)
     const fizetettev = parseIntSafe(row.datum.slice(0, 4)) ?? new Date().getFullYear()
 
-    // A belső mozgás sorokat (400.xx) a v1-ben **egyszerűsítve** importáljuk:
-    // a kassza-oldal sora egyetlen `kiadas` (out) vagy `befizetes` (in)
-    // rekordba kerül, `bankszamla_id=NULL`. A bank-oldali párt majd a Bank A/B
-    // import (v2) hozza. Tehát az RPC felé `expense`/`income` típusként
-    // küldjük, hogy ne kelljen párosítani.
-    const importKind: FinanceImportItem['kind'] =
-      row.kind === 'internal-transfer-out'
-        ? 'expense'
-        : row.kind === 'internal-transfer-in'
-          ? 'income'
-          : row.kind
-
+    // Itt már csak `income` vagy `expense` lehet (a belső mozgás sorok
+    // korábban skip-re mentek)
     items.push({
-      kind: importKind,
+      kind: row.kind as 'income' | 'expense',
       datum: row.datum,
       osszeg: row.amount,
       celId,
