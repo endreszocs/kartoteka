@@ -22,13 +22,30 @@ import type { ChangelogEntry, ReleaseCategory } from './types'
  * ```
  */
 
-const CHANGELOG_PATH = join(process.cwd(), 'docs', 'CHANGELOG.md')
+// A CHANGELOG.md a repo gyökerében van: KARTOTEKA/docs/CHANGELOG.md.
+// A Next.js prod-on a process.cwd() lehet apps/web/, dev-en lehet a repo gyökér,
+// Railway monorepo deploy-on a Root Directory beállítás dönt. Ezért több
+// kandidátus path-ot próbálunk (első találat nyer).
+const CANDIDATE_CHANGELOG_PATHS = [
+  join(process.cwd(), 'docs', 'CHANGELOG.md'), // root cwd (Railway monorepo / dev)
+  join(process.cwd(), '..', '..', 'docs', 'CHANGELOG.md'), // apps/web cwd (next start)
+  join(process.cwd(), '..', 'docs', 'CHANGELOG.md'), // egy szintű variánsok
+]
 
 export async function parseChangelog(): Promise<ChangelogEntry[]> {
-  let content: string
-  try {
-    content = await readFile(CHANGELOG_PATH, 'utf8')
-  } catch {
+  let content: string | null = null
+  for (const path of CANDIDATE_CHANGELOG_PATHS) {
+    try {
+      content = await readFile(path, 'utf8')
+      break
+    } catch {
+      // try next
+    }
+  }
+  if (!content) {
+    console.warn(
+      `[parseChangelog] CHANGELOG.md nem található. Próbált helyek: ${CANDIDATE_CHANGELOG_PATHS.join(', ')}`,
+    )
     return []
   }
 

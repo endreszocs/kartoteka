@@ -67,6 +67,15 @@ const nextConfig: NextConfig = {
   // a korábbi Kartotéka portable Inno Setup "standalone"-nal (M6.3-ban
   // kivezetve). Ez csak egy Next.js build flag.
   output: 'standalone',
+  // 2026-05-04 — A Frissítések modul a `docs/CHANGELOG.md`-t olvassa
+  // (`apps/web/lib/broadcasts/changelog-parser.ts`). Standalone build-ben
+  // a fs.readFile-lal hivatkozott fájlokat NEM követi nyomon a tracer
+  // automatikusan, ezért explicit hozzáadjuk. A path-ok a monorepo gyökerétől
+  // relatívak (../../docs/CHANGELOG.md = KARTOTEKA/docs/CHANGELOG.md).
+  outputFileTracingIncludes: {
+    '/admin/frissitesek': ['../../docs/CHANGELOG.md'],
+    '/admin': ['../../docs/CHANGELOG.md'],
+  },
   // 2026-05-02 (v0.9.33) — Sebesség-optimalizálás: gzip a HTML/JSON/JS válaszokra
   // (Railway proxy is támogatja), és a `X-Powered-By` header elrejtése (apró
   // info-leak elkerülése).

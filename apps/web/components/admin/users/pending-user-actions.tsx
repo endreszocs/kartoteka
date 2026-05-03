@@ -7,14 +7,21 @@ import { Button } from '@/components/ui/button'
 interface PendingUserActionsProps {
   isPending: boolean
   onQuickApprove: () => void
-  onDetailedApprove: () => void
   onReject: () => void
 }
 
+/**
+ * Pending fiók akciói. A "+ Új szerepkör" popover egyetlen kattintással
+ * már aktivál + gyülekezet-hozzárendelést is végez (D6, activate-on-role-assign),
+ * ezért az "Aktiválás gyülekezettel" külön gombra nincs szükség.
+ *
+ * Két út marad:
+ * - "Felhasználó aktiválása" — gyülekezet/szerepkör nélkül aktivál (ritka eset)
+ * - "Elutasítás" — pending → rejected
+ */
 export function PendingUserActions({
   isPending,
   onQuickApprove,
-  onDetailedApprove,
   onReject,
 }: PendingUserActionsProps) {
   return (
@@ -24,19 +31,10 @@ export function PendingUserActions({
         onClick={onQuickApprove}
         disabled={isPending}
         className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-        title="A fiók azonnal aktiválódik, gyülekezet hozzárendelése nélkül"
+        title="A fiók aktiválódik, de nem rendelünk hozzá gyülekezetet vagy szerepkört. A szerepkör-kiosztással ugyanezt egyetlen kattintással elérhetjük."
       >
         <UserCheck className="size-3.5" />
         Felhasználó aktiválása
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onDetailedApprove}
-        disabled={isPending}
-        title="Aktiválás egyházmegye- és gyülekezet-választással"
-      >
-        Aktiválás gyülekezettel…
       </Button>
       <Button
         size="sm"

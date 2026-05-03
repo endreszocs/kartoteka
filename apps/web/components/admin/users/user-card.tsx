@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Castle, Church, Clock, Eye, Trash2, Users } from 'lucide-react'
+import { Building2, Castle, Church, Clock, Eye, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
@@ -11,6 +11,41 @@ import { PendingUserActions } from './pending-user-actions'
 import { RoleAssignPopover, type QuickOption } from './role-assign-popover'
 import { RoleBadgeInline } from './role-badge-inline'
 import { RolePermissionsDialog } from './role-permissions-dialog'
+
+// Avatar színe a "legmagasabb" prioritású szerepkör szerint
+function pickAvatarTheme(roles: ProfileRoleRow[], primaryRole: string | null) {
+  const ROLE_PRIORITY = [
+    'admin',
+    'egyhazkeruleti_admin',
+    'esperes',
+    'egyhazmegyei_admin',
+    'egyhazmegyei_szamvevo',
+    'lelkesz',
+    'konyvelo',
+  ]
+  const activeRoles = new Set([
+    ...roles.filter((r) => r.approval_status === 'approved' && r.active).map((r) => r.role),
+    ...(primaryRole ? [primaryRole] : []),
+  ])
+  const top = ROLE_PRIORITY.find((r) => activeRoles.has(r)) || 'lelkesz'
+  const themes: Record<string, string> = {
+    admin: 'bg-gradient-to-br from-slate-700 to-slate-900 text-white',
+    egyhazkeruleti_admin: 'bg-gradient-to-br from-violet-500 to-purple-700 text-white',
+    esperes: 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white',
+    egyhazmegyei_admin: 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white',
+    egyhazmegyei_szamvevo: 'bg-gradient-to-br from-cyan-500 to-teal-600 text-white',
+    lelkesz: 'bg-gradient-to-br from-emerald-500 to-green-600 text-white',
+    konyvelo: 'bg-gradient-to-br from-amber-500 to-orange-500 text-white',
+  }
+  return themes[top] || 'bg-gradient-to-br from-slate-300 to-slate-400 text-white'
+}
+
+function getInitials(name: string | null, email: string | null): string {
+  const source = name || email || '?'
+  const parts = source.split(/\s+/).filter(Boolean)
+  const letters = parts.slice(0, 2).map((p) => p[0]).join('')
+  return letters.toUpperCase() || '?'
+}
 
 interface UserCardProps {
   user: UserWithScope
@@ -23,7 +58,6 @@ interface UserCardProps {
   onAdvanced: () => void
   onRevokeRole: (row: ProfileRoleRow) => void
   onQuickApprove: () => void
-  onDetailedApprove: () => void
   onReject: () => void
   onDelete: () => void
 }
@@ -38,7 +72,6 @@ export function UserCard({
   onAdvanced,
   onRevokeRole,
   onQuickApprove,
-  onDetailedApprove,
   onReject,
   onDelete,
 }: UserCardProps) {
@@ -83,8 +116,13 @@ export function UserCard({
       className={`card-raised p-4 sm:p-5 ${popoverOpen ? 'relative z-50' : 'relative'}`}
     >
       <div className="flex items-start gap-3 flex-wrap">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
-          <Users className="size-5" />
+        <div
+          className={`flex size-12 shrink-0 items-center justify-center rounded-2xl shadow-md font-bold text-base ${pickAvatarTheme(roles, user.role)} ${
+            isUserPending ? 'opacity-70 saturate-50' : ''
+          }`}
+          title={isActive ? 'Aktív felhasználó' : isUserPending ? 'Várakozó felhasználó' : ''}
+        >
+          {getInitials(user.full_name, user.email)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
@@ -158,7 +196,6 @@ export function UserCard({
             <PendingUserActions
               isPending={isPending}
               onQuickApprove={onQuickApprove}
-              onDetailedApprove={onDetailedApprove}
               onReject={onReject}
             />
           </div>

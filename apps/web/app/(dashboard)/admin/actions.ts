@@ -152,6 +152,162 @@ export async function getCongregations() {
   return { data: data || [] }
 }
 
+// 2026-05-04 — Gyülekezetek oldal újragondolva: egyházmegyénként csoportosítva,
+// 1-től számozva, mindegyikhez a hozzárendelt user-ek (primary congregation_id +
+// gyülekezeti scope-ú profile_roles) szerepkörrel.
+export interface CongregationUserSummary {
+  id: string
+  full_name: string | null
+  email: string | null
+  /** A user `profiles.role` mezője — az "elsődleges" szerep. */
+  primaryRole: string | null
+  /** Összes scope=congregation profile_role ennél a gyülekezetnél. */
+  profileRoles: Array<{ role: string; customLabel: string | null }>
+  status: string | null
+}
+
+export interface CongregationByDioceseRow {
+  id: string
+  name: string
+  diocese_id: string | null
+  memberCount: number
+  users: CongregationUserSummary[]
+}
+
+export interface DioceseGroup {
+  id: string
+  name: string
+  district_id: string | null
+  congregations: CongregationByDioceseRow[]
+}
+
+export async function getCongregationsByDiocese(): Promise<{
+  data?: DioceseGroup[]
+  error?: string
+}> {
+  const { supabase } = await requireMasterAdmin()
+
+  // 1. Egyházmegyék
+  const { data: dioceses, error: dErr } = await supabase
+    .from('dioceses')
+    .select('id, name, district_id')
+    .order('name')
+
+  if (dErr) return { error: `Egyházmegyék hibája: ${dErr.message}` }
+
+  // 2. Gyülekezetek
+  const { data: congs, error: cErr } = await supabase
+    .from('congregations')
+    .select('id, nev_hu, name, diocese_id')
+    .order('nev_hu')
+
+  if (cErr) return { error: `Gyülekezetek hibája: ${cErr.message}` }
+
+  // 3. Profiles (csak aktív + congregation_id-vel rendelkezők — a "primary" hozzárendelés)
+  const { data: profiles, error: pErr } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role, status, congregation_id')
+    .not('congregation_id', 'is', null)
+
+  if (pErr) return { error: `Felhasználók hibája: ${pErr.message}` }
+
+  // 4. Profile_roles a congregation scope-ban (approved + active)
+  const { data: roles, error: rErr } = await supabase
+    .from('profile_roles')
+    .select('profile_id, role, custom_label, scope_id')
+    .eq('scope', 'congregation')
+    .eq('approval_status', 'approved')
+    .eq('active', true)
+
+  if (rErr) return { error: `Szerepkörök hibája: ${rErr.message}` }
+
+  // 5. Tagok száma gyülekezetenként (best-effort)
+  const memberCountMap = new Map<string, number>()
+  try {
+    // Egyetlen lekérdezés count-tal: gyülekezetenként
+    for (const c of congs || []) {
+      const { count } = await supabase
+        .from('szemely')
+        .select('*', { count: 'exact', head: true })
+        .eq('congregation_id', c.id as string)
+        .eq('isvisible', true)
+        .eq('meghalt', false)
+      if (typeof count === 'number') memberCountMap.set(c.id as string, count)
+    }
+  } catch {
+    // best-effort, ha bármelyik counting hibázik, 0-val esnek vissza
+  }
+
+  // 6. Csoportosítás
+  const congByDiocese = new Map<string, CongregationByDioceseRow[]>()
+  for (const c of congs || []) {
+    const cid = c.id as string
+    const did = (c.diocese_id as string | null) || ''
+
+    // A user-eket szűrjük: minden user, aki a primary congregation-je VAGY van profile_role rá
+    const primaryUsers = (profiles || []).filter((p) => p.congregation_id === cid)
+    const additionalUserIds = new Set(
+      (roles || []).filter((r) => r.scope_id === cid).map((r) => r.profile_id as string),
+    )
+    const additionalUsers = (profiles || []).filter(
+      (p) => additionalUserIds.has(p.id as string) && p.congregation_id !== cid,
+    )
+
+    const allUserMap = new Map<string, CongregationUserSummary>()
+    for (const p of [...primaryUsers, ...additionalUsers]) {
+      const userRoles = (roles || [])
+        .filter((r) => r.profile_id === p.id && r.scope_id === cid)
+        .map((r) => ({
+          role: r.role as string,
+          customLabel: (r.custom_label as string | null) ?? null,
+        }))
+      allUserMap.set(p.id as string, {
+        id: p.id as string,
+        full_name: (p.full_name as string | null) ?? null,
+        email: (p.email as string | null) ?? null,
+        primaryRole: (p.role as string | null) ?? null,
+        profileRoles: userRoles,
+        status: (p.status as string | null) ?? null,
+      })
+    }
+
+    const row: CongregationByDioceseRow = {
+      id: cid,
+      name: (c.nev_hu as string | null) || (c.name as string | null) || '—',
+      diocese_id: c.diocese_id as string | null,
+      memberCount: memberCountMap.get(cid) || 0,
+      users: Array.from(allUserMap.values()).sort((a, b) =>
+        (a.full_name || a.email || '').localeCompare(b.full_name || b.email || '', 'hu'),
+      ),
+    }
+
+    const arr = congByDiocese.get(did) || []
+    arr.push(row)
+    congByDiocese.set(did, arr)
+  }
+
+  // 7. Visszaadjuk egyházmegyénként
+  const result: DioceseGroup[] = (dioceses || []).map((d) => ({
+    id: d.id as string,
+    name: (d.name as string) || '—',
+    district_id: (d.district_id as string | null) ?? null,
+    congregations: congByDiocese.get(d.id as string) || [],
+  }))
+
+  // 8. "Árva" gyülekezetek (nincs egyházmegyéjük) — ha van ilyen, hozzáadjuk
+  const orphanCongs = congByDiocese.get('') || []
+  if (orphanCongs.length > 0) {
+    result.push({
+      id: '',
+      name: 'Egyházmegye nélkül',
+      district_id: null,
+      congregations: orphanCongs,
+    })
+  }
+
+  return { data: result }
+}
+
 export async function getCongregationDetails(congId: string) {
   const { supabase } = await requireMasterAdmin()
   const yearStart = `${new Date().getFullYear()}-01-01`

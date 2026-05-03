@@ -543,7 +543,6 @@ export function UnifiedUsersTab() {
               onAdvanced={() => setAdvancedTarget(u)}
               onRevokeRole={(row) => setRevokeTarget({ row, user: u })}
               onQuickApprove={() => handleQuickApprove(u)}
-              onDetailedApprove={() => setApproveTarget(u)}
               onReject={() => setRejectTarget(u)}
               onDelete={() => setDeleteTarget(u)}
             />
