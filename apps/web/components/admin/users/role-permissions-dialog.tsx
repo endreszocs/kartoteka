@@ -71,18 +71,18 @@ export function RolePermissionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl bg-white p-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white">
-          <DialogTitle className="font-heading text-xl text-slate-800 flex items-center gap-2">
-            <Sparkles className="size-5 text-indigo-600" />
-            Mit lát és mit tehet — {userName}
+      <DialogContent className="bg-white p-0 overflow-hidden w-[min(96vw,1200px)] sm:w-[min(94vw,1200px)] lg:w-[min(92vw,1200px)] max-w-none sm:max-w-none">
+        <DialogHeader className="px-4 sm:px-6 py-4 border-b border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white">
+          <DialogTitle className="font-heading text-lg sm:text-xl text-slate-800 flex items-center gap-2 flex-wrap">
+            <Sparkles className="size-5 text-indigo-600 shrink-0" />
+            <span className="truncate">Mit lát és mit tehet — {userName}</span>
           </DialogTitle>
           {email && (
-            <p className="text-xs text-muted-foreground mt-0.5">{email}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{email}</p>
           )}
         </DialogHeader>
 
-        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Aktív szerepkörök listája */}
           {approvedRoles.length === 0 ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-900">
@@ -140,7 +140,7 @@ export function RolePermissionsDialog({
                 — vagyis bármelyik szerepben elérhető a művelet, akkor látja /
                 szerkesztheti.
               </p>
-              <div className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
                 {MODULES.map((mod) => {
                   const allowedActions = mod.actions.filter((a) =>
                     hasPermission(merged, mod.key, a),
@@ -159,15 +159,15 @@ export function RolePermissionsDialog({
                         <span className="text-base shrink-0">
                           {mod.emoji ?? '·'}
                         </span>
-                        <p className="text-sm font-semibold text-slate-800 flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 flex-1 min-w-0 truncate">
                           {mod.label}
                         </p>
                         {hasAny ? (
-                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 shrink-0">
                             Hozzáfér
                           </span>
                         ) : (
-                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-slate-100 text-slate-500 px-2 py-0.5">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 shrink-0">
                             Nem fér hozzá
                           </span>
                         )}
@@ -179,7 +179,7 @@ export function RolePermissionsDialog({
                             return (
                               <span
                                 key={a}
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
                                   allowed
                                     ? 'bg-emerald-100 text-emerald-700'
                                     : 'bg-slate-100 text-slate-400 line-through opacity-60'
