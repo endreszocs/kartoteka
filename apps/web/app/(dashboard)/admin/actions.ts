@@ -732,8 +732,27 @@ export async function quickApproveUser(userId: string) {
     .select('id')
 
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
+
+  // FIX 2026-05-04: ha a frissítés nem találta meg pending-en, NEM hiba — barátságos
+  // info, mert a user közben aktiválódott (pl. szerepkör-kiosztáskor) vagy
+  // visszautasítva. A UI így ugyanúgy reload-ol.
   if (!updated || updated.length === 0) {
-    return { error: 'A felhasználó már nem pending státuszú.' }
+    const { data: current } = await supabase
+      .from('profiles')
+      .select('status, full_name, email')
+      .eq('id', userId)
+      .maybeSingle()
+    const currentStatus = (current?.status as string | null) ?? null
+    if (currentStatus === 'active') {
+      return {
+        success: true,
+        info: 'A fiók már aktív volt — valószínűleg a szerepkör-kiosztáskor automatikusan aktiválódott.',
+      }
+    }
+    if (currentStatus === 'rejected') {
+      return { error: 'A fiók korábban elutasítva. Először állítsd vissza pending-re a Részletes panelen.' }
+    }
+    return { error: `A fiók státusza már nem várakozó (jelenlegi: ${currentStatus || 'ismeretlen'}).` }
   }
 
   // Értesítés (best-effort, nem blokkol) — javított mezőnevek

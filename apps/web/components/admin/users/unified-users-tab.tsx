@@ -302,10 +302,17 @@ export function UnifiedUsersTab() {
       const res = await quickApproveUser(user.id)
       if ('error' in res && res.error) {
         toast.error(res.error)
+        return
+      }
+      // Az action visszaadhat egy 'info' mezőt, ha a fiók már aktív volt
+      // (pl. szerepkör-kiosztáskor automatikusan aktiválódott).
+      const infoMessage = (res as { info?: string }).info
+      if (infoMessage) {
+        toast.info(infoMessage)
       } else {
         toast.success(`Felhasználó aktiválva: ${user.full_name || user.email}`)
-        await reload()
       }
+      await reload()
     })
   }
 
