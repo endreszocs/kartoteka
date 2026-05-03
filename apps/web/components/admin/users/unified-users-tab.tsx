@@ -303,7 +303,7 @@ export function UnifiedUsersTab() {
       if ('error' in res && res.error) {
         toast.error(res.error)
       } else {
-        toast.success(`Fiók aktiválva: ${user.full_name || user.email}`)
+        toast.success(`Felhasználó aktiválva: ${user.full_name || user.email}`)
         await reload()
       }
     })
@@ -316,7 +316,7 @@ export function UnifiedUsersTab() {
       if ('error' in res && res.error) {
         toast.error(res.error)
       } else {
-        toast.success(`Fiók jóváhagyva: ${approveTarget.full_name || approveTarget.email}`)
+        toast.success(`Felhasználó aktiválva: ${approveTarget.full_name || approveTarget.email}`)
         setApproveTarget(null)
         await reload()
       }
@@ -453,7 +453,7 @@ export function UnifiedUsersTab() {
             <h2 className="font-heading text-lg text-slate-800">Felhasználók és szerepkörök</h2>
             <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Egy felhasználónak több szerepköre is lehet (pl. lelkész egy gyülekezetben + esperes egy egyházmegyében). A
-              <strong> „+ Új szerepkör”</strong> gomb két kattintással hozzárendel, a részletes jóváhagyáshoz a <em>Részletes</em> gombbal nyithat dialógust. Egy <em>várakozó</em> fiók szerepkör-kiosztással egyúttal aktiválódik is.
+              <strong> „+ Új szerepkör”</strong> gomb két kattintással hozzárendel, a <em>Funkciók</em> gomb megmutatja, mit lát és mit szerkeszthet a felhasználó a jelenlegi szerepkörei alapján. Egy <em>várakozó</em> fiók szerepkör-kiosztással egyúttal aktiválódik is.
             </p>
           </div>
         </div>

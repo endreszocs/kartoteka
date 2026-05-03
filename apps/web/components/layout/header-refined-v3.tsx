@@ -30,6 +30,16 @@ interface HeaderProps {
   profileRoles?: ProfileRoleRow[]
   activeProfileRoleId?: string | null
   scopeNames?: Record<string, string>
+  /** Az aktív UI-kontextus scope-ja (multi-role rendszer Fázis 4).
+   *  A bal-felső chip felirata ehhez igazodik:
+   *  - system → "Rendszergazdai felület" / "Kartotéka rendszer"
+   *  - district → "Egyházkerületi felület" / "Erdélyi Református Egyházkerület"
+   *  - diocese → egyházmegye neve / "Erdélyi Református Egyházkerület"
+   *  - congregation (vagy null) → congregationName / "Erdélyi Református Egyházkerület"
+   */
+  activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
+  /** Az aktív kontextus scope_id-jához tartozó név (egyházmegye esetén). */
+  activeScopeName?: string | null
   /** Optional: gyülekezeti publikus oldal állapota a Beállítások dialog-hoz */
   publicSiteUrl?: string | null
   publicSiteEnabled?: boolean
@@ -60,6 +70,8 @@ export function HeaderRefinedV3({
   profileRoles = [],
   activeProfileRoleId = null,
   scopeNames = {},
+  activeScope = null,
+  activeScopeName = null,
   publicSiteUrl = null,
   publicSiteEnabled = false,
   onOpenProfile,
@@ -82,6 +94,35 @@ export function HeaderRefinedV3({
     .substring(0, 2)
     .toUpperCase()
   const roleLabel = getRoleLabel(profile.role)
+
+  // Scope-tudatos chip-felirat (bal-felső sarok). Endre kérése (2026-05-03):
+  // az admin felületen NE "Várakozás a jóváhagyásra" / "Erdélyi Református
+  // Egyházkerület" jelenjen meg — hanem a tényleges aktív kontextus.
+  const contextChip = (() => {
+    if (activeScope === 'system') {
+      return {
+        primary: 'Rendszergazdai felület',
+        secondary: 'Kartotéka rendszer',
+      }
+    }
+    if (activeScope === 'district') {
+      return {
+        primary: 'Egyházkerületi felület',
+        secondary: activeScopeName || 'Erdélyi Református Egyházkerület',
+      }
+    }
+    if (activeScope === 'diocese') {
+      return {
+        primary: activeScopeName || 'Egyházmegyei felület',
+        secondary: 'Erdélyi Református Egyházkerület',
+      }
+    }
+    // congregation (vagy null) — eredeti viselkedés
+    return {
+      primary: congregationName || 'Várakozás a jóváhagyásra',
+      secondary: 'Erdélyi Református Egyházkerület',
+    }
+  })()
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -126,10 +167,10 @@ export function HeaderRefinedV3({
             </div>
             <div className="min-w-0 leading-tight">
               <div className="truncate font-heading text-[14.5px] font-semibold text-foreground">
-                {congregationName || 'Várakozás a jóváhagyásra'}
+                {contextChip.primary}
               </div>
               <div className="truncate text-[11px] text-muted-foreground">
-                Erdélyi Református Egyházkerület
+                {contextChip.secondary}
               </div>
             </div>
           </div>

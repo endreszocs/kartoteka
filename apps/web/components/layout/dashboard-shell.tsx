@@ -36,6 +36,10 @@ interface DashboardShellProps {
   profileRoles?: ProfileRoleRow[]
   activeProfileRoleId?: string | null
   scopeNames?: Record<string, string>
+  /** Az aktív UI-kontextus scope-ja — a header bal-felső chipje ehhez igazodik. */
+  activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
+  /** A scope_id-hez tartozó név (egyházmegye / egyházkerület esetén). */
+  activeScopeName?: string | null
   children: React.ReactNode
   onToggleMobileMenu: () => void
   /** Sidebar collapse/expand toggle — a header Kartotéka-ikonjához kötve. */
@@ -54,6 +58,8 @@ export function DashboardShell({
   profileRoles = [],
   activeProfileRoleId = null,
   scopeNames = {},
+  activeScope = null,
+  activeScopeName = null,
   children,
   onToggleMobileMenu,
   onToggleSidebar,
@@ -97,6 +103,8 @@ export function DashboardShell({
         profileRoles={profileRoles}
         activeProfileRoleId={activeProfileRoleId}
         scopeNames={scopeNames}
+        activeScope={activeScope}
+        activeScopeName={activeScopeName}
         onOpenProfile={() => setProfileOpen(true)}
         onOpenCongregation={() => setCongregationOpen(true)}
         onOpenGodMode={isMasterAdmin && !isGodMode ? () => setGodModeOpen(true) : undefined}

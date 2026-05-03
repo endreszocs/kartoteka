@@ -24,17 +24,19 @@ export function PendingUserActions({
         onClick={onQuickApprove}
         disabled={isPending}
         className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+        title="A fiók azonnal aktiválódik, gyülekezet hozzárendelése nélkül"
       >
         <UserCheck className="size-3.5" />
-        Gyors jóváhagyás
+        Felhasználó aktiválása
       </Button>
       <Button
         size="sm"
         variant="outline"
         onClick={onDetailedApprove}
         disabled={isPending}
+        title="Aktiválás egyházmegye- és gyülekezet-választással"
       >
-        Részletes…
+        Aktiválás gyülekezettel…
       </Button>
       <Button
         size="sm"

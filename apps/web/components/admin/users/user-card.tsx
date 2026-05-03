@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Castle, Church, Settings2, Trash2, Users } from 'lucide-react'
+import { Building2, Castle, Church, Eye, Trash2, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
@@ -10,6 +10,7 @@ import type { UserWithScope } from '@/app/(dashboard)/admin/actions'
 import { PendingUserActions } from './pending-user-actions'
 import { RoleAssignPopover, type QuickOption } from './role-assign-popover'
 import { RoleBadgeInline } from './role-badge-inline'
+import { RolePermissionsDialog } from './role-permissions-dialog'
 
 interface UserCardProps {
   user: UserWithScope
@@ -18,6 +19,7 @@ interface UserCardProps {
   quickOptions: QuickOption[]
   isPending: boolean
   onQuickAssign: (option: QuickOption) => void
+  /** Egyedi szerep + indoklás dialóg (a popover-en belüli "Részletes (egyedi szerep)" linkről hívva). */
   onAdvanced: () => void
   onRevokeRole: (row: ProfileRoleRow) => void
   onQuickApprove: () => void
@@ -44,6 +46,10 @@ export function UserCard({
   // `relative z-50`-re, különben a DOM-szerint későbbi testvér-card-ok
   // saját stacking context-jeikben felülre renderelődnek.
   const [popoverOpen, setPopoverOpen] = useState(false)
+  // Funkciók modal — a "Funkciók" gomb a user szerepköreinek jogosultságait
+  // mutatja meg modul × akció bontásban (mit lát, mit írhat, mit szerkeszthet,
+  // mihez nem fér hozzá).
+  const [permissionsOpen, setPermissionsOpen] = useState(false)
   const isActive = user.status === 'active'
   const isUserPending = user.status === 'pending'
   const isRejected = user.status === 'rejected'
@@ -122,12 +128,13 @@ export function UserCard({
             <Button
               size="sm"
               variant="outline"
-              onClick={onAdvanced}
+              onClick={() => setPermissionsOpen(true)}
               disabled={isPending}
               className="gap-1"
+              title="Mit lát és mit tehet a felhasználó a szerepkörei alapján"
             >
-              <Settings2 className="size-3.5" />
-              Részletes
+              <Eye className="size-3.5" />
+              Funkciók
             </Button>
             <Button
               size="sm"
@@ -198,6 +205,15 @@ export function UserCard({
           )}
         </div>
       )}
+
+      <RolePermissionsDialog
+        open={permissionsOpen}
+        onOpenChange={setPermissionsOpen}
+        userName={user.full_name || user.email || 'Ismeretlen felhasználó'}
+        email={user.email || null}
+        roles={roles}
+        scopeNameMap={scopeNameMap}
+      />
     </div>
   )
 }

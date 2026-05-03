@@ -217,6 +217,13 @@ export function DashboardLayoutClient({
           profileRoles={profileRoles}
           activeProfileRoleId={activeProfileRoleId}
           scopeNames={scopeNames}
+          activeScope={activeScope}
+          activeScopeName={(() => {
+            // Az aktív profile_role scope_id-jához tartozó név (egyházmegye / kerület)
+            const active = profileRoles.find((r) => r.id === activeProfileRoleId)
+            if (!active || !active.scope_id) return null
+            return scopeNames[active.scope_id] || null
+          })()}
           onToggleMobileMenu={() => setMobileOpen(prev => !prev)}
           onToggleSidebar={() => setSidebarCollapsed(prev => !prev)}
         >
