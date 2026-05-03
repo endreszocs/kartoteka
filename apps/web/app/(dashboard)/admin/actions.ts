@@ -566,14 +566,19 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 export async function quickApproveUser(userId: string) {
   const { supabase } = await requireMasterAdmin()
 
-  const { error: updateErr, count } = await supabase
+  // FIX 2026-05-03: a Supabase JS SDK 2.x .update() NEM ad count-ot — a select('id')
+  // mintával ellenőrizzük, hogy az update tényleg végrehajtódott-e.
+  const { error: updateErr, data: updated } = await supabase
     .from('profiles')
     .update({ status: 'active' })
     .eq('id', userId)
     .eq('status', 'pending')
+    .select('id')
 
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
-  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
+  if (!updated || updated.length === 0) {
+    return { error: 'A felhasználó már nem pending státuszú.' }
+  }
 
   // Értesítés (best-effort, nem blokkol) — javított mezőnevek
   try {
@@ -613,14 +618,18 @@ export async function rejectPendingUser(userId: string, reason: string) {
 
   const cleanedReason = reason.trim()
 
-  const { error: updateErr, count } = await supabase
+  // FIX 2026-05-03: select('id') minta a count helyett.
+  const { error: updateErr, data: updated } = await supabase
     .from('profiles')
     .update({ status: 'rejected' })
     .eq('id', userId)
     .eq('status', 'pending')
+    .select('id')
 
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
-  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
+  if (!updated || updated.length === 0) {
+    return { error: 'A felhasználó már nem pending státuszú.' }
+  }
 
   try {
     await supabase.from('ertesitesek').insert({
@@ -685,7 +694,8 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
   }
 
   // Profil frissítés — csak pending státuszú felhasználó aktiválható
-  const { error: updateErr, count } = await supabase
+  // FIX 2026-05-03: select('id') minta a count helyett.
+  const { error: updateErr, data: updated } = await supabase
     .from('profiles')
     .update({
       status: 'active',
@@ -694,9 +704,12 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
     })
     .eq('id', userId)
     .eq('status', 'pending')
+    .select('id')
 
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
-  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
+  if (!updated || updated.length === 0) {
+    return { error: 'A felhasználó már nem pending státuszú.' }
+  }
 
   // Lelkipásztor profile_role automatikus beillesztése (ha még nincs ilyen sora)
   // Ezzel a multi-role rendszer is "lát" a frissen jóváhagyott lelkészről.

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Castle, Church, Eye, Trash2, Users } from 'lucide-react'
+import { Building2, Castle, Church, Clock, Eye, Trash2, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
@@ -105,15 +105,11 @@ export function UserCard({
           )}
         </div>
 
-        <div className="flex flex-col items-end gap-1.5">
-          {isUserPending && (
-            <PendingUserActions
-              isPending={isPending}
-              onQuickApprove={onQuickApprove}
-              onDetailedApprove={onDetailedApprove}
-              onReject={onReject}
-            />
-          )}
+        {/* Jobb-oldali action-oszlop — letisztított: csak "+ Új szerepkör"
+            primary + "Funkciók/Törlés" secondary. A pending-akciók (aktiválás)
+            külön banner-be kerültek a card közepére, hogy ne keveredjenek a
+            mindennapi műveletekkel. */}
+        <div className="flex flex-col items-end gap-1.5 min-w-[160px]">
           {!isRejected && (
             <RoleAssignPopover
               quickOptions={quickOptions}
@@ -149,6 +145,29 @@ export function UserCard({
           </div>
         </div>
       </div>
+
+      {/* Várakozó fiók banner — a card közepén kiemelve, hogy ne keveredjen
+          a "+ Új szerepkör" / "Funkciók" gombokkal a jobb oldalon. */}
+      {isUserPending && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 text-amber-900 mr-2">
+              <Clock className="size-4 shrink-0 text-amber-600" />
+              <p className="text-sm font-semibold">Várakozó fiók — aktiválás:</p>
+            </div>
+            <PendingUserActions
+              isPending={isPending}
+              onQuickApprove={onQuickApprove}
+              onDetailedApprove={onDetailedApprove}
+              onReject={onReject}
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] text-amber-800/80 leading-relaxed">
+            A felhasználó még nem tud belépni. Aktiváld a fiókot — vagy add
+            hozzá az első szerepkörét, ami egyben aktiválja is.
+          </p>
+        </div>
+      )}
 
       {(user.primary_district_name ||
         user.primary_diocese_name ||

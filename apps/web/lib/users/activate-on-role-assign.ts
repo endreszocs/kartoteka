@@ -77,18 +77,25 @@ export async function activateAccountOnRoleAssign(
 
   const updatePayload: Record<string, unknown> = { status: 'active', ...setFields }
 
-  const { error: updateErr, count } = await supabase
+  // FONTOS: a Supabase JS SDK 2.x alapértelmezetten NEM ad vissza count-ot az
+  // .update()-nél. A `.select('id')` viszont visszaadja a frissített sorokat,
+  // így pontosan tudjuk, hogy az update tényleg végrehajtódott-e (a filter
+  // matchelt-e). A korábbi `if (!count)` mindig `true`-t adott (count: undefined),
+  // így az activate flow csendben failelt — pedig az update lefutott.
+  const { error: updateErr, data: updated } = await supabase
     .from('profiles')
     .update(updatePayload)
     .eq('id', profileId)
     .eq('status', 'pending')
+    .select('id')
 
   if (updateErr) {
     console.warn(`[ACTIVATE] profile-update hibája (${profileId}): ${updateErr.message}`)
     return { activated: false, previousStatus, setFields: {} }
   }
 
-  if (!count) {
+  if (!updated || updated.length === 0) {
+    // A filter nem matchelt — pl. a status időközben már nem 'pending'
     return { activated: false, previousStatus, setFields: {} }
   }
 
