@@ -62,6 +62,13 @@ interface RoleAssignPopoverProps {
   showActivationBanner: boolean
   onAssign: (option: QuickOption) => void
   onAdvanced: () => void
+  /**
+   * A parent (UserCard) reagálhat az open-állapotra — a card-ot fel kell
+   * emelni `z-50`-re, különben a DOM-rend szerint későbbi testvér-card-ok
+   * elemei átszúrnak a popover felé (a `card-raised` `:hover` transform-ja
+   * stacking context-et hoz létre).
+   */
+  onOpenChange?: (open: boolean) => void
 }
 
 export function RoleAssignPopover({
@@ -70,11 +77,17 @@ export function RoleAssignPopover({
   showActivationBanner,
   onAssign,
   onAdvanced,
+  onOpenChange,
 }: RoleAssignPopoverProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedTarget, setSelectedTarget] = useState<ScopeTarget | null>(null)
   const [selectedRole, setSelectedRole] = useState<ProfileRoleType | null>(null)
+
+  function setOpen(next: boolean) {
+    setOpenState(next)
+    onOpenChange?.(next)
+  }
 
   const targets = useMemo<ScopeTarget[]>(() => {
     const seen = new Set<string>()
@@ -151,6 +164,10 @@ export function RoleAssignPopover({
     setSearch('')
     setOpen(false)
   }
+
+  // Egy fixed-positioned overlay z-[100] — a card-on belüli z-40 NEM elég,
+  // mert a `card-raised` testvérek saját stacking context-et nyithatnak
+  // (transform a hover-en). Az overlay és a popover-doboz is fix.
 
   function handleAssign() {
     if (!selectedTarget || !selectedRole) return

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Building2, Castle, Church, Settings2, Trash2, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,10 @@ export function UserCard({
   onReject,
   onDelete,
 }: UserCardProps) {
+  // A popover open-állapota — ha nyitva van, a card-ot fel kell emelni
+  // `relative z-50`-re, különben a DOM-szerint későbbi testvér-card-ok
+  // saját stacking context-jeikben felülre renderelődnek.
+  const [popoverOpen, setPopoverOpen] = useState(false)
   const isActive = user.status === 'active'
   const isUserPending = user.status === 'pending'
   const isRejected = user.status === 'rejected'
@@ -68,7 +73,9 @@ export function UserCard({
   )
 
   return (
-    <div className="card-raised p-4 sm:p-5">
+    <div
+      className={`card-raised p-4 sm:p-5 ${popoverOpen ? 'relative z-50' : 'relative'}`}
+    >
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
           <Users className="size-5" />
@@ -108,6 +115,7 @@ export function UserCard({
               showActivationBanner={isUserPending}
               onAssign={onQuickAssign}
               onAdvanced={onAdvanced}
+              onOpenChange={setPopoverOpen}
             />
           )}
           <div className="flex items-center gap-1.5">
