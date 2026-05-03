@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { AlertTriangle, Building2, CalendarRange, Download, Printer, ShieldCheck, Wallet } from 'lucide-react'
-import Link from 'next/link'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -18,6 +17,7 @@ import { MonetaryTabV2 } from './monetary-tab-v2'
 import { RentalTab } from './rental-tab'
 import { OblioEllenorzesTab } from './oblio-ellenorzes-tab'
 import { FinanceSugoTab } from './finance-sugo-tab'
+import { PenzugyImportWizard } from './finance-import/penzugy-import-wizard'
 import { slugifyCongregationName } from '@/lib/utils/slugify'
 import { IncomeDialog } from '@/components/modals/income-dialog-v3'
 import { ExpenseDialogV2 } from '@/components/modals/expense-dialog-v2'
@@ -142,6 +142,7 @@ export function FinanceTabs({
         'monetary',
         'oblio_ellenorzes',
         'sugo',
+        'admin_import',
       ] as const
       if ((validTabs as readonly string[]).includes(hash)) {
         setActiveTab(hash)
@@ -257,16 +258,18 @@ export function FinanceTabs({
               <Printer className="mr-1 size-3.5" />
               Nyomtatási központ
             </Button>
-            {/* Pénzügyi import — csak rendszergazdai módban érhető el. A v1-ben
-                a Kassza fül beolvasását kínálja az admin oldalra ugorva. */}
+            {/* Pénzügyi import — csak rendszergazdai módban látható.
+                A "Rendszergazdai importáló" fülre vált, ahol a wizard él. */}
             {isGodMode && (
-              <Link
-                href="/admin/finance-import"
-                className="inline-flex h-9 items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-background px-3 text-sm font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveTab('admin_import')}
+                className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50"
               >
                 <Download className="mr-1 size-3.5" />
                 Adatok importálása
-              </Link>
+              </Button>
             )}
             {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
           </div>
@@ -328,6 +331,11 @@ export function FinanceTabs({
               { value: 'oblio_ellenorzes', label: 'Oblio ellenőrzés', color: 'cyan' },
             ]),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
+            // Rendszergazdai importáló — csak god-mode aktiválás esetén látszik.
+            // A hivatalos EREK kasszakönyv Excel-fájl importja.
+            ...(isGodMode ? [
+              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'rose' as const },
+            ] : []),
           ]}
           active={activeTab}
           onChange={setActiveTab}
@@ -458,6 +466,16 @@ export function FinanceTabs({
         <TabsContent value="sugo" className="mt-4">
           <FinanceSugoTab />
         </TabsContent>
+
+        {/* Rendszergazdai importáló — csak god-mode aktív esetén jelenik meg.
+            A hivatalos EREK kasszakönyv Excel-fájl importja a Kartotékába.
+            keepMounted=false: a wizard csak akkor töltődik be, ha aktív a fül,
+            így a böngésző nem dolgozik feleslegesen. */}
+        {isGodMode && (
+          <TabsContent value="admin_import" className="mt-4">
+            <PenzugyImportWizard />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Bevétel modal */}

@@ -17,10 +17,7 @@
  */
 
 import { useCallback, useMemo, useState, useTransition } from 'react'
-import { Wallet } from 'lucide-react'
 import { toast } from 'sonner'
-
-import { PageHero } from '@kartoteka/ui-app'
 import {
   parseAndPreviewFinance,
   analyzeKasszaRows,
@@ -241,13 +238,6 @@ export function PenzugyImportWizard() {
 
   return (
     <div className="space-y-5">
-      <PageHero
-        Icon={Wallet}
-        eyebrow="Rendszergazdai eszköz"
-        title="Pénzügyi adatok importálása"
-        description="A hivatalos EREK könyvelési Excel Kassza fülét tölti be a Kartotéka rendszerbe — egyetlen lépésben, lelkészbarátul."
-      />
-
       {stage === 'welcome' && (
         <WelcomeStep
           selectedFile={file}
