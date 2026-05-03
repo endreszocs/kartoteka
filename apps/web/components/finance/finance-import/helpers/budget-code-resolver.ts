@@ -166,14 +166,23 @@ export function resolveBudgetCode(
     }
   }
 
-  // Belső mozgás (4xx prefix) — a teljes 4-tartomány a belső pénzmozgásokat
-  // fedi le az EREK könyvelési számhalomban:
-  //   - 400.xx — Készpénzletétel a kasszáról bankra (kassza→bank, Kassza fül)
-  //   - 401.xx — Készpénzfelvétel bankról kasszára (bank→kassza, Kassza fül)
-  //   - 402.xx — Transfer între conturi (bank→bank, Bank fülek; v2-ben jön)
-  // Mindkét oldal cel-ID-ját megpróbáljuk kiolvasni: a párhuzamos befizetes
-  // + kiadas INSERT-hez kellhet (v2 Bank-import).
-  if (normalized.startsWith('4')) {
+  // Belső mozgás — az EREK könyvelési számhalom belső pénzmozgás-kódjai:
+  //
+  // 4xx tartomány — kiadás-oldal (kifutó pénz):
+  //   - 400.xx — Kassza→Bank letétel        (Kassza fül kiadás-oldal)
+  //   - 401.xx — Bank→Kassza felvét         (Kassza fül BEVÉTEL-oldal /
+  //                                          Bank fül KIADÁS-oldal)
+  //   - 402.xx — Bank→Bank átvitel          (Bank fülek; "Transfer între conturi")
+  //
+  // 301.xx tartomány — bank-oldali bevétel (Bank fülön bevétel-oldal):
+  //   - 301.01 — Készpénzletétel a kasszából (a 400.xx párja a Bank fülön)
+  //   - 301.02 — Átutalva másik számláról    (a 401.02/402.02 párja)
+  //
+  // Mindkét oldal cel-ID-ját megpróbáljuk kiolvasni: a párhuzamos befizetes +
+  // kiadas INSERT-hez kell (v2 Bank-import).
+  const isInternal =
+    normalized.startsWith('4') || normalized.startsWith('301')
+  if (isInternal) {
     const bef = maps.befizetescel.get(normalized) || null
     const kia = maps.kiadascel.get(normalized) || null
     return {

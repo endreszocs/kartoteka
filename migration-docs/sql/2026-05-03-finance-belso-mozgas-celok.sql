@@ -84,22 +84,34 @@ ORDER BY sz.id;
 --   - 401.01 (Bank→Kassza érkező) → kell `befizetescel`
 --   - 402.02 (Bank→Bank)          → kell `befizetescel` ÉS `kiadascel`
 
--- 3.a — befizetescel rekordok (bevétel-oldali belső mozgás)
+-- 3.a — befizetescel rekordok (BEVÉTEL-oldali belső mozgás)
+-- A bevétel-oldali kódok ott jelennek meg, ahol a pénz ÉRKEZIK.
+--
 -- INSERT INTO public.befizetescel (
 --   nevro, nev, id_szamadasicel, aktiv, belsotetel
 -- ) VALUES
---   ('Készpénzletétel', 'Készpénzletétel banki számlára (érkező)', '301.01', true, '301.01'),
---   ('Készpénzfelvétel', 'Készpénzfelvétel bankról (kasszába)', '401.01', true, '401.01'),
---   ('Bank-bank átvitel', 'Transfer între conturi (érkező)', '402.02', true, '402.02')
+--   -- 401.01: a Kassza fülön bevétel-oldal — bankról érkező készpénzfelvét
+--   ('Készpénzfelvétel', 'Készpénzfelvétel a bankról a kasszába', '401.01', true, '401.01'),
+--   -- 301.01: a Bank A fülön bevétel-oldal — kasszából érkező letétel
+--   ('Készpénzletétel', 'Készpénzletétel a kasszából (bankba érkezik)', '301.01', true, '301.01'),
+--   -- 301.02: a Bank A fülön bevétel-oldal — másik bankszámláról érkező átutalás
+--   ('Bank-bank átvitel', 'Átutalás másik számláról (érkező)', '301.02', true, '301.02')
 -- ON CONFLICT (id_szamadasicel) DO NOTHING;
 
--- 3.b — kiadascel rekordok (kiadás-oldali belső mozgás)
+-- 3.b — kiadascel rekordok (KIADÁS-oldali belső mozgás)
+-- A kiadás-oldali kódok ott jelennek meg, ahol a pénz TÁVOZIK.
+--
 -- INSERT INTO public.kiadascel (
 --   nevro, nev, id_szamadasicel, aktiv, belsotetel
 -- ) VALUES
---   ('Készpénzletétel', 'Készpénzletétel banki számlára (kimenő)', '400.01', true, '400.01'),
---   ('Készpénzfelvétel', 'Készpénzfelvétel bankról (kifizetés)', '401.01', true, '401.01'),
---   ('Bank-bank átvitel', 'Transfer între conturi (kimenő)', '402.02', true, '402.02')
+--   -- 400.01: a Kassza fülön kiadás-oldal — bankra letett pénz
+--   ('Készpénzletétel', 'Készpénzletétel a kasszából bankra (kimenő)', '400.01', true, '400.01'),
+--   -- 401.01: a Bank A fülön kiadás-oldal — kasszába felvett pénz
+--   ('Készpénzfelvétel', 'Készpénzfelvétel a bankról (kifizetés)', '401.01', true, '401.01'),
+--   -- 401.02: a Bank A fülön kiadás-oldal — másik bankszámlára átutalás (kimenő)
+--   ('Bank-bank átvitel', 'Átutalás másik számlára (kimenő)', '401.02', true, '401.02'),
+--   -- 402.02: bank-bank átvitel általános
+--   ('Bank-bank átvitel', 'Transfer între conturi (általános)', '402.02', true, '402.02')
 -- ON CONFLICT (id_szamadasicel) DO NOTHING;
 
 -- ───────────────────────────────────────────────────────────────────

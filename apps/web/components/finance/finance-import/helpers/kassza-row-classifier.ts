@@ -93,15 +93,18 @@ export function splitKasszaRow(row: Record<string, unknown>): KasszaRowKind {
     return { kind: 'skip', reason: 'tájékoztató/összesítő sor' }
   }
 
-  // 3. Belső mozgás detektálás — a 4xx kód-prefix VAGY a "Készpénzletétel/-felvétel
-  //    /Transfer între conturi" kifejezés az egyik kategória-mezőben.
+  // 3. Belső mozgás detektálás — a 4xx vagy 301.xx kód-prefix VAGY az
+  //    "Készpénzletétel/-felvétel / Transfer între conturi" kifejezés.
   //
-  // A 4xx kód-tartomány a belső pénzmozgásokat fedi le:
-  //   - 400.xx — Készpénzletétel a kasszáról a bankra (kassza→bank kimenő)
-  //   - 401.xx — Készpénzfelvétel a bankról a kasszára (bank→kassza érkező)
-  //   - 402.xx — Transfer între conturi (bank→bank, csak a Bank fülről jönne)
+  // Belső pénzmozgás-kódok az EREK könyvelési számhalomban:
+  //   - 400.xx — Kassza→Bank letétel       (Kassza fül kiadás-oldal)
+  //   - 401.xx — Bank→Kassza felvét        (Kassza fül BEVÉTEL / Bank KIADÁS)
+  //   - 402.xx — Bank→Bank átvitel         (Bank fülek; v2)
+  //   - 301.xx — Bank-oldali bevétel       (Bank fülek; v2)
+  const kodNormalized = kod !== null ? String(kod).replace(/,/, '.') : ''
   const isInternalCode =
-    kod !== null && /^4\d{2}\b/.test(String(kod).replace(/,/, '.'))
+    kodNormalized.length > 0 &&
+    (/^4\d{2}\b/.test(kodNormalized) || /^301\b/.test(kodNormalized))
   const bevCelIsInternal = bevCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(bevCel)) : false
   const kiaCelIsInternal = kiaCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(kiaCel)) : false
 
