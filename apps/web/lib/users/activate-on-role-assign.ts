@@ -3,7 +3,6 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
-import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import type { ProfileRoleScope } from '@/lib/profile-roles/types'
 
 export interface ActivationResult {
@@ -24,93 +23,67 @@ export async function activateAccountOnRoleAssign(
 ): Promise<ActivationResult> {
   const supabase = client ?? (await createClient())
 
-  // FIX 2026-05-04 (RLS-bug): a profiles status-update-eket service-role klienssel
-  // végezzük, mert a regular session-kliens a kerületi adminnak gyakran nem ad
-  // engedélyt másik user status-mezőjének írására (RLS policy szigorítás miatt).
-  // A JS-szintű requireMasterAdmin / requireAdminAccess már védett.
-  let writeClient: SupabaseClient
-  try {
-    writeClient = getSupabaseAdminClient()
-  } catch {
-    writeClient = supabase // fallback ha service-role kulcs nincs
-  }
-
-  const { data: profile, error: readErr } = await supabase
-    .from('profiles')
-    .select('status, full_name, email, congregation_id, diocese_id, district_id')
-    .eq('id', profileId)
-    .maybeSingle()
-
-  if (readErr || !profile) {
-    return { activated: false, previousStatus: null, setFields: {} }
-  }
-
-  const previousStatus = (profile.status as string | null) ?? null
-
-  if (previousStatus !== 'pending') {
-    return { activated: false, previousStatus, setFields: {} }
-  }
-
-  const setFields: ActivationResult['setFields'] = {}
+  // A scope-szerinti propagálandó mezők előkészítése (a SECURITY DEFINER RPC
+  // COALESCE-szel csak akkor írja át, ha NEM null).
+  let p_congregation_id: string | null = null
+  let p_diocese_id: string | null = null
+  let p_district_id: string | null = null
 
   if (scope === 'congregation' && scopeId) {
-    setFields.congregation_id = scopeId
+    p_congregation_id = scopeId
     try {
       const { data: cong } = await supabase
         .from('congregations')
         .select('diocese_id, dioceses:diocese_id(district_id)')
         .eq('id', scopeId)
         .maybeSingle()
-      const dioceseId = (cong?.diocese_id as string | null) || null
-      const districtId =
+      p_diocese_id = (cong?.diocese_id as string | null) || null
+      p_district_id =
         ((cong?.dioceses as { district_id?: string | null } | null)?.district_id as string | null) ||
         null
-      if (dioceseId) setFields.diocese_id = dioceseId
-      if (districtId) setFields.district_id = districtId
     } catch {
-      // best-effort, a fő status='active' attól függetlenül megtörténik
+      // best-effort
     }
   } else if (scope === 'diocese' && scopeId) {
-    setFields.diocese_id = scopeId
+    p_diocese_id = scopeId
     try {
       const { data: dio } = await supabase
         .from('dioceses')
         .select('district_id')
         .eq('id', scopeId)
         .maybeSingle()
-      const districtId = (dio?.district_id as string | null) || null
-      if (districtId) setFields.district_id = districtId
+      p_district_id = (dio?.district_id as string | null) || null
     } catch {
       // best-effort
     }
   } else if (scope === 'district' && scopeId) {
-    setFields.district_id = scopeId
+    p_district_id = scopeId
   }
 
-  const updatePayload: Record<string, unknown> = { status: 'active', ...setFields }
+  // FIX 2026-05-04: SECURITY DEFINER RPC használata a GRANT/RLS megkerüléséhez.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_activate_user', {
+      p_user_id: profileId,
+      p_congregation_id,
+      p_diocese_id,
+      p_district_id,
+    })
+    .single()
 
-  // FONTOS: a Supabase JS SDK 2.x alapértelmezetten NEM ad vissza count-ot az
-  // .update()-nél. A `.select('id')` viszont visszaadja a frissített sorokat,
-  // így pontosan tudjuk, hogy az update tényleg végrehajtódott-e (a filter
-  // matchelt-e). A korábbi `if (!count)` mindig `true`-t adott (count: undefined),
-  // így az activate flow csendben failelt — pedig az update lefutott.
-  const { error: updateErr, data: updated } = await writeClient
-    .from('profiles')
-    .update(updatePayload)
-    .eq('id', profileId)
-    .eq('status', 'pending')
-    .select('id')
-
-  if (updateErr) {
-    console.warn(`[ACTIVATE] profile-update hibája (${profileId}): ${updateErr.message}`)
-    return { activated: false, previousStatus, setFields: {} }
+  if (rpcErr) {
+    console.warn(`[ACTIVATE] admin_activate_user RPC hiba (${profileId}): ${rpcErr.message}`)
+    return { activated: false, previousStatus: null, setFields: {} }
   }
 
-  if (!updated || updated.length === 0) {
-    // A filter nem matchelt — pl. a status időközben már nem 'pending'
-    return { activated: false, previousStatus, setFields: {} }
+  const result = rpcRes as
+    | { user_id: string; previous_status: string; new_status: string; was_updated: boolean }
+    | null
+
+  if (!result || !result.was_updated) {
+    return { activated: false, previousStatus: result?.previous_status ?? null, setFields: {} }
   }
 
+  // Sikeres aktiválás — pasztorális értesítés (best-effort)
   try {
     await supabase.from('ertesitesek').insert({
       user_id: profileId,
@@ -124,5 +97,10 @@ export async function activateAccountOnRoleAssign(
     // ertesitesek best-effort — a fő aktiválás sikeres
   }
 
-  return { activated: true, previousStatus, setFields }
+  const setFields: ActivationResult['setFields'] = {}
+  if (p_congregation_id) setFields.congregation_id = p_congregation_id
+  if (p_diocese_id) setFields.diocese_id = p_diocese_id
+  if (p_district_id) setFields.district_id = p_district_id
+
+  return { activated: true, previousStatus: result.previous_status, setFields }
 }

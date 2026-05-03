@@ -722,36 +722,20 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 export async function quickApproveUser(userId: string) {
   const { supabase } = await requireMasterAdmin()
 
-  // FIX 2026-05-04 (RLS-bug): A profiles tábla RLS policy-ja a regular session-
-  // klienssel indított UPDATE-eket gyakran blokkolja a kerületi adminnak (csak
-  // a master admin / saját user kapja meg). A service-role kliens megkerüli
-  // az RLS-t — a JS-szintű requireMasterAdmin guard biztosítja a hozzáférést.
-  let adminClient
-  try {
-    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
-    adminClient = getSupabaseAdminClient()
-  } catch (err) {
-    return {
-      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}. Ellenőrizd a SUPABASE_SERVICE_ROLE_KEY env-vart.`,
-    }
-  }
+  // FIX 2026-05-04: SECURITY DEFINER RPC használata — megkerüli az RLS-t
+  // ÉS a profiles GRANT-okat is. A jogosultság-check az SQL függvényben.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_activate_user', { p_user_id: userId })
+    .single()
 
-  const { error: updateErr, data: updated } = await adminClient
-    .from('profiles')
-    .update({ status: 'active' })
-    .eq('id', userId)
-    .eq('status', 'pending')
-    .select('id')
+  if (rpcErr) return { error: `Profil frissítési hiba: ${rpcErr.message}` }
 
-  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
+  const result = rpcRes as
+    | { user_id: string; previous_status: string; new_status: string; was_updated: boolean }
+    | null
 
-  if (!updated || updated.length === 0) {
-    const { data: current } = await adminClient
-      .from('profiles')
-      .select('status, full_name, email')
-      .eq('id', userId)
-      .maybeSingle()
-    const currentStatus = (current?.status as string | null) ?? null
+  if (!result || !result.was_updated) {
+    const currentStatus = result?.new_status ?? null
     if (currentStatus === 'active') {
       return {
         success: true,
@@ -802,27 +786,18 @@ export async function rejectPendingUser(userId: string, reason: string) {
 
   const cleanedReason = reason.trim()
 
-  // FIX 2026-05-04 (RLS-bug): service-role kliens a status update-hez.
-  let adminClient
-  try {
-    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
-    adminClient = getSupabaseAdminClient()
-  } catch (err) {
-    return {
-      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}.`,
-    }
-  }
+  // FIX 2026-05-04: SECURITY DEFINER RPC — megkerüli az RLS-t és a GRANT-okat.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_reject_user', { p_user_id: userId, p_reason: cleanedReason })
+    .single()
 
-  const { error: updateErr, data: updated } = await adminClient
-    .from('profiles')
-    .update({ status: 'rejected' })
-    .eq('id', userId)
-    .eq('status', 'pending')
-    .select('id')
+  if (rpcErr) return { error: `Profil frissítési hiba: ${rpcErr.message}` }
+  const result = rpcRes as
+    | { user_id: string; previous_status: string; new_status: string; was_updated: boolean }
+    | null
 
-  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
-  if (!updated || updated.length === 0) {
-    return { error: 'A felhasználó már nem pending státuszú.' }
+  if (!result || !result.was_updated) {
+    return { error: `A felhasználó már nem várakozó (jelenlegi: ${result?.new_status || 'ismeretlen'}).` }
   }
 
   try {
@@ -887,32 +862,22 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
     congregationWasCreated = true
   }
 
-  // Profil frissítés — csak pending státuszú felhasználó aktiválható
-  // FIX 2026-05-04 (RLS-bug): service-role kliens a status update-hez.
-  let adminClient
-  try {
-    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
-    adminClient = getSupabaseAdminClient()
-  } catch (err) {
-    return {
-      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}.`,
-    }
-  }
-
-  const { error: updateErr, data: updated } = await adminClient
-    .from('profiles')
-    .update({
-      status: 'active',
-      congregation_id: congId,
-      diocese_id: dioceseId,
+  // Profil frissítés — SECURITY DEFINER RPC, megkerüli az RLS-t és a GRANT-okat.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_activate_user', {
+      p_user_id: userId,
+      p_congregation_id: congId,
+      p_diocese_id: dioceseId,
     })
-    .eq('id', userId)
-    .eq('status', 'pending')
-    .select('id')
+    .single()
 
-  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
-  if (!updated || updated.length === 0) {
-    return { error: 'A felhasználó már nem pending státuszú.' }
+  if (rpcErr) return { error: `Profil frissítési hiba: ${rpcErr.message}` }
+  const result = rpcRes as
+    | { user_id: string; previous_status: string; new_status: string; was_updated: boolean }
+    | null
+
+  if (!result || !result.was_updated) {
+    return { error: `A felhasználó már nem várakozó (jelenlegi: ${result?.new_status || 'ismeretlen'}).` }
   }
 
   // Lelkipásztor profile_role automatikus beillesztése (ha még nincs ilyen sora)

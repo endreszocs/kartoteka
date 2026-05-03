@@ -3,7 +3,6 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
-import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 
 const ROLE_PRIORITY = [
   'admin',
@@ -29,14 +28,6 @@ export async function syncProfileRoleToLegacy(
 ): Promise<SyncResult> {
   const supabase = client ?? (await createClient())
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', profileId)
-    .maybeSingle()
-
-  const previousRole = (profile?.role as string | null) ?? null
-
   const { data: rolesData, error } = await supabase
     .from('profile_roles')
     .select('role')
@@ -46,7 +37,7 @@ export async function syncProfileRoleToLegacy(
 
   if (error) {
     console.warn(`[SYNC] profile_roles lekérdezés hibája (${profileId}): ${error.message}`)
-    return { syncedTo: null, previousRole, changed: false }
+    return { syncedTo: null, previousRole: null, changed: false }
   }
 
   const activeRoles = new Set<string>((rolesData || []).map((r) => r.role as string))
@@ -60,30 +51,30 @@ export async function syncProfileRoleToLegacy(
   }
 
   if (!chosen) {
-    return { syncedTo: null, previousRole, changed: false }
+    return { syncedTo: null, previousRole: null, changed: false }
   }
 
-  if (chosen === previousRole) {
-    return { syncedTo: chosen, previousRole, changed: false }
+  // FIX 2026-05-04: SECURITY DEFINER RPC megkerüli az RLS-t és a GRANT-okat.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_sync_legacy_role', { p_user_id: profileId, p_new_role: chosen })
+    .single()
+
+  if (rpcErr) {
+    console.warn(`[SYNC] admin_sync_legacy_role RPC hiba (${profileId}): ${rpcErr.message}`)
+    return { syncedTo: null, previousRole: null, changed: false }
   }
 
-  // FIX 2026-05-04 (RLS-bug): service-role kliens a profiles.role update-hez.
-  let writeClient: SupabaseClient
-  try {
-    writeClient = getSupabaseAdminClient()
-  } catch {
-    writeClient = supabase // fallback ha service-role kulcs nincs
+  const result = rpcRes as
+    | { user_id: string; previous_role: string | null; new_role: string; was_updated: boolean }
+    | null
+
+  if (!result) {
+    return { syncedTo: null, previousRole: null, changed: false }
   }
 
-  const { error: updateErr } = await writeClient
-    .from('profiles')
-    .update({ role: chosen })
-    .eq('id', profileId)
-
-  if (updateErr) {
-    console.warn(`[SYNC] profiles.role frissítés hibája (${profileId}): ${updateErr.message}`)
-    return { syncedTo: null, previousRole, changed: false }
+  return {
+    syncedTo: chosen,
+    previousRole: result.previous_role,
+    changed: result.was_updated,
   }
-
-  return { syncedTo: chosen, previousRole, changed: true }
 }
