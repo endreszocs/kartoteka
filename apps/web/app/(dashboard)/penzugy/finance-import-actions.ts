@@ -43,6 +43,7 @@ import {
   diagnoseMonetar,
   type MonetarDiagnostic,
 } from '@/components/finance/finance-import/helpers/monetar-diagnostic'
+import { applyKasszaFix } from '@/components/finance/finance-import/helpers/kassza-sheet-parser'
 import { logImportRun } from '@/lib/import/import-log'
 import type {
   FinanceParseResult,
@@ -116,7 +117,12 @@ async function parseUploadedFile(
       return { workbook: parseXmlSpreadsheet(text, file.name) }
     } else {
       const buffer = await file.arrayBuffer()
-      return { workbook: parseWorkbook(buffer, file.name) }
+      const workbook = parseWorkbook(buffer, file.name)
+      // A Kassza fül első 4 sora tájékoztató szöveg, az 5. az igazi fejléc.
+      // Az automatikus fejléc-detektálás tévesen az 1. sort veszi fejlécnek,
+      // ezért külön újrabontjuk a Kassza fülét a "Dátum"-mal kezdődő sorra.
+      const fixed = applyKasszaFix(workbook, buffer)
+      return { workbook: fixed }
     }
   } catch (e) {
     return {
