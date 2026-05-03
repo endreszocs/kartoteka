@@ -207,20 +207,31 @@ export function UserCard({
             </div>
           )}
 
-          {roles.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 mr-1">
-                Szerepkörök:
-              </span>
-              {roles.map((r) => (
-                <RoleBadgeInline
-                  key={r.id}
-                  row={r}
-                  scopeName={r.scope_id ? scopeNameMap.get(r.scope_id) || '—' : ''}
-                  onRevoke={() => onRevokeRole(r)}
-                />
-              ))}
+          {roles.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-indigo-700">
+                  Kiosztott szerepkörök ({roles.length})
+                </span>
+                <div className="flex-1 h-px bg-gradient-to-r from-indigo-200 to-transparent" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {roles.map((r) => (
+                  <RoleBadgeInline
+                    key={r.id}
+                    row={r}
+                    scopeName={r.scope_id ? scopeNameMap.get(r.scope_id) || '—' : ''}
+                    onRevoke={() => onRevokeRole(r)}
+                  />
+                ))}
+              </div>
             </div>
+          ) : (
+            isActive && (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-xs text-slate-500 italic">
+                Még nincs szerepköre — a "+ Új szerepkör" gombbal oszthat ki egyet.
+              </div>
+            )
           )}
         </div>
       )}
