@@ -722,9 +722,21 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 export async function quickApproveUser(userId: string) {
   const { supabase } = await requireMasterAdmin()
 
-  // FIX 2026-05-03: a Supabase JS SDK 2.x .update() NEM ad count-ot — a select('id')
-  // mintával ellenőrizzük, hogy az update tényleg végrehajtódott-e.
-  const { error: updateErr, data: updated } = await supabase
+  // FIX 2026-05-04 (RLS-bug): A profiles tábla RLS policy-ja a regular session-
+  // klienssel indított UPDATE-eket gyakran blokkolja a kerületi adminnak (csak
+  // a master admin / saját user kapja meg). A service-role kliens megkerüli
+  // az RLS-t — a JS-szintű requireMasterAdmin guard biztosítja a hozzáférést.
+  let adminClient
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    adminClient = getSupabaseAdminClient()
+  } catch (err) {
+    return {
+      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}. Ellenőrizd a SUPABASE_SERVICE_ROLE_KEY env-vart.`,
+    }
+  }
+
+  const { error: updateErr, data: updated } = await adminClient
     .from('profiles')
     .update({ status: 'active' })
     .eq('id', userId)
@@ -733,11 +745,8 @@ export async function quickApproveUser(userId: string) {
 
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
 
-  // FIX 2026-05-04: ha a frissítés nem találta meg pending-en, NEM hiba — barátságos
-  // info, mert a user közben aktiválódott (pl. szerepkör-kiosztáskor) vagy
-  // visszautasítva. A UI így ugyanúgy reload-ol.
   if (!updated || updated.length === 0) {
-    const { data: current } = await supabase
+    const { data: current } = await adminClient
       .from('profiles')
       .select('status, full_name, email')
       .eq('id', userId)
@@ -793,8 +802,18 @@ export async function rejectPendingUser(userId: string, reason: string) {
 
   const cleanedReason = reason.trim()
 
-  // FIX 2026-05-03: select('id') minta a count helyett.
-  const { error: updateErr, data: updated } = await supabase
+  // FIX 2026-05-04 (RLS-bug): service-role kliens a status update-hez.
+  let adminClient
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    adminClient = getSupabaseAdminClient()
+  } catch (err) {
+    return {
+      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}.`,
+    }
+  }
+
+  const { error: updateErr, data: updated } = await adminClient
     .from('profiles')
     .update({ status: 'rejected' })
     .eq('id', userId)
@@ -869,8 +888,18 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
   }
 
   // Profil frissítés — csak pending státuszú felhasználó aktiválható
-  // FIX 2026-05-03: select('id') minta a count helyett.
-  const { error: updateErr, data: updated } = await supabase
+  // FIX 2026-05-04 (RLS-bug): service-role kliens a status update-hez.
+  let adminClient
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    adminClient = getSupabaseAdminClient()
+  } catch (err) {
+    return {
+      error: `Service-role kliens nem elérhető: ${err instanceof Error ? err.message : 'ismeretlen'}.`,
+    }
+  }
+
+  const { error: updateErr, data: updated } = await adminClient
     .from('profiles')
     .update({
       status: 'active',

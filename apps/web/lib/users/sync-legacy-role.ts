@@ -3,6 +3,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 
 const ROLE_PRIORITY = [
   'admin',
@@ -66,7 +67,15 @@ export async function syncProfileRoleToLegacy(
     return { syncedTo: chosen, previousRole, changed: false }
   }
 
-  const { error: updateErr } = await supabase
+  // FIX 2026-05-04 (RLS-bug): service-role kliens a profiles.role update-hez.
+  let writeClient: SupabaseClient
+  try {
+    writeClient = getSupabaseAdminClient()
+  } catch {
+    writeClient = supabase // fallback ha service-role kulcs nincs
+  }
+
+  const { error: updateErr } = await writeClient
     .from('profiles')
     .update({ role: chosen })
     .eq('id', profileId)

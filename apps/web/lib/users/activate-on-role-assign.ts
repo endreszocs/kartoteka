@@ -3,6 +3,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import type { ProfileRoleScope } from '@/lib/profile-roles/types'
 
 export interface ActivationResult {
@@ -22,6 +23,17 @@ export async function activateAccountOnRoleAssign(
   client?: SupabaseClient,
 ): Promise<ActivationResult> {
   const supabase = client ?? (await createClient())
+
+  // FIX 2026-05-04 (RLS-bug): a profiles status-update-eket service-role klienssel
+  // végezzük, mert a regular session-kliens a kerületi adminnak gyakran nem ad
+  // engedélyt másik user status-mezőjének írására (RLS policy szigorítás miatt).
+  // A JS-szintű requireMasterAdmin / requireAdminAccess már védett.
+  let writeClient: SupabaseClient
+  try {
+    writeClient = getSupabaseAdminClient()
+  } catch {
+    writeClient = supabase // fallback ha service-role kulcs nincs
+  }
 
   const { data: profile, error: readErr } = await supabase
     .from('profiles')
@@ -82,7 +94,7 @@ export async function activateAccountOnRoleAssign(
   // így pontosan tudjuk, hogy az update tényleg végrehajtódott-e (a filter
   // matchelt-e). A korábbi `if (!count)` mindig `true`-t adott (count: undefined),
   // így az activate flow csendben failelt — pedig az update lefutott.
-  const { error: updateErr, data: updated } = await supabase
+  const { error: updateErr, data: updated } = await writeClient
     .from('profiles')
     .update(updatePayload)
     .eq('id', profileId)
