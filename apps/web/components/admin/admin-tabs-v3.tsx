@@ -13,19 +13,19 @@ import { DevicesLicensesTab } from './devices-licenses-tab'
 import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
 import { OverviewTabRefined } from './overview-tab-refined'
 import { ProfileCongregationsTab } from './profile-congregations-tab'
-import { ProfileRolesTab } from './profile-roles-tab'
 import { SecuritySettingsTabV2 } from './security-settings-tab-v2'
 import { SupportTab } from './support-tab'
 import { SystemFinanceTab } from './system-finance-tab'
 import { UsersTab } from './users-tab'
 import { ImportLogList } from './import-log-list'
 
+// Sprint U.5 (2026-05-03): a "roles" fül összeolvadt a "users"-szel — az UsersTab
+// most már a `UnifiedUsersTab`-ot rendereli (re-export). A "roles" tab kikerült.
 const TABS = [
   { value: 'overview', label: 'Áttekintés', color: 'blue' },
   { value: 'access-requests', label: 'Hozzáférés-kérelmek', color: 'amber' },
   { value: 'congregations', label: 'Gyülekezetek', color: 'emerald' },
   { value: 'users', label: 'Felhasználók', color: 'violet' },
-  { value: 'roles', label: 'Szerepkörök', color: 'indigo' },
   { value: 'assignments', label: 'Könyvelők / számvevők', color: 'teal' },
   { value: 'devices', label: 'Eszközök és napló', color: 'cyan' },
   { value: 'broadcasts', label: 'Frissítések', color: 'orange' },
@@ -54,9 +54,6 @@ export function AdminTabsV3({ isGodMode = false }: { isGodMode?: boolean }) {
       </TabsContent>
       <TabsContent value="users">
         <UsersTab />
-      </TabsContent>
-      <TabsContent value="roles">
-        <ProfileRolesTab />
       </TabsContent>
       <TabsContent value="assignments">
         <ProfileCongregationsTab />

@@ -1,8 +1,8 @@
 ﻿'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isMasterAdmin } from '@/lib/auth/roles'
+import { requireAdminAccess } from '@/lib/auth/admin-access'
+import { logAuditEvent } from '@/lib/audit/log'
 import { revalidatePath } from 'next/cache'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import {
@@ -31,13 +31,19 @@ async function countActiveMembers(supabase: SupabaseClient, congregationIds?: st
   return count || 0
 }
 
-// â”€â”€â”€ SegĂ©d: Master Admin ellenĹ‘rzĂ©s â”€â”€â”€
-
-async function requireMasterAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !isMasterAdmin(user.email)) throw new Error('Nincs jogosultsĂˇga.')
-  return { supabase, user }
+// ─── Segéd: admin guard ───
+//
+// Sprint U.5 (D7 fix): a `requireMasterAdmin` régen csak a MASTER_ADMIN_EMAIL-t fogadta el,
+// ami inkonzisztens volt az `admin/layout.tsx`-tel (ami admin + master + egyhazkeruleti_admin-t
+// engedett). Most a `requireAdminAccess` helperhez delegál: alapértelmezetten admin/master/
+// kerületi admin mind átmegy. Ahol kifejezetten csak master-t engedünk, ott a function-szignatúrát
+// `requireMasterAdmin({ requireMaster: true })`-re bővítjük.
+async function requireMasterAdmin(opts?: { requireMaster?: boolean }) {
+  const access = await requireAdminAccess({
+    requireMaster: opts?.requireMaster ?? false,
+    allowDistrictAdmin: true,
+  })
+  return { supabase: access.supabase, user: access.user! }
 }
 
 async function findApprovalTarget(supabase: SupabaseClient, congregationId: string, adminUserId: string) {
@@ -507,17 +513,12 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
   if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
   if (user?.id === userId) return { error: 'Nem törölheted a saját fiókodat.' }
 
-  // Audit-log mentés (best-effort)
-  try {
-    await supabase.from('ertesitesek').insert({
-      user_id: user?.id || null,
-      type: 'system',
-      title: 'Felhasználó törölve',
-      body: `Az admin törölte a ${userId.slice(0, 8)} azonosítójú felhasználót a rendszerből.`,
-    })
-  } catch {
-    // tovább megyünk — a törlés a fontosabb
-  }
+  // Snapshot a metadata-hoz — a törlés után már nem lekérdezhető
+  const { data: snapshot } = await supabase
+    .from('profiles')
+    .select('email, full_name')
+    .eq('id', userId)
+    .maybeSingle()
 
   // Service-role admin client a törléshez
   const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
@@ -537,15 +538,26 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
   // A profiles sort a CASCADE már törölte, de biztonság kedvéért is:
   await supabase.from('profiles').delete().eq('id', userId)
 
+  await logAuditEvent({
+    action: 'user.delete',
+    targetTable: 'profiles',
+    targetId: userId,
+    metadata: {
+      email: snapshot?.email ?? null,
+      full_name: snapshot?.full_name ?? null,
+    },
+  })
+
   revalidatePath('/admin/felhasznalok')
   revalidatePath('/admin')
   return { success: true }
 }
 
 // 2026-05-02 (v0.9.42) — GYORS jóváhagyás gyülekezet nélkül.
-// A meglévő `approveUser` egyházmegyét + gyülekezet-nevet KÖTELEZ — ami egy
-// új lelkész esetén indokolt. DE Google-loginnal érkezett vagy más fiókoknak
-// nem akarunk azonnal gyülekezetet rendelni (a wizard-on majd kiválaszt).
+// Sprint U.5 (2026-05-03) update: ertesitesek-mezőnév javítva (cim/uzenet/tipus),
+// audit-log bevezetve. Korábban a type/title/body mezők miatt az értesítés
+// silent fail-elt — a felhasználók sosem látták a "Hozzáférése aktiválva"
+// üzenetet a dashboardon.
 //
 // Ez az action:
 //   - Pending → active (egyetlen klikk)
@@ -563,17 +575,71 @@ export async function quickApproveUser(userId: string) {
   if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
   if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
 
-  // Értesítés (best-effort, nem blokkol)
+  // Értesítés (best-effort, nem blokkol) — javított mezőnevek
   try {
     await supabase.from('ertesitesek').insert({
       user_id: userId,
-      type: 'system',
-      title: 'Hozzáférése aktiválva',
-      body: 'Az admin elfogadta a hozzáférés-kérelmét. A bejelentkezés után az induló wizard segít beállítani a gyülekezetet és a többi adatot.',
+      tipus: 'success',
+      cim: 'Hozzáférése aktiválva',
+      uzenet:
+        'A rendszergazda elfogadta a hozzáférés-kérelmét. A bejelentkezés után az induló wizard segít beállítani a gyülekezetet és a többi adatot.',
+      olvasva: false,
     })
   } catch {
     // ertesitesek tábla esetlegesen nem érhető el, de a fő művelet sikeres
   }
+
+  await logAuditEvent({
+    action: 'user.quick_approve',
+    targetTable: 'profiles',
+    targetId: userId,
+    metadata: { previous_status: 'pending' },
+  })
+
+  revalidatePath('/admin/felhasznalok')
+  revalidatePath('/admin')
+  return { success: true }
+}
+
+// 2026-05-03 (Sprint U.5) — Pending user elutasítása indoklással.
+// A user `status` 'rejected'-re vált, értesítést kap a kapott indoklással
+// (pasztorális hangnem). A regisztráció törlésére külön deleteUser hívható.
+export async function rejectPendingUser(userId: string, reason: string) {
+  const { supabase } = await requireMasterAdmin()
+  if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
+  if (!reason || reason.trim().length < 5) {
+    return { error: 'Az elutasítás indoklása legalább 5 karakter legyen.' }
+  }
+
+  const cleanedReason = reason.trim()
+
+  const { error: updateErr, count } = await supabase
+    .from('profiles')
+    .update({ status: 'rejected' })
+    .eq('id', userId)
+    .eq('status', 'pending')
+
+  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
+  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
+
+  try {
+    await supabase.from('ertesitesek').insert({
+      user_id: userId,
+      tipus: 'warning',
+      cim: 'Hozzáférés-kérelme nem került elfogadásra',
+      uzenet: `A regisztrációs kérelmét sajnos nem tudtuk elfogadni. Indoklás: ${cleanedReason}`,
+      olvasva: false,
+    })
+  } catch {
+    // ertesitesek best-effort
+  }
+
+  await logAuditEvent({
+    action: 'user.reject',
+    targetTable: 'profiles',
+    targetId: userId,
+    metadata: { reason: cleanedReason, previous_status: 'pending' },
+  })
 
   revalidatePath('/admin/felhasznalok')
   revalidatePath('/admin')
@@ -587,13 +653,13 @@ export async function getDioceses() {
 }
 
 export async function approveUser(userId: string, dioceseId: string, congregationName: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, user: adminUser } = await requireMasterAdmin()
 
   if (!dioceseId || !congregationName.trim()) {
-    return { error: 'EgyhĂˇzmegye Ă©s gyĂĽlekezet megadĂˇsa kĂ¶telezĹ‘.' }
+    return { error: 'Egyházmegye és gyülekezet megadása kötelező.' }
   }
 
-  // GyĂĽlekezet keresĂ©s vagy lĂ©trehozĂˇs
+  // Gyülekezet keresés vagy létrehozás
   const normalizedName = congregationName.trim()
   const { data: existingCong } = await supabase
     .from('congregations')
@@ -602,6 +668,7 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
     .maybeSingle()
 
   let congId: string
+  let congregationWasCreated = false
 
   if (existingCong) {
     congId = existingCong.id
@@ -612,11 +679,12 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
       .select('id')
       .single()
 
-    if (insertErr || !newCong) return { error: `GyĂĽlekezet lĂ©trehozĂˇsi hiba: ${insertErr?.message}` }
+    if (insertErr || !newCong) return { error: `Gyülekezet létrehozási hiba: ${insertErr?.message}` }
     congId = newCong.id
+    congregationWasCreated = true
   }
 
-  // Profil frissĂ­tĂ©s â€” csak pending stĂˇtuszĂş felhasznĂˇlĂł aktivĂˇlhatĂł
+  // Profil frissítés — csak pending státuszú felhasználó aktiválható
   const { error: updateErr, count } = await supabase
     .from('profiles')
     .update({
@@ -627,27 +695,100 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
     .eq('id', userId)
     .eq('status', 'pending')
 
-  if (updateErr) return { error: `Profil frissĂ­tĂ©si hiba: ${updateErr.message}` }
-  if (count === 0) return { error: 'A felhasznĂˇlĂł mĂˇr nem pending stĂˇtuszĂş.' }
+  if (updateErr) return { error: `Profil frissítési hiba: ${updateErr.message}` }
+  if (count === 0) return { error: 'A felhasználó már nem pending státuszú.' }
 
-  // Ă‰rtesĂ­tĂ©s
-  await supabase.from('ertesitesek').insert({
-    user_id: userId,
-    type: 'system',
-    title: 'FiĂłk jĂłvĂˇhagyva',
-    message: 'FiĂłkja jĂłvĂˇhagyĂˇsra kerĂĽlt! MostantĂłl bejelentkezhet Ă©s hasznĂˇlhatja a KartotĂ©ka rendszert.',
-    is_read: false,
+  // Lelkipásztor profile_role automatikus beillesztése (ha még nincs ilyen sora)
+  // Ezzel a multi-role rendszer is "lát" a frissen jóváhagyott lelkészről.
+  let createdProfileRoleId: string | null = null
+  try {
+    const { data: existingPastorRole } = await supabase
+      .from('profile_roles')
+      .select('id')
+      .eq('profile_id', userId)
+      .eq('scope', 'congregation')
+      .eq('scope_id', congId)
+      .eq('role', 'lelkesz')
+      .maybeSingle()
+
+    if (!existingPastorRole) {
+      const { data: insertedRole } = await supabase
+        .from('profile_roles')
+        .insert({
+          profile_id: userId,
+          scope: 'congregation',
+          scope_id: congId,
+          role: 'lelkesz',
+          approval_status: 'approved',
+          granted_by: adminUser?.id ?? null,
+          approved_by: adminUser?.id ?? null,
+          approved_at: new Date().toISOString(),
+          active: true,
+        })
+        .select('id')
+        .single()
+      createdProfileRoleId = insertedRole?.id ?? null
+    }
+  } catch {
+    // best-effort — a fő aktiválás sikeres
+  }
+
+  // Értesítés (javított mezőnevek: cim/uzenet/tipus/olvasva)
+  try {
+    await supabase.from('ertesitesek').insert({
+      user_id: userId,
+      tipus: 'success',
+      cim: 'Fiókja jóváhagyva',
+      uzenet:
+        'Fiókja jóváhagyásra került! Mostantól bejelentkezhet és használhatja a Kartotéka rendszert.',
+      olvasva: false,
+    })
+  } catch {
+    // ertesitesek best-effort
+  }
+
+  await logAuditEvent({
+    action: 'user.approve',
+    targetTable: 'profiles',
+    targetId: userId,
+    metadata: {
+      congregation_id: congId,
+      diocese_id: dioceseId,
+      congregation_was_created: congregationWasCreated,
+      auto_created_profile_role_id: createdProfileRoleId,
+    },
   })
 
   revalidatePath('/admin')
+  revalidatePath('/admin/felhasznalok')
   return { success: true }
 }
 
+/**
+ * @deprecated Sprint U.5 (2026-05-03): a `profiles.role` legacy mezőt többé nem
+ * írjuk közvetlenül a UI-ból. Helyette a `profile_roles` táblába írunk
+ * (`createProfileRole` action), és a `syncProfileRoleToLegacy` szerver-helper
+ * automatikusan szinkronizálja a `profiles.role` mezőt. Ez a function backwards-
+ * compat-célból megmarad, de a UI nem hívja.
+ */
 export async function updateUserRole(userId: string, role: string) {
   const { supabase } = await requireMasterAdmin()
 
-  const validRoles = ['lelkesz', 'esperes', 'egyhazmegyei_admin', 'admin']
-  if (!validRoles.includes(role)) return { error: 'Ă‰rvĂ©nytelen szerepkĂ¶r.' }
+  // Sprint U.5: kibővített validRoles — az összes ismert role (a memory feedback szerint).
+  const validRoles = [
+    'lelkesz',
+    'esperes',
+    'egyhazmegyei_admin',
+    'egyhazkeruleti_admin',
+    'admin',
+    'konyvelo',
+    'egyhazmegyei_szamvevo',
+  ]
+  if (!validRoles.includes(role)) return { error: 'Érvénytelen szerepkör.' }
+
+  console.warn(
+    '[DEPRECATED] updateUserRole — használja a createProfileRole action-t a multi-role rendszerben.',
+  )
 
   const { error } = await supabase
     .from('profiles')
@@ -711,13 +852,13 @@ export async function replySupportTicket(ticketId: string, replyContent: string)
     return { success: true }
   }
 
-  // Ă‰rtesĂ­tĂ©s
+  // Értesítés (mezőnév-fix: cim/uzenet/tipus/olvasva)
   await supabase.from('ertesitesek').insert({
     user_id: ticketUserId,
-    type: 'support_reply',
-    title: 'VĂˇlasz a tĂˇmogatĂˇsi kĂ©rdĂ©sre',
-    message: `VĂˇlasz Ă©rkezett a "${ticketSubject}" tĂ©mĂˇjĂş kĂ©rdĂ©sĂ©re.`,
-    is_read: false,
+    tipus: 'info',
+    cim: 'Válasz a támogatási kérdésre',
+    uzenet: `Válasz érkezett a "${ticketSubject}" témájú kérdésére.`,
+    olvasva: false,
   })
 
   revalidatePath('/admin')

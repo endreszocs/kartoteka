@@ -85,8 +85,8 @@ export function PendingApprovalClient({
             className="mx-auto max-w-md text-base leading-relaxed text-slate-600"
           >
             {isRoleMissing
-              ? 'A belépése aktív, de a fiókjához jelenleg nincs érvényes szerepkör rendelve. Addig a rendszer biztonsági okból nem enged hozzáférést a modulokhoz, amíg az admin helyre nem állítja a jogosultságot.'
-              : 'A regisztrációja megérkezett. Jelenleg a kerületi SzuperAdmin ellenőrzi az adatait, és hamarosan jóvá fogja hagyni a fiókját.'}
+              ? 'A belépése aktív, de a fiókjához jelenleg nincs érvényes szerepkör rendelve. Addig a rendszer biztonsági okból nem enged hozzáférést a modulokhoz, amíg a rendszergazda helyre nem állítja a jogosultságot.'
+              : 'A regisztrációja megérkezett. Jelenleg a rendszergazda ellenőrzi az adatait, és hamarosan jóvá fogja hagyni a fiókját. A jóváhagyásról e-mail értesítést is fog kapni.'}
           </motion.p>
         </div>
 

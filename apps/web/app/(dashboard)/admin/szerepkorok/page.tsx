@@ -1,20 +1,7 @@
-import { Key } from 'lucide-react'
+import { redirect } from 'next/navigation'
 
-import { AdminPageHeader } from '@/components/admin/admin-page-header'
-import { ProfileRolesTab } from '@/components/admin/profile-roles-tab'
-
+// Sprint U.5 (2026-05-03): a Felhasználók és Szerepkörök modulok egyesültek.
+// A /admin/szerepkorok URL átirányít a kombinált oldalra.
 export default function Page() {
-  return (
-    <>
-      <AdminPageHeader
-        title="Szerepkörök"
-        description="Profile-szerepkörök kiosztása és kezelése. A szerepkör határozza meg, milyen modulokhoz fér hozzá a felhasználó."
-        icon={Key}
-        gradient="from-indigo-500 to-blue-600"
-      />
-      <div className="card-raised p-4 sm:p-5">
-        <ProfileRolesTab />
-      </div>
-    </>
-  )
+  redirect('/admin/felhasznalok')
 }

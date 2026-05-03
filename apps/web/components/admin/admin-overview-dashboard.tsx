@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
-  Building2,
   Calculator,
   ChevronRight,
   Church,
@@ -14,12 +13,11 @@ import {
   Eye,
   Flame,
   Inbox,
-  Key,
   LifeBuoy,
   Loader2,
   PiggyBank,
   ShieldAlert,
-  Users,
+  UserCog,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -129,17 +127,10 @@ const MODULES = [
   },
   {
     href: '/admin/felhasznalok',
-    icon: Users,
-    label: 'Felhasználók',
-    description: 'Aktív és függő felhasználók, szerepkörök kezelése.',
-    gradient: 'from-violet-400 to-purple-500',
-  },
-  {
-    href: '/admin/szerepkorok',
-    icon: Key,
-    label: 'Szerepkörök',
-    description: 'Profile-szerepkörök és gyülekezeti hozzárendelések.',
-    gradient: 'from-indigo-400 to-blue-500',
+    icon: UserCog,
+    label: 'Felhasználók és szerepkörök',
+    description: 'Felhasználók, várakozó kérelmek, szerepkörök kiosztása egy helyen.',
+    gradient: 'from-violet-500 to-indigo-600',
   },
   {
     href: '/admin/konyvelok',

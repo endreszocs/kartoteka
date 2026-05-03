@@ -68,6 +68,6 @@ export async function completeOAuthProfile(data: OAuthCompleteInput) {
   await supabase.auth.signOut()
 
   return {
-    success: 'Regisztráció sikeres! Kérem várja meg a kerületi SzuperAdmin jóváhagyását.',
+    success: 'Regisztráció sikeres! Kérem várja meg a rendszergazda jóváhagyását. A jóváhagyásról e-mail értesítést is fog kapni.',
   }
 }

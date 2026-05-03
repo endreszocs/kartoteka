@@ -43,7 +43,10 @@ export async function signIn(data: LoginInput) {
 
   if (!master && !isActive) {
     await supabase.auth.signOut()
-    return { error: 'Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!' }
+    return {
+      error:
+        'Fiókja még jóváhagyásra vár — a rendszergazda értesítve van. Türelmét kérjük.',
+    }
   }
 
   // Session-mode cookie beállítása ("Maradjak bejelentkezve" alapján).

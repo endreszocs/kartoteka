@@ -7,10 +7,17 @@
  * A gyülekezeti lelkészi hozzárendelés (konyvelo, titkar, custom gyülekezeti
  * scope-ra) PENDING státuszban jön létre — a lelkész jóváhagyja a saját
  * /profile/kapcsolatok oldalán.
+ *
+ * Sprint U.5 (2026-05-03):
+ *   - guard: `canManage` helyett `requireAdminAccess` (egységes szabály)
+ *   - audit-log: minden create/revoke művelet `audit_log`-ba
+ *   - D6 auto-activate: ha pending user kap approved szerepkört, a fiókja is aktiválódik
+ *   - sync-helper: a `profiles.role` legacy mező automatikusan tükröződik
  */
 
 import { revalidatePath } from 'next/cache'
-import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { requireAdminAccess } from '@/lib/auth/admin-access'
+import { logAuditEvent } from '@/lib/audit/log'
 import { ROLE_TEMPLATES } from '@/lib/profile-roles/permissions'
 import type {
   Permissions,
@@ -18,6 +25,8 @@ import type {
   ProfileRoleScope,
   ProfileRoleType,
 } from '@/lib/profile-roles/types'
+import { activateAccountOnRoleAssign } from '@/lib/users/activate-on-role-assign'
+import { syncProfileRoleToLegacy } from '@/lib/users/sync-legacy-role'
 
 export interface CreateProfileRoleInput {
   profileId: string
@@ -30,18 +39,17 @@ export interface CreateProfileRoleInput {
   reason?: string
 }
 
-function canManage(access: Awaited<ReturnType<typeof getEffectiveAccessContext>>): boolean {
-  return !!access.admin || !!access.master || !!access.egyhazkeruletiAdmin
-}
-
 // ---------------------------------------------------------------------------
 // Listázók
 // ---------------------------------------------------------------------------
 
 export async function listProfileRoles(): Promise<{ data?: ProfileRoleRow[]; error?: string }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
+  }
 
   const { data, error } = await access.supabase
     .from('profile_roles')
@@ -56,9 +64,12 @@ export async function listAssignableProfiles(): Promise<{
   data?: Array<{ id: string; full_name: string | null; email: string | null; role: string; status?: string }>
   error?: string
 }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
+  }
 
   // 2026-05-02 (v0.9.41) — Felhasználó panasza: az új regisztrált+elfogadott
   // user nem jelenik meg a Szerepkörök fülön. Az ok: az `eq('status', 'active')`
@@ -86,9 +97,12 @@ export async function listScopeOptions(): Promise<{
   }
   error?: string
 }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
+  }
 
   const [congs, dioceses, districts] = await Promise.all([
     access.supabase.from('congregations').select('id, name, nev_hu, diocese_id').order('nev_hu'),
@@ -115,10 +129,13 @@ export async function listScopeOptions(): Promise<{
 
 export async function createProfileRole(
   input: CreateProfileRoleInput,
-): Promise<{ success?: boolean; error?: string; id?: string }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága szerepkört kiosztani.' }
+): Promise<{ success?: boolean; error?: string; id?: string; accountActivated?: boolean }> {
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága szerepkört kiosztani.' }
+  }
 
   // Validáció
   if (!input.profileId) return { error: 'Válasszon felhasználót.' }
@@ -171,8 +188,8 @@ export async function createProfileRole(
       permissions,
       approval_status: approvalStatus,
       approval_reason: input.reason?.trim() || null,
-      granted_by: user.id,
-      approved_by: pastorApprovalNeeded ? null : user.id,
+      granted_by: user!.id,
+      approved_by: pastorApprovalNeeded ? null : user!.id,
       approved_at: pastorApprovalNeeded ? null : new Date().toISOString(),
       active: !pastorApprovalNeeded,
     })
@@ -180,6 +197,59 @@ export async function createProfileRole(
     .single()
 
   if (error) return { error: `Hiba: ${error.message}` }
+
+  // Audit-log a kiosztásról
+  await logAuditEvent({
+    action: 'profile_role.assign',
+    targetTable: 'profile_roles',
+    targetId: inserted?.id ?? null,
+    metadata: {
+      profile_id: input.profileId,
+      scope: input.scope,
+      scope_id: input.scopeId,
+      role: input.role,
+      custom_label: input.customLabel?.trim() || null,
+      pastor_approval_needed: pastorApprovalNeeded,
+    },
+  })
+
+  // D6: ha approved kiosztás, és a user pending — automatikusan aktiváljuk a fiókot.
+  // Lelkészi jóváhagyás-igénylős (pending) ágon NEM aktiválunk.
+  let accountActivated = false
+  if (!pastorApprovalNeeded) {
+    try {
+      const result = await activateAccountOnRoleAssign(input.profileId, input.scope, input.scopeId, supabase)
+      if (result.activated) {
+        accountActivated = true
+        await logAuditEvent({
+          action: 'user.activate_via_role_assign',
+          targetTable: 'profiles',
+          targetId: input.profileId,
+          metadata: {
+            via_profile_role_id: inserted?.id ?? null,
+            role: input.role,
+            scope: input.scope,
+            scope_id: input.scopeId,
+            previous_status: result.previousStatus,
+            set_fields: result.setFields,
+          },
+        })
+      }
+    } catch (err) {
+      console.warn(
+        `[ACTIVATE] activateAccountOnRoleAssign hibája (${input.profileId}): ${
+          err instanceof Error ? err.message : 'ismeretlen'
+        }`,
+      )
+    }
+
+    // Legacy profiles.role szinkron a multi-role-ból (D2)
+    try {
+      await syncProfileRoleToLegacy(input.profileId, supabase)
+    } catch {
+      // best-effort
+    }
+  }
 
   // Ha pending (lelkészi jóváhagyás kell), értesítés a gyülekezet lelkészeinek
   if (pastorApprovalNeeded && input.scopeId) {
@@ -216,8 +286,9 @@ export async function createProfileRole(
   }
 
   revalidatePath('/admin')
+  revalidatePath('/admin/felhasznalok')
   revalidatePath('/', 'layout')
-  return { success: true, id: inserted?.id }
+  return { success: true, id: inserted?.id, accountActivated }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,13 +299,23 @@ export async function revokeProfileRole(args: {
   profileRoleId: string
   reason: string
 }): Promise<{ success?: boolean; error?: string }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága visszavonni.' }
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága visszavonni.' }
+  }
 
   if (!args.reason?.trim() || args.reason.trim().length < 5) {
     return { error: 'A visszavonás indoklása legalább 5 karakter legyen.' }
   }
+
+  // A profile_id-t a rekordból olvassuk ki, hogy a sync később tudjon róla
+  const { data: rowSnapshot } = await access.supabase
+    .from('profile_roles')
+    .select('profile_id, scope, scope_id, role')
+    .eq('id', args.profileRoleId)
+    .maybeSingle()
 
   const { error } = await access.supabase
     .from('profile_roles')
@@ -242,14 +323,37 @@ export async function revokeProfileRole(args: {
       approval_status: 'revoked',
       active: false,
       revoked_at: new Date().toISOString(),
-      revoked_by: access.user.id,
+      revoked_by: access.user!.id,
       revoked_reason: args.reason.trim(),
     })
     .eq('id', args.profileRoleId)
 
   if (error) return { error: `Hiba: ${error.message}` }
 
+  await logAuditEvent({
+    action: 'profile_role.revoke',
+    targetTable: 'profile_roles',
+    targetId: args.profileRoleId,
+    metadata: {
+      profile_id: rowSnapshot?.profile_id ?? null,
+      scope: rowSnapshot?.scope ?? null,
+      scope_id: rowSnapshot?.scope_id ?? null,
+      role: rowSnapshot?.role ?? null,
+      reason: args.reason.trim(),
+    },
+  })
+
+  // Sync a legacy profiles.role mezőre — a visszavont szerep eltűnik a számításból
+  if (rowSnapshot?.profile_id) {
+    try {
+      await syncProfileRoleToLegacy(rowSnapshot.profile_id, access.supabase)
+    } catch {
+      // best-effort
+    }
+  }
+
   revalidatePath('/admin')
+  revalidatePath('/admin/felhasznalok')
   revalidatePath('/', 'layout')
   return { success: true }
 }
@@ -262,9 +366,12 @@ export async function updateProfileRolePermissions(args: {
   profileRoleId: string
   permissions: Permissions
 }): Promise<{ success?: boolean; error?: string }> {
-  const access = await getEffectiveAccessContext()
-  if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
+  let access: Awaited<ReturnType<typeof requireAdminAccess>>
+  try {
+    access = await requireAdminAccess()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
+  }
 
   const { error } = await access.supabase
     .from('profile_roles')
@@ -273,7 +380,15 @@ export async function updateProfileRolePermissions(args: {
 
   if (error) return { error: `Hiba: ${error.message}` }
 
+  await logAuditEvent({
+    action: 'profile_role.permissions_update',
+    targetTable: 'profile_roles',
+    targetId: args.profileRoleId,
+    metadata: { permissions: args.permissions },
+  })
+
   revalidatePath('/admin')
+  revalidatePath('/admin/felhasznalok')
   revalidatePath('/', 'layout')
   return { success: true }
 }

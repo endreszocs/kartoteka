@@ -7,7 +7,7 @@ interface LoginPageProps {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams
   const errorFromUrl = params.error === 'pending'
-    ? 'Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!'
+    ? 'Fiókja még jóváhagyásra vár — a rendszergazda értesítve van. Türelmét kérjük.'
     : params.error === 'auth'
       ? 'Hiba történt a bejelentkezés során. Kérem, próbálja újra.'
       : params.reason === 'session-expired'

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { logAuditEvent } from '@/lib/audit/log'
 
 /**
  * Lelkészi jóváhagyási workflow actions.
@@ -150,6 +151,16 @@ export async function approveAssignment(
     hivatkozas: '/penzugy',
   })
 
+  await logAuditEvent({
+    action: 'profile_congregation.approve',
+    targetTable: 'profile_congregations',
+    targetId: assignmentId,
+    metadata: {
+      profile_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+    },
+  })
+
   revalidatePath('/profile/kapcsolatok')
   return { success: true }
 }
@@ -200,6 +211,17 @@ export async function rejectAssignment(
     uzenet: `A lelkész elutasította a hozzáférési kérést. Indok: "${trimmed}".`,
     tipus: 'warning',
     hivatkozas: '/profile',
+  })
+
+  await logAuditEvent({
+    action: 'profile_congregation.reject',
+    targetTable: 'profile_congregations',
+    targetId: assignmentId,
+    metadata: {
+      profile_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+      reason: trimmed,
+    },
   })
 
   revalidatePath('/profile/kapcsolatok')
@@ -258,6 +280,18 @@ export async function revokeAssignmentByPastor(
     uzenet: `A lelkész visszavonta a korábban adott hozzáférést. Indok: "${trimmed}".`,
     tipus: 'warning',
     hivatkozas: '/profile',
+  })
+
+  await logAuditEvent({
+    action: 'profile_congregation.revoke',
+    targetTable: 'profile_congregations',
+    targetId: assignmentId,
+    metadata: {
+      profile_id: existing.profile_id,
+      congregation_id: existing.congregation_id,
+      reason: trimmed,
+      revoked_by: 'pastor',
+    },
   })
 
   revalidatePath('/profile/kapcsolatok')
