@@ -411,10 +411,14 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
   if (entries.length === 0) return { data: [] }
 
   // Megnézzük, melyik kulcs van már broadcast-olva, és milyen csatornán ment ki.
+  // FIX 2026-05-04: a UNIQUE constraint drop-olva — ugyanazon kulcsra most már
+  // több row is lehet (re-send miatt). ORDER BY sent_at DESC + Map-set csak
+  // az ELSŐ találatra → mindig a legfrissebb broadcast jelenik meg.
   const { data: sent } = await access.supabase
     .from('system_broadcasts')
     .select('release_changelog_key, sent_at, recipient_count, target_scope, target_role, send_email, email_sent_at, email_error')
     .in('release_changelog_key', entries.map((e) => e.key))
+    .order('sent_at', { ascending: false })
 
   type ChangelogBroadcastRow = {
     release_changelog_key: string | null
@@ -427,11 +431,15 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
     email_error: string | null
   }
 
-  const sentByKey = new Map(
-    ((sent || []) as ChangelogBroadcastRow[])
-      .filter((s) => !!s.release_changelog_key)
-      .map((s) => [s.release_changelog_key as string, s]),
-  )
+  const sentByKey = new Map<string, ChangelogBroadcastRow>()
+  for (const row of (sent || []) as ChangelogBroadcastRow[]) {
+    if (!row.release_changelog_key) continue
+    if (!sentByKey.has(row.release_changelog_key)) {
+      // Csak az első (legfrissebb sent_at szerint) maradjon — re-send esetén
+      // ugyanazon kulcsra több row van.
+      sentByKey.set(row.release_changelog_key, row)
+    }
+  }
 
   // Legfrissebb dátum felül — Endre visszajelzés 2026-04-18
   // (Az azonos dátumú bejegyzések közül az utoljára beszúrt kerül elsőre)
