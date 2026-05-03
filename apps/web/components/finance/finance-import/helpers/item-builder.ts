@@ -103,26 +103,64 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       continue
     }
 
-    // ─── A v1-ben a belső mozgás (Kassza ↔ Bank, 400.xx kód) sorokat
-    //     NEM importáljuk ─────────────────────────────────────────────────
+    // ─── Belső mozgás (400.xx kód) — VÁRAKOZÓ importálás ───────────────
     // A meglévő `bank-import-actions.ts` páros tételeket hoz létre
     // (kassza-oldali `kiadas` + bank-oldali `befizetes` + `belsomozgas` audit)
-    // közös `belso_mozgas_xkey` UUID-vel. Ha a v1 importunk csak a kassza-
-    // oldalt rögzítené, azzal ÜTKÖZNE a meglévő rendszerrel:
-    //   - a `computeReceiptHealth` tévesen nyugtás-kifizetésnek venné
-    //   - a Bank A import (v2) később nem tudná párba állítani
-    // Ezért a 400.xx sorokat skip-pelni szükséges. Endre a meglévő Decont /
-    // belső-mozgás dialógus-szal kézzel rögzítheti, vagy a Bank A/B import
-    // (v2) hozza majd.
+    // közös `belso_mozgas_xkey` UUID-vel. A v1-ben csak a kassza-oldalt
+    // tudjuk látni, ezért a 400.xx sorokat **várakozó állapotban** importáljuk:
+    //   - megkapnak egy `belso_mozgas_xkey` UUID-t → a meglévő nyugta-
+    //     egészség / pár-keresés logika tudja, hogy ez belső mozgás
+    //   - a `kedvezmenyzett` és `megjegyzes` mezőbe pasztorális "várakozó"
+    //     felirat kerül → a tranzakció-listában szürkén jelenik meg
+    //   - a Bank A/B import (v2) később megpróbálja összeg + dátum alapján
+    //     párba állítani
     if (
       row.kind === 'internal-transfer-out' ||
       row.kind === 'internal-transfer-in'
     ) {
+      const celId = pickCelId(row.kind, budget)
+      if (celId === null) {
+        const direction =
+          row.kind === 'internal-transfer-out' ? 'Kassza → Bank' : 'Bank → Kassza'
+        skippedReasons.push({
+          rowIndex: row.rowIndex,
+          reason: `Belső mozgás (${direction}, kód ${budget.rawKod}) — hiányzik a ${
+            row.kind === 'internal-transfer-out' ? 'kiadascel' : 'befizetescel'
+          } rekord a ${budget.rawKod} kódhoz. Futtasd Supabase Studio-ban: migration-docs/sql/2026-05-03-finance-belso-mozgas-celok.sql`,
+        })
+        continue
+      }
+
+      const belsoMozgasXkey = generateUuid()
+      const fizetettev =
+        parseIntSafe(row.datum.slice(0, 4)) ?? new Date().getFullYear()
+
+      // pending-bank-deposit = kassza → bank (kassza-oldali kiadás)
+      // pending-bank-withdrawal = bank → kassza (kassza-oldali bevétel)
+      const importKind: FinanceImportItem['kind'] =
+        row.kind === 'internal-transfer-out'
+          ? 'pending-bank-deposit'
+          : 'pending-bank-withdrawal'
+
       const direction =
-        row.kind === 'internal-transfer-out' ? 'Kassza → Bank' : 'Bank → Kassza'
-      skippedReasons.push({
-        rowIndex: row.rowIndex,
-        reason: `Belső mozgás (${direction}, kód ${budget.rawKod}) — a v1-ben nem importálódik. A meglévő pénzügyi rendszer páros tételként rögzíti (kassza + bank oldal). Használd a Bank A/B importot vagy a Decont dialógust.`,
+        row.kind === 'internal-transfer-out'
+          ? 'banki letétel'
+          : 'banki készpénzfelvét'
+      const pasztoralisMegjegyzes = `⏳ Várakozik banki egyeztetésre — ${direction} (a Bank A/B importja után automatikusan párba áll, ${row.megjegyzes ? row.megjegyzes : 'eredeti megjegyzés nincs'})`
+
+      items.push({
+        kind: importKind,
+        datum: row.datum,
+        osszeg: row.amount,
+        celId,
+        szemelyId: null, // belső mozgásnál nincs szemely
+        forrasa: row.donorString || '', // pl. "Depunere numerar" vagy "Referinta ..."
+        nyugta: row.iratszam || '',
+        iratszam: row.iratszam || '',
+        irattipus: row.irattipus || '',
+        megjegyzes: pasztoralisMegjegyzes,
+        fizetettev,
+        belsoMozgasXkey,
       })
       continue
     }
@@ -215,4 +253,20 @@ function parseIntSafe(s: string | undefined | null): number | null {
   if (!s) return null
   const n = Number.parseInt(s, 10)
   return Number.isFinite(n) ? n : null
+}
+
+/**
+ * UUID v4 generálás kliens-oldalon (a `belso_mozgas_xkey` mezőhöz). A modern
+ * böngészők támogatják a `crypto.randomUUID()`-t. Fallback: timestamp + random.
+ */
+function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // Fallback (legacy böngészők) — RFC4122 v4-szerű
+  const r = () =>
+    Math.random()
+      .toString(16)
+      .slice(2, 10)
+  return `${r()}-${r().slice(0, 4)}-4${r().slice(0, 3)}-a${r().slice(0, 3)}-${r()}${r().slice(0, 4)}`
 }

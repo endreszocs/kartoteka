@@ -712,33 +712,45 @@ export async function executeFinanceImport(
   }
 
   // Kliens-oldali items → DB-formátum (RPC kompatibilis JSONB)
-  const rpcItems = items.map((item) => ({
-    kind: item.kind,
-    datum: item.datum,
-    osszeg: item.osszeg,
-    id_befizetescel: item.kind === 'income' ? item.celId : undefined,
-    id_kiadascel:
-      item.kind === 'expense' ||
-      item.kind === 'internal-transfer-in' ||
-      item.kind === 'internal-transfer-out'
-        ? item.celId
-        : undefined,
-    forrasa: item.forrasa || '',
-    nyugta: item.nyugta || '',
-    iratszam: item.iratszam || '',
-    irattipus: item.irattipus || '',
-    fizetettev: item.fizetettev,
-    megjegyzes: item.megjegyzes || '',
-    id_szemely: item.szemelyId ?? null,
-    id_csalad: item.csaladId ?? null,
-    atvevo: item.kind === 'expense' ? item.forrasa || '' : undefined,
-    atvevoid: item.kind === 'expense' ? item.szemelyId ?? null : undefined,
-    csalad: false,
-    belso_forras_bankszamla_id:
-      item.kind === 'internal-transfer-in' ? item.belsoForras : undefined,
-    belso_cel_bankszamla_id:
-      item.kind === 'internal-transfer-out' ? item.belsoCel : undefined,
-  }))
+  // A `pending-bank-deposit` és `pending-bank-withdrawal` típusokat lefordítjuk
+  // a klasszikus `expense`/`income` kassza-oldali rekordra. A `belso_mozgas_xkey`
+  // mezővel jelezzük a meglévő rendszernek, hogy ez "várakozó" belső mozgás.
+  const rpcItems = items.map((item) => {
+    const isPendingDeposit = item.kind === 'pending-bank-deposit'
+    const isPendingWithdrawal = item.kind === 'pending-bank-withdrawal'
+    // A pending-bank-deposit (Kassza→Bank) → `kiadas` táblába kassza-oldal
+    // A pending-bank-withdrawal (Bank→Kassza) → `befizetes` táblába kassza-oldal
+    const targetKind: 'income' | 'expense' = isPendingDeposit
+      ? 'expense'
+      : isPendingWithdrawal
+        ? 'income'
+        : (item.kind as 'income' | 'expense')
+
+    return {
+      kind: targetKind,
+      datum: item.datum,
+      osszeg: item.osszeg,
+      id_befizetescel: targetKind === 'income' ? item.celId : undefined,
+      id_kiadascel: targetKind === 'expense' ? item.celId : undefined,
+      forrasa: item.forrasa || '',
+      nyugta: item.nyugta || '',
+      iratszam: item.iratszam || '',
+      irattipus: item.irattipus || '',
+      fizetettev: item.fizetettev,
+      megjegyzes: item.megjegyzes || '',
+      id_szemely: item.szemelyId ?? null,
+      id_csalad: item.csaladId ?? null,
+      atvevo: targetKind === 'expense' ? item.forrasa || '' : undefined,
+      atvevoid: targetKind === 'expense' ? item.szemelyId ?? null : undefined,
+      csalad: false,
+      // A belső mozgás várakozó tételeinél a `belso_mozgas_xkey` UUID
+      // jelzi a rendszer többi részének, hogy ez egy belső mozgás párja
+      // (még nincs kapcsolva, várja a Bank A/B import-ot).
+      belso_mozgas_xkey: item.belsoMozgasXkey ?? null,
+      // A bankszamla_id NULL marad, mert ezek a kassza-oldali rekordok
+      bankszamla_id: null,
+    }
+  })
 
   // RPC hívás
   const { data, error } = await auth.access.supabase.rpc(

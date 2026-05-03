@@ -53,6 +53,7 @@ const INTERNAL_TRANSFER_PATTERNS = [
   /Készpénzfelvétel/i,
   /Depunere\s+numerar/i,
   /Retragere\s+numerar/i,
+  /Transfer\s+(?:între\s+)?conturi/i, // Bank-bank átvitel (402.xx)
 ]
 
 const INFO_LINE_PATTERNS = [
@@ -92,9 +93,15 @@ export function splitKasszaRow(row: Record<string, unknown>): KasszaRowKind {
     return { kind: 'skip', reason: 'tájékoztató/összesítő sor' }
   }
 
-  // 3. Belső mozgás detektálás — a 400.xx kód VAGY a "Készpénzletétel/-felvétel"
-  //    kifejezés az egyik kategória-mezőben.
-  const isInternalCode = kod !== null && /^400\b/.test(String(kod).replace(/,/, '.'))
+  // 3. Belső mozgás detektálás — a 4xx kód-prefix VAGY a "Készpénzletétel/-felvétel
+  //    /Transfer între conturi" kifejezés az egyik kategória-mezőben.
+  //
+  // A 4xx kód-tartomány a belső pénzmozgásokat fedi le:
+  //   - 400.xx — Készpénzletétel a kasszáról a bankra (kassza→bank kimenő)
+  //   - 401.xx — Készpénzfelvétel a bankról a kasszára (bank→kassza érkező)
+  //   - 402.xx — Transfer între conturi (bank→bank, csak a Bank fülről jönne)
+  const isInternalCode =
+    kod !== null && /^4\d{2}\b/.test(String(kod).replace(/,/, '.'))
   const bevCelIsInternal = bevCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(bevCel)) : false
   const kiaCelIsInternal = kiaCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(kiaCel)) : false
 

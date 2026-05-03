@@ -159,8 +159,16 @@ export interface ResolvedSzemelyCandidate {
 // ────────────────────────────────────────────────────────────────────────
 
 export interface FinanceImportItem {
-  /** Klasszifikációs kategória */
-  kind: 'income' | 'expense' | 'internal-transfer-in' | 'internal-transfer-out'
+  /** Klasszifikációs kategória.
+   *
+   * - 'income' / 'expense' — sima kassza-oldali bevétel/kiadás
+   * - 'pending-bank-deposit' (400.xx kód, kassza→bank várakozó) — kassza-oldali
+   *   `kiadas` rekord, `belso_mozgas_xkey` UUID-vel és pasztorális
+   *   "várakozó banki egyeztetésre" jelöléssel; a Bank A/B import (v2) majd
+   *   összeg + dátum alapján párba állítja
+   * - 'pending-bank-withdrawal' (400.xx kód, bank→kassza várakozó) — kassza-oldali
+   *   `befizetes` rekord, ugyanígy várakozó */
+  kind: 'income' | 'expense' | 'pending-bank-deposit' | 'pending-bank-withdrawal'
   /** ISO dátum */
   datum: string
   /** Tételösszeg (mindig pozitív) */
@@ -183,10 +191,10 @@ export interface FinanceImportItem {
   megjegyzes?: string
   /** Melyik évre vonatkozik (a könyvelési év) */
   fizetettev: number
-  /** Belső mozgás esetén a forrás-bankszámla ID-ja vagy 'kassza' */
-  belsoForras?: string
-  /** Belső mozgás esetén a cél-bankszámla ID-ja vagy 'kassza' */
-  belsoCel?: string
+  /** Belső mozgás esetén az egyedi UUID — a meglévő `belso_mozgas_xkey`
+   *  mezőbe kerül, így a meglévő nyugta-egészség és párosítás logika
+   *  (bank-import) helyesen kihagyja / megtalálja. */
+  belsoMozgasXkey?: string
 }
 
 export interface FinanceImportResult {

@@ -1,26 +1,23 @@
 -- ===================================================================
--- Pénzügyi import: a 400.01 (Készpénzletétel) belső mozgás cél-rekordok
--- ellenőrzése + opcionális létrehozása
+-- Pénzügyi import: 4xx belső mozgás cél-rekordok ellenőrzése
 -- ===================================================================
 --
--- 2026-05-03 — felhasználói visszajelzés alapján
+-- 2026-05-03 (frissítve): a belső mozgás teljes kódtartománya
 --
--- A hivatalos EREK könyvelési Excel "Kassza" füle 15 sort tartalmaz a
--- 400.01 kóddal ("Készpénzletétel a(z) A számlára", "Depunere numerar",
--- "Készpénzfelvétel a(z) A számláról"). Ezek belső mozgások: a kassza
--- és valamelyik bankszámla közötti pénzmozgás.
+-- Az EREK könyvelési számhalomban a 4xx kód-tartomány a belső pénzmozgásokat
+-- fedi le:
+--   - 400.xx — Készpénzletétel a kasszáról bankra  (Kassza fül, kimenő)
+--   - 401.xx — Készpénzfelvétel bankról kasszára   (Kassza fül, érkező)
+--   - 402.xx — Transfer între conturi (bank-bank)  (Bank fülek)
 --
--- Az import-wizard a 400.01-hez **mindkét oldali** cel-rekordot keresi:
---   - befizetescel.id_szamadasicel = '400.01'  (bank-oldali bevétel)
---   - kiadascel.id_szamadasicel = '400.01'    (kassza-oldali kiadás)
+-- A párja a 3xx tartományban él (a Bank fülön):
+--   - 301.xx — Készpénzletétel a kasszából - bankra
 --
--- Ha valamelyik hiányzik, a wizard nem tudja importálni a 15 sort
--- (mert a befizetes.id_befizetescel és kiadas.id_kiadascel NOT NULL).
+-- A pénzügyi import-wizard a 4xx kódhoz tartozó `kiadascel` rekordokra
+-- van rácsatlakozva, mert a Kassza fülön a kassza-oldali kiadás kerül be.
 --
--- Ez a script:
---   1. Megmutatja a jelenlegi állapotot
---   2. Ha hiányzik a befizetescel vagy kiadascel a 400.01-hez,
---      opcionálisan létrehozza (a felhasználó dönt: kommentelje ki ha kell)
+-- Ha valamelyik kódhoz hiányzik a megfelelő `kiadascel` rekord, a wizard
+-- nem tudja importálni az adott sort (mert a `kiadas.id_kiadascel` NOT NULL).
 -- ===================================================================
 
 -- ───────────────────────────────────────────────────────────────────
@@ -29,64 +26,21 @@
 
 SELECT 'szamadasicel' AS tabla, id, nev, type, aktiv, szint
 FROM public.szamadasicel
-WHERE id LIKE '400%'
+WHERE id LIKE '4%' OR id LIKE '301%'
 ORDER BY id;
 
 SELECT 'befizetescel' AS tabla, id, nev, nevro, id_szamadasicel, aktiv, belsotetel
 FROM public.befizetescel
-WHERE id_szamadasicel LIKE '400%'
+WHERE id_szamadasicel LIKE '4%' OR id_szamadasicel LIKE '301%'
 ORDER BY id_szamadasicel;
 
 SELECT 'kiadascel' AS tabla, id, nev, nevro, id_szamadasicel, aktiv, belsotetel
 FROM public.kiadascel
-WHERE id_szamadasicel LIKE '400%'
+WHERE id_szamadasicel LIKE '4%' OR id_szamadasicel LIKE '301%'
 ORDER BY id_szamadasicel;
 
 -- ───────────────────────────────────────────────────────────────────
--- 2. Opcionális — létrehozás a 400.01-hez ha hiányzik
--- ───────────────────────────────────────────────────────────────────
---
--- Csak akkor futtasd, ha a fenti diagnosztika alapján LÁTOD, hogy
--- a 400.01 szamadasicel létezik, de a befizetescel és/vagy kiadascel
--- hiányzik.
---
--- A KÉT INSERT KÜLÖN VAN, hogy szelektíven futtathasd. Az ON CONFLICT
--- biztonsági háló: nem hoz létre duplikációt.
-
--- 2.a — befizetescel rekord (bank-oldali bevétel a kassza→bank esetén)
--- INSERT INTO public.befizetescel (
---   nevro,
---   nev,
---   id_szamadasicel,
---   aktiv,
---   belsotetel
--- ) VALUES (
---   'Készpénzletétel',
---   'Készpénzletétel banki számlára',
---   '400.01',
---   true,
---   '400.01'
--- )
--- ON CONFLICT (id_szamadasicel) DO NOTHING;
-
--- 2.b — kiadascel rekord (kassza-oldali kiadás a kassza→bank esetén)
--- INSERT INTO public.kiadascel (
---   nevro,
---   nev,
---   id_szamadasicel,
---   aktiv,
---   belsotetel
--- ) VALUES (
---   'Készpénzletétel',
---   'Készpénzletétel banki számlára',
---   '400.01',
---   true,
---   '400.01'
--- )
--- ON CONFLICT (id_szamadasicel) DO NOTHING;
-
--- ───────────────────────────────────────────────────────────────────
--- 3. Ellenőrzés a futtatás után — minden 400-as kódhoz mindkét oldal van-e
+-- 2. Áttekintés — minden 4xx és 301 kódhoz mindkét cel megvan-e?
 -- ───────────────────────────────────────────────────────────────────
 
 SELECT
@@ -101,10 +55,56 @@ SELECT
     WHEN bef.id IS NULL THEN '⚠️ Hiányzik a befizetescel'
     WHEN kia.id IS NULL THEN '⚠️ Hiányzik a kiadascel'
     ELSE '✓ Mindkettő megvan'
-  END AS allapot
+  END AS allapot,
+  CASE
+    WHEN sz.id LIKE '400%' THEN 'Kassza→Bank letétel (kassza-oldal kimenő)'
+    WHEN sz.id LIKE '401%' THEN 'Bank→Kassza felvét (kassza-oldal érkező)'
+    WHEN sz.id LIKE '402%' THEN 'Bank-bank átvitel (Transfer între conturi)'
+    WHEN sz.id LIKE '301%' THEN 'Készpénzletétel a kasszából (bank-oldal érkező)'
+    ELSE '?'
+  END AS jellege
 FROM public.szamadasicel sz
 LEFT JOIN public.befizetescel bef ON bef.id_szamadasicel = sz.id
 LEFT JOIN public.kiadascel kia ON kia.id_szamadasicel = sz.id
-WHERE sz.id LIKE '400%'
+WHERE (sz.id LIKE '4%' OR sz.id LIKE '301%')
   AND sz.aktiv = true
 ORDER BY sz.id;
+
+-- ───────────────────────────────────────────────────────────────────
+-- 3. Opcionális — létrehozás a hiányzó cel-rekordokhoz
+-- ───────────────────────────────────────────────────────────────────
+--
+-- Csak akkor futtasd a vonatkozó INSERT-et, ha a fenti diagnosztika
+-- alapján LÁTOD, hogy a megfelelő szamadasicel létezik, de a
+-- befizetescel és/vagy kiadascel hiányzik.
+--
+-- A kódok PÁRBAN MŰKÖDNEK:
+--   - 400.01 (Kassza→Bank kimenő) → kell `kiadascel`
+--   - 301.01 (Bank-oldal érkező)  → kell `befizetescel`
+--   - 401.01 (Bank→Kassza érkező) → kell `befizetescel`
+--   - 402.02 (Bank→Bank)          → kell `befizetescel` ÉS `kiadascel`
+
+-- 3.a — befizetescel rekordok (bevétel-oldali belső mozgás)
+-- INSERT INTO public.befizetescel (
+--   nevro, nev, id_szamadasicel, aktiv, belsotetel
+-- ) VALUES
+--   ('Készpénzletétel', 'Készpénzletétel banki számlára (érkező)', '301.01', true, '301.01'),
+--   ('Készpénzfelvétel', 'Készpénzfelvétel bankról (kasszába)', '401.01', true, '401.01'),
+--   ('Bank-bank átvitel', 'Transfer între conturi (érkező)', '402.02', true, '402.02')
+-- ON CONFLICT (id_szamadasicel) DO NOTHING;
+
+-- 3.b — kiadascel rekordok (kiadás-oldali belső mozgás)
+-- INSERT INTO public.kiadascel (
+--   nevro, nev, id_szamadasicel, aktiv, belsotetel
+-- ) VALUES
+--   ('Készpénzletétel', 'Készpénzletétel banki számlára (kimenő)', '400.01', true, '400.01'),
+--   ('Készpénzfelvétel', 'Készpénzfelvétel bankról (kifizetés)', '401.01', true, '401.01'),
+--   ('Bank-bank átvitel', 'Transfer între conturi (kimenő)', '402.02', true, '402.02')
+-- ON CONFLICT (id_szamadasicel) DO NOTHING;
+
+-- ───────────────────────────────────────────────────────────────────
+-- Megjegyzés: a 2025-ös EREK Adatok_2025.xlsx Kassza fülén csak
+--   - 400.01 (15 sor)
+--   - 401.01 (1 sor)
+-- van. A 402.xx és 301.xx a Bank A/B fülről jön majd a v2 import idején.
+-- ───────────────────────────────────────────────────────────────────
