@@ -128,6 +128,12 @@ export async function listAssignments(options?: {
 /**
  * Új hozzárendelés kezdeményezése (pending).
  * Értesítés jön létre a gyülekezet lelkészének.
+ *
+ * FIX 2026-05-04: az insert/update most SECURITY DEFINER RPC-n
+ * (admin_create_or_reinit_assignment) megy, hogy a kerületi admin is
+ * tudjon szerepkört kiosztani RLS/GRANT problémák nélkül. A validációk
+ * az RPC-ben történnek; a TS oldalon csak a target profile lekérdezés
+ * (read-only) marad az értesítés-küldéshez.
  */
 export async function createAssignment(args: {
   profileId: string
@@ -137,125 +143,63 @@ export async function createAssignment(args: {
 }): Promise<{ success?: boolean; error?: string; assignmentId?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  // ALAPELV (2026-04-17): szerepkört CSAK admin (rendszergazda) vagy egyházkerületi admin
-  // oszthat ki. Egyházmegyei admin / esperes NEM kezdeményezhet hozzárendelést.
+  // JS-szintű előzetes check (a végleges védelem az RPC-ben)
   if (!access.admin && !access.egyhazkeruletiAdmin) {
     return { error: 'Szerepkör kiosztása csak rendszergazdai vagy egyházkerületi admin jogosultsággal lehetséges.' }
   }
 
-  const reason = (args.reason || '').trim()
-  if (reason.length < 10) {
-    return { error: 'A hozzárendelés indoklása legalább 10 karakter legyen.' }
-  }
-
   const supabase = access.supabase
 
-  // 1. Ellenőrzés: a user megfelelő szerepkörben van (konyvelo / szamvevo)?
-  const { data: targetProfile, error: profErr } = await supabase
-    .from('profiles')
-    .select('id, role, full_name, email, status')
-    .eq('id', args.profileId)
-    .maybeSingle()
+  // SECURITY DEFINER RPC — minden validáció és UPSERT egy hívásban
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_create_or_reinit_assignment', {
+      p_profile_id: args.profileId,
+      p_congregation_id: args.congregationId,
+      p_role_scope: args.roleScope,
+      p_reason: args.reason,
+    })
+    .single()
 
-  if (profErr || !targetProfile) return { error: 'A felhasználó nem található.' }
+  if (rpcErr) return { error: `Hiba: ${rpcErr.message}` }
 
-  if (targetProfile.role !== 'konyvelo' && targetProfile.role !== 'egyhazmegyei_szamvevo') {
-    return { error: 'Csak könyvelő vagy egyházmegyei számvevő szerepkörhöz rendelhető gyülekezet.' }
+  const result = rpcRes as
+    | { assignment_id: string; action: string; was_reactivated: boolean }
+    | null
+
+  if (!result?.assignment_id) {
+    return { error: 'Az RPC nem adott vissza assignment_id-t.' }
   }
 
-  if (targetProfile.status !== 'active') {
-    return { error: 'A felhasználó még nem aktív.' }
-  }
-
-  // 2. A role_scope egyezzen a user szerepkörével
-  if (args.roleScope !== targetProfile.role) {
-    return { error: `A szerepkör (${targetProfile.role}) nem egyezik a kiválasztott hatókörrel (${args.roleScope}).` }
-  }
-
-  // 3. Duplikáció ellenőrzés
-  const { data: existing } = await supabase
-    .from('profile_congregations')
-    .select('id, approval_status')
-    .eq('profile_id', args.profileId)
-    .eq('congregation_id', args.congregationId)
-    .eq('role_scope', args.roleScope)
-    .maybeSingle()
-
-  if (existing) {
-    if (existing.approval_status === 'pending') {
-      return { error: 'Már van függőben lévő kérés ugyanehhez a felhasználóhoz és gyülekezethez.' }
-    }
-    if (existing.approval_status === 'approved') {
-      return { error: 'A felhasználó már aktív hozzáféréssel rendelkezik ehhez a gyülekezethez.' }
-    }
-    // Ha rejected vagy revoked → újra tudjuk kezdeményezni, de UPDATE-ként
-    const { error: updErr } = await supabase
-      .from('profile_congregations')
-      .update({
-        approval_status: 'pending',
-        approval_reason: reason,
-        assigned_by: access.user.id,
-        assigned_at: new Date().toISOString(),
-        approved_at: null,
-        approved_by: null,
-        active: false,
-        revoked_at: null,
-        revoked_by: null,
-        revoked_reason: null,
-      })
-      .eq('id', existing.id)
-
-    if (updErr) return { error: `Hiba az újra-kezdeményezéskor: ${updErr.message}` }
+  // Értesítés a lelkésznek (best-effort, read-only target profile)
+  try {
+    const { data: targetProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', args.profileId)
+      .maybeSingle()
 
     await sendPastorNotification(supabase, {
       congregationId: args.congregationId,
-      assignmentId: existing.id,
-      targetFullName: targetProfile.full_name,
-      targetEmail: targetProfile.email,
+      assignmentId: result.assignment_id,
+      targetFullName: targetProfile?.full_name ?? null,
+      targetEmail: targetProfile?.email ?? null,
       roleScope: args.roleScope,
-      reason,
+      reason: args.reason.trim(),
     })
-
-    revalidatePath('/admin')
-    return { success: true, assignmentId: existing.id }
+  } catch {
+    // best-effort — a hozzárendelés már él
   }
-
-  // 4. Új sor létrehozása
-  const { data: inserted, error: insErr } = await supabase
-    .from('profile_congregations')
-    .insert({
-      profile_id: args.profileId,
-      congregation_id: args.congregationId,
-      role_scope: args.roleScope,
-      approval_reason: reason,
-      assigned_by: access.user.id,
-      approval_status: 'pending',
-      active: false,
-    })
-    .select('id')
-    .maybeSingle()
-
-  if (insErr || !inserted) {
-    return { error: `Hiba a hozzárendelés létrehozásakor: ${insErr?.message || 'ismeretlen'}` }
-  }
-
-  // 5. Értesítés a lelkésznek
-  await sendPastorNotification(supabase, {
-    congregationId: args.congregationId,
-    assignmentId: inserted.id,
-    targetFullName: targetProfile.full_name,
-    targetEmail: targetProfile.email,
-    roleScope: args.roleScope,
-    reason,
-  })
 
   revalidatePath('/admin')
-  return { success: true, assignmentId: inserted.id }
+  return { success: true, assignmentId: result.assignment_id }
 }
 
 /**
  * Admin visszavonása egy approved hozzárendelésnek.
  * A lelkészi oldal is tud visszavonni, de az admin is visszavonhatja (pl. kilépett könyvelő).
+ *
+ * FIX 2026-05-04: SECURITY DEFINER RPC (admin_revoke_assignment) — kerületi
+ * admin is használhatja RLS/GRANT problémák nélkül.
  */
 export async function revokeAssignment(args: {
   assignmentId: string
@@ -263,31 +207,26 @@ export async function revokeAssignment(args: {
 }): Promise<{ success?: boolean; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
-  // ALAPELV (2026-04-17): szerepkör visszavonása CSAK admin (rendszergazda) vagy egyházkerületi
-  // admin jogosultsággal. Egyházmegyei admin / esperes NEM vonhat vissza.
+  // JS-szintű előzetes check (a végleges védelem az RPC-ben)
   if (!access.admin && !access.egyhazkeruletiAdmin) {
     return { error: 'Szerepkör visszavonása csak rendszergazdai vagy egyházkerületi admin jogosultsággal lehetséges.' }
   }
 
-  const reason = (args.reason || '').trim()
-  if (reason.length < 5) {
-    return { error: 'A visszavonás indoklása legalább 5 karakter legyen.' }
-  }
-
   const supabase = access.supabase
 
-  const { error } = await supabase
-    .from('profile_congregations')
-    .update({
-      approval_status: 'revoked',
-      active: false,
-      revoked_at: new Date().toISOString(),
-      revoked_by: access.user.id,
-      revoked_reason: reason,
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('admin_revoke_assignment', {
+      p_assignment_id: args.assignmentId,
+      p_reason: args.reason,
     })
-    .eq('id', args.assignmentId)
+    .single()
 
-  if (error) return { error: `Hiba: ${error.message}` }
+  if (rpcErr) return { error: `Hiba: ${rpcErr.message}` }
+
+  const result = rpcRes as { assignment_id: string; was_revoked: boolean } | null
+  if (!result) {
+    return { error: 'Az RPC nem adott vissza eredményt.' }
+  }
 
   revalidatePath('/admin')
   revalidatePath('/dashboard-egyhazmegye')
