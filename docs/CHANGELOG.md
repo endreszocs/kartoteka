@@ -23,6 +23,172 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-03e] — Pénzügyi import-wizard v2 — egyszerűsítés (3 lépés)
+<!-- key: 2026-05-03e-finance-import-wizard-v2 -->
+<!-- category: improvement -->
+<!-- targets: rendszergazda -->
+
+A felhasználói visszajelzés szerint az előző 9 lépéses wizard túl bonyolult,
+"össze-vissza van minden". A v2 átdolgozza az egész UX-et lelkészbarát
+formára: egyetlen átlátható oldal, színes ikon-kártyák, hónapos lista,
+kevesebb táblázat, több vizuális magyarázat.
+
+### ✨ 3 lépéses wizard a 9 helyett
+
+`apps/web/components/finance/finance-import/penzugy-import-wizard.tsx` átírva:
+- **1. Üdvözlő** (welcome-step) — pasztorális köszöntő + 4 magyarázó kártya
+  ("Mit fog csinálni a rendszer?") + drag-drop fájl-feltöltő. Egyetlen oldal.
+- **2. Áttekintés** (review-step) — egy hosszú, gyönyörű egyetlen oldal:
+  - 4 KPI kártya (bevétel zöld, kiadás piros, befizetők kék, cégek lila)
+  - "Hogyan felelteti meg" panel — 4 vizuális lépés (ikon + tone + szöveg)
+  - Ambiguous befizetők inline (csak ha vannak)
+  - Ismeretlen kódok inline (csak ha vannak)
+  - **Hónapokra csoportosított tétel-lista** sor-kártyákon (nem táblázat!)
+    — minden tétel: ikon + befizető + dátum/iratszám + összeg + ✓ ha tag
+  - Cégek lista collapsible
+  - Monetar diagnosztika (color-coded, eltérés-számítással)
+  - Kihagyott sorok bontása
+  - Egy nagy gradient "Importálom mind" gomb
+- **3. Eredmény** (result-step) — banner + KPI + cég-lista + hibák
+
+### 🗑️ Régi step-fájlok törölve
+
+Az átdolgozással eltávolítva a `apps/web/components/finance/finance-import/steps/`
+alól: `source-type-step.tsx`, `sheet-pick-step.tsx`, `column-mapping-step.tsx`,
+`kassza-split-step.tsx`, `budget-code-step.tsx`, `donor-resolve-step.tsx`,
+`preview-step.tsx`. Helyettük: `welcome-step.tsx`, `review-step.tsx`.
+
+### 🎨 Vizuális minták átvéve a Kartotéka pénzügy modulból
+
+- **Színek (intent-alapú)**: bevétel emerald, kiadás rose, bank/befizetők blue,
+  cégek violet, figyelmeztetés amber
+- **Gradient ikonok**: `from-emerald-500 to-green-600` mintára
+- **Serif headings** (`font-serif`) az elegáns intézményi hangért
+- **`bg-card` / `ring-1 ring-border`** kártyák a téma-vars szerint
+- **Lista-sorok** bevétel + kiadás vegyesen, ikon + szöveg + szám (CashbookTab-stílus)
+
+### 📦 Release
+
+Csak webes (Railway auto-deploy). 3-build mind zöld, 74/74 smoke teszt zöld.
+A v0.9.47-bumppal együtt megy ki, ami a Sprint U.5-höz tartozik.
+
+### 🔜 Mi maradt v2-re
+
+A funkcionalitás változatlan — csak az UX lett átdolgozva. A Bank A/B,
+XML egyházfenntartás, Költségvetés és belső mozgás importja továbbra is
+v3-iterációkra vár.
+
+---
+
+## [2026-05-03d] — Sprint U.5 · Felhasználók és Szerepkörök egyesítése (v0.9.47)
+<!-- key: 2026-05-03d-felhasznalok-szerepkorok-egyesites -->
+<!-- category: feature -->
+<!-- version: 0.9.47 -->
+<!-- targets: rendszergazda -->
+
+A `/admin/felhasznalok` és `/admin/szerepkorok` oldalak egyesültek egyetlen
+**„Felhasználók és szerepkörök"** oldalra. A korábbi két szétvált modul most már
+egy adatmodellen, egy UX-en és egy auditolt server-action rétegen át dolgozik.
+
+### 🐛 Központi UX-bug javítása — a kettős „jóváhagyás"
+
+Korábban a `/admin/szerepkorok` oldalon kiosztott szerepkör nem aktiválta a
+felhasználó fiókját — a kollega szerepkör-badget kapott, de a login formon
+mégis a „Fiókja még jóváhagyásra vár" üzenetet látta. **Mostantól**: ha az admin
+egy várakozó (`pending`) fiókhoz **azonnal érvényes** szerepkört rendel
+(`approval_status: 'approved'`), a fiók automatikusan aktiválódik
+(`profiles.status='active'`), és a `congregation_id`/`diocese_id`/`district_id`
+mezők is beállnak a kiosztott scope alapján. A popover tetején borostyán-banner
+figyelmezteti az admint, hogy ez fog történni.
+
+### 🔒 Védelmi rétegek konzisztenciája
+
+A `admin/layout.tsx`, `requireMasterAdmin()` és `canManage()` korábban három
+különböző szabállyal védték ugyanazt — egy `egyhazkeruleti_admin` beléphetett
+az oldalra, de minden gomb „Nincs jogosultsága" hibára futott. Új közös helper:
+`apps/web/lib/auth/admin-access.ts` — `requireAdminAccess({ requireMaster?,
+allowDistrictAdmin? })`. Egységes szabály master + admin + kerületi admin
+elfogadásával az `actions.ts`, `profile-roles-actions.ts` és `admin/layout.tsx`
+mind ugyanazt a guard-rendszert használja.
+
+### 🐛 Silent fail: ertesitesek mezőnév-korrekció
+
+A `quickApproveUser`, `approveUser` és `deleteUser` korábban `type/title/body`
+mezőkkel írt az `ertesitesek` táblába — ezek nem léteztek. A tábla a
+`cim/uzenet/tipus/olvasva` mezőket várja, így az értesítések soha nem jutottak
+el a felhasználókhoz. Most javítva, és minden értesítés tényleg megérkezik.
+
+### ✨ Új audit-log integráció
+
+Új helper: `apps/web/lib/audit/log.ts` — `logAuditEvent({ action, targetTable,
+targetId, metadata })` a `log_audit_event` SQL function fölé. Auditolt action-ök:
+- `user.quick_approve`, `user.approve`, `user.reject`, `user.delete`
+- `user.activate_via_role_assign` (D6 fix esemény)
+- `profile_role.assign`, `profile_role.revoke`, `profile_role.permissions_update`
+- `profile_congregation.approve`, `profile_congregation.reject`, `profile_congregation.revoke`
+  (lelkészi jóváhagyási flow auditja a `feedback_szerepkor_kiosztas` szabály szerint)
+
+### ✨ Új viselkedés: legacy `profiles.role` szinkronizáció
+
+A `profiles.role` egyetlen-string mezőt 16+ helyen olvassa a kódbázis. A
+`profile_roles` multi-role rendszerből szerver-oldalon szinkronizáljuk
+(`apps/web/lib/users/sync-legacy-role.ts`). Prioritás: admin > egyhazkeruleti_admin
+> esperes > egyhazmegyei_admin > egyhazmegyei_szamvevo > lelkesz > konyvelo.
+Az `updateUserRole` action ezzel deprek álva.
+
+### ✨ Új UX a UnifiedUsersTab-on
+
+- 1 user 1 card, hierarchikus chip-ek (kerület › megye › gyülekezet) + multi-role badge-ek
+- Pending state: 3 akció (gyors / részletes / elutasítás)
+- Active state: + Új szerepkör (2-lépcsős popover) + Részletes (custom-szerepre) + Törlés
+- Skeleton loading, üres állapot 3 ágon (nincs user / nincs találat / üres szűrőeredmény)
+- AlertDialog-szerű modálok a `confirm()` és `prompt()` helyett (kötelező indoklás, pasztorális hangnem)
+- Excel-export marad a teljes szűrt listára (multi-role oszlopokkal együtt)
+
+### 🎨 Pasztorális login-üzenet
+
+A „Fiókja még jóváhagyásra vár a kerületi SzuperAdmin által!" üzenet 4 helyen
+átírva pasztorálisra: „Fiókja még jóváhagyásra vár — a rendszergazda értesítve van.
+Türelmét kérjük." A regisztráció és OAuth visszaigazolás is hasonló módon javítva.
+
+### 📦 Új és módosított fájlok
+
+**Új** (15):
+- `apps/web/lib/audit/log.ts`
+- `apps/web/lib/users/sync-legacy-role.ts`
+- `apps/web/lib/users/types.ts`
+- `apps/web/lib/users/activate-on-role-assign.ts`
+- `apps/web/lib/auth/admin-access.ts`
+- `apps/web/components/admin/users/{user-card-skeleton, empty-state, role-badge-inline,
+  role-assign-popover, advanced-role-dialog, approve-pending-dialog,
+  reject-pending-dialog, delete-user-dialog, revoke-role-dialog,
+  user-card, pending-user-actions, unified-users-tab}.tsx`
+
+**Módosított**:
+- `apps/web/app/(dashboard)/admin/{actions, profile-roles-actions, layout}.ts(x)`
+- `apps/web/app/(dashboard)/admin/{felhasznalok, szerepkorok}/page.tsx`
+- `apps/web/app/(dashboard)/profile/kapcsolatok/actions.ts`
+- `apps/web/app/(auth)/{login/actions, login/page, oauth-complete/actions, register/actions}.ts(x)`
+- `apps/web/components/auth/pending-approval-client.tsx`
+- `apps/web/components/admin/{users-tab, profile-roles-tab, admin-overview-dashboard, admin-tabs-v3}.tsx`
+- `apps/web/components/layout/dashboard-layout-client.tsx`
+
+### 📦 Release
+
+Webes patch-bump: v0.9.46 → v0.9.47. Railway auto-deploy a `main` push-szal.
+Desktop NEM érintett.
+
+### ⚠️ Megjegyzés a verify-folyamatról
+
+A teljes `npm run build` jelenleg uncommitted **deleted** fájlok miatt nem fut le
+(`apps/web/components/finance/finance-import/steps/` 7 fájlja, valamint
+`apps/web/public/sw*.js`). Ezek a Sprint U.5-höz NEM kapcsolódnak — a felhasználó
+korábbi munkájához tartoznak. A Sprint U.5 verify lint-szinten zöld a teljes
+új és módosított fájlcsomagra. A release előtt a finance-import deleted fájlok
+helyzetét rendezni kell (commit / restore).
+
+---
+
 ## [2026-05-03c] — Pénzügyi import-wizard v1 LEZÁRVA: 7-9. lépés + import (v0.9.46)
 <!-- key: 2026-05-03c-finance-import-fazis-6 -->
 <!-- category: feature -->

@@ -3,18 +3,17 @@
 /**
  * Pénzügyi import wizard — fő orchestrator komponens.
  *
- * 9 lépéses wizard:
- *   1. source-type     — forrástípus + fájl feltöltés (csak Kassza aktív)
- *   2. sheet-pick      — Kassza fül kiválasztása
- *   3. column-mapping  — fejléc → DB virtuális mező mapping
- *   4. kassza-split    — sor-szétválasztás (income/expense/internal-transfer/skip)
- *   5. budget-code     — költségvetési kód lookup
- *   6. donor-resolve   — befizető-string → szemely-ID
- *   7. preview         — végleges előnézet + Monetar diagnosztika
- *   8. importing       — progress bar (RPC futása)
- *   9. result          — KpiCard, cég-lista, hibák
+ * **Egyszerűsített 3 lépéses wizard** (átdolgozott v2):
+ *   1. welcome   — Üdvözlő + fájl-feltöltés
+ *   2. review    — Áttekintés + megfeleltetés + ambiguous + import gomb
+ *      (közben: importing — progress bar)
+ *   3. result    — Eredmény + cég-lista + hibák
  *
- * 2026-05-03 (Fázis 6): mind a 9 lépés él. Az import élesben fut.
+ * A korábbi 9-lépéses verziót egyetlen, hosszú "review" lépéssé olvasztottuk
+ * össze, ami egyszerre mutatja a klasszifikációt, kódfeloldást, befizető-
+ * azonosítást, Monetar diagnosztikát és a végleges importálandó listát.
+ *
+ * 2026-05-03 (átdolgozott v2 — felhasználói visszajelzés alapján).
  */
 
 import { useCallback, useMemo, useState, useTransition } from 'react'
@@ -22,7 +21,6 @@ import { Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { PageHero } from '@kartoteka/ui-app'
-import { WizardStepper, type WizardStep } from '@/components/import-shared/wizard-stepper'
 import {
   parseAndPreviewFinance,
   analyzeKasszaRows,
@@ -32,97 +30,73 @@ import {
   executeFinanceImport,
 } from '@/app/(dashboard)/penzugy/finance-import-actions'
 import type {
-  FinanceParseResult,
-  FinanceSheetPreview,
   KasszaAnalysisResult,
   BudgetCodeResolution,
   DonorResolution,
   FinanceImportResult,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
 
-import { SourceTypeStep } from './steps/source-type-step'
-import { SheetPickStep } from './steps/sheet-pick-step'
-import { ColumnMappingStep } from './steps/column-mapping-step'
-import { KasszaSplitStep } from './steps/kassza-split-step'
-import { BudgetCodeStep } from './steps/budget-code-step'
-import { DonorResolveStep } from './steps/donor-resolve-step'
-import { PreviewStep } from './steps/preview-step'
+import { WelcomeStep } from './steps/welcome-step'
+import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { buildFinanceImportItems } from './helpers/item-builder'
 import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
-import type { FinanceImportSourceType, FinanceWizardStage } from './types'
 
-// ─── Lépés-definíciók ───────────────────────────────────────────────────
-
-const STEPS: WizardStep[] = [
-  { id: 'source-type', label: 'Forrás' },
-  { id: 'sheet-pick', label: 'Munkalap' },
-  { id: 'column-mapping', label: 'Oszlopok' },
-  { id: 'kassza-split', label: 'Sor-bontás' },
-  { id: 'budget-code', label: 'Kódok' },
-  { id: 'donor-resolve', label: 'Befizetők' },
-  { id: 'preview', label: 'Előnézet' },
-  { id: 'result', label: 'Eredmény' },
-]
-
-// ─── Komponens ──────────────────────────────────────────────────────────
+type WizardStage = 'welcome' | 'review' | 'importing' | 'result'
 
 export function PenzugyImportWizard() {
-  const [stage, setStage] = useState<FinanceWizardStage>('source-type')
-  const [sourceType, setSourceType] = useState<FinanceImportSourceType>('kassza')
+  const [stage, setStage] = useState<WizardStage>('welcome')
   const [file, setFile] = useState<File | null>(null)
-  const [parseResult, setParseResult] = useState<FinanceParseResult | null>(null)
-  const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null)
-  const [mappingOverrides, setMappingOverrides] = useState<Record<string, string | null>>({})
 
-  // 4. lépés
+  // Review-step adatai
   const [kasszaAnalysis, setKasszaAnalysis] = useState<KasszaAnalysisResult | null>(null)
-
-  // 5. lépés
   const [budgetCodeResolutions, setBudgetCodeResolutions] = useState<
     BudgetCodeResolution[] | null
   >(null)
-  const [skippedCodes, setSkippedCodes] = useState<Set<string>>(new Set())
-
-  // 6. lépés
   const [donorResolutions, setDonorResolutions] = useState<DonorResolution[] | null>(null)
+  const [monetarDiagnostic, setMonetarDiagnostic] = useState<MonetarDiagnostic | null>(null)
+
+  // Felhasználói döntések
+  const [skippedCodes, setSkippedCodes] = useState<Set<string>>(new Set())
   const [manualPersonSelections, setManualPersonSelections] = useState<
     Record<string, string>
   >({})
 
-  // 7. lépés
-  const [monetarDiagnostic, setMonetarDiagnostic] = useState<MonetarDiagnostic | null>(null)
-
-  // 9. lépés
+  // Eredmény
   const [importResult, setImportResult] = useState<FinanceImportResult | null>(null)
 
   // Transition flags
   const [isParsing, startParsing] = useTransition()
-  const [isAnalyzing, startAnalyzing] = useTransition()
-  const [isResolvingCodes, startResolvingCodes] = useTransition()
-  const [isResolvingDonors, startResolvingDonors] = useTransition()
-  const [isLoadingMonetar, startLoadingMonetar] = useTransition()
+  const [isLoadingReview, startLoadingReview] = useTransition()
   const [isImporting, startImporting] = useTransition()
 
   // ─── Reset ────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
-    setStage('source-type')
+    setStage('welcome')
     setFile(null)
-    setParseResult(null)
-    setSelectedSheetName(null)
-    setMappingOverrides({})
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
-    setSkippedCodes(new Set())
     setDonorResolutions(null)
-    setManualPersonSelections({})
     setMonetarDiagnostic(null)
+    setSkippedCodes(new Set())
+    setManualPersonSelections({})
     setImportResult(null)
   }, [])
 
-  // ─── Lépés 1 → 2 ──────────────────────────────────────────────────────
-  const handleParseFile = useCallback(() => {
+  const handleClearFile = useCallback(() => {
+    setFile(null)
+    setKasszaAnalysis(null)
+    setBudgetCodeResolutions(null)
+    setDonorResolutions(null)
+    setMonetarDiagnostic(null)
+    setSkippedCodes(new Set())
+    setManualPersonSelections({})
+    setImportResult(null)
+  }, [])
+
+  // ─── Lépés 1 → 2: parse + analízis együtt ─────────────────────────────
+  const handleStartReview = useCallback(() => {
     if (!file) {
       toast.error('Először válassz egy fájlt.')
       return
@@ -130,128 +104,93 @@ export function PenzugyImportWizard() {
     startParsing(async () => {
       const formData = new FormData()
       formData.append('file', file)
-      const result = await parseAndPreviewFinance(formData)
-      if (result.error) {
-        toast.error(result.error)
+
+      // Parse — mert nélkül sem analíz, sem kód-, sem donor-feloldás
+      const parsed = await parseAndPreviewFinance(formData)
+      if (parsed.error) {
+        toast.error(parsed.error)
         return
       }
-      setParseResult(result)
-      const kasszaSheets = (result.sheets || []).filter((s) => s.isKasszaSheet)
-      if (kasszaSheets.length === 1) {
-        setSelectedSheetName(kasszaSheets[0].sheetName)
+      const hasKassza = (parsed.sheets || []).some((s) => s.isKasszaSheet)
+      if (!hasKassza) {
+        toast.error('A fájlban nincs "Kassza" nevű munkalap.')
+        return
       }
-      setStage('sheet-pick')
+
+      // Stage váltás review-re — innentől a review-step "isLoading" állapotban
+      setStage('review')
+
+      // Loading háttérben — 3 párhuzamos action
+      startLoadingReview(async () => {
+        const fd1 = new FormData()
+        fd1.append('file', file)
+        const fd2 = new FormData()
+        fd2.append('file', file)
+        const fd3 = new FormData()
+        fd3.append('file', file)
+
+        const [analysisRes, budgetRes, donorRes] = await Promise.all([
+          analyzeKasszaRows(fd1),
+          resolveBudgetCodes(fd2),
+          resolveDonors(fd3),
+        ])
+
+        if (analysisRes.error) {
+          toast.error(analysisRes.error)
+          return
+        }
+        if (budgetRes.error) {
+          toast.error(budgetRes.error)
+          return
+        }
+        if (donorRes.error) {
+          toast.error(donorRes.error)
+          return
+        }
+
+        setKasszaAnalysis(analysisRes)
+        setBudgetCodeResolutions(budgetRes.resolutions || [])
+        setDonorResolutions(donorRes.resolutions || [])
+
+        // Monetar diagnosztika — szekvenciálisan, mert a totalIncome/Expense kell
+        const totalIncome = (analysisRes.rows || [])
+          .filter((r) => r.kind === 'income')
+          .reduce((s, r) => s + (r.amount ?? 0), 0)
+        const totalExpense = (analysisRes.rows || [])
+          .filter((r) => r.kind === 'expense')
+          .reduce((s, r) => s + (r.amount ?? 0), 0)
+        const opening = (analysisRes.rows || []).find(
+          (r) =>
+            r.kind === 'skip' &&
+            typeof r.donorString === 'string' &&
+            /Előző évi/i.test(r.donorString),
+        )
+        const nyitoEgyenleg = opening?.amount ?? 0
+
+        const fdMon = new FormData()
+        fdMon.append('file', file)
+        const monetarRes = await getMonetarDiagnostic(
+          fdMon,
+          totalIncome,
+          totalExpense,
+          nyitoEgyenleg,
+        )
+        if (monetarRes.diagnostic) {
+          setMonetarDiagnostic(monetarRes.diagnostic)
+        }
+      })
     })
   }, [file])
 
-  const handleClearFile = useCallback(() => {
-    setFile(null)
-    setParseResult(null)
-    setSelectedSheetName(null)
-    setMappingOverrides({})
-    setKasszaAnalysis(null)
-    setBudgetCodeResolutions(null)
-    setSkippedCodes(new Set())
-    setDonorResolutions(null)
-    setManualPersonSelections({})
-    setMonetarDiagnostic(null)
-    setImportResult(null)
-  }, [])
-
-  // ─── Lépés 2 → 3 ──────────────────────────────────────────────────────
-  const handleSheetContinue = useCallback(() => {
-    if (!selectedSheetName) {
-      toast.error('Válassz egy munkalapot a továbblépéshez.')
-      return
-    }
-    setStage('column-mapping')
-  }, [selectedSheetName])
-
-  // ─── Lépés 3 → 4 ──────────────────────────────────────────────────────
-  const handleMappingContinue = useCallback(() => {
-    setStage('kassza-split')
-  }, [])
-
-  const handleOverrideChange = useCallback(
-    (excelHeader: string, dbColumn: string | null) => {
-      setMappingOverrides((prev) => ({ ...prev, [excelHeader]: dbColumn }))
-    },
-    [],
-  )
-
-  // ─── Lépés 4 ──────────────────────────────────────────────────────────
-  const handleAnalyzeKasszaRows = useCallback(() => {
-    if (!file) {
-      toast.error('A fájl már nincs feltöltve. Indítsd újra az importot.')
-      return
-    }
-    startAnalyzing(async () => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const result = await analyzeKasszaRows(formData)
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
-      setKasszaAnalysis(result)
-    })
-  }, [file])
-
-  const handleKasszaSplitContinue = useCallback(() => {
-    setStage('budget-code')
-  }, [])
-
-  // ─── Lépés 5 ──────────────────────────────────────────────────────────
-  const handleResolveBudgetCodes = useCallback(() => {
-    if (!file) {
-      toast.error('A fájl már nincs feltöltve. Indítsd újra az importot.')
-      return
-    }
-    startResolvingCodes(async () => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const result = await resolveBudgetCodes(formData)
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
-      setBudgetCodeResolutions(result.resolutions || [])
-    })
-  }, [file])
-
-  const handleSkipToggle = useCallback((rawKod: string) => {
+  // ─── Felhasználói döntések ───────────────────────────────────────────
+  const handleSkipCodeToggle = useCallback((rawKod: string) => {
     setSkippedCodes((prev) => {
       const next = new Set(prev)
-      if (next.has(rawKod)) {
-        next.delete(rawKod)
-      } else {
-        next.add(rawKod)
-      }
+      if (next.has(rawKod)) next.delete(rawKod)
+      else next.add(rawKod)
       return next
     })
   }, [])
-
-  const handleBudgetCodeContinue = useCallback(() => {
-    setStage('donor-resolve')
-  }, [])
-
-  // ─── Lépés 6 ──────────────────────────────────────────────────────────
-  const handleResolveDonors = useCallback(() => {
-    if (!file) {
-      toast.error('A fájl már nincs feltöltve. Indítsd újra az importot.')
-      return
-    }
-    startResolvingDonors(async () => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const result = await resolveDonors(formData)
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
-      setDonorResolutions(result.resolutions || [])
-    })
-  }, [file])
 
   const handleManualPersonSelectionChange = useCallback(
     (raw: string, szemelyId: string) => {
@@ -260,11 +199,7 @@ export function PenzugyImportWizard() {
     [],
   )
 
-  const handleDonorResolveContinue = useCallback(() => {
-    setStage('preview')
-  }, [])
-
-  // ─── Lépés 7: items + Monetar ─────────────────────────────────────────
+  // ─── Items építése ────────────────────────────────────────────────────
   const builtItems = useMemo(() => {
     if (!kasszaAnalysis?.rows || !budgetCodeResolutions || !donorResolutions) {
       return { items: [], skippedReasons: [] }
@@ -284,57 +219,7 @@ export function PenzugyImportWizard() {
     skippedCodes,
   ])
 
-  const totalIncome = useMemo(() => {
-    if (!kasszaAnalysis?.rows) return 0
-    return kasszaAnalysis.rows
-      .filter((r) => r.kind === 'income')
-      .reduce((s, r) => s + (r.amount ?? 0), 0)
-  }, [kasszaAnalysis])
-
-  const totalExpense = useMemo(() => {
-    if (!kasszaAnalysis?.rows) return 0
-    return kasszaAnalysis.rows
-      .filter((r) => r.kind === 'expense')
-      .reduce((s, r) => s + (r.amount ?? 0), 0)
-  }, [kasszaAnalysis])
-
-  // A nyitó-egyenleg az "Előző évi készpénzegyenleg" sorból
-  const nyitoEgyenleg = useMemo(() => {
-    if (!kasszaAnalysis?.rows) return 0
-    const opening = kasszaAnalysis.rows.find(
-      (r) =>
-        r.kind === 'skip' &&
-        typeof r.donorString === 'string' &&
-        /Előző évi/i.test(r.donorString),
-    )
-    return opening?.amount ?? 0
-  }, [kasszaAnalysis])
-
-  const handleLoadMonetarDiagnostic = useCallback(() => {
-    if (!file) {
-      toast.error('A fájl már nincs feltöltve. Indítsd újra az importot.')
-      return
-    }
-    startLoadingMonetar(async () => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const result = await getMonetarDiagnostic(
-        formData,
-        totalIncome,
-        totalExpense,
-        nyitoEgyenleg,
-      )
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
-      if (result.diagnostic) {
-        setMonetarDiagnostic(result.diagnostic)
-      }
-    })
-  }, [file, totalIncome, totalExpense, nyitoEgyenleg])
-
-  // ─── Lépés 7 → 8 → 9: az import végrehajtása ──────────────────────────
+  // ─── Lépés 2 → 3: import végrehajtása ─────────────────────────────────
   const handleConfirmImport = useCallback(() => {
     if (builtItems.items.length === 0) {
       toast.error('Nincs importálható tétel.')
@@ -354,136 +239,51 @@ export function PenzugyImportWizard() {
     })
   }, [builtItems.items, file])
 
-  // ─── Aktív sheet (derived) ───────────────────────────────────────────
-  const activeSheet: FinanceSheetPreview | null =
-    parseResult?.sheets?.find((s) => s.sheetName === selectedSheetName) || null
-
-  // ─── Stepper completed ids ────────────────────────────────────────────
-  const completedIds: string[] = []
-  const orderedStages: FinanceWizardStage[] = [
-    'source-type',
-    'sheet-pick',
-    'column-mapping',
-    'kassza-split',
-    'budget-code',
-    'donor-resolve',
-    'preview',
-    'importing',
-    'result',
-  ]
-  const currentIndex = orderedStages.indexOf(stage)
-  for (let i = 0; i < currentIndex; i++) {
-    const s = orderedStages[i]
-    if (s === 'importing') continue // a stepperben nincs külön Importing lépés
-    completedIds.push(s)
-  }
-  // result lépésben az 'preview' és minden korábbi befejezve
-  if (stage === 'result') completedIds.push('preview')
-
   return (
     <div className="space-y-5">
       <PageHero
         Icon={Wallet}
         eyebrow="Rendszergazdai eszköz"
         title="Pénzügyi adatok importálása"
-        description="A hivatalos EREK könyvelési Excel Kassza fülét tölti be a Kartotéka rendszerbe."
+        description="A hivatalos EREK könyvelési Excel Kassza fülét tölti be a Kartotéka rendszerbe — egyetlen lépésben, lelkészbarátul."
       />
 
-      <WizardStepper steps={STEPS} activeId={stage === 'importing' ? 'preview' : stage} completedIds={completedIds} />
-
-      {/* Lépés 1: Forrástípus + fájl */}
-      {stage === 'source-type' && (
-        <SourceTypeStep
-          selectedSourceType={sourceType}
-          onSourceTypeChange={setSourceType}
+      {stage === 'welcome' && (
+        <WelcomeStep
           selectedFile={file}
           onFileSelected={setFile}
           onClearFile={handleClearFile}
-          onContinue={handleParseFile}
+          onContinue={handleStartReview}
           isParsing={isParsing}
         />
       )}
 
-      {/* Lépés 2: Sheet kiválasztása */}
-      {stage === 'sheet-pick' && parseResult?.sheets && (
-        <SheetPickStep
-          fileName={parseResult.fileName || file?.name || 'Ismeretlen fájl'}
-          sheets={parseResult.sheets}
-          selectedSheetName={selectedSheetName}
-          onSheetSelected={setSelectedSheetName}
-          onBack={() => setStage('source-type')}
-          onContinue={handleSheetContinue}
-        />
-      )}
-
-      {/* Lépés 3: Oszlop-párosítás */}
-      {stage === 'column-mapping' && activeSheet && (
-        <ColumnMappingStep
-          excelHeaders={activeSheet.headers}
-          overrides={mappingOverrides}
-          onOverrideChange={handleOverrideChange}
-          onBack={() => setStage('sheet-pick')}
-          onContinue={handleMappingContinue}
-        />
-      )}
-
-      {/* Lépés 4: Sor-szétválasztás */}
-      {stage === 'kassza-split' && (
-        <KasszaSplitStep
+      {stage === 'review' && (
+        <ReviewStep
+          fileName={file?.name || 'Ismeretlen fájl'}
           analysis={kasszaAnalysis}
-          isAnalyzing={isAnalyzing}
-          onAnalyze={handleAnalyzeKasszaRows}
-          onBack={() => setStage('column-mapping')}
-          onContinue={handleKasszaSplitContinue}
-        />
-      )}
-
-      {/* Lépés 5: Költségvetési kódok */}
-      {stage === 'budget-code' && (
-        <BudgetCodeStep
-          resolutions={budgetCodeResolutions}
-          isResolving={isResolvingCodes}
-          onResolve={handleResolveBudgetCodes}
-          skippedCodes={skippedCodes}
-          onSkipToggle={handleSkipToggle}
-          onBack={() => setStage('kassza-split')}
-          onContinue={handleBudgetCodeContinue}
-        />
-      )}
-
-      {/* Lépés 6: Donor-feloldás */}
-      {stage === 'donor-resolve' && (
-        <DonorResolveStep
-          resolutions={donorResolutions}
-          isResolving={isResolvingDonors}
-          onResolve={handleResolveDonors}
-          manualSelections={manualPersonSelections}
-          onManualSelectionChange={handleManualPersonSelectionChange}
-          onBack={() => setStage('budget-code')}
-          onContinue={handleDonorResolveContinue}
-        />
-      )}
-
-      {/* Lépés 7: Előnézet + Monetar */}
-      {stage === 'preview' && (
-        <PreviewStep
+          budgetCodeResolutions={budgetCodeResolutions}
+          donorResolutions={donorResolutions}
+          monetarDiagnostic={monetarDiagnostic}
+          isLoading={isLoadingReview}
           items={builtItems.items}
           skippedReasons={builtItems.skippedReasons}
-          monetarDiagnostic={monetarDiagnostic}
-          isMonetarLoading={isLoadingMonetar}
-          onMonetarRefresh={handleLoadMonetarDiagnostic}
+          skippedCodes={skippedCodes}
+          onSkipCodeToggle={handleSkipCodeToggle}
+          manualPersonSelections={manualPersonSelections}
+          onManualPersonSelectionChange={handleManualPersonSelectionChange}
           isImporting={isImporting}
-          onBack={() => setStage('donor-resolve')}
+          onBack={() => {
+            setStage('welcome')
+          }}
           onConfirmImport={handleConfirmImport}
         />
       )}
 
-      {/* Lépés 8: Importálás folyamatban */}
       {stage === 'importing' && (
         <ImportingStep totalItems={builtItems.items.length} />
       )}
 
-      {/* Lépés 9: Eredmény */}
       {stage === 'result' && importResult && (
         <ResultStep
           result={importResult}
