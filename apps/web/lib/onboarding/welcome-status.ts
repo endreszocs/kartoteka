@@ -61,7 +61,7 @@ export async function getWelcomeWizardStatus(
 
   const { data: congregation } = await supabase
     .from('congregations')
-    .select('id, name, nev_hu, cim, eves_jarulek, jarulek_hatarid')
+    .select('id, name, nev_hu, cim, varos, eves_jarulek, jarulek_hatarid')
     .eq('id', congregationId)
     .maybeSingle()
 
@@ -76,7 +76,11 @@ export async function getWelcomeWizardStatus(
     reasons.push('congregation-name-missing')
     firstStep = earlierStep(firstStep, 2)
   }
-  if (isBlank(row.cim)) {
+  // FIX 2026-05-04: a cím-elfogadás megengedőbb. Sok kis falusi gyülekezetnél
+  // nincs külön utcanév (`cim`), csak helység + házszám. Ezért a "address-missing"
+  // ellenőrzés most a `varos` (helység) mezőre épül — ezt a wizard 2. lépés is
+  // kötelezően bekéri. Ha a varos megvan, a cím elfogadott.
+  if (isBlank(row.varos) && isBlank(row.cim)) {
     reasons.push('congregation-address-missing')
     firstStep = earlierStep(firstStep, 2)
   }

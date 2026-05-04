@@ -362,6 +362,20 @@ export async function completeWizard(): Promise<
     return { error: 'Nincs bejelentkezett felhasználó.' }
   }
 
+  // FIX 2026-05-04: a TÖBBI tábla UPDATE-jeit (profiles, pastor_profiles,
+  // congregations, bealitas) is service-role klienssel végezzük, mert a
+  // regular session-kliens RLS-ben silent fail-elhetne (ahogy a profile.
+  // onboarding_completed_at silent-fail-elt korábban). A JS-szintű
+  // requireAdminAccess nincs itt, mert a user a saját adatait írja —
+  // viszont a service-role megkerüli az RLS-t és a GRANT-okat.
+  let writeClient
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    writeClient = getSupabaseAdminClient()
+  } catch {
+    writeClient = supabase // fallback ha service-role kulcs nincs (dev mode)
+  }
+
   // 1) Olvassuk be a wizard_progress-et
   const { data: progress, error: progressError } = await supabase
     .from('wizard_progress')
@@ -403,7 +417,7 @@ export async function completeWizard(): Promise<
     if (wd.pastor.birthDate) profileUpdate.birth_date = wd.pastor.birthDate
 
     if (Object.keys(profileUpdate).length > 0) {
-      const { error } = await supabase
+      const { error } = await writeClient
         .from('profiles')
         .update(profileUpdate)
         .eq('id', user.id)
@@ -427,7 +441,7 @@ export async function completeWizard(): Promise<
       pastorUpsert.previous_service_places = [wd.pastor.previousPlaces]
     }
 
-    const { error } = await supabase
+    const { error } = await writeClient
       .from('pastor_profiles')
       .upsert(pastorUpsert, { onConflict: 'user_id' })
     if (error) {
@@ -470,7 +484,7 @@ export async function completeWizard(): Promise<
     }
 
     if (Object.keys(congUpdate).length > 0) {
-      const { error } = await supabase
+      const { error } = await writeClient
         .from('congregations')
         .update(congUpdate)
         .eq('id', profile.congregation_id)
@@ -481,7 +495,7 @@ export async function completeWizard(): Promise<
 
     // bejegyzesiszam — külön try, mert schema drift gyanús
     if (wd.congregation.bejegyzesiszam) {
-      const { error } = await supabase
+      const { error } = await writeClient
         .from('congregations')
         .update({ bejegyzesiszam: wd.congregation.bejegyzesiszam })
         .eq('id', profile.congregation_id)
@@ -535,7 +549,7 @@ export async function completeWizard(): Promise<
       bealitasUpsert.helysegid = wd.congregation.adrlocality_id
     }
 
-    const { error } = await supabase
+    const { error } = await writeClient
       .from('bealitas')
       .upsert(bealitasUpsert, { onConflict: 'id,congregation_id' })
     if (error) {
