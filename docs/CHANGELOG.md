@@ -23,6 +23,133 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-04b] — Wizard-mentés, értesítések és frissítések kezelése (v0.9.49)
+<!-- key: 2026-05-04b-wizard-ertesitesek-frissitesek -->
+<!-- category: improvement -->
+<!-- version: 0.9.49 -->
+<!-- targets: minden felhasználó -->
+
+Kedves Kartotéka felhasználók!
+
+A mai napon több fontos hibát megjavítottunk, és néhány hosszú ideje
+várt funkciót is hozzáadtunk a rendszerhez. Az alábbiakban érthető nyelven
+összefoglaljuk, mi változott és mit jelent ez az Önök mindennapi
+munkájában.
+
+### 🛠 Megjavítva: a beállító varázsló mostantól helyesen ment
+
+Eddig előfordult, hogy ha valaki végigment az induló (welcome) varázslón
+— a gyülekezeti adatok, lelkész személyes adatok, pénzügyi nyitóegyenleg
+megadásán —, és a "Készen is vagyunk!" képernyőre érkezett, akkor látszólag
+minden sikerült. **Az oldal frissítése után viszont ismét az elejéről kezdte
+a varázslót**, mintha sosem csinálta volna meg. Néhány lelkész részéről
+ez okozott bosszúságot.
+
+A hiba oka egy adatbázis-szintű jogosultsági gond volt: a varázsló utolsó
+mentése a háttérben csendben elbukott, és a rendszer mégis sikeres üzenetet
+mutatott. Ezt **mostantól egy biztonságosabb mentési mechanizmus** kezeli,
+ami minden esetben tényleg rögzíti a befejezést — vagy ha mégis hiba lenne,
+azonnal értesíti Önt egy konkrét üzenettel.
+
+### 🔄 Új: "Beállító varázsló újraindítása" gomb
+
+Sokunk kérése volt, hogy utólag is lehessen javítani a beírt adatokat.
+Mostantól mindenki megtalálja a fejléc jobb felső sarkában (a saját
+nevére kattintva, a Beállítások alatt) az új gombot:
+
+> **🔄 Beállító varázsló újraindítása**
+
+A gombra kattintva a rendszer rákérdez ("Folytatod?"), majd újra végig
+lehet menni az 5 lépésen — a meglévő adatok **megmaradnak**, csak ahol
+javítani szeretne, ott módosíthat. Nincs adatvesztés.
+
+### 📨 Új: értesítések 24 órán át visszanézhetők + archiválás
+
+Eddig az értesítések — akár fontos rendszer-jelzések, akár fejlesztői
+hírek — eltűntek, amint elolvasta. Aki gyorsan félrekattintott, elveszett
+az üzenete. **Mostantól**:
+
+- **Olvasatlan értesítések** addig élnek, amíg meg nem nyitja Őket — nem
+  vesznek el, ha meg sem nyitotta őket.
+- Az **olvasott üzenetek 24 órán át** elérhetők egy "Friss" szekcióban a
+  csengő-menüben (halványabb stílussal). Visszanézheti, mit írtunk.
+- **Manuális archiválás**: ha tényleg le akarja zárni egy üzenetet, a
+  részletes ablak alján vagy a sor mellett található **archív gomb**
+  egy kattintással eltünteti.
+
+### 📐 Az értesítés-ablakok mostantól reszponzívak
+
+A részletes üzenet-ablak (csengőre kattintva) eddig nagyon keskenynek
+tűnt, és a hosszabb fejlesztői üzeneteket nem lehetett scrollozni. **Most**:
+
+- Mind asztali, mind mobil képernyőn jól olvasható méretben jelenik meg
+- A hosszú szövegek görgethetők
+- Ha félrekattint, a "Friss" szekcióban újra megnyithatja
+
+### 🛠 Felhasználó-aktiválás javítva
+
+Korábban előfordult, hogy a kerületi admin nem tudott aktiválni egy
+új lelkészt — egy *"permission denied"* hibát kapott. Ennek oka egy
+adatbázis-szintű jogosultsági gond volt. **Mostantól** a kerületi admin
+ugyanúgy tudja aktiválni a felhasználókat, mint a master admin. A "Felhasználó
+aktiválása" és az "Elutasítás" gomb is konzisztensen működik.
+
+### 📧 Frissítések újraküldhetők, többet egy gombbal
+
+Az admin **/admin/frissitesek** oldalán mostantól több újdonság is van:
+
+- **"Új broadcast üzenet" form felülre került** — kényelmesebb a használata
+- **Minden frissítés mellett checkbox** — ha többet egyszerre szeretne
+  kiküldeni, kijelöli őket
+- **"Kijelöltek küldése" gomb** — egyetlen kattintással mind elindul,
+  e-maillel együtt is, ha be van pipálva
+- **Korábban már elküldött frissítések is újraküldhetők** — egy kattintással,
+  megerősítő ablakkal
+
+### 🎨 Email-küldemények szebb és reszponzív megjelenése
+
+A rendszerből küldött frissítés-emailek **új, modern megjelenést** kaptak:
+
+- **Kartotéka brand fejléc** logóval, az üzenet típusához illő színes
+  háttérrel (új verzió = lila, info = kék, figyelmeztetés = sárga, stb.)
+- **Reszponzív szélesség** — kis és nagy képernyőn egyaránt jól olvasható
+- **Lábléc** az "Erdélyi Református Egyházkerület" jelzéssel + link a
+  Kartotéka-rendszer megnyitásához
+
+### 🏛 Welcome varázsló javítások
+
+Kisebb, de fontos finomítások:
+
+- A "Bejegyzési szám" mező **eltávolítva** — ilyen adatra az egyháznál
+  nincs szükség, csak az adószám (CUI) maradt
+- A cím-validáció **megengedőbb**: az utca-mező opcionális, mert sok
+  kis falusi gyülekezetnél nincs külön utcanév. A megye + helység viszont
+  továbbra is kötelező a hivatalos iratokhoz
+
+### ✉️ Technikai segítség e-mail-cím
+
+A varázsló utolsó képernyőjén és más helyeken eddig a `support@kartoteka.erek.ro`
+szerepelt — mostantól a **közvetlen elérés** látszik:
+**endreszocs@gmail.com**. Ide írhat bárki, ha elakad.
+
+### 📋 Felhasználók és gyülekezetek listáin
+- A **Gyülekezetek oldalon** mostantól megjelennek a hozzá tartozó
+  felhasználók is (akik szerepkört kaptak az adott gyülekezethez), nemcsak
+  azok, akik a primary-gyülekezetük révén szerepelnek
+- A felhasználó-kártyákon **minden szerepkör színkódolt** (Lelkipásztor zöld,
+  Esperes lila, Egyházmegyei admin kék, Könyvelő narancs, Számvevő türkíz,
+  stb.)
+- A felhasználói avatar mostantól a **nevének kezdőbetűit** mutatja,
+  a "legmagasabb" szerepkörének megfelelő színnel
+
+### 🙏 Köszönet
+
+Köszönjük mindenkinek a türelmet és a visszajelzéseket! Az Önök
+észrevételei nélkül nem találnánk meg ezeket a hibákat időben. Áldott
+szolgálatot kívánunk!
+
+---
+
 ## [2026-05-04] — Admin felület tisztítás: szerepkör-aktiválás, gyülekezetek áttekintése, dizájn (v0.9.48)
 <!-- key: 2026-05-04-admin-csiszolas-aktivalas -->
 <!-- category: improvement -->
