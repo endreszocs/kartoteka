@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, Settings, Shield, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, RotateCcw, Settings, Shield, Trash2, User } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -257,6 +257,30 @@ export function HeaderRefinedV3({
               >
                 <Settings className="size-4 text-primary/70" />
                 Beállítások
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      'Újraindítjuk a beállító varázslót — a meglévő adataid megmaradnak, csak újra végigmehetsz a lépéseken (pl. ha javítani szeretnél). Folytatod?',
+                    )
+                  ) {
+                    return
+                  }
+                  const { restartWelcomeWizard } = await import('@/app/(setup)/welcome/actions')
+                  const { toast } = await import('sonner')
+                  const result = await restartWelcomeWizard()
+                  if ('error' in result && result.error) {
+                    toast.error(result.error)
+                    return
+                  }
+                  toast.success('Wizard újraindítva — átirányítunk.')
+                  router.push('/welcome')
+                }}
+                className="gap-3 rounded-xl py-2.5"
+              >
+                <RotateCcw className="size-4 text-primary/70" />
+                Beállító wizard újraindítása
               </DropdownMenuItem>
               {onOpenGodMode && (
                 <DropdownMenuItem onClick={onOpenGodMode} className="gap-3 rounded-xl py-2.5 text-red-600">

@@ -571,3 +571,29 @@ export async function completeWizard(): Promise<
   revalidatePath('/', 'layout')
   return { success: true }
 }
+
+// ─── 5) restartWelcomeWizard — a fejléc-dropdown "Wizard újraindítása" gombja
+//
+// A user a saját profile-ját reset-eli wizardra: onboarding_completed_at = NULL,
+// wizard_progress = 1. step. A meglévő gyülekezet/wizard-data ÉRINTETLEN marad,
+// így a wizard utolsó állapotból folytatható (csak újra kattint végig).
+// ─────────────────────────────────────────────────────────────────────────
+export async function restartWelcomeWizard(): Promise<
+  | { success: true }
+  | { error: string }
+> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezve.' }
+
+  const { error: rpcErr } = await supabase.rpc('restart_user_onboarding').single()
+  if (rpcErr) {
+    console.error('[restartWelcomeWizard] restart_user_onboarding RPC:', rpcErr)
+    return { error: `A wizard újraindítása sikertelen: ${rpcErr.message}` }
+  }
+
+  revalidatePath('/', 'layout')
+  return { success: true }
+}
