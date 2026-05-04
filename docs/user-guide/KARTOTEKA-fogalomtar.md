@@ -249,4 +249,4 @@ Tömörített fájl. Több fájlt és mappát egy kis fájlba csomagol. A KARTOT
 
 *Verzió 1.0 · 2026-04-15 · KARTOTEKA · EREK*
 
-*Ha valami nincs itt, amit szeretnél tudni, írj nekünk: `support@kartoteka.erek.ro`*
+*Ha valami nincs itt, amit szeretnél tudni, írj nekünk: `endreszocs@gmail.com`*

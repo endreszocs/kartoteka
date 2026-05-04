@@ -107,7 +107,7 @@ A rendszer tableten és telefonon is tökéletesen működik:
 1. **F5** — frissítés
 2. **Ctrl+Shift+R** — erőltetett frissítés
 3. **Próbáld más böngészőben**
-4. Ha még mindig: **`support@kartoteka.erek.ro`**
+4. Ha még mindig: **`endreszocs@gmail.com`**
 
 ---
 
@@ -115,7 +115,7 @@ A rendszer tableten és telefonon is tökéletesen működik:
 
 | Típus | Cím |
 |---|---|
-| 📧 Általános | `support@kartoteka.erek.ro` |
+| 📧 Általános | `endreszocs@gmail.com` |
 | 🔧 Technikai | `tech@kartoteka.erek.ro` |
 | 🚨 Sürgős | `helpdesk@kartoteka.erek.ro` |
 | 📞 Telefon | `+40 740 XXX XXX` (H-P 8:00-16:00) |

@@ -91,13 +91,13 @@ Ebben a mappában **4 dokumentum** van, ami végigvezet a rendszer használatán
 | A program nem indul | Olvasd el az **Első indulás → Ha elakadsz** részt |
 | Nem találom a funkciót | Keress a **Felhasználói Kézikönyv** tartalomjegyzékében |
 | Nem értek egy szót | Keress a **Fogalomtár**-ban |
-| Nem jön össze semmi | **Email**: `support@kartoteka.erek.ro` |
+| Nem jön össze semmi | **Email**: `endreszocs@gmail.com` |
 
 ---
 
 ## 📞 Támogatás
 
-📧 **Általános**: `support@kartoteka.erek.ro`
+📧 **Általános**: `endreszocs@gmail.com`
 📧 **Technikai**: `tech@kartoteka.erek.ro`
 📧 **Sürgős**: `helpdesk@kartoteka.erek.ro`
 📞 **Telefon**: `+40 740 XXX XXX` (H-P 8:00-16:00)

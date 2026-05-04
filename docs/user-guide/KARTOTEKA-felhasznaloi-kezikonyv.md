@@ -1066,7 +1066,7 @@ Nincs baj! A rendszer **offline módra** vált:
 **Ne aggódj!**
 - Ez a kézikönyv mindig **újra elolvasható**
 - A rendszer **barátságos**, a gombok magyarul vannak, tooltip-ek segítenek
-- **Hívj minket**: email: `support@kartoteka.erek.ro`
+- **Hívj minket**: email: `endreszocs@gmail.com`
 
 ### ❓ „Miért kell a havi internet?"
 
@@ -1156,7 +1156,7 @@ Kényelmesítik a munkát:
 
 ### 📧 Email
 
-**Támogatás**: `support@kartoteka.erek.ro`
+**Támogatás**: `endreszocs@gmail.com`
 **Technikai kérdések**: `tech@kartoteka.erek.ro`
 **Sürgős**: `helpdesk@kartoteka.erek.ro`
 
@@ -1170,7 +1170,7 @@ Ha bármi hibát találsz:
 
 1. **Másold be** a képernyőt (Print Screen)
 2. **Írd le**, mit csináltál (lépésről lépésre)
-3. **Küldd el** a `support@kartoteka.erek.ro` címre
+3. **Küldd el** a `endreszocs@gmail.com` címre
 4. **Mellékletek**:
    - Screenshot (kép)
    - Böngésződ típusa és verziója (Chrome 130, Firefox stb.)

@@ -124,7 +124,7 @@ Egy **fekete parancsablak** jelenik meg — ez NEM hiba, ez a rendszer háttér-
 - **Email**: az esperesi hivataltól kapott email-cím
 - **Jelszó**: amit megkaptál
 
-> 💡 Elfelejtetted? → `support@kartoteka.erek.ro`
+> 💡 Elfelejtetted? → `endreszocs@gmail.com`
 
 **Figyelmeztetés jelenik meg**:
 > ⚠️ **Ez a telepítés CSAK ezen a gépen fog működni.**
@@ -221,7 +221,7 @@ A rendszer a **Főoldalra** visz. **Most már dolgozhatsz offline is**!
 6. 📄 **Nyomtatni** a nyomtatási központból tudsz (minden modulban)
 7. 🚪 **Kilépés** a végén (biztonsági ok)
 8. ❌ **NE másold** a programot más gépre (nem fog működni)
-9. 📧 **Support**: `support@kartoteka.erek.ro`
+9. 📧 **Support**: `endreszocs@gmail.com`
 10. 📖 **A kézikönyv mindig kéznél** legyen (`Felhasználói-kézikönyv.md`)
 
 ---
@@ -243,13 +243,13 @@ A rendszer a **Főoldalra** visz. **Most már dolgozhatsz offline is**!
 #### „Nem tudok bejelentkezni"
 - ✅ Ellenőrizd az email+jelszót
 - ✅ „Elfelejtett jelszó" link a bejelentkezési oldalon
-- ✅ Ha nem megy: `support@kartoteka.erek.ro`
+- ✅ Ha nem megy: `endreszocs@gmail.com`
 
 ### Kapcsolat
 
 | Probléma típusa | Email |
 |---|---|
-| 🔧 Általános | `support@kartoteka.erek.ro` |
+| 🔧 Általános | `endreszocs@gmail.com` |
 | 💻 Technikai | `tech@kartoteka.erek.ro` |
 | 🚨 Sürgős | `helpdesk@kartoteka.erek.ro` |
 | 📞 Telefon | `+40 740 XXX XXX` (H-P 8:00-16:00) |
