@@ -85,6 +85,7 @@ export function BroadcastsTab() {
   const [sendEmail, setSendEmail] = useState(false)
   const [newsletterOpen, setNewsletterOpen] = useState(false)
   const [expandedEntryKeys, setExpandedEntryKeys] = useState<Set<string>>(new Set())
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
 
   async function fetchAll() {
     const [e, b, c, d, di] = await Promise.all([
@@ -135,6 +136,72 @@ export function BroadcastsTab() {
       if (next.has(key)) next.delete(key)
       else next.add(key)
       return next
+    })
+  }
+
+  function toggleSelected(key: string) {
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function selectAll() {
+    setSelectedKeys(new Set(entries.map((e) => e.key)))
+  }
+
+  function clearSelection() {
+    setSelectedKeys(new Set())
+  }
+
+  async function handleBulkSend() {
+    if (selectedKeys.size === 0) return
+    const ok = window.confirm(
+      `${selectedKeys.size} kiválasztott frissítés kiküldése a következő címzetteknek: ${describeScope(
+        scope,
+        targetRole,
+        {
+          congs: selectedCongIds.length,
+          dioceses: selectedDioceseIds.length,
+          districts: selectedDistrictIds.length,
+        },
+      )}${sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}. Folytatja?`,
+    )
+    if (!ok) return
+    startTransition(async () => {
+      let totalRecipients = 0
+      let succeeded = 0
+      let failed = 0
+      for (const e of entries.filter((x) => selectedKeys.has(x.key))) {
+        const result = await sendChangelogBroadcast({
+          changelogKey: e.key,
+          targetScope: scope,
+          targetRole: scope === 'role' ? targetRole : null,
+          targetCongregationIds: scope === 'congregation' ? selectedCongIds : undefined,
+          targetDioceseIds: scope === 'diocese' ? selectedDioceseIds : undefined,
+          targetDistrictIds: scope === 'district' ? selectedDistrictIds : undefined,
+          sendEmail,
+          hivatkozas: null,
+          force: e.alreadySent, // ha már elküldték, force=true
+        })
+        if ('error' in result && result.error) {
+          failed++
+          toast.error(`"${e.title}": ${result.error}`)
+        } else {
+          succeeded++
+          totalRecipients += result.recipientCount || 0
+        }
+      }
+      if (succeeded > 0) {
+        toast.success(`${succeeded} frissítés elküldve ${totalRecipients} címzettnek.`)
+      }
+      if (failed > 0) {
+        toast.error(`${failed} frissítés küldése sikertelen.`)
+      }
+      clearSelection()
+      reload()
     })
   }
 
@@ -234,57 +301,7 @@ export function BroadcastsTab() {
         </div>
       </div>
 
-      {/* 1. CHANGELOG bejegyzések */}
-      <section className="card-raised overflow-hidden">
-        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-4 bg-indigo-50/40">
-          <Sparkles className="size-4 text-indigo-600" />
-          <h3 className="font-heading text-base text-slate-800">Frissítések naplója</h3>
-          <Badge className="bg-white text-slate-700 border-slate-200">
-            {entries.length} összesen
-          </Badge>
-          <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">
-            {unsentEntries.length} kiküldésre vár
-          </Badge>
-          <Button
-            size="sm"
-            onClick={() => setNewsletterOpen(true)}
-            disabled={unsentEntries.length === 0}
-            className="ml-auto rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 shadow-sm gap-1.5"
-          >
-            <Sparkles className="size-3.5" />
-            Fejlesztési hírlevél
-          </Button>
-        </header>
-        <div className="p-5">
-          {entries.length === 0 ? (
-            <p className="text-sm text-slate-500 italic">
-              Még nincs rögzített CHANGELOG bejegyzés.
-            </p>
-          ) : (
-            <div className="grid gap-3 xl:grid-cols-2">
-              {entries.map((e) => (
-                <ChangelogEntryCard
-                  key={e.key}
-                  entry={e}
-                  onSend={() => handleChangelogSend(e)}
-                  onResend={() => handleChangelogSend(e, { force: true })}
-                  isPending={isPending}
-                  scopeLabel={describeScope(scope, targetRole, {
-                    congs: selectedCongIds.length,
-                    dioceses: selectedDioceseIds.length,
-                    districts: selectedDistrictIds.length,
-                  })}
-                  sendEmail={sendEmail}
-                  expanded={expandedEntryKeys.has(e.key)}
-                  onToggle={() => toggleEntry(e.key)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* 2. Új üzenet form */}
+      {/* 1. Új üzenet form (FELÜL — Endre kérése 2026-05-04) */}
       <section className="card-raised overflow-hidden">
         <header className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 bg-slate-50/60">
           <Send className="size-4 text-slate-700" />
@@ -328,6 +345,87 @@ export function BroadcastsTab() {
         </div>
       </section>
 
+      {/* 2. CHANGELOG bejegyzések — kijelölhető lista, alul */}
+      <section className="card-raised overflow-hidden">
+        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-4 bg-indigo-50/40">
+          <Sparkles className="size-4 text-indigo-600" />
+          <h3 className="font-heading text-base text-slate-800">Frissítések naplója</h3>
+          <Badge className="bg-white text-slate-700 border-slate-200">
+            {entries.length} összesen
+          </Badge>
+          <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">
+            {unsentEntries.length} kiküldésre vár
+          </Badge>
+          {selectedKeys.size > 0 && (
+            <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
+              {selectedKeys.size} kijelölve
+            </Badge>
+          )}
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            {entries.length > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={selectedKeys.size === entries.length ? clearSelection : selectAll}
+                  disabled={isPending}
+                  className="text-xs"
+                >
+                  {selectedKeys.size === entries.length ? 'Kijelölés törlése' : 'Mind kijelölése'}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleBulkSend}
+                  disabled={isPending || selectedKeys.size === 0}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                >
+                  <Send className="size-3.5" />
+                  Kijelöltek küldése{sendEmail ? ' + email' : ''}
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              onClick={() => setNewsletterOpen(true)}
+              disabled={unsentEntries.length === 0}
+              className="rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 shadow-sm gap-1.5"
+            >
+              <Sparkles className="size-3.5" />
+              Hírlevél
+            </Button>
+          </div>
+        </header>
+        <div className="p-5">
+          {entries.length === 0 ? (
+            <p className="text-sm text-slate-500 italic">
+              Még nincs rögzített CHANGELOG bejegyzés.
+            </p>
+          ) : (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {entries.map((e) => (
+                <ChangelogEntryCard
+                  key={e.key}
+                  entry={e}
+                  selected={selectedKeys.has(e.key)}
+                  onToggleSelected={() => toggleSelected(e.key)}
+                  onSend={() => handleChangelogSend(e)}
+                  onResend={() => handleChangelogSend(e, { force: true })}
+                  isPending={isPending}
+                  scopeLabel={describeScope(scope, targetRole, {
+                    congs: selectedCongIds.length,
+                    dioceses: selectedDioceseIds.length,
+                    districts: selectedDistrictIds.length,
+                  })}
+                  sendEmail={sendEmail}
+                  expanded={expandedEntryKeys.has(e.key)}
+                  onToggle={() => toggleEntry(e.key)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* 3. Archívum */}
       <section className="card-raised overflow-hidden">
         <header className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 bg-slate-50/60">
@@ -361,6 +459,8 @@ export function BroadcastsTab() {
 
 function ChangelogEntryCard({
   entry,
+  selected,
+  onToggleSelected,
   onSend,
   onResend,
   isPending,
@@ -370,6 +470,8 @@ function ChangelogEntryCard({
   onToggle,
 }: {
   entry: ChangelogEntry
+  selected: boolean
+  onToggleSelected: () => void
   onSend: () => void
   onResend: () => void
   isPending: boolean
@@ -379,13 +481,28 @@ function ChangelogEntryCard({
   onToggle: () => void
 }) {
   const status = entry.broadcastStatus
-  const cardClass = entry.alreadySent
-    ? 'border-slate-200 bg-white'
-    : 'border-indigo-200 bg-indigo-50/30'
+  const cardClass = selected
+    ? 'border-emerald-300 bg-emerald-50/40 ring-2 ring-emerald-200/60'
+    : entry.alreadySent
+      ? 'border-slate-200 bg-white'
+      : 'border-indigo-200 bg-indigo-50/30'
 
   return (
-    <div className={`rounded-xl border p-4 transition-colors ${cardClass}`}>
+    <div className={`rounded-xl border p-4 transition-all ${cardClass}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        {/* Checkbox — bal felső sarok */}
+        <label
+          className="flex shrink-0 items-center pt-1 cursor-pointer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelected}
+            className="size-4 rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+            aria-label="Kijelölés a tömeges küldéshez"
+          />
+        </label>
         <button
           type="button"
           onClick={onToggle}
