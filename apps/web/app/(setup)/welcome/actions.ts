@@ -560,7 +560,7 @@ export async function completeWizard(): Promise<
   }
 
   const result = rpcRes as
-    | { user_id: string; onboarding_completed_at: string; was_already_completed: boolean }
+    | { user_id: string; out_completed_at: string; was_already_completed: boolean }
     | null
   if (!result) {
     return {
