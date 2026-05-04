@@ -141,31 +141,21 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
         </div>
       </div>
 
-      {/* Jogi azonosítók */}
+      {/* Jogi azonosítók — Endre kérése (2026-05-04): a "Bejegyzési szám"
+          mező eltávolítva, mert ilyen az egyháznál nincs. Marad az Adószám (CUI). */}
       <div className="space-y-4 border-t border-slate-100 pt-6">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Jogi azonosítók
+          Jogi azonosító
         </h3>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="adoszam">Adószám (CUI)</Label>
-            <Input
-              id="adoszam"
-              placeholder="pl. 12345678"
-              value={form.adoszam}
-              onChange={e => update('adoszam', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="bejegyzesiszam">Bejegyzési szám</Label>
-            <Input
-              id="bejegyzesiszam"
-              placeholder="pl. 1234/2008"
-              value={form.bejegyzesiszam}
-              onChange={e => update('bejegyzesiszam', e.target.value)}
-            />
-          </div>
+        <div className="space-y-1.5 md:max-w-sm">
+          <Label htmlFor="adoszam">Adószám (CUI)</Label>
+          <Input
+            id="adoszam"
+            placeholder="pl. 12345678"
+            value={form.adoszam}
+            onChange={e => update('adoszam', e.target.value)}
+          />
         </div>
       </div>
 
