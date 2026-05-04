@@ -50,8 +50,11 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
       toast.error('A gyülekezet neve kötelező')
       return
     }
-    if (!form.cim.trim()) {
-      toast.error('A gyülekezet címe kötelező')
+    // FIX 2026-05-04: a cím-validáció megengedőbb — sok kis gyülekezetnél nincs
+    // külön utcanév, csak helység + házszám. Az utca (form.cim) opcionális; a
+    // helység (form.varos) viszont kötelező a hivatalos irat-megjelenítéshez.
+    if (!form.varos.trim()) {
+      toast.error('A helységet ki kell tölteni — válasszon megyét és helységet az "Hivatalos cím" szakaszban.')
       return
     }
     updateData({ congregation: form })
