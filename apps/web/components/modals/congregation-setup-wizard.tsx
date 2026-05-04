@@ -81,10 +81,14 @@ const STEP_ORDER: WizardStep[] = ['basics', 'address', 'contact', 'bank', 'confi
 // Pure step-validáció — a wizard kliens ÉS az init ugyanazt használja
 // (így a betöltés után meg tudja mondani, melyik az első hiányos lépés).
 function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
+  // FIX 2026-05-04: a címer-kötelezőség levéve (Endre kérése). A wizard
+  // tovább engedi enélkül; később bármikor feltölthető a Gyülekezetünk
+  // dialógusban. Hasonlóan a cím (utca) is opcionális — csak a megye + város
+  // kötelező (sok kis falusi gyülekezetnél nincs külön utcanév).
   if (s === 'basics')
-    return form.nev_hu.length >= 2 && form.adoszam.trim().length > 0 && form.cimer_url.trim().length > 0
+    return form.nev_hu.length >= 2 && form.adoszam.trim().length > 0
   if (s === 'address')
-    return form.megye.trim().length > 0 && form.varos.trim().length > 0 && form.cim.trim().length > 0
+    return form.megye.trim().length > 0 && form.varos.trim().length > 0
   if (s === 'contact')
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) && form.telefon.trim().length > 0
   if (s === 'bank')
@@ -582,11 +586,13 @@ function StepBasics({
       <div className="card-raised p-4 bg-indigo-50/30 border-indigo-200">
         <p className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
           <ImageIcon className="size-4 text-indigo-600" />
-          Gyülekezeti címer *
+          Gyülekezeti címer
+          <span className="text-[10px] font-normal text-slate-400">(opcionális — később is feltöltheted)</span>
         </p>
         <p className="text-xs text-slate-500 mb-3">
           Tölts fel egy képet (JPG, PNG, vagy WEBP, max 2 MB). A címer a hivatalos
-          dokumentumokon (számadás, költségvetés, nyugták) jelenik meg.
+          dokumentumokon (számadás, költségvetés, nyugták) jelenik meg. Ha még nincs
+          kéznél, kihagyhatod — a Gyülekezetünk dialógusban később bármikor feltöltheted.
         </p>
         {form.cimer_url ? (
           <div className="flex items-start gap-3">
