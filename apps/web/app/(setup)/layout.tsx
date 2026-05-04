@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation'
+import { LogOut } from 'lucide-react'
 
 import { isKnownRole } from '@/lib/auth/roles'
 import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 import { createClient } from '@/lib/supabase/server'
+import { signOut } from '@/app/(dashboard)/actions'
 
 /**
  * Setup route group layout — web-onboarding varázslóhoz.
@@ -84,9 +86,21 @@ export default async function SetupLayout({
               <h1 className="font-heading text-xl text-slate-800">Kartotéka</h1>
             </div>
           </div>
-          <div className="text-right text-xs text-slate-500">
-            <p className="font-semibold">Üdvözöljük a rendszerben</p>
-            <p>Webes hozzáférés</p>
+          <div className="flex items-center gap-3">
+            <div className="hidden text-right text-xs text-slate-500 sm:block">
+              <p className="font-semibold">Üdvözöljük</p>
+              <p className="text-[11px] text-slate-400 truncate max-w-[180px]">{user.email}</p>
+            </div>
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-white/80 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-50"
+                title="Kijelentkezés"
+              >
+                <LogOut className="size-3.5" />
+                Kijelentkezés
+              </button>
+            </form>
           </div>
         </div>
       </header>
