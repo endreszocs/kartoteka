@@ -290,10 +290,10 @@ export function WelcomeWizardClient() {
           <span>
             <strong>Probléma van?</strong> Írj e-mailt a{' '}
             <a
-              href="mailto:support@kartoteka.erek.ro"
+              href="mailto:endreszocs@gmail.com"
               className="font-semibold underline hover:no-underline"
             >
-              support@kartoteka.erek.ro
+              endreszocs@gmail.com
             </a>{' '}
             címre, és mi személyesen végigvezetünk a beállításon.
           </span>

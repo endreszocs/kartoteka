@@ -544,23 +544,28 @@ export async function completeWizard(): Promise<
     }
   }
 
-  // ─── profiles.onboarding_completed_at ───
-  const nowIso = new Date().toISOString()
-  const { error: profMarkErr } = await supabase
-    .from('profiles')
-    .update({ onboarding_completed_at: nowIso })
-    .eq('id', user.id)
-  if (profMarkErr) {
-    console.error('[completeWizard] profiles.onboarding_completed_at:', profMarkErr)
+  // ─── profiles.onboarding_completed_at + wizard_progress.completed_at ───
+  // FIX 2026-05-04: a regular session-kliens UPDATE-je RLS-be ütközött →
+  // silent fail, és a wizard a következő reload-on újra megnyílt. SECURITY
+  // DEFINER RPC megkerüli az RLS-t, és a hibát explicit visszaadjuk a hívónak.
+  const { data: rpcRes, error: rpcErr } = await supabase
+    .rpc('complete_user_onboarding')
+    .single()
+
+  if (rpcErr) {
+    console.error('[completeWizard] complete_user_onboarding RPC:', rpcErr)
+    return {
+      error: `A wizard befejezésének rögzítése sikertelen: ${rpcErr.message}. Próbáld újra, vagy lépj kapcsolatba a rendszergazdával.`,
+    }
   }
 
-  // ─── wizard_progress.completed_at ───
-  const { error: wpMarkErr } = await supabase
-    .from('wizard_progress')
-    .update({ completed_at: nowIso, current_step: 5 })
-    .eq('user_id', user.id)
-  if (wpMarkErr) {
-    console.error('[completeWizard] wizard_progress.completed_at:', wpMarkErr)
+  const result = rpcRes as
+    | { user_id: string; onboarding_completed_at: string; was_already_completed: boolean }
+    | null
+  if (!result) {
+    return {
+      error: 'A wizard befejezésének rögzítése sikertelen — az RPC üres eredményt adott. Lépj kapcsolatba a rendszergazdával.',
+    }
   }
 
   revalidatePath('/', 'layout')

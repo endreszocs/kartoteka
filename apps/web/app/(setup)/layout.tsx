@@ -102,10 +102,10 @@ export default async function SetupLayout({
         <p className="mt-1">
           Technikai segítség:{' '}
           <a
-            href="mailto:support@kartoteka.erek.ro"
+            href="mailto:endreszocs@gmail.com"
             className="text-primary underline hover:no-underline"
           >
-            support@kartoteka.erek.ro
+            endreszocs@gmail.com
           </a>
         </p>
       </footer>

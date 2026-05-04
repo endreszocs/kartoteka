@@ -131,10 +131,10 @@ export function Step5Finish() {
               <li>
                 Ha továbbra is problémás, írj nekünk:{' '}
                 <a
-                  href="mailto:support@kartoteka.erek.ro"
+                  href="mailto:endreszocs@gmail.com"
                   className="font-semibold underline"
                 >
-                  support@kartoteka.erek.ro
+                  endreszocs@gmail.com
                 </a>
               </li>
             </ul>

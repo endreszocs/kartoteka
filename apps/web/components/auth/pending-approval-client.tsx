@@ -147,10 +147,10 @@ export function PendingApprovalClient({
               ? 'Ha szeretné, a beépített segítségkérővel közvetlenül üzenetet küldhet az adminnak. Sürgős esetben e-mailben is írhat ide: '
               : 'Ha sürgős a beléptetés, a beépített segítségkérővel is üzenhet az adminnak, vagy írhat ide: '}
             <a
-              href="mailto:support@kartoteka.erek.ro"
+              href="mailto:endreszocs@gmail.com"
               className="font-semibold text-primary hover:underline"
             >
-              support@kartoteka.erek.ro
+              endreszocs@gmail.com
             </a>
           </p>
 
