@@ -24,6 +24,14 @@ const GodModeDialog = dynamic(
   { ssr: false }
 )
 
+const CongregationSetupWizardLazy = dynamic(
+  () =>
+    import('@/components/modals/congregation-setup-wizard').then(
+      (module) => module.CongregationSetupWizard,
+    ),
+  { ssr: false },
+)
+
 interface DashboardShellProps {
   profile: Profile
   congregationId: string | null
@@ -70,17 +78,29 @@ export function DashboardShell({
   const [profileOpen, setProfileOpen] = useState(false)
   const [congregationOpen, setCongregationOpen] = useState(false)
   const [godModeOpen, setGodModeOpen] = useState(false)
+  const [congregationSetupWizardOpen, setCongregationSetupWizardOpen] = useState(false)
 
   // Globális window-esemény figyelése — pl. a januári banner "Beállítom most"
   // gombja küldi. A kommunikáció: a page-level komponensek (banner, widget)
   // dispatchelik, a shell pedig megnyitja a modalt.
   useEffect(() => {
-    function handleOpen() {
+    function handleOpenCongregationDialog() {
       setCongregationOpen(true)
     }
-    window.addEventListener('kartoteka:open-congregation-dialog', handleOpen)
+    function handleOpenCongregationSetupWizard() {
+      setCongregationSetupWizardOpen(true)
+    }
+    window.addEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
+    window.addEventListener(
+      'kartoteka:open-congregation-setup-wizard',
+      handleOpenCongregationSetupWizard,
+    )
     return () => {
-      window.removeEventListener('kartoteka:open-congregation-dialog', handleOpen)
+      window.removeEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
+      window.removeEventListener(
+        'kartoteka:open-congregation-setup-wizard',
+        handleOpenCongregationSetupWizard,
+      )
     }
   }, [])
 
@@ -138,6 +158,17 @@ export function DashboardShell({
         <GodModeDialog
           open={godModeOpen}
           onOpenChange={setGodModeOpen}
+        />
+      )}
+
+      {/* CongregationSetupWizard — a fejléc-dropdown "Gyülekezet-beállítás
+          újraindítása" gombja vagy a CongregationSetupBanner nyitja az
+          `kartoteka:open-congregation-setup-wizard` event-tel. */}
+      {congregationId && (
+        <CongregationSetupWizardLazy
+          open={congregationSetupWizardOpen}
+          onOpenChange={setCongregationSetupWizardOpen}
+          congregationId={congregationId}
         />
       )}
     </>

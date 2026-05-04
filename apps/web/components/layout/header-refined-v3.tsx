@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, LogOut, RotateCcw, Settings, Shield, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, Landmark, LogOut, RotateCcw, Settings, Shield, Trash2, User } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -258,11 +258,21 @@ export function HeaderRefinedV3({
                 <Settings className="size-4 text-primary/70" />
                 Beállítások
               </DropdownMenuItem>
+
+              {/* Beállító varázslók szekció — Endre kérése (2026-05-04):
+                  külön menüpontok a két varázslóhoz, ha utólag adatokat
+                  szeretnénk javítani. */}
+              <DropdownMenuSeparator />
+              <div className="px-3 pt-2 pb-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  Beállító varázslók
+                </p>
+              </div>
               <DropdownMenuItem
                 onClick={async () => {
                   if (
                     !window.confirm(
-                      'Újraindítjuk a beállító varázslót — a meglévő adataid megmaradnak, csak újra végigmehetsz a lépéseken (pl. ha javítani szeretnél). Folytatod?',
+                      'Újraindítjuk a kezdő beállító varázslót — a meglévő adataid megmaradnak, csak újra végigmehetsz az 5 lépésen (pl. ha javítani szeretnél). Folytatod?',
                     )
                   ) {
                     return
@@ -274,14 +284,30 @@ export function HeaderRefinedV3({
                     toast.error(result.error)
                     return
                   }
-                  toast.success('Wizard újraindítva — átirányítunk.')
+                  toast.success('Varázsló újraindítva — átirányítunk.')
                   router.push('/welcome')
                 }}
                 className="gap-3 rounded-xl py-2.5"
               >
                 <RotateCcw className="size-4 text-primary/70" />
-                Beállító wizard újraindítása
+                <div className="flex flex-col">
+                  <span>Kezdő beállító varázsló</span>
+                  <span className="text-[10px] text-muted-foreground">5 lépés: gyülekezet, lelkész, pénzügy</span>
+                </div>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
+                }}
+                className="gap-3 rounded-xl py-2.5"
+              >
+                <Landmark className="size-4 text-primary/70" />
+                <div className="flex flex-col">
+                  <span>Gyülekezet-beállítás</span>
+                  <span className="text-[10px] text-muted-foreground">Alapadatok, cím, elérhetőség, banki adatok</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {onOpenGodMode && (
                 <DropdownMenuItem onClick={onOpenGodMode} className="gap-3 rounded-xl py-2.5 text-red-600">
                   <Shield className="size-4" />
