@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, Church, Download, Info, Loader2, User, Wallet } from 'lucide-react'
+import { CheckCircle2, Church, Download, Info, Loader2, Mail, User, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -16,6 +17,7 @@ import { Step2Congregation } from './wizard/step-2-congregation'
 import { Step3Pastor } from './wizard/step-3-pastor'
 import { Step4Finance } from './wizard/step-4-finance'
 import { Step5Finish } from './wizard/step-5-finish'
+import { SupportEmailDialog } from './support-email-dialog'
 import {
   type BankAccountSlot,
 } from './wizard/_helpers/bank-accounts-section'
@@ -163,6 +165,7 @@ export function WelcomeWizardClient() {
   const [data, setData] = useState<WizardData>(INITIAL_DATA)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
 
   // ─── Init: getWizardProgress — visszatöltés, ha van mentett állapot ───
   useEffect(() => {
@@ -303,11 +306,33 @@ export function WelcomeWizardClient() {
 
   return (
     <div className="space-y-6">
-      {/* Üdvözlő fejléc (csak a legelső lépésen) */}
+      {/* Brand fejléc minden lépésen — Kartotéka logó + cím */}
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex items-center gap-3">
+          <Image
+            src="/KARTOTEKA_V3.png"
+            alt="Kartotéka"
+            width={64}
+            height={64}
+            priority
+            className="size-12 md:size-16"
+          />
+          <div className="text-left">
+            <p className="font-heading text-xl text-slate-800 md:text-2xl">
+              KARTOTÉKA
+            </p>
+            <p className="text-xs text-slate-500 md:text-sm">
+              Egyházi nyilvántartó rendszer
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Üdvözlő szöveg (csak a legelső lépésen) */}
       {currentStep === FIRST_STEP_ID && (
         <div className="text-center">
-          <h1 className="font-heading text-3xl text-slate-800 md:text-4xl">
-            Üdvözlünk a KARTOTEKÁ-ban! 🎉
+          <h1 className="font-heading text-2xl text-slate-800 md:text-3xl">
+            Üdvözlünk! 🎉
           </h1>
           <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
             Egy rövid varázsló vezet végig, amelyben beállítjuk a rendszert a
@@ -365,22 +390,32 @@ export function WelcomeWizardClient() {
         </AnimatePresence>
       </div>
 
-      {/* Help note */}
+      {/* Help note — gomb nyitja a support-email-modalt */}
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900">
-        <p className="flex items-start gap-2">
+        <div className="flex items-start gap-2">
           <Info className="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <span>
-            <strong>Probléma van?</strong> Írj e-mailt a{' '}
-            <a
-              href="mailto:endreszocs@gmail.com"
-              className="font-semibold underline hover:no-underline"
+          <div className="min-w-0 flex-1">
+            <p>
+              <strong>Probléma van?</strong> Írj e-mailt a rendszergazdának, és
+              személyesen végigvezetünk a beállításon.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSupportOpen(true)}
+              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 transition-colors hover:bg-amber-100"
             >
-              endreszocs@gmail.com
-            </a>{' '}
-            címre, és mi személyesen végigvezetünk a beállításon.
-          </span>
-        </p>
+              <Mail className="size-4" />
+              <span>Üzenet a rendszergazdának</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      <SupportEmailDialog
+        open={supportOpen}
+        onClose={() => setSupportOpen(false)}
+        defaultSubject={`Kartotéka — segítség a beállító varázslóhoz (${currentStep}. lépés)`}
+      />
     </div>
   )
 }

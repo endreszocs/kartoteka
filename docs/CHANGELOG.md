@@ -23,6 +23,39 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-05c] — Welcome wizard fejléc-logó + e-mail modal (v0.9.52, csak web)
+<!-- key: 2026-05-05c-welcome-logo-email-modal -->
+<!-- category: improvement -->
+<!-- version: 0.9.52 -->
+<!-- targets: minden felhasználó -->
+
+Két apró, de kért finomítás a beállító varázsló oldalán.
+
+### 🏷 Kartotéka logó a fejlécben
+
+A varázsló minden lépésén megjelenik a Kartotéka logó (KARTOTEKA_V3.png) +
+a "KARTOTÉKA — Egyházi nyilvántartó rendszer" felirat. Eddig csak az első
+lépésen volt egy szöveges fejléc, mostantól végig megjelenik a brand,
+hogy mindig tudd, hol vagy.
+
+### ✉️ Üzenet a rendszergazdának — gomb + modal
+
+A "Probléma van?" segédkártya szövege átkerült: **"Írj e-mailt a
+rendszergazdának, és személyesen végigvezetünk a beállításon."** Az
+e-mail-cím helyett egy **"Üzenet a rendszergazdának"** gomb jelenik meg,
+amelyre kattintva előugrik egy ablak. Ott:
+
+- A címzett: Endre &lt;endreszocs@gmail.com&gt; (csak olvasható)
+- Tárgy mező (előre kitöltött a wizard-lépés sorszámával)
+- Üzenet mező
+- "Küldés a levelezőből" gomb — a saját leveleződ nyitja meg az új
+  üzenetet előre kitöltve. Te a saját kliensedben nyomod meg a Küldést.
+
+Ez biztonságosabb és egyszerűbb, mint egy szerver-oldali küldés —
+minden lelkész a saját mail-fiókját használja.
+
+---
+
 ## [2026-05-05b] — Welcome wizard alapos átdolgozás + offline belépési kód perszisztencia (v0.9.51 / desktop v0.8.7)
 <!-- key: 2026-05-05b-wizard-atalakitas-offline-pin -->
 <!-- category: feature -->
