@@ -2,6 +2,7 @@ import { createYearlySettings, initFinance } from './actions'
 import { checkOblioDeadline } from './oblio-ellenorzes-actions'
 import { FinanceTabs } from '@/components/finance/finance-tabs'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
+import { FinanceImportTabs } from '@/components/finance/finance-import/finance-import-tabs'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -109,8 +110,8 @@ export default async function PenzugyPage() {
         moduleKey="finance"
         moduleLabel="Pénzügy"
         mainTabLabel="Pénzügyi munkafelület"
-        importTitle="Pénzügyi laborimport az aktuális gyülekezethez"
-        importDescription="Itt készíthető elő a bevételek, kiadások, bankszámla-mozgások, monetár tételek és belső mozgások Excel/CSV alapú, védett rendszergazdai importja."
+        importTitle="Pénzügyi import az aktuális gyülekezethez"
+        importDescription="Két import-mód: a teljes Kassza-fájl (bevétel + kiadás) vagy az egyházfenntartási befizetések egyeztetése (xlsx + xml két forrásból)."
         congregationName={data.congregationName}
         isGodMode={godMode.active}
         isDelegatedImport={delegatedImport.active}
@@ -118,6 +119,7 @@ export default async function PenzugyPage() {
         hideTabsUntilPrivileged
         importProfiles={FINANCE_PROFILES}
         importModule="finance"
+        customImportTab={<FinanceImportTabs />}
         profiles={[
           {
             value: 'income',

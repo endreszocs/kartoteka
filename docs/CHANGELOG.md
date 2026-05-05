@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-06b] — Pénzügyi import egységesítés a /penzugy oldalon (v0.9.54, csak web)
+<!-- key: 2026-05-06b-finance-import-egyesites -->
+<!-- category: improvement -->
+<!-- version: 0.9.54 -->
+<!-- targets: rendszergazda -->
+
+A felhasználó panaszára: "több pénzügyi import is van a pénzügyi oldalon"
+— ez most rendezve.
+
+### A korábbi szétaprózottság
+
+- `/penzugy` "Rendszergazdai importáló" füle: generikus 5-profilos labor-import
+  (bevételek / kiadások / bank / monetár / belső mozgások — Excel/CSV)
+- `/admin/finance-import`: rejtett route a Kassza-import + (új v0.9.53) az
+  Egyházfenntartás-import wizardokkal — nehéz megtalálni
+
+A felhasználó nem tudta, hogy 2 helyen van import-rendszer, és a `/penzugy`
+oldalon csak a generikus labor-importot látta — a domain-specifikus
+wizardok rejtve maradtak.
+
+### Az új egységes hely
+
+Mostantól mindkét wizard (Kassza-import + Egyházfenntartás-import) a
+**Pénzügy oldal "Rendszergazdai importáló" fülén** érhető el — egy
+helyen, együtt a pénzügyi munkafelülettel:
+
+1. Megnyitod a `/penzugy` oldalt
+2. Aktiválod a rendszergazdai (god) módot
+3. Megjelenik a "Rendszergazdai importáló" tab
+4. Két kártya közül választhatsz:
+   - 🟢 **Teljes Kassza-import** (a meglévő flow)
+   - 🟣 **Egyházfenntartás-import** (a v0.9.53-ban érkezett új wizard)
+
+### A régi /admin/finance-import oldal
+
+A régi route helyett mostantól egy átköltöztetési-CTA jelenik meg, ami
+elirányít a `/penzugy` oldalra. Bookmark-ok és régi linkek továbbra is
+működnek — csak +1 kattintással.
+
+### Technikailag
+
+- `apps/web/app/(dashboard)/penzugy/page.tsx`: `customImportTab={<FinanceImportTabs />}`
+  prop hozzáadva a `ModuleAdminWorkspace`-hez (a tagnyilvántartás mintáján)
+- `apps/web/app/(dashboard)/admin/finance-import/page.tsx`: redirect-CTA a
+  `/penzugy` oldalra
+
+---
+
 ## [2026-05-06] — Egyházfenntartás-import wizard (xlsx + xml deduplikációval) (v0.9.53, csak web)
 <!-- key: 2026-05-06-egyhfenntartas-import-wizard -->
 <!-- category: feature -->
