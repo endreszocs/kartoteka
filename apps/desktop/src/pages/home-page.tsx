@@ -270,15 +270,15 @@ export function HomePage() {
             <div className="flex-1 text-xs text-slate-700">
               <p className="font-medium text-slate-800">Fejlesztői állapot</p>
               <p className="mt-1 leading-snug">
-                A desktop app jelenleg <strong>v0.8.5</strong> verzióban fut. Tagnyilvántartás,
+                A desktop app jelenleg <strong>v0.8.6</strong> verzióban fut. Tagnyilvántartás,
                 családok, munkanapló, pénzügy (7 oldal), anyakönyv (8 tábla), leltár, iktató,
                 jegyzőkönyvek, sírhelyek és éves jelentés mind elérhetők offline-ban. Az
                 adatok automatikusan szinkronizálódnak percenként a háttérben — az alsó
                 állapotsávon látszik, mikor frissültek utoljára.{' '}
-                <strong>Sprint R LEZÁRVA (F1–F6):</strong> 3 vizuális téma választható,
-                Missziós Műhely megújulva, Splash + Skeleton + page transition,
-                webes onboarding wizard, Windows-telepítő wizard UI preview. A teljes
-                Tauri-mini installer wrapper-app Sprint S F2-ben kerül integrálásra.
+                <strong>Új a v0.8.6-ban:</strong> a bejelentkezés előtti splash képernyő
+                mostantól reszponzívan jelenik meg telefonon, tableten és asztali gépen
+                egyaránt — minden méret arányosan illeszkedik a viewport-hoz, semmi sem
+                vágódik le, és a tartalom mindig olvasható marad.
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => navigate('/dev')}>

@@ -23,6 +23,70 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-05] — Reszponzív splash képernyő telefonon és tableten (v0.9.50 / desktop v0.8.6)
+<!-- key: 2026-05-05-splash-reszponziv -->
+<!-- category: improvement -->
+<!-- version: 0.9.50 -->
+<!-- targets: minden felhasználó -->
+
+Kedves Kartotéka felhasználók!
+
+A bejelentkezés előtti üdvözlő képernyő (a "Békesség Istentől!" feliratú
+splash, a 3 egyházkerületi címerrel) eddig fix méretű, nagyfelbontásra
+tervezett képet jelenített meg. Telefonon és kisebb tableten emiatt egyes
+elemei levágódhattak, vagy nehezen olvashatóvá váltak. **Mostantól minden
+képernyőméreten szépen illeszkedik a tartalom.**
+
+### 📱 Telefonon — kompakt, vertikális elrendezés
+
+Telefonon (768 pixelnél keskenyebb képernyőn) a splash már nem ugyanazt az
+1920×1080-as színpadot rendereli kicsinyítve, hanem **viewport-méretű,
+függőleges elrendezést**:
+
+- A KARTOTEKA címer-logó középen, optikailag kényelmes méretben.
+- Alatta egymás mellett a két egyházkerületi címer (KEREK + EREK), kicsi
+  formában, nem zsúfolva.
+- Felül a "✦ Békesség Istentől!" headline a Cormorant Garamond serif
+  betűvel, a viewportba arányosan illesztve.
+- Alul az alcím, a tagline és a betöltés-jelző, mind olvasható marad.
+
+### 📐 Tableten — letterboxing, nem vágódik le semmi
+
+Tableten (768–1023 pixel között, akár portrait, akár landscape) a régi
+1920×1080-as színpad megmarad, de **`min(scaleX, scaleY)` skálázással**:
+minden látszik, semmi sem vágódik le. A háttér mellett enyhe sötét sáv
+jelenhet meg, ha az aspect-ratio nem egyezik — viszont a 3 logó és a
+szöveg mindig teljes egészében látható.
+
+### 🖥 Asztali gépen — változatlan élmény
+
+Az 1024 pixelnél szélesebb képernyőn az eredeti, tervezett "fill" mód
+működik tovább (scale = max(scaleX, scaleY)). Ezen semmi sem változott —
+a designba beépített élmény ugyanaz marad.
+
+### 🛠 Mit jelent ez a Kartotéka belső "kis splash"-nek
+
+Az indító splash-en kívül a rendszer belső területein is van egy egyszerű
+betöltő képernyő (a desktop kliens indul vele 1,5 másodpercig, és más
+helyeken is használható). Ezt is reszponzívra tettük — a logó, a cím, az
+alcím, a haladás-sáv és a verzió-szöveg mind a viewport méretéhez
+arányosan jelenik meg, három fokozatban (telefon / tablet / asztali).
+
+### 📦 Mi nem változott
+
+- A splash 5-fázisos animációja (háttér → címerek → KARTOTEKA logó →
+  headline → szöveg + loader) változatlan.
+- Ugyanúgy egyszer látszik egy session alatt (sessionStorage emlékezet).
+- A tartalom (szöveg, képek, animáció-időzítés) változatlan.
+
+### 🙏 Köszönet
+
+Ezt a finomítást egyetlen visszajelzés kérte: hogy mobilon is "jól és
+szépen" mutasson a Kartotéka belépés előtti üdvözlése. Köszönjük a
+visszajelzést — ezért érdemes szólni, ha egy részletet javítani kell!
+
+---
+
 ## [2026-05-04b] — Wizard-mentés, értesítések és frissítések kezelése (v0.9.49)
 <!-- key: 2026-05-04b-wizard-ertesitesek-frissitesek -->
 <!-- category: improvement -->

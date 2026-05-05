@@ -203,6 +203,12 @@ export function ProgressBar({ value, color = 'var(--primary)', bg = 'rgba(0,0,0,
 
 // ──────────────────────────────────────────────────────────────────────
 // SplashScreen — full-screen indító képernyő
+//
+// Reszponzív: mobil (<480px), tablet (480-1023px), desktop (>=1024px) —
+// `useSplashSizes` hook a window.innerWidth alapján méretez minden
+// elemet (logó, cím, betűsávozás, progress bar). Telefonon vagy
+// portrait-tableten is komfortosan elfér; nagy képernyőn megőrzi a
+// design-handoff szerinti elegáns arányokat.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface SplashScreenProps {
@@ -218,6 +224,76 @@ export interface SplashScreenProps {
   version?: string
 }
 
+interface SplashSizes {
+  logo: number
+  motif: number
+  titleSize: number
+  subtitleSize: number
+  subtitleSpacing: number
+  progressWidth: number
+  statusSize: number
+  versionSize: number
+  gap: number
+}
+
+function computeSplashSizes(width: number): SplashSizes {
+  if (width < 480) {
+    // Telefon — kis kompakt
+    return {
+      logo: Math.max(96, Math.min(128, width * 0.32)),
+      motif: Math.min(width, 420),
+      titleSize: 30,
+      subtitleSize: 11,
+      subtitleSpacing: 1,
+      progressWidth: Math.min(width * 0.6, 200),
+      statusSize: 11,
+      versionSize: 10,
+      gap: 18,
+    }
+  }
+  if (width < 1024) {
+    // Tablet (portrait + landscape) — közbülső
+    return {
+      logo: 140,
+      motif: 520,
+      titleSize: 36,
+      subtitleSize: 12.5,
+      subtitleSpacing: 1.3,
+      progressWidth: 220,
+      statusSize: 11.5,
+      versionSize: 10.5,
+      gap: 24,
+    }
+  }
+  // Desktop — eredeti design
+  return {
+    logo: 168,
+    motif: 640,
+    titleSize: 42,
+    subtitleSize: 14,
+    subtitleSpacing: 1.5,
+    progressWidth: 220,
+    statusSize: 11.5,
+    versionSize: 10.5,
+    gap: 28,
+  }
+}
+
+function useSplashSizes(): SplashSizes {
+  const [sizes, setSizes] = useState<SplashSizes>(() =>
+    computeSplashSizes(typeof window === 'undefined' ? 1280 : window.innerWidth),
+  )
+  useEffect(() => {
+    function update() {
+      setSizes(computeSplashSizes(window.innerWidth))
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+  return sizes
+}
+
 export function SplashScreen({
   logoSrc = '/icon.png',
   title = 'Kartotéka',
@@ -225,6 +301,7 @@ export function SplashScreen({
   statusText = 'Adatok szinkronizálása…',
   version,
 }: SplashScreenProps) {
+  const s = useSplashSizes()
   return (
     <div
       style={{
@@ -236,10 +313,12 @@ export function SplashScreen({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 28,
+        gap: s.gap,
         zIndex: 9999,
         animation: 'kt-fade-in .25s ease-out',
         fontFamily: 'var(--font-sans)',
+        padding: '6vw',
+        boxSizing: 'border-box',
       }}
     >
       {/* Halvány motívum-kör középen */}
@@ -255,7 +334,7 @@ export function SplashScreen({
         }}
         aria-hidden="true"
       >
-        <svg viewBox="0 0 400 400" width="640" height="640">
+        <svg viewBox="0 0 400 400" width={s.motif} height={s.motif}>
           <g fill="none" stroke="currentColor" strokeWidth="0.6">
             <circle cx="200" cy="200" r="180" />
             <circle cx="200" cy="200" r="140" />
@@ -271,18 +350,18 @@ export function SplashScreen({
         alt={title}
         className="kt-pulse"
         style={{
-          width: 168,
-          height: 168,
+          width: s.logo,
+          height: s.logo,
           objectFit: 'contain',
           filter: 'drop-shadow(0 8px 30px rgba(0,0,0,.3))',
         }}
       />
 
-      <div style={{ textAlign: 'center', lineHeight: 1.4 }}>
+      <div style={{ textAlign: 'center', lineHeight: 1.4, maxWidth: '90vw' }}>
         <div
           style={{
             fontFamily: 'var(--font-serif)',
-            fontSize: 42,
+            fontSize: s.titleSize,
             fontWeight: 500,
             letterSpacing: -0.5,
             marginBottom: 6,
@@ -290,27 +369,45 @@ export function SplashScreen({
         >
           {title}
         </div>
-        <div style={{ fontSize: 14, opacity: 0.65, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+        <div
+          style={{
+            fontSize: s.subtitleSize,
+            opacity: 0.65,
+            letterSpacing: s.subtitleSpacing,
+            textTransform: 'uppercase',
+          }}
+        >
           {subtitle}
         </div>
       </div>
 
-      <div style={{ width: 220, marginTop: 20 }}>
+      <div style={{ width: s.progressWidth, marginTop: 20 }}>
         <IndeterminateBar color="var(--sidebar-primary)" bg="rgba(255,255,255,.1)" />
       </div>
-      <div style={{ fontSize: 11.5, opacity: 0.55, letterSpacing: 0.5 }}>{statusText}</div>
+      <div
+        style={{
+          fontSize: s.statusSize,
+          opacity: 0.55,
+          letterSpacing: 0.5,
+          textAlign: 'center',
+          maxWidth: '90vw',
+        }}
+      >
+        {statusText}
+      </div>
 
       {version && (
         <div
           style={{
             position: 'absolute',
-            bottom: 28,
+            bottom: 'max(20px, 4vh)',
             left: 0,
             right: 0,
             textAlign: 'center',
-            fontSize: 10.5,
+            fontSize: s.versionSize,
             opacity: 0.5,
             letterSpacing: 0.5,
+            padding: '0 16px',
           }}
         >
           {version}
