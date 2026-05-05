@@ -245,8 +245,17 @@ export function ReviewStep({
                 Erre a {ambiguous.length} befizetőre több jelölt is illik
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                Válaszd ki, melyik tagnyilvántartási rekordhoz tartoznak. A
-                többi befizetőt automatikusan azonosítottuk.
+                Válaszd ki, melyik tagnyilvántartási rekordhoz tartoznak.
+                Minden jelöltnél most már látszik a 📍 cím is, ami a
+                döntés alapja. A többi befizetőt automatikusan azonosítottuk.
+              </p>
+              <p className="mt-2 text-xs text-amber-700">
+                💡 <strong>Tipp</strong>: ha a Kassza-fájlban a befizető-név mellett
+                hiányzik vagy nem stimmel a cím, és az ambiguous-ot nem tudod
+                eldönteni, nyisd meg külön ablakban a <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-[11px]">bevételek_2025.xml</code>
+                fájlt — annak az &quot;Iratszám&quot; és pontosabb &quot;Forrása&quot;
+                mezői segítenek a beazonosításban. Az XML-import teljes
+                automatizálása a következő iterációban (v2) érkezik.
               </p>
             </div>
             {allAmbiguousResolved && (
@@ -481,6 +490,13 @@ interface AmbiguousCardProps {
 }
 
 function AmbiguousCard({ resolution, selected, onSelect }: AmbiguousCardProps) {
+  // A Kassza-fájlból kinyert utca + házszám — ezt vetjük össze a jelöltek
+  // 📍 címével, hogy a felhasználó vizuálisan tudjon dönteni
+  const parsedCim =
+    resolution.street || resolution.houseNumber
+      ? [resolution.street, resolution.houseNumber].filter(Boolean).join(' ')
+      : null
+
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-amber-100">
       <div className="flex items-start justify-between gap-3">
@@ -489,6 +505,11 @@ function AmbiguousCard({ resolution, selected, onSelect }: AmbiguousCardProps) {
           <p className="mt-0.5 text-xs text-muted-foreground">
             {resolution.occurrenceCount} sor a Kasszában ·{' '}
             {resolution.candidates?.length || 0} jelölt
+            {parsedCim && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100/80 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                Kasszában: 📍 {parsedCim}
+              </span>
+            )}
           </p>
         </div>
         {selected && (
@@ -521,6 +542,12 @@ function AmbiguousCard({ resolution, selected, onSelect }: AmbiguousCardProps) {
                   </span>
                 )}
               </p>
+              {/* Cím — kulcsfontosságú a vizuális egyeztetéshez */}
+              {c.cim && (
+                <p className="mt-1 text-[11px] font-medium text-emerald-700">
+                  📍 {c.cim}
+                </p>
+              )}
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {c.sz_datum && `Született: ${c.sz_datum}`}
                 {c.sz_datum && c.ferfi !== null && ' · '}

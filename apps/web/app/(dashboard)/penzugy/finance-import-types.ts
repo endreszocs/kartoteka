@@ -152,6 +152,9 @@ export interface ResolvedSzemelyCandidate {
   szcs_nev: string | null
   sz_datum: string | null
   ferfi: boolean | null
+  /** A tagnyilvántartási cím (pl. "Főút 27") — segíti a vizuális
+   *  egyeztetést, ha több jelölt illik */
+  cim: string | null
 }
 
 // ────────────────────────────────────────────────────────────────────────

@@ -157,7 +157,20 @@ export function resolveBudgetCode(
     }
   }
 
-  const sz = maps.szamadasicel.get(normalized)
+  // Tizedes-normálás: a magyar konvencióban "201.1" == "201.10". Ha a
+  // szamadasicel-ben az egyik forma létezik, fogadjuk el a másikat is.
+  let sz = maps.szamadasicel.get(normalized)
+  let actualKod = normalized
+  if (!sz) {
+    const alt = altDecimalForm(normalized)
+    if (alt) {
+      const sz2 = maps.szamadasicel.get(alt)
+      if (sz2) {
+        sz = sz2
+        actualKod = alt
+      }
+    }
+  }
   if (!sz) {
     return {
       kind: 'unknown',
@@ -165,6 +178,8 @@ export function resolveBudgetCode(
       rawKod: String(kod),
     }
   }
+  // Az `actualKod` lesz az, amit a maps-ben találtunk (lehet a normalized vagy az alt).
+  // A többi maps (befizetescel, kiadascel) a `actualKod`-on keresnek.
 
   // Belső mozgás — az EREK könyvelési számhalom belső pénzmozgás-kódjai:
   //
@@ -181,13 +196,15 @@ export function resolveBudgetCode(
   // Mindkét oldal cel-ID-ját megpróbáljuk kiolvasni: a párhuzamos befizetes +
   // kiadas INSERT-hez kell (v2 Bank-import).
   const isInternal =
-    normalized.startsWith('4') || normalized.startsWith('301')
+    actualKod.startsWith('4') ||
+    actualKod.startsWith('301') ||
+    actualKod.startsWith('300')
   if (isInternal) {
-    const bef = maps.befizetescel.get(normalized) || null
-    const kia = maps.kiadascel.get(normalized) || null
+    const bef = maps.befizetescel.get(actualKod) || null
+    const kia = maps.kiadascel.get(actualKod) || null
     return {
       kind: 'internal-transfer',
-      szamadasicel: normalized,
+      szamadasicel: actualKod,
       nev: sz.nev,
       befizetescelId: bef?.id ?? null,
       kiadascelId: kia?.id ?? null,
@@ -195,23 +212,23 @@ export function resolveBudgetCode(
   }
 
   // Bevétel oldal (befizetescel találat)
-  const bef = maps.befizetescel.get(normalized)
+  const bef = maps.befizetescel.get(actualKod)
   if (bef) {
     return {
       kind: 'income',
       befizetescelId: bef.id,
-      szamadasicel: normalized,
+      szamadasicel: actualKod,
       nev: bef.nev,
     }
   }
 
   // Kiadás oldal (kiadascel találat)
-  const kia = maps.kiadascel.get(normalized)
+  const kia = maps.kiadascel.get(actualKod)
   if (kia) {
     return {
       kind: 'expense',
       kiadascelId: kia.id,
-      szamadasicel: normalized,
+      szamadasicel: actualKod,
       nev: kia.nev,
     }
   }
@@ -251,6 +268,31 @@ export function normalizeBudgetCode(input: string | number | null | undefined): 
   // Validáció: csak szám-pont kombináció
   if (!/^\d+(\.\d+)?$/.test(normalized)) return null
   return normalized
+}
+
+/**
+ * Alternatív tizedes-forma: a magyar konvencióban "201.1" == "201.10".
+ * Ha az adatbázisban az egyik forma létezik, a másikat is felismerjük.
+ *
+ *   altDecimalForm('201.1')  → '201.10'
+ *   altDecimalForm('201.10') → '201.1'
+ *   altDecimalForm('101.01') → null   (egyértelmű, nem rövidíthető)
+ *   altDecimalForm('400')    → null   (nincs tizedes)
+ */
+export function altDecimalForm(normalized: string): string | null {
+  const m = normalized.match(/^(\d+)\.(\d+)$/)
+  if (!m) return null
+  const intPart = m[1]
+  const decPart = m[2]
+  // Ha végén 0 van és > 1 jegy, levághatjuk (pl. 201.10 → 201.1)
+  if (decPart.length > 1 && decPart.endsWith('0')) {
+    return `${intPart}.${decPart.replace(/0+$/, '') || '0'}`
+  }
+  // Ha 1 jegy, próbáljuk pad-elni 0-val (pl. 201.1 → 201.10)
+  if (decPart.length === 1) {
+    return `${intPart}.${decPart}0`
+  }
+  return null
 }
 
 /* ───────────────────────────────────────────────────────────────────────

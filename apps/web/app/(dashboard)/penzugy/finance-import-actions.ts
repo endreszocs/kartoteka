@@ -640,14 +640,21 @@ function resolveSingleDonor(
   const candidates: ResolvedSzemelyCandidate[] = lookup.candidates
     .map((id) => personMaps.byId.get(id))
     .filter((rec): rec is LookupRecord => rec !== undefined)
-    .map((rec) => ({
-      id: rec.id,
-      csaladnev: rec.csaladnev || null,
-      k_nev: rec.k_nev || null,
-      szcs_nev: rec.szcs_nev || null,
-      sz_datum: rec.sz_datum || null,
-      ferfi: typeof rec.ferfi === 'boolean' ? rec.ferfi : null,
-    }))
+    .map((rec) => {
+      const addr = personMaps.addressById.get(rec.id)
+      const cim = addr
+        ? [addr.streetName, addr.houseNumber].filter(Boolean).join(' ').trim() || null
+        : null
+      return {
+        id: rec.id,
+        csaladnev: rec.csaladnev || null,
+        k_nev: rec.k_nev || null,
+        szcs_nev: rec.szcs_nev || null,
+        sz_datum: rec.sz_datum || null,
+        ferfi: typeof rec.ferfi === 'boolean' ? rec.ferfi : null,
+        cim,
+      }
+    })
 
   return {
     raw: donor,
