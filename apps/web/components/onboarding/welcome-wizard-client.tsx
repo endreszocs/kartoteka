@@ -16,9 +16,26 @@ import { Step2Congregation } from './wizard/step-2-congregation'
 import { Step3Pastor } from './wizard/step-3-pastor'
 import { Step4Finance } from './wizard/step-4-finance'
 import { Step5Finish } from './wizard/step-5-finish'
+import {
+  type BankAccountSlot,
+} from './wizard/_helpers/bank-accounts-section'
+import {
+  type ServiceHistorySlot,
+} from './wizard/_helpers/service-history-section'
+import {
+  type DiscountPeriodSlot,
+  type AgeDiscountSlot,
+  createDefaultAgeDiscount,
+} from './wizard/_helpers/fee-discounts-section'
+import {
+  type PastYearSlot,
+  buildPastYearsList,
+} from './wizard/_helpers/past-years-section'
 
 // A wizard teljes kliens-oldali állapota (web-only, M6.3 óta).
 // A korábbi standalone (portable) Step 1 (licensz-aktiválás) kivezetve 2026-04-22.
+// 2026-05-05: bankAccounts[], serviceHistory[], discountPeriods[], ageDiscount,
+// pastYears[] strukturált bővítés.
 export interface WizardData {
   // Step 2 — Gyülekezet
   congregationId: string | null
@@ -32,6 +49,9 @@ export interface WizardData {
     email: string
     telefon: string
     web: string
+    // Megj.: 2026-05-05 — a `iban` és `bank` mezők már nem használtak a
+    // wizardból (a bankszámlák a `bankAccounts` tömbbe mennek). Marad a
+    // típuson backward-compat miatt, de nem írunk rá a UI-ból.
     iban: string
     bank: string
     // Strukturált cím-mezők (2026-04-21)
@@ -45,6 +65,9 @@ export interface WizardData {
     isForeign: boolean
   }
 
+  // Step 2 — Banki adatok (új, multi-bankszámla)
+  bankAccounts: BankAccountSlot[]
+
   // Step 3 — Lelkész
   pastor: {
     fullName: string
@@ -52,18 +75,32 @@ export interface WizardData {
     phone: string
     email: string
     serviceStartedAt: string
+    /**
+     * @deprecated 2026-05-05 — a `serviceHistory[]` strukturált tömb váltja le.
+     * Megőrizve a wizard_progress.data jsonb backward-compat miatt.
+     */
     previousPlaces: string
   }
+
+  // Step 3 — Szolgálati előzmények (új, multi-row)
+  serviceHistory: ServiceHistorySlot[]
 
   // Step 4 — Pénzügy
   finance: {
     eves_jarulek: number
     jarulek_kedvezmenyes: number
     jarulek_hatarid: string
-    nyito_keszpenz: number
-    nyito_bank: number
+    /** Tartozás-számítási mód: 'akkori' (default) vagy 'aktualis'. */
+    tartozas_szamitas_mod: 'akkori' | 'aktualis'
   }
+
+  // Step 4 — Kedvezmények és múlt évek (új)
+  discountPeriods: DiscountPeriodSlot[]
+  ageDiscount: AgeDiscountSlot
+  pastYears: PastYearSlot[]
 }
+
+const CURRENT_YEAR = new Date().getFullYear()
 
 const INITIAL_DATA: WizardData = {
   congregationId: null,
@@ -88,6 +125,7 @@ const INITIAL_DATA: WizardData = {
     adrstreet_id: null,
     isForeign: false,
   },
+  bankAccounts: [],
   pastor: {
     fullName: '',
     birthDate: '',
@@ -96,13 +134,16 @@ const INITIAL_DATA: WizardData = {
     serviceStartedAt: '',
     previousPlaces: '',
   },
+  serviceHistory: [],
   finance: {
     eves_jarulek: 0,
     jarulek_kedvezmenyes: 0,
     jarulek_hatarid: '07-01',
-    nyito_keszpenz: 0,
-    nyito_bank: 0,
+    tartozas_szamitas_mod: 'akkori',
   },
+  discountPeriods: [],
+  ageDiscount: createDefaultAgeDiscount(),
+  pastYears: buildPastYearsList(CURRENT_YEAR, 5),
 }
 
 // Step-ID-k 2-5 (a korábbi 1. lépés — portable licensz — kivezetve; a
@@ -143,21 +184,40 @@ export function WelcomeWizardClient() {
       }
 
       // Állapot visszatöltése
-      const savedData = wp.data || {}
+      const savedData = (wp.data || {}) as Partial<WizardData>
       setData(prev => ({
         ...prev,
         congregation: {
           ...prev.congregation,
           ...(savedData.congregation || {}),
         },
+        bankAccounts:
+          Array.isArray(savedData.bankAccounts) && savedData.bankAccounts.length > 0
+            ? (savedData.bankAccounts as BankAccountSlot[])
+            : prev.bankAccounts,
         pastor: {
           ...prev.pastor,
           ...(savedData.pastor || {}),
         },
+        serviceHistory:
+          Array.isArray(savedData.serviceHistory)
+            ? (savedData.serviceHistory as ServiceHistorySlot[])
+            : prev.serviceHistory,
         finance: {
           ...prev.finance,
           ...(savedData.finance || {}),
         },
+        discountPeriods:
+          Array.isArray(savedData.discountPeriods)
+            ? (savedData.discountPeriods as DiscountPeriodSlot[])
+            : prev.discountPeriods,
+        ageDiscount: savedData.ageDiscount
+          ? { ...prev.ageDiscount, ...savedData.ageDiscount }
+          : prev.ageDiscount,
+        pastYears:
+          Array.isArray(savedData.pastYears) && savedData.pastYears.length > 0
+            ? (savedData.pastYears as PastYearSlot[])
+            : prev.pastYears,
       }))
 
       // A régi (portable) sorokban `current_step` lehet 1 — azt is FIRST_STEP_ID-re
@@ -192,19 +252,41 @@ export function WelcomeWizardClient() {
   const goNext = () => setCurrentStep(s => Math.min(s + 1, LAST_STEP_ID))
   const goBack = () => setCurrentStep(s => Math.max(s - 1, FIRST_STEP_ID))
 
-  const handleNextFromStep2 = async (congregation: WizardData['congregation']) => {
-    setData(prev => ({ ...prev, congregation }))
-    const ok = await saveStep(2, { congregation })
+  const handleNextFromStep2 = async (
+    congregation: WizardData['congregation'],
+    bankAccounts: BankAccountSlot[],
+  ) => {
+    setData(prev => ({ ...prev, congregation, bankAccounts }))
+    const ok = await saveStep(2, { congregation, bankAccounts })
     if (ok) goNext()
   }
-  const handleNextFromStep3 = async (pastor: WizardData['pastor']) => {
-    setData(prev => ({ ...prev, pastor }))
-    const ok = await saveStep(3, { pastor })
+  const handleNextFromStep3 = async (
+    pastor: WizardData['pastor'],
+    serviceHistory: ServiceHistorySlot[],
+  ) => {
+    setData(prev => ({ ...prev, pastor, serviceHistory }))
+    const ok = await saveStep(3, { pastor, serviceHistory })
     if (ok) goNext()
   }
-  const handleNextFromStep4 = async (finance: WizardData['finance']) => {
-    setData(prev => ({ ...prev, finance }))
-    const ok = await saveStep(4, { finance })
+  const handleNextFromStep4 = async (
+    finance: WizardData['finance'],
+    discountPeriods: DiscountPeriodSlot[],
+    ageDiscount: AgeDiscountSlot,
+    pastYears: PastYearSlot[],
+  ) => {
+    setData(prev => ({
+      ...prev,
+      finance,
+      discountPeriods,
+      ageDiscount,
+      pastYears,
+    }))
+    const ok = await saveStep(4, {
+      finance,
+      discountPeriods,
+      ageDiscount,
+      pastYears,
+    })
     if (ok) goNext()
   }
 

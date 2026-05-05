@@ -23,6 +23,139 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-05b] — Welcome wizard alapos átdolgozás + offline belépési kód perszisztencia (v0.9.51 / desktop v0.8.7)
+<!-- key: 2026-05-05b-wizard-atalakitas-offline-pin -->
+<!-- category: feature -->
+<!-- version: 0.9.51 -->
+<!-- targets: minden felhasználó -->
+
+Kedves Lelkipásztorok!
+
+A beállító varázsló (welcome wizard) több korábbi visszajelzés alapján
+ma jelentősen átalakult — átláthatóbb, kategorizáltabb, többféle adatbevitelt
+támogat. A desktop alkalmazásban pedig az offline belépési kód már nem
+tűnik el minden frissítés után. Részletek alább.
+
+### 🎨 Welcome wizard — vizuális átdolgozás
+
+Eddig a beállító varázsló mezői nem voltak egyértelműen elkülönítve, és
+nem mindig volt világos, hogy egy bizonyos mezőbe mit kell írni. **Mostantól
+minden szakasz külön, ikonnal ellátott kártyán** szerepel:
+
+- 🏛 Egyházmegye (csak olvasható, információs)
+- ⛪ Hivatalos elnevezések
+- 🏷 Jogi azonosító
+- 📍 Hivatalos cím
+- ✉️ Gyülekezeti elérhetőségek (figyelmeztetéssel: NEM saját adat!)
+- 💳 Banki adatok (több számla felvehető)
+
+A személyes adatok lépésén ugyanígy: alapadatok, saját elérhetőségek,
+korábbi szolgálati helyek külön kártyákon.
+
+### ⚠️ Egyértelmű figyelmeztetés: gyülekezeti vs. saját elérhetőség
+
+A gyülekezeti elérhetőségek szakaszán figyelmeztető szöveg áll a tetején:
+**"Itt a *gyülekezet* hivatalos elérhetőségeit add meg (parókiai e-mail,
+közös telefon, gyülekezeti honlap) — NEM a saját elérhetőségeidet. A saját
+telefon-/email-címedet a következő, *Lelkészi adatok* lépésben adhatod meg."**
+
+Így nem tévesztheti el senki, melyik mezőbe mit ír.
+
+### 💳 Több bankszámla felvehető
+
+Korábban csak egy IBAN + bank név volt megadható. **Mostantól** a varázsló
+támogatja:
+
+- Több bankszámla rögzítése (lej, EUR, USD, magyar forint)
+- Egy számla "fő számlaként" megjelölése (a bizonylatokon ez szerepel)
+- A pénzügyi modul saját bankszámla-tárába mentődik (`bankszamlak` tábla)
+- Később a Pénzügy → Bankszámlák menüben bővíthető
+
+### 📜 Szolgálati előzmények — strukturált, multi-row
+
+Eddig egy szabadszöveges mezőben volt a "korábbi szolgálati helyek". Most
+már **kártyalistás formában**:
+
+- "+ Új szolgálati hely hozzáadása" gombbal bővíthető a lista
+- Minden helyhez külön: helyszín neve, szerep (lelkipásztor/segédlelkész),
+  kezdő-záró év, opcionális megjegyzés
+- "Záró év" üresen hagyható, ha jelenleg ott szolgál
+- Új SQL tábla (`pastor_service_history`) RLS-védetten
+
+### 💰 Egyházfenntartási járulék — alapos beállítások
+
+A pénzügyi alapbeállítások szakasz teljesen átalakult:
+
+- **Aktuális év alapösszege + határidő** — kötelező
+- **Tartozás-számítási mód (radio):** "akkori év szerint" (ajánlott) vagy
+  "aktuális év szerint" — befolyásolja, hogyan számolódnak a régi tartozások
+- **Kedvezményes időszakok (multi-row):** "+ Új időszak hozzáadása" gombbal
+  több early-bird kedvezmény vehető fel (pl. március 31-ig 50%, május 31-ig 25%)
+- **Kor-alapú kedvezmény (opcionális):** korhatár (pl. 70 év) + százalékos
+  vagy fix RON kedvezmény
+- **Korábbi évek beállításai (opcionális):** 5 visszamenő évre alapösszeg +
+  kedvezményes + határidő — segít az "akkori év szerint" pontos tartozás-
+  számításhoz
+
+A jövedelem-alapú kedvezmény és az egyedi mentesítések továbbra is a
+Tagnyilvántartás → Kezelés menüpontban állíthatók be tagonként.
+
+### 🗑 Nyitó egyenleg lépés eltávolítva
+
+A korábban kötelező "Nyitó kassza + nyitó bank" mezők **kikerültek** a
+varázslóból. Ezek a Pénzügy modul saját kezdőegyenleg-beállító űrlapján
+fognak megjelenni — ott bankszámlánként és kasszánként külön-külön, valutához
+illesztve, nyitóegyenleg-történettel együtt.
+
+### 🔐 Desktop: offline belépési kód már nem felejt
+
+Eddig minden frissítés után újra meg kellett adni az offline belépési
+kódot. **Mostantól** a PIN-bevitelnél van egy új checkbox:
+
+> ☑️ Emlékezz erre a gépre 7 napig
+
+Ha be van pipálva, a frissítések és újraindítások után **7 napig nem kell
+újra megadni a kódot** — a PIN-hash továbbra is a Windows Credential
+Manager-ben van titkosítva (DPAPI), csak az "ezen a gépen még érvényes"
+flag perzisztálódik.
+
+A "Emlékezz" jelölés kijelentkezéskor automatikusan törlődik.
+
+### 🆘 "Elfelejtettem a kódot" mechanika
+
+Új gomb a PIN-bevitel oldalon: **"Elfelejtettem a kódot"**. Kattintás után:
+
+1. Megerősítő ablak — a felhasználó tudja, mi fog történni
+2. A tárolt PIN-hash a Credential Manager-ből törlődik
+3. A rendszer átirányít az online bejelentkezéshez
+4. Sikeres online belépés után automatikusan a PIN-újrabeállító oldalra
+   kerül, jól látható figyelmeztetéssel: "A korábbi kódot törölted —
+   most állíts be egy újat"
+
+A lokális (Tauri SQLite) adatok érintetlenek maradnak — nem vesznek el
+sem a régi PIN törlésekor, sem az új beállításakor.
+
+### 🛢 Új SQL migráció (Endre futtatja)
+
+A `migration-docs/sql/2026-05-05-pastor-service-history-tartozas-mod.sql`
+fájl tartalmazza:
+- Új `pastor_service_history` tábla (RLS, indexek, trigger)
+- `congregations.tartozas_szamitas_mod` oszlop
+- Ellenőrző SELECT-ek a futtatás végén
+
+A migráció a Supabase Studio SQL Editorban futtatandó.
+
+### 🙏 Köszönet
+
+Köszönjük a 7 részletes észrevételt, amelyek alapján ez a fejlesztés
+készült. A varázsló most már igazán használható az első induláskor is,
+és visszamenőleg is bármikor (a "Beállító varázsló újraindítása" gomb
+a fejléc menüjén keresztül).
+
+Áldott szolgálatot!
+
+---
+
 ## [2026-05-05] — Reszponzív splash képernyő telefonon és tableten (v0.9.50 / desktop v0.8.6)
 <!-- key: 2026-05-05-splash-reszponziv -->
 <!-- category: improvement -->

@@ -77,15 +77,18 @@ export async function pinStatus(): Promise<PinStatus> {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Offline-mode flag (session-lifetime)
+// Offline-mode flag (session-lifetime + opcionális frissítés-túlélő perzisztens flag)
 // ────────────────────────────────────────────────────────────────────────
 
 const OFFLINE_MODE_KEY = 'kartoteka-offline-mode'
+const REMEMBER_OFFLINE_KEY = 'kartoteka-remember-offline'
+const PIN_RESET_PENDING_KEY = 'kartoteka-pin-reset-pending'
 
 /**
  * Jelzi, hogy a jelenlegi app-indítás offline-mode-ban fut (PIN-verify után).
  * A flag a sessionStorage-ban van — app újraindítás után nullára áll, és
- * újra PIN-t kell megadni.
+ * újra PIN-t kell megadni — KIVÉVE, ha a "Emlékezz erre a gépre" perzisztens
+ * flag aktív és nem járt le.
  */
 export function setOfflineMode(active: boolean): void {
   if (typeof window === 'undefined') return
@@ -98,7 +101,89 @@ export function setOfflineMode(active: boolean): void {
 
 export function isOfflineMode(): boolean {
   if (typeof window === 'undefined') return false
-  return window.sessionStorage.getItem(OFFLINE_MODE_KEY) === 'true'
+  // Session-lifetime
+  if (window.sessionStorage.getItem(OFFLINE_MODE_KEY) === 'true') return true
+  // Frissítés-túlélő perzisztens flag (lejárati ms timestamp)
+  return isRememberOfflineActive()
+}
+
+/**
+ * "Emlékezz erre a gépre" — perzisztens flag a localStorage-ban.
+ * Frissítés és app-újraindítás után is megmarad, X napig.
+ *
+ * Biztonsági megfontolás: a flag önmagában nem titok — csak azt jelzi, hogy
+ * "ezen a gépen volt PIN-belépés és a felhasználó megbízhatónak találta".
+ * Az igazi titok (PIN-hash) az OS keyring-ben van DPAPI-val védve, plusz
+ * a Supabase session-token is — ezeket NEM érinti ez a flag.
+ *
+ * Ha a felhasználó kijelentkezik vagy "Elfelejtettem a kódot" gombot
+ * használ, a flag azonnal törlődik.
+ */
+export function setRememberOffline(days: number): void {
+  if (typeof window === 'undefined') return
+  if (days <= 0) {
+    window.localStorage.removeItem(REMEMBER_OFFLINE_KEY)
+    return
+  }
+  const expiresAt = Date.now() + days * 24 * 60 * 60 * 1000
+  window.localStorage.setItem(REMEMBER_OFFLINE_KEY, String(expiresAt))
+}
+
+export function isRememberOfflineActive(): boolean {
+  if (typeof window === 'undefined') return false
+  const raw = window.localStorage.getItem(REMEMBER_OFFLINE_KEY)
+  if (!raw) return false
+  const expiresAt = parseInt(raw, 10)
+  if (Number.isNaN(expiresAt)) return false
+  if (Date.now() > expiresAt) {
+    // Lejárt — takarítsuk
+    window.localStorage.removeItem(REMEMBER_OFFLINE_KEY)
+    return false
+  }
+  return true
+}
+
+export function clearRememberOffline(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(REMEMBER_OFFLINE_KEY)
+}
+
+export function getRememberOfflineExpiresAt(): number | null {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(REMEMBER_OFFLINE_KEY)
+  if (!raw) return null
+  const expiresAt = parseInt(raw, 10)
+  if (Number.isNaN(expiresAt) || Date.now() > expiresAt) return null
+  return expiresAt
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// "Elfelejtettem a kódot" reset flow
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * A user a PIN-entry oldalon az "Elfelejtettem a kódot" gombbal indítja —
+ * ez törli a PIN-hash-et a keyring-ből, törli a remember-offline flagot, és
+ * jelzi, hogy a következő online-bejelentkezés után automatikus PIN-setup
+ * folyamatra kell vinni a felhasználót.
+ */
+export async function requestPinReset(): Promise<void> {
+  await clearPin()
+  clearRememberOffline()
+  setOfflineMode(false)
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(PIN_RESET_PENDING_KEY, 'true')
+  }
+}
+
+export function isPinResetPending(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(PIN_RESET_PENDING_KEY) === 'true'
+}
+
+export function clearPinResetPending(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(PIN_RESET_PENDING_KEY)
 }
 
 // ────────────────────────────────────────────────────────────────────────

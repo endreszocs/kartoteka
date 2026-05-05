@@ -1,31 +1,59 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, Church, Landmark, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  AtSign,
+  Church,
+  FileBadge,
+  Landmark,
+  Loader2,
+  MapPin,
+  ShieldAlert,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getCongregationContext } from '@/app/(setup)/welcome/actions'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 
+import {
+  WizardSectionCard,
+  WizardField,
+  WizardInputGrid,
+  WizardBanner,
+  Input,
+} from './_helpers/wizard-ui'
+import {
+  BankAccountsSection,
+  type BankAccountSlot,
+} from './_helpers/bank-accounts-section'
 import type { WizardData } from '../welcome-wizard-client'
 
 interface Step2Props {
   data: WizardData
   updateData: (patch: Partial<WizardData>) => void
-  onNext: (congregation: WizardData['congregation']) => void | Promise<void>
+  onNext: (
+    congregation: WizardData['congregation'],
+    bankAccounts: BankAccountSlot[],
+  ) => void | Promise<void>
   onBack: () => void
   saving?: boolean
 }
 
-export function Step2Congregation({ data, updateData, onNext, onBack, saving }: Step2Props) {
+export function Step2Congregation({
+  data,
+  updateData,
+  onNext,
+  onBack,
+  saving,
+}: Step2Props) {
   const [form, setForm] = useState(data.congregation)
+  const [bankAccounts, setBankAccounts] = useState(data.bankAccounts)
   const [dioceseName, setDioceseName] = useState<string | null>(null)
   const [dioceseLoading, setDioceseLoading] = useState(true)
 
-  // Egyházmegye név betöltése — ha van beállítva a profilon / gyülekezeten
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -50,126 +78,153 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
       toast.error('A gyülekezet neve kötelező')
       return
     }
-    // FIX 2026-05-04: a cím-validáció megengedőbb — sok kis gyülekezetnél nincs
-    // külön utcanév, csak helység + házszám. Az utca (form.cim) opcionális; a
-    // helység (form.varos) viszont kötelező a hivatalos irat-megjelenítéshez.
     if (!form.varos.trim()) {
-      toast.error('A helységet ki kell tölteni — válasszon megyét és helységet az "Hivatalos cím" szakaszban.')
+      toast.error(
+        'A helységet ki kell tölteni — válasszon megyét és helységet a "Hivatalos cím" szakaszban.',
+      )
       return
     }
-    updateData({ congregation: form })
-    await onNext(form)
+    // Banki számlák validáció: ha van legalább egy, mindegyiknek legyen
+    // bank_neve és valuta. IBAN opcionális (pasztorálisan, sok kis számla
+    // még nem tudja a saját IBAN-ját). Ha üres a lista, az is OK.
+    const invalid = bankAccounts.find(b => !b.bank_neve.trim())
+    if (invalid) {
+      toast.error(
+        'Minden banki számlához add meg a bank nevét — vagy töröld a felesleges sorokat.',
+      )
+      return
+    }
+    // Pontosan egy fő számla kell, ha van legalább egy
+    if (bankAccounts.length > 0 && !bankAccounts.some(b => b.is_default)) {
+      const next = bankAccounts.map((b, i) => ({ ...b, is_default: i === 0 }))
+      setBankAccounts(next)
+      updateData({ congregation: form, bankAccounts: next })
+      await onNext(form, next)
+      return
+    }
+    updateData({ congregation: form, bankAccounts })
+    await onNext(form, bankAccounts)
   }
 
   return (
-    <div className="space-y-6 p-6 md:p-8">
-      <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
-          <Church className="size-5 text-emerald-600" />
+    <div className="space-y-5 p-4 md:p-6">
+      <header className="flex items-start gap-3">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 ring-1 ring-emerald-100">
+          <Church className="size-6 text-emerald-600" />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="font-heading text-2xl text-slate-800">
             Gyülekezeti alapadatok
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Ezek az adatok szerepelnek majd a hivatalos iratokon, nyomtatványokon.
+            Az itt megadott adatok a gyülekezetére vonatkoznak — ezek szerepelnek
+            majd a hivatalos iratokon, nyomtatványokon. A saját személyes adatait a
+            következő lépésen adja meg.
           </p>
         </div>
-      </div>
+      </header>
 
-      {/* Egyházmegye (csak olvasható, ha be van állítva) */}
-      <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-100">
-            <Landmark className="size-4 text-sky-700" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
-              Egyházmegye
-            </p>
-            {dioceseLoading ? (
-              <p className="mt-1 flex items-center gap-2 text-sm text-sky-900">
-                <Loader2 className="size-3.5 animate-spin" />
-                <span>Betöltés…</span>
-              </p>
-            ) : dioceseName ? (
-              <p className="mt-1 text-base font-semibold text-sky-900">
-                {dioceseName}
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-sky-900/70 italic">
-                Még nincs beállítva — a rendszergazda a gyülekezet hozzárendelésekor
-                állítja be.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* Egyházmegye chip — csak olvasható */}
+      <WizardSectionCard
+        icon={Landmark}
+        iconColor="text-sky-700"
+        iconBg="bg-sky-50"
+        title="Egyházmegye"
+        description="A rendszergazda a gyülekezet hozzárendelésekor állítja be — ez itt csak információ."
+      >
+        {dioceseLoading ? (
+          <p className="flex items-center gap-2 text-sm text-slate-600">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>Betöltés…</span>
+          </p>
+        ) : dioceseName ? (
+          <p className="rounded-lg bg-sky-50 px-3 py-2 text-base font-semibold text-sky-900">
+            {dioceseName}
+          </p>
+        ) : (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Még nincs beállítva — a rendszergazda állítja be.
+          </p>
+        )}
+      </WizardSectionCard>
 
-      {/* Hivatalos nevek */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Hivatalos elnevezések
-        </h3>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="nev">Gyülekezet neve (hivatalos) *</Label>
+      {/* Hivatalos elnevezések */}
+      <WizardSectionCard
+        icon={Church}
+        iconColor="text-emerald-700"
+        iconBg="bg-emerald-50"
+        title="Hivatalos elnevezések"
+        description="A gyülekezet ahogy a hivatalos iratokon megjelenik."
+      >
+        <WizardField
+          id="nev"
+          label="Gyülekezet neve (hivatalos)"
+          required
+          hint="A hivatalos romániai név (CIF/CUI alapján)."
+        >
           <Input
             id="nev"
             placeholder="pl. Barátosi Református Egyházközség"
             value={form.nev}
             onChange={e => update('nev', e.target.value)}
           />
-        </div>
+        </WizardField>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="nev_hu">Magyar név (rövid)</Label>
+        <WizardInputGrid cols={2}>
+          <WizardField id="nev_hu" label="Magyar név (rövid)" hint="Belső használatra.">
             <Input
               id="nev_hu"
               placeholder="pl. Barátosi Református"
               value={form.nev_hu}
               onChange={e => update('nev_hu', e.target.value)}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="nev_ro">Román név</Label>
+          </WizardField>
+          <WizardField id="nev_ro" label="Román név" hint="Hivatalos román nyelvű név.">
             <Input
               id="nev_ro"
               placeholder="pl. Parohia Reformată Brateș"
               value={form.nev_ro}
               onChange={e => update('nev_ro', e.target.value)}
             />
-          </div>
-        </div>
-      </div>
+          </WizardField>
+        </WizardInputGrid>
+      </WizardSectionCard>
 
-      {/* Jogi azonosítók — Endre kérése (2026-05-04): a "Bejegyzési szám"
-          mező eltávolítva, mert ilyen az egyháznál nincs. Marad az Adószám (CUI). */}
-      <div className="space-y-4 border-t border-slate-100 pt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Jogi azonosító
-        </h3>
-
-        <div className="space-y-1.5 md:max-w-sm">
-          <Label htmlFor="adoszam">Adószám (CUI)</Label>
-          <Input
+      {/* Jogi azonosító */}
+      <WizardSectionCard
+        icon={FileBadge}
+        iconColor="text-violet-700"
+        iconBg="bg-violet-50"
+        title="Jogi azonosító"
+        description="A gyülekezet hivatalos romániai adóazonosítója."
+      >
+        <div className="md:max-w-md">
+          <WizardField
             id="adoszam"
-            placeholder="pl. 12345678"
-            value={form.adoszam}
-            onChange={e => update('adoszam', e.target.value)}
-          />
+            label="Adószám (CUI)"
+            hint="Az ANAF által kiosztott egyedi szám. Bizonylatokon, hivatalos leveleken szerepel."
+          >
+            <Input
+              id="adoszam"
+              placeholder="pl. 12345678"
+              value={form.adoszam}
+              onChange={e => update('adoszam', e.target.value)}
+            />
+          </WizardField>
         </div>
-      </div>
+      </WizardSectionCard>
 
-      {/* Cím — AddressForm strukturált bevitellel */}
-      <div className="space-y-4 border-t border-slate-100 pt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Hivatalos cím
-        </h3>
+      {/* Hivatalos cím */}
+      <WizardSectionCard
+        icon={MapPin}
+        iconColor="text-rose-700"
+        iconBg="bg-rose-50"
+        title="Hivatalos cím"
+        description="A gyülekezet (templom, parókia) hivatalos címe."
+      >
         <p className="text-xs text-slate-500">
-          A megye és helység a hivatalos romániai adatbázisból választható;
-          az irányítószám automatikusan kitöltődik az utca alapján.
+          A megye és helység a hivatalos romániai adatbázisból választható; az
+          irányítószám automatikusan kitöltődik az utca alapján.
         </p>
 
         <AddressForm
@@ -201,17 +256,33 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
           }
           lang="hu"
         />
-      </div>
+      </WizardSectionCard>
 
-      {/* Elérhetőségek */}
-      <div className="space-y-4 border-t border-slate-100 pt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Elérhetőségek
-        </h3>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="cong-email">E-mail</Label>
+      {/* Elérhetőségek — banner figyelmeztet, hogy NEM saját, hanem gyülekezeti */}
+      <WizardSectionCard
+        icon={AtSign}
+        iconColor="text-indigo-700"
+        iconBg="bg-indigo-50"
+        title="Gyülekezeti elérhetőségek"
+        description="Hivatalos kapcsolattartási adatok. NEM a saját adatait — azt a következő lépésen adja meg."
+        banner={
+          <WizardBanner tone="warning" icon={ShieldAlert}>
+            <p>
+              <strong>Figyelem!</strong> Itt a <em>gyülekezet</em> hivatalos
+              elérhetőségeit add meg (parókiai e-mail, közös telefon, gyülekezeti
+              honlap) — <strong>NEM a saját elérhetőségeidet</strong>. A saját
+              telefon-/email-címedet a következő, &bdquo;Lelkészi adatok&rdquo;
+              lépésben adhatod meg.
+            </p>
+          </WizardBanner>
+        }
+      >
+        <WizardInputGrid cols={3}>
+          <WizardField
+            id="cong-email"
+            label="Gyülekezeti e-mail"
+            hint="A gyülekezet közös, hivatalos e-mail címe."
+          >
             <Input
               id="cong-email"
               type="email"
@@ -219,55 +290,39 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
               value={form.email}
               onChange={e => update('email', e.target.value)}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cong-telefon">Telefon</Label>
+          </WizardField>
+          <WizardField
+            id="cong-telefon"
+            label="Gyülekezeti telefon"
+            hint="A parókia telefonszáma."
+          >
             <Input
               id="cong-telefon"
               placeholder="+40 740 123 456"
               value={form.telefon}
               onChange={e => update('telefon', e.target.value)}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cong-web">Weboldal</Label>
+          </WizardField>
+          <WizardField
+            id="cong-web"
+            label="Gyülekezeti weboldal"
+            hint="Ha van — opcionális."
+          >
             <Input
               id="cong-web"
               placeholder="pl. baratos.erek.ro"
               value={form.web}
               onChange={e => update('web', e.target.value)}
             />
-          </div>
-        </div>
-      </div>
+          </WizardField>
+        </WizardInputGrid>
+      </WizardSectionCard>
 
-      {/* Banki adatok */}
-      <div className="space-y-4 border-t border-slate-100 pt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Banki adatok (opcionális — később is kitölthető)
-        </h3>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="iban">IBAN</Label>
-            <Input
-              id="iban"
-              placeholder="RO49 AAAA 1B31 0075 9384 0000"
-              value={form.iban}
-              onChange={e => update('iban', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="bank">Bank neve</Label>
-            <Input
-              id="bank"
-              placeholder="pl. Banca Transilvania"
-              value={form.bank}
-              onChange={e => update('bank', e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
+      {/* Banki adatok — multi-számla */}
+      <BankAccountsSection
+        accounts={bankAccounts}
+        onChange={setBankAccounts}
+      />
 
       {/* Nav buttons */}
       <div className="flex items-center justify-between border-t border-slate-100 pt-4">
@@ -281,11 +336,7 @@ export function Step2Congregation({ data, updateData, onNext, onBack, saving }: 
           onClick={handleNext}
           disabled={saving}
         >
-          {saving ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <ArrowRight className="size-4" />
-          )}
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
           {saving ? 'Mentés…' : 'Tovább'}
         </Button>
       </div>

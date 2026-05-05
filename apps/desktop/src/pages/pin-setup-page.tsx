@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -13,7 +13,11 @@ import {
 } from '@kartoteka/ui'
 
 import { errorMessage } from '../lib/error'
-import { setPin } from '../lib/auth-pin'
+import {
+  setPin,
+  isPinResetPending,
+  clearPinResetPending,
+} from '../lib/auth-pin'
 
 /**
  * PIN Setup Page (A-M6.9, 2026-04-22) — offline PIN beállítása.
@@ -35,6 +39,11 @@ export function PinSetupPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [resetPending, setResetPending] = useState(false)
+
+  useEffect(() => {
+    setResetPending(isPinResetPending())
+  }, [])
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -56,6 +65,7 @@ export function PinSetupPage() {
     setLoading(true)
     try {
       await setPin(pin)
+      clearPinResetPending()
       setSuccess(true)
       // Rövid visszajelzés után tovább a főoldalra
       setTimeout(() => navigate('/', { replace: true }), 1200)
@@ -76,14 +86,27 @@ export function PinSetupPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Offline belépési kód beállítása</CardTitle>
+          <CardTitle className="text-2xl">
+            {resetPending ? 'Új belépési kód beállítása' : 'Offline belépési kód beállítása'}
+          </CardTitle>
           <CardDescription>
-            Ezzel a kóddal akkor is be tudsz lépni a rendszerbe, ha 30 napnál
-            hosszabb ideig nem volt hálózatod. A kód a saját gépeden, titkosítva
-            tárolódik — sosem küldjük el szerverre.
+            {resetPending
+              ? 'A korábbi kódot törölted — most állíts be egy újat. Ezzel a kóddal akkor is be tudsz lépni, ha 30 napnál hosszabb ideig nem volt hálózatod.'
+              : 'Ezzel a kóddal akkor is be tudsz lépni a rendszerbe, ha 30 napnál hosszabb ideig nem volt hálózatod. A kód a saját gépeden, titkosítva tárolódik — sosem küldjük el szerverre.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {resetPending && !success && (
+            <div
+              role="status"
+              className="mb-4 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900"
+            >
+              <strong>Figyelem:</strong> az online bejelentkezés sikerült, és a
+              régi belépési kódot töröltük. Most adj meg egy újat — ezt fogod
+              használni offline-belépéshez. A lokális adataid érintetlenek
+              maradtak.
+            </div>
+          )}
           {success ? (
             <div
               role="status"

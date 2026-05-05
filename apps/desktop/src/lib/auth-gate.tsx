@@ -5,7 +5,12 @@ import type { Session } from '@supabase/supabase-js'
 import { AutoSyncStatusBar } from '../components/auto-sync-status-bar'
 import { SessionStatusIndicator } from '../components/session-status-indicator'
 import { SyncStatusIndicator } from '../components/sync-status-indicator'
-import { hasPin, isOfflineMode, setOfflineMode } from './auth-pin'
+import {
+  clearRememberOffline,
+  hasPin,
+  isOfflineMode,
+  setOfflineMode,
+} from './auth-pin'
 import { runBefizetesSyncManually, startBefizetesAutoSync } from './befizetes-write-sync'
 import { runChitantaSyncManually, startChitantaAutoSync } from './chitanta-sync'
 import { runKiadasSyncManually, startKiadasAutoSync } from './kiadas-write-sync'
@@ -72,10 +77,12 @@ export function AuthGate() {
         void runKiadasSyncManually()
       }
 
-      // SIGNED_OUT explicit → offline-mode is törlődik (user logout)
+      // SIGNED_OUT explicit → offline-mode is törlődik + remember-flag is
+      // (user logout = új gépnek kéne felfognia a rendszert)
       if (event === 'SIGNED_OUT') {
         setOfflineMode(false)
         setOfflineActive(false)
+        clearRememberOffline()
       }
     })
 

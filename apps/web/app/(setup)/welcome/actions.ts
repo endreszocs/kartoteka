@@ -29,27 +29,81 @@ export interface WizardCongregationSlot {
   adrstreet_id: number | null
 }
 
+export interface WizardBankAccountSlot {
+  bank_neve: string
+  iban: string
+  valuta: 'RON' | 'EUR' | 'USD' | 'HUF'
+  is_default: boolean
+  _clientKey?: string
+}
+
 export interface WizardPastorSlot {
   fullName: string
   birthDate: string
   phone: string
   email: string
   serviceStartedAt: string
+  /**
+   * @deprecated 2026-05-05 — leváltva a `serviceHistory[]`-ra.
+   * Megőrizve a wizard_progress.data backward-compat miatt.
+   */
   previousPlaces: string
+}
+
+export interface WizardServiceHistorySlot {
+  hely: string
+  szerep: string
+  ev_tol: number | null
+  ev_ig: number | null
+  megjegyzes: string
+  _clientKey?: string
 }
 
 export interface WizardFinanceSlot {
   eves_jarulek: number
   jarulek_kedvezmenyes: number
   jarulek_hatarid: string
-  nyito_keszpenz: number
-  nyito_bank: number
+  /** 2026-05-05: tartozás-számítási mód */
+  tartozas_szamitas_mod?: 'akkori' | 'aktualis'
+  /**
+   * @deprecated 2026-05-05 — a nyitó egyenleg a Pénzügy modulban kerül beállításra.
+   * Megőrizve a backward-compat miatt.
+   */
+  nyito_keszpenz?: number
+  /** @deprecated 2026-05-05 */
+  nyito_bank?: number
+}
+
+export interface WizardDiscountPeriodSlot {
+  hatarid: string
+  kedv_osszeg: number
+  _clientKey?: string
+}
+
+export interface WizardAgeDiscountSlot {
+  enabled: boolean
+  kor_tol: number | null
+  szazalek: number | null
+  fix_osszeg: number | null
+  type: 'percent' | 'fix'
+}
+
+export interface WizardPastYearSlot {
+  ev: number
+  eves_jarulek: number | null
+  jarulek_kedvezmenyes: number | null
+  jarulek_hatarid: string
 }
 
 export interface WizardData {
   congregation?: Partial<WizardCongregationSlot>
+  bankAccounts?: WizardBankAccountSlot[]
   pastor?: Partial<WizardPastorSlot>
+  serviceHistory?: WizardServiceHistorySlot[]
   finance?: Partial<WizardFinanceSlot>
+  discountPeriods?: WizardDiscountPeriodSlot[]
+  ageDiscount?: WizardAgeDiscountSlot
+  pastYears?: WizardPastYearSlot[]
 }
 
 export interface WizardProgressRow {
@@ -437,6 +491,8 @@ export async function completeWizard(): Promise<
     if (wd.pastor.serviceStartedAt) {
       pastorUpsert.service_started_at = wd.pastor.serviceStartedAt
     }
+    // Backward-compat: ha a régi previousPlaces text mezőben van adat,
+    // azt is mentjük (de a strukturált pastor_service_history a fő tárolás).
     if (wd.pastor.previousPlaces) {
       pastorUpsert.previous_service_places = [wd.pastor.previousPlaces]
     }
@@ -446,6 +502,39 @@ export async function completeWizard(): Promise<
       .upsert(pastorUpsert, { onConflict: 'user_id' })
     if (error) {
       console.error('[completeWizard] pastor_profiles upsert:', error)
+    }
+  }
+
+  // ─── pastor_service_history (multi-row insert) ───
+  // A wizard Step 3 új strukturált szolgálati előzményei. Először töröljük
+  // a felhasználó saját history-ját (idempotens újrafutáshoz), aztán bulk
+  // insertelünk.
+  if (Array.isArray(wd.serviceHistory)) {
+    const validHistory = wd.serviceHistory.filter(s => s.hely && s.hely.trim())
+    if (validHistory.length > 0) {
+      // Töröljük a meglévő rekordokat (idempotens újrafutás esetén)
+      await writeClient
+        .from('pastor_service_history')
+        .delete()
+        .eq('user_id', user.id)
+
+      const rows = validHistory.map((s, idx) => ({
+        user_id: user.id,
+        hely: s.hely.trim(),
+        szerep: s.szerep?.trim() || null,
+        ev_tol: s.ev_tol,
+        ev_ig: s.ev_ig,
+        megjegyzes: s.megjegyzes?.trim() || null,
+        sorrend: idx,
+      }))
+
+      const { error } = await writeClient
+        .from('pastor_service_history')
+        .insert(rows)
+      if (error) {
+        console.error('[completeWizard] pastor_service_history insert:', error)
+        // Nem blokkoló — de figyelmeztetjük a felhasználót
+      }
     }
   }
 
@@ -482,6 +571,20 @@ export async function completeWizard(): Promise<
     if (wd.finance?.jarulek_hatarid) {
       congUpdate.jarulek_hatarid = wd.finance.jarulek_hatarid
     }
+    if (wd.finance?.tartozas_szamitas_mod) {
+      congUpdate.tartozas_szamitas_mod = wd.finance.tartozas_szamitas_mod
+    }
+
+    // Legacy fallback: ha vannak bankszámlák a wizardban, az elsőt
+    // (vagy a fő számlát) szinkronizáljuk a `congregations.iban`/`bank`
+    // mezőkbe is — backward-compat a régi kód miatt, ami közvetlenül
+    // ezekből olvas (pl. fizetési bizonylatok PDF generálás).
+    if (Array.isArray(wd.bankAccounts) && wd.bankAccounts.length > 0) {
+      const primary =
+        wd.bankAccounts.find(b => b.is_default) || wd.bankAccounts[0]
+      if (primary?.iban) congUpdate.iban = primary.iban
+      if (primary?.bank_neve) congUpdate.bank = primary.bank_neve
+    }
 
     if (Object.keys(congUpdate).length > 0) {
       const { error } = await writeClient
@@ -490,6 +593,106 @@ export async function completeWizard(): Promise<
         .eq('id', profile.congregation_id)
       if (error) {
         console.error('[completeWizard] congregations update:', error)
+      }
+    }
+
+    // ─── bankszamlak (multi-row insert) ───
+    // A wizard Step 2 új banki-számla listája a `bankszamlak` táblába kerül
+    // (a pénzügyi modul saját tárolója). Idempotens újrafutáshoz először
+    // töröljük a gyülekezet összes wizard-eredetű számláját, aztán insertelünk.
+    if (Array.isArray(wd.bankAccounts) && wd.bankAccounts.length > 0) {
+      const validAccounts = wd.bankAccounts.filter(b => b.bank_neve.trim())
+      if (validAccounts.length > 0) {
+        // Pontosan egy fő számla
+        const accountsWithDefault = validAccounts.map((b, i) => ({
+          ...b,
+          is_default: validAccounts.some(x => x.is_default)
+            ? b.is_default
+            : i === 0,
+        }))
+
+        const rows = accountsWithDefault.map(b => ({
+          congregation_id: profile.congregation_id,
+          bank_neve: b.bank_neve.trim(),
+          iban: b.iban?.trim() || null,
+          valuta: b.valuta,
+          is_default: b.is_default,
+          aktiv: true,
+          scope: 'gyulekezet' as const,
+        }))
+
+        const { error } = await writeClient.from('bankszamlak').insert(rows)
+        if (error) {
+          console.error('[completeWizard] bankszamlak insert:', error)
+          // Nem blokkoló
+        }
+      }
+    }
+
+    // ─── jarulek_kedvezmeny (időszaki + kor-alapú) ───
+    // Az aktuális év kedvezmény-szabályait írjuk be. Idempotens újrafutáshoz
+    // töröljük a wizard-rel létrehozott aktuális-évi kedvezményeket előbb.
+    const currentYearNum = new Date().getFullYear()
+    const periodCount = wd.discountPeriods?.length ?? 0
+    const ageEnabled = wd.ageDiscount?.enabled === true
+    if (periodCount > 0 || ageEnabled) {
+      // Töröljük a meglévő current_year kedvezmények közül azokat,
+      // amiket a wizard hozhatott létre (idoszak + kor)
+      await writeClient
+        .from('jarulek_kedvezmeny')
+        .delete()
+        .eq('congregation_id', profile.congregation_id)
+        .eq('ev', currentYearNum)
+        .in('tipus', ['idoszak', 'kor'])
+
+      const discountRows: Record<string, unknown>[] = []
+
+      if (Array.isArray(wd.discountPeriods)) {
+        wd.discountPeriods
+          .filter(
+            p =>
+              /^\d{2}-\d{2}$/.test(p.hatarid) && Number(p.kedv_osszeg) > 0,
+          )
+          .forEach((p, idx) => {
+            discountRows.push({
+              congregation_id: profile.congregation_id,
+              ev: currentYearNum,
+              tipus: 'idoszak',
+              sorrend: idx,
+              aktiv: true,
+              hatarid: p.hatarid,
+              kedv_osszeg: p.kedv_osszeg,
+            })
+          })
+      }
+
+      if (ageEnabled && wd.ageDiscount) {
+        const ad = wd.ageDiscount
+        if (ad.kor_tol && ad.kor_tol >= 18) {
+          const ageRow: Record<string, unknown> = {
+            congregation_id: profile.congregation_id,
+            ev: currentYearNum,
+            tipus: 'kor',
+            sorrend: 0,
+            aktiv: true,
+            kor_tol: ad.kor_tol,
+          }
+          if (ad.type === 'percent' && ad.szazalek) {
+            ageRow.szazalek = ad.szazalek
+          } else if (ad.type === 'fix' && ad.fix_osszeg !== null) {
+            ageRow.fix_osszeg = ad.fix_osszeg
+          }
+          discountRows.push(ageRow)
+        }
+      }
+
+      if (discountRows.length > 0) {
+        const { error } = await writeClient
+          .from('jarulek_kedvezmeny')
+          .insert(discountRows)
+        if (error) {
+          console.error('[completeWizard] jarulek_kedvezmeny insert:', error)
+        }
       }
     }
 
@@ -555,6 +758,54 @@ export async function completeWizard(): Promise<
     if (error) {
       console.error('[completeWizard] bealitas upsert:', error)
       return { error: `A pénzügyi alapbeállítások mentése sikertelen: ${error.message}` }
+    }
+
+    // ─── Múlt évek bealitas (opcionális, csak akkori módban van értelme) ───
+    // A felhasználó max 5 visszamenő évet adhat meg a wizardban. Csak azokat
+    // mentjük, amelyikben legalább egy mező ki van töltve. Idempotens upsert
+    // a (id, congregation_id) PK-re.
+    if (
+      Array.isArray(wd.pastYears) &&
+      wd.finance.tartozas_szamitas_mod === 'akkori'
+    ) {
+      const filledYears = wd.pastYears.filter(
+        y =>
+          (y.eves_jarulek && y.eves_jarulek > 0) ||
+          (y.jarulek_kedvezmenyes && y.jarulek_kedvezmenyes > 0) ||
+          (y.jarulek_hatarid && /^\d{2}-\d{2}$/.test(y.jarulek_hatarid)),
+      )
+      for (const year of filledYears) {
+        const yearRow: Record<string, unknown> = {
+          id: String(year.ev),
+          congregation_id: profile.congregation_id,
+          aktiv: false, // múlt évek nem "aktívak", csak archív
+          isszemelyibefizetes: false,
+          isszulokkulon: false,
+          felmentes70felul: false,
+          felmentesideneskudtek: false,
+          kedvezmenyxevenfelul: false,
+          utcaid: streetId,
+        }
+        if (year.eves_jarulek !== null) {
+          yearRow.eves_jarulek = year.eves_jarulek
+        }
+        if (year.jarulek_kedvezmenyes !== null) {
+          yearRow.jarulek_kedvezmenyes = year.jarulek_kedvezmenyes
+        }
+        if (year.jarulek_hatarid) {
+          yearRow.jarulek_hatarid = year.jarulek_hatarid
+        }
+        if (wd.congregation?.adrlocality_id !== undefined) {
+          yearRow.helysegid = wd.congregation.adrlocality_id
+        }
+
+        const { error: yearErr } = await writeClient
+          .from('bealitas')
+          .upsert(yearRow, { onConflict: 'id,congregation_id' })
+        if (yearErr) {
+          console.error(`[completeWizard] bealitas múlt év ${year.ev}:`, yearErr)
+        }
+      }
     }
   }
 
