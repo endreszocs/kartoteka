@@ -23,6 +23,82 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-06] — Egyházfenntartás-import wizard (xlsx + xml deduplikációval) (v0.9.53, csak web)
+<!-- key: 2026-05-06-egyhfenntartas-import-wizard -->
+<!-- category: feature -->
+<!-- version: 0.9.53 -->
+<!-- targets: rendszergazda -->
+
+Új import-flow a `/admin/finance-import` oldalon: a teljes Kassza-import
+mellé jött az **"Egyházfenntartás-import"** fül, amely **két forrásfájlból**
+egyezteti a tagsági befizetéseket és kiszűri a duplikációkat.
+
+### 🎯 A két forrás
+
+A felhasználó eddig két helyen vezette ugyanazokat a befizetéseket — most
+egyetlen importba olvad. A wizard:
+
+- **Adatok_YYYY.xlsx** (Kassza-sheet) — a teljes éves könyvelés (bevétel + kiadás)
+- **bevételek YYYY.xml** — a részletes bevételi-lista (utcával + házszámmal)
+
+### 🔄 A duplikáció-szűrés
+
+A kulcs: **`xlsx.Iratszam == xml.Nyugta`** (mindkettő ugyanaz a sorszám).
+Ha egyezik az iratszám + összeg + a név hasonlósága ≥ 85%, akkor
+**MATCH** — egyetlen tranzakció, az XML-t használjuk (több info: Befizetett
+év, Megjegyzés, hivatalos 5-jegyű iratszám).
+
+5 kategória:
+- 🟢 **Match** (mindkét fájlban)
+- 🔵 **Csak xlsx** (xml-ben hiányzik — vagy az xml elavult, vagy elírás)
+- 🟠 **Csak xml** (xlsx-ben hiányzik — vagy a Kassza nem komplett)
+- 🟡 **Bizonytalan** (név vagy összeg eltér 1 jegyben)
+- 🔴 **Tag nem található** (a `szemely`-ben nincs ilyen család+utca)
+
+### 🔍 Tagnyilvántartás-egyezés (quad-lookup)
+
+Minden tranzakcióhoz a `donor-string-parser`-rel kibontjuk a nevet, utcát,
+házszámot, és quad-lookup-pal a `szemely` táblában keressük. Háromféle eredmény:
+
+- ✅ **Strict match** (egyetlen tag, családnév + keresztnév + utca + házszám)
+- 🟡 **Loose match** (csak családnév + utca, k_nev nem egyértelmű)
+- 🟡 **Multiple match** (több tag illik) — manuális választás
+- ❌ **Not-found** — CSV-export "Új tagok" listával
+
+### 📅 Több éves támogatás
+
+A wizardban év-mező — auto-detektálja a fájlnévből (pl. `Adatok_2025.xlsx`)
+vagy a fájl tartalmából. Több évet egyenként importálj — minden év önálló
+futás. A DB-szintű duplikáció-szűrés véd attól, hogy ugyanazt a tételt
+kétszer rögzítsd.
+
+### 🛢 Importálás a `befizetes` táblába
+
+Minden elfogadott sor a hivatalos `befizetes` táblába kerül a
+`befizetescel.id_szamadasicel = '101.01'` (Egyházfenntartói járulék)
+kategóriával. A `xkey` automatikusan generált, a `synced = true`.
+
+A DB-szintű duplikáció-szűrés a `(congregation_id, fizetettev, iratszam,
+osszeg, id_befizetescel)` ötösre épül — új partial index támogatja:
+`idx_befizetes_egyhf_import_lookup`.
+
+### 🛢 Új SQL migráció (Endre futtatja)
+
+A `migration-docs/sql/2026-05-06-egyhfenntartas-import-dup-index.sql`
+új partial indexet hoz létre. Endre futtatja a Supabase Studio-ban.
+
+### 🎨 UI struktúra
+
+A `/admin/finance-import` oldalon mostantól **2 fülön**:
+- **Teljes Kassza-import** (a meglévő flow, érintetlen)
+- **Egyházfenntartás-import** (új) — 4 lépéses wizard:
+  1. Üdvözlő + 2 dropzone + év-detekció
+  2. Áttekintés + 4-fülös döntési tábla (Biztos / Bizonytalan / Egyik fájlban / Tag-hiány)
+  3. Importálás progress
+  4. Eredmény + CSV-export az "új tagokról"
+
+---
+
 ## [2026-05-05c] — Welcome wizard fejléc-logó + e-mail modal (v0.9.52, csak web)
 <!-- key: 2026-05-05c-welcome-logo-email-modal -->
 <!-- category: improvement -->
