@@ -506,9 +506,29 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - Build és typecheck: nem rontottam
 
 ### Maradék P1 (még nyitva)
-- **P1-3** `dangerouslySetInnerHTML` sanitize (terms-dialog, filing-template-generator)
+- **P1-3b** `filing-template-generator` sanitize (külön sprintben — custom sanitizeFilingHtml helper kell)
 - **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
 - **P1-5** `completeWizard` Zod-validáció
 - **P1-7** `delegated-import` rate-limit + audit-log
 - **P1-8** járulék-kategória felismerés a finalization flow-ban
-- **P1-9** [új] `egyhfenntartas-import-actions.ts` Zod + MIME/size + RLS-scope
+
+---
+
+## ✅ Harmadik javítás-batch — 2026-05-15 (P1-3a + P1-9)
+
+### P1-3a → **JAVÍTVA** — commit `4ad50360`
+A `terms-dialog.tsx` `dangerouslySetInnerHTML`-jét a meglévő `sanitizeAboutHtml()` helper-rel burkoltam. A statikus `defaultContent` és a fetch-elt `/felhasznaloi-feltetelek-content` HTML egyaránt átmegy. P1-3b (filing-template-generator) külön sprintbe halasztva — egyedi sanitizeFilingHtml helper kell, mert a sablonok inline style + div tageket használnak.
+
+### P1-9 → **JAVÍTVA** — commit `97d95607`
+Az új `egyhfenntartas-import-actions.ts`-be 3 alág került be:
+- **P1-9a**: Zod-séma `finalRowSchema` + `executeImportItemSchema` + `importBatchSchema` (max 10 000 sor, év 2000-2100, összeg max 1 mrd RON, regex YYYY-MM-DD a dátumra, etc.). `safeParse()` hibájára korai error-return.
+- **P1-9b**: MIME-type whitelist (`ACCEPTED_XLSX_MIMES`, `ACCEPTED_XML_MIMES`) + max 50 MB méret-check a `parseAndPreviewEgyhf` upload-jában.
+- **P1-9c**: RLS-aware batch-check — minden hivatkozott `szemely.id` és `csalad.id` egyetlen `IN (...) AND congregation_id = own` query-vel verifikálva. Nem-saját ID esetén az összerendelés NULL-lá lesz, a tétel mentve marad, a `skippedReason` magyaráz.
+
+Verifikáció:
+- npx eslint: csak 2 már-létező unused-import warning, 0 új hiba
+- Teljes lint: 151 problems (változatlan)
+- Funkcionális hatás: sikeres importok ugyanúgy mennek át, hibás kliens-payload most korai hibajelzést kap
+
+### Lint-állapot (e batch után)
+- Web: 151 problems (77 errors, 74 warnings) — változatlan a P1-2 utáni állapothoz
