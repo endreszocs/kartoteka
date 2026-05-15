@@ -485,3 +485,30 @@ A `apps/web/components/minutes/minutes-editor.tsx:21-23` `/* eslint-disable */` 
 - **P0-1** Brevo kulcs rotációja (l. fent)
 - **P0-3** Tauri `db_execute`/`db_select` typed refaktor (Sprint méretű feladat)
 - **P0-4** Railway → `GOD_MODE_PIN` ellenőrzés és rotáció
+
+---
+
+## ✅ Második javítás-batch — 2026-05-15 (P1 funkcionális)
+
+A P0/P3 alacsony-kockázatú futás után a következő P1-eket vettem át (mind „minden változtatás előtt mutasd a tervet" módban):
+
+### P1-1 → **JAVÍTVA** — commit `4e751ce4`
+Csendes `catch {}` 3 helyen az `apps/web/app/(dashboard)/anyakonyv/actions.ts`-ben → `catch (error) { console.warn(...) }`-ra cserélve. Az anyakönyvi mentés (keresztelő/temetés/konfirmáció) sikerét továbbra is NEM blokkolja a munkanaplo-insert hiba (helyes minta), de a Railway logban most már látszik, ha a munkanaplo-log kimaradt. A saveBurial szemely.meghalt catch-hez (sor 610) nem nyúltam — ott a komment indokolja a szándékos néma viselkedést.
+
+### P1-2 → **JAVÍTVA** — commit `f2b1e674`
+A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_legacyApplyFxAtYearStartRemoved` belső helper (172 sor) törölve a `bank-nyito-egyenleg-actions.ts`-ből. A január 1-i FX könyvelés könyvelésileg hibás volt — a helyes út a december 31-i FX revaluation (`FxRevaluationDialog`). Külső hivatkozás: 0 (grep verifikálva). Plus: 2 unused-import lint-warningot is megszüntetett.
+
+### P1-6 → **JAVÍTVA** — commit `1a4eefc4`
+Új `canManageAdminAccessRequest(role, esperes)` helper a `notifications/actions.ts`-ben. A `approveAdminAccess` és `denyAdminAccess` mostantól csak akkor megy át, ha a hívó `role === 'lelkesz'` VAGY `esperes` flag (ami magában foglalja az egyhazmegyei_admin / egyhazkeruleti_admin / admin / master szerepköröket). Egy konyvelo, szamvevo vagy „custom" szerepkörű user már nem hagyhat jóvá admin-override kérelmet a saját gyülekezetében.
+
+### Lint-állapot (e javítások után)
+- 151 problems (77 errors, 74 warnings) — a P1-2 törlése után 2 warninggal kevesebb
+- Build és typecheck: nem rontottam
+
+### Maradék P1 (még nyitva)
+- **P1-3** `dangerouslySetInnerHTML` sanitize (terms-dialog, filing-template-generator)
+- **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
+- **P1-5** `completeWizard` Zod-validáció
+- **P1-7** `delegated-import` rate-limit + audit-log
+- **P1-8** járulék-kategória felismerés a finalization flow-ban
+- **P1-9** [új] `egyhfenntartas-import-actions.ts` Zod + MIME/size + RLS-scope
