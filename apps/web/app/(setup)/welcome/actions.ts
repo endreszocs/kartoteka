@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 import { revalidatePath } from 'next/cache'
@@ -105,6 +106,107 @@ export interface WizardData {
   ageDiscount?: WizardAgeDiscountSlot
   pastYears?: WizardPastYearSlot[]
 }
+
+// ──────────────────────────────────────────────────────────────────
+// DIAGNOSTICS P1-5: Zod-séma a wizard_progress.data runtime validációjához.
+//
+// A `completeWizard` service-role klienssel ír — minden kliens-által
+// szolgáltatott mezőt itt validálunk, mielőtt a profiles / congregations /
+// bealitas / pastor_profiles táblákba kerülne. A séma MEGENGEDŐ (mindenhol
+// .optional() / .nullable()), de típus/range/max-length védelmet ad, és a
+// default `strip` mód kidobja az ismeretlen kulcsokat (pl. __proto__ stb.).
+// ──────────────────────────────────────────────────────────────────
+
+const DATE_YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
+const DATE_MM_DD = /^\d{2}-\d{2}$/
+
+const wizardCongregationSchema = z.object({
+  nev: z.string().max(500).optional(),
+  nev_hu: z.string().max(500).optional(),
+  nev_ro: z.string().max(500).optional(),
+  adoszam: z.string().max(100).optional(),
+  bejegyzesiszam: z.string().max(100).optional(),
+  cim: z.string().max(500).optional(),
+  email: z.string().max(200).optional(),
+  telefon: z.string().max(50).optional(),
+  web: z.string().max(500).optional(),
+  iban: z.string().max(50).optional(),
+  bank: z.string().max(200).optional(),
+  megye: z.string().max(200).optional(),
+  varos: z.string().max(200).optional(),
+  iranyitoszam: z.string().max(20).optional(),
+  hazszam: z.string().max(50).optional(),
+  country: z.string().max(100).optional(),
+  adrlocality_id: z.number().int().positive().nullable().optional(),
+  adrstreet_id: z.number().int().positive().nullable().optional(),
+})
+
+const wizardBankAccountSchema = z.object({
+  bank_neve: z.string().max(200),
+  iban: z.string().max(50),
+  valuta: z.enum(['RON', 'EUR', 'USD', 'HUF']),
+  is_default: z.boolean(),
+  _clientKey: z.string().max(200).optional(),
+})
+
+const wizardPastorSchema = z.object({
+  fullName: z.string().max(300).optional(),
+  birthDate: z.string().regex(DATE_YYYY_MM_DD).or(z.literal('')).optional(),
+  phone: z.string().max(50).optional(),
+  email: z.string().max(200).optional(),
+  serviceStartedAt: z.string().regex(DATE_YYYY_MM_DD).or(z.literal('')).optional(),
+  previousPlaces: z.string().max(2000).optional(),
+})
+
+const wizardServiceHistorySchema = z.object({
+  hely: z.string().max(500),
+  szerep: z.string().max(200),
+  ev_tol: z.number().int().min(1900).max(2100).nullable(),
+  ev_ig: z.number().int().min(1900).max(2100).nullable(),
+  megjegyzes: z.string().max(2000),
+  _clientKey: z.string().max(200).optional(),
+})
+
+const wizardFinanceSchema = z.object({
+  eves_jarulek: z.number().finite().min(0).max(1_000_000_000).optional(),
+  jarulek_kedvezmenyes: z.number().finite().min(0).max(1_000_000_000).optional(),
+  jarulek_hatarid: z.string().regex(DATE_MM_DD).or(z.literal('')).optional(),
+  tartozas_szamitas_mod: z.enum(['akkori', 'aktualis']).optional(),
+  nyito_keszpenz: z.number().finite().optional(),
+  nyito_bank: z.number().finite().optional(),
+})
+
+const wizardDiscountPeriodSchema = z.object({
+  hatarid: z.string().regex(DATE_MM_DD).or(z.literal('')),
+  kedv_osszeg: z.number().finite().min(0).max(1_000_000_000),
+  _clientKey: z.string().max(200).optional(),
+})
+
+const wizardAgeDiscountSchema = z.object({
+  enabled: z.boolean(),
+  kor_tol: z.number().int().min(18).max(150).nullable(),
+  szazalek: z.number().finite().min(0).max(100).nullable(),
+  fix_osszeg: z.number().finite().min(0).nullable(),
+  type: z.enum(['percent', 'fix']),
+})
+
+const wizardPastYearSchema = z.object({
+  ev: z.number().int().min(1900).max(2100),
+  eves_jarulek: z.number().finite().min(0).max(1_000_000_000).nullable(),
+  jarulek_kedvezmenyes: z.number().finite().min(0).max(1_000_000_000).nullable(),
+  jarulek_hatarid: z.string().max(20),
+})
+
+const wizardDataSchema = z.object({
+  congregation: wizardCongregationSchema.optional(),
+  bankAccounts: z.array(wizardBankAccountSchema).max(50).optional(),
+  pastor: wizardPastorSchema.optional(),
+  serviceHistory: z.array(wizardServiceHistorySchema).max(50).optional(),
+  finance: wizardFinanceSchema.optional(),
+  discountPeriods: z.array(wizardDiscountPeriodSchema).max(20).optional(),
+  ageDiscount: wizardAgeDiscountSchema.optional(),
+  pastYears: z.array(wizardPastYearSchema).max(10).optional(),
+})
 
 export interface WizardProgressRow {
   user_id: string
@@ -441,7 +543,19 @@ export async function completeWizard(): Promise<
     return { error: 'A wizard állapota nem található.' }
   }
 
-  const wd = progress.data as WizardData
+  // DIAGNOSTICS P1-5: Zod-validáció a wizard_progress.data tartalmán, mielőtt
+  // service-role-lal írnánk a profiles / congregations / bealitas táblákba.
+  // A séma .strip mode-ban van (Zod default), így ismeretlen kulcsok automatikusan
+  // kidobódnak — egy rosszhiszemű kliens nem csempészhet be váratlan mezőt.
+  const parsed = wizardDataSchema.safeParse(progress.data)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const path = issue?.path.join('.') || '(gyökér)'
+    return {
+      error: `A wizard adatai érvénytelenek: ${issue?.message ?? 'séma-hiba'} (mező: ${path})`,
+    }
+  }
+  const wd = parsed.data
 
   const yearlyFee = Number(wd.finance?.eves_jarulek) || 0
   const yearlyDeadline = wd.finance?.jarulek_hatarid || ''
