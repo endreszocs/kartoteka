@@ -456,14 +456,21 @@ export async function saveBaptism(data: BaptismInput) {
     await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
   }
 
-  // Munkanapló — csak új kereszteléskor, hogy ne duplikáljunk
+  // Munkanapló — csak új kereszteléskor, hogy ne duplikáljunk.
+  // A munkanaplo insert hibája NEM blokkolja a fő műveletet (keresztelő már mentve),
+  // de a néma fail helyett warn-ra dobjuk a Railway/Vercel logba (DIAGNOSTICS P1-1).
   if (isInsert && d.munkanaploba) {
     try {
       await supabase.from('munkanaplo').insert([{
         idopont: d.datum, jellege: 'Keresztelő', cim: `Keresztelés: ${d.alapige || ''}`.trim(),
         congregation_id: congId,
       }])
-    } catch { /* munkanaplo tábla nem létezik → skip */ }
+    } catch (error) {
+      console.warn(
+        '[saveBaptism] munkanaplo insert sikertelen — keresztelő rögzítve, de a munkanaplo-log kimaradt:',
+        error instanceof Error ? error.message : error,
+      )
+    }
   }
 
   revalidatePath('/anyakonyv')
@@ -594,7 +601,18 @@ export async function saveBurial(data: BurialInput) {
   else {
     const { error } = await supabase.from('temetes').insert([record])
     if (error) return { error: `Hiba: ${error.message}` }
-    if (d.munkanaploba) { try { await supabase.from('munkanaplo').insert([{ idopont: d.tdatum, jellege: 'Temetés', cim: 'Temetési szertartás', congregation_id: congId }]) } catch {} }
+    if (d.munkanaploba) {
+      try {
+        await supabase.from('munkanaplo').insert([{
+          idopont: d.tdatum, jellege: 'Temetés', cim: 'Temetési szertartás', congregation_id: congId,
+        }])
+      } catch (error) {
+        console.warn(
+          '[saveBurial] munkanaplo insert sikertelen — temetés rögzítve, de a munkanaplo-log kimaradt:',
+          error instanceof Error ? error.message : error,
+        )
+      }
+    }
   }
 
   // 2026-05-02 (v0.9.33) — Felhasználó panasza: "a temetések rögzítve vannak az
@@ -705,7 +723,21 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
   }))
   const { error } = await supabase.from('konfirmalas').insert(records)
   if (error) return { error: `Hiba: ${error.message}` }
-  if (d.munkanaploba) { try { await supabase.from('munkanaplo').insert([{ idopont: d.datum, jellege: 'Konfirmáció', cim: `Konfirmáció (${d.candidates.length} fő)`, congregation_id: congId }]) } catch {} }
+  if (d.munkanaploba) {
+    try {
+      await supabase.from('munkanaplo').insert([{
+        idopont: d.datum,
+        jellege: 'Konfirmáció',
+        cim: `Konfirmáció (${d.candidates.length} fő)`,
+        congregation_id: congId,
+      }])
+    } catch (error) {
+      console.warn(
+        '[saveConfirmation] munkanaplo insert sikertelen — konfirmáció rögzítve, de a munkanaplo-log kimaradt:',
+        error instanceof Error ? error.message : error,
+      )
+    }
+  }
   revalidatePath('/anyakonyv')
   return { success: true, count: d.candidates.length }
 }
