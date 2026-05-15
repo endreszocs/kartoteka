@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { sanitizeAboutHtml } from '@/lib/public-site/sanitize'
 
 interface TermsDialogProps {
   open: boolean
@@ -45,7 +46,10 @@ export function TermsDialog({ open, onOpenChange }: TermsDialogProps) {
           <div className="py-8 text-center text-muted-foreground">Betöltés...</div>
         ) : (
           <div className="prose prose-sm max-w-none text-slate-700 space-y-4">
-            <div dangerouslySetInnerHTML={{ __html: content || defaultContent }} />
+            {/* DIAGNOSTICS P1-3a: sanitize a fetch-elt vagy fallback HTML-en
+                — admin-szerkesztett /felhasznaloi-feltetelek-content szolgáltatja,
+                így admin-injection ellen védjük. */}
+            <div dangerouslySetInnerHTML={{ __html: sanitizeAboutHtml(content || defaultContent) }} />
           </div>
         )}
 
