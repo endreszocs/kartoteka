@@ -4,13 +4,33 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { revalidatePath } from 'next/cache'
 
 async function getNotificationAccess() {
-  const { supabase, userId, congregationId } = await getEffectiveCongregationContext()
-  return { supabase, userId, congId: congregationId }
+  const ctx = await getEffectiveCongregationContext()
+  return {
+    supabase: ctx.supabase,
+    userId: ctx.userId,
+    congId: ctx.congregationId,
+    role: ctx.role,
+    esperes: ctx.esperes,
+  }
+}
+
+/**
+ * DIAGNOSTICS P1-6: szerepkör-check helper. Csak `lelkesz` (a gyülekezet
+ * lelkésze) vagy felsőbb adminisztrátor (esperes flag, ami magában foglalja
+ * az egyhazmegyei_admin / egyhazkeruleti_admin / admin / master szerepköröket
+ * is) hagyhat jóvá / utasíthat el admin-access kérelmet. Egy bejelentkezett,
+ * de nem-lelkész user (pl. konyvelo, szamvevo, custom) NEM kaphat hozzáférést.
+ */
+function canManageAdminAccessRequest(role: string | null | undefined, esperes: boolean): boolean {
+  return role === 'lelkesz' || esperes
 }
 
 export async function approveAdminAccess(requestId: string, hours: number = 24) {
-  const { supabase, userId, congId } = await getNotificationAccess()
+  const { supabase, userId, congId, role, esperes } = await getNotificationAccess()
   if (!userId || !congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canManageAdminAccessRequest(role, esperes)) {
+    return { error: 'Csak lelkész vagy felsőbb adminisztrátor hagyhat jóvá hozzáférési kérelmet.' }
+  }
 
   // Kérelem lekérdezés
   const { data: request } = await supabase.from('admin_access_requests').select('id, admin_user_id, congregation_id, status').eq('id', requestId).single()
@@ -38,8 +58,11 @@ export async function approveAdminAccess(requestId: string, hours: number = 24) 
 }
 
 export async function denyAdminAccess(requestId: string) {
-  const { supabase, userId, congId } = await getNotificationAccess()
+  const { supabase, userId, congId, role, esperes } = await getNotificationAccess()
   if (!userId || !congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canManageAdminAccessRequest(role, esperes)) {
+    return { error: 'Csak lelkész vagy felsőbb adminisztrátor utasíthat el hozzáférési kérelmet.' }
+  }
 
   const { data: request } = await supabase.from('admin_access_requests').select('id, admin_user_id, congregation_id, status').eq('id', requestId).single()
   if (!request) return { error: 'A kérelem nem található.' }
