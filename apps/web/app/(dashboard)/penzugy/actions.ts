@@ -765,7 +765,9 @@ export async function initFinance(year: number) {
           error.message,
         )
       } else if (inserted) {
-        console.log(`[initFinance] ${inserted.length} befizetescel sor auto-létrehozva.`)
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[initFinance] ${inserted.length} befizetescel sor auto-létrehozva.`)
+        }
         for (const r of inserted as Array<{ id: number; id_szamadasicel: string }>) {
           if (r.id_szamadasicel) bevCelMap[r.id] = r.id_szamadasicel
         }
@@ -789,7 +791,9 @@ export async function initFinance(year: number) {
           error.message,
         )
       } else if (inserted) {
-        console.log(`[initFinance] ${inserted.length} kiadascel sor auto-létrehozva.`)
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[initFinance] ${inserted.length} kiadascel sor auto-létrehozva.`)
+        }
         for (const r of inserted as Array<{ id: number; id_szamadasicel: string }>) {
           if (r.id_szamadasicel) kiaCelMap[r.id] = r.id_szamadasicel
         }

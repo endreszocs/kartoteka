@@ -1,7 +1,10 @@
 // --- js/supabase_config.js ---
+// NOTE: ez egy v0.x legacy snapshot (migration reference) — productionben env-ből
+// (`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`). A konkrét értékek
+// maszkolva: lásd Railway / `.env.local`.
 
-const SUPABASE_URL = 'https://bjytiawckbibqmtlezfl.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqeXRpYXdja2JpYnFtdGxlemZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MDA5NTgsImV4cCI6MjA4ODk3Njk1OH0.0AChRcblBvDNPl_kEvxu9Fc9vDqBEKXlMmpyy-gyBQM'; 
+const SUPABASE_URL = 'https://<YOUR-PROJECT-REF>.supabase.co';
+const SUPABASE_ANON_KEY = '<NEXT_PUBLIC_SUPABASE_ANON_KEY>';
 
 // A 'window' objektumhoz kapcsoljuk, így minden HTML oldal garantáltan látni fogja a _supabase változót!
 if (typeof supabase !== 'undefined') {

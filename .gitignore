@@ -57,3 +57,21 @@ apps/web/public/downloads/*.dmg
 apps/web/public/downloads/*.AppImage
 apps/web/public/downloads/*.deb
 apps/web/public/downloads/*.rpm
+
+# ─────────────────────────────────────────────────────────────
+# Secrets — soha NE kerüljenek a repóba (l. DIAGNOSTICS P0-1, P0-2)
+# ─────────────────────────────────────────────────────────────
+migration-docs/BREVO-SMTP.txt
+migration-docs/**/*SMTP*
+migration-docs/**/*SECRET*
+migration-docs/google.cloud.console/
+
+# ─────────────────────────────────────────────────────────────
+# Helyi kísérleti / handoff / splash munkamappák — git status szennyezés
+# ─────────────────────────────────────────────────────────────
+.tmp-*/
+.tmp-*.tar
+.tmp-*.html
+.tmp-*.unzipped
+.codex-node_modules
+.claude/

@@ -124,10 +124,14 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
     if (father || mother) return  // ne írjuk felül a manuális választást
 
     let cancelled = false
-    console.log(`[baptism-dialog] szülő-load indul, person.id=${selectedPerson.id}`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[baptism-dialog] szülő-load indul, person.id=${selectedPerson.id}`)
+    }
     getParentsForChild(selectedPerson.id).then(info => {
       if (cancelled) return
-      console.log(`[baptism-dialog] getParentsForChild válasz:`, info)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[baptism-dialog] getParentsForChild válasz:`, info)
+      }
 
       if (info.apa) {
         setFather({

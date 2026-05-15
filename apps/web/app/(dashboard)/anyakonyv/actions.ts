@@ -347,10 +347,12 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
     }
   }
 
-  // Diagnosztika a szerver logokba — Vercel / Railway látható
-  console.log(`[getParentsForChild] id=${personId}:`, JSON.stringify({
-    diagnostic, hasApa: !!apa, hasAnya: !!anya, apjaneveText, anyjaneveText,
-  }))
+  // Diagnosztika a szerver logokba — Vercel / Railway látható (dev-only)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[getParentsForChild] id=${personId}:`, JSON.stringify({
+      diagnostic, hasApa: !!apa, hasAnya: !!anya, apjaneveText, anyjaneveText,
+    }))
+  }
 
   return {
     fromCsalad: !!csalad,

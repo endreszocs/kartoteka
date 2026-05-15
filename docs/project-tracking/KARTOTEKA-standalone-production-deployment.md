@@ -196,8 +196,8 @@ A KARTOTEKA repo gyökerében:
 
 ```env
 # .env.production (Git-ben tárolható, csak publikus értékek)
-NEXT_PUBLIC_SUPABASE_URL=https://bjytiawckbibqmtlezfl.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
+NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from-env>
 
 # Csak prod build-hez (publikus kulcs)
 LICENSE_PUBLIC_KEY_PEM=-----BEGIN PUBLIC KEY-----
