@@ -17,6 +17,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { parseDonorString } from '@/components/finance/finance-import/helpers/donor-string-parser'
 import {
@@ -33,6 +34,58 @@ import {
 } from '@/components/finance/finance-import/egyhfenntartas/helpers/cross-source-matcher'
 
 const EGYHF_SZAMADASI_KOD = '101.01'
+
+// ──────────────────────────────────────────────────────────────────────
+// DIAGNOSTICS P1-9: input-validáció (Zod-séma + MIME/size + RLS-scope)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Max fájl-méret feltöltésnél (parseAndPreviewEgyhf) — DoS-védelem. */
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024 // 50 MB
+
+/** xlsx MIME-typok — minden böngészőben más; permissive whitelist. */
+const ACCEPTED_XLSX_MIMES = new Set<string>([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'application/octet-stream',
+  '', // egyes böngészők nem küldenek MIME-typot
+])
+
+/** xml MIME-typok — szintén permissive. */
+const ACCEPTED_XML_MIMES = new Set<string>([
+  'application/xml',
+  'text/xml',
+  'application/octet-stream',
+  '',
+])
+
+/** finalRow szerkezet validációja — a kliens-tól érkezett payload-on. */
+const finalRowSchema = z.object({
+  forrasa: z.string().min(1).max(500),
+  osszeg: z.number().finite().min(0).max(1_000_000_000), // 1 mrd RON felső plafon
+  datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD formátum'),
+  nyugta: z.string().max(50),
+  iratszam: z.string().max(50),
+  irattipus: z.string().max(50),
+  fizetettev: z.number().int().min(2000).max(2100),
+  megjegyzes: z.string().max(2000).nullable(),
+  ksz: z.string().max(20),
+})
+
+/** Egy import-tétel a kliens-től. */
+const executeImportItemSchema = z.object({
+  clientKey: z.string().min(1).max(200),
+  manualSzemelyId: z.number().int().positive().nullable().optional(),
+  manualCsaladId: z.number().int().positive().nullable().optional(),
+  finalRow: finalRowSchema,
+  szemelyId: z.number().int().positive().nullable(),
+  csaladId: z.number().int().positive().nullable(),
+})
+
+/** Teljes batch a kliens-től — max 10 000 sor egy importban. */
+const importBatchSchema = z.object({
+  items: z.array(executeImportItemSchema).max(10_000),
+  selectedYear: z.number().int().min(2000).max(2100),
+})
 
 // ──────────────────────────────────────────────────────────────────────
 // Típusok (a UI-val megosztott)
@@ -117,6 +170,20 @@ export async function parseAndPreviewEgyhf(
   }
   if (!(xmlFile instanceof File) || xmlFile.size === 0) {
     return { error: 'A bevételek-xml fájl kötelező.' }
+  }
+
+  // P1-9b: fájl-méret és MIME-type validáció (DoS + sanity check)
+  if (xlsxFile.size > MAX_UPLOAD_SIZE) {
+    return { error: `A Kassza-xlsx fájl túl nagy (max ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} MB).` }
+  }
+  if (xmlFile.size > MAX_UPLOAD_SIZE) {
+    return { error: `A bevételek-xml fájl túl nagy (max ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} MB).` }
+  }
+  if (!ACCEPTED_XLSX_MIMES.has(xlsxFile.type)) {
+    return { error: `A Kassza-xlsx fájl-típusa nem támogatott: ${xlsxFile.type || '(üres)'}.` }
+  }
+  if (!ACCEPTED_XML_MIMES.has(xmlFile.type)) {
+    return { error: `A bevételek-xml fájl-típusa nem támogatott: ${xmlFile.type || '(üres)'}.` }
   }
 
   const warnings: string[] = []
@@ -258,7 +325,19 @@ export async function executeEgyhfImport(
     errors: [],
   }
 
-  if (items.length === 0) {
+  // P1-9a: Zod-validáció a kliens-payload-on. Hibás finalRow / túl nagy batch /
+  // érvénytelen év azonnal hibára fut, mielőtt bármilyen DB-hívást teszünk.
+  const parsed = importBatchSchema.safeParse({ items, selectedYear })
+  if (!parsed.success) {
+    result.errors.push(
+      `Érvénytelen import-payload: ${parsed.error.issues[0]?.message ?? 'ismeretlen séma-hiba'}`,
+    )
+    return result
+  }
+  const validatedItems = parsed.data.items
+  const validatedYear = parsed.data.selectedYear
+
+  if (validatedItems.length === 0) {
     result.errors.push('Nincs importálható tétel.')
     return result
   }
@@ -297,10 +376,69 @@ export async function executeEgyhfImport(
   }
   const idBefizetescel = bcData.id
 
-  // Minden tételen: dup-check + insert
-  for (const item of items) {
-    const finalSzemelyId = item.manualSzemelyId ?? item.szemelyId
-    const finalCsaladId = item.manualCsaladId ?? item.csaladId
+  // P1-9c: RLS-aware id_szemely / id_csalad batch-check.
+  // Egy rosszhiszemű kliens más gyülekezet szemely.id-jét vagy csalad.id-jét
+  // helyettesíthetné — itt egy batch-query verifikálja, hogy minden hivatkozott
+  // ID a HIVÓ gyülekezetében van. A nem-stimmelő ID-jű tételek skip-elve lesznek.
+  const allSzemelyIds = new Set<number>()
+  const allCsaladIds = new Set<number>()
+  for (const item of validatedItems) {
+    const sz = item.manualSzemelyId ?? item.szemelyId
+    const cs = item.manualCsaladId ?? item.csaladId
+    if (sz !== null && sz !== undefined) allSzemelyIds.add(sz)
+    if (cs !== null && cs !== undefined) allCsaladIds.add(cs)
+  }
+  const validSzemelyIds = new Set<number>()
+  const validCsaladIds = new Set<number>()
+  if (allSzemelyIds.size > 0) {
+    const { data: szRows } = await supabase
+      .from('szemely')
+      .select('id')
+      .in('id', Array.from(allSzemelyIds))
+      .eq('congregation_id', profile.congregation_id)
+    for (const r of szRows ?? []) {
+      if (typeof r.id === 'number') validSzemelyIds.add(r.id)
+    }
+  }
+  if (allCsaladIds.size > 0) {
+    const { data: csRows } = await supabase
+      .from('csalad')
+      .select('id')
+      .in('id', Array.from(allCsaladIds))
+      .eq('congregation_id', profile.congregation_id)
+    for (const r of csRows ?? []) {
+      if (typeof r.id === 'number') validCsaladIds.add(r.id)
+    }
+  }
+
+  // Minden tételen: scope-check, dup-check, insert
+  for (const item of validatedItems) {
+    const rawSzemelyId = item.manualSzemelyId ?? item.szemelyId
+    const rawCsaladId = item.manualCsaladId ?? item.csaladId
+    // P1-9c: ha a hivatkozott ID nem stimmel a gyülekezethez, NULL-lá tesszük
+    // és skip-jelzéssel folytatjuk (a befizetes attribútumai megmaradnak).
+    let finalSzemelyId: number | null = null
+    let finalCsaladId: number | null = null
+    if (rawSzemelyId !== null && rawSzemelyId !== undefined) {
+      if (validSzemelyIds.has(rawSzemelyId)) {
+        finalSzemelyId = rawSzemelyId
+      } else {
+        result.skippedReason.push({
+          clientKey: item.clientKey,
+          reason: `Az ${rawSzemelyId} szemely.id nem a saját gyülekezetedhez tartozik — összerendelés ignorálva.`,
+        })
+      }
+    }
+    if (rawCsaladId !== null && rawCsaladId !== undefined) {
+      if (validCsaladIds.has(rawCsaladId)) {
+        finalCsaladId = rawCsaladId
+      } else {
+        result.skippedReason.push({
+          clientKey: item.clientKey,
+          reason: `Az ${rawCsaladId} csalad.id nem a saját gyülekezetedhez tartozik — összerendelés ignorálva.`,
+        })
+      }
+    }
 
     // Dup-check: meglévő befizetes a (cong, év, iratszam, összeg, cél) kulcsra
     const iratszamForDup = item.finalRow.iratszam || ''
@@ -308,7 +446,7 @@ export async function executeEgyhfImport(
       .from('befizetes')
       .select('id')
       .eq('congregation_id', profile.congregation_id)
-      .eq('fizetettev', selectedYear)
+      .eq('fizetettev', validatedYear)
       .eq('iratszam', iratszamForDup)
       .eq('osszeg', item.finalRow.osszeg)
       .eq('id_befizetescel', idBefizetescel)
@@ -325,7 +463,7 @@ export async function executeEgyhfImport(
     }
 
     // Insert
-    const xkey = `egyhf-${profile.congregation_id}-${selectedYear}-${iratszamForDup}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const xkey = `egyhf-${profile.congregation_id}-${validatedYear}-${iratszamForDup}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
     const { error: insErr } = await supabase.from('befizetes').insert({
       xkey,
