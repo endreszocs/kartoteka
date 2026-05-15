@@ -508,8 +508,6 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 ### Maradék P1 (még nyitva)
 - **P1-3b** `filing-template-generator` sanitize (külön sprintben — custom sanitizeFilingHtml helper kell)
 - **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
-- **P1-5** `completeWizard` Zod-validáció
-- **P1-7** `delegated-import` rate-limit + audit-log
 - **P1-8** járulék-kategória felismerés a finalization flow-ban
 
 ---
@@ -532,3 +530,19 @@ Verifikáció:
 
 ### Lint-állapot (e batch után)
 - Web: 151 problems (77 errors, 74 warnings) — változatlan a P1-2 utáni állapothoz
+
+---
+
+## ✅ Negyedik javítás-batch — 2026-05-16 (P1-5 + P1-7)
+
+### P1-5 → **JAVÍTVA** — commit `f41fdb72`
+Zod-séma a `wizard_progress.data` runtime validációjához. Új `wizardDataSchema` az 8 Wizard*Slot-ra (congregation, bankAccounts, pastor, serviceHistory, finance, discountPeriods, ageDiscount, pastYears). Strict type + range + max-length + regex (`YYYY-MM-DD`/`MM-DD`), array-szintű korlátok (DoS-védelem), Zod default `.strip` mode kidobja az ismeretlen kulcsokat. A `completeWizard` mostantól `safeParse(progress.data)`-val parse-eli, az `as WizardData` cast helyett a parsed adatból dolgozik. Hiba esetén részletes magyar hibajelzés a mezőnévvel — mielőtt bármilyen service-role írás történne.
+
+### P1-7 → **JAVÍTVA** — commit `0233a018`
+A `delegated-import/actions.ts` `activateDelegatedImport` mostantól:
+- **Audit-log**: 3 új event-típus (`delegated_import_activate_success` + 2 alesetes `_failed`: `invalid_format` és `wrong_pin`) a `logAuditEvent` helper-en keresztül.
+- **Rate-limit**: új `checkActivationRateLimit(userId)` helper olvassa az `audit_log` táblát service-role klienssel — max 5 failed attempt / 10 perc / user. Cooldown esetén X perc retry-after üzenet a usernek. Ha service-role nincs konfigurálva (dev mode), nem blokkolunk.
+- **Brute-force védelem**: 10^6 PIN-tér + max 30 attempt/óra → gyakorlatban ~3.8 év a teljes téren át.
+
+### Lint-állapot (e batch után)
+- Web: 151 problems (77 errors, 74 warnings) — változatlan
