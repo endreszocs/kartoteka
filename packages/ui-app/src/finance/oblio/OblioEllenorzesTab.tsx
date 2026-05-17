@@ -653,14 +653,16 @@ export function OblioEllenorzesTab({
         const orphanPdfs = pdfFiles.length - pdfMatchByBaseName
         const pdfBaseNames = pdfFiles.map((p) => normalizeFileBaseName(p.name))
         const xmlBaseNames = uniqueParsedXmls.map((p) => normalizeFileBaseName(p.fileName))
-        console.log('[Oblio ellenőrzés] PDF párosítás (csak fájlnév-gyök):', {
-          pdfDb: pdfFiles.length,
-          xmlDb: uniqueParsedXmls.length,
-          matched: pdfMatchByBaseName,
-          orphan: orphanPdfs,
-          pdfBaseNames,
-          xmlBaseNames,
-        })
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Oblio ellenőrzés] PDF párosítás (csak fájlnév-gyök):', {
+            pdfDb: pdfFiles.length,
+            xmlDb: uniqueParsedXmls.length,
+            matched: pdfMatchByBaseName,
+            orphan: orphanPdfs,
+            pdfBaseNames,
+            xmlBaseNames,
+          })
+        }
 
         if (orphanPdfs > 0) {
           __toast_info(
@@ -907,7 +909,9 @@ export function OblioEllenorzesTab({
         }
       }
 
-      console.log('[Oblio ellenőrzés] 1. lépés (fájlnév-minta):', nameResults)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Oblio ellenőrzés] 1. lépés (fájlnév-minta):', nameResults)
+      }
 
       // ───────── 2. TARTALOM-elemzés (csak a megmaradt árvákon) ─────────
       let contentResults: ContentMatchResult[] = []
@@ -933,7 +937,9 @@ export function OblioEllenorzesTab({
             }
           }
         }
-        console.log('[Oblio ellenőrzés] 2. lépés (tartalom):', contentResults)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Oblio ellenőrzés] 2. lépés (tartalom):', contentResults)
+        }
       }
 
       const lowMatches = contentResults.filter((r) => r.confidence === 'low').length
