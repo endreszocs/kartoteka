@@ -19,6 +19,12 @@ export async function getFilingEntries(year: number, direction: string): Promise
   return (data || []) as unknown as FilingEntry[]
 }
 
+/**
+ * Preview-becslés a következő iktato-sorszámra. **NEM atomic** — két párhuzamos
+ * hívás ugyanazt a számot adhatja. Csak UI-előnézethez használható, az
+ * INSERT-nél a `next_iktato_sequence` SECURITY DEFINER RPC-t kell hívni
+ * (lásd `saveFilingEntry`, DIAGNOSTICS P3-5).
+ */
 export async function getNextSequenceNumber(year: number): Promise<number> {
   const { supabase, congId } = await getCongId()
   if (!congId) return 1
@@ -44,7 +50,21 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq('congregation_id', congId)
     if (error) return { error: `Hiba: ${error.message}` }
   } else {
-    record.sequence_number = await getNextSequenceNumber(year)
+    // DIAGNOSTICS P3-5: atomic per-(cong, year) sorszám az RPC-ből.
+    // A korábbi `getNextSequenceNumber(year)` SELECT MAX + INSERT két lépéses
+    // mintát használt — két párhuzamos hívás ugyanazt a sorszámot kaphatta.
+    // Az új RPC INSERT...ON CONFLICT DO UPDATE RETURNING-gel row-szintű
+    // lock-kal sorosít. A migráció: 2026-05-17-iktato-sequence-pointer-rpc.sql
+    const { data: nextSeq, error: rpcErr } = await supabase.rpc('next_iktato_sequence', {
+      p_congregation_id: congId,
+      p_year: year,
+    })
+    if (rpcErr || nextSeq === null || nextSeq === undefined) {
+      return {
+        error: `Sorszám lekérése sikertelen: ${rpcErr?.message ?? 'a next_iktato_sequence RPC nem adott vissza értéket'}`,
+      }
+    }
+    record.sequence_number = nextSeq as number
     const { error } = await supabase.from('iktato').insert([record])
     if (error) return { error: `Hiba: ${error.message}` }
   }

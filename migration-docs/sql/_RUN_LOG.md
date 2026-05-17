@@ -38,6 +38,14 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 - [ ] **`2026-04-30l-backfill-csalad-text-szulokbol.sql`** — DRY-RUN előnézet (1-3. blokk) + élő backfill (4-7. blokk, kommentelt). Az élő UPDATE/INSERT a `/* ... */` blokkban — uncomment szükséges.
 
+- [ ] **`2026-05-17-iktato-sequence-pointer-rpc.sql`** — új `iktato_sequence_pointers` tábla + `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC + backfill + partial UNIQUE INDEX a duplikátum-védelemhez. **BEGIN/COMMIT-ben van, idempotens.** A frontend `saveFilingEntry` mostantól az új RPC-t hívja az atomic sorszámért (P3-5 race-fix).
+       Futás előtti megfontolás: ha vannak már meglévő duplikátumok az `iktato`-ban (cong + year + sequence_number), az UNIQUE INDEX részt egy `DO $$ EXCEPTION` blokk lekezeli (NOTICE-ot ad, a többi tábla/RPC/policy létrejön). A duplikátumokat ellenőrző SELECT:
+       ```sql
+       SELECT congregation_id, year, sequence_number, COUNT(*)
+       FROM iktato WHERE deleted=false
+       GROUP BY 1,2,3 HAVING COUNT(*)>1;
+       ```
+
 ---
 
 ## 🟢 LEFUTOTT (a kódbázis ezekre épít) — 2026-04-08 — 2026-05-06
