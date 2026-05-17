@@ -545,3 +545,28 @@ A `delegated-import/actions.ts` `activateDelegatedImport` mostantól:
 
 ### Lint-állapot (e batch után)
 - Web: 151 problems (77 errors, 74 warnings) — változatlan
+
+---
+
+## ✅ Ötödik javítás-batch — 2026-05-17 (P3 csomag + P1-3b, P2-3 halasztva)
+
+### P2-3 → **HALASZTVA** (Sprint-méretű)
+A `apps/web/lib/finance/oblio/` mappában 10 SHIM és 4 LIVE fájl van. A LIVE fájlok (`oblio-auth.ts`, `oblio-client.ts`, `oblio-folder.ts`, `oblio-invoice-builder.ts`) IMPORT-olnak a shim-ekből (`oblio-types`, `oblio-errors`), és 6 alkalmazás-szintű fájl is hivatkozik shim-ekre. A törlés Sprint-méretű migráció: minden hivatkozást át kell írni `@kartoteka/ui-app`-ra.
+
+### P3-1, P3-2, P3-3, P3-4 → **JAVÍTVA** — commit `d96ab76e`
+- **P3-1**: `apps/desktop/package.json` react/react-dom `^19.1.0` → `19.2.4` (pinned, egységes a webbel)
+- **P3-2**: `packages/design-tokens` és `packages/schema-types` `0.0.0` → `0.1.0`
+- **P3-3**: `apps/web/lib/validations/auth.ts` registerSchema password `min(6)` → `min(8)`
+- **P3-4**: `apps/web/app/(public)/hozzaferes-kerese/contact-actions.ts` `SYSADMIN_EMAIL`/`SYSADMIN_NAME` env-fallback
+
+### P1-3b → **JAVÍTVA** — commit `df31ec4e`
+Új `sanitizeFilingHtml()` helper a `lib/public-site/sanitize.ts`-be:
+- 25+ tag whitelist (div, span, p, b, br, ul/ol/li, h1-h6, table-stack, blockquote, …)
+- Inline `style` engedélyezve 40+ property-re (padding, margin, font-*, text-*, line-height, display, flex-*, color, border-*)
+- Style-érték regex `/^[^;<>]+$/` kizárja a többes-property csempészést
+- URL scheme `https + mailto`, img-re `data` is
+- `javascript:` URL, `<script>`, `<iframe>`, inline event handlers auto-kiszűrve
+A `filing-template-generator.tsx` mostantól `sanitizeFilingHtml(renderTemplate(...))`-en keresztül rendereli a sablonokat. A 4 default sablon tag-jei és style-property-jei ellenőrizve — mind a whitelisten.
+
+### Lint-állapot (e batch után)
+- Web: 151 problems (77 errors, 74 warnings) — változatlan
