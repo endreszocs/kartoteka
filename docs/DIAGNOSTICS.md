@@ -511,7 +511,6 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 
 ### Maradék P1 (még nyitva)
 - **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
-- **P1-8** járulék-kategória felismerés a finalization flow-ban
 
 ### Maradék P2 (még nyitva)
 - **P2-3** Oblio shim refaktor (Sprint-méretű — 10 SHIM + 4 LIVE + 6 alkalmazás-szintű hivatkozás migrálása)
@@ -522,7 +521,10 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 
 ### Maradék P3 (még nyitva)
 - **P3-5** iktato race condition (`getNextSequenceNumber` → SECURITY DEFINER RPC nextval vagy advisory lock)
-- **P3-8** UI TODO-k (NotificationBell+ProfileSwitcher integráció, iOS `window.confirm` callback, PIN újra-beállítás A-M15)
+- **P3-8** UI TODO-k:
+  - NotificationBell+ProfileSwitcher integráció a `kartoteka-header.tsx`-ben
+  - PIN újra-beállítás A-M15 Biztonság fülről a desktop `pin-setup-page.tsx`-ből
+  - (iOS `window.confirm` callback prop **JAVÍTVA** — commit `4de50c0e`)
 
 ---
 
@@ -598,6 +600,23 @@ A `[2026-05-02c]` címke valódi duplikátuma javítva: a sor 2307-en lévő "fe
 
 ### P3-7 → **NEM JAVÍTJUK** (design-döntés)
 A `hozzaferes-kerese/actions.ts:158-176` email-enumeration kockázat egy **tudatos UX-kompromisszum**, amit a kódban kommentár részletesen indokol (`2026-05-02 (v0.9.43) — Felhasználó kérése...`). A rate-limit megvan (3 kérelem / IP / 24h), és belső gyülekezeti rendszerben az email-enumeration kockázata alacsony — a UX (átirányítás Belépés/Elfelejtett-jelszó oldalra) fontosabb. Lezárva.
+
+### P1-8 → **JAVÍTVA** — commit `21daf6c4`
+A `runFinalizationChecks` `befMissingPersonJarulek` filter `isJarulekCategory = false` hardcoded TODO-t implementáltuk:
+- Új `Promise.all`-tag lekéri a `befizetescel.id`-ket ahol `id_szamadasicel = '101.01' AND aktiv = true` per-congregation.
+- `jarulekBefizetescelIds: Set<number>` (általában 1 elem, de Set-tel többet is kezelünk).
+- `isJarulekCategory = b.id_befizetescel !== null && jarulekBefizetescelIds.has(b.id_befizetescel)`.
+- A 101.01-es check mostantól ténylegesen tüzel, ha hiányzik a person/család a járulék-bevételeknél.
+- Production-verifikáció: a teszt-gyülekezetben a 101.01 → befizetescel.id=80 (név: "Egyházfenntartói járulék"), megfelelően felismerésre kerül.
+
+### P3-8 #2 → **JAVÍTVA** — commit `4de50c0e`
+`BankTab.tsx` (handleUndoStorno) és `FinanceSugoChecklist.tsx` (resetAll) opcionális `onConfirm?: (message: string) => boolean | Promise<boolean>` prop-pal — ha a hívó átad egyet (pl. iOS-en natív alert-controller, desktopon shadcn AlertDialog), az használódik a `window.confirm` helyett. Visszafelé kompatibilis (default fallback). A P3-8 maradék 2 alpontja (NotificationBell+ProfileSwitcher, A-M15 PIN újra-beállítás) továbbra is nyitva.
+
+### Pending SQL → mind LEFUTOTT (2026-05-17)
+- ✅ `2026-05-15-legacy-cleanup-drop.sql` — 19× DROP TABLE (Endre megerősítette)
+- ✅ `2026-05-06-egyhfenntartas-import-dup-index.sql` — partial index (verifikáció: 101.01=80 aktív)
+- ✅ `2026-05-17-security-definer-search-path-pin.sql` — 17/17 ALTER FUNCTION OK
+- Még pending: `2026-04-30k/l-*.sql` (diagnosztikai + DRY-RUN backfill — opcionális)
 
 ### P1-3b → **JAVÍTVA** — commit `df31ec4e`
 Új `sanitizeFilingHtml()` helper a `lib/public-site/sanitize.ts`-be:
