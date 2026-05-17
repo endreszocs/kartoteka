@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-05-06c] — 201.1↔201.10 ekvivalencia + 300.01 belső mozgás kód (v0.9.54, csak web)
+<!-- key: 2026-05-06c-201-1-300-01-equivalence -->
+<!-- category: bugfix -->
+<!-- version: 0.9.54 -->
+<!-- targets: lelkesz -->
+
+### 🐛 Javítások
+
+- **201.1 ↔ 201.10 ekvivalencia**: a felhasználói visszajelzés szerint a "201.1" kódot a magyar konvenció szerint "201.10"-ként kezeljük. Az új `altDecimalForm()` helper automatikusan próbálja mindkét formát a `szamadasicel`-ben. Hatás: 3 sor a 2025-ös Kasszában (910 + 729 + 450 RON = "Szolgáltatások költségei") most már felismerhető.
+- **300.01 új belső mozgás kód**: a Kassza fülön bevétel-oldali ATM/bank-felvét (pl. "Készpénzfelvétel a(z) A számláról" / "Ridicare numerar") most már felismert. Új SQL: `migration-docs/sql/2026-05-03-finance-300-01-INSTALL.sql` (szamadasicel + befizetescel rekord, type='B'). A `budget-code-resolver` a 300-prefixre is reagál.
+- **Cím a candidate-grid-en**: a fizetés-import grid mostantól megjeleníti a `cim` mezőt is a candidate-soroknál — könnyebb azonosítani azonos nevű személyeket.
+
+(Commit `3dd04e98`.)
+
+---
+
 ## [2026-05-06b] — Pénzügyi import egységesítés a /penzugy oldalon (v0.9.54, csak web)
 <!-- key: 2026-05-06b-finance-import-egyesites -->
 <!-- category: improvement -->

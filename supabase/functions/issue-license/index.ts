@@ -23,10 +23,28 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { SignJWT, importPKCS8 } from 'npm:jose@5'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+// DIAGNOSTICS P3-6: CORS narrow-elés — wildcard '*' helyett explicit
+// origin whitelist. A JWT-validáció önmagában is véd, de a CORS pluszként
+// elzárja a böngésző-szintű cross-origin hozzáférést a publikus oldalakról.
+const ALLOWED_ORIGINS = new Set<string>([
+  'https://kartotekaweb-production.up.railway.app',
+  'tauri://localhost',
+  // Dev: helyi Next.js + Tauri Vite
+  'http://localhost:3000',
+  'http://localhost:5173',
+])
+
+function corsHeadersForRequest(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') || ''
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin)
+    ? origin
+    : 'https://kartotekaweb-production.up.railway.app'
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  }
 }
 
 interface LicensePayload {
@@ -41,6 +59,8 @@ interface LicensePayload {
 
 // @ts-ignore — Deno globalThis
 Deno.serve(async (req: Request) => {
+  const corsHeaders = corsHeadersForRequest(req)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
