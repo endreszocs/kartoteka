@@ -515,16 +515,17 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 ### Maradék P2 (még nyitva)
 - **P2-3** Oblio shim refaktor (Sprint-méretű — 10 SHIM + 4 LIVE + 6 alkalmazás-szintű hivatkozás migrálása)
 - **P2-4** desktop pénzügy migráció a shared finance modulokra (17 komponens)
-- **P2-1** lint 77 error rendezése (főleg react/no-unescaped-entities — nem auto-fixable)
-- **P2-14** 7 hiányzó release-notes md (v0.9.{48..54})
-- (P2-7 javítva, lásd lent)
+- **P2-1** lint 77 error rendezése (`react/no-unescaped-entities` — `eslint --fix` semmit nem javít, manuális escape kell; `&quot;` univerzális, vagy `&ldquo;/&rdquo;` szebb tipográfiailag — Endre döntése)
+- (P2-7, P2-14 javítva, lásd lent)
 
-### Maradék P3 (még nyitva)
-- **P3-8** UI TODO-k:
-  - NotificationBell+ProfileSwitcher integráció a `kartoteka-header.tsx`-ben
-  - PIN újra-beállítás A-M15 Biztonság fülről a desktop `pin-setup-page.tsx`-ből
-  - (iOS `window.confirm` callback prop **JAVÍTVA** — commit `4de50c0e`)
-- (P3-5 javítva, lásd lent)
+### Maradék P3 (még nyitva, mind Sprint-méretű)
+- **P3-8 #1** NotificationBell + ProfileSwitcher integráció a `kartoteka-header.tsx`-ben
+  - Új UI komponensek + adatlekérdezés + Realtime subscription
+  - Sprint-méretű feature-fejlesztés
+- **P3-8 #3** A-M15 Biztonság fül a desktop `pin-setup-page.tsx`-hez kapcsolódóan
+  - Nem létezik még "Beállítások" / "Biztonság" desktop oldal — A-M15 Sprint
+  - `markPinResetPending()` helper + új sidebar-link + új page
+- (P3-8 #2 javítva — commit `4de50c0e`, P3-5 javítva — commit `17a89b18`)
 
 ---
 
@@ -618,6 +619,14 @@ A `apps/desktop/src-tauri/tauri.conf.json:25` `"csp": null` → szigorú CSP:
 default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: tauri: asset:; font-src 'self' data:; connect-src 'self' ipc: tauri: https://*.supabase.co https://*.up.railway.app; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'
 ```
 A `'unsafe-inline'` csak `style-src`-ben (Tailwind/shadcn inline-style KÖTELEZŐ). A script-src-ben `'wasm-unsafe-eval'` engedett (modern WebAssembly), **NEM `'unsafe-eval'`**. **TESZTELÉS SZÜKSÉGES (Endre)**: `npm run tauri dev` + a fő flow-k smoke-testje.
+
+### P2-14 → **MEGOLDVA (konvenció)** — commit `3516ddb1`
+A 7 hiányzó release-notes md (v0.9.48 — v0.9.54) **NEM hiány**, hanem szándékos kihagyás. Új doksi: [`docs/RELEASE-NOTES-KONVENCIO.md`](docs/RELEASE-NOTES-KONVENCIO.md) rögzíti a konvenciót:
+- `CHANGELOG.md` a kanonikus, gép-feldolgozható
+- A release-notes md OPCIONÁLIS pasztorális üzenet a lelkipásztoroknak — NEM CHANGELOG-duplikáció
+- KÖTELEZŐ csak major release-eknél (v0.X.0) és érdemi UX-átalakulásnál
+- TILOS tiszta bugfix / refaktor / security-patch esetén
+- Index 30 meglévő md csoportosítva (v0.5.x — v0.9.x), szándékosan kihagyottak listázva
 
 ### P2-7 → **JAVÍTVA** — commit `d33f13f5`
 Új shared komponens: [`packages/ui-app/src/indicators/OnlineStatePill.tsx`](packages/ui-app/src/indicators/OnlineStatePill.tsx). `navigator.onLine` + `online`/`offline` event-figyelő; zöld/amber pill Wifi/WifiOff ikonnal; opcionális `lastSyncAt` időbélyeg ("Online · 14:32"); két `position`: `'inline'` (default) vagy `'fixed-top-right'` (a SyncStatusBadge mintájára); a11y `role="status"` + `aria-label`.
