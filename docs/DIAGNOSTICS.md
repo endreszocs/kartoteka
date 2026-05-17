@@ -509,6 +509,17 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
 - **P1-8** járulék-kategória felismerés a finalization flow-ban
 
+### Maradék P2 (még nyitva)
+- **P2-3** Oblio shim refaktor (Sprint-méretű — 10 SHIM + 4 LIVE + 6 alkalmazás-szintű hivatkozás migrálása)
+- **P2-4** desktop pénzügy migráció a shared finance modulokra (17 komponens)
+- **P2-1** lint 77 error rendezése (főleg react/no-unescaped-entities — nem auto-fixable)
+- **P2-7** OnlineStatePill minden read-only desktop oldalra
+- **P2-14** 7 hiányzó release-notes md (v0.9.{48..54})
+
+### Maradék P3 (még nyitva)
+- **P3-5** iktato race condition (`getNextSequenceNumber` → SECURITY DEFINER RPC nextval vagy advisory lock)
+- **P3-8** UI TODO-k (NotificationBell+ProfileSwitcher integráció, iOS `window.confirm` callback, PIN újra-beállítás A-M15)
+
 ---
 
 ## ✅ Harmadik javítás-batch — 2026-05-15 (P1-3a + P1-9)
@@ -570,6 +581,15 @@ A `supabase/functions/issue-license/index.ts` CORS-konfigurációja most explici
 
 ### P3-11 → **JAVÍTVA** — commit `8e98bb24`
 A `3dd04e98` commit dokumentálva a `docs/CHANGELOG.md`-ban új bejegyzéssel: `[2026-05-06c] — 201.1↔201.10 ekvivalencia + 300.01 belső mozgás kód + cím a candidate-grid-en`. A web verzió 0.9.54-en marad (bugfix, nem új feature).
+
+### P2-9 + P2-10 → **JAVÍTVA** — commit `afd08c63`
+Új fájl: [`migration-docs/sql/_RUN_LOG.md`](migration-docs/sql/_RUN_LOG.md). Struktúra: konvenció (`[x]`/`[ ]`/`[?]`), PENDING szakasz (5 fájl prioritás+indok+megjegyzés), LEFUTOTT szakasz csoportosítva sprintekenként (2026-04-09 — 2026-05-05), hibajavítás-szakasz későbbi PITR-rollbackek számára. A 197+ teljes lista lekérdezhető Supabase Studio-ban: `SELECT version, name, executed_at FROM supabase_migrations.schema_migrations`.
+
+### P2-13 → **RÉSZBEN JAVÍTVA** — commit `afd08c63`
+A `[2026-05-02c]` címke valódi duplikátuma javítva: a sor 2307-en lévő "felülről eltolva" placeholder header eltávolítva, helyette a korrekt `[2026-05-02d] — Sidebar click-elhetetlen overlay javítva (v0.9.24)` header. A 2349-en lévő igazi `[2026-05-02c] — Legal-dialog` változatlan. **Tisztázás**: a `[2026-05-03d]` vs `[2026-05-03f]` esetében az eredeti audit téves volt — ezek KÜLÖNBÖZŐ key-ek (csak a slug-suffix azonos), nem konfliktus. A 38 hiányzó `version:` mező és a 7 hiányzó release-notes md (P2-14) továbbra is nyitva.
+
+### P3-7 → **NEM JAVÍTJUK** (design-döntés)
+A `hozzaferes-kerese/actions.ts:158-176` email-enumeration kockázat egy **tudatos UX-kompromisszum**, amit a kódban kommentár részletesen indokol (`2026-05-02 (v0.9.43) — Felhasználó kérése...`). A rate-limit megvan (3 kérelem / IP / 24h), és belső gyülekezeti rendszerben az email-enumeration kockázata alacsony — a UX (átirányítás Belépés/Elfelejtett-jelszó oldalra) fontosabb. Lezárva.
 
 ### P1-3b → **JAVÍTVA** — commit `df31ec4e`
 Új `sanitizeFilingHtml()` helper a `lib/public-site/sanitize.ts`-be:
