@@ -516,8 +516,8 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - **P2-3** Oblio shim refaktor (Sprint-méretű — 10 SHIM + 4 LIVE + 6 alkalmazás-szintű hivatkozás migrálása)
 - **P2-4** desktop pénzügy migráció a shared finance modulokra (17 komponens)
 - **P2-1** lint 77 error rendezése (főleg react/no-unescaped-entities — nem auto-fixable)
-- **P2-7** OnlineStatePill minden read-only desktop oldalra
 - **P2-14** 7 hiányzó release-notes md (v0.9.{48..54})
+- (P2-7 javítva, lásd lent)
 
 ### Maradék P3 (még nyitva)
 - **P3-8** UI TODO-k:
@@ -618,6 +618,13 @@ A `apps/desktop/src-tauri/tauri.conf.json:25` `"csp": null` → szigorú CSP:
 default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: tauri: asset:; font-src 'self' data:; connect-src 'self' ipc: tauri: https://*.supabase.co https://*.up.railway.app; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'
 ```
 A `'unsafe-inline'` csak `style-src`-ben (Tailwind/shadcn inline-style KÖTELEZŐ). A script-src-ben `'wasm-unsafe-eval'` engedett (modern WebAssembly), **NEM `'unsafe-eval'`**. **TESZTELÉS SZÜKSÉGES (Endre)**: `npm run tauri dev` + a fő flow-k smoke-testje.
+
+### P2-7 → **JAVÍTVA** — commit `d33f13f5`
+Új shared komponens: [`packages/ui-app/src/indicators/OnlineStatePill.tsx`](packages/ui-app/src/indicators/OnlineStatePill.tsx). `navigator.onLine` + `online`/`offline` event-figyelő; zöld/amber pill Wifi/WifiOff ikonnal; opcionális `lastSyncAt` időbélyeg ("Online · 14:32"); két `position`: `'inline'` (default) vagy `'fixed-top-right'` (a SyncStatusBadge mintájára); a11y `role="status"` + `aria-label`.
+
+Integrálva 6 read-only desktop oldalra (anyakönyv, leltár, sírhelyek, iktató, jegyzőkönyvek, éves jelentés). Minden oldalon a `<PageHero/>` után közvetlenül egy `<div className="flex justify-end"><OnlineStatePill lastSyncAt={lastPullIso} /></div>`.
+
+**NEM ÉRINTETT**: az 5 pénzügyi oldal (chitanță, befizetés, kiadás, belső mozgás, pénzügy-dashboard) — azok komplex offline-banner-logikája (WifiOff banner + form-disable + tárca-státusz) változatlan.
 
 ### P3-5 → **JAVÍTVA** — commit `17a89b18`
 A `iktato/actions.ts` `saveFilingEntry` race-conditionje atomic RPC-vel megoldva.
