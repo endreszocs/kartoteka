@@ -16,10 +16,10 @@
  *     iOS: Tauri SQLite + iOS plugin egyaránt)
  *   - `currentYear` prop-ként → deterministic, tesztelhető
  *
- * Future TODO (iOS UX): a `window.confirm()` helyett `onConfirm` callback,
- * hogy iOS-en natív alert-controllert lehessen használni. Most a JS-spec
- * `window.confirm` mind a desktop WebView2-ben, mind az iOS WKWebView-ban
- * működik — UX-szempontból nem optimális, de funkcionálisan jó.
+ * iOS-barát megerősítés: opcionális `onConfirm` prop, ha a hívó átad egyet
+ * (pl. iOS-en natív alert-controller, desktopon shadcn AlertDialog), az
+ * használódik a `window.confirm` helyett. Default fallback: `window.confirm`
+ * (desktop WebView2 + iOS WKWebView — funkcionálisan jó, UX nem natív).
  *
  * Callback-ek:
  *   - `onUndoStorno({type, id})` — stornó visszavonás
@@ -148,6 +148,14 @@ export interface BankTabProps {
   // ── UI-feedback callback ───────────────────────────────────
   onToast?: (message: string, kind: BankToastKind) => void
 
+  /**
+   * Megerősítő dialógus override — opcionális. Ha a hívó átad egy callback-et,
+   * az használódik a `window.confirm` helyett (iOS-en natív alert-controller,
+   * desktopon shadcn AlertDialog stb.). Ha undefined: `window.confirm` fallback
+   * (visszafelé kompatibilis a régi viselkedéssel).
+   */
+  onConfirm?: (message: string) => boolean | Promise<boolean>
+
   // ── Slot prop-ok (4 modal) ─────────────────────────────────
 
   /** BcrImportWizardDialog — Excel banki kivonat → tranzakciók wizard. */
@@ -216,6 +224,7 @@ export function BankTab({
   onBankImported,
   onBankAccountSaved,
   onToast,
+  onConfirm,
   bcrImportWizardDialogSlot,
   bankAccountDialogSlot,
   transactionEditDialogSlot,
@@ -317,7 +326,9 @@ export function BankTab({
   async function handleUndoStorno(r: BankTransactionRow) {
     if (!onUndoStorno) return
     if (typeof window === 'undefined') return
-    if (!window.confirm('Visszavonod a stornót? A tétel ismét bekerül a számításokba.')) return
+    const message = 'Visszavonod a stornót? A tétel ismét bekerül a számításokba.'
+    const confirmed = onConfirm ? await onConfirm(message) : window.confirm(message)
+    if (!confirmed) return
     const res = await onUndoStorno({
       type: r.type === 'income' ? 'befizetes' : 'kiadas',
       id: r.id,

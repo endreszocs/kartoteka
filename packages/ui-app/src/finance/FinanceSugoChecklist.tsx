@@ -13,7 +13,7 @@
  * - `localStorage` használat — működik iOS WKWebView-ban is, csak nem
  *   szinkronizál eszközök között (privát, személyes lista).
  * - `window.confirm` `typeof window` guard mögött — iOS-en is működik
- *   (de UX nem natív, későbbi sprint TODO: `onConfirm` callback).
+ *   (UX nem natív; iOS-barát: `onConfirm` prop override-olja, ha átadva).
  * - Semmilyen platform-API import (sonner, next/*, Supabase, Tauri).
  */
 
@@ -212,9 +212,16 @@ export interface FinanceSugoChecklistProps {
    * nélkül — a szülő dönti el, hova vezet (web vs. desktop útvonal).
    */
   finalizeHref?: string
+  /**
+   * Megerősítő dialógus override — opcionális. Ha a hívó átad egy callback-et,
+   * az használódik a `window.confirm` helyett (iOS-en natív alert-controller,
+   * desktopon shadcn AlertDialog stb.). Ha undefined: `window.confirm` fallback
+   * (visszafelé kompatibilis).
+   */
+  onConfirm?: (message: string) => boolean | Promise<boolean>
 }
 
-export function FinanceSugoChecklist({ finalizeHref }: FinanceSugoChecklistProps = {}) {
+export function FinanceSugoChecklist({ finalizeHref, onConfirm }: FinanceSugoChecklistProps = {}) {
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -262,9 +269,11 @@ export function FinanceSugoChecklist({ finalizeHref }: FinanceSugoChecklistProps
     })
   }
 
-  function resetAll() {
+  async function resetAll() {
     if (typeof window === 'undefined') return
-    if (!window.confirm(`Biztosan törlöd az összes pipát a ${year}. évre?`)) return
+    const message = `Biztosan törlöd az összes pipát a ${year}. évre?`
+    const confirmed = onConfirm ? await onConfirm(message) : window.confirm(message)
+    if (!confirmed) return
     setChecked(new Set())
     try {
       window.localStorage.removeItem(storageKey)
