@@ -1,6 +1,6 @@
 {
   "name": "@kartoteka/schema-types",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Zod séma-típusok (tagok, pénzügy, stb.) a web és desktop között. Placeholder — M1-es feltöltés.",
   "main": "./src/index.ts",

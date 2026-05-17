@@ -65,7 +65,7 @@ export const registerSchema = z.object({
     .email('Érvénytelen e-mail cím formátum'),
   password: z
     .string()
-    .min(6, 'A jelszónak legalább 6 karakter hosszúnak kell lennie'),
+    .min(8, 'A jelszónak legalább 8 karakter hosszúnak kell lennie'),
   termsAccepted: z
     .literal(true, { message: 'A Felhasználói Feltételek elfogadása kötelező' }),
 })

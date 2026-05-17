@@ -10,8 +10,11 @@
 
 import { sendEmail } from '@/lib/email/send'
 
-const SYSADMIN_EMAIL = 'endreszocs@gmail.com'
-const SYSADMIN_NAME = 'Szőcs Endre rendszergazda'
+// DIAGNOSTICS P3-4: SUPPORT_EMAIL env-ből (fallback a régi hardcode-ra
+// a backward-compat miatt, amíg az env-változó nincs beállítva minden
+// deployment-en).
+const SYSADMIN_EMAIL = process.env.SUPPORT_EMAIL || 'endreszocs@gmail.com'
+const SYSADMIN_NAME = process.env.SUPPORT_NAME || 'Szőcs Endre rendszergazda'
 
 export interface ContactSysadminInput {
   fromEmail: string

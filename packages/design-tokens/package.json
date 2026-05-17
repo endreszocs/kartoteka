@@ -1,6 +1,6 @@
 {
   "name": "@kartoteka/design-tokens",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Design token-ek (szín, tipográfia, spacing) — Tailwind config forrása mindkét appnak. Placeholder M1-re.",
   "main": "./src/index.ts",
