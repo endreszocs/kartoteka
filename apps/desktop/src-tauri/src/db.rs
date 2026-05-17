@@ -1988,6 +1988,60 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 // Tauri commands — a TS oldalról `invoke()`-kal hívhatók
 // ───────────────────────────────────────────────────────────────────────────
 
+/// DIAGNOSTICS P0-3a — defensive SQL-filter (CVE-szintű, low-risk mitigation
+/// a teljes typed-refaktor előtt).
+///
+/// A `db_execute` és `db_select` továbbra is generikus SQL-stringet fogad
+/// (a teljes typed-command refaktor későbbi sprint), de a Rust-oldal
+/// elutasítja a kifejezetten veszélyes utasításokat. Ha bármi XSS/HTML-
+/// injekció a renderelt oldalba kerül a jövőben (AI chat-widget, CMS
+/// előnézet, admin sablon stb.), az **NEM tud** `DROP TABLE`-t, `ATTACH
+/// DATABASE`-t vagy `PRAGMA key=...`-t küldeni.
+///
+/// A meglévő 202 dbExecute/dbSelect-hívás csak SELECT/INSERT/UPDATE/DELETE
+/// műveleteket csinál (verifikálva 2026-05-17 grep-pel) — egyik sem érintett.
+///
+/// A séma-módosító migrációk (CREATE TABLE/INDEX) a `open_and_migrate()`
+/// Rust-oldali függvényben futnak közvetlenül a Connection-on át — NEM
+/// érintik őket ezek a tiltások.
+fn is_safe_sql(sql: &str) -> Result<(), String> {
+    let head = sql.trim_start().to_uppercase();
+
+    // DROP tilalom (DROP TABLE/INDEX/VIEW/TRIGGER/SCHEMA/DATABASE)
+    if head.starts_with("DROP ") {
+        return Err(
+            "Tiltott SQL: a DROP utasítások csak a Rust-oldali migrációból futhatnak".to_string()
+        );
+    }
+    // ATTACH/DETACH DATABASE — másik DB-fájl csatolás-veszély
+    if head.starts_with("ATTACH ") || head.starts_with("DETACH ") {
+        return Err("Tiltott SQL: ATTACH/DETACH DATABASE nem engedélyezett a kliens-oldalról".to_string());
+    }
+    // PRAGMA key/rekey — SQLCipher kulcs-csere; PRAGMA writable_schema — sqlite_master bypass
+    if head.starts_with("PRAGMA KEY")
+        || head.starts_with("PRAGMA REKEY")
+        || head.starts_with("PRAGMA WRITABLE_SCHEMA")
+    {
+        return Err("Tiltott SQL: PRAGMA key/rekey/writable_schema csak a Rust-oldalon".to_string());
+    }
+    // sqlite_master közvetlen módosítás (DROP/CREATE bypass)
+    if head.contains("SQLITE_MASTER")
+        && (head.contains("INSERT") || head.contains("UPDATE") || head.contains("DELETE"))
+    {
+        return Err("Tiltott SQL: sqlite_master tábla közvetlen módosítása".to_string());
+    }
+    // Extension betöltés (potenciális kódfuttatás)
+    if head.starts_with("LOAD EXTENSION") || head.contains("LOAD_EXTENSION(") {
+        return Err("Tiltott SQL: extension betöltés nem engedélyezett".to_string());
+    }
+    // VACUUM INTO — DB-másolat exportálás (data-exfiltration)
+    if head.starts_with("VACUUM INTO") {
+        return Err("Tiltott SQL: VACUUM INTO (DB-másolat exportálás) nem engedélyezett".to_string());
+    }
+
+    Ok(())
+}
+
 /// Futtat egy DDL vagy DML SQL utasítást (CREATE/INSERT/UPDATE/DELETE).
 /// Visszaadja az érintett sorok számát.
 #[tauri::command]
@@ -1996,6 +2050,9 @@ pub fn db_execute(
     sql: String,
     params: Option<Vec<JsonValue>>,
 ) -> Result<usize, String> {
+    // DIAGNOSTICS P0-3a: defensive SQL-filter
+    is_safe_sql(&sql)?;
+
     let mut guard = state
         .conn
         .lock()
@@ -2018,6 +2075,9 @@ pub fn db_select(
     sql: String,
     params: Option<Vec<JsonValue>>,
 ) -> Result<Vec<JsonMap<String, JsonValue>>, String> {
+    // DIAGNOSTICS P0-3a: defensive SQL-filter
+    is_safe_sql(&sql)?;
+
     let guard = state
         .conn
         .lock()
