@@ -520,11 +520,11 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - **P2-14** 7 hiányzó release-notes md (v0.9.{48..54})
 
 ### Maradék P3 (még nyitva)
-- **P3-5** iktato race condition (`getNextSequenceNumber` → SECURITY DEFINER RPC nextval vagy advisory lock)
 - **P3-8** UI TODO-k:
   - NotificationBell+ProfileSwitcher integráció a `kartoteka-header.tsx`-ben
   - PIN újra-beállítás A-M15 Biztonság fülről a desktop `pin-setup-page.tsx`-ből
   - (iOS `window.confirm` callback prop **JAVÍTVA** — commit `4de50c0e`)
+- (P3-5 javítva, lásd lent)
 
 ---
 
@@ -618,6 +618,21 @@ A `apps/desktop/src-tauri/tauri.conf.json:25` `"csp": null` → szigorú CSP:
 default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: tauri: asset:; font-src 'self' data:; connect-src 'self' ipc: tauri: https://*.supabase.co https://*.up.railway.app; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'
 ```
 A `'unsafe-inline'` csak `style-src`-ben (Tailwind/shadcn inline-style KÖTELEZŐ). A script-src-ben `'wasm-unsafe-eval'` engedett (modern WebAssembly), **NEM `'unsafe-eval'`**. **TESZTELÉS SZÜKSÉGES (Endre)**: `npm run tauri dev` + a fő flow-k smoke-testje.
+
+### P3-5 → **JAVÍTVA** — commit `17a89b18`
+A `iktato/actions.ts` `saveFilingEntry` race-conditionje atomic RPC-vel megoldva.
+
+**Új SQL migráció**: `2026-05-17-iktato-sequence-pointer-rpc.sql` (PENDING — Endre futtatja):
+- `iktato_sequence_pointers` tábla (per-(cong, year) `last_sequence`)
+- Backfill a meglévő `MAX(sequence_number)`-ekből
+- `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC: `INSERT ... ON CONFLICT DO UPDATE RETURNING` — row-szintű lock-kal sorosít párhuzamos hívásokra
+- Auth check (auth.uid() + profiles.congregation_id mátrix)
+- `search_path = public, pg_temp` (P2-11 konvenció)
+- RLS-policy + GRANT-ek
+- Partial UNIQUE INDEX `iktato (cong, year, sequence_number) WHERE deleted=false` — DB-szintű backup-védelem, `DO $$ EXCEPTION` blokk meglévő duplikátumokhoz
+- BEGIN/COMMIT, idempotens, verifikációs SELECT
+
+**Frontend**: `saveFilingEntry` mostantól az RPC-t hívja. A `getNextSequenceNumber()` backward-compat marad (preview-becslés, JSDoc figyelmeztetéssel: NEM atomic).
 
 ### P0-3 → **RÉSZLEGES JAVÍTÁS (P0-3a)** — commit `9c57e0ef`
 A teljes P0-3 typed-command refaktor (202 dbExecute/dbSelect hívás átírása) **későbbi sprintre marad** — túl nagy egy beszélgetésben. Most a Rust-oldalon egy defensive SQL-filter (`is_safe_sql()` helper) elutasítja a veszélyes utasításokat:
