@@ -23,14 +23,16 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ### Sorrend nem számít (mind független művelet)
 
-- [ ] **`2026-05-15-legacy-cleanup-drop.sql`** — 19× `DROP TABLE IF EXISTS *_ARCHIVE_2026_04_15`. **FUTTATÁS ELŐTT BEGIN/COMMIT KÖRÉ CSOMAGOLNI** (a fájl jelenleg nincs tranzakcióban). Verifikáció: a fájl elején lévő SELECT-tel ellenőrizni a row-számot. Visszavonhatatlan — PITR rollback-tervvel.
+- [x] 2026-05-17 — **`2026-05-15-legacy-cleanup-drop.sql`** ✅ LEFUTOTT
+       19× `DROP TABLE IF EXISTS *_ARCHIVE_2026_04_15` (Endre megerősítette: sikeresen lefutott).
 
 - [x] 2026-05-17 — **`2026-05-17-security-definer-search-path-pin.sql`** ✅ LEFUTOTT
        17× `ALTER FUNCTION ... SET search_path = public, pg_temp` (CVE-2018-1058 mitigation).
        A verifikációs SELECT mind a 17 függvényre `✅ OK (public, pg_temp)` státuszt adott.
        **Történet**: az 1. próbafutás (eredeti, 19 függvényt céloz) `42883: function public.issue_license(text, text, text, inet, text) does not exist` hibára futott — a tranzakció rollback-elt. Production-audit (Supabase Studio diagnosztikai SELECT) megerősítette, hogy 2 függvény (`issue_license`, `revoke_license`) hiányzik (a standalone-licenses.sql migráció nem futott — a Tauri standalone licensz-flow nincs élesben). A migráció szerkesztve, 2 ALTER kivéve → 2. futás hibamentes.
 
-- [ ] **`2026-05-06-egyhfenntartas-import-dup-index.sql`** — `CREATE INDEX IF NOT EXISTS idx_befizetes_egyhf_import_lookup` (5-mezős partial WHERE deleted=false). Idempotens, `CREATE INDEX` self-tx, BEGIN/COMMIT nem szükséges. Biztonságos.
+- [x] 2026-05-17 — **`2026-05-06-egyhfenntartas-import-dup-index.sql`** ✅ LEFUTOTT
+       `CREATE INDEX IF NOT EXISTS idx_befizetes_egyhf_import_lookup` (5-mezős partial). Verifikáció: a `befizetescel.id_szamadasicel='101.01'` lookup visszaadta `{id: 80, nev: 'Egyházfenntartói járulék', aktiv: true}` — a downstream import-flow használhatja.
 
 - [ ] **`2026-04-30k-diagnoszt-baptism-szulok.sql`** — diagnosztikai SELECT-ek a keresztelő szülő-load hibakereséséhez. Read-only, séma-érintetlen. Hardcoded `id = 1163`, cserélendő.
 

@@ -77,6 +77,7 @@ export async function runFinalizationChecks(year: number): Promise<{
     kiaRes,
     oblioXmlsRes,
     oblioMatchesRes,
+    jarulekCellsRes,
   ] = await Promise.all([
     // Minden aktív bankszámla
     access.supabase
@@ -125,6 +126,15 @@ export async function runFinalizationChecks(year: number): Promise<{
       .from('oblio_kiadas_match')
       .select('id, kiadas_id')
       .eq('congregation_id', congregationId),
+    // P1-8: járulék-befizetescel (101.01 = Egyházfenntartói járulék) per-congregation
+    // — a befMissingPersonJarulek check-hez kell felismerni, melyik befizetes
+    // tartozik a járulék-kategóriához.
+    access.supabase
+      .from('befizetescel')
+      .select('id')
+      .eq('congregation_id', congregationId)
+      .eq('id_szamadasicel', '101.01')
+      .eq('aktiv', true),
   ])
 
   const banks = (banksRes.data || []) as Array<{ id: number; bank_neve: string; valuta: string | null }>
@@ -146,6 +156,11 @@ export async function runFinalizationChecks(year: number): Promise<{
     stornozott?: boolean
   }>
   const oblioXmls = (oblioXmlsRes.data || []) as Array<{ kiadas_id: number | null }>
+  // P1-8: a 101.01-es befizetescel ID-k a gyülekezetben. Általában 1 rekord,
+  // de elvileg lehet több aktív variáns is — Set-tel kezeljük.
+  const jarulekBefizetescelIds = new Set<number>(
+    ((jarulekCellsRes.data || []) as Array<{ id: number }>).map((r) => r.id),
+  )
 
   const items: CheckItem[] = []
 
@@ -224,7 +239,11 @@ export async function runFinalizationChecks(year: number): Promise<{
   // Csak figyelmeztetés (nem blokkoló) — de fontos: a járulékbefizetőket
   // a választók névjegyzékéhez használjuk, így pontosság kell.
   const befMissingPersonJarulek = befizetesek.filter((b) => {
-    const isJarulekCategory = false // TODO: a befizetescel → szamadasicel.kod === '101.01' join kellene
+    // P1-8: a 101.01 (Egyházfenntartói járulék) felismerése a befizetescel ID-n keresztül.
+    // A jarulekBefizetescelIds halmaz a gyülekezet aktív 101.01-es befizetescel ID-jeit
+    // tartalmazza (általában 1, de Set-tel többet is kezelünk).
+    const isJarulekCategory =
+      b.id_befizetescel !== null && jarulekBefizetescelIds.has(b.id_befizetescel)
     if (!isJarulekCategory) return false
     return !b.id_szemely && !b.id_csalad && !b.belso_mozgas_xkey
   })
