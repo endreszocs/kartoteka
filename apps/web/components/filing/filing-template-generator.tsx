@@ -23,6 +23,7 @@ import {
   renderTemplate,
   type FilingTemplate,
 } from '@/lib/filing/templates'
+import { sanitizeFilingHtml } from '@/lib/public-site/sanitize'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 
 interface FilingTemplateGeneratorProps {
@@ -215,9 +216,13 @@ export function FilingTemplateGenerator({
               Élő előnézet
             </p>
             <div className="max-h-[65vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+              {/* DIAGNOSTICS P1-3b: a sablon-tartalom admin/lelkész által szerkesztett —
+                  sanitizeFilingHtml-en keresztül, hogy script/iframe-injection ne menjen át.
+                  A renderTemplate user-input értékeket már escape-eli, így a sanitize csak
+                  a sablon-tartalmat (admin-szerkesztett) szűri. */}
               <div
                 className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderTemplate(template.tartalom, values) }}
+                dangerouslySetInnerHTML={{ __html: sanitizeFilingHtml(renderTemplate(template.tartalom, values)) }}
               />
             </div>
           </div>
