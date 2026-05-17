@@ -12,9 +12,13 @@
 --   DEFINER függvény belsejében — privilege escalation (CVE-2018-1058 osztály).
 --
 -- JAVÍTÁS:
---   Az érintett 18 SECURITY DEFINER függvénynél EXPLICIT pinekjük a search_path-et
+--   Az érintett 17 SECURITY DEFINER függvénynél EXPLICIT pinekjük a search_path-et
 --   `public, pg_temp` ÉRTÉKRE — így a `pg_temp` az utolsó helyre kerül, és
 --   a `public` schema függvényei/táblái elsődlegesek a lookup-ban.
+--
+--   (Eredetileg 18-19 volt — 2026-05-17 production-audit alapján 2 nem létezik:
+--   `issue_license` és `revoke_license`, mert a standalone-licenses.sql migráció
+--   még nem futott. Lásd lent.)
 --
 -- IDEMPOTENS:
 --   Az `ALTER FUNCTION ... SET search_path = ...` parancs többször is futtatható.
@@ -66,12 +70,20 @@ ALTER FUNCTION public.import_finance_batch(uuid, uuid, jsonb)
   SET search_path = public, pg_temp;
 
 -- ── 2026-04-15-standalone-licenses.sql ───────────────────────────────────
--- A `standalone_licenses_updated_at()` trigger fn és a `list_my_licenses()`
--- SECURITY INVOKER — kihagyva.
-ALTER FUNCTION public.issue_license(text, text, text, inet, text)
-  SET search_path = public, pg_temp;
-ALTER FUNCTION public.revoke_license(uuid, text)
-  SET search_path = public, pg_temp;
+-- KIHAGYVA (2026-05-17 production-audit alapján):
+--   - `standalone_licenses_updated_at()` trigger fn (nem SECURITY DEFINER)
+--   - `list_my_licenses()` SECURITY INVOKER
+--   - `issue_license(text, text, text, inet, text)` NEM LÉTEZIK a productionben
+--     (a 2026-04-15-standalone-licenses.sql migráció még nem futott — a Tauri
+--     standalone licensz-flow nincs élesben)
+--   - `revoke_license(uuid, text)` ugyanaz okból kihagyva
+--
+-- HA a standalone-licenses migráció FUTNI fog, ezt a 2 ALTER-t egy
+-- külön migrációban kell pótolni:
+--   ALTER FUNCTION public.issue_license(text, text, text, inet, text)
+--     SET search_path = public, pg_temp;
+--   ALTER FUNCTION public.revoke_license(uuid, text)
+--     SET search_path = public, pg_temp;
 
 -- ── 2026-04-24-admin-wipe-congregation-data.sql ──────────────────────────
 ALTER FUNCTION public.wipe_congregation_data(uuid, text)
@@ -119,7 +131,8 @@ WHERE n.nspname = 'public'
     'admin_revoke_assignment', 'complete_user_onboarding',
     '_can_manage_family_links', 'infer_family_links_for_congregation',
     'revert_family_link_batch', 'list_family_link_batches',
-    'import_finance_batch', 'issue_license', 'revoke_license',
+    'import_finance_batch',
+    -- issue_license + revoke_license a productionben NEM LÉTEZIK, lásd fent
     'wipe_congregation_data', 'bootstrap_iratszam_pointer',
     'reserve_iratszam', 'next_iratszam', 'reserve_chitanta_numbers'
   )

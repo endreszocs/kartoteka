@@ -25,7 +25,8 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 - [ ] **`2026-05-15-legacy-cleanup-drop.sql`** — 19× `DROP TABLE IF EXISTS *_ARCHIVE_2026_04_15`. **FUTTATÁS ELŐTT BEGIN/COMMIT KÖRÉ CSOMAGOLNI** (a fájl jelenleg nincs tranzakcióban). Verifikáció: a fájl elején lévő SELECT-tel ellenőrizni a row-számot. Visszavonhatatlan — PITR rollback-tervvel.
 
-- [ ] **`2026-05-17-security-definer-search-path-pin.sql`** — 18× `ALTER FUNCTION ... SET search_path = public, pg_temp` (CVE-2018-1058 mitigation). **BEGIN/COMMIT-ben van, idempotens, biztonságos.** Verifikációs SELECT a végén.
+- [ ] **`2026-05-17-security-definer-search-path-pin.sql`** — 17× `ALTER FUNCTION ... SET search_path = public, pg_temp` (CVE-2018-1058 mitigation). **BEGIN/COMMIT-ben van, idempotens, biztonságos.** Verifikációs SELECT a végén.
+       Az eredeti változat 19 függvényt érintett — 2026-05-17-i production-audit alapján 2 hiányzik (`issue_license`, `revoke_license` — a standalone-licenses.sql nem futott), kihagyva. Az 1. próbafutás (előző verzió) `42883: function public.issue_license(text, text, text, inet, text) does not exist` hibára futott — a tranzakció rollback-elt, semmi sem ment át. Az új verzió hibamentesen kéne lefutjon.
 
 - [ ] **`2026-05-06-egyhfenntartas-import-dup-index.sql`** — `CREATE INDEX IF NOT EXISTS idx_befizetes_egyhf_import_lookup` (5-mezős partial WHERE deleted=false). Idempotens, `CREATE INDEX` self-tx, BEGIN/COMMIT nem szükséges. Biztonságos.
 
