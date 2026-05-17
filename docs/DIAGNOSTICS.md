@@ -562,6 +562,15 @@ A `apps/web/lib/finance/oblio/` mappában 10 SHIM és 4 LIVE fájl van. A LIVE f
 ### P2-2 → **JAVÍTVA** — commit `4f915a6c`
 A `packages/ui-app/src/finance/oblio/OblioEllenorzesTab.tsx` 7 `console.*` hívásából a 3 debug `console.log` (sor 656, 910, 936) most `NODE_ENV === 'development'` wrapperben. A 4 `console.warn` (valódi hibajelzések — XML parse, duplikátum-cleanup, átnevezés) megőrizve. Shared bundle (web + desktop) most már nem szennyezi a prod konzolt.
 
+### P2-11 → **JAVÍTVA** — commit `8e98bb24`
+Új migráció: [`migration-docs/sql/2026-05-17-security-definer-search-path-pin.sql`](migration-docs/sql/2026-05-17-security-definer-search-path-pin.sql). 18 SECURITY DEFINER függvény `ALTER FUNCTION ... SET search_path = public, pg_temp`-re (a `pg_temp` LAST helyre kerül → CVE-2018-1058 osztály támadás-felület megszüntetve). BEGIN/COMMIT-be csomagolva (P2-12 betartva), idempotens, verifikációs SELECT a végén. **Megjegyzés**: a DIAGNOSTICS eredetileg `~25` függvényt becsült, az audit-elemzés szerint a tényleges szám 18 (a többi említett "hiányos" függvény részben már rendelkezett search_path-szel, csak a `pg_temp` LAST-helyre pinning hiányzott — most az is megvan).
+
+### P3-6 → **JAVÍTVA** — commit `8e98bb24`
+A `supabase/functions/issue-license/index.ts` CORS-konfigurációja most explicit `ALLOWED_ORIGINS` whitelist (`kartotekaweb-production.up.railway.app`, `tauri://localhost`, `localhost:3000`, `localhost:5173`) — wildcard `*` helyett. Új `corsHeadersForRequest(req)` helper origin-szerinti reflection-rel + `Vary: Origin` header.
+
+### P3-11 → **JAVÍTVA** — commit `8e98bb24`
+A `3dd04e98` commit dokumentálva a `docs/CHANGELOG.md`-ban új bejegyzéssel: `[2026-05-06c] — 201.1↔201.10 ekvivalencia + 300.01 belső mozgás kód + cím a candidate-grid-en`. A web verzió 0.9.54-en marad (bugfix, nem új feature).
+
 ### P1-3b → **JAVÍTVA** — commit `df31ec4e`
 Új `sanitizeFilingHtml()` helper a `lib/public-site/sanitize.ts`-be:
 - 25+ tag whitelist (div, span, p, b, br, ul/ol/li, h1-h6, table-stack, blockquote, …)
