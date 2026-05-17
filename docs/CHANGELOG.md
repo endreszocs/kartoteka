@@ -2304,11 +2304,7 @@ Csak webes (Railway auto-deploy).
 
 ---
 
-## [2026-05-02c] — Legal-dialog tartalom: laikus, lelkipásztorbarát, bővebb (v0.9.23)
-
-(felülről eltolva)
-
-
+## [2026-05-02d] — Sidebar click-elhetetlen overlay javítva (v0.9.24, csak web)
 
 <!-- key: 2026-05-02d-sidebar-click-fix -->
 <!-- category: bugfix -->
