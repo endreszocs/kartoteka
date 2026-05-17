@@ -506,7 +506,6 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - Build és typecheck: nem rontottam
 
 ### Maradék P1 (még nyitva)
-- **P1-3b** `filing-template-generator` sanitize (külön sprintben — custom sanitizeFilingHtml helper kell)
 - **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
 - **P1-8** járulék-kategória felismerés a finalization flow-ban
 
