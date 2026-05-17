@@ -559,6 +559,9 @@ A `apps/web/lib/finance/oblio/` mappában 10 SHIM és 4 LIVE fájl van. A LIVE f
 - **P3-3**: `apps/web/lib/validations/auth.ts` registerSchema password `min(6)` → `min(8)`
 - **P3-4**: `apps/web/app/(public)/hozzaferes-kerese/contact-actions.ts` `SYSADMIN_EMAIL`/`SYSADMIN_NAME` env-fallback
 
+### P2-2 → **JAVÍTVA** — commit `4f915a6c`
+A `packages/ui-app/src/finance/oblio/OblioEllenorzesTab.tsx` 7 `console.*` hívásából a 3 debug `console.log` (sor 656, 910, 936) most `NODE_ENV === 'development'` wrapperben. A 4 `console.warn` (valódi hibajelzések — XML parse, duplikátum-cleanup, átnevezés) megőrizve. Shared bundle (web + desktop) most már nem szennyezi a prod konzolt.
+
 ### P1-3b → **JAVÍTVA** — commit `df31ec4e`
 Új `sanitizeFilingHtml()` helper a `lib/public-site/sanitize.ts`-be:
 - 25+ tag whitelist (div, span, p, b, br, ul/ol/li, h1-h6, table-stack, blockquote, …)
