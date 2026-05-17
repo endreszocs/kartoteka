@@ -509,8 +509,8 @@ A `previewFxAtYearStart`, `applyFxAtYearStart`, `FxYearStartPreview` és a `_leg
 - 151 problems (77 errors, 74 warnings) — a P1-2 törlése után 2 warninggal kevesebb
 - Build és typecheck: nem rontottam
 
-### Maradék P1 (még nyitva)
-- **P1-4** Tauri CSP — DESKTOP-teszt kell, óvatosan
+### Maradék P1
+- (üres — P1-4 javítva, lásd lent)
 
 ### Maradék P2 (még nyitva)
 - **P2-3** Oblio shim refaktor (Sprint-méretű — 10 SHIM + 4 LIVE + 6 alkalmazás-szintű hivatkozás migrálása)
@@ -611,6 +611,26 @@ A `runFinalizationChecks` `befMissingPersonJarulek` filter `isJarulekCategory = 
 
 ### P3-8 #2 → **JAVÍTVA** — commit `4de50c0e`
 `BankTab.tsx` (handleUndoStorno) és `FinanceSugoChecklist.tsx` (resetAll) opcionális `onConfirm?: (message: string) => boolean | Promise<boolean>` prop-pal — ha a hívó átad egyet (pl. iOS-en natív alert-controller, desktopon shadcn AlertDialog), az használódik a `window.confirm` helyett. Visszafelé kompatibilis (default fallback). A P3-8 maradék 2 alpontja (NotificationBell+ProfileSwitcher, A-M15 PIN újra-beállítás) továbbra is nyitva.
+
+### P1-4 → **JAVÍTVA** — commit `9c57e0ef`
+A `apps/desktop/src-tauri/tauri.conf.json:25` `"csp": null` → szigorú CSP:
+```
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: tauri: asset:; font-src 'self' data:; connect-src 'self' ipc: tauri: https://*.supabase.co https://*.up.railway.app; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'
+```
+A `'unsafe-inline'` csak `style-src`-ben (Tailwind/shadcn inline-style KÖTELEZŐ). A script-src-ben `'wasm-unsafe-eval'` engedett (modern WebAssembly), **NEM `'unsafe-eval'`**. **TESZTELÉS SZÜKSÉGES (Endre)**: `npm run tauri dev` + a fő flow-k smoke-testje.
+
+### P0-3 → **RÉSZLEGES JAVÍTÁS (P0-3a)** — commit `9c57e0ef`
+A teljes P0-3 typed-command refaktor (202 dbExecute/dbSelect hívás átírása) **későbbi sprintre marad** — túl nagy egy beszélgetésben. Most a Rust-oldalon egy defensive SQL-filter (`is_safe_sql()` helper) elutasítja a veszélyes utasításokat:
+- `DROP ... (TABLE/INDEX/VIEW/TRIGGER/SCHEMA/DATABASE)`
+- `ATTACH/DETACH DATABASE`
+- `PRAGMA key / rekey / writable_schema`
+- `sqlite_master` közvetlen INSERT/UPDATE/DELETE
+- `LOAD EXTENSION / load_extension()`
+- `VACUUM INTO` (DB-másolat exfiltration)
+
+Védelmi szempont: ha bármi XSS/HTML-injekció kerül a Tauri ablakba a jövőben, az NEM fog tudni SQLCipher kulcsot lecserélni, DB-másolatot exportálni, vagy `DROP TABLE`-t küldeni. A 202 meglévő hívás közül egyik sem érintett (grep-verifikálva, 0 találat a tiltott pattern-ekre). A séma-migrációk a `open_and_migrate()`-ben közvetlenül a Connection-on futnak, NEM érintettek.
+
+Cargo check: ✅ `Finished dev profile [unoptimized + debuginfo]` 0 error, 0 warning.
 
 ### Pending SQL → mind LEFUTOTT (2026-05-17)
 - ✅ `2026-05-15-legacy-cleanup-drop.sql` — 19× DROP TABLE (Endre megerősítette)
