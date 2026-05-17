@@ -577,10 +577,12 @@ A `apps/web/lib/finance/oblio/` mappában 10 SHIM és 4 LIVE fájl van. A LIVE f
 ### P2-2 → **JAVÍTVA** — commit `4f915a6c`
 A `packages/ui-app/src/finance/oblio/OblioEllenorzesTab.tsx` 7 `console.*` hívásából a 3 debug `console.log` (sor 656, 910, 936) most `NODE_ENV === 'development'` wrapperben. A 4 `console.warn` (valódi hibajelzések — XML parse, duplikátum-cleanup, átnevezés) megőrizve. Shared bundle (web + desktop) most már nem szennyezi a prod konzolt.
 
-### P2-11 → **JAVÍTVA** — commit `8e98bb24` + **production-audit utáni javítás** (lásd lent)
+### P2-11 → **JAVÍTVA ÉS LEFUTOTT** — commit `8e98bb24` (létrehozás) + `8f733e96` (javítás) + **2026-05-17 production-on alkalmazva**
 Új migráció: [`migration-docs/sql/2026-05-17-security-definer-search-path-pin.sql`](migration-docs/sql/2026-05-17-security-definer-search-path-pin.sql). 17 SECURITY DEFINER függvény `ALTER FUNCTION ... SET search_path = public, pg_temp`-re (a `pg_temp` LAST helyre kerül → CVE-2018-1058 osztály támadás-felület megszüntetve). BEGIN/COMMIT-be csomagolva (P2-12 betartva), idempotens, verifikációs SELECT a végén.
 
-**Production-audit (2026-05-17 Supabase Studio SELECT)**: az eredeti migráció 19 függvényre céloz volt, de a productionben csak 17 létezik. A 2 hiányzó (`issue_license`, `revoke_license`) a `2026-04-15-standalone-licenses.sql` migrációból származna, de az még nem futott (a Tauri standalone licensz-flow nincs élesben). Az első próbafutás `42883: function does not exist` hibára futott, a tranzakció rollback-elt. A migráció szerkesztve — az `issue_license` és `revoke_license` ALTER-ek kivéve (komment a fájlban + `_RUN_LOG.md`-ben). Új futás hibamentes lesz.
+**Production-állapot (2026-05-17 Supabase verifikáció)**: ✅ Mind a 17 ALTER-elt függvény `search_path=public, pg_temp` státusszal — a `pg_temp` schema mostantól garantáltan az utolsó helyen, ami megszünteti a függvény-belüli `pg_temp.foo()` overlay-támadás lehetőségét.
+
+**Történet**: az első próbafutás (eredeti, 19 függvényt céloz volt) `42883: function public.issue_license(text, text, text, inet, text) does not exist` hibára futott, a tranzakció rollback-elt. A Supabase Studio diagnosztikai SELECT-je megerősítette, hogy 2 függvény (`issue_license`, `revoke_license`) hiányzik a productionben — a `2026-04-15-standalone-licenses.sql` migráció még nem futott (Tauri standalone licensz-flow nincs élesben). A migráció szerkesztve (`8f733e96`), 2 ALTER kivéve, komment-magyarázat a fájlban + `_RUN_LOG.md`. A 2. futás hibamentes — Endre megerősítette.
 
 ### P3-6 → **JAVÍTVA** — commit `8e98bb24`
 A `supabase/functions/issue-license/index.ts` CORS-konfigurációja most explicit `ALLOWED_ORIGINS` whitelist (`kartotekaweb-production.up.railway.app`, `tauri://localhost`, `localhost:3000`, `localhost:5173`) — wildcard `*` helyett. Új `corsHeadersForRequest(req)` helper origin-szerinti reflection-rel + `Vary: Origin` header.
