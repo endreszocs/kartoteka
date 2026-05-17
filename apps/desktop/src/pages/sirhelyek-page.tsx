@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 
 import { Button, Card, CardContent } from '@kartoteka/ui'
-import { PageHero } from '@kartoteka/ui-app'
+import { OnlineStatePill, PageHero } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
@@ -198,6 +198,11 @@ export function SirhelyekPage() {
           }
           stats={[{ label: 'Utolsó frissítés', value: lastPullText }]}
         />
+
+        {/* DIAGNOSTICS P2-7: egységes online/offline pill a read-only oldalakra */}
+        <div className="flex justify-end">
+          <OnlineStatePill lastSyncAt={lastPullIso} />
+        </div>
 
         {pullError && (
           <Card className="border-red-200 bg-red-50/80">
