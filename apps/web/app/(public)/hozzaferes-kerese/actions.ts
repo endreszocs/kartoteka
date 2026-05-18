@@ -150,7 +150,7 @@ export async function submitAccessRequest(
         requested_role: role,
       },
       emailRedirectTo:
-        (process.env.NEXT_PUBLIC_APP_URL || 'https://kartotekaweb-production.up.railway.app') +
+        (process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app') +
         '/login?confirmed=1',
     },
   })

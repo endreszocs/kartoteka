@@ -781,7 +781,7 @@ function HelpContent() {
 
       <SectionTitle>Hogyan kérhetek hozzáférést?</SectionTitle>
       <p>
-        A bejelentkező oldalon (https://kartotekaweb-production.up.railway.app) kattintson az{' '}
+        A bejelentkező oldalon (https://kartoteka.app) kattintson az{' '}
         <strong>„Új fiók létrehozása"</strong> gombra. Ekkor megnyílik a kérelem-űrlap, ahol
         megadhatja:
       </p>

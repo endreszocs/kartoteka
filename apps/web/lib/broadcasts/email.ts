@@ -106,10 +106,10 @@ const tipusAccent: Record<BroadcastTipus, { bg: string; text: string; label: str
   },
 }
 
-// A Railway production URL — a logót innen szolgáljuk ki minden email-fogadónak.
+// A production URL — a logót innen szolgáljuk ki minden email-fogadónak.
 // Ha development-build, akkor is ez a host (a kép a publikus PWA manifest-en át
 // elérhető — minden email-kliens letöltheti).
-const APP_URL = 'https://kartotekaweb-production.up.railway.app'
+const APP_URL = 'https://kartoteka.app'
 const LOGO_URL = `${APP_URL}/kartoteka-logo.png`
 const ICON_URL = `${APP_URL}/EREK.png`
 

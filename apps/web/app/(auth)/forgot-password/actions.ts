@@ -17,7 +17,7 @@ export async function resetPassword(data: ForgotPasswordInput) {
   // soha nem történt meg.
   //
   // Most explicit: /reset-password — ott egy ÚJ JELSZÓ form fogadja a tokent.
-  const PRODUCTION_FALLBACK = 'https://kartotekaweb-production.up.railway.app'
+  const PRODUCTION_FALLBACK = 'https://kartoteka.app'
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
     (process.env.NODE_ENV === 'production' ? PRODUCTION_FALLBACK : 'http://localhost:3000')
@@ -27,7 +27,39 @@ export async function resetPassword(data: ForgotPasswordInput) {
   })
 
   if (error) {
-    // Nem árulunk el semmit arról, létezik-e az email (adatvédelem)
+    // 2026-05-18 — A korábbi verzió csendben elnyelte a Supabase hibát,
+    // így dev közben lehetetlen volt eldönteni, mi a baj (SMTP rate-limit?
+    // hibás projekt-konfiguráció? hálózati hiba?). Mostantól:
+    //  • mindig logoljuk szerver-oldalra (console.error → terminál / Vercel logs)
+    //  • a 429 (rate limit) saját, hasznos üzenetet kap
+    //  • dev módban a tényleges Supabase üzenet is megjelenik a usernek
+    //  • prod-ban marad a generikus szöveg (nem áruljuk el, létezik-e az email)
+    console.error('[forgot-password] supabase.auth.resetPasswordForEmail hiba:', {
+      name: error.name,
+      status: error.status,
+      code: error.code,
+      message: error.message,
+    })
+
+    const isRateLimit =
+      error.status === 429 ||
+      error.code === 'over_email_send_rate_limit' ||
+      /rate.?limit/i.test(error.message)
+
+    if (isRateLimit) {
+      return {
+        error:
+          'Túl sok jelszó-visszaállító kérés. A Supabase beépített e-mail küldője óránként csak néhány levelet enged. Kérjük, próbálja újra kb. 1 óra múlva.',
+      }
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      return {
+        error: `Hiba történt (dev): ${error.message}${error.code ? ` [${error.code}]` : ''}`,
+      }
+    }
+
+    // Prod: nem árulunk el semmit arról, létezik-e az email (adatvédelem)
     return { error: 'Hiba történt. Kérem, próbálja újra később.' }
   }
 

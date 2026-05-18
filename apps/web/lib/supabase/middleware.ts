@@ -10,7 +10,13 @@ const PASTOR_AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/oauth-c
 // A `(public)` Next.js route-group NEM jelenik meg a pathname-ben, ezért szükség
 // van explicit whitelistre. (2026-05-01: a `/login` page-en a "Kérjen hozzáférést"
 // gomb mutatott ide, de a middleware visszairányított /login-ra → loop.)
-const PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese']
+//
+// 2026-05-18: a `/reset-password` IS publikus, mert a Supabase recovery-email
+// linkjére kattintáskor a user (még) nincs bejelentkezve, és a middleware
+// különben /login-ra dobta volna át a query stringgel együtt
+// (`?error=access_denied&error_code=otp_expired&...`). A page maga
+// kliens-oldalon ellenőrzi a recovery-session érvényességét.
+const PUBLIC_AUTH_ROUTES = ['/hozzaferes-kerese', '/reset-password']
 
 // Web-onboarding wizard útvonala (M6.3 2026-04-22 óta a /api/standalone/*
 // route-ok kivezetve — a portable Inno Setup build megszüntetve).

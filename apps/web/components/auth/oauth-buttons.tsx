@@ -11,7 +11,7 @@ interface OAuthButtonsProps {
   mode?: 'login' | 'register'
 }
 
-const FALLBACK_PUBLIC_APP_ORIGIN = 'https://kartotekaweb-production.up.railway.app'
+const FALLBACK_PUBLIC_APP_ORIGIN = 'https://kartoteka.app'
 
 function normalizeOrigin(value: string | undefined): string | null {
   const trimmed = value?.trim()

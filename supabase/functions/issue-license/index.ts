@@ -27,7 +27,7 @@ import { SignJWT, importPKCS8 } from 'npm:jose@5'
 // origin whitelist. A JWT-validáció önmagában is véd, de a CORS pluszként
 // elzárja a böngésző-szintű cross-origin hozzáférést a publikus oldalakról.
 const ALLOWED_ORIGINS = new Set<string>([
-  'https://kartotekaweb-production.up.railway.app',
+  'https://kartoteka.app',
   'tauri://localhost',
   // Dev: helyi Next.js + Tauri Vite
   'http://localhost:3000',
@@ -38,7 +38,7 @@ function corsHeadersForRequest(req: Request): Record<string, string> {
   const origin = req.headers.get('origin') || ''
   const allowedOrigin = ALLOWED_ORIGINS.has(origin)
     ? origin
-    : 'https://kartotekaweb-production.up.railway.app'
+    : 'https://kartoteka.app'
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',

@@ -76,7 +76,7 @@ const FALLBACK_VERSE: DailyVerseData = {
   reference: 'Példabeszédek 3:5',
 }
 
-const VERSE_API_URL = 'https://kartotekaweb-production.up.railway.app/api/daily-verse'
+const VERSE_API_URL = 'https://kartoteka.app/api/daily-verse'
 
 export function HomePage() {
   const navigate = useNavigate()
