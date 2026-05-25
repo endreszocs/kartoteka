@@ -90,7 +90,7 @@ export async function GET(request: Request) {
           return NextResponse.redirect(`${origin}/login?error=pending`)
         }
 
-        return applySessionModeCookie(NextResponse.redirect(`${origin}/`))
+        return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
       }
     }
   }

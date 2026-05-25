@@ -1,6 +1,5 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { SplashScreen } from '@/components/ui/splash-screen'
 import { AuthLeftPane } from '@/components/auth/auth-left-pane'
 import { AuthFooterLinks } from '@/components/auth/auth-footer-links'
 
@@ -27,8 +26,6 @@ export default function AuthLayout({
 }) {
   return (
     <div className="kt-auth-page">
-      <SplashScreen />
-
       {/* Background vignette overlay (a Hatter.png-re ráhúzva) */}
       <div aria-hidden className="kt-auth-vignette" />
 

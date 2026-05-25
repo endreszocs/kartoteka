@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic'
 import { HeaderRefinedV3 } from './header-refined-v3'
 import { GodModeBannerV3 } from './god-mode-banner-v3'
 import { AdminOverrideBanner } from './admin-override-banner'
-import { DashboardIntroOverlay } from './dashboard-intro-overlay'
 import type { Profile } from '@/lib/types/auth'
 import type { ProfileRoleRow } from '@/lib/profile-roles/types'
 
@@ -106,8 +105,6 @@ export function DashboardShell({
 
   return (
     <>
-      <DashboardIntroOverlay />
-
       {isGodMode && godModeExpiresAt && (
         <GodModeBannerV3 expiresAt={godModeExpiresAt} />
       )}

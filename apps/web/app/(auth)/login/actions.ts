@@ -56,6 +56,8 @@ export async function signIn(data: LoginInput) {
   const { mode, options } = buildSessionModeCookieOptions(parsed.data.rememberMe ?? false)
   cookieStore.set(SESSION_MODE_COOKIE, mode, options)
 
-  // A root oldal egységesen az aktív profil-scope alapján dönt.
-  redirect('/')
+  // 2026-05-25: ha a felhasználónak több jóváhagyott profile_roles sora van,
+  // a /valassz-profilt mutatja a választót. Egyébként automatikusan átküld
+  // a megfelelő dashboardra (1 vagy 0 szerep → az aktív profil-scope szerint).
+  redirect('/valassz-profilt')
 }

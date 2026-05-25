@@ -26,7 +26,7 @@ export default async function OAuthCompletePage() {
       redirect('/login?error=pending')
     }
 
-    redirect('/')
+    redirect('/valassz-profilt')
   }
 
   // Név előtöltése az OAuth adatokból
