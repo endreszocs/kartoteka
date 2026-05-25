@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
 
@@ -85,10 +86,25 @@ const nextConfig: NextConfig = {
   // jelölve (a Next 16 alapból true, de explicit hogy a téma-aware rendering
   // ne fusson kétszer felesleges effektusokkal):
   reactStrictMode: true,
-  // Üres turbopack config: jelzi a Next 16-nak, hogy Turbopack alatt
-  // nem kell webpack-konfigot fordítania (Serwist prod build-nél a --webpack
-  // flag miatt kapcsol át webpack-re automatikusan)
-  turbopack: {},
+  // Turbopack workspace root explicit beállítása az apps/web mappára.
+  //
+  // 2026-05-25 KRITIKUS FIX: a projekt útvonalában lévő magyar karakteres
+  // mappa ("Egyházi APP") miatt a Turbopack chunk-path-okat byte-index
+  // szerint vágta, és Rust panic-ot dobott:
+  //   "start byte index 20 is not a char boundary; it is inside 'á'"
+  // Hiba: bármely admin oldal 500-as választ adott (turbopack-core/ident.rs:354).
+  //
+  // A Next.js maga is tippelte rosszul a root-ot a 3 különböző szinten lévő
+  // package-lock.json-ok miatt (`C:\Users\endre\` → `Egyházi APP` belekerül a
+  // chunk-path-ba). Az explicit `root` az apps/web-re vágja a path-ot, így a
+  // magyar karakteres szegmens nem szerepel a Turbopack identifier-ekben.
+  turbopack: {
+    // Monorepo gyökér (KARTOTEKA/) — itt van a hoisted node_modules és a
+    // packages/* workspace. Az `apps/web` túl szűk lenne (a Next package
+    // nem oldódna fel), a `C:\Users\endre\` viszont túl tág (oda esik
+    // bele a magyar karakteres "Egyházi APP" szegmens).
+    root: path.resolve(import.meta.dirname, "../.."),
+  },
   experimental: {
     serverActions: {
       // Képfeltöltésekhez: hero/crest/post cover 2 MB, PDF 20 MB
