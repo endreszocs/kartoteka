@@ -13,10 +13,8 @@ import { Loader2, Printer } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import {
-  getChitantaForPrint,
-  type ChitantaPrintData,
-} from '@/app/(dashboard)/penzugy/chitanta-actions'
+import { getChitantaForPrint } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import type { ChitantaPrintData } from '@kartoteka/validations'
 import { ChitantaPrintTemplate } from '@/components/finance/chitanta-print-template'
 
 type Props = {

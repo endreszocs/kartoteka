@@ -14,7 +14,7 @@
  * látszódjon, oldal-mérettel A6 fekvő.
  */
 
-import type { ChitantaPrintData } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import type { ChitantaPrintData } from '@kartoteka/validations'
 import { amountInWordsHu, amountInWordsRo } from '@/lib/utils/number-to-words'
 
 type Props = {

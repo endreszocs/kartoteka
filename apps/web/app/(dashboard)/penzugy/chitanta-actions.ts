@@ -20,63 +20,17 @@ import {
   listChitantasUseCase,
   stornoChitantaUseCase,
 } from '@kartoteka/core'
-import { type ChitantaPrintData } from '@kartoteka/validations'
+import type { ChitantaPrintData } from '@kartoteka/validations'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import type {
+  ChitantaConfig,
+  ChitantaIssueInput,
+  ChitantaRow,
+} from '@/app/(dashboard)/penzugy/chitanta-types'
 
-// ─────────────────────────────────────────────────────────────
-// Típusok
-// ─────────────────────────────────────────────────────────────
-
-export type ChitantaIssueInput = {
-  /** Sorozat (pl. „EREKC24"). Ha üres, a config alapértelmezést használjuk. */
-  sorozat?: string
-  /** Ha megadod, ezt a számot használjuk; egyébként az RPC adja. */
-  szam?: number
-  /** Nyugta dátuma (YYYY-MM-DD). */
-  szamlaDatum: string
-  /** Átvevő (befizető) neve — kötelező. */
-  klienesseg_nev: string
-  /** Cím (opcionális — pl. "Brates"). */
-  klienesseg_cim?: string
-  /** CIF — cégnél, magánszemélynél üres. */
-  klienesseg_cui?: string
-  /** Bruttó összeg (RON). */
-  osszeg_brut: number
-  /** „reprezentând (címén)" — pl. "Egyházfenntartó járulék 2024-2026". */
-  reprezentand?: string
-  /** Kapcsolódó befizetés ID (ha van). */
-  befizetes_id?: number
-  /** Belső megjegyzés. */
-  megjegyzes?: string
-}
-
-export type ChitantaRow = {
-  id: string
-  sorozat: string
-  szam: number
-  szamla_datum: string
-  klienesseg_nev: string
-  klienesseg_cui: string | null
-  klienesseg_cim: string | null
-  osszeg_brut: number
-  reprezentand: string | null
-  befizetes_id: number | null
-  stornozott: boolean
-  stornozott_indok: string | null
-  megjegyzes: string | null
-  issued_by: string | null
-  created_at: string
-}
-
-// ─────────────────────────────────────────────────────────────
-// Beállítás: a chitanță sorozat alapértelmezés
-// ─────────────────────────────────────────────────────────────
-
-export type ChitantaConfig = {
-  sorozat: string | null
-  kovetkezoSzam: number | null
-}
+// A típusok a `chitanta-types.ts`-ben vannak (Next.js 16: 'use server' fájl
+// csak async function-t exportálhat).
 
 export async function getChitantaConfig(): Promise<ChitantaConfig | { error: string }> {
   const access = await getEffectiveAccessContext()
@@ -398,11 +352,10 @@ export async function getChitantaForPrint(chitantaId: string): Promise<{
   return { data: result.data }
 }
 
-// A ChitantaPrintData típus A-M7.2f óta a @kartoteka/validations-ben él
-// (ld. a fájl tetején lévő importot). A meglévő fogyasztók
-// (chitanta-print-template, chitanta-reprint-dialog, chitanta-silent-print)
-// ezen a fájlon keresztül importálnak — ezért re-exportáljuk:
-export type { ChitantaPrintData }
+// A ChitantaPrintData típus a @kartoteka/validations-ben él. Next.js 16 óta
+// `'use server'` fájlból nem szabad non-function-t exportálni (még típust se,
+// mert a server-actions loader runtime ReferenceError-t dob), ezért a
+// fogyasztók közvetlenül a `@kartoteka/validations` modulból importálják.
 
 // ─────────────────────────────────────────────────────────────
 // Lista

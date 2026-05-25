@@ -19,10 +19,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  getChitantaForPrint,
-  type ChitantaPrintData,
-} from '@/app/(dashboard)/penzugy/chitanta-actions'
+import { getChitantaForPrint } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import type { ChitantaPrintData } from '@kartoteka/validations'
 import { ChitantaPrintTemplate } from '@/components/finance/chitanta-print-template'
 
 interface Props {

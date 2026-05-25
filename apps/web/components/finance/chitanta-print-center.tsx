@@ -19,7 +19,8 @@
 
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, Loader2, Printer, Receipt, RefreshCw, AlertTriangle } from 'lucide-react'
-import { listChitantas, type ChitantaRow } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import { listChitantas } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import type { ChitantaRow } from '@/app/(dashboard)/penzugy/chitanta-types'
 import { ChitantaSilentPrint } from '@/components/finance/chitanta-silent-print'
 import { formatCurrency } from '@/lib/constants/finance'
 

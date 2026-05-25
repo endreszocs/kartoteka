@@ -19,8 +19,8 @@ import {
   issueChitanta,
   getChitantaConfig,
   getChitantaForPrint,
-  type ChitantaPrintData,
 } from '@/app/(dashboard)/penzugy/chitanta-actions'
+import type { ChitantaPrintData } from '@kartoteka/validations'
 import { ChitantaPrintTemplate } from '@/components/finance/chitanta-print-template'
 import { amountInWordsHu } from '@/lib/utils/number-to-words'
 
