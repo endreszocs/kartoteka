@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { ColorTabs } from '@/components/ui/color-tabs'
+import { SirhelyekHelp } from './sirhelyek-help'
 import { getCemeteries, saveCemetery, deleteCemetery, getPlots, savePlot, deletePlot, saveRental, saveDeceased } from '@/app/(dashboard)/sirhelyek/actions'
 import { PLOT_STATUSES, PLOT_STATUS_LABELS, PLOT_STATUS_COLORS } from '@/lib/constants/cemetery'
 import type { Cemetery, Deceased, Plot, PlotStatus, Rental } from '@/lib/constants/cemetery'
@@ -15,9 +17,16 @@ import { toast } from 'sonner'
 
 interface CemeteryMainProps {
   congregationName?: string
+  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab (red-prominent). */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló tab tartalma. */
+  adminImportContent?: React.ReactNode
 }
 
-export function CemeteryMain({ congregationName }: CemeteryMainProps) {
+type CemeteryTab = 'munkafelulet' | 'help' | 'admin-import'
+
+export function CemeteryMain({ congregationName, showAdminImport = false, adminImportContent }: CemeteryMainProps) {
+  const [activeTab, setActiveTab] = useState<CemeteryTab>('munkafelulet')
   const [cemeteries, setCemeteries] = useState<Cemetery[]>([])
   const [plots, setPlots] = useState<Plot[]>([])
   const [rentalsMap, setRentalsMap] = useState<Record<number, Rental[]>>({})
@@ -244,6 +253,21 @@ export function CemeteryMain({ congregationName }: CemeteryMainProps) {
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'sky' }[]}
       />
 
+      {/* 2026-05-25: ColorTabs Hero alatt (Tagnyilvántartás minta) */}
+      <ColorTabs
+        tabs={[
+          { value: 'munkafelulet', label: 'Sírhelyek munkafelület', color: 'blue' },
+          { value: 'help', label: 'Súgó', color: 'teal' },
+          ...(showAdminImport ? [
+            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
+          ] : []),
+        ]}
+        active={activeTab}
+        onChange={(v) => setActiveTab(v as CemeteryTab)}
+      />
+
+      {activeTab === 'help' ? <SirhelyekHelp /> : activeTab === 'admin-import' && showAdminImport ? adminImportContent : (<>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Összesen" value={String(stats.total)} />
         <StatCard label="Szabad" value={String(stats.szabad)} accent="text-emerald-600" />
@@ -361,6 +385,7 @@ export function CemeteryMain({ congregationName }: CemeteryMainProps) {
           })}
         </div>
       )}
+      </>)}
 
       <Dialog open={cemDialogOpen} onOpenChange={setCemDialogOpen}>
         <DialogContent className="sm:max-w-sm">

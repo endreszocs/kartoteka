@@ -14,14 +14,20 @@ import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLD
 import type { FilingDirection, FilingEntry } from '@/lib/constants/filing'
 import { toast } from 'sonner'
 import { FilingTemplatesTab } from './filing-templates-tab'
+import { ColorTabs } from '@/components/ui/color-tabs'
+import { IktatoHelp } from './iktato-help'
 
 interface FilingMainProps {
   congregationName?: string
+  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló tab tartalma. */
+  adminImportContent?: React.ReactNode
 }
 
-type FilingTab = 'iratok' | 'sablonok'
+type FilingTab = 'iratok' | 'sablonok' | 'help' | 'admin-import'
 
-export function FilingMain({ congregationName }: FilingMainProps) {
+export function FilingMain({ congregationName, showAdminImport = false, adminImportContent }: FilingMainProps) {
   const currentYear = new Date().getFullYear()
   const [activeTab, setActiveTab] = useState<FilingTab>('iratok')
   const [year, setYear] = useState(currentYear)
@@ -178,35 +184,26 @@ export function FilingMain({ congregationName }: FilingMainProps) {
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'sky' }[]}
       />
 
-      {/* E3 — Fül váltó: Iratok / Sablonok */}
-      <div className="flex gap-1 rounded-xl bg-slate-100/80 p-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab('iratok')}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
-            activeTab === 'iratok'
-              ? 'bg-white text-slate-800 shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Files className="h-4 w-4" />
-          Iktatott iratok
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('sablonok')}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
-            activeTab === 'sablonok'
-              ? 'bg-white text-slate-800 shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <FileText className="h-4 w-4" />
-          Sablonok
-        </button>
-      </div>
+      {/* 2026-05-25: ColorTabs a Hero ALATT (Tagnyilvántartás minta) — Iratok /
+          Sablonok / Súgó / Rendszergazdai importáló. */}
+      <ColorTabs
+        tabs={[
+          { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
+          { value: 'sablonok', label: 'Sablonok', color: 'amber' },
+          { value: 'help', label: 'Súgó', color: 'teal' },
+          ...(showAdminImport ? [
+            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
+          ] : []),
+        ]}
+        active={activeTab}
+        onChange={(v) => setActiveTab(v as FilingTab)}
+      />
 
-      {activeTab === 'sablonok' ? (
+      {activeTab === 'help' ? (
+        <IktatoHelp />
+      ) : activeTab === 'admin-import' && showAdminImport ? (
+        adminImportContent
+      ) : activeTab === 'sablonok' ? (
         <FilingTemplatesTab />
       ) : (
         <FilingEntriesView

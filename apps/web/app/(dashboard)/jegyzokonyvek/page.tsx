@@ -5,8 +5,8 @@ import { getMinutesList } from './actions'
 import { MinutesList } from '@/components/minutes/minutes-list'
 import { InvitationSection } from '@/components/minutes/invitation-section'
 import { MinutesPrintSelector } from '@/components/minutes/minutes-print-selector'
-import { JegyzokonyvekHelp } from '@/components/minutes/jegyzokonyvek-help'
-import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
+import { MinutesWorkspaceTabs } from '@/components/minutes/minutes-workspace-tabs'
+import { ModuleAdminImportTabV2 } from '@/components/shared/module-admin-import-tab-v2'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { Plus, BookOpen, FileText, Gavel } from 'lucide-react'
@@ -51,24 +51,15 @@ export default async function JegyzokonyvekPage() {
   const draftCount = minutes.filter((m: { allapot: string }) => m.allapot === 'draft').length
   const finalizedCount = minutes.filter((m: { allapot: string }) => m.allapot === 'veglegesitett' || m.allapot === 'hitelesitett').length
 
+  // 2026-05-25: a tabok a Hero ALATT (Tagnyilvántartás minta). A Hero a server
+  // oldalon renderelődik (KPI kártyák, meghívó), majd a kliens-oldali
+  // MinutesWorkspaceTabs kezeli a Súgó / Rendszergazdai importáló váltását.
+  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+
   return (
-    <ModuleAdminWorkspace
-      moduleKey="minutes"
-      moduleLabel="Jegyzőkönyvek"
-      mainTabLabel="Jegyzőkönyv munkafelület"
-      importTitle="Jegyzőkönyv labor-importáló"
-      importDescription="Korábbi presbiteri vagy közgyűlési jegyzőkönyvek, határozatok Excel/CSV alapú importja."
-      congregationName={access.congregationName}
-      isGodMode={godMode.active}
-      isDelegatedImport={delegatedImport.active}
-      delegatedExpiresAt={delegatedImport.expiresAt}
-      alwaysAllowAdminImport={access.admin}
-      helpContent={<JegyzokonyvekHelp />}
-      profiles={MINUTES_IMPORT_PROFILES}
-    >
-      <div className="space-y-5">
-        {/* Hero fejléc */}
-        <div className="card-raised relative overflow-hidden p-5 sm:p-6">
+    <div className="space-y-5">
+      {/* Hero fejléc — a tabok FELETT (Tagnyilvántartás minta) */}
+      <div className="card-raised relative overflow-hidden p-5 sm:p-6">
           <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-indigo-200/35 blur-3xl" />
           <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-violet-200/30 blur-3xl" />
 
@@ -98,6 +89,23 @@ export default async function JegyzokonyvekPage() {
           </div>
         </div>
 
+      {/* Tabok a Hero ALATT (Tagnyilvántartás minta) */}
+      <MinutesWorkspaceTabs
+        showAdminImport={showAdminImport}
+        adminImportContent={
+          <ModuleAdminImportTabV2
+            moduleKey="minutes"
+            moduleLabel="Jegyzőkönyvek"
+            title="Jegyzőkönyv labor-importáló"
+            description="Korábbi presbiteri vagy közgyűlési jegyzőkönyvek, határozatok Excel/CSV alapú importja."
+            congregationName={access.congregationName}
+            isGodMode={godMode.active}
+            isDelegatedImport={delegatedImport.active}
+            delegatedExpiresAt={delegatedImport.expiresAt}
+            profiles={MINUTES_IMPORT_PROFILES}
+          />
+        }
+      >
         {/* KPI kártyák */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="card-raised p-4">
@@ -144,7 +152,7 @@ export default async function JegyzokonyvekPage() {
           currentYear={currentYear}
           congregationName={access.congregationName || undefined}
         />
-      </div>
-    </ModuleAdminWorkspace>
+      </MinutesWorkspaceTabs>
+    </div>
   )
 }
