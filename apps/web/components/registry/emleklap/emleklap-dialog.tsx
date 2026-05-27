@@ -21,7 +21,8 @@ export function EmleklapDialog({
 }: EmleklapDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
+      {/* sm:max-w-6xl felülírja a Dialog komponens default sm:max-w-sm beállítását */}
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Anyakönyvi emléklap-stúdió</DialogTitle>
         </DialogHeader>
