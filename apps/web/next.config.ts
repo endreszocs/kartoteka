@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
 
@@ -86,25 +85,18 @@ const nextConfig: NextConfig = {
   // jelölve (a Next 16 alapból true, de explicit hogy a téma-aware rendering
   // ne fusson kétszer felesleges effektusokkal):
   reactStrictMode: true,
-  // Turbopack workspace root explicit beállítása az apps/web mappára.
+  // Üres turbopack config: jelzi a Next 16-nak, hogy Turbopack alatt
+  // nem kell webpack-konfigot fordítania (Serwist prod build-nél a --webpack
+  // flag miatt kapcsol át webpack-re automatikusan).
   //
-  // 2026-05-25 KRITIKUS FIX: a projekt útvonalában lévő magyar karakteres
-  // mappa ("Egyházi APP") miatt a Turbopack chunk-path-okat byte-index
-  // szerint vágta, és Rust panic-ot dobott:
-  //   "start byte index 20 is not a char boundary; it is inside 'á'"
-  // Hiba: bármely admin oldal 500-as választ adott (turbopack-core/ident.rs:354).
-  //
-  // A Next.js maga is tippelte rosszul a root-ot a 3 különböző szinten lévő
-  // package-lock.json-ok miatt (`C:\Users\endre\` → `Egyházi APP` belekerül a
-  // chunk-path-ba). Az explicit `root` az apps/web-re vágja a path-ot, így a
-  // magyar karakteres szegmens nem szerepel a Turbopack identifier-ekben.
-  turbopack: {
-    // Monorepo gyökér (KARTOTEKA/) — itt van a hoisted node_modules és a
-    // packages/* workspace. Az `apps/web` túl szűk lenne (a Next package
-    // nem oldódna fel), a `C:\Users\endre\` viszont túl tág (oda esik
-    // bele a magyar karakteres "Egyházi APP" szegmens).
-    root: path.resolve(import.meta.dirname, "../.."),
-  },
+  // 2026-05-25 megjegyzés: a magyar karakteres mappa-útvonal ("Egyházi APP")
+  // miatt a Turbopack korábban Rust panic-ot dobott /admin/veszelyes-zona-n.
+  // Megoldás: a felesleges külső package-lock.json-okat töröltük
+  // (C:\Users\endre\, KARTOTEKA-szülő), így a Next.js a KARTOTEKA/-t
+  // választja workspace root-nak, és a chunk-path-ban már nem szerepel a
+  // magyar karakteres szegmens. Explicit `root`-ot NEM állítunk be, mert
+  // megzavarja a Next.js route resolution-t (route group-okkal 404-et ad).
+  turbopack: {},
   experimental: {
     serverActions: {
       // Képfeltöltésekhez: hero/crest/post cover 2 MB, PDF 20 MB
@@ -125,7 +117,9 @@ const nextConfig: NextConfig = {
       : [],
   },
   async headers() {
-    return [
+    const isProd = process.env.NODE_ENV === 'production'
+
+    const baseHeaders = [
       // Biztonsági headerek a publikus gyülekezeti oldalakra
       {
         source: '/gy/:path*',
@@ -145,6 +139,19 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         ],
       },
+    ]
+
+    // 2026-05-25 KRITIKUS: a custom Cache-Control headerek CSAK production-ben
+    // legyenek aktívak. Dev mode-ban a Turbopack lazy-újragenerálja a chunk-
+    // hash-eket minden HMR-nél, és ha a böngésző 1 éves immutable cache-szel
+    // tartja a régi build-manifest-et, a `data:<hash>` server-action chunkok
+    // nem találják meg a module factory-t ("not available" runtime error).
+    // A Next.js maga is figyelmeztet erre: "Custom Cache-Control headers
+    // detected for /_next/static/:path* — break Next.js development behavior."
+    if (!isProd) return baseHeaders
+
+    return [
+      ...baseHeaders,
       // 2026-05-02 (v0.9.33) — Sebesség-optimalizálás: a Next.js statikus
       // asset-jei (immutable hashed file-ek) tartós cache-szel (1 év).
       // A böngésző NEM kérdezi le újra, így a navigation visszafelé/előre
