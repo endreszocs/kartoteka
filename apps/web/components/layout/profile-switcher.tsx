@@ -9,7 +9,6 @@
  */
 
 import { useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Building2, Check, Church, Globe, Landmark, Loader2 } from 'lucide-react'
 
@@ -37,7 +36,6 @@ export function ProfileSwitcher({
   profileRoles,
   scopeNames,
 }: ProfileSwitcherProps) {
-  const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   // Csak akkor mutassuk, ha tényleg van váltási lehetőség (több mint 1 szerep)
@@ -48,16 +46,12 @@ export function ProfileSwitcher({
   function handleSwitch(profileRoleId: string) {
     if (profileRoleId === active.id) return
     startTransition(async () => {
+      // 2026-05-25: a server action sikerkor server-side redirect()-tel
+      // dob NEXT_REDIRECT signal-t → a böngésző automatikusan navigál.
+      // Csak hibakor kapunk vissza return value-t.
       const result = await switchActiveProfileRole(profileRoleId)
-      if ('error' in result && result.error) {
+      if (result && 'error' in result && result.error) {
         toast.error(result.error)
-        return
-      }
-      toast.success('Profil átváltva.')
-      if (result.redirectTo) {
-        router.push(result.redirectTo)
-      } else {
-        router.refresh()
       }
     })
   }

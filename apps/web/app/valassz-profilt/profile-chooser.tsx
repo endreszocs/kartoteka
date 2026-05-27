@@ -27,10 +27,6 @@ const SCOPE_ICONS: Record<ProfileRoleScope, React.ComponentType<{ className?: st
   congregation: Church,
 }
 
-/**
- * Scope-onkénti vizuális paletta. A bg* a top-gradient csíkhoz, az icon* az
- * ikon-doboz alapszínéhez, a ring* a hover/active gyűrűhöz.
- */
 const SCOPE_THEME: Record<
   ProfileRoleScope,
   {
@@ -105,6 +101,25 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+/**
+ * A scope szerinti cél-route — egyezik a server action
+ * `determineStartPageForScope` logikájával. Csak prefetch-hez kell, így
+ * pontatlanság nem okoz hibát (csak nem prefetch-eli a célt).
+ */
+function predictRedirectPath(scope: ProfileRoleScope, role: string): string {
+  switch (scope) {
+    case 'system':
+      return role === 'admin' ? '/admin' : '/dashboard'
+    case 'district':
+      return '/dashboard-kerulet'
+    case 'diocese':
+      return '/dashboard-egyhazmegye'
+    case 'congregation':
+    default:
+      return '/dashboard'
+  }
+}
+
 export function ProfileChooser({
   profileRoles,
   activeProfileRoleId,
@@ -115,22 +130,6 @@ export function ProfileChooser({
   const [isPending, startTransition] = useTransition()
   const [pendingId, setPendingId] = useState<string | null>(null)
 
-  function handleChoose(roleId: string) {
-    if (isPending) return
-    setPendingId(roleId)
-    startTransition(async () => {
-      const result = await switchActiveProfileRole(roleId)
-      if ('error' in result && result.error) {
-        toast.error(result.error)
-        setPendingId(null)
-        return
-      }
-      router.push(result.redirectTo || '/dashboard')
-    })
-  }
-
-  // Scope szerinti rendezés: congregation → diocese → district → system,
-  // hogy az "ismerős" gyülekezet legyen elöl. Másodlagosan a scope nevére.
   const SCOPE_ORDER: Record<ProfileRoleScope, number> = {
     congregation: 0,
     diocese: 1,
@@ -155,15 +154,39 @@ export function ProfileChooser({
     return an.localeCompare(bn, 'hu')
   })
 
+  function handleChoose(roleId: string) {
+    if (isPending) return
+    setPendingId(roleId)
+    startTransition(async () => {
+      const result = await switchActiveProfileRole(roleId)
+      // Sikerkor a server action NEXT_REDIRECT-tel dob — itt sose jutunk
+      // tovább. Csak hibakor kapunk vissza return-t.
+      if (result && 'error' in result && result.error) {
+        toast.error(result.error)
+        setPendingId(null)
+      }
+    })
+  }
+
+  /**
+   * Hover-re előmelegítjük a célút render-cache-ét, hogy a kattintás
+   * utáni navigáció instant legyen. A Next.js App Router automatikusan
+   * cache-eli a prefetch-et a session-en belül.
+   */
+  function handleHover(scope: ProfileRoleScope, role: string) {
+    if (isPending) return
+    const target = predictRedirectPath(scope, role)
+    router.prefetch(target)
+  }
+
   return (
     <div className="space-y-8 md:space-y-12">
-      {/* Üdvözlő blokk */}
       <div className="text-center">
         <div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-semibold text-white shadow-lg shadow-indigo-200/50 sm:size-20 sm:text-xl">
           {getInitials(fullName || '?')}
         </div>
         <h2 className="font-heading text-2xl text-slate-800 sm:text-3xl md:text-4xl">
-          Üdvözöljük{fullName ? `, ${fullName.split(' ')[0]}` : ''}!
+          Üdvözöljük{fullName ? `, ${fullName}` : ''}!
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-sm text-slate-600 sm:text-base">
           A nevéhez{' '}
@@ -175,7 +198,6 @@ export function ProfileChooser({
         </p>
       </div>
 
-      {/* Kártya grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
         {sortedRoles.map((row) => {
           const Icon = SCOPE_ICONS[row.scope]
@@ -192,25 +214,34 @@ export function ProfileChooser({
               : ROLE_LABELS[row.role]
           const isActive = row.id === activeProfileRoleId
           const isThisPending = pendingId === row.id
+          const isOtherPending = pendingId !== null && pendingId !== row.id
 
           return (
             <button
               key={row.id}
               type="button"
               onClick={() => handleChoose(row.id)}
+              onMouseEnter={() => handleHover(row.scope, row.role)}
+              onFocus={() => handleHover(row.scope, row.role)}
               disabled={isPending}
               aria-label={`${scopeName} — ${roleLabel}`}
-              className={`group relative flex min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-white text-left shadow-sm outline-none transition-all duration-200 hover:-translate-y-1 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${
-                isActive
+              className={`group relative flex min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-white text-left shadow-sm outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+                isThisPending
+                  ? 'scale-[1.02] border-indigo-400 shadow-xl ring-2 ring-indigo-200'
+                  : isOtherPending
+                    ? 'pointer-events-none opacity-40'
+                    : 'hover:-translate-y-1 hover:shadow-xl'
+              } ${
+                isActive && !isThisPending
                   ? `${theme.activeBorder} ring-2 ${theme.activeRing}`
-                  : 'border-slate-200 hover:border-slate-300'
+                  : !isThisPending && !isOtherPending
+                    ? 'border-slate-200 hover:border-slate-300'
+                    : ''
               }`}
             >
-              {/* Scope-szín csík felül */}
               <div className={`h-1.5 w-full ${theme.accentBar}`} />
 
               <div className="flex flex-1 flex-col gap-4 p-5 sm:p-6">
-                {/* Felső sor: ikon + scope chip */}
                 <div className="flex items-start justify-between gap-2">
                   <div
                     className={`flex size-12 items-center justify-center rounded-xl transition-colors ${theme.iconBg} ${theme.iconText} ${theme.iconBgHover} ${theme.iconTextHover}`}
@@ -224,7 +255,6 @@ export function ProfileChooser({
                   </span>
                 </div>
 
-                {/* Cím + szerepkör */}
                 <div className="min-w-0 flex-1">
                   <p
                     className="font-heading text-lg font-semibold text-slate-800 sm:text-xl"
@@ -243,22 +273,28 @@ export function ProfileChooser({
                   </p>
                 </div>
 
-                {/* Alsó sor: belépés indikátor */}
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
                   {isThisPending ? (
-                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-indigo-600">
                       <Loader2 className="size-3.5 animate-spin" />
-                      Belépés…
+                      Belépés folyamatban…
                     </span>
                   ) : (
-                    <span className="font-medium">Belépés ebbe a profilba</span>
+                    <span className="font-medium text-slate-400">
+                      Belépés ebbe a profilba
+                    </span>
                   )}
-                  <ArrowRight className="size-4 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
+                  <ArrowRight
+                    className={`size-4 transition-all ${
+                      isThisPending
+                        ? 'translate-x-1 text-indigo-600'
+                        : 'text-slate-300 group-hover:translate-x-0.5 group-hover:text-slate-600'
+                    }`}
+                  />
                 </div>
               </div>
 
-              {/* Aktív (utolsó) jelvény */}
-              {isActive && (
+              {isActive && !isThisPending && (
                 <span
                   className={`absolute right-3 top-3.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm ${theme.activeBadge}`}
                   title="Legutóbb ezt használtad"
@@ -271,7 +307,6 @@ export function ProfileChooser({
         })}
       </div>
 
-      {/* Halk segéd-szöveg */}
       <p className="text-center text-xs text-slate-400">
         Tipp: a fejlécben az avatarra kattintva később is válthat profilt.
       </p>
