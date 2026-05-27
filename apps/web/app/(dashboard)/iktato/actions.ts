@@ -41,10 +41,19 @@ export async function saveFilingEntry(data: FilingEntryInput) {
   const year = new Date(d.kelt).getFullYear()
   const record: Record<string, unknown> = {
     direction: d.direction, kelt: d.kelt, subject: d.subject,
-    sender_or_recipient: d.sender_or_recipient || null, file_folder: d.file_folder,
+    sender_or_recipient: d.sender_or_recipient || null,
+    file_folder: d.file_folder || null,
     targykivonat: d.targykivonat || null, elintezes_ideje: d.elintezes_ideje || null,
     elintezes_modja: d.elintezes_modja || null, irattarijel: d.irattarijel || null,
     megjegyzes: d.megjegyzes || null, deleted: false, congregation_id: congId, year,
+    // 2026-05-28: EREK 2024-es ügykörjegyzék szerinti új mezők
+    external_ref_szam: d.external_ref_szam || null,
+    external_ref_kelt: d.external_ref_kelt || null,
+    beerkezes_ideje: d.beerkezes_ideje || null,
+    mellekletek_szama: d.mellekletek_szama ?? null,
+    valasz_iktatoszam: d.valasz_iktatoszam || null,
+    ugykor_kod: d.ugykor_kod || null,
+    retention_type: d.retention_type || null,
   }
   if (d.id) {
     const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq('congregation_id', congId)

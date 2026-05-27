@@ -12,10 +12,12 @@ import { ModuleHero } from '@/components/shared/module-hero'
 import { getFilingEntries, saveFilingEntry, deleteFilingEntry, getFilingStats, getNextSequenceNumber } from '@/app/(dashboard)/iktato/actions'
 import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLDER_LABELS } from '@/lib/constants/filing'
 import type { FilingDirection, FilingEntry } from '@/lib/constants/filing'
+import { FILING_UGYKOROK, FILING_UGYKOROK_MAP, getRetentionForUgykor, type RetentionType } from '@/lib/constants/filing-ugykorjegyzek'
 import { toast } from 'sonner'
 import { FilingTemplatesTab } from './filing-templates-tab'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { IktatoHelp } from './iktato-help'
+import { printIktatoPecset, printIktatokonyv } from './iktato-print'
 
 interface FilingMainProps {
   congregationName?: string
@@ -51,6 +53,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [fMegj, setFMegj] = useState('')
   const [fSeqNum, setFSeqNum] = useState(0)
   const [saving, setSaving] = useState(false)
+
+  // 2026-05-28: EREK 2024-es ügykörjegyzék szerinti új mezők
+  const [fExternalRefSzam, setFExternalRefSzam] = useState('')
+  const [fExternalRefKelt, setFExternalRefKelt] = useState('')
+  const [fBeerkezesIdeje, setFBeerkezesIdeje] = useState('')
+  const [fMellekletekSzama, setFMellekletekSzama] = useState<string>('') // string, hogy üres lehessen
+  const [fValaszIktatoszam, setFValaszIktatoszam] = useState('')
+  const [fUgykorKod, setFUgykorKod] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -101,13 +111,20 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       setFKelt(entry.kelt?.split('T')[0] || '')
       setFSubject(entry.subject)
       setFSender(entry.sender_or_recipient || '')
-      setFFolder(entry.file_folder as typeof FILING_FOLDERS[number])
+      setFFolder((entry.file_folder as typeof FILING_FOLDERS[number]) || 'F.Á.')
       setFElintDatum(entry.elintezes_ideje?.split('T')[0] || '')
       setFElintMod(entry.elintezes_modja || '')
       setFTargykivonat(entry.targykivonat || '')
       setFIrattarijel(entry.irattarijel || '')
       setFMegj(entry.megjegyzes || '')
       setFSeqNum(entry.sequence_number)
+      // 2026-05-28: új mezők betöltése
+      setFExternalRefSzam(entry.external_ref_szam || '')
+      setFExternalRefKelt(entry.external_ref_kelt?.split('T')[0] || '')
+      setFBeerkezesIdeje(entry.beerkezes_ideje?.split('T')[0] || '')
+      setFMellekletekSzama(entry.mellekletek_szama != null ? String(entry.mellekletek_szama) : '')
+      setFValaszIktatoszam(entry.valasz_iktatoszam || '')
+      setFUgykorKod(entry.ugykor_kod || '')
     } else {
       setEditEntry(null)
       setFDirection('incoming')
@@ -120,6 +137,12 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       setFTargykivonat('')
       setFIrattarijel('')
       setFMegj('')
+      setFExternalRefSzam('')
+      setFExternalRefKelt('')
+      setFBeerkezesIdeje(new Date().toISOString().slice(0, 10)) // alapból ma
+      setFMellekletekSzama('')
+      setFValaszIktatoszam('')
+      setFUgykorKod('')
       getNextSequenceNumber(year).then(setFSeqNum)
     }
     setDialogOpen(true)
@@ -136,6 +159,8 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
     }
 
     setSaving(true)
+    const mellekSzam = fMellekletekSzama.trim() === '' ? null : Number(fMellekletekSzama)
+    const retentionFromUgykor: RetentionType | null = fUgykorKod ? getRetentionForUgykor(fUgykorKod) : null
     const result = await saveFilingEntry({
       id: editEntry?.id,
       direction: fDirection,
@@ -148,6 +173,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       elintezes_modja: fElintMod || null,
       irattarijel: fIrattarijel || null,
       megjegyzes: fMegj || null,
+      // 2026-05-28: EREK 2024-es ügykörjegyzék szerinti új mezők
+      external_ref_szam: fExternalRefSzam || null,
+      external_ref_kelt: fExternalRefKelt || null,
+      beerkezes_ideje: fBeerkezesIdeje || null,
+      mellekletek_szama: mellekSzam !== null && Number.isFinite(mellekSzam) ? mellekSzam : null,
+      valasz_iktatoszam: fValaszIktatoszam || null,
+      ugykor_kod: fUgykorKod || null,
+      retention_type: retentionFromUgykor,
     })
 
     if (result.error) toast.error(result.error)
@@ -220,15 +253,18 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           loading={loading}
           openDialog={openDialog}
           handleDelete={handleDelete}
+          onPrintPecset={(entry) => printIktatoPecset(entry, { congregationName: congregationName || '', year })}
+          onPrintIktatokonyv={() => printIktatokonyv(filtered, { congregationName: congregationName || '', year })}
         />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editEntry ? 'Irat szerkesztése' : `Új irat - ${year}/${fSeqNum}`}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
+            {/* ─── Alapinformációk ─── */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Irány *</Label>
@@ -239,15 +275,27 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label>Mappa *</Label>
-                <select value={fFolder} onChange={(event) => setFFolder(event.target.value as typeof FILING_FOLDERS[number])} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  {FILING_FOLDERS.map((folder) => (
-                    <option key={folder} value={folder}>{FILING_FOLDER_LABELS[folder]}</option>
+                <Label>Ügykörjegyzék pontszáma (2024-)</Label>
+                <select
+                  value={fUgykorKod}
+                  onChange={(event) => setFUgykorKod(event.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Válassz ügykört —</option>
+                  {FILING_UGYKOROK.map((entry) => (
+                    <option key={entry.kod} value={entry.kod}>
+                      {entry.parentKod ? '  ' : ''}{entry.kod} {entry.nev} ({entry.retention})
+                    </option>
                   ))}
                 </select>
+                {fUgykorKod && FILING_UGYKOROK_MAP[fUgykorKod]?.desc && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {FILING_UGYKOROK_MAP[fUgykorKod].desc}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
-                <Label>Kelt *</Label>
+                <Label>Kelt (irat keltezése) *</Label>
                 <Input type="date" value={fKelt} onChange={(event) => setFKelt(event.target.value)} />
               </div>
               <div className="space-y-1.5">
@@ -255,6 +303,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                 <Input value={fSender} onChange={(event) => setFSender(event.target.value)} placeholder={fDirection === 'incoming' ? 'Feladó' : 'Címzett'} />
               </div>
             </div>
+
             <div className="space-y-1.5">
               <Label>Tárgy *</Label>
               <Input value={fSubject} onChange={(event) => setFSubject(event.target.value)} placeholder="Irat rövid tárgya" />
@@ -263,9 +312,53 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
               <Label>Tárgykivonat</Label>
               <Input value={fTargykivonat} onChange={(event) => setFTargykivonat(event.target.value)} placeholder="Bővebb leírás" />
             </div>
+
+            {/* ─── EREK Iktatókönyv-rovatok (2026-05-28) ─── */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2">
+                EREK iktatókönyv-rovatok (PDF 2-9. rovat)
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Külső iktatószám (a küldőtől)</Label>
+                  <Input
+                    value={fExternalRefSzam}
+                    onChange={(event) => setFExternalRefSzam(event.target.value)}
+                    placeholder="pl. Esperesi 479/2023"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Külső irat kelte</Label>
+                  <Input type="date" value={fExternalRefKelt} onChange={(event) => setFExternalRefKelt(event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Beérkezés ideje (hivatalunkba)</Label>
+                  <Input type="date" value={fBeerkezesIdeje} onChange={(event) => setFBeerkezesIdeje(event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Mellékletek száma</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={fMellekletekSzama}
+                    onChange={(event) => setFMellekletekSzama(event.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">Hivatkozás más iktatószámra</Label>
+                  <Input
+                    value={fValaszIktatoszam}
+                    onChange={(event) => setFValaszIktatoszam(event.target.value)}
+                    placeholder='pl. "lásd 36/2023" — a válaszlevél iktatószáma'
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Elintézés dátuma</Label>
+                <Label>Elintézés dátuma (postázás)</Label>
                 <Input type="date" value={fElintDatum} onChange={(event) => setFElintDatum(event.target.value)} />
               </div>
               <div className="space-y-1.5">
@@ -312,6 +405,10 @@ interface FilingEntriesViewProps {
   loading: boolean
   openDialog: (entry?: FilingEntry) => void
   handleDelete: (id: string) => void
+  /** 2026-05-28: Iktatópecsét nyomtatás call-back. */
+  onPrintPecset?: (entry: FilingEntry) => void
+  /** 2026-05-28: Iktatókönyv (9 rovat) nyomtatás call-back. */
+  onPrintIktatokonyv?: () => void
 }
 
 function FilingEntriesView({
@@ -327,6 +424,8 @@ function FilingEntriesView({
   loading,
   openDialog,
   handleDelete,
+  onPrintPecset,
+  onPrintIktatokonyv,
 }: FilingEntriesViewProps) {
   return (
     <>
@@ -353,7 +452,14 @@ function FilingEntriesView({
         </select>
 
         <Input placeholder="Keresés..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full sm:w-56" />
-        <div className="ml-auto"><Button size="sm" onClick={() => openDialog()}>+ Új irat</Button></div>
+        <div className="ml-auto flex gap-2">
+          {onPrintIktatokonyv && (
+            <Button size="sm" variant="outline" onClick={onPrintIktatokonyv}>
+              Iktatókönyv nyomtatás
+            </Button>
+          )}
+          <Button size="sm" onClick={() => openDialog()}>+ Új irat</Button>
+        </div>
       </div>
 
       {loading ? (
@@ -371,9 +477,9 @@ function FilingEntriesView({
                 <th className="p-2 text-left">Kelt</th>
                 <th className="p-2 text-left">Tárgy</th>
                 <th className="hidden p-2 text-left md:table-cell">Feladó / címzett</th>
-                <th className="hidden p-2 text-left lg:table-cell">Mappa</th>
+                <th className="hidden p-2 text-left lg:table-cell">Ügykör</th>
                 <th className="p-2 text-center">Elintézés</th>
-                <th className="w-24 p-2" />
+                <th className="w-36 p-2" />
               </tr>
             </thead>
             <tbody>
@@ -381,12 +487,36 @@ function FilingEntriesView({
                 <tr key={entry.id} className="border-b hover:bg-slate-50">
                   <td className="p-2 font-mono text-xs">{entry.year}/{entry.sequence_number}</td>
                   <td className="p-2 text-xs text-muted-foreground">{entry.kelt?.split('T')[0]}</td>
-                  <td className="max-w-[260px] truncate p-2 font-medium">{entry.subject}</td>
+                  <td className="max-w-[260px] truncate p-2 font-medium">
+                    {entry.subject}
+                    {entry.external_ref_szam && (
+                      <div className="text-[10px] font-normal text-slate-500 font-mono">ext: {entry.external_ref_szam}</div>
+                    )}
+                  </td>
                   <td className="hidden p-2 text-xs text-muted-foreground md:table-cell">{entry.sender_or_recipient || '—'}</td>
-                  <td className="hidden p-2 lg:table-cell"><Badge variant="outline" className="text-[10px]">{entry.file_folder}</Badge></td>
+                  <td className="hidden p-2 lg:table-cell">
+                    {entry.ugykor_kod ? (
+                      <Badge variant="outline" className="text-[10px] font-mono">{entry.ugykor_kod}</Badge>
+                    ) : entry.file_folder ? (
+                      <Badge variant="outline" className="text-[10px] text-slate-400">{entry.file_folder} (legacy)</Badge>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="p-2 text-center">{entry.elintezes_ideje ? 'Kész' : 'Nyitott'}</td>
                   <td className="p-2">
                     <div className="flex justify-end gap-1">
+                      {onPrintPecset && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-teal-700"
+                          onClick={() => onPrintPecset(entry)}
+                          title="Iktatópecsét nyomtatás"
+                        >
+                          Pecsét
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600" onClick={() => openDialog(entry)}>Szerk.</Button>
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-red-500" onClick={() => handleDelete(entry.id)}>Törlés</Button>
                     </div>
