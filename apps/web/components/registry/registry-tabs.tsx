@@ -22,6 +22,7 @@ import { ModuleHero } from '@/components/shared/module-hero'
 import { AnyakonyvHelp } from './anyakonyv-help'
 import { EmleklapDialog } from './emleklap/emleklap-dialog'
 import type { EmleklapType } from '@/lib/constants/emleklap-templates'
+import { mapRegistryEntryToEmleklapData, registryTabToEmleklapType } from '@/lib/utils/emleklap-data-mapper'
 import { Award } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -184,13 +185,29 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
   const [activeTab, setActiveTab] = useState<RegistryTab>(DEFAULT_TAB)
   const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [emleklapOpen, setEmleklapOpen] = useState(false)
+  /** Sor-specifikus megnyitásnál a bejegyzésből származó adatok. */
+  const [emleklapPrefill, setEmleklapPrefill] = useState<{
+    type: EmleklapType
+    data: Record<string, string>
+  } | null>(null)
 
   // Az aktív tab szerint inferáljuk az emléklap-típust
-  const emleklapTypeForActiveTab: EmleklapType | undefined =
-    activeTab === 'keresztseg' ? 'kereszteles'
-      : activeTab === 'konfirmalas' ? 'konfirmacio'
-      : activeTab === 'hazassag' ? 'esketes'
-      : undefined
+  const emleklapTypeForActiveTab: EmleklapType | undefined = registryTabToEmleklapType(activeTab)
+
+  /**
+   * Egy konkrét anyakönyvi bejegyzéshez nyitja meg az emléklap-stúdiót,
+   * a meglévő adatokkal előtöltve. A 3 sákramentumi tabon (keresztelés,
+   * konfirmáció, esketés) működik.
+   */
+  function openEmleklapForEntry(entry: RegistryEntry) {
+    const emleklapType = registryTabToEmleklapType(activeTab)
+    if (!emleklapType) return
+    const data = mapRegistryEntryToEmleklapData(entry, activeTab, {
+      congregationName,
+    })
+    setEmleklapPrefill({ type: emleklapType, data })
+    setEmleklapOpen(true)
+  }
   const [allData, setAllData] = useState<RegistryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filterYear, setFilterYear] = useState('')
@@ -442,7 +459,19 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
                   </td>
                 ))}
                 <td key="c-act" className="p-2 text-right">
-                  <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-1 justify-end items-center" onClick={(e) => e.stopPropagation()}>
+                    {/* 2026-05-28: Emléklap-stúdió a kereszteles/konfirmalas/hazassag tabokon */}
+                    {(activeTab === 'keresztseg' || activeTab === 'konfirmalas' || activeTab === 'hazassag') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                        onClick={() => openEmleklapForEntry(d)}
+                        title="Emléklap-stúdió megnyitása ezzel a bejegyzéssel"
+                      >
+                        <Award className="size-3.5" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -477,7 +506,7 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
     <>
       <ModuleHero
         eyebrow="Anyakönyv"
-        title="Szentségi és életfordulós nyilvántartás"
+        title="Anyakönyvi nyilvántartás"
         description="Keresztelések, konfirmációk, házasságkötések, temetések és mozgási bejegyzések egy rendezett, áttekinthető felületen."
         pills={[
           { label: congregationName, tone: 'neutral' },
@@ -581,13 +610,20 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
       <BurialDialog open={burialOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <MovementDialog open={movementOpen} onOpenChange={closeAndRefresh} movementType={activeTab as 'bekoltozott' | 'elkoltozott' | 'attert' | 'kitert'} editEntry={editEntry} />
 
-      {/* 2026-05-28: Anyakönyvi emléklap-stúdió — sablon-alapú szerkeszthető emléklap-generátor */}
+      {/* 2026-05-28: Anyakönyvi emléklap-stúdió — sablon-alapú szerkeszthető
+          emléklap-generátor. A `emleklapPrefill` egy konkrét anyakönyvi
+          bejegyzésből előtöltött adatokkal nyílik (sor-szintű "Emléklap" gomb);
+          ennek hiányában a hero "Emléklap-stúdió" gomb az aktív tab default
+          típusát használja. */}
       <EmleklapDialog
         open={emleklapOpen}
-        onOpenChange={setEmleklapOpen}
-        initialType={emleklapTypeForActiveTab}
+        onOpenChange={(open) => {
+          setEmleklapOpen(open)
+          if (!open) setEmleklapPrefill(null)
+        }}
+        initialType={emleklapPrefill?.type ?? emleklapTypeForActiveTab}
         initialVariant="erek"
-        initialData={{ congregationName }}
+        initialData={emleklapPrefill?.data ?? { congregationName }}
       />
     </>
   )
