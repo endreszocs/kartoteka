@@ -1,4 +1,5 @@
 import { FilingMain } from '@/components/filing/filing-main'
+import { IktatoHelp } from '@/components/filing/iktato-help'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -31,7 +32,8 @@ export default async function IktatoPage() {
         isGodMode={godMode.active}
         isDelegatedImport={delegatedImport.active}
         delegatedExpiresAt={delegatedImport.expiresAt}
-        hideTabsUntilPrivileged
+        alwaysAllowAdminImport={access.admin}
+        helpContent={<IktatoHelp />}
         importProfiles={FILING_PROFILES}
         importModule="filing"
         profiles={[

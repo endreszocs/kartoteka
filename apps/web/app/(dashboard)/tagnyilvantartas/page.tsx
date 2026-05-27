@@ -1,12 +1,9 @@
 import { getMembers } from './actions'
 import { MemberTabsV4 } from '@/components/members/member-tabs-v4'
-import { MEMBER_IMPORT_PROFILES } from '@/components/members/member-import-profiles'
-import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
 import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { MEMBER_PROFILES } from '@/lib/import/import-profiles'
 
 export default async function TagnyilvantartasPage() {
   const access = await getEffectiveAccessContext()
@@ -23,44 +20,32 @@ export default async function TagnyilvantartasPage() {
     personToFamilyMap,
   } = await getMembers()
 
+  // 2026-05-25: a "Rendszergazdai importáló" mostantól a MemberTabsV4 belső
+  // tab-listájának VÉGÉN jelenik meg (Áttekintés / Személyek / Családok /
+  // Presbiterek / Körzetek / Választók / Hibák / Rendszergazdai importáló),
+  // nem külön ModuleAdminWorkspace wrapperrel a tetején. Jogosultság: god
+  // mode aktív, delegated import folyamatban, vagy aktív admin szerepkör.
+  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+
   return (
     <div className="space-y-4">
-      <ModuleAdminWorkspace
-        moduleKey="members"
-        moduleLabel="Tagnyilvántartás"
-        mainTabLabel="Tagnyilvántartási munkafelület"
-        importTitle="Tagnyilvántartási laborimport az aktuális gyülekezethez"
-        importDescription="Itt készíthető elő a személyek, családok, presbiterek, körzetek és választói adatok védett Excel/CSV alapú importja az aktuális gyülekezet számára."
-        congregationName={access.congregationName}
+      <MemberTabsV4
+        initialMembers={members}
+        paidPersonIds={paidPersonIds}
+        paidFamilyIds={paidFamilyIds}
+        exemptPersonIds={exemptPersonIds}
+        exemptFamilyIds={exemptFamilyIds}
+        personToFamilyMap={personToFamilyMap}
         isGodMode={godMode.active}
-        isDelegatedImport={delegatedImport.active}
-        delegatedExpiresAt={delegatedImport.expiresAt}
-        hideTabsUntilPrivileged
-        importProfiles={MEMBER_PROFILES}
-        importModule="members"
-        profiles={MEMBER_IMPORT_PROFILES.map((profile) => ({
-          ...profile,
-          columns: [...profile.columns],
-          hints: [...profile.hints],
-        }))}
-        customImportTab={
+        showAdminImport={showAdminImport}
+        adminImportContent={
           <TagnyilvantartasImportWizard
             mode="module"
             congregationId={access.effectiveCongregationId}
             congregationName={access.congregationName}
           />
         }
-      >
-        <MemberTabsV4
-          initialMembers={members}
-          paidPersonIds={paidPersonIds}
-          paidFamilyIds={paidFamilyIds}
-          exemptPersonIds={exemptPersonIds}
-          exemptFamilyIds={exemptFamilyIds}
-          personToFamilyMap={personToFamilyMap}
-          isGodMode={godMode.active}
-        />
-      </ModuleAdminWorkspace>
+      />
     </div>
   )
 }

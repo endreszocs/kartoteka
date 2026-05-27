@@ -1,12 +1,9 @@
 import { createYearlySettings, initFinance } from './actions'
 import { checkOblioDeadline } from './oblio-ellenorzes-actions'
 import { FinanceTabs } from '@/components/finance/finance-tabs'
-import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
-import { FinanceImportTabs } from '@/components/finance/finance-import/finance-import-tabs'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
-import { FINANCE_PROFILES } from '@/lib/import/import-profiles'
 import { ensureDioceseBealitasForYear } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 
 export default async function PenzugyPage() {
@@ -104,84 +101,38 @@ export default async function PenzugyPage() {
     }
   }
 
+  // 2026-05-25: a "Rendszergazdai importáló" fül a FinanceTabs belső tab-listájának
+  // VÉGÉN jelenik meg (Súgó után, red-prominent színnel), nem külön ModuleAdminWorkspace
+  // wrapperrel a tetején. Jogosultság: god mode aktív, delegated import folyamatban,
+  // vagy aktív admin szerepkör. A Tagnyilvántartás analógiájára.
+  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+
   return (
     <div className="space-y-4">
-      <ModuleAdminWorkspace
-        moduleKey="finance"
-        moduleLabel="Pénzügy"
-        mainTabLabel="Pénzügyi munkafelület"
-        importTitle="Pénzügyi import az aktuális gyülekezethez"
-        importDescription="Két import-mód: a teljes Kassza-fájl (bevétel + kiadás) vagy az egyházfenntartási befizetések egyeztetése (xlsx + xml két forrásból)."
+      <FinanceTabs
+        settings={data.settings}
+        szamadasiCellek={data.szamadasiCellek}
+        bevCelMap={data.bevCelMap}
+        kiaCelMap={data.kiaCelMap}
+        bmBevCelIds={data.bmBevCelIds}
+        bmKiaCelIds={data.bmKiaCelIds}
+        bankAccounts={data.bankAccounts}
+        internalTransfers={data.internalTransfers}
+        initialIncome={data.initialIncome}
+        initialExpense={data.initialExpense}
+        carryoverCash={data.carryoverCash}
+        carryoverBank={data.carryoverBank}
         congregationName={data.congregationName}
+        congregationId={scopeId}
+        debtCalcMode={data.debtCalcMode}
+        yearlyFees={data.yearlyFees}
+        debtRows={data.debtRows}
+        receiptHealth={data.receiptHealth}
+        currentYear={data.currentYear}
         isGodMode={godMode.active}
-        isDelegatedImport={delegatedImport.active}
-        delegatedExpiresAt={delegatedImport.expiresAt}
-        hideTabsUntilPrivileged
-        importProfiles={FINANCE_PROFILES}
-        importModule="finance"
-        customImportTab={<FinanceImportTabs />}
-        profiles={[
-          {
-            value: 'income',
-            label: 'Bevételek',
-            description: 'Befizetések, adományok és egyházfenntartási bevételek előkészített importja.',
-            columns: ['datum', 'osszeg', 'befizeto', 'celkod', 'iratszam', 'penztar_vagy_bankszamla'],
-            hints: ['Az összegek legyenek pozitív számok', 'A célkódok igazodjanak az EREK pénzügyi rendhez', 'A befizető neve vagy azonosítója legyen egyértelmű'],
-          },
-          {
-            value: 'expenses',
-            label: 'Kiadások',
-            description: 'Számlák, szolgáltatások és egyéb kiadási tételek strukturált feltöltése.',
-            columns: ['datum', 'osszeg', 'kedvezmenyezett', 'celkod', 'iratszam', 'megjegyzes'],
-            hints: ['Az iratszámok ne ismétlődjenek', 'A kedvezményezett mező legyen kitöltve', 'A kiadási célkódok legyenek pontosak'],
-          },
-          {
-            value: 'bank',
-            label: 'Bankszámla kivonatok',
-            description: 'Bankszámlamozgások laborimportja a számlák közötti egyeztetéshez.',
-            columns: ['datum', 'bankszamla', 'tipus', 'osszeg', 'partner', 'megjegyzes'],
-            hints: ['A bankszámla neve egyezzen a törzsadattal', 'A típus legyen bevétel vagy kiadás', 'A partner mező segíti a párosítást'],
-          },
-          {
-            value: 'monetary',
-            label: 'Monetár számolás',
-            description: 'Kasszaellenőrzéshez címletenkénti induló adatok feltöltésének előkészítése.',
-            columns: ['cimlet', 'darab', 'megjegyzes'],
-            hints: ['Minden címlet külön sorban szerepeljen', 'Az 1 RON bankjegyként kezelendő', 'A darabszámok egész számok legyenek'],
-          },
-          {
-            value: 'transfers',
-            label: 'Belső mozgások',
-            description: 'Kassza és bank közti belső mozgások kontrollált import-előkészítése.',
-            columns: ['datum', 'forras', 'cel', 'osszeg', 'megjegyzes'],
-            hints: ['A forrás és cél számla legyen meglévő tétel', 'Az összeg ne legyen negatív', 'A megjegyzésben szerepeljen a mozgás oka'],
-          },
-        ]}
-      >
-        <FinanceTabs
-          settings={data.settings}
-          szamadasiCellek={data.szamadasiCellek}
-          bevCelMap={data.bevCelMap}
-          kiaCelMap={data.kiaCelMap}
-          bmBevCelIds={data.bmBevCelIds}
-          bmKiaCelIds={data.bmKiaCelIds}
-          bankAccounts={data.bankAccounts}
-          internalTransfers={data.internalTransfers}
-          initialIncome={data.initialIncome}
-          initialExpense={data.initialExpense}
-          carryoverCash={data.carryoverCash}
-          carryoverBank={data.carryoverBank}
-          congregationName={data.congregationName}
-          congregationId={scopeId}
-          debtCalcMode={data.debtCalcMode}
-          yearlyFees={data.yearlyFees}
-          debtRows={data.debtRows}
-          receiptHealth={data.receiptHealth}
-          currentYear={data.currentYear}
-          isGodMode={godMode.active}
-          scope={scope}
-        />
-      </ModuleAdminWorkspace>
+        scope={scope}
+        showAdminImport={showAdminImport}
+      />
     </div>
   )
 }

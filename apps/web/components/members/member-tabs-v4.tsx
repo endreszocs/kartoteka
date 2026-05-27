@@ -9,12 +9,25 @@ import { FamiliesTab } from './families-tab-v2'
 import { OverviewTab } from './overview-tab'
 import { PersonsTab } from './persons-tab'
 import { PresbytersTab } from './presbyters-tab'
+import { TagnyilvantartasHelp } from './tagnyilvantartas-help'
 import { ValidationErrorsTab } from './validation-errors-tab'
 import { VotersTab } from './voters-tab'
 
 // Hash-routing — a sidebar almenüből (`/tagnyilvantartas#persons` stb.) közvetlen tab-ugrás.
 // Az érvényes value-k egyezniek kell a `tabs` array-vel.
-const VALID_TAB_HASHES = new Set(['overview', 'persons', 'families', 'presbyters', 'districts', 'voters', 'errors'])
+const VALID_TAB_HASHES = new Set([
+  'overview',
+  'persons',
+  'families',
+  'presbyters',
+  'districts',
+  'voters',
+  'errors',
+  'help',
+  // 2026-05-25: a "Rendszergazdai importáló" fül a hash-routingban is elérhető,
+  // de a jogosulatlan felhasználónak nem mutatjuk (lásd `showAdminImport` prop).
+  'admin-import',
+])
 const DEFAULT_TAB = 'overview'
 
 function getTabFromHash(hash: string): string {
@@ -30,6 +43,14 @@ interface MemberTabsV4Props {
   exemptFamilyIds: number[]
   personToFamilyMap: Record<number, number>
   isGodMode: boolean
+  /**
+   * Ha `true`, a tab-listához hozzáadódik egy "Rendszergazdai importáló" fül
+   * (utolsó helyen, piros háttérrel). Jogosultság: god mode aktív, delegated
+   * import vagy aktív admin szerepkör — a page.tsx dönti el.
+   */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló fül tartalma (jellemzően TagnyilvantartasImportWizard). */
+  adminImportContent?: React.ReactNode
 }
 
 export function MemberTabsV4({
@@ -37,6 +58,8 @@ export function MemberTabsV4({
   paidPersonIds,
   personToFamilyMap,
   isGodMode,
+  showAdminImport = false,
+  adminImportContent,
 }: MemberTabsV4Props) {
   const [members, setMembers] = useState(initialMembers)
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
@@ -95,8 +118,8 @@ export function MemberTabsV4({
     }
   }
 
-  const tabs = useMemo(
-    () => [
+  const tabs = useMemo(() => {
+    const base = [
       { value: 'overview', label: 'Áttekintés', color: 'blue' },
       { value: 'persons', label: 'Személyek', color: 'emerald' },
       { value: 'families', label: 'Családok', color: 'violet' },
@@ -104,9 +127,21 @@ export function MemberTabsV4({
       { value: 'districts', label: 'Körzetek', color: 'cyan' },
       { value: 'voters', label: 'Választók', color: 'pink' },
       { value: 'errors', label: 'Hibák', color: 'red' },
-    ],
-    [],
-  )
+      // 2026-05-25: lelkészi súgó — kategória-választós oldal a tagnyilvántartás
+      // domain-szabályairól (egyháztagság, családok, járulék, választók, ...).
+      { value: 'help', label: 'Súgó', color: 'teal' },
+    ]
+    if (showAdminImport) {
+      base.push({
+        value: 'admin-import',
+        label: 'Rendszergazdai importáló',
+        // 'red-prominent' inaktív állapotban is piros háttér — vizuálisan
+        // figyelmeztető, hogy a fül veszélyes műveletet rejt.
+        color: 'red-prominent',
+      })
+    }
+    return base
+  }, [showAdminImport])
 
   function handleMemberRemoved(id: number) {
     setMembers((prev) => prev.filter((member) => member.id !== id))
@@ -176,6 +211,8 @@ export function MemberTabsV4({
         {activeTab === 'districts' && <DistrictsTab />}
         {activeTab === 'voters' && <VotersTab />}
         {activeTab === 'errors' && <ValidationErrorsTab />}
+        {activeTab === 'help' && <TagnyilvantartasHelp />}
+        {activeTab === 'admin-import' && showAdminImport && adminImportContent}
       </div>
     </div>
   )

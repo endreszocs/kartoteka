@@ -16,7 +16,7 @@ import { TransactionsTab } from './transactions-tab'
 import { MonetaryTabV2 } from './monetary-tab-v2'
 import { RentalTab } from './rental-tab'
 import { OblioEllenorzesTab } from './oblio-ellenorzes-tab'
-import { FinanceSugoTab } from './finance-sugo-tab'
+import { PenzugyHelp } from './penzugy-help'
 import { PenzugyImportWizard } from './finance-import/penzugy-import-wizard'
 import { slugifyCongregationName } from '@/lib/utils/slugify'
 import { IncomeDialog } from '@/components/modals/income-dialog-v3'
@@ -63,6 +63,12 @@ interface FinanceTabsProps {
   /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
    *  Diocese módban a tag-szintű fülek (debt, monetary, rental, oblio) el vannak rejtve. */
   scope?: 'congregation' | 'diocese'
+  /**
+   * 2026-05-25: ha true, a "Rendszergazdai importáló" fül megjelenik a tab-lista
+   * VÉGÉN (Súgó után), piros (red-prominent) háttérrel. Jogosultság: god mode,
+   * delegated import vagy aktív admin szerepkör — a page.tsx dönti el.
+   */
+  showAdminImport?: boolean
 }
 
 export function FinanceTabs({
@@ -71,6 +77,7 @@ export function FinanceTabs({
   carryoverCash, carryoverBank, congregationName, congregationId,
   currentYear, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
+  showAdminImport = false,
 }: FinanceTabsProps) {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [incomeRecords, setIncomeRecords] = useState(initialIncome)
@@ -306,12 +313,6 @@ export function FinanceTabs({
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <ColorTabs
           tabs={[
-            // Rendszergazdai importáló — csak god-mode aktiválás esetén látszik.
-            // ELŐL helyezzük el (közvetlenül az Áttekintés után), mert a sor
-            // jobb szélén nem fér ki és nem található.
-            ...(isGodMode ? [
-              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'rose' as const },
-            ] : []),
             { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
             { value: 'cashbook', label: 'Kassza', color: 'emerald' },
             { value: 'bank', label: 'Bank', color: 'violet' },
@@ -326,6 +327,12 @@ export function FinanceTabs({
               { value: 'oblio_ellenorzes', label: 'Oblio ellenőrzés', color: 'cyan' },
             ]),
             { value: 'sugo', label: 'Súgó', color: 'teal' },
+            // 2026-05-25: Rendszergazdai importáló a sor VÉGÉN, mindig piros háttérrel
+            // (red-prominent: vizuálisan figyelmeztető, hogy a fül veszélyes műveletet rejt).
+            // Jogosultság a page.tsx-ben kerül kiértékelésre (god mode / delegated / admin).
+            ...(showAdminImport ? [
+              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'red-prominent' as const },
+            ] : []),
           ]}
           active={activeTab}
           onChange={setActiveTab}
@@ -454,14 +461,14 @@ export function FinanceTabs({
         )}
 
         <TabsContent value="sugo" className="mt-4">
-          <FinanceSugoTab />
+          <PenzugyHelp />
         </TabsContent>
 
-        {/* Rendszergazdai importáló — csak god-mode aktív esetén jelenik meg.
-            A hivatalos EREK kasszakönyv Excel-fájl importja a Kartotékába.
+        {/* Rendszergazdai importáló — a tab-lista végén (Súgó után), red-prominent
+            háttérrel. Jogosultság: god mode / delegated import / admin szerepkör.
             keepMounted=false: a wizard csak akkor töltődik be, ha aktív a fül,
             így a böngésző nem dolgozik feleslegesen. */}
-        {isGodMode && (
+        {showAdminImport && (
           <TabsContent value="admin_import" className="mt-4">
             <PenzugyImportWizard />
           </TabsContent>

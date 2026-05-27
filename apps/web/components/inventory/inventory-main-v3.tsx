@@ -42,10 +42,18 @@ import { toast } from 'sonner'
 
 interface InventoryMainProps {
   congregationName?: string
+  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló tab tartalma. */
+  adminImportContent?: React.ReactNode
 }
 
-export function InventoryMain({ congregationName }: InventoryMainProps) {
-  const [activeTab, setActiveTab] = useState<'nyilvantartas' | 'anyagraktar' | 'sugo'>('nyilvantartas')
+type LeltarTab = 'nyilvantartas' | 'anyagraktar' | 'sugo'
+type ActiveView = 'tab' | 'admin-import'
+
+export function InventoryMain({ congregationName, showAdminImport = false, adminImportContent }: InventoryMainProps) {
+  const [activeTab, setActiveTab] = useState<LeltarTab>('nyilvantartas')
+  const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -290,13 +298,26 @@ export function InventoryMain({ congregationName }: InventoryMainProps) {
         tabs={[
           { value: 'nyilvantartas', label: 'Leltári nyilvántartás', color: 'teal', count: filtered.length },
           { value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' },
-          { value: 'sugo', label: 'Leltár súgó', color: 'amber' },
+          { value: 'sugo', label: 'Súgó', color: 'teal' },
+          // 2026-05-25: Rendszergazdai importáló a sor végén, red-prominent háttérrel
+          ...(showAdminImport ? [
+            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
+          ] : []),
         ]}
-        active={activeTab}
-        onChange={value => setActiveTab(value as 'nyilvantartas' | 'anyagraktar' | 'sugo')}
+        active={activeView === 'admin-import' ? 'admin-import' : activeTab}
+        onChange={value => {
+          if (value === 'admin-import') {
+            setActiveView('admin-import')
+          } else {
+            setActiveView('tab')
+            setActiveTab(value as LeltarTab)
+          }
+        }}
       />
 
-      {activeTab === 'sugo' ? (
+      {activeView === 'admin-import' && showAdminImport ? (
+        adminImportContent
+      ) : activeTab === 'sugo' ? (
         <InventoryGuideTab />
       ) : activeTab === 'anyagraktar' ? (
         <MaterialWarehouseTab congregationName={congregationName || ''} />

@@ -5,6 +5,7 @@ import { getMinutesList } from './actions'
 import { MinutesList } from '@/components/minutes/minutes-list'
 import { InvitationSection } from '@/components/minutes/invitation-section'
 import { MinutesPrintSelector } from '@/components/minutes/minutes-print-selector'
+import { JegyzokonyvekHelp } from '@/components/minutes/jegyzokonyvek-help'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
@@ -61,7 +62,8 @@ export default async function JegyzokonyvekPage() {
       isGodMode={godMode.active}
       isDelegatedImport={delegatedImport.active}
       delegatedExpiresAt={delegatedImport.expiresAt}
-      hideTabsUntilPrivileged
+      alwaysAllowAdminImport={access.admin}
+      helpContent={<JegyzokonyvekHelp />}
       profiles={MINUTES_IMPORT_PROFILES}
     >
       <div className="space-y-5">

@@ -1,4 +1,5 @@
 import { CemeteryMain } from '@/components/cemetery/cemetery-main'
+import { SirhelyekHelp } from '@/components/cemetery/sirhelyek-help'
 import { ModuleAdminWorkspace } from '@/components/shared/module-admin-workspace'
 import { CongregationOnlyNotice } from '@/components/layout/congregation-only-notice'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -30,7 +31,8 @@ export default async function SirhelyekPage() {
         isGodMode={godMode.active}
         isDelegatedImport={delegatedImport.active}
         delegatedExpiresAt={delegatedImport.expiresAt}
-        hideTabsUntilPrivileged
+        alwaysAllowAdminImport={access.admin}
+        helpContent={<SirhelyekHelp />}
         profiles={[
           {
             value: 'cemeteries',

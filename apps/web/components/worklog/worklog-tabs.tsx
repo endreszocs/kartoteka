@@ -14,11 +14,17 @@ import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { HU_MONTHS } from '@/lib/constants/dashboard'
 import { toast } from 'sonner'
 import { WorklogPrintDialog } from '@/components/worklog/worklog-print-dialog'
+import { MunkanaploHelp } from './munkanaplo-help'
 
 type WorklogTab = WorklogCategory | 'jelentes'
+type ActiveView = 'tab' | 'help' | 'admin-import'
 
 interface WorklogTabsProps {
   congregationName?: string
+  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló tab tartalma. */
+  adminImportContent?: React.ReactNode
 }
 
 const WORKLOG_TYPES: Record<WorklogCategory, string[]> = {
@@ -57,7 +63,8 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
 }
 
 
-export function WorklogTabs({ congregationName }: WorklogTabsProps) {
+export function WorklogTabs({ congregationName, showAdminImport = false, adminImportContent }: WorklogTabsProps) {
+  const [activeView, setActiveView] = useState<ActiveView>('tab')
   const now = new Date()
   const [activeTab, setActiveTab] = useState<WorklogTab>('szolgalat')
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
@@ -143,6 +150,11 @@ export function WorklogTabs({ congregationName }: WorklogTabsProps) {
     { value: 'latogatas', label: 'Családlátogatás', color: 'violet', count: entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.latogatas.includes(entry.jellege)).length },
     { value: 'katekezis', label: 'Katekézis', color: 'emerald', count: entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.katekezis.includes(entry.jellege)).length },
     { value: 'jelentes', label: 'Lelkészi jelentés', color: 'amber', count: entries.length },
+    // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
+    { value: 'help', label: 'Súgó', color: 'teal' },
+    ...(showAdminImport ? [
+      { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
+    ] : []),
   ]
 
   return (
@@ -176,9 +188,24 @@ export function WorklogTabs({ congregationName }: WorklogTabsProps) {
         }
       />
 
-      <ColorTabs tabs={tabs} active={activeTab} onChange={(value) => setActiveTab(value as WorklogTab)} />
+      <ColorTabs
+        tabs={tabs}
+        active={activeView === 'tab' ? activeTab : activeView}
+        onChange={(value) => {
+          if (value === 'help' || value === 'admin-import') {
+            setActiveView(value)
+          } else {
+            setActiveView('tab')
+            setActiveTab(value as WorklogTab)
+          }
+        }}
+      />
 
-      {activeTab === 'jelentes' ? (
+      {activeView === 'help' ? (
+        <MunkanaploHelp />
+      ) : activeView === 'admin-import' && showAdminImport ? (
+        adminImportContent
+      ) : activeTab === 'jelentes' ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <ReportCard label="Összes bejegyzés" value={report.totalEntries} tone="slate" />

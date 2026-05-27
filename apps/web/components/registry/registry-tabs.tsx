@@ -19,12 +19,24 @@ import { BurialDialog } from '@/components/modals/burial-dialog'
 import { MovementDialog } from '@/components/modals/movement-dialog'
 import { ConfirmationDialog } from '@/components/modals/confirmation-dialog'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AnyakonyvHelp } from './anyakonyv-help'
 import { toast } from 'sonner'
 
 interface RegistryTabsProps {
   congregationId: string
   congregationName: string
+  /** 2026-05-25: ha true, a tab-lista végén megjelenik egy "Rendszergazdai importáló" fül (red-prominent). */
+  showAdminImport?: boolean
+  /** A Rendszergazdai importáló fül tartalma. */
+  adminImportContent?: React.ReactNode
 }
+
+/**
+ * View-state külön az `activeTab`-tól — így a meglévő RegistryTab-alapú logika
+ * (loadData, getColumns, hash-routing) érintetlen marad, és a Súgó/Admin-import
+ * tabok csak a megjelenítést befolyásolják.
+ */
+type ActiveView = 'tab' | 'help' | 'admin-import'
 
 // Hash-routing: a sidebar `/anyakonyv#keresztseg` stb. URL-jeiből közvetlen tab-ugrás.
 const VALID_TAB_HASHES = new Set<string>(REGISTRY_TABS as readonly string[])
@@ -165,8 +177,9 @@ function getColumns(tab: RegistryTab): ColDef[] {
   return []
 }
 
-export function RegistryTabs({ congregationName }: RegistryTabsProps) {
+export function RegistryTabs({ congregationName, showAdminImport = false, adminImportContent }: RegistryTabsProps) {
   const [activeTab, setActiveTab] = useState<RegistryTab>(DEFAULT_TAB)
+  const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [allData, setAllData] = useState<RegistryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filterYear, setFilterYear] = useState('')
@@ -341,6 +354,23 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
     }
   }
 
+  /**
+   * 2026-05-25: Súgó és Rendszergazdai importáló tab-ok kezelése.
+   * Ezek nem registry-domain tabok, így nem futtatunk loadData-t / hash-routing-ot.
+   * Külön `activeView` state-ben tartjuk őket, hogy a meglévő RegistryTab-os
+   * logika érintetlen maradjon.
+   */
+  function handleExtendedTabChange(value: string) {
+    if (value === 'help' || value === 'admin-import') {
+      resetViewState()
+      setLoading(false)
+      setActiveView(value)
+      return
+    }
+    setActiveView('tab')
+    handleTabChange(value as RegistryTab)
+  }
+
   async function handleDelete(id: number) {
     if (!confirm('Biztosan törli ezt a bejegyzést? A törlés végleges.')) return
     const result = await deleteRegistryEntry(activeTab, id)
@@ -449,15 +479,30 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
         <p className="text-sm text-slate-400">Keresztelések, konfirmációk, esküvők és egyéb bejegyzések</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={v => handleTabChange(v as RegistryTab)}>
-        <ColorTabs
-          tabs={REGISTRY_TABS.map(t => {
+      <ColorTabs
+        tabs={[
+          ...REGISTRY_TABS.map(t => {
             const colors: Record<string, string> = { attekinto: 'blue', keresztseg: 'emerald', konfirmacio: 'violet', hazassag: 'pink', temetes: 'slate', bekoltozott: 'cyan', elkoltozott: 'orange', attert: 'amber', kitert: 'red' }
             return { value: t, label: REGISTRY_TAB_LABELS[t], color: colors[t] || 'blue' }
-          })}
-          active={activeTab}
-          onChange={v => handleTabChange(v as RegistryTab)}
-        />
+          }),
+          // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
+          { value: 'help', label: 'Súgó', color: 'teal' },
+          ...(showAdminImport ? [
+            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
+          ] : []),
+        ]}
+        active={activeView === 'tab' ? activeTab : activeView}
+        onChange={handleExtendedTabChange}
+      />
+
+      {activeView === 'help' ? (
+        <div className="mt-4">
+          <AnyakonyvHelp />
+        </div>
+      ) : activeView === 'admin-import' && showAdminImport && adminImportContent ? (
+        <div className="mt-4">{adminImportContent}</div>
+      ) : (
+      <Tabs value={activeTab} onValueChange={v => handleTabChange(v as RegistryTab)}>
         <TabsContent value="attekinto" className="mt-4">
           <RegistryOverview />
         </TabsContent>
@@ -495,6 +540,7 @@ export function RegistryTabs({ congregationName }: RegistryTabsProps) {
           </TabsContent>
         ))}
       </Tabs>
+      )}
 
       {/* Részletes olvasó dialog */}
       <RegistryDetailDialog

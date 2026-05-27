@@ -23,6 +23,10 @@ const colorClasses: Record<string, { active: string; inactive: string; bar: stri
   orange:  { active: 'border-orange-200/80 bg-orange-50/90 text-orange-700 shadow-[0_16px_32px_-28px_rgba(234,88,12,0.75)]', inactive: 'border-transparent text-slate-500 hover:border-orange-100 hover:bg-white/70 hover:text-orange-700', bar: 'bg-orange-600' },
   slate:   { active: 'border-slate-200/80 bg-slate-50/90 text-slate-700 shadow-[0_16px_32px_-28px_rgba(71,85,105,0.75)]', inactive: 'border-transparent text-slate-400 hover:border-slate-100 hover:bg-white/70 hover:text-slate-600', bar: 'bg-slate-600' },
   red:     { active: 'border-red-200/80 bg-red-50/90 text-red-700 shadow-[0_16px_32px_-28px_rgba(220,38,38,0.75)]', inactive: 'border-transparent text-slate-500 hover:border-red-100 hover:bg-white/70 hover:text-red-700', bar: 'bg-red-600' },
+  // 'red-prominent': vizuálisan FIGYELMEZTETŐ tab — inaktív állapotban is piros
+  // háttér, hogy a felhasználó számára egyértelmű legyen a "veszélyes" jelleg
+  // (pl. "Rendszergazdai importáló" fül a Tagnyilvántartás oldalon, 2026-05-25).
+  'red-prominent': { active: 'border-red-300 bg-red-100/90 text-red-800 shadow-[0_16px_32px_-24px_rgba(220,38,38,0.85)]', inactive: 'border-red-200/70 bg-red-50/70 text-red-700 hover:bg-red-100/80 hover:border-red-300', bar: 'bg-red-600' },
   teal:    { active: 'border-teal-200/80 bg-teal-50/90 text-teal-700 shadow-[0_16px_32px_-28px_rgba(13,148,136,0.75)]', inactive: 'border-transparent text-slate-500 hover:border-teal-100 hover:bg-white/70 hover:text-teal-700', bar: 'bg-teal-600' },
   indigo:  { active: 'border-indigo-200/80 bg-indigo-50/90 text-indigo-700 shadow-[0_16px_32px_-28px_rgba(79,70,229,0.75)]', inactive: 'border-transparent text-slate-500 hover:border-indigo-100 hover:bg-white/70 hover:text-indigo-700', bar: 'bg-indigo-600' },
 }
