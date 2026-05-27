@@ -20,6 +20,9 @@ import { MovementDialog } from '@/components/modals/movement-dialog'
 import { ConfirmationDialog } from '@/components/modals/confirmation-dialog'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { AnyakonyvHelp } from './anyakonyv-help'
+import { EmleklapDialog } from './emleklap/emleklap-dialog'
+import type { EmleklapType } from '@/lib/constants/emleklap-templates'
+import { Award } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface RegistryTabsProps {
@@ -180,6 +183,14 @@ function getColumns(tab: RegistryTab): ColDef[] {
 export function RegistryTabs({ congregationName, showAdminImport = false, adminImportContent }: RegistryTabsProps) {
   const [activeTab, setActiveTab] = useState<RegistryTab>(DEFAULT_TAB)
   const [activeView, setActiveView] = useState<ActiveView>('tab')
+  const [emleklapOpen, setEmleklapOpen] = useState(false)
+
+  // Az aktív tab szerint inferáljuk az emléklap-típust
+  const emleklapTypeForActiveTab: EmleklapType | undefined =
+    activeTab === 'keresztseg' ? 'kereszteles'
+      : activeTab === 'konfirmalas' ? 'konfirmacio'
+      : activeTab === 'hazassag' ? 'esketes'
+      : undefined
   const [allData, setAllData] = useState<RegistryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filterYear, setFilterYear] = useState('')
@@ -472,6 +483,17 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
           { label: congregationName, tone: 'neutral' },
           { label: `${filtered.length} látható bejegyzés`, tone: 'emerald' },
         ]}
+        actions={
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-xl border-amber-200 bg-white/80 text-amber-700 hover:bg-amber-50"
+            onClick={() => setEmleklapOpen(true)}
+          >
+            <Award className="mr-1.5 size-4" />
+            Emléklap-stúdió
+          </Button>
+        }
       />
 
       <div className="mb-4 hidden">
@@ -558,6 +580,15 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
       <MarriageDialog open={marriageOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <BurialDialog open={burialOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <MovementDialog open={movementOpen} onOpenChange={closeAndRefresh} movementType={activeTab as 'bekoltozott' | 'elkoltozott' | 'attert' | 'kitert'} editEntry={editEntry} />
+
+      {/* 2026-05-28: Anyakönyvi emléklap-stúdió — sablon-alapú szerkeszthető emléklap-generátor */}
+      <EmleklapDialog
+        open={emleklapOpen}
+        onOpenChange={setEmleklapOpen}
+        initialType={emleklapTypeForActiveTab}
+        initialVariant="erek"
+        initialData={{ congregationName }}
+      />
     </>
   )
 }
