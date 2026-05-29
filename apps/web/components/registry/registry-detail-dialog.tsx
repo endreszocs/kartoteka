@@ -108,6 +108,7 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
     if (tab === 'keresztseg') return EMLEKLAP_TEMPLATES_MAP['kereszteles-erek'] ?? null
     if (tab === 'konfirmalas') return EMLEKLAP_TEMPLATES_MAP['konfirmacio-erek'] ?? null
     if (tab === 'hazassag') return EMLEKLAP_TEMPLATES_MAP['esketes-erek'] ?? null
+    if (tab === 'temetes') return EMLEKLAP_TEMPLATES_MAP['temetes-erek'] ?? null
     return null
   }, [tab])
 
@@ -185,6 +186,42 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
         pastorName,
         wardenName,
       }
+    } else if (tab === 'temetes') {
+      // 2026-05-30: temetés/gyászjelentés-preview a read-only részletek nézethez.
+      const fullName = entry.szemely
+        ? `${entry.szemely.csaladnev || ''} ${entry.szemely.k_nev || ''}`.trim().toUpperCase()
+        : ''
+      // Életkor: születés + halálozás dátum különbsége (években).
+      let age = ''
+      if (entry.szemely?.sz_datum && entry.hdatum) {
+        try {
+          const b = new Date(entry.szemely.sz_datum)
+          const d = new Date(entry.hdatum as string)
+          if (!isNaN(b.getTime()) && !isNaN(d.getTime())) {
+            let a = d.getFullYear() - b.getFullYear()
+            const m = d.getMonth() - b.getMonth()
+            if (m < 0 || (m === 0 && d.getDate() < b.getDate())) a--
+            age = String(a)
+          }
+        } catch {}
+      }
+      const deathDate = entry.hdatum ? formatHungarianDate(entry.hdatum as string) + '-án' : ''
+      const funeralDate = entry.tdatum ? formatHungarianDate(entry.tdatum as string) + '-én lesz' : ''
+      const funeralPlace = (entry.adrlocality as { name?: string } | null)?.name
+        ? `a ${(entry.adrlocality as { name?: string }).name} temetőjében.`
+        : 'a Református Temetőben.'
+      data = {
+        fullName,
+        relativeRelation: 'édesapánk, nagyapánk és rokonunk',
+        age,
+        deathDate,
+        funeralDate,
+        funeralPlace,
+        vigilLine: '', // a részletek nézetből nem ismerjük, üresen marad
+        mourners: 'Szerető családja és mindazok,\nakik ismerték és tisztelték',
+        verseText: 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
+        verseReference: 'Jób 1,21',
+      }
     }
     const out: Record<string, string> = {}
     for (const field of template.fields) {
@@ -198,10 +235,13 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
     const html = printRef.current.outerHTML
     const win = window.open('', '_blank', 'width=900,height=1200')
     if (!win) { toast.error('A böngésző blokkolta a popup-ot.'); return }
-    win.document.write(`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>Anyakönyvi emléklap</title>
+    // 2026-05-30: temetésnél fekete háttér (a gyászjelentés-sablon stílusához)
+    const printBg = tab === 'temetes' ? '#020202' : 'white'
+    const docTitle = tab === 'temetes' ? 'Gyászjelentés' : 'Anyakönyvi emléklap'
+    win.document.write(`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>${docTitle}</title>
       <style>
         @page { size: A4 portrait; margin: 0; }
-        html, body { margin: 0; padding: 0; background: white; }
+        html, body { margin: 0; padding: 0; background: ${printBg}; }
         body { display: flex; align-items: center; justify-content: center; }
         .certificate-renderer { width: 210mm !important; height: 297mm !important; max-width: 210mm !important; aspect-ratio: 210/297 !important; }
         .certificate-renderer img { width: 100% !important; height: 100% !important; }
@@ -231,7 +271,7 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
             {hasPreview && (
               <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
                 <Sparkles className="size-3.5" />
-                emléklap-előnézet
+                {tab === 'temetes' ? 'gyászjelentés-előnézet' : 'emléklap-előnézet'}
               </span>
             )}
           </DialogTitle>
@@ -407,7 +447,9 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
               <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
                 <p className="text-[11px] text-amber-900 leading-relaxed">
                   <Sparkles className="size-3 inline mr-1 text-amber-600" />
-                  Az anyakönyvi adatok alapján generált emléklap. A „Nyomtatás" gombbal A4-en kinyomtathatod.
+                  {tab === 'temetes'
+                    ? 'Az anyakönyvi adatok alapján generált gyászjelentés. A „Nyomtatás" gombbal A4-en kinyomtathatod.'
+                    : 'Az anyakönyvi adatok alapján generált emléklap. A „Nyomtatás" gombbal A4-en kinyomtathatod.'}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
@@ -420,7 +462,7 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                 />
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400 text-center">
-                A4 álló · EREK {tab === 'keresztseg' ? 'keresztelői' : tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon
+                A4 álló · {tab === 'temetes' ? 'Gyászjelentés sablon' : `EREK ${tab === 'keresztseg' ? 'keresztelői' : tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
               </p>
             </aside>
           )}
