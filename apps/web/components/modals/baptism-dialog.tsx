@@ -40,6 +40,12 @@ interface BaptismDialogProps {
   } | null
 }
 
+// 2026-05-29: jól látható input-stílus — a felhasználói visszajelzés alapján
+// a default bg-card/78 (78% áttetszős) egybeolvad a dialog hátterével.
+// Az itt definiált osztály-szett bg-white + finom shadow-t ad, hasonlóan
+// a MemberSearchSelect (apa/anya) megjelenéséhez.
+const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
+
 export function BaptismDialog({ open, onOpenChange, congregationName, editEntry }: BaptismDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<MemberSearchResult | null>(null)
@@ -403,7 +409,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   />
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Apa vallása</Label>
-                    <Input value={apavallas} onChange={e => setApavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
+                    <Input value={apavallas} onChange={e => setApavallas(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} placeholder="Református" />
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -416,11 +422,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   />
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Anya vallása</Label>
-                    <Input value={anyavallas} onChange={e => setAnyavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
+                    <Input value={anyavallas} onChange={e => setAnyavallas(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} placeholder="Református" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Leánykori név</Label>
-                    <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className="h-8 text-xs" />
+                    <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} />
                   </div>
                 </div>
               </div>
@@ -433,23 +439,23 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                     Egyházi anyakönyvi szám
                     <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
                   </Label>
-                  <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className="font-mono text-violet-700" />
+                  <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className={`font-mono text-violet-700 ${FIELD_INPUT_CLASS}`} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Állami anyakönyvi szám</Label>
-                  <Input value={okirat} onChange={e => setOkirat(e.target.value)} placeholder="opcionális" />
+                  <Input value={okirat} onChange={e => setOkirat(e.target.value)} placeholder="opcionális" className={FIELD_INPUT_CLASS} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Dátum *</Label>
-                  <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
+                  <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
-                <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+                <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               </div>
-              <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+              <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
             </div>
 

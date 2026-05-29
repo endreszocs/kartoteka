@@ -1,17 +1,32 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Printer, Save, Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveMarriage, getNextEgyhaziSzam } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
+import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
+import {
+  EMLEKLAP_TEMPLATES_MAP,
+  fillTemplate,
+  type EmleklapTemplate,
+} from '@/lib/constants/emleklap-templates'
+import {
+  extractCityFromCongregationName,
+  formatHungarianDate,
+} from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
+
+// Jól látható input-stílus (felhasználói kérés alapján)
+const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
 
 interface MarriageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  congregationName?: string
   editEntry?: {
     id: number
     datum?: string
@@ -27,7 +42,7 @@ interface MarriageDialogProps {
   } | null
 }
 
-export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialogProps) {
+export function MarriageDialog({ open, onOpenChange, congregationName = '', editEntry }: MarriageDialogProps) {
   const [loading, setLoading] = useState(false)
   const [groom, setGroom] = useState<MemberSearchResult | null>(null)
   const [bride, setBride] = useState<MemberSearchResult | null>(null)
@@ -38,6 +53,7 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
   const [tanuk, setTanuk] = useState('')
   const [vegyes, setVegyes] = useState(false)
   const [megj, setMegj] = useState('')
+  const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -63,7 +79,6 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
       setGroom(null); setBride(null)
       setDatum(new Date().toISOString().slice(0, 10))
       setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMegj('')
-      // Auto-fill egyházi anyakönyvi szám
       getNextEgyhaziSzam('marriage', new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
@@ -71,9 +86,44 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
     return () => { cancelled = true }
   }, [open, editEntry])
 
-  async function handleSubmit() {
-    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return }
-    if (!datum) { toast.error('A dátum kötelező!'); return }
+  // 2026-05-29: élő esketési emléklap-preview
+  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['esketes-erek']
+
+  const fieldValues = useMemo(() => {
+    const husbandName = groom ? `${groom.csaladnev || ''} ${groom.k_nev || ''}`.trim() : ''
+    const wifeName = bride ? `${bride.csaladnev || ''} ${bride.k_nev || ''}`.trim() : ''
+    const marriageDate = datum ? formatHungarianDate(datum) + '-én' : ''
+    const issueDate = datum ? formatHungarianDate(datum) : ''
+    const issueLocation = extractCityFromCongregationName(congregationName)
+
+    const data: Record<string, string> = {
+      congregationName: congregationName || '',
+      husbandName,
+      husbandBirthPlace: '',
+      husbandBirthDate: '',
+      wifeName,
+      wifeBirthPlace: '',
+      wifeBirthDate: '',
+      marriageCongregation: congregationName ? congregationName + 'ben' : '',
+      marriageDate,
+      verseText: '',
+      verseReference: '',
+      issueLocation,
+      issueDate,
+      pastorName: (lelkesz || '').toUpperCase(),
+      wardenName: '',
+    }
+
+    const out: Record<string, string> = {}
+    for (const field of template.fields) {
+      out[field.id] = fillTemplate(field.defaultValue, data)
+    }
+    return out
+  }, [template, groom, bride, datum, lelkesz, congregationName])
+
+  async function handleSubmit(): Promise<boolean> {
+    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return false }
+    if (!datum) { toast.error('A dátum kötelező!'); return false }
     setLoading(true)
     const result = await saveMarriage({
       id: editEntry?.id,
@@ -87,59 +137,133 @@ export function MarriageDialog({ open, onOpenChange, editEntry }: MarriageDialog
       vegyes,
       megjegyzes: megj || null,
     })
-    if (result.error) toast.error(result.error)
-    else { toast.success('Házasság rögzítve!'); onOpenChange(false) }
     setLoading(false)
+    if (result.error) { toast.error(result.error); return false }
+    toast.success('Házasság rögzítve!')
+    return true
+  }
+
+  async function handleSaveOnly() {
+    const ok = await handleSubmit()
+    if (ok) onOpenChange(false)
+  }
+
+  async function handleSaveAndPrint() {
+    const ok = await handleSubmit()
+    if (!ok) return
+    handlePrint()
+    setTimeout(() => onOpenChange(false), 500)
+  }
+
+  function handlePrint() {
+    if (!printRef.current) return
+    const html = printRef.current.outerHTML
+    const win = window.open('', '_blank', 'width=900,height=1200')
+    if (!win) {
+      toast.error('A böngésző blokkolta a popup-ot.')
+      return
+    }
+    win.document.write(`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>Esketési emléklap</title>
+      <style>
+        @page { size: A4 portrait; margin: 0; }
+        html, body { margin: 0; padding: 0; background: white; }
+        body { display: flex; align-items: center; justify-content: center; }
+        .certificate-renderer { width: 210mm !important; height: 297mm !important; max-width: 210mm !important; aspect-ratio: 210/297 !important; }
+        .certificate-renderer img { width: 100% !important; height: 100% !important; }
+        @media print { html, body { width: 210mm; height: 297mm; } .certificate-renderer { box-shadow: none !important; } }
+      </style>
+    </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
+    win.document.close()
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{editEntry ? 'Házasságkötés szerkesztése' : 'Házasságkötés rögzítése'}</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Vőlegény *</Label>
-              <MemberSearchSelect value={groom} onChange={setGroom} genderFilter={true} placeholder="Vőlegény keresése (férfi)…" />
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {editEntry ? 'Házasságkötés szerkesztése' : 'Házasságkötés rögzítése'}
+            <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+              <Sparkles className="size-3.5" />
+              élő emléklap-előnézet
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+          {/* ─── BAL: űrlap ─── */}
+          <div className="space-y-3 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Vőlegény *</Label>
+                <MemberSearchSelect value={groom} onChange={setGroom} genderFilter={true} placeholder="Vőlegény keresése (férfi)…" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Menyasszony *</Label>
+                <MemberSearchSelect value={bride} onChange={setBride} genderFilter={false} placeholder="Menyasszony keresése (nő)…" />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Menyasszony *</Label>
-              <MemberSearchSelect value={bride} onChange={setBride} genderFilter={false} placeholder="Menyasszony keresése (nő)…" />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  Egyházi anyakönyvi szám
+                  <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
+                </Label>
+                <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className={`font-mono text-violet-700 ${FIELD_INPUT_CLASS}`} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Állami házassági levél</Label>
+                <Input value={hlevel} onChange={e => setHlevel(e.target.value)} placeholder="opcionális" className={FIELD_INPUT_CLASS} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Dátum *</Label>
+                <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} />
+              </div>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+              <div className="space-y-1.5"><Label>Tanúk</Label><Input value={tanuk} onChange={e => setTanuk(e.target.value)} placeholder="Tanúk neve" className={FIELD_INPUT_CLASS} /></div>
+            </div>
+            <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={vegyes} onChange={e => setVegyes(e.target.checked)} />
+              Vegyes házasság (egyik fél nem református)
+            </label>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">
-                Egyházi anyakönyvi szám
-                <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
-              </Label>
-              <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className="font-mono text-violet-700" />
+          {/* ─── JOBB: élő esketési emléklap ─── */}
+          <aside className="md:sticky md:top-0 md:self-start">
+            <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
+              <p className="text-[11px] text-amber-900 leading-relaxed">
+                <Sparkles className="size-3 inline mr-1 text-amber-600" />
+                Az esketési emléklap automatikusan kitöltődik a beírt adatokkal.
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Állami házassági levél</Label>
-              <Input value={hlevel} onChange={e => setHlevel(e.target.value)} placeholder="opcionális" />
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
+              <CertificateRenderer
+                ref={printRef}
+                template={template}
+                fieldValues={fieldValues}
+                previewWidth={360}
+                showBackground={true}
+              />
             </div>
-            <div className="space-y-1.5">
-              <Label>Dátum *</Label>
-              <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
-            </div>
-          </div>
+            <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · EREK esketési sablon</p>
+          </aside>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Tanúk</Label><Input value={tanuk} onChange={e => setTanuk(e.target.value)} placeholder="Tanúk neve" /></div>
-          </div>
-          <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} /></div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={vegyes} onChange={e => setVegyes(e.target.checked)} />
-            Vegyes házasság (egyik fél nem református)
-          </label>
-
-          <div className="flex gap-2 pt-4 border-t border-zinc-100">
-            <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
-            <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleSubmit} disabled={loading}>{loading ? 'Mentés...' : 'Mentés'}</Button>
-          </div>
+        <div className="flex flex-wrap gap-2 pt-4 border-t border-zinc-100 mt-4">
+          <Button variant="outline" className="rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
+          <div className="flex-1" />
+          <Button variant="outline" onClick={handleSaveOnly} disabled={loading} className="border-orange-300 text-orange-700 hover:bg-orange-50">
+            <Save className="size-4 mr-1.5" />
+            {loading ? 'Mentés…' : 'Mentés'}
+          </Button>
+          <Button onClick={handleSaveAndPrint} disabled={loading} className="bg-amber-600 hover:bg-amber-700 text-white">
+            <Printer className="size-4 mr-1.5" />
+            {loading ? 'Mentés…' : 'Mentés és nyomtatás'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

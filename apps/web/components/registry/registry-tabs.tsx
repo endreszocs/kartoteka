@@ -610,8 +610,8 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
 
       {/* Modal-ok */}
       <BaptismDialog open={baptismOpen} onOpenChange={closeAndRefresh} congregationName={congregationName} editEntry={editEntry} />
-      <ConfirmationDialog open={confirmationOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
-      <MarriageDialog open={marriageOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
+      <ConfirmationDialog open={confirmationOpen} onOpenChange={closeAndRefresh} congregationName={congregationName} editEntry={editEntry} />
+      <MarriageDialog open={marriageOpen} onOpenChange={closeAndRefresh} congregationName={congregationName} editEntry={editEntry} />
       <BurialDialog open={burialOpen} onOpenChange={closeAndRefresh} editEntry={editEntry} />
       <MovementDialog open={movementOpen} onOpenChange={closeAndRefresh} movementType={activeTab as 'bekoltozott' | 'elkoltozott' | 'attert' | 'kitert'} editEntry={editEntry} />
 
