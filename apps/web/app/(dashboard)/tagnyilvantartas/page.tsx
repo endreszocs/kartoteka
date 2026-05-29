@@ -23,9 +23,10 @@ export default async function TagnyilvantartasPage() {
   // 2026-05-25: a "Rendszergazdai importáló" mostantól a MemberTabsV4 belső
   // tab-listájának VÉGÉN jelenik meg (Áttekintés / Személyek / Családok /
   // Presbiterek / Körzetek / Választók / Hibák / Rendszergazdai importáló),
-  // nem külön ModuleAdminWorkspace wrapperrel a tetején. Jogosultság: god
-  // mode aktív, delegated import folyamatban, vagy aktív admin szerepkör.
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  // nem külön ModuleAdminWorkspace wrapperrel a tetején. Jogosultság:
+  // CSAK aktív god mode vagy delegated import (2026-05-29: admin szerepkör
+  // önmagában már nem mutatja — csak ha a Rendszergazdai mód be is van kapcsolva).
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-4">

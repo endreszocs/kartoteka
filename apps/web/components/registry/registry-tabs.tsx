@@ -260,9 +260,14 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
     }
   }, [activeTab, loadData])
 
-  // Hash-routing
+  // Hash-routing — sidebar Link navigációja után visszaállítjuk a tab view-t,
+  // különben a help/admin-import view tovább „ragadna" amikor a felhasználó
+  // pl. anyakonyv#konfirmalas-ra navigál.
   useEffect(() => {
-    const apply = () => setActiveTab(getTabFromHash(window.location.hash))
+    const apply = () => {
+      setActiveTab(getTabFromHash(window.location.hash))
+      setActiveView('tab')
+    }
     apply()
     const originalPushState = window.history.pushState
     const originalReplaceState = window.history.replaceState
@@ -624,6 +629,10 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
         initialType={emleklapPrefill?.type ?? emleklapTypeForActiveTab}
         initialVariant="erek"
         initialData={emleklapPrefill?.data ?? { congregationName }}
+        // 2026-05-29: ha tudjuk az aktív anyakönyvi típust (keresztelés/
+        // konfirmáció/esketés), a típus-választó eltűnik — csak az adott
+        // sablon jelenik meg, nem lehet átváltani a többire.
+        lockType={Boolean(emleklapPrefill?.type ?? emleklapTypeForActiveTab)}
       />
     </>
   )

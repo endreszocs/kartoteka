@@ -50,7 +50,7 @@ export default async function MunkanaploPage() {
   const godMode = access.master ? await getGodModeStatus() : { active: false }
   const delegatedImport = await getDelegatedImportStatus('worklog')
 
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-4">

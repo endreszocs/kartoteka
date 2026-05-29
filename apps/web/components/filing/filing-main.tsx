@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { FileText, Files } from 'lucide-react'
+import { FileText, Files, Lock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,10 +9,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
-import { getFilingEntries, saveFilingEntry, deleteFilingEntry, getFilingStats, getNextSequenceNumber } from '@/app/(dashboard)/iktato/actions'
+import {
+  getFilingEntries,
+  saveFilingEntry,
+  deleteFilingEntry,
+  getFilingStats,
+  getNextSequenceNumber,
+  closeFilingYear,
+  getYearClosure,
+} from '@/app/(dashboard)/iktato/actions'
 import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLDER_LABELS } from '@/lib/constants/filing'
-import type { FilingDirection, FilingEntry } from '@/lib/constants/filing'
-import { FILING_UGYKOROK, FILING_UGYKOROK_MAP, getRetentionForUgykor, type RetentionType } from '@/lib/constants/filing-ugykorjegyzek'
+import type { FilingDirection, FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
+import {
+  FILING_UGYKOROK,
+  FILING_UGYKOROK_MAP,
+  getRetentionForUgykor,
+  validateHivataliUt,
+  type RetentionType,
+  type HivataliUtWarning,
+} from '@/lib/constants/filing-ugykorjegyzek'
 import { toast } from 'sonner'
 import { FilingTemplatesTab } from './filing-templates-tab'
 import { ColorTabs } from '@/components/ui/color-tabs'
@@ -62,11 +77,21 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [fValaszIktatoszam, setFValaszIktatoszam] = useState('')
   const [fUgykorKod, setFUgykorKod] = useState('')
 
+  // 2026-05-29 Fázis 3: másodpéldány-flag + évvégi lezárás
+  const [fHasDuplicate, setFHasDuplicate] = useState(false)
+  const [yearClosure, setYearClosure] = useState<IktatoYearlyClosure | null>(null)
+  const [closing, setClosing] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
-    const [data, currentStats] = await Promise.all([getFilingEntries(year, direction), getFilingStats(year)])
+    const [data, currentStats, closure] = await Promise.all([
+      getFilingEntries(year, direction),
+      getFilingStats(year),
+      getYearClosure(year),
+    ])
     setEntries(data)
     setStats(currentStats)
+    setYearClosure(closure)
     setLoading(false)
   }, [direction, year])
 
@@ -125,6 +150,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       setFMellekletekSzama(entry.mellekletek_szama != null ? String(entry.mellekletek_szama) : '')
       setFValaszIktatoszam(entry.valasz_iktatoszam || '')
       setFUgykorKod(entry.ugykor_kod || '')
+      setFHasDuplicate(entry.has_duplicate ?? false)
     } else {
       setEditEntry(null)
       setFDirection('incoming')
@@ -143,9 +169,43 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       setFMellekletekSzama('')
       setFValaszIktatoszam('')
       setFUgykorKod('')
+      setFHasDuplicate(false)
       getNextSequenceNumber(year).then(setFSeqNum)
     }
     setDialogOpen(true)
+  }
+
+  // 2026-05-29 Fázis 3: hivatali út validáció (figyelmeztetés)
+  const hivataliUtWarnings: HivataliUtWarning[] = useMemo(
+    () =>
+      validateHivataliUt({
+        ugykorKod: fUgykorKod || null,
+        direction: fDirection,
+        hasDuplicate: fHasDuplicate,
+      }),
+    [fUgykorKod, fDirection, fHasDuplicate],
+  )
+
+  async function handleCloseYear() {
+    if (yearClosure) {
+      toast.error(`A ${year}-es év már lezárva (${yearClosure.closed_at?.slice(0, 10)}).`)
+      return
+    }
+    const note = window.prompt(
+      `Biztosan le szeretnéd zárni a ${year}-es iktatókönyvet?\n\nA lezárás után nem lehet új bejegyzést felvenni, és a meglévőket sem szerkeszteni. A jelenleg ${stats.total} bejegyzés végleges lesz.\n\nOpcionális zárszó:`,
+      '',
+    )
+    if (note === null) return
+    setClosing(true)
+    const result = await closeFilingYear({ year, closingNote: note || undefined })
+    if (result.error) toast.error(result.error)
+    else {
+      toast.success(
+        `A ${year}-es iktatókönyv lezárva (${result.totalEntries ?? 0} bejegyzés).`,
+      )
+      void load()
+    }
+    setClosing(false)
   }
 
   async function handleSave() {
@@ -181,6 +241,8 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       valasz_iktatoszam: fValaszIktatoszam || null,
       ugykor_kod: fUgykorKod || null,
       retention_type: retentionFromUgykor,
+      // 2026-05-29 Fázis 3
+      has_duplicate: fHasDuplicate,
     })
 
     if (result.error) toast.error(result.error)
@@ -211,11 +273,47 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         title="Iratkezelés és dokumentumkövetés"
         description="Bejövő és kimenő iratok, iktatószámok, ügyintézés és irattári besorolás egy átlátható, egységes felületen."
         pills={[
-          congregationName ? { label: congregationName, tone: 'neutral' } : undefined,
-          { label: `${filtered.length} látható irat`, tone: 'emerald' },
-          { label: `${year}. év`, tone: 'sky' },
+          congregationName ? { label: congregationName, tone: 'neutral' as const } : undefined,
+          { label: `${filtered.length} látható irat`, tone: 'emerald' as const },
+          { label: `${year}. év`, tone: 'sky' as const },
+          yearClosure ? { label: `Lezárt (${yearClosure.closed_at?.slice(0, 10)})`, tone: 'neutral' as const } : undefined,
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'sky' }[]}
+        actions={
+          activeTab === 'iratok' && !yearClosure ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCloseYear}
+              disabled={closing}
+              className="border-amber-400 text-amber-700 hover:bg-amber-50"
+            >
+              <Lock className="size-3.5 mr-1.5" />
+              {closing ? 'Lezárás folyamatban…' : `${year}-es év lezárása`}
+            </Button>
+          ) : undefined
+        }
       />
+
+      {yearClosure && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+          <Lock className="size-4 mt-0.5 shrink-0" />
+          <div>
+            <strong>A {year}-es iktatókönyv lezárt.</strong>{' '}
+            Lezárva: <span className="font-mono">{yearClosure.closed_at?.slice(0, 19).replace('T', ' ')}</span>
+            {yearClosure.total_entries_at_close != null && ` · ${yearClosure.total_entries_at_close} bejegyzés`}
+            {yearClosure.closing_note && (
+              <>
+                {' · '}
+                <em>„{yearClosure.closing_note}"</em>
+              </>
+            )}
+            <div className="text-xs mt-0.5 text-amber-800">
+              Új bejegyzés vagy módosítás nem lehetséges. A lezárás feloldása csak admin/master jogosultsággal.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 2026-05-25: ColorTabs a Hero ALATT (Tagnyilvántartás minta) — Iratok /
           Sablonok / Súgó / Rendszergazdai importáló. */}
@@ -255,6 +353,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           handleDelete={handleDelete}
           onPrintPecset={(entry) => printIktatoPecset(entry, { congregationName: congregationName || '', year })}
           onPrintIktatokonyv={() => printIktatokonyv(filtered, { congregationName: congregationName || '', year })}
+          isClosed={Boolean(yearClosure)}
         />
       )}
 
@@ -376,10 +475,59 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                 <Input value={fMegj} onChange={(event) => setFMegj(event.target.value)} />
               </div>
             </div>
+
+            {/* ─── 2026-05-29 Fázis 3: Másodpéldány-flag + hivatali út validáció ─── */}
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={fHasDuplicate}
+                  onChange={(e) => setFHasDuplicate(e.target.checked)}
+                  className="size-4"
+                />
+                <CopyIcon className="size-4 text-slate-500" />
+                Az iratnak van archivált másodpéldánya
+              </label>
+              <p className="text-[11px] text-slate-500 leading-relaxed pl-6">
+                Jellemzően jelentések, választói névjegyzékek és más felsőbb hatósághoz küldött iratok esetén pipálandó.
+                Az iktatókönyv-printen külön jelzéssel jelenik meg.
+              </p>
+
+              {hivataliUtWarnings.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                  {hivataliUtWarnings.map((w, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-1.5 text-xs ${
+                        w.severity === 'warning' ? 'text-amber-800' : 'text-slate-600'
+                      }`}
+                    >
+                      <AlertCircle className={`size-3.5 mt-0.5 shrink-0 ${w.severity === 'warning' ? 'text-amber-600' : 'text-slate-400'}`} />
+                      <span>{w.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {yearClosure && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-1.5">
+                <Lock className="size-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Ez az év (<strong>{year}</strong>) lezárva — a mentés nem fog sikerülni. Csak admin/master jogosultsággal oldható fel.
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-3">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Mégse</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Mentés...' : 'Mentés'}</Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || Boolean(yearClosure)}
+              title={yearClosure ? 'Az iktatókönyv ezen az évre lezárt.' : undefined}
+            >
+              {saving ? 'Mentés...' : 'Mentés'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -409,6 +557,8 @@ interface FilingEntriesViewProps {
   onPrintPecset?: (entry: FilingEntry) => void
   /** 2026-05-28: Iktatókönyv (9 rovat) nyomtatás call-back. */
   onPrintIktatokonyv?: () => void
+  /** 2026-05-29 Fázis 3: lezárt-e az évi iktatókönyv (az "+ Új irat" gombhoz). */
+  isClosed?: boolean
 }
 
 function FilingEntriesView({
@@ -426,6 +576,7 @@ function FilingEntriesView({
   handleDelete,
   onPrintPecset,
   onPrintIktatokonyv,
+  isClosed = false,
 }: FilingEntriesViewProps) {
   return (
     <>
@@ -458,7 +609,14 @@ function FilingEntriesView({
               Iktatókönyv nyomtatás
             </Button>
           )}
-          <Button size="sm" onClick={() => openDialog()}>+ Új irat</Button>
+          <Button
+            size="sm"
+            onClick={() => openDialog()}
+            disabled={isClosed}
+            title={isClosed ? 'Az év lezárt — nem vehető fel új bejegyzés.' : undefined}
+          >
+            + Új irat
+          </Button>
         </div>
       </div>
 

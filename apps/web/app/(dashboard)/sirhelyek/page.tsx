@@ -51,7 +51,7 @@ export default async function SirhelyekPage() {
 
   // 2026-05-25: a tabok a CemeteryMain Hero-ja ALATT jelennek meg
   // (Tagnyilvántartás minta — ModuleAdminWorkspace wrapper eltávolítva).
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-4">

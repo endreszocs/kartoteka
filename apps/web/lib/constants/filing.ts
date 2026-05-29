@@ -57,4 +57,19 @@ export interface FilingEntry {
   ugykor_kod: string | null
   /** Megőrzési típus — F.Á. (folyamatosan) vagy É.Á. (évente). */
   retention_type: string | null
+  /** 2026-05-29 (Fázis 3): jelzi, hogy van-e külön archivált másodpéldány. */
+  has_duplicate: boolean
+}
+
+/**
+ * 2026-05-29 (Fázis 3): Évvégi iktatókönyv-lezárás rekord.
+ * Egy (congregation_id, year) pár csak egyszer lehet lezárva.
+ */
+export interface IktatoYearlyClosure {
+  congregation_id: string
+  year: number
+  closed_at: string
+  closed_by_profile_id: string | null
+  closing_note: string | null
+  total_entries_at_close: number | null
 }

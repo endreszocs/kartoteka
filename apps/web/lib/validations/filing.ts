@@ -23,6 +23,9 @@ export const filingEntrySchema = z.object({
   valasz_iktatoszam: z.string().nullable().optional(),
   ugykor_kod: z.string().nullable().optional(),
   retention_type: z.enum(['F.Á.', 'É.Á.']).nullable().optional(),
+
+  // ─── 2026-05-29 Fázis 3: Workflow ───
+  has_duplicate: z.boolean().optional().default(false),
 })
 
 export type FilingEntryInput = z.infer<typeof filingEntrySchema>

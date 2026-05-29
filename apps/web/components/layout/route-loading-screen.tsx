@@ -28,7 +28,7 @@ export function RouteLoadingScreen({
       role="status"
       aria-live="polite"
       aria-label={`${module} betöltése`}
-      className="pointer-events-none fixed inset-0 z-[120] flex items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(243,192,97,0.22),transparent_18rem),radial-gradient(circle_at_top_right,rgba(49,162,150,0.18),transparent_18rem),rgba(245,250,247,0.86)] px-4 backdrop-blur-md"
+      className="pointer-events-none fixed inset-0 z-[1000] flex items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(243,192,97,0.32),transparent_18rem),radial-gradient(circle_at_top_right,rgba(49,162,150,0.26),transparent_18rem),rgba(245,250,247,0.97)] px-4 backdrop-blur-md"
     >
       <div className="flex max-w-md flex-col items-center rounded-[2rem] border border-white/75 bg-white/90 px-6 py-7 text-center shadow-[0_34px_80px_-42px_rgba(16,70,63,0.42)] sm:px-8">
         {/* Logó + pulzáló glow */}

@@ -34,17 +34,26 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 - [x] 2026-05-17 — **`2026-05-06-egyhfenntartas-import-dup-index.sql`** ✅ LEFUTOTT
        `CREATE INDEX IF NOT EXISTS idx_befizetes_egyhf_import_lookup` (5-mezős partial). Verifikáció: a `befizetescel.id_szamadasicel='101.01'` lookup visszaadta `{id: 80, nev: 'Egyházfenntartói járulék', aktiv: true}` — a downstream import-flow használhatja.
 
+- [ ] **`2026-05-29-keresztseg-alapige-oszlop.sql`** — PENDING (még nem futott)
+       Indok: Schema cache hiba "Could not find the 'alapige' column of 'keresztseg'".
+       Hatás: `ALTER TABLE keresztseg ADD COLUMN IF NOT EXISTS alapige varchar` (nullable, idempotens).
+       A baptism-dialog, registry validation és Excel-import már most is hivatkozik az oszlopra.
+
+- [ ] **`2026-05-29-iktato-fazis-3-workflow.sql`** — PENDING (még nem futott)
+       Indok: Iktató Fázis 3 — Workflow. Évvégi lezárás + másodpéldány-flag + hivatali út.
+       Hatás: (1) `iktato.has_duplicate boolean DEFAULT false` oszlop hozzáadása;
+       (2) új `iktato_yearly_closures` tábla (PK: congregation_id+year) — egy év csak egyszer zárható le;
+       (3) RLS POLICY-k a yearly_closures-re (SELECT a saját gyülekezetre, INSERT csak admin/pastor/master).
+       A `closeFilingYear` action és a UI „X-es év lezárása" gomb használja.
+       BEGIN/COMMIT csomagolva (P2-12 betartva).
+
 - [ ] **`2026-04-30k-diagnoszt-baptism-szulok.sql`** — diagnosztikai SELECT-ek a keresztelő szülő-load hibakereséséhez. Read-only, séma-érintetlen. Hardcoded `id = 1163`, cserélendő.
 
 - [ ] **`2026-04-30l-backfill-csalad-text-szulokbol.sql`** — DRY-RUN előnézet (1-3. blokk) + élő backfill (4-7. blokk, kommentelt). Az élő UPDATE/INSERT a `/* ... */` blokkban — uncomment szükséges.
 
-- [ ] **`2026-05-17-iktato-sequence-pointer-rpc.sql`** — új `iktato_sequence_pointers` tábla + `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC + backfill + partial UNIQUE INDEX a duplikátum-védelemhez. **BEGIN/COMMIT-ben van, idempotens.** A frontend `saveFilingEntry` mostantól az új RPC-t hívja az atomic sorszámért (P3-5 race-fix).
-       Futás előtti megfontolás: ha vannak már meglévő duplikátumok az `iktato`-ban (cong + year + sequence_number), az UNIQUE INDEX részt egy `DO $$ EXCEPTION` blokk lekezeli (NOTICE-ot ad, a többi tábla/RPC/policy létrejön). A duplikátumokat ellenőrző SELECT:
-       ```sql
-       SELECT congregation_id, year, sequence_number, COUNT(*)
-       FROM iktato WHERE deleted=false
-       GROUP BY 1,2,3 HAVING COUNT(*)>1;
-       ```
+- [x] 2026-05-17 — **`2026-05-17-iktato-sequence-pointer-rpc.sql`** ✅ LEFUTOTT
+       Új `iktato_sequence_pointers` tábla + `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC + backfill + partial UNIQUE INDEX (P3-5 race-fix).
+       Verifikáció: `next_iktato_sequence` ✅ OK, `search_path=public, pg_temp`, partial UNIQUE INDEX létrejött, pointer-tábla 0 sor (productionben még nincs iktato-bejegyzés). A frontend `saveFilingEntry` mostantól az RPC-t hívja az atomic sorszámért.
 
 ---
 

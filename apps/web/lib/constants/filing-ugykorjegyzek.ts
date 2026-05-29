@@ -23,6 +23,76 @@ export interface UgykorEntry {
   desc?: string
   /** Az alegységek (pl. "6.1", "6.2", ...) szülő-kódja. Csak akkor van, ha ez egy ALEGYSÉG. */
   parentKod?: string
+  /**
+   * 2026-05-29 (Fázis 3): jellemző hivatali út iránya.
+   * 'incoming' — tipikusan érkező irat (pl. felsőbb hatóságtól)
+   * 'outgoing' — tipikusan kimenő irat (pl. jelentések)
+   * 'both' — mindkét irány gyakori
+   * Csak figyelmeztetésként használjuk, nem blokkolunk.
+   */
+  routeDirection?: 'incoming' | 'outgoing' | 'both'
+  /**
+   * 2026-05-29 (Fázis 3): kötelező-e a másodpéldány.
+   * pl. jelentések, választói névjegyzékek esetén YES.
+   */
+  duplicateRequired?: boolean
+}
+
+/**
+ * 2026-05-29 (Fázis 3): a hivatali úttól való eltérést jelző figyelmeztetés.
+ */
+export interface HivataliUtWarning {
+  /** Súlyosság. 'info' = csak tájékoztatás, 'warning' = ajánlott figyelmezetetés. */
+  severity: 'info' | 'warning'
+  /** A figyelmeztetés szövege a felhasználónak. */
+  message: string
+}
+
+/**
+ * Ellenőrzi, hogy az iktatás (ügykör + irány + másodpéldány) megfelel-e
+ * az ügykörjegyzék elvárásainak. NEM blokkoló — csak tippet ad.
+ */
+export function validateHivataliUt(params: {
+  ugykorKod: string | null
+  direction: 'incoming' | 'outgoing'
+  hasDuplicate: boolean
+}): HivataliUtWarning[] {
+  const warnings: HivataliUtWarning[] = []
+  if (!params.ugykorKod) {
+    warnings.push({
+      severity: 'warning',
+      message:
+        'Nincs kiválasztva ügykör — kérlek válassz az EREK 2024-es ügykörjegyzékből, hogy a megfelelő dossziéba kerüljön.',
+    })
+    return warnings
+  }
+  const entry = FILING_UGYKOROK_MAP[params.ugykorKod]
+  if (!entry) {
+    warnings.push({
+      severity: 'warning',
+      message: `Ismeretlen ügykör-kód: ${params.ugykorKod}.`,
+    })
+    return warnings
+  }
+  // Irány-ellenőrzés
+  if (entry.routeDirection && entry.routeDirection !== 'both') {
+    if (entry.routeDirection !== params.direction) {
+      const expectedLabel = entry.routeDirection === 'incoming' ? 'érkező' : 'kimenő'
+      const actualLabel = params.direction === 'incoming' ? 'érkező' : 'kimenő'
+      warnings.push({
+        severity: 'info',
+        message: `A „${entry.nev}" ügykör jellemzően ${expectedLabel} irat, ez most ${actualLabel}. Ha biztos vagy benne, hagyd így.`,
+      })
+    }
+  }
+  // Másodpéldány-ellenőrzés
+  if (entry.duplicateRequired && !params.hasDuplicate) {
+    warnings.push({
+      severity: 'warning',
+      message: `A „${entry.nev}" ügykörnél javasolt az aláírt másodpéldány megőrzése. Pipáld be a „Másodpéldány" mezőt, ha rendelkezésre áll.`,
+    })
+  }
+  return warnings
 }
 
 /**
@@ -52,6 +122,8 @@ export const FILING_UGYKOROK: UgykorEntry[] = [
     nev: 'Jelentések',
     retention: 'F.Á.',
     desc: 'Évi lelkészi, belmissziói, ifjúsági, lélekszám- és egyéb felsőbb hatósághoz küldött jelentések aláírt másodpéldánya.',
+    routeDirection: 'outgoing',
+    duplicateRequired: true,
   },
 
   // ─── 4. Választói névjegyzékek ───
@@ -60,6 +132,8 @@ export const FILING_UGYKOROK: UgykorEntry[] = [
     nev: 'Választói névjegyzékek',
     retention: 'F.Á.',
     desc: 'A Kánon 2006. évi 1. jogszabály 37. paragrafusa szerint. Az Esperesi Hivataltól visszaérkezett hitelesített példányt és fellebbezéseket.',
+    routeDirection: 'outgoing',
+    duplicateRequired: true,
   },
 
   // ─── 5. Egyházi alkalmazottak személyi iratgyűjtője ───

@@ -103,9 +103,9 @@ export default async function PenzugyPage() {
 
   // 2026-05-25: a "Rendszergazdai importáló" fül a FinanceTabs belső tab-listájának
   // VÉGÉN jelenik meg (Súgó után, red-prominent színnel), nem külön ModuleAdminWorkspace
-  // wrapperrel a tetején. Jogosultság: god mode aktív, delegated import folyamatban,
-  // vagy aktív admin szerepkör. A Tagnyilvántartás analógiájára.
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  // wrapperrel a tetején. Jogosultság: CSAK aktív god mode vagy delegated import
+  // (2026-05-29: admin szerepkör önmagában már nem mutatja).
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-4">

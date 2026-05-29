@@ -54,7 +54,7 @@ export default async function JegyzokonyvekPage() {
   // 2026-05-25: a tabok a Hero ALATT (Tagnyilvántartás minta). A Hero a server
   // oldalon renderelődik (KPI kártyák, meghívó), majd a kliens-oldali
   // MinutesWorkspaceTabs kezeli a Súgó / Rendszergazdai importáló váltását.
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-5">

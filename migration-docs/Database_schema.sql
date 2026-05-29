@@ -11,13 +11,6 @@ CREATE TABLE public._merge_run_log (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT _merge_run_log_pkey PRIMARY KEY (id)
 );
-CREATE TABLE public._merge_v7_result (
-  phase text,
-  merged integer,
-  skipped integer,
-  first_error text,
-  ran_at timestamp with time zone DEFAULT now()
-);
 CREATE TABLE public.access_requests (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   email text NOT NULL,
@@ -161,6 +154,7 @@ CREATE TABLE public.attert (
   congregation_id uuid,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
   CONSTRAINT attert_pkey PRIMARY KEY (id),
   CONSTRAINT attert_honnanid_fk FOREIGN KEY (honnanid) REFERENCES public.adrlocality(id),
   CONSTRAINT attert_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
@@ -342,6 +336,7 @@ CREATE TABLE public.bekoltozott (
   congregation_id uuid,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
   CONSTRAINT bekoltozott_pkey PRIMARY KEY (id),
   CONSTRAINT bekoltozott_honnanid_fk FOREIGN KEY (honnanid) REFERENCES public.adrlocality(id),
   CONSTRAINT bekoltozott_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
@@ -509,6 +504,7 @@ CREATE TABLE public.congregations (
   country text DEFAULT 'Románia'::text,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  tartozas_szamitas_mod text NOT NULL DEFAULT 'akkori'::text CHECK (tartozas_szamitas_mod = ANY (ARRAY['akkori'::text, 'aktualis'::text])),
   CONSTRAINT congregations_pkey PRIMARY KEY (id),
   CONSTRAINT congregations_diocese_id_fkey FOREIGN KEY (diocese_id) REFERENCES public.dioceses(id),
   CONSTRAINT congregations_adrlocality_fk FOREIGN KEY (adrlocality_id) REFERENCES public.adrlocality(id),
@@ -810,10 +806,13 @@ CREATE TABLE public.elkoltozott (
   congregation_id uuid,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
+  hova_congregation_id uuid,
   CONSTRAINT elkoltozott_pkey PRIMARY KEY (id),
   CONSTRAINT elkoltozott_hovaid_fk FOREIGN KEY (hovaid) REFERENCES public.adrlocality(id),
   CONSTRAINT elkoltozott_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
-  CONSTRAINT elkoltozott_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
+  CONSTRAINT elkoltozott_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT elkoltozott_hova_congregation_id_fkey FOREIGN KEY (hova_congregation_id) REFERENCES public.congregations(id)
 );
 CREATE TABLE public.ertesitesek (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -826,6 +825,9 @@ CREATE TABLE public.ertesitesek (
   user_id uuid,
   hivatkozas text,
   admin_request_id uuid,
+  read_at timestamp with time zone,
+  archived boolean NOT NULL DEFAULT false,
+  archived_at timestamp with time zone,
   CONSTRAINT ertesitesek_pkey PRIMARY KEY (id),
   CONSTRAINT ertesitesek_admin_request_id_fkey FOREIGN KEY (admin_request_id) REFERENCES public.admin_access_requests(id),
   CONSTRAINT ertesitesek_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
@@ -922,6 +924,8 @@ CREATE TABLE public.hazassag (
   munkanaplo_id integer,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  vegyes boolean NOT NULL DEFAULT false,
+  egyhazi_szam text,
   CONSTRAINT hazassag_pkey PRIMARY KEY (id),
   CONSTRAINT hazassag_helyid_fk FOREIGN KEY (helyid) REFERENCES public.adrlocality(id),
   CONSTRAINT hazassag_id_ferfi_fk FOREIGN KEY (id_ferfi) REFERENCES public.szemely(id),
@@ -949,6 +953,13 @@ CREATE TABLE public.iktato (
   userid uuid,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  external_ref_szam text,
+  external_ref_kelt date,
+  beerkezes_ideje date,
+  mellekletek_szama integer,
+  valasz_iktatoszam text,
+  ugykor_kod text,
+  retention_type text CHECK (retention_type IS NULL OR (retention_type = ANY (ARRAY['F.Á.'::text, 'É.Á.'::text]))),
   CONSTRAINT iktato_pkey PRIMARY KEY (id),
   CONSTRAINT iktato_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
 );
@@ -969,6 +980,14 @@ CREATE TABLE public.iktato_sablonok (
   CONSTRAINT iktato_sablonok_pkey PRIMARY KEY (id),
   CONSTRAINT iktato_sablonok_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT iktato_sablonok_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id)
+);
+CREATE TABLE public.iktato_sequence_pointers (
+  congregation_id uuid NOT NULL,
+  year integer NOT NULL,
+  last_sequence integer NOT NULL DEFAULT 0,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT iktato_sequence_pointers_pkey PRIMARY KEY (congregation_id, year),
+  CONSTRAINT iktato_sequence_pointers_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id)
 );
 CREATE TABLE public.import_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -1069,6 +1088,8 @@ CREATE TABLE public.keresztseg (
   munkanaplo_id integer,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
+  alapige character varying,  -- 2026-05-29: keresztelői igehirdetés alapigéje
   CONSTRAINT keresztseg_pkey PRIMARY KEY (id),
   CONSTRAINT keresztseg_helyid_fk FOREIGN KEY (helyid) REFERENCES public.adrlocality(id),
   CONSTRAINT keresztseg_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
@@ -1146,6 +1167,7 @@ CREATE TABLE public.kitert (
   congregation_id uuid,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
   CONSTRAINT kitert_pkey PRIMARY KEY (id),
   CONSTRAINT kitert_hovaid_fk FOREIGN KEY (hovaid) REFERENCES public.adrlocality(id),
   CONSTRAINT kitert_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
@@ -1178,6 +1200,8 @@ CREATE TABLE public.konfirmalas (
   munkanaplo_id integer,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  okirat text,
+  egyhazi_szam text,
   CONSTRAINT konfirmalas_pkey PRIMARY KEY (id),
   CONSTRAINT konfirmalas_helyid_fk FOREIGN KEY (helyid) REFERENCES public.adrlocality(id),
   CONSTRAINT konfirmalas_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
@@ -1300,6 +1324,51 @@ CREATE TABLE public.materials (
   CONSTRAINT materials_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
   CONSTRAINT materials_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id),
   CONSTRAINT materials_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.member_transfer_notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  source_congregation_id uuid NOT NULL,
+  target_congregation_id uuid NOT NULL,
+  szemely_id integer NOT NULL,
+  elkoltozott_id integer NOT NULL,
+  member_snapshot jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  read_at timestamp with time zone,
+  responded_at timestamp with time zone,
+  responded_by uuid,
+  response_note text,
+  CONSTRAINT member_transfer_notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT member_transfer_notifications_source_congregation_id_fkey FOREIGN KEY (source_congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT member_transfer_notifications_target_congregation_id_fkey FOREIGN KEY (target_congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT member_transfer_notifications_szemely_id_fkey FOREIGN KEY (szemely_id) REFERENCES public.szemely(id),
+  CONSTRAINT member_transfer_notifications_elkoltozott_id_fkey FOREIGN KEY (elkoltozott_id) REFERENCES public.elkoltozott(id),
+  CONSTRAINT member_transfer_notifications_responded_by_fkey FOREIGN KEY (responded_by) REFERENCES auth.users(id)
+);
+CREATE TABLE public.member_validation_errors (
+  id bigint NOT NULL DEFAULT nextval('member_validation_errors_id_seq'::regclass),
+  member_id integer NOT NULL,
+  congregation_id uuid NOT NULL,
+  field_name text NOT NULL,
+  error_type text NOT NULL CHECK (error_type = ANY (ARRAY['missing'::text, 'format'::text, 'logic'::text, 'duplicate'::text])),
+  error_message text NOT NULL,
+  severity text NOT NULL CHECK (severity = ANY (ARRAY['critical'::text, 'medium'::text, 'warning'::text])),
+  status text NOT NULL DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'resolved'::text, 'ignored'::text])),
+  duplicate_of_member_id integer,
+  detected_at timestamp with time zone NOT NULL DEFAULT now(),
+  resolved_at timestamp with time zone,
+  resolved_by uuid,
+  ignored_at timestamp with time zone,
+  ignored_by uuid,
+  ignored_reason text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT member_validation_errors_pkey PRIMARY KEY (id),
+  CONSTRAINT member_validation_errors_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES auth.users(id),
+  CONSTRAINT member_validation_errors_ignored_by_fkey FOREIGN KEY (ignored_by) REFERENCES auth.users(id),
+  CONSTRAINT member_validation_errors_member_id_fkey FOREIGN KEY (member_id) REFERENCES public.szemely(id),
+  CONSTRAINT member_validation_errors_congregation_id_fkey FOREIGN KEY (congregation_id) REFERENCES public.congregations(id),
+  CONSTRAINT member_validation_errors_duplicate_of_member_id_fkey FOREIGN KEY (duplicate_of_member_id) REFERENCES public.szemely(id)
 );
 CREATE TABLE public.mm_bookmarks (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -1670,6 +1739,20 @@ CREATE TABLE public.pastor_profiles (
   CONSTRAINT pastor_profiles_pkey PRIMARY KEY (user_id),
   CONSTRAINT pastor_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
+CREATE TABLE public.pastor_service_history (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  hely text NOT NULL,
+  szerep text,
+  ev_tol integer CHECK (ev_tol IS NULL OR ev_tol >= 1900 AND ev_tol <= 2100),
+  ev_ig integer,
+  megjegyzes text,
+  sorrend integer DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT pastor_service_history_pkey PRIMARY KEY (id),
+  CONSTRAINT pastor_service_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
 CREATE TABLE public.presbiter (
   id integer NOT NULL DEFAULT nextval('presbiter_id_seq'::regclass),
   id_szemely integer NOT NULL,
@@ -1996,7 +2079,7 @@ CREATE TABLE public.system_broadcasts (
   recipient_count integer NOT NULL DEFAULT 0,
   release_version text,
   release_category text CHECK (release_category IS NULL OR (release_category = ANY (ARRAY['bugfix'::text, 'feature'::text, 'improvement'::text, 'security'::text, 'breaking'::text]))),
-  release_changelog_key text UNIQUE,
+  release_changelog_key text,
   CONSTRAINT system_broadcasts_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.system_finance_costs (
@@ -2122,6 +2205,7 @@ CREATE TABLE public.temetes (
   munkanaplo_id integer,
   revision bigint NOT NULL DEFAULT 0,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  egyhazi_szam text,
   CONSTRAINT temetes_pkey PRIMARY KEY (id),
   CONSTRAINT temetes_id_szemely_fk FOREIGN KEY (id_szemely) REFERENCES public.szemely(id),
   CONSTRAINT temetes_hhelyid_fk FOREIGN KEY (hhelyid) REFERENCES public.adrlocality(id),

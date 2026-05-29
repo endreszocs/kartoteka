@@ -20,7 +20,7 @@ export default async function AnyakonyvPage() {
 
   // 2026-05-25: a Súgó és Rendszergazdai importáló tabok a RegistryTabs belső
   // tab-listájának VÉGÉN (Tagnyilvántartás / Pénzügy minta).
-  const showAdminImport = godMode.active || delegatedImport.active || access.admin
+  const showAdminImport = godMode.active || delegatedImport.active
 
   return (
     <div className="space-y-4">

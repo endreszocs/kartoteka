@@ -10,6 +10,11 @@ interface EmleklapDialogProps {
   initialType?: EmleklapType
   initialVariant?: 'erek' | 'kerek'
   initialData?: Record<string, string | undefined>
+  /** Ha true, a stúdió ahhoz a sablon-típushoz van rögzítve, amivel megnyílt
+   *  (a típus-választó eltűnik). Defaults to true — a dialog mindig egy konkrét
+   *  anyakönyvi kontextusból nyílik. A keresztelés tabról nyitva csak
+   *  keresztelő látszik, konfirmáció tabról csak konfirmáció, stb. */
+  lockType?: boolean
 }
 
 export function EmleklapDialog({
@@ -18,6 +23,7 @@ export function EmleklapDialog({
   initialType,
   initialVariant,
   initialData,
+  lockType = true,
 }: EmleklapDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -31,6 +37,7 @@ export function EmleklapDialog({
           initialVariant={initialVariant}
           initialData={initialData}
           onClose={() => onOpenChange(false)}
+          lockType={lockType}
         />
       </DialogContent>
     </Dialog>

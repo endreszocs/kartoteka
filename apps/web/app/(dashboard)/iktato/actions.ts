@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { filingEntrySchema, type FilingEntryInput } from '@/lib/validations/filing'
-import type { FilingEntry } from '@/lib/constants/filing'
+import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
 async function getCongId() {
@@ -39,6 +39,20 @@ export async function saveFilingEntry(data: FilingEntryInput) {
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const d = parsed.data
   const year = new Date(d.kelt).getFullYear()
+
+  // 2026-05-29 Fázis 3: lezárt évre tilos új bejegyzést felvenni vagy meglévőt módosítani.
+  const { data: closure } = await supabase
+    .from('iktato_yearly_closures')
+    .select('closed_at')
+    .eq('congregation_id', congId)
+    .eq('year', year)
+    .maybeSingle()
+  if (closure) {
+    return {
+      error: `A ${year}-es iktatókönyv ${closure.closed_at?.slice(0, 10)} óta lezárt — nem lehet új bejegyzést felvenni vagy módosítani. Lezárás feloldása csak admin/master jogosultsággal lehetséges.`,
+    }
+  }
+
   const record: Record<string, unknown> = {
     direction: d.direction, kelt: d.kelt, subject: d.subject,
     sender_or_recipient: d.sender_or_recipient || null,
@@ -54,6 +68,8 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     valasz_iktatoszam: d.valasz_iktatoszam || null,
     ugykor_kod: d.ugykor_kod || null,
     retention_type: d.retention_type || null,
+    // 2026-05-29 Fázis 3: másodpéldány-flag
+    has_duplicate: d.has_duplicate ?? false,
   }
   if (d.id) {
     const { error } = await supabase.from('iktato').update(record).eq('id', d.id).eq('congregation_id', congId)
@@ -101,4 +117,86 @@ export async function getFilingStats(year: number) {
     outgoing: entries.filter((e: { direction: string }) => e.direction === 'outgoing').length,
     pending: entries.filter((e: { elintezes_ideje: string | null }) => !e.elintezes_ideje).length,
   }
+}
+
+// ─── 2026-05-29 Fázis 3: Évvégi iktatókönyv-lezárás ─────────────────────
+
+/** Az aktuális gyülekezetre vonatkozó összes évzárás. */
+export async function getYearlyClosures(): Promise<IktatoYearlyClosure[]> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return []
+  const { data } = await supabase
+    .from('iktato_yearly_closures')
+    .select('*')
+    .eq('congregation_id', congId)
+    .order('year', { ascending: false })
+  return (data || []) as IktatoYearlyClosure[]
+}
+
+/** Egy adott évre vonatkozó lezárás (ha létezik). */
+export async function getYearClosure(year: number): Promise<IktatoYearlyClosure | null> {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return null
+  const { data } = await supabase
+    .from('iktato_yearly_closures')
+    .select('*')
+    .eq('congregation_id', congId)
+    .eq('year', year)
+    .maybeSingle()
+  return (data as IktatoYearlyClosure | null) ?? null
+}
+
+/**
+ * Évvégi lezárás. A megadott évre vonatkozóan lezárja az iktatókönyvet —
+ * onnantól se új bejegyzést, se módosítást nem fogad el a `saveFilingEntry`.
+ * Csak a folyó év vagy korábbi év zárható le (jövőre vonatkozó lezárás tilos).
+ */
+export async function closeFilingYear(params: { year: number; closingNote?: string }) {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const currentYear = new Date().getFullYear()
+  if (params.year > currentYear) {
+    return { error: `Jövőre vonatkozó évvégi lezárás nem engedélyezett (${params.year} > ${currentYear}).` }
+  }
+  const existing = await getYearClosure(params.year)
+  if (existing) {
+    return { error: `A ${params.year}-es év már lezárva (${existing.closed_at?.slice(0, 10)}).` }
+  }
+  // A lezárás pillanatában lévő bejegyzések száma — audit-célból tároljuk.
+  const { data: countData } = await supabase
+    .from('iktato')
+    .select('id', { count: 'exact', head: true })
+    .eq('congregation_id', congId)
+    .eq('year', params.year)
+    .eq('deleted', false)
+  const totalEntries = (countData as unknown as { count?: number })?.count ?? null
+
+  const { error } = await supabase.from('iktato_yearly_closures').insert([
+    {
+      congregation_id: congId,
+      year: params.year,
+      closing_note: params.closingNote || null,
+      total_entries_at_close: totalEntries,
+    },
+  ])
+  if (error) return { error: `Lezárás sikertelen: ${error.message}` }
+  revalidatePath('/iktato')
+  return { success: true, totalEntries }
+}
+
+/**
+ * Évvégi lezárás feloldása. Csak god mode / admin használhatja (a UI gating
+ * + RLS POLICY együtt biztosítja). Ha a frontend hív, az RLS dönti el.
+ */
+export async function reopenFilingYear(year: number) {
+  const { supabase, congId } = await getCongId()
+  if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { error } = await supabase
+    .from('iktato_yearly_closures')
+    .delete()
+    .eq('congregation_id', congId)
+    .eq('year', year)
+  if (error) return { error: `Feloldás sikertelen: ${error.message}` }
+  revalidatePath('/iktato')
+  return { success: true }
 }

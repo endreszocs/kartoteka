@@ -1,37 +1,84 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
-import { Printer, RotateCcw } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Printer,
+  RotateCcw,
+  Upload,
+  Trash2,
+  ImageOff,
+  Image as ImageIcon,
+  Eraser,
+  RotateCw,
+  Ruler,
+  Copy,
+  Pencil,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   EMLEKLAP_TEMPLATES,
   EMLEKLAP_SAMPLE_DATA,
+  fillTemplate,
   type EmleklapTemplate,
   type EmleklapType,
 } from '@/lib/constants/emleklap-templates'
-import { CertificateRenderer } from './certificate-renderer'
+import { CertificateRenderer, type OverlayImage, type FieldOverride } from './certificate-renderer'
+import { fileToDataUrl, removeWhiteBackground } from '@/lib/utils/image-bg-remove'
 
 /**
- * Emléklap-stúdió: a 6 sablon közül választás + adat-űrlap + élő előnézet +
- * print/PDF export.
+ * Anyakönyvi emléklap-stúdió (2026-05-29 átdolgozás).
  *
- * Használat az Anyakönyv modulból: a megfelelő sablon-típus (`kereszteles` /
- * `esketes` / `konfirmacio`) átadható, és a sablon adatai (pl. személy neve,
- * születési dátum) `initialData` propként előtöltődnek a anyakönyvi
- * bejegyzésből.
+ * UX-elv: a lelkész a kész emléklap-vásznon közvetlenül kattintva tudja
+ * szerkeszteni a szövegeket — nincs külön „űrlap" oldal. A felül lévő toolbar
+ * a sablon-választást, háttér-toggle-t és a nyomtatást vezérli, a jobb oldalon
+ * pedig csak a képi rétegek (pecsét, aláírások) kerülnek.
  */
 
 interface CertificateGeneratorProps {
-  /** Alapértelmezett típus (anyakönyvi bejegyzés alapján). */
   initialType?: EmleklapType
-  /** Alapértelmezett variáns. */
   initialVariant?: 'erek' | 'kerek'
-  /** Az anyakönyvi bejegyzésből származó adatok (a placeholder-helyettesítéshez). */
   initialData?: Record<string, string | undefined>
-  /** Vissza-callback (pl. dialog bezárás). */
   onClose?: () => void
+  /** Ha true, a típus-választó rejtve van — a stúdió a megnyitáskor kapott
+   *  típushoz van rögzítve (pl. ha az anyakönyv „keresztelés" tabjáról nyílt). */
+  lockType?: boolean
+}
+
+interface OverlaySlot {
+  id: 'seal' | 'pastorSignature' | 'wardenSignature'
+  label: string
+  defaultX: number
+  defaultY: number
+  defaultWidth: number
+  allowRotate: boolean
+}
+
+const OVERLAY_SLOTS: OverlaySlot[] = [
+  { id: 'pastorSignature', label: 'Lelkipásztor aláírása', defaultX: 10, defaultY: 76, defaultWidth: 22, allowRotate: false },
+  { id: 'wardenSignature', label: 'Gondnok aláírása', defaultX: 68, defaultY: 76, defaultWidth: 22, allowRotate: false },
+  { id: 'seal', label: 'Pecsét', defaultX: 40, defaultY: 75, defaultWidth: 20, allowRotate: true },
+]
+
+/** Adat-objektum normalizálása: undefined → '' (a fillTemplate erre számít). */
+function normalizeData(data: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (v != null) out[k] = v
+  }
+  return out
+}
+
+/** Adott sablonra az alap szövegértékek (placeholder → adat behelyettesítés). */
+function buildInitialFieldValues(
+  template: EmleklapTemplate,
+  data: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const field of template.fields) {
+    out[field.id] = fillTemplate(field.defaultValue, data)
+  }
+  return out
 }
 
 export function CertificateGenerator({
@@ -39,47 +86,155 @@ export function CertificateGenerator({
   initialVariant = 'erek',
   initialData,
   onClose,
+  lockType = false,
 }: CertificateGeneratorProps) {
-  // Az aktív sablon a típus + variáns alapján
   const [selectedType, setSelectedType] = useState<EmleklapType>(initialType)
   const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek'>(initialVariant)
+  const [showBackground, setShowBackground] = useState(true)
+  const [overlays, setOverlays] = useState<OverlayImage[]>([])
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const [showCalibration, setShowCalibration] = useState(false)
+  const [calibrationMode, setCalibrationMode] = useState(false)
+  const [activeFieldId, setActiveFieldId] = useState<string | null>(null)
+  const [fieldOverrides, setFieldOverrides] = useState<Record<string, FieldOverride>>({})
 
   const activeTemplate: EmleklapTemplate = useMemo(() => {
     const id = `${selectedType === 'konfirmacio' ? 'konfirmacio' : selectedType}-${selectedVariant}`
     return EMLEKLAP_TEMPLATES.find((t) => t.id === id) ?? EMLEKLAP_TEMPLATES[0]
   }, [selectedType, selectedVariant])
 
-  // Adat-state — az aktív sablon mezőinek megfelelő alapértékek + initialData
-  const [data, setData] = useState<Record<string, string>>(() => {
-    const fromSample = EMLEKLAP_SAMPLE_DATA[selectedType] ?? {}
-    const merged: Record<string, string> = { ...fromSample }
-    if (initialData) {
-      for (const [k, v] of Object.entries(initialData)) {
-        if (v != null) merged[k] = v
-      }
-    }
-    return merged
+  // Sablon-váltáskor az új sablon mezőinek alapértékeit építjük (placeholder feloldva)
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
+    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    return buildInitialFieldValues(activeTemplate, merged)
   })
 
-  function resetToSample() {
-    const fromSample = EMLEKLAP_SAMPLE_DATA[selectedType] ?? {}
-    setData({ ...fromSample })
-  }
+  // Sablon-váltáskor reset
+  useEffect(() => {
+    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    setFieldValues(buildInitialFieldValues(activeTemplate, merged))
+    setFieldOverrides({})
+    setActiveFieldId(null)
+  }, [activeTemplate.id, selectedType, initialData])
 
-  // A sablon mezői által hivatkozott placeholder-kulcsok (egyedi, sorrendben)
-  const placeholderKeys = useMemo(() => {
-    const keys = new Set<string>()
-    for (const field of activeTemplate.fields) {
-      const matches = field.defaultValue.matchAll(/\{\{(\w+)\}\}/g)
-      for (const m of matches) keys.add(m[1])
-    }
-    return Array.from(keys)
-  }, [activeTemplate])
+  function resetToSample() {
+    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    setFieldValues(buildInitialFieldValues(activeTemplate, merged))
+  }
 
   const printRef = useRef<HTMLDivElement>(null)
 
+  // ─── Mezőszöveg-szerkesztés ─────────────────────────────────────────────
+  function handleFieldEdit(fieldId: string, newText: string) {
+    setFieldValues((prev) => ({ ...prev, [fieldId]: newText }))
+  }
+
+  // ─── Overlay-kezelők ─────────────────────────────────────────────────────
+  async function handleUpload(slot: OverlaySlot, file: File) {
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      setOverlays((prev) => {
+        const others = prev.filter((o) => o.id !== slot.id)
+        return [
+          ...others,
+          { id: slot.id, src: dataUrl, x: slot.defaultX, y: slot.defaultY, width: slot.defaultWidth, rotation: 0 },
+        ]
+      })
+    } catch (err) {
+      alert((err as Error).message)
+    }
+  }
+
+  async function handleRemoveBg(id: string) {
+    const overlay = overlays.find((o) => o.id === id)
+    if (!overlay) return
+    setProcessingId(id)
+    try {
+      const processed = await removeWhiteBackground(overlay.src)
+      setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, src: processed } : o)))
+    } catch (err) {
+      alert((err as Error).message)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  function handleRemoveOverlay(id: string) {
+    setOverlays((prev) => prev.filter((o) => o.id !== id))
+  }
+
+  function handleOverlayDrag(id: string, newX: number, newY: number) {
+    setOverlays((prev) =>
+      prev.map((o) =>
+        o.id === id ? { ...o, x: Math.max(0, Math.min(100, newX)), y: Math.max(0, Math.min(100, newY)) } : o,
+      ),
+    )
+  }
+
+  function handleOverlayResize(id: string, width: number) {
+    setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, width } : o)))
+  }
+
+  function handleOverlayRotate(id: string, rotation: number) {
+    setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, rotation } : o)))
+  }
+
+  // ─── Mező-kalibráció (rejtett fejlesztői felület) ────────────────────────
+  function getFieldEffective(fieldId: string) {
+    const field = activeTemplate.fields.find((f) => f.id === fieldId)
+    if (!field) return null
+    const ov = fieldOverrides[fieldId]
+    return {
+      x: ov?.x ?? field.x,
+      y: ov?.y ?? field.y,
+      width: ov?.width ?? field.width,
+      fontSize: ov?.fontSize ?? field.fontSize,
+    }
+  }
+
+  function setFieldValue(fieldId: string, key: keyof FieldOverride, value: number) {
+    setFieldOverrides((prev) => ({ ...prev, [fieldId]: { ...prev[fieldId], [key]: value } }))
+  }
+
+  function handleFieldDrag(fieldId: string, newX: number, newY: number) {
+    const clampedX = Math.max(0, Math.min(100, newX))
+    const clampedY = Math.max(0, Math.min(100, newY))
+    setFieldOverrides((prev) => ({ ...prev, [fieldId]: { ...prev[fieldId], x: clampedX, y: clampedY } }))
+  }
+
+  function resetFieldOverride(fieldId: string) {
+    setFieldOverrides((prev) => {
+      const { [fieldId]: _omit, ...rest } = prev
+      return rest
+    })
+  }
+
+  function resetAllOverrides() {
+    setFieldOverrides({})
+  }
+
+  async function copyOverridesJson() {
+    const effective = activeTemplate.fields.map((f) => {
+      const ov = fieldOverrides[f.id]
+      return {
+        id: f.id,
+        x: Number((ov?.x ?? f.x).toFixed(2)),
+        y: Number((ov?.y ?? f.y).toFixed(2)),
+        width: Number((ov?.width ?? f.width).toFixed(2)),
+        fontSize: Number((ov?.fontSize ?? f.fontSize).toFixed(2)),
+      }
+    })
+    const json = JSON.stringify({ templateId: activeTemplate.id, fields: effective }, null, 2)
+    try {
+      await navigator.clipboard.writeText(json)
+      alert(`Vágólapra másolva (${effective.length} mező).`)
+    } catch {
+      console.log(json)
+      alert('Vágólapra másolás sikertelen — a JSON a konzolba került.')
+    }
+  }
+
   function handlePrint() {
-    // A renderert új ablakba másoljuk és kinyomtatjuk
     if (!printRef.current) return
     const html = printRef.current.outerHTML
     const win = window.open('', '_blank', 'width=900,height=1200')
@@ -94,6 +249,7 @@ export function CertificateGenerator({
         body { display: flex; align-items: center; justify-content: center; }
         .certificate-renderer { width: 210mm !important; height: 297mm !important; max-width: 210mm !important; aspect-ratio: 210/297 !important; }
         .certificate-renderer img { width: 100% !important; height: 100% !important; }
+        .editable-field { outline: none !important; }
         @media print {
           html, body { width: 210mm; height: 297mm; }
           .certificate-renderer { box-shadow: none !important; }
@@ -103,115 +259,322 @@ export function CertificateGenerator({
     win.document.close()
   }
 
+  const activeFieldInfo = activeFieldId ? getFieldEffective(activeFieldId) : null
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
-      {/* ─── Bal panel: szerkesztő űrlap ─── */}
-      <aside className="card-raised p-4 lg:max-h-[80vh] lg:overflow-y-auto">
-        <h3 className="font-heading text-lg text-slate-800">Emléklap szerkesztő</h3>
+    <div className="flex flex-col gap-3">
+      {/* ─── Felső toolbar ─── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center gap-1.5">
+          <Pencil className="size-3.5 text-slate-400" />
+          <span className="text-xs font-medium text-slate-600">Sablon:</span>
+        </div>
+        {lockType ? (
+          // Rögzített típus — pl. ha az anyakönyv „keresztelés" tabjáról nyílt meg
+          // a stúdió, ne lehessen átváltani konfirmáció/esketés sablonra.
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-700">
+            {selectedType === 'kereszteles'
+              ? 'Keresztelői emléklap'
+              : selectedType === 'esketes'
+                ? 'Házasságkötési emléklap'
+                : 'Konfirmációi emléklap'}
+          </span>
+        ) : (
+          <select
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value as EmleklapType)}
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+          >
+            <option value="kereszteles">Keresztelői emléklap</option>
+            <option value="esketes">Házasságkötési emléklap</option>
+            <option value="konfirmacio">Konfirmációi emléklap</option>
+          </select>
+        )}
 
-        {/* Sablon-választó */}
-        <div className="mt-4 space-y-3">
-          <div>
-            <Label className="text-xs">Sablon típusa</Label>
-            <select
-              value={selectedType}
-              onChange={(e) => {
-                const next = e.target.value as EmleklapType
-                setSelectedType(next)
-                // Adatokat újratöltjük az új típus mintájával
-                const fromSample = EMLEKLAP_SAMPLE_DATA[next] ?? {}
-                setData({ ...fromSample })
-              }}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="kereszteles">Keresztelői emléklap</option>
-              <option value="esketes">Házasságkötési emléklap</option>
-              <option value="konfirmacio">Konfirmációi emléklap</option>
-            </select>
-          </div>
-
-          <div>
-            <Label className="text-xs">Egyházkerület-variáns</Label>
-            <div className="mt-1 flex gap-2">
-              <Button
-                type="button"
-                variant={selectedVariant === 'erek' ? 'default' : 'outline'}
-                size="sm"
-                className="flex-1"
-                onClick={() => setSelectedVariant('erek')}
-              >
-                EREK
-              </Button>
-              <Button
-                type="button"
-                variant={selectedVariant === 'kerek' ? 'default' : 'outline'}
-                size="sm"
-                className="flex-1"
-                onClick={() => setSelectedVariant('kerek')}
-              >
-                KEREK
-              </Button>
-            </div>
-          </div>
+        <div className="ml-1 flex gap-1 rounded-md bg-slate-100 p-0.5">
+          <button
+            type="button"
+            onClick={() => setSelectedVariant('erek')}
+            className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+          >
+            EREK
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedVariant('kerek')}
+            className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+          >
+            KEREK
+          </button>
         </div>
 
-        {/* Placeholder-mezők */}
-        <div className="mt-5 space-y-3 border-t border-slate-200 pt-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Változó adatok
-            </p>
-            <Button type="button" variant="ghost" size="sm" onClick={resetToSample} className="h-7 px-2 text-xs">
-              <RotateCcw className="size-3 mr-1" />
-              Minta-adatok
-            </Button>
-          </div>
-          {placeholderKeys.length === 0 ? (
-            <p className="text-xs text-slate-500">A sablon nem tartalmaz placeholder-mezőket.</p>
-          ) : (
-            placeholderKeys.map((key) => (
-              <div key={key}>
-                <Label className="text-xs" htmlFor={`f-${key}`}>{key}</Label>
-                <Input
-                  id={`f-${key}`}
-                  value={data[key] ?? ''}
-                  onChange={(e) => setData({ ...data, [key]: e.target.value })}
-                  placeholder={`{{${key}}}`}
-                  className="mt-1 h-8 text-sm"
-                />
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="mt-5 flex flex-col gap-2 border-t border-slate-200 pt-4">
-          <Button type="button" onClick={handlePrint} className="bg-teal-600 hover:bg-teal-700">
-            <Printer className="size-4 mr-1.5" />
-            Nyomtatás / PDF-export
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBackground((s) => !s)}
+            className="h-8 px-2.5 text-xs"
+            title={showBackground ? 'Háttér elrejtése' : 'Háttér megjelenítése'}
+          >
+            {showBackground ? <ImageIcon className="size-3.5" /> : <ImageOff className="size-3.5" />}
+            <span className="ml-1.5 hidden sm:inline">Háttér</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={resetToSample}
+            className="h-8 px-2.5 text-xs"
+            title="Szövegek visszaállítása az alap-adatokra"
+          >
+            <RotateCcw className="size-3.5" />
+            <span className="ml-1.5 hidden sm:inline">Alaphelyzet</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handlePrint}
+            className="h-8 px-3 text-xs bg-teal-600 hover:bg-teal-700"
+          >
+            <Printer className="size-3.5 mr-1.5" />
+            Nyomtatás
           </Button>
           {onClose && (
-            <Button type="button" variant="outline" onClick={onClose}>
-              Bezárás
+            <Button type="button" variant="ghost" size="sm" onClick={onClose} className="h-8 px-2" title="Bezárás">
+              <X className="size-3.5" />
             </Button>
           )}
         </div>
-      </aside>
+      </div>
 
-      {/* ─── Jobb panel: élő előnézet ─── */}
-      <main className="flex flex-col items-center justify-start gap-3">
-        <p className="text-xs text-slate-500">Élő előnézet — a változó adatok azonnal frissülnek</p>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-inner">
-          <CertificateRenderer
-            ref={printRef}
-            template={activeTemplate}
-            data={data}
-            previewWidth={520}
-          />
-        </div>
-        <p className="text-xs text-slate-400">
-          A4 álló · {activeTemplate.fields.length} szövegréteg
-        </p>
-      </main>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px]">
+        {/* ─── Fő terület: emléklap-vászon ─── */}
+        <main className="flex flex-col items-center justify-start gap-2">
+          <p className="text-xs text-slate-500 text-center">
+            <Pencil className="size-3 inline mr-1" />
+            A szövegekre kattintva közvetlenül szerkesztheted őket az emléklapon. A pecsét/aláírás képeket egérrel húzhatod.
+          </p>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-inner">
+            <CertificateRenderer
+              ref={printRef}
+              template={activeTemplate}
+              fieldValues={fieldValues}
+              previewWidth={560}
+              showBackground={showBackground}
+              overlays={overlays}
+              onOverlayDrag={handleOverlayDrag}
+              editable={!calibrationMode}
+              onFieldEdit={handleFieldEdit}
+              calibrationMode={calibrationMode}
+              activeFieldId={activeFieldId}
+              fieldOverrides={fieldOverrides}
+              onFieldSelect={setActiveFieldId}
+              onFieldDrag={handleFieldDrag}
+            />
+          </div>
+          <p className="text-[11px] text-slate-400">
+            A4 álló · {activeTemplate.fields.length} szövegréteg · {overlays.length} képréteg
+          </p>
+
+          {/* Rejtett kalibrációs panel (fejlesztői használatra) */}
+          <div className="w-full max-w-xl mt-2">
+            <button
+              type="button"
+              onClick={() => setShowCalibration((s) => !s)}
+              className="text-[10px] text-slate-400 hover:text-slate-600 underline"
+            >
+              {showCalibration ? '▴ Kalibrációs eszközök elrejtése' : '▾ Pixelpontos kalibráció (fejlesztői)'}
+            </button>
+            {showCalibration && (
+              <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <Ruler className="size-3.5" />
+                    <span className="font-medium">Kalibrációs mód</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant={calibrationMode ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCalibrationMode((m) => !m)}
+                    className="h-6 px-2 text-[11px]"
+                  >
+                    {calibrationMode ? 'BE' : 'KI'}
+                  </Button>
+                </div>
+                {calibrationMode && (
+                  <>
+                    <select
+                      value={activeFieldId ?? ''}
+                      onChange={(e) => setActiveFieldId(e.target.value || null)}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1 text-[11px]"
+                    >
+                      <option value="">— válassz mezőt —</option>
+                      {activeTemplate.fields.map((f) => (
+                        <option key={f.id} value={f.id}>{f.id} ({f.label})</option>
+                      ))}
+                    </select>
+                    {activeFieldInfo && activeFieldId && (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <CalibInput label="X" value={activeFieldInfo.x} step={0.1} onChange={(v) => setFieldValue(activeFieldId, 'x', v)} />
+                        <CalibInput label="Y" value={activeFieldInfo.y} step={0.1} onChange={(v) => setFieldValue(activeFieldId, 'y', v)} />
+                        <CalibInput label="W" value={activeFieldInfo.width} step={0.5} onChange={(v) => setFieldValue(activeFieldId, 'width', v)} />
+                        <CalibInput label="Font" value={activeFieldInfo.fontSize} step={0.05} onChange={(v) => setFieldValue(activeFieldId, 'fontSize', v)} />
+                      </div>
+                    )}
+                    <div className="flex gap-1.5">
+                      {activeFieldId && (
+                        <Button type="button" variant="outline" size="sm" onClick={() => resetFieldOverride(activeFieldId)} className="h-6 px-2 text-[10px] flex-1">
+                          Mező vissza
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={resetAllOverrides} className="h-6 px-2 text-[10px] flex-1">
+                        Mind vissza
+                      </Button>
+                      <Button type="button" size="sm" onClick={copyOverridesJson} className="h-6 px-2 text-[10px] flex-1 bg-emerald-600 hover:bg-emerald-700">
+                        <Copy className="size-3 mr-1" />
+                        JSON
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* ─── Jobb oldal: pecsét + aláírás-feltöltések ─── */}
+        <aside className="space-y-2.5 lg:max-h-[78vh] lg:overflow-y-auto lg:pr-1">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Képi rétegek
+            </h4>
+            <p className="text-[11px] leading-relaxed text-slate-500 mb-3">
+              Töltsd fel a szkennelt pecsétet vagy aláírást. Az emléklap-vásznon egérrel húzhatod a helyére.
+            </p>
+
+            {OVERLAY_SLOTS.map((slot) => {
+              const current = overlays.find((o) => o.id === slot.id)
+              return (
+                <div key={slot.id} className="rounded-md border border-slate-200 p-2.5 space-y-2 mb-2 last:mb-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-700">{slot.label}</span>
+                    {current && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveOverlay(slot.id)}
+                        className="text-slate-400 hover:text-red-600"
+                        title="Eltávolítás"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {!current ? (
+                    <label className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600 cursor-pointer hover:bg-slate-100">
+                      <Upload className="size-3.5" />
+                      Kép feltöltése
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleUpload(slot, file)
+                          e.target.value = ''
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={current.src}
+                          alt=""
+                          className="h-8 w-8 rounded border border-slate-200 bg-white object-contain"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRemoveBg(slot.id)}
+                          disabled={processingId === slot.id}
+                          className="h-7 px-2 text-[11px] flex-1"
+                        >
+                          <Eraser className="size-3 mr-1" />
+                          {processingId === slot.id ? 'Folyamatban…' : 'Háttér el'}
+                        </Button>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 flex items-center justify-between">
+                          <span>Méret</span>
+                          <span className="font-mono">{current.width.toFixed(0)}%</span>
+                        </label>
+                        <input
+                          type="range"
+                          min={5}
+                          max={50}
+                          step={0.5}
+                          value={current.width}
+                          onChange={(e) => handleOverlayResize(slot.id, Number(e.target.value))}
+                          className="w-full"
+                        />
+                      </div>
+                      {slot.allowRotate && (
+                        <div>
+                          <label className="text-[10px] text-slate-500 flex items-center justify-between">
+                            <span className="flex items-center gap-1"><RotateCw className="size-2.5" /> Forgatás</span>
+                            <span className="font-mono">{(current.rotation ?? 0).toFixed(0)}°</span>
+                          </label>
+                          <input
+                            type="range"
+                            min={-180}
+                            max={180}
+                            step={1}
+                            value={current.rotation ?? 0}
+                            onChange={(e) => handleOverlayRotate(slot.id, Number(e.target.value))}
+                            className="w-full"
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+            <p className="text-[11px] leading-relaxed text-amber-900">
+              <strong>💡 Tipp:</strong> A változó szövegek (név, dátum, hely, lelkipásztor neve…) közvetlenül a vásznon szerkeszthetőek — kattints rá, és gépeld be a helyes adatot. Enter-rel kiléphetsz a mezőből.
+            </p>
+          </div>
+        </aside>
+      </div>
     </div>
+  )
+}
+
+interface CalibInputProps {
+  label: string
+  value: number
+  step: number
+  onChange: (v: number) => void
+}
+
+function CalibInput({ label, value, step, onChange }: CalibInputProps) {
+  return (
+    <label className="flex items-center gap-1 text-[10px] text-slate-600">
+      <span className="font-mono w-5">{label}</span>
+      <input
+        type="number"
+        value={value}
+        step={step}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1 rounded border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-[10px]"
+      />
+    </label>
   )
 }
