@@ -85,8 +85,10 @@ CREATE POLICY "Users can create yearly closures for their congregation"
 -- csak admin/master beavatkozással bontható fel (god mode / kézi DB-műveletek).
 
 -- ─── 4. Verifikáció ──────────────────────────────────────────────────────
+-- (megj.: az `AS check` nem használható ORDER BY-ban — "check" foglalt szó
+-- PostgreSQL-ben. `verify_target` neutral néven szerepel.)
 SELECT
-  'iktato.has_duplicate' AS check,
+  'iktato.has_duplicate' AS verify_target,
   column_name,
   data_type,
   is_nullable,
@@ -97,7 +99,7 @@ SELECT
    AND column_name = 'has_duplicate'
 UNION ALL
 SELECT
-  'iktato_yearly_closures' AS check,
+  'iktato_yearly_closures' AS verify_target,
   column_name,
   data_type,
   is_nullable,
@@ -105,6 +107,6 @@ SELECT
   FROM information_schema.columns
  WHERE table_schema = 'public'
    AND table_name = 'iktato_yearly_closures'
- ORDER BY check, column_name;
+ ORDER BY verify_target, column_name;
 
 COMMIT;
