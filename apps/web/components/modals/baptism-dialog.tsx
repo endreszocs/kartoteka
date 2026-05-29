@@ -267,15 +267,19 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       ? `${selectedPerson.csaladnev || ''} ${selectedPerson.k_nev || ''}`.trim()
       : ''
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
-    // 2026-05-30: anya neve a 3 eset szerint (egyházi házasság / leánykori név / fallback)
-    const motherName = formatMotherNameForEmleklap({
-      motherCsaladnev: mother?.csaladnev,
-      motherKnev: mother?.k_nev,
-      leanyneveCsaladnev: anyaLeanykori || mother?.szcs_nev,
-      fatherCsaladnev: father?.csaladnev,
-      fatherKnev: father?.k_nev,
-      churchMarried: egyhaziHazassag,
-    })
+    // 2026-05-30: anya neve csak akkor formázva, ha mother ki van választva.
+    // Szerkesztés módban (mother=null) ne mutassuk a leánykori nevet egyedül a
+    // vásznon — várjuk meg amíg a felhasználó kiválasztja az anyát.
+    const motherName = mother
+      ? formatMotherNameForEmleklap({
+          motherCsaladnev: mother.csaladnev,
+          motherKnev: mother.k_nev,
+          leanyneveCsaladnev: anyaLeanykori || mother.szcs_nev,
+          fatherCsaladnev: father?.csaladnev,
+          fatherKnev: father?.k_nev,
+          churchMarried: egyhaziHazassag,
+        })
+      : ''
     const parentsNames = [fatherName, motherName].filter(Boolean).join(' és ')
 
     const childBirthDate = selectedPerson?.sz_datum
@@ -311,17 +315,20 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     if (!datum) { toast.error('A dátum kötelező!'); return false }
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
-    // 2026-05-30: az anya neve formázva kerül mentésre (3 eset).
-    // Ezzel a DetailDialog és a többi olvasó komponens automatikusan a
-    // hivatalos egyháztörténeti formát kapja vissza.
-    const motherName = formatMotherNameForEmleklap({
-      motherCsaladnev: mother?.csaladnev,
-      motherKnev: mother?.k_nev,
-      leanyneveCsaladnev: anyaLeanykori || mother?.szcs_nev,
-      fatherCsaladnev: father?.csaladnev,
-      fatherKnev: father?.k_nev,
-      churchMarried: egyhaziHazassag,
-    })
+    // 2026-05-30: az anya neve CSAK akkor formázva, ha a felhasználó kiválasztotta.
+    // Szerkesztés módban (mother=null, mert nem töltődik újra automatikusan) ne
+    // küldjünk anyjaneve-t — különben a meglévő szemely.anyjaneve felülíródna
+    // egy üres / részleges leánykori névvel.
+    const motherName = mother
+      ? formatMotherNameForEmleklap({
+          motherCsaladnev: mother.csaladnev,
+          motherKnev: mother.k_nev,
+          leanyneveCsaladnev: anyaLeanykori || mother.szcs_nev,
+          fatherCsaladnev: father?.csaladnev,
+          fatherKnev: father?.k_nev,
+          churchMarried: egyhaziHazassag,
+        })
+      : ''
     const fatherCnp = father?.cnp || ''
     const motherCnp = mother?.cnp || ''
     const result = await saveBaptism({
