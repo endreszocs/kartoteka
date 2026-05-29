@@ -10,17 +10,31 @@
  * teljes adattartalma látszódjon.
  */
 
-import { User } from 'lucide-react'
+import { useMemo, useRef } from 'react'
+import { Printer, Sparkles, User } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import type { RegistryEntry, RegistryTab } from '@/lib/constants/registry'
+import { CertificateRenderer } from './emleklap/certificate-renderer'
+import {
+  EMLEKLAP_TEMPLATES_MAP,
+  fillTemplate,
+  type EmleklapTemplate,
+} from '@/lib/constants/emleklap-templates'
+import {
+  extractCityFromCongregationName,
+  formatHungarianDate,
+} from '@/lib/utils/emleklap-data-mapper'
+import { toast } from 'sonner'
 
 interface RegistryDetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   entry: RegistryEntry | null
   tab: RegistryTab
+  /** 2026-05-29: a kereszt./esket./konfirm. tabokon az emléklap-preview-hoz. */
+  congregationName?: string
   onEdit: () => void
   onDelete: () => void
 }
@@ -85,15 +99,125 @@ function PersonCard({ label, person, icon }: {
   )
 }
 
-export function RegistryDetailDialog({ open, onOpenChange, entry, tab, onEdit, onDelete }: RegistryDetailDialogProps) {
+export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregationName = '', onEdit, onDelete }: RegistryDetailDialogProps) {
+  const printRef = useRef<HTMLDivElement>(null)
+
+  // 2026-05-29: a kereszt./esket./konfirm. fülön az emléklap-preview-hoz a
+  // sablon kiválasztása. Más fülnél template = null és nem renderelünk preview-t.
+  const template: EmleklapTemplate | null = useMemo(() => {
+    if (tab === 'keresztseg') return EMLEKLAP_TEMPLATES_MAP['kereszteles-erek'] ?? null
+    if (tab === 'konfirmalas') return EMLEKLAP_TEMPLATES_MAP['konfirmacio-erek'] ?? null
+    if (tab === 'hazassag') return EMLEKLAP_TEMPLATES_MAP['esketes-erek'] ?? null
+    return null
+  }, [tab])
+
+  const fieldValues = useMemo<Record<string, string>>(() => {
+    if (!template || !entry) return {}
+    let savedGondnok = ''
+    try { savedGondnok = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.gondnokName')) || '' } catch {}
+    const issueDate = entry.datum ? formatHungarianDate(entry.datum as string) : ''
+    const issueLocation = extractCityFromCongregationName(congregationName)
+    const pastorName = ((entry.lelkeszneve as string | undefined) || '').toUpperCase()
+    const wardenName = savedGondnok.toUpperCase()
+
+    let data: Record<string, string> = {}
+    if (tab === 'keresztseg') {
+      const childName = entry.szemely
+        ? `${entry.szemely.csaladnev || ''} ${entry.szemely.k_nev || ''}`.trim()
+        : ''
+      const parentsNames = [
+        (entry.apjaneve as string | undefined) || '',
+        (entry.anyjaneve as string | undefined) || '',
+      ].filter(Boolean).join(' és ')
+      const birthDate = entry.szemely?.sz_datum ? formatHungarianDate(entry.szemely.sz_datum) + '-én' : ''
+      const baptismDate = entry.datum ? formatHungarianDate(entry.datum as string) + '-én' : ''
+      data = {
+        congregationName,
+        fullName: childName,
+        parentsNames,
+        birthPlace: '',
+        birthDate,
+        baptismCongregation: congregationName ? congregationName + 'ben' : '',
+        baptismDate,
+        issueLocation,
+        issueDate,
+        pastorName,
+        wardenName,
+      }
+    } else if (tab === 'konfirmalas') {
+      const fullName = entry.szemely
+        ? `${entry.szemely.csaladnev || ''} ${entry.szemely.k_nev || ''}`.trim().toUpperCase()
+        : ''
+      const birthDate = entry.szemely?.sz_datum ? formatHungarianDate(entry.szemely.sz_datum) + '-én' : ''
+      data = {
+        congregationName,
+        fullName,
+        birthPlace: '',
+        birthDate,
+        baptismCongregation: '',
+        baptismDate: '',
+        confirmCongregation: congregationName ? congregationName + 'ben' : '',
+        issueLocation,
+        issueDate: issueDate.toUpperCase(),
+        mainWardenName: wardenName,
+        pastorName,
+      }
+    } else if (tab === 'hazassag') {
+      const husbandName = entry.ferfi ? `${entry.ferfi.csaladnev || ''} ${entry.ferfi.k_nev || ''}`.trim() : ''
+      const wifeName = entry.no ? `${entry.no.csaladnev || ''} ${entry.no.k_nev || ''}`.trim() : ''
+      const marriageDate = entry.datum ? formatHungarianDate(entry.datum as string) + '-én' : ''
+      data = {
+        congregationName,
+        husbandName,
+        husbandBirthPlace: '',
+        husbandBirthDate: '',
+        wifeName,
+        wifeBirthPlace: '',
+        wifeBirthDate: '',
+        marriageCongregation: congregationName ? congregationName + 'ben' : '',
+        marriageDate,
+        verseText: '',
+        verseReference: '',
+        issueLocation,
+        issueDate,
+        pastorName,
+        wardenName,
+      }
+    }
+    const out: Record<string, string> = {}
+    for (const field of template.fields) {
+      out[field.id] = fillTemplate(field.defaultValue, data)
+    }
+    return out
+  }, [template, entry, tab, congregationName])
+
+  function handlePrint() {
+    if (!printRef.current) return
+    const html = printRef.current.outerHTML
+    const win = window.open('', '_blank', 'width=900,height=1200')
+    if (!win) { toast.error('A böngésző blokkolta a popup-ot.'); return }
+    win.document.write(`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>Anyakönyvi emléklap</title>
+      <style>
+        @page { size: A4 portrait; margin: 0; }
+        html, body { margin: 0; padding: 0; background: white; }
+        body { display: flex; align-items: center; justify-content: center; }
+        .certificate-renderer { width: 210mm !important; height: 297mm !important; max-width: 210mm !important; aspect-ratio: 210/297 !important; }
+        .certificate-renderer img { width: 100% !important; height: 100% !important; }
+        @media print { html, body { width: 210mm; height: 297mm; } .certificate-renderer { box-shadow: none !important; } }
+      </style>
+    </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
+    win.document.close()
+  }
+
   if (!entry) return null
 
   const title = TAB_LABELS[tab] || 'Bejegyzés'
   const helyseg = (entry.adrlocality as { name?: string } | null)?.name
+  const hasPreview = template !== null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className={`max-h-[92vh] overflow-y-auto ${hasPreview ? 'w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl' : 'sm:max-w-2xl'}`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>{title} — részletek</span>
@@ -102,10 +226,17 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, onEdit, o
                 {String(entry.egyhazi_szam)}
               </span>
             )}
+            {hasPreview && (
+              <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+                <Sparkles className="size-3.5" />
+                emléklap-előnézet
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className={hasPreview ? 'grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]' : 'space-y-4'}>
+          <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
           {/* ── KERESZTELÉS ────────────────────────────────────── */}
           {tab === 'keresztseg' && (
             <>
@@ -266,29 +397,66 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, onEdit, o
             </>
           )}
 
-          {/* Műveletek */}
-          <div className="flex gap-2 pt-4 border-t border-zinc-100">
-            <Button
-              variant="outline"
-              className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600"
-              onClick={() => onOpenChange(false)}
-            >
-              Bezár
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-xl border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-              onClick={() => { onOpenChange(false); onDelete() }}
-            >
-              Törlés
-            </Button>
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={() => { onOpenChange(false); onEdit() }}
-            >
-              ✏️ Szerkesztés
-            </Button>
           </div>
+
+          {/* ─── JOBB OSZLOP: élő emléklap-vászon (csak a 3 sákramentum-fülön) ─── */}
+          {hasPreview && template && (
+            <aside className="md:sticky md:top-0 md:self-start">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  <Sparkles className="size-3 inline mr-1 text-amber-600" />
+                  Az anyakönyvi adatok alapján generált emléklap. A „Nyomtatás" gombbal A4-en kinyomtathatod.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
+                <CertificateRenderer
+                  ref={printRef}
+                  template={template}
+                  fieldValues={fieldValues}
+                  previewWidth={360}
+                  showBackground={true}
+                />
+              </div>
+              <p className="mt-1.5 text-[10px] text-slate-400 text-center">
+                A4 álló · EREK {tab === 'keresztseg' ? 'keresztelői' : tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon
+              </p>
+            </aside>
+          )}
+        </div>
+
+        {/* Műveletek — a grid alatt, mindkét oszlopra kiterjedve */}
+        <div className="flex flex-wrap gap-2 pt-4 border-t border-zinc-100 mt-4">
+          <Button
+            variant="outline"
+            className="rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600"
+            onClick={() => onOpenChange(false)}
+          >
+            Bezár
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+            onClick={() => { onOpenChange(false); onDelete() }}
+          >
+            Törlés
+          </Button>
+          <div className="flex-1" />
+          {hasPreview && (
+            <Button
+              variant="outline"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+              onClick={handlePrint}
+            >
+              <Printer className="size-4 mr-1.5" />
+              Nyomtatás
+            </Button>
+          )}
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => { onOpenChange(false); onEdit() }}
+          >
+            ✏️ Szerkesztés
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

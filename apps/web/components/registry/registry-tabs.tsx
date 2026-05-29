@@ -604,6 +604,7 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
         onOpenChange={(o) => { setDetailOpen(o); if (!o) setDetailEntry(null) }}
         entry={detailEntry}
         tab={activeTab}
+        congregationName={congregationName}
         onEdit={() => detailEntry && openModal(detailEntry)}
         onDelete={() => detailEntry && handleDelete(detailEntry.id)}
       />
