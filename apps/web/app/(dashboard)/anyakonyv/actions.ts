@@ -22,7 +22,11 @@ export async function getRegistryData(tab: string): Promise<RegistryEntry[]> {
   let query
   switch (tab) {
     case 'keresztseg':
-      query = supabase.from('keresztseg').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!helyid(name)')
+      // 2026-05-30: a szemely embedded most már tartalmazza a szülő-mezőket is
+      // (apjaneve, anyjaneve, id_apja, id_anyja, vallas, szcs_nev) — különben
+      // a Részletek dialog és a BaptismDialog szerkesztés mód üresen mutatja
+      // ezeket még akkor is, ha a DB-ben mentve vannak.
+      query = supabase.from('keresztseg').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, apjaneve, anyjaneve, id_apja, id_anyja, vallas, szcs_nev), adrlocality!helyid(name)')
       break
     case 'konfirmalas':
       query = supabase.from('konfirmalas').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum)')
@@ -414,13 +418,19 @@ export async function searchMemberForRegistry(query: string, genderFilter?: bool
 // ── Keresztelés mentés ───────────────────────────────────────
 
 export async function saveBaptism(data: BaptismInput) {
+  // 2026-05-30: diagnosztikai napló a "nem mentette" hiba debug-jához
+  console.log('[saveBaptism] input data:', JSON.stringify(data))
   const parsed = baptismSchema.safeParse(data)
-  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  if (!parsed.success) {
+    console.error('[saveBaptism] schema validáció hiba:', parsed.error.issues)
+    return { error: parsed.error.issues[0].message }
+  }
 
   const { supabase, congId } = await getCongregation()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const d = parsed.data
+  console.log('[saveBaptism] parsed.id:', d.id, '→', d.id ? 'UPDATE' : 'INSERT')
 
   // Sablon JSON (anya leánykori, szülők vallása) → megjegyzes végéhez
   let megjegyzes = d.megjegyzes || ''
@@ -461,8 +471,18 @@ export async function saveBaptism(data: BaptismInput) {
 
   let isInsert = false
   if (d.id) {
-    const { error } = await supabase.from('keresztseg').update(record).eq('id', d.id).eq('congregation_id', congId)
+    const { error, data: updData, count } = await supabase
+      .from('keresztseg')
+      .update(record, { count: 'exact' })
+      .eq('id', d.id)
+      .eq('congregation_id', congId)
+      .select('id')
+    console.log('[saveBaptism] UPDATE eredmény:', { id: d.id, count, updData, error: error?.message })
     if (error) return { error: `Hiba: ${error.message}` }
+    if (!count || count === 0) {
+      console.error('[saveBaptism] ⚠️ UPDATE 0 sort érintett! id=', d.id, 'congId=', congId)
+      return { error: `A bejegyzés nem található (id=${d.id}). Vagy törölve lett, vagy más gyülekezeté.` }
+    }
   } else {
     isInsert = true
     const { error } = await supabase.from('keresztseg').insert([record]).select('id')

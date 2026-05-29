@@ -53,7 +53,23 @@ export interface RegistryEntry {
   lelkeszneve?: string
   megjegyzes?: string
   // Személy JOIN
-  szemely?: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null } | null
+  szemely?: {
+    id: number
+    csaladnev: string
+    k_nev: string
+    ferfi: boolean
+    sz_datum: string | null
+    // 2026-05-30: a keresztelési bejegyzés szülő-mezői itt vannak (a SZEMELY
+    // táblában — a gyermek rekordon), NEM a keresztseg-ben. A query a
+    // 'getRegistryData('keresztseg')'-ben szelektálja.
+    apjaneve?: string | null
+    anyjaneve?: string | null
+    id_apja?: string | null
+    id_anyja?: string | null
+    vallas?: string | null
+    szcs_nev?: string | null
+    member_status?: string | null
+  } | null
   // Házasság: két személy
   ferfi?: { id: number; csaladnev: string; k_nev: string } | null
   no?: { id: number; csaladnev: string; k_nev: string } | null

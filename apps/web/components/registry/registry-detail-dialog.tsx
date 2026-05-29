@@ -125,9 +125,11 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
       const childName = entry.szemely
         ? `${entry.szemely.csaladnev || ''} ${entry.szemely.k_nev || ''}`.trim()
         : ''
+      // 2026-05-30: az apjaneve/anyjaneve a SZEMELY táblában van (a gyermek
+       // rekordon), nem a keresztseg-ben. Ezért entry.szemely.apjaneve.
       const parentsNames = [
-        (entry.apjaneve as string | undefined) || '',
-        (entry.anyjaneve as string | undefined) || '',
+        (entry.szemely?.apjaneve as string | undefined) || (entry.apjaneve as string | undefined) || '',
+        (entry.szemely?.anyjaneve as string | undefined) || (entry.anyjaneve as string | undefined) || '',
       ].filter(Boolean).join(' és ')
       const birthDate = entry.szemely?.sz_datum ? formatHungarianDate(entry.szemely.sz_datum) + '-én' : ''
       const baptismDate = entry.datum ? formatHungarianDate(entry.datum as string) + '-én' : ''
@@ -249,8 +251,8 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
               </div>
               <Separator />
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Édesapa" value={entry.apjaneve as string} />
-                <Field label="Édesanya" value={entry.anyjaneve as string} />
+                <Field label="Édesapa" value={(entry.szemely?.apjaneve as string | undefined) || (entry.apjaneve as string | undefined)} />
+                <Field label="Édesanya" value={(entry.szemely?.anyjaneve as string | undefined) || (entry.anyjaneve as string | undefined)} />
               </div>
               <Field label="Keresztszülők" value={entry.keresztszulok as string} />
               <Field label="Alapige" value={entry.alapige as string} />

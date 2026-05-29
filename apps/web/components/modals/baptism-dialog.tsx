@@ -99,6 +99,12 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
         setLelkesz((editEntry.lelkeszneve as string) || '')
         setKeresztszulok((editEntry.keresztszulok as string) || '')
         setAlapige((editEntry.alapige as string) || '')
+        // 2026-05-30: gondnok visszatöltése localStorage-ból szerkesztés módban is.
+        try {
+          const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
+          if (savedGondnok) setGondnok(savedGondnok)
+          else setGondnok('')
+        } catch { setGondnok('') }
         const megj = (editEntry.megjegyzes as string) || ''
         const sablonIdx = megj.indexOf('|sablon:')
         if (sablonIdx > -1) {
@@ -139,7 +145,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   }, [open, editEntry])
 
   useEffect(() => {
-    if (!open || editEntry) return
+    // 2026-05-30: szerkesztés módban is futtatjuk az auto-load-ot, hogy a
+    // mentett szülők újból megjelenjenek. (Az eredeti `editEntry` blokk
+    // miatt szerkesztéskor üresen nyíltak a szülő-mezők, és a felhasználó
+    // úgy érezte, "nem mentődött el semmi".)
+    if (!open) return
     if (!selectedPerson) return
     if (familyAutoLoaded) return
     if (father || mother) return
@@ -316,9 +326,6 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
     // 2026-05-30: az anya neve CSAK akkor formázva, ha a felhasználó kiválasztotta.
-    // Szerkesztés módban (mother=null, mert nem töltődik újra automatikusan) ne
-    // küldjünk anyjaneve-t — különben a meglévő szemely.anyjaneve felülíródna
-    // egy üres / részleges leánykori névvel.
     const motherName = mother
       ? formatMotherNameForEmleklap({
           motherCsaladnev: mother.csaladnev,
@@ -331,7 +338,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       : ''
     const fatherCnp = father?.cnp || ''
     const motherCnp = mother?.cnp || ''
-    const result = await saveBaptism({
+
+    // 2026-05-30: diagnosztikai napló — a "nem mentette" hiba debug-jához.
+    // Megnézhető a böngésző DevTools konzoljában; a szerver-actions log-ban
+    // csak részben látszik az adat (Next.js a hosszabb objektumokat csonkítja).
+    const payload = {
       id: editEntry?.id,
       id_szemely: selectedPerson.id,
       datum,
@@ -349,7 +360,12 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       anya_leanyneve: anyaLeanykori || null,
       munkanaploba,
       megjegyzes: megjegyzes || null,
-    })
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[baptism-dialog] handleSubmit payload:', payload)
+      console.log('[baptism-dialog] editEntry:', editEntry)
+    }
+    const result = await saveBaptism(payload)
     setLoading(false)
     if (result.error) {
       toast.error(result.error)
