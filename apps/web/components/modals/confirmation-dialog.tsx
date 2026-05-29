@@ -72,15 +72,38 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
   const [fogondnok, setFogondnok] = useState('')
   const printRef = useRef<HTMLDivElement>(null)
 
-  // 2026-05-29: élő konfirmációi emléklap-preview (csak szerkesztés módban)
+  // 2026-05-30: élő konfirmációi emléklap-preview MINDKÉT mód (szerk. + új-batch)
   const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['konfirmacio-erek']
 
+  // previewPerson: edit módban = editPerson, batch módban = utoljára hozzáadott jelölt
+  const previewPerson = useMemo(() => {
+    if (isEdit && editPerson) {
+      return {
+        csaladnev: editPerson.csaladnev,
+        k_nev: editPerson.k_nev,
+        sz_datum: editPerson.sz_datum,
+      }
+    }
+    const last = candidates[candidates.length - 1]
+    if (last) {
+      return {
+        csaladnev: last.name.split(' ')[0],
+        k_nev: last.name.split(' ').slice(1).join(' '),
+        sz_datum: last.szDatum,
+      }
+    }
+    return null
+  }, [isEdit, editPerson, candidates])
+
   const fieldValues = useMemo(() => {
-    if (!editPerson) return {}
-    const fullName = `${editPerson.csaladnev || ''} ${editPerson.k_nev || ''}`.trim().toUpperCase()
-    const birthDate = editPerson.sz_datum ? formatHungarianDate(editPerson.sz_datum) + '-én' : ''
+    if (!previewPerson) return {}
+    const fullName = `${previewPerson.csaladnev || ''} ${previewPerson.k_nev || ''}`.trim().toUpperCase()
+    const birthDateRaw = previewPerson.sz_datum && !previewPerson.sz_datum.includes('—')
+      ? formatHungarianDate(previewPerson.sz_datum)
+      : ''
+    const birthDate = birthDateRaw ? `${birthDateRaw}-ÉN`.toUpperCase() : ''
     const issueDate = datum ? formatHungarianDate(datum).toUpperCase() : ''
-    const issueLocation = extractCityFromCongregationName(congregationName)
+    const issueLocation = extractCityFromCongregationName(congregationName).toUpperCase()
 
     const data: Record<string, string> = {
       congregationName: congregationName || '',
@@ -89,7 +112,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       birthDate,
       baptismCongregation: '',
       baptismDate: '',
-      confirmCongregation: congregationName ? congregationName + 'ben' : '',
+      confirmCongregation: congregationName ? `${congregationName}BEN`.toUpperCase() : '',
       issueLocation,
       issueDate,
       mainWardenName: (fogondnok || '').toUpperCase(),
@@ -100,7 +123,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, editPerson, datum, lelkesz, fogondnok, congregationName])
+  }, [template, previewPerson, datum, lelkesz, fogondnok, congregationName])
 
   useEffect(() => {
     if (!open) return
@@ -241,16 +264,15 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-h-[92vh] overflow-y-auto ${isEdit ? 'w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl' : 'sm:max-w-2xl'}`}>
+      {/* 2026-05-30: a batch mód is széles dialog — preview-val a jobb oldalon */}
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEdit ? 'Konfirmáció szerkesztése' : 'Konfirmandusok rögzítése'}
-            {isEdit && (
-              <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
-                <Sparkles className="size-3.5" />
-                élő emléklap-előnézet
-              </span>
-            )}
+            <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+              <Sparkles className="size-3.5" />
+              élő emléklap-előnézet
+            </span>
           </DialogTitle>
         </DialogHeader>
 
@@ -325,76 +347,107 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
             </div>
           </>
         ) : (
-          // ─── BATCH MÓD ──────────────────────────────────────
-          <div className="space-y-4">
-            {egyhaziSzam && candidates.length === 0 && (
-              <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-2.5 text-xs text-violet-700">
-                <span className="font-medium">Automatikus egyházi anyakönyvi szám:</span>{' '}
-                <span className="font-mono">{egyhaziSzam}</span>
-                {' '}<span className="text-violet-500">(és ettől folyamatosan a többi konfirmandusnak)</span>
-              </div>
-            )}
+          // ─── BATCH MÓD (2026-05-30: 2-oszlopos fúzió + élő preview) ──────────
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+              <div className="space-y-3 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+                {egyhaziSzam && candidates.length === 0 && (
+                  <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-2.5 text-xs text-violet-700">
+                    <span className="font-medium">Automatikus egyházi anyakönyvi szám:</span>{' '}
+                    <span className="font-mono">{egyhaziSzam}</span>
+                    {' '}<span className="text-violet-500">(és ettől folyamatosan a többi konfirmandusnak)</span>
+                  </div>
+                )}
 
-            <div className="space-y-1.5">
-              <Label>Konfirmandus hozzáadása</Label>
-              <MemberSearchSelect value={null} onChange={handlePick} placeholder="Keresés (családnév, keresztnév)…" />
-            </div>
-
-            {candidates.length > 0 && (
-              <div className="border rounded-lg overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b">
-                    <tr>
-                      <th className="p-2 text-left w-8">#</th>
-                      <th className="p-2 text-left">Név</th>
-                      <th className="p-2 text-left">Életkor</th>
-                      <th className="p-2 text-left">Lakhely / Utca</th>
-                      <th className="p-2 w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((c, i) => {
-                      const ageVal = age(c.szDatum.includes('—') ? null : c.szDatum)
-                      return (
-                        <tr key={c.id} className="border-b">
-                          <td className="p-2 text-muted-foreground">{i + 1}</td>
-                          <td className="p-2 font-medium">
-                            {c.name}{' '}
-                            {c.ferfi !== null && <span className="text-xs text-slate-400">{c.ferfi ? '♂' : '♀'}</span>}
-                          </td>
-                          <td className="p-2 text-xs text-slate-600">{ageVal !== null ? `${ageVal} éves` : '—'}</td>
-                          <td className="p-2 text-xs text-slate-500">
-                            {c.helyseg || '—'}{c.utca ? `, ${c.utca}` : ''}
-                          </td>
-                          <td className="p-2">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => removeCandidate(c.id)}>✕</Button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                <div className="p-2 flex justify-between items-center bg-slate-50">
-                  <Badge variant="secondary">{candidates.length} fő</Badge>
-                  <Button variant="ghost" size="sm" className="text-xs text-red-500" onClick={() => setCandidates([])}>Mindent töröl</Button>
+                <div className="space-y-1.5">
+                  <Label>Konfirmandus hozzáadása</Label>
+                  <MemberSearchSelect value={null} onChange={handlePick} placeholder="Keresés (családnév, keresztnév)…" />
                 </div>
+
+                {candidates.length > 0 && (
+                  <div className="border rounded-lg overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 border-b">
+                        <tr>
+                          <th className="p-2 text-left w-8">#</th>
+                          <th className="p-2 text-left">Név</th>
+                          <th className="p-2 text-left">Életkor</th>
+                          <th className="p-2 w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.map((c, i) => {
+                          const ageVal = age(c.szDatum.includes('—') ? null : c.szDatum)
+                          const isLast = i === candidates.length - 1
+                          return (
+                            <tr key={c.id} className={`border-b ${isLast ? 'bg-amber-50/30' : ''}`}>
+                              <td className="p-2 text-muted-foreground">{i + 1}</td>
+                              <td className="p-2 font-medium">
+                                {c.name}{' '}
+                                {c.ferfi !== null && <span className="text-xs text-slate-400">{c.ferfi ? '♂' : '♀'}</span>}
+                                {isLast && <span className="ml-2 text-[10px] text-amber-700">← preview</span>}
+                              </td>
+                              <td className="p-2 text-xs text-slate-600">{ageVal !== null ? `${ageVal} éves` : '—'}</td>
+                              <td className="p-2">
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => removeCandidate(c.id)}>✕</Button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    <div className="p-2 flex justify-between items-center bg-slate-50">
+                      <Badge variant="secondary">{candidates.length} fő</Badge>
+                      <Button variant="ghost" size="sm" className="text-xs text-red-500" onClick={() => setCandidates([])}>Mindent töröl</Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label>Dátum *</Label><Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+                  <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Főgondnok <span className="text-[10px] font-normal text-slate-500">(az emléklapra)</span></Label>
+                  <Input
+                    value={fogondnok}
+                    onChange={e => setFogondnok(e.target.value)}
+                    placeholder="Főgondnok teljes neve"
+                    className={FIELD_INPUT_CLASS}
+                    onBlur={() => { try { if (fogondnok) localStorage.setItem('kartoteka.emleklap.gondnokName', fogondnok) } catch {} }}
+                  />
+                </div>
+                <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
               </div>
-            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Dátum *</Label><Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
-              <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+              <aside className="md:sticky md:top-0 md:self-start">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    <Sparkles className="size-3 inline mr-1 text-amber-600" />
+                    Az emléklap-vászon az <strong>utoljára hozzáadott</strong> konfirmandus adataival töltődik. Új jelölt hozzáadásakor a vászon automatikusan vált.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
+                  <CertificateRenderer
+                    ref={printRef}
+                    template={template}
+                    fieldValues={fieldValues}
+                    previewWidth={360}
+                    showBackground={true}
+                  />
+                </div>
+                <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · EREK konfirmációi sablon</p>
+              </aside>
             </div>
-            <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
 
-            <div className="flex gap-2 pt-4 border-t border-zinc-100">
+            <div className="flex gap-2 pt-4 border-t border-zinc-100 mt-4">
               <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
               <Button className="bg-purple-600 hover:bg-purple-700" onClick={handleSubmitBatch} disabled={loading || candidates.length === 0}>
                 {loading ? 'Mentés...' : `Mentés (${candidates.length} fő)`}
               </Button>
             </div>
-          </div>
+          </>
         )}
       </DialogContent>
     </Dialog>
