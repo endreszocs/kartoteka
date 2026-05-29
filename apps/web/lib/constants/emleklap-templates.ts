@@ -678,22 +678,9 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
 // Központi vonal: x=1240 px (50%).
 
 const TEMETESI_FIELDS: EmleklapField[] = [
-  // 6.1 Főcím GYÁSZJELENTÉS (spec: x=1240, y=565, w=1200, fs=132, ls=8px, fw=900)
-  {
-    id: 'title',
-    label: 'Főcím',
-    defaultValue: 'GYÁSZJELENTÉS',
-    x: 25.81, // (1240-600)/2480
-    y: 16.11, // 565/3508
-    width: 48.39, // 1200/2480
-    fontSize: 3.76, // 132/3508
-    fontFamily: FONT_CINZEL_DECO,
-    fontWeight: 900,
-    color: COLOR_GRIEF_WHITE,
-    textAlign: 'center',
-    lineHeight: 1.14, // 150/132
-    letterSpacing: 0.061, // 8/132
-  },
+  // 2026-05-30: a "GYÁSZJELENTÉS" főcím (6.1 spec) ELTÁVOLÍTVA — a háttérkép
+  // már tartalmazza, nem kell külön szöveg-rétegbe írni. A bevezető helye
+  // (y=26.94%) változatlan, mivel az abszolút koordináta.
   // 6.3 Bevezető szöveg (spec: x=1240, y=945, w=1450, fs=60, ls=1px)
   {
     id: 'intro',
@@ -762,10 +749,12 @@ const TEMETESI_FIELDS: EmleklapField[] = [
     letterSpacing: 0.042,
   },
   // 6.7 Temetési információk (spec: x=1240, y=1850, w=1550, fs=62, ls=1px)
+  // 2026-05-30: az idő 24 órás formátumban (HH:MM órakor) — a funeralDate
+  // placeholder a teljes "YYYY. hónap N-én, HH:MM órakor" alakot ad.
   {
     id: 'funeral',
     label: 'Temetési info',
-    defaultValue: 'Búcsúztatása református szertartás szerint\n{{funeralDate}} órakor lesz\n{{funeralPlace}}',
+    defaultValue: 'Búcsúztatása református szertartás szerint\n{{funeralDate}}\n{{funeralPlace}}',
     x: 18.75,
     y: 52.74,
     width: 62.50,
@@ -777,6 +766,26 @@ const TEMETESI_FIELDS: EmleklapField[] = [
     lineHeight: 1.35,
     letterSpacing: 0.016,
     multiline: true,
+  },
+  // 2026-05-30 ÚJ: virrasztás mező — opcionális. A háttér gap-jébe (y=60.5%)
+  // illeszkedik a funeral (vége ~y=60%) és memory (y=64.28%) közé.
+  {
+    id: 'vigil',
+    label: 'Virrasztás (opcionális)',
+    defaultValue: '{{vigilLine}}',
+    x: 18.75,
+    y: 60.50,
+    width: 62.50,
+    fontSize: 1.62,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    italic: true,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.30,
+    letterSpacing: 0.016,
+    multiline: true,
+    hint: 'pl. "Virrasztás: 2026. március 24-én 19:00 órakor, a ravatalozóban"',
   },
   // 6.8 Emlékező sor (spec: x=1240, y=2255, w=1500, fs=65, italic)
   {

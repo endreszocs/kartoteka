@@ -64,6 +64,14 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   // Gyászjelentés-specifikus mezők (in-place a vásznon is szerkeszthetők)
   const [funeralPlace, setFuneralPlace] = useState('')
   const [funeralTime, setFuneralTime] = useState('')
+  // 2026-05-30: virrasztó opcionális mezők (a vásznon csak akkor jelenik meg,
+  // ha legalább egyik ki van töltve)
+  const [vigilDate, setVigilDate] = useState('')
+  const [vigilTime, setVigilTime] = useState('')
+  const [vigilPlace, setVigilPlace] = useState('')
+  // Igevers a formról is szerkeszthető (az alapértelmezett mellé)
+  const [verseText, setVerseText] = useState('')
+  const [verseReference, setVerseReference] = useState('')
   const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -89,6 +97,11 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       setHdatum(''); setTdatum(''); setHoka(''); setOkirat('')
       setLelkesz(''); setMegj(''); setMunkanaploba(false)
       setFuneralPlace(''); setFuneralTime('14:00')
+      setVigilDate(''); setVigilTime(''); setVigilPlace('')
+      // Alapértelmezett igevers — a Jób könyvéből (a gyászjelentés-sablon
+      // hagyománya szerint). A felhasználó cserélheti.
+      setVerseText('Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.')
+      setVerseReference('Jób 1,21')
       getNextEgyhaziSzam('burial', new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
@@ -105,8 +118,25 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       : ''
     const age = calculateAge(person?.sz_datum, hdatum)
     const deathDate = hdatum ? formatHungarianDate(hdatum) + '-án' : ''
+
+    // 2026-05-30: temetés időpont 24 órás formátumban ("14:00 órakor lesz")
     const funeralDateBase = tdatum ? formatHungarianDate(tdatum) + '-én' : ''
-    const funeralDate = funeralDateBase && funeralTime ? `${funeralDateBase}, ${funeralTime}` : funeralDateBase
+    const funeralDate = funeralDateBase
+      ? (funeralTime ? `${funeralDateBase}, ${funeralTime} órakor lesz` : `${funeralDateBase} lesz`)
+      : ''
+
+    // 2026-05-30: virrasztás sor — csak akkor jelenik meg, ha ki van töltve.
+    // Példa: "Virrasztás: 2026. március 24-én 19:00 órakor, a ravatalozóban"
+    let vigilLine = ''
+    if (vigilDate || vigilTime || vigilPlace) {
+      const vigilDateFmt = vigilDate ? formatHungarianDate(vigilDate) + '-én' : ''
+      const parts: string[] = []
+      if (vigilDateFmt) parts.push(vigilDateFmt)
+      if (vigilTime) parts.push(`${vigilTime} órakor`)
+      let head = parts.join(' ')
+      if (vigilPlace) head = head ? `${head}, ${vigilPlace}` : vigilPlace
+      vigilLine = head ? `Virrasztás: ${head}` : ''
+    }
 
     const data: Record<string, string> = {
       fullName,
@@ -115,16 +145,17 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       deathDate,
       funeralDate,
       funeralPlace: funeralPlace || 'a Református Temetőben.',
+      vigilLine,
       mourners: 'Szerető családja és mindazok,\nakik ismerték és tisztelték',
-      verseText: 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
-      verseReference: 'Jób 1,21',
+      verseText: verseText || 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
+      verseReference: verseReference || 'Jób 1,21',
     }
     const out: Record<string, string> = {}
     for (const field of template.fields) {
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, person, hdatum, tdatum, funeralPlace, funeralTime])
+  }, [template, person, hdatum, tdatum, funeralPlace, funeralTime, vigilDate, vigilTime, vigilPlace, verseText, verseReference])
 
   async function handleSubmit(): Promise<boolean> {
     if (!person) { toast.error('Válasszon személyt!'); return false }
@@ -143,7 +174,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
     })
     setLoading(false)
     if (result.error) { toast.error(result.error); return false }
-    toast.success('Temetés rögzítve!')
+    toast.success('Temetés rögzítve! A tag státusza „elhunyt"-ra változott.', { duration: 4000 })
     return true
   }
 
@@ -218,8 +249,18 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
                 <Input value={okirat} onChange={e => setOkirat(e.target.value)} placeholder="opcionális" className={FIELD_INPUT_CLASS} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Temetés időpontja</Label>
-                <Input type="time" value={funeralTime} onChange={e => setFuneralTime(e.target.value)} className={FIELD_INPUT_CLASS} />
+                <Label className="text-xs">
+                  Temetés időpontja
+                  <span className="ml-1 text-[10px] font-normal text-slate-500">(24 órás, HH:MM)</span>
+                </Label>
+                <Input
+                  type="time"
+                  value={funeralTime}
+                  onChange={e => setFuneralTime(e.target.value)}
+                  step={60}
+                  className={FIELD_INPUT_CLASS}
+                  placeholder="14:00"
+                />
               </div>
             </div>
 
@@ -238,9 +279,55 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
               />
             </div>
 
+            {/* 2026-05-30: Virrasztás (opcionális) — csak akkor jelenik meg a gyászjelentésen, ha legalább egyik mező ki van töltve */}
+            <div className="rounded-md border border-slate-200 bg-slate-50/40 p-2.5 space-y-2">
+              <p className="text-xs font-medium text-slate-700">
+                Virrasztás <span className="text-[10px] font-normal text-slate-500">(opcionális — csak akkor látszik a gyászjelentésen, ha kitöltöd)</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-[11px]">Virrasztás dátuma</Label>
+                  <Input type="date" value={vigilDate} onChange={e => setVigilDate(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px]">Időpont <span className="text-[10px] text-slate-500">(24h)</span></Label>
+                  <Input type="time" value={vigilTime} onChange={e => setVigilTime(e.target.value)} step={60} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} placeholder="19:00" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Virrasztás helye</Label>
+                <Input value={vigilPlace} onChange={e => setVigilPlace(e.target.value)} placeholder="pl. a ravatalozóban" className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} />
+              </div>
+            </div>
+
+            {/* 2026-05-30: Igevers — alapból Jób 1,21, de a felhasználó cserélheti */}
+            <div className="rounded-md border border-slate-200 bg-slate-50/40 p-2.5 space-y-2">
+              <p className="text-xs font-medium text-slate-700">
+                Igevers a gyászjelentésen <span className="text-[10px] font-normal text-slate-500">(opcionális csere)</span>
+              </p>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Igevers szövege</Label>
+                <textarea
+                  value={verseText}
+                  onChange={e => setVerseText(e.target.value)}
+                  rows={2}
+                  placeholder="„Az Úr adta, az Úr vette el, áldott legyen az Úr neve."
+                  className={`w-full rounded-md px-3 py-2 text-xs ${FIELD_INPUT_CLASS}`}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">Igehely</Label>
+                <Input value={verseReference} onChange={e => setVerseReference(e.target.value)} placeholder="pl. Jób 1,21" className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} />
+              </div>
+            </div>
+
             <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
-            <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">A temetés rögzítése NEM módosítja a tag státuszát. A tag kivezetéséhez használja a Tagnyilvántartás modult.</p>
+            {/* 2026-05-30: a saveBurial 2026-05-02 óta automatikusan beállítja
+                a szemely.meghalt=true és member_status='elhunyt' mezőket. */}
+            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded">
+              ℹ️ A mentéskor a tag státusza automatikusan <strong>„elhunyt"</strong>-ra változik a Tagnyilvántartásban is. Ezt nem kell külön elintézni.
+            </p>
           </div>
 
           {/* ─── JOBB: élő gyászjelentés-vászon ─── */}
