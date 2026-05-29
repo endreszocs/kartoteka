@@ -370,6 +370,28 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
 
 // ── Személy keresés ──────────────────────────────────────────
 
+/**
+ * 2026-05-30: Ellenőrzi, hogy két személy között létezik-e egyházi
+ * házassági bejegyzés (a `hazassag` táblában). A keresztelői emléklapon
+ * az anya nevét így formázzuk: ha igen, akkor „Kádár Zoltánné Tódor Enikő",
+ * ha nem, akkor csak a leánykori név („Tódor Enikő").
+ */
+export async function getMarriageBetween(ferfiId: number, noId: number): Promise<boolean> {
+  const { supabase, congId } = await getCongregation()
+  if (!congId) return false
+  const { data, error } = await supabase.from('hazassag')
+    .select('id')
+    .eq('id_ferfi', ferfiId)
+    .eq('id_no', noId)
+    .eq('congregation_id', congId)
+    .limit(1)
+  if (error) {
+    console.warn('[getMarriageBetween] lekérdezés hiba:', error.message)
+    return false
+  }
+  return (data?.length ?? 0) > 0
+}
+
 export async function searchMemberForRegistry(query: string, genderFilter?: boolean | null) {
   if (query.trim().length < 2) return []
   const { supabase, congId } = await getCongregation()

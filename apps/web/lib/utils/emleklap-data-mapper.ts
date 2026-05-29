@@ -82,6 +82,48 @@ function fullName(p?: { csaladnev?: string; k_nev?: string } | null): string {
  * Az emléklap „Kelt: <hely>, <dátum>." soránál használjuk, ha az anyakönyvi
  * bejegyzésben nincs explicit helység megadva.
  */
+/**
+ * 2026-05-30: Az anya nevének formázása a keresztelői emléklapon.
+ *
+ * 3 eset (priority sorrend):
+ *  1. Egyházi házasság (`churchMarried = true`) + ismert apa + ismert leánykori
+ *     családnév → „Kádár Zoltánné Tódor Enikő" (apa teljes neve + „-né" +
+ *     leánykori név). Ez a magyar reformatus egyhaztörténeti hivatalos megnev.
+ *  2. Nincs egyházi házasság, DE van leánykori név → „Tódor Enikő" (csak a
+ *     leánykori név).
+ *  3. Fallback: az aktuális családi + keresztnév → „Kádár Enikő".
+ */
+export function formatMotherNameForEmleklap(opts: {
+  motherCsaladnev: string | null | undefined
+  motherKnev: string | null | undefined
+  /** Leánykori családnév — szemely.szcs_nev vagy a manuálisan beírt érték. */
+  leanyneveCsaladnev: string | null | undefined
+  fatherCsaladnev: string | null | undefined
+  fatherKnev: string | null | undefined
+  churchMarried: boolean
+}): string {
+  const mKnev = (opts.motherKnev || '').trim()
+  const mCsaladnev = (opts.motherCsaladnev || '').trim()
+  const leany = (opts.leanyneveCsaladnev || '').trim()
+  const fCsaladnev = (opts.fatherCsaladnev || '').trim()
+  const fKnev = (opts.fatherKnev || '').trim()
+
+  // 1) Egyházi házasság + van apa + van leánykori név
+  if (opts.churchMarried && fCsaladnev && fKnev) {
+    const fatherFull = `${fCsaladnev} ${fKnev}`
+    const leanyPart = leany ? `${leany} ${mKnev}`.trim() : mKnev
+    return `${fatherFull}né ${leanyPart}`.trim()
+  }
+
+  // 2) Csak leánykori név
+  if (leany) {
+    return `${leany} ${mKnev}`.trim()
+  }
+
+  // 3) Fallback: aktuális családi név + keresztnév
+  return `${mCsaladnev} ${mKnev}`.trim()
+}
+
 export function extractCityFromCongregationName(congregationName: string | null | undefined): string {
   if (!congregationName) return ''
   const firstWord = congregationName.trim().split(/\s+/)[0]

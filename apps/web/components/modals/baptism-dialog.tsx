@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { saveBaptism, getNextEgyhaziSzam, getParentsForChild } from '@/app/(dashboard)/anyakonyv/actions'
+import { saveBaptism, getNextEgyhaziSzam, getParentsForChild, getMarriageBetween } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
 import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
@@ -19,6 +19,7 @@ import {
 import {
   extractCityFromCongregationName,
   formatHungarianDate,
+  formatMotherNameForEmleklap,
 } from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
 
@@ -73,6 +74,12 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   // mentődik, hogy a következő rögzítéskor ne kelljen újra beírni
   // (gyülekezetenként 1 gondnok jellemzően).
   const [gondnok, setGondnok] = useState('')
+  // 2026-05-30: a szülők egyházi házassági státusza. Auto-load amikor mindkét
+  // szülő ki van választva (hazassag tábla lekérdezés). Ettől függ az anya
+  // neve az emléklapon: ha igen → „Kádár Zoltánné Tódor Enikő";
+  // ha nem → csak a leánykori név („Tódor Enikő").
+  const [egyhaziHazassag, setEgyhaziHazassag] = useState(false)
+  const [egyhaziHazassagAuto, setEgyhaziHazassagAuto] = useState(false)
 
   // 2026-05-29: az emléklap-vászon ref-je a print-funkcióhoz
   const printRef = useRef<HTMLDivElement>(null)
@@ -219,6 +226,25 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     if (p?.szcs_nev && !anyaLeanykori) setAnyaLeanykori(p.szcs_nev)
   }
 
+  // 2026-05-30: ha mindkét szülő ki van választva, megnézzük a `hazassag`
+  // táblát — ha van bejegyzés (id_ferfi=apa.id ÉS id_no=anya.id), akkor
+  // automatikusan beállítjuk az egyházi-házasság jelzőt. A felhasználó utólag
+  // átírhatja a checkbox-szal.
+  useEffect(() => {
+    if (!father || !mother) {
+      setEgyhaziHazassag(false)
+      setEgyhaziHazassagAuto(false)
+      return
+    }
+    let cancelled = false
+    getMarriageBetween(father.id, mother.id).then((found) => {
+      if (cancelled) return
+      setEgyhaziHazassag(found)
+      setEgyhaziHazassagAuto(found)
+    })
+    return () => { cancelled = true }
+  }, [father, mother])
+
   function handlePersonChange(p: MemberSearchResult | null) {
     setSelectedPerson(p)
     setFamilyAutoLoaded(false)
@@ -241,7 +267,15 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       ? `${selectedPerson.csaladnev || ''} ${selectedPerson.k_nev || ''}`.trim()
       : ''
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
-    const motherName = mother ? `${mother.csaladnev || ''} ${mother.k_nev || ''}`.trim() : ''
+    // 2026-05-30: anya neve a 3 eset szerint (egyházi házasság / leánykori név / fallback)
+    const motherName = formatMotherNameForEmleklap({
+      motherCsaladnev: mother?.csaladnev,
+      motherKnev: mother?.k_nev,
+      leanyneveCsaladnev: anyaLeanykori || mother?.szcs_nev,
+      fatherCsaladnev: father?.csaladnev,
+      fatherKnev: father?.k_nev,
+      churchMarried: egyhaziHazassag,
+    })
     const parentsNames = [fatherName, motherName].filter(Boolean).join(' és ')
 
     const childBirthDate = selectedPerson?.sz_datum
@@ -270,14 +304,24 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, selectedPerson, father, mother, datum, lelkesz, gondnok, congregationName])
+  }, [template, selectedPerson, father, mother, anyaLeanykori, egyhaziHazassag, datum, lelkesz, gondnok, congregationName])
 
   async function handleSubmit(): Promise<boolean> {
     if (!selectedPerson) { toast.error('Válasszon személyt!'); return false }
     if (!datum) { toast.error('A dátum kötelező!'); return false }
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
-    const motherName = mother ? `${mother.csaladnev || ''} ${mother.k_nev || ''}`.trim() : ''
+    // 2026-05-30: az anya neve formázva kerül mentésre (3 eset).
+    // Ezzel a DetailDialog és a többi olvasó komponens automatikusan a
+    // hivatalos egyháztörténeti formát kapja vissza.
+    const motherName = formatMotherNameForEmleklap({
+      motherCsaladnev: mother?.csaladnev,
+      motherKnev: mother?.k_nev,
+      leanyneveCsaladnev: anyaLeanykori || mother?.szcs_nev,
+      fatherCsaladnev: father?.csaladnev,
+      fatherKnev: father?.k_nev,
+      churchMarried: egyhaziHazassag,
+    })
     const fatherCnp = father?.cnp || ''
     const motherCnp = mother?.cnp || ''
     const result = await saveBaptism({
@@ -479,11 +523,46 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                     <Input value={anyavallas} onChange={e => setAnyavallas(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} placeholder="Református" />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Leánykori név</Label>
-                    <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} />
+                    <Label className="text-xs text-muted-foreground">Leánykori név (családnév)</Label>
+                    <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className={`h-8 text-xs ${FIELD_INPUT_CLASS}`} placeholder="pl. Tódor" />
                   </div>
                 </div>
               </div>
+
+              {/* 2026-05-30: egyházi házassági státusz — az anya neve formázásához */}
+              {father && mother && (
+                <div className={`rounded-md border p-2.5 text-xs flex items-start gap-2 ${
+                  egyhaziHazassag ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-slate-50'
+                }`}>
+                  <input
+                    type="checkbox"
+                    id="egyhaziHazassag"
+                    checked={egyhaziHazassag}
+                    onChange={e => setEgyhaziHazassag(e.target.checked)}
+                    className="mt-0.5 size-4"
+                  />
+                  <label htmlFor="egyhaziHazassag" className="flex-1 cursor-pointer leading-relaxed">
+                    <div className="font-medium text-slate-800">
+                      A szülők <strong>egyházilag házasok</strong>
+                      {egyhaziHazassagAuto && egyhaziHazassag && (
+                        <span className="ml-1.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                          ✓ automatikusan ellenőrizve
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-slate-500 mt-0.5">
+                      Az emléklapon: „<strong className="text-slate-700">{formatMotherNameForEmleklap({
+                        motherCsaladnev: mother.csaladnev,
+                        motherKnev: mother.k_nev,
+                        leanyneveCsaladnev: anyaLeanykori || mother.szcs_nev,
+                        fatherCsaladnev: father.csaladnev,
+                        fatherKnev: father.k_nev,
+                        churchMarried: egyhaziHazassag,
+                      })}</strong>"
+                    </div>
+                  </label>
+                </div>
+              )}
 
               <Separator />
               <h4 className="text-sm font-semibold text-slate-700">Részletek</h4>
