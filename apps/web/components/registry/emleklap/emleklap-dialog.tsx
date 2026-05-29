@@ -8,7 +8,7 @@ interface EmleklapDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialType?: EmleklapType
-  initialVariant?: 'erek' | 'kerek'
+  initialVariant?: 'erek' | 'kerek' | 'kek'
   initialData?: Record<string, string | undefined>
   /** Ha true, a stúdió ahhoz a sablon-típushoz van rögzítve, amivel megnyílt
    *  (a típus-választó eltűnik). Defaults to true — a dialog mindig egy konkrét

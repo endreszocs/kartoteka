@@ -15,7 +15,9 @@
  */
 
 export type EmleklapType = 'kereszteles' | 'esketes' | 'konfirmacio' | 'temetes'
-export type EmleklapVariant = 'erek' | 'kerek'
+// 2026-05-30: 'kek' variant — a kék-fehér népi díszítésű keresztelési sablon
+// (lásd migration-docs/.../Regi/keresztelesi_emleklap_web_rekonstrukcio_specifikacio.md)
+export type EmleklapVariant = 'erek' | 'kerek' | 'kek'
 
 export interface EmleklapField {
   /** Egyedi mező-azonosító (a template-en belül). */
@@ -268,6 +270,220 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
     textAlign: 'center',
     lineHeight: 1.1,
     letterSpacing: 0.08,
+  },
+]
+
+// ─────────────────────────────────────────────────────────────────────────
+// 1.b KERESZTELÉSI EMLÉKLAP — KÉK variant (kék-fehér népi díszítésű)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Spec: migration-docs/.../Regi/keresztelesi_emleklap_web_rekonstrukcio_specifikacio.md
+// Koordinátarendszer: 1024 × 1536 px → %-ban átszámítva.
+// Háttér: fehér + kék virágos népi díszítések (Keret.png).
+// Fő szín: #0B2B66 (sötétkék), másodlagos: #1B2440 (sötét szürkéskék).
+
+const COLOR_KEK_HEADING = '#0B2B66'
+const COLOR_KEK_BODY = '#1B2440'
+
+const KERESZTELESI_KEK_FIELDS: EmleklapField[] = [
+  // 6.1 Főcím KERESZTELÉSI EMLÉKLAP (x=512, y=275, w=760, fs=58, ls=1.5)
+  {
+    id: 'title',
+    label: 'Főcím',
+    defaultValue: 'KERESZTELÉSI EMLÉKLAP',
+    x: 12.89, // (512-380)/1024
+    y: 17.90, // 275/1536
+    width: 74.22, // 760/1024
+    fontSize: 3.78, // 58/1536
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.21,
+    letterSpacing: 0.026,
+    textTransform: 'uppercase',
+  },
+  // 6.2 Bevezető (x=512, y=440, w=520, fs=29, ls=0.5)
+  {
+    id: 'intro',
+    label: 'Bevezető',
+    defaultValue: 'Ezennel örömmel igazoljuk, hogy',
+    x: 24.61,
+    y: 28.65,
+    width: 50.78,
+    fontSize: 1.89,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_BODY,
+    textAlign: 'center',
+    lineHeight: 1.31,
+    letterSpacing: 0.017,
+  },
+  // 6.3 Keresztelt gyermek neve (x=512, y=520, w=650, fs=66, fw=600, ls=8, lh=74)
+  {
+    id: 'fullName',
+    label: 'Keresztelt teljes neve',
+    defaultValue: '{{fullName}}',
+    x: 18.26,
+    y: 33.85,
+    width: 63.48,
+    fontSize: 4.30,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.12,
+    letterSpacing: 0.121,
+    textTransform: 'uppercase',
+  },
+  // 6.4 Keresztelés dátuma (x=512, y=655, w=390, fs=34, ls=2)
+  {
+    id: 'baptismDate',
+    label: 'Keresztelés dátuma',
+    defaultValue: '{{baptismDate}}',
+    x: 30.96,
+    y: 42.64,
+    width: 38.09,
+    fontSize: 2.21,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_BODY,
+    textAlign: 'center',
+    lineHeight: 1.18,
+    letterSpacing: 0.059,
+  },
+  // 6.5 Helyszín és eseményszöveg (x=512, y=700, w=690, fs=28, ls=0.5)
+  {
+    id: 'eventText',
+    label: 'Esemény szöveg',
+    // Itt a {{congregationName}} (natural case, NEM "-ben"-nel) használjuk —
+    // pl. "a Barátosi Református Egyházközség templomában"
+    defaultValue: 'a {{congregationName}} templomában\na keresztség sákramentumában részesült.',
+    x: 16.31,
+    y: 45.57,
+    width: 67.38,
+    fontSize: 1.82,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_BODY,
+    textAlign: 'center',
+    lineHeight: 1.39,
+    letterSpacing: 0.018,
+    multiline: true,
+  },
+  // 6.6 Igevers (x=512, y=830, w=620, fs=25, italic, ls=0.5)
+  {
+    id: 'verse',
+    label: 'Igevers',
+    defaultValue: '{{verseText}}',
+    x: 19.73,
+    y: 54.04,
+    width: 60.55,
+    fontSize: 1.63,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    italic: true,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.48,
+    letterSpacing: 0.02,
+    multiline: true,
+  },
+  // 6.7 Igehely (x=512, y=965, w=180, fs=22, ls=1)
+  {
+    id: 'verseReference',
+    label: 'Igehely',
+    defaultValue: '{{verseReference}}',
+    x: 41.21,
+    y: 62.83,
+    width: 17.58,
+    fontSize: 1.43,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_BODY,
+    textAlign: 'center',
+    lineHeight: 1.36,
+    letterSpacing: 0.045,
+  },
+  // 6.8 Kelt: hely + dátum (x=512, y=1038, w=420, fs=28, ls=1)
+  {
+    id: 'placeAndDate',
+    label: 'Kelt (hely + dátum)',
+    defaultValue: '{{issueLocation}}, {{issueDate}}',
+    x: 29.49,
+    y: 67.58,
+    width: 41.02,
+    fontSize: 1.82,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_BODY,
+    textAlign: 'center',
+    lineHeight: 1.29,
+    letterSpacing: 0.036,
+  },
+  // 6.9 Lelkész aláírás-megjelölés (x=300, y=1138, w=130, fs=20, ls=0.5)
+  // A KÉK sablonon az aláírás-vonal felett a felirat van — alatta üres az
+  // aláírás helye. A "{{pastorName}}" placeholder feltöltheti az aláírást is.
+  {
+    id: 'pastorName',
+    label: 'Lelkipásztor neve (az aláírás-vonal alatt)',
+    defaultValue: '{{pastorName}}',
+    x: 22.95,
+    y: 71.50,
+    width: 12.70,
+    fontSize: 1.43,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.30,
+    letterSpacing: 0.025,
+  },
+  {
+    id: 'pastorRole',
+    label: 'Lelkész felirat',
+    defaultValue: 'Lelkész',
+    x: 22.95,
+    y: 74.09,
+    width: 12.70,
+    fontSize: 1.30,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.30,
+    letterSpacing: 0.025,
+  },
+  // 6.10 Keresztszülők (x=720, y=1138, w=190, fs=20, ls=0.5)
+  {
+    id: 'wardenName',
+    label: 'Keresztszülők neve',
+    defaultValue: '{{wardenName}}',
+    x: 61.04,
+    y: 71.50,
+    width: 18.55,
+    fontSize: 1.43,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.30,
+    letterSpacing: 0.025,
+  },
+  {
+    id: 'wardenRole',
+    label: 'Keresztszülők felirat',
+    defaultValue: 'Keresztszülők',
+    x: 61.04,
+    y: 74.09,
+    width: 18.55,
+    fontSize: 1.30,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_KEK_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.30,
+    letterSpacing: 0.025,
   },
 ]
 
@@ -885,6 +1101,19 @@ export const EMLEKLAP_TEMPLATES: EmleklapTemplate[] = [
     backgroundImage: '/templates/emleklap/kerek-kereszteloi-hatter.png',
     aspectRatio: 210 / 297,
     fields: KERESZTELESI_FIELDS,
+  },
+  // 2026-05-30: új kék-fehér népi díszítésű keresztelési sablon
+  // (spec: migration-docs/.../Regi/keresztelesi_emleklap_web_rekonstrukcio_specifikacio.md)
+  // Eredeti dimenzió 1024×1536 (aspect 0.667) — A4-re skálázzuk (a háttér
+  // enyhén nyúlik, de a relatív szöveg-pozíciók megmaradnak).
+  {
+    id: 'kereszteles-kek',
+    name: 'Keresztelői emléklap — KÉK (kék-fehér népi díszítés)',
+    type: 'kereszteles',
+    variant: 'kek',
+    backgroundImage: '/templates/emleklap/kek-kereszteloi-hatter.png',
+    aspectRatio: 210 / 297,
+    fields: KERESZTELESI_KEK_FIELDS,
   },
   {
     id: 'esketes-erek',

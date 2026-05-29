@@ -10,7 +10,7 @@
  * teljes adattartalma látszódjon.
  */
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Printer, Sparkles, User } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -104,13 +104,24 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
 
   // 2026-05-29: a kereszt./esket./konfirm. fülön az emléklap-preview-hoz a
   // sablon kiválasztása. Más fülnél template = null és nem renderelünk preview-t.
+  // 2026-05-30: kereszt. esetén variant-választó (erek/kerek/kek)
+  const [kerVariant, setKerVariant] = useState<'erek' | 'kerek' | 'kek'>(() => {
+    try {
+      const saved = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.kereszteloVariant')) || 'erek'
+      return (saved === 'kerek' || saved === 'kek') ? saved : 'erek'
+    } catch { return 'erek' }
+  })
+  function changeKerVariant(v: 'erek' | 'kerek' | 'kek') {
+    setKerVariant(v)
+    try { localStorage.setItem('kartoteka.emleklap.kereszteloVariant', v) } catch {}
+  }
   const template: EmleklapTemplate | null = useMemo(() => {
-    if (tab === 'keresztseg') return EMLEKLAP_TEMPLATES_MAP['kereszteles-erek'] ?? null
+    if (tab === 'keresztseg') return EMLEKLAP_TEMPLATES_MAP[`kereszteles-${kerVariant}`] ?? EMLEKLAP_TEMPLATES_MAP['kereszteles-erek'] ?? null
     if (tab === 'konfirmalas') return EMLEKLAP_TEMPLATES_MAP['konfirmacio-erek'] ?? null
     if (tab === 'hazassag') return EMLEKLAP_TEMPLATES_MAP['esketes-erek'] ?? null
     if (tab === 'temetes') return EMLEKLAP_TEMPLATES_MAP['temetes-erek'] ?? null
     return null
-  }, [tab])
+  }, [tab, kerVariant])
 
   const fieldValues = useMemo<Record<string, string>>(() => {
     if (!template || !entry) return {}
@@ -118,8 +129,10 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
     try { savedGondnok = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.gondnokName')) || '' } catch {}
     const issueDate = entry.datum ? formatHungarianDate(entry.datum as string) : ''
     const issueLocation = extractCityFromCongregationName(congregationName)
-    const pastorName = ((entry.lelkeszneve as string | undefined) || '').toUpperCase()
-    const wardenName = savedGondnok.toUpperCase()
+    // 2026-05-30: proper case-ben tartjuk — az EREK/KEREK templet textTransform-mal
+    // uppercase-eli, a KÉK natural case-t kér.
+    const pastorName = (entry.lelkeszneve as string | undefined) || ''
+    const wardenName = savedGondnok
 
     let data: Record<string, string> = {}
     if (tab === 'keresztseg') {
@@ -146,6 +159,9 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
         issueDate,
         pastorName,
         wardenName,
+        // 2026-05-30 (KÉK template): igevers + igehely default
+        verseText: 'Engedjétek hozzám jönni a kisgyermekeket,\nés ne tiltsátok el őket tőlem;\nmert ilyeneké az Isten országa.',
+        verseReference: 'Márk 10,14',
       }
     } else if (tab === 'konfirmalas') {
       const fullName = entry.szemely
@@ -496,6 +512,18 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                     : 'Az anyakönyvi adatok alapján generált emléklap. A „Nyomtatás" gombbal A4-en kinyomtathatod.'}
                 </p>
               </div>
+              {/* 2026-05-30: variant-választó keresztelési ágon (EREK/KEREK/KÉK) */}
+              {tab === 'keresztseg' && (
+                <div className="flex gap-1 mb-2 rounded-md bg-slate-100 p-1">
+                  <button type="button" onClick={() => changeKerVariant('erek')}
+                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>EREK</button>
+                  <button type="button" onClick={() => changeKerVariant('kerek')}
+                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>KEREK</button>
+                  <button type="button" onClick={() => changeKerVariant('kek')}
+                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
+                    title="Kék-fehér népi díszítésű sablon">KÉK</button>
+                </div>
+              )}
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
                 <CertificateRenderer
                   ref={printRef}
@@ -506,7 +534,11 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                 />
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400 text-center">
-                A4 álló · {tab === 'temetes' ? 'Gyászjelentés sablon' : `EREK ${tab === 'keresztseg' ? 'keresztelői' : tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
+                {tab === 'temetes'
+                  ? 'A4 álló · Gyászjelentés sablon'
+                  : tab === 'keresztseg'
+                    ? `A4 álló · ${kerVariant === 'kek' ? 'KÉK (kék-fehér népi)' : kerVariant === 'kerek' ? 'KEREK' : 'EREK'} keresztelői sablon`
+                    : `A4 álló · EREK ${tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
               </p>
             </aside>
           )}

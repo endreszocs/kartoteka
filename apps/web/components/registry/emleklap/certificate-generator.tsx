@@ -37,7 +37,7 @@ import { fileToDataUrl, removeWhiteBackground } from '@/lib/utils/image-bg-remov
 
 interface CertificateGeneratorProps {
   initialType?: EmleklapType
-  initialVariant?: 'erek' | 'kerek'
+  initialVariant?: 'erek' | 'kerek' | 'kek'
   initialData?: Record<string, string | undefined>
   onClose?: () => void
   /** Ha true, a típus-választó rejtve van — a stúdió a megnyitáskor kapott
@@ -89,7 +89,7 @@ export function CertificateGenerator({
   lockType = false,
 }: CertificateGeneratorProps) {
   const [selectedType, setSelectedType] = useState<EmleklapType>(initialType)
-  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek'>(initialVariant)
+  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek' | 'kek'>(initialVariant)
   const [showBackground, setShowBackground] = useState(true)
   const [overlays, setOverlays] = useState<OverlayImage[]>([])
   const [processingId, setProcessingId] = useState<string | null>(null)
@@ -282,7 +282,12 @@ export function CertificateGenerator({
         ) : (
           <select
             value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value as EmleklapType)}
+            onChange={(e) => {
+              const next = e.target.value as EmleklapType
+              setSelectedType(next)
+              // 2026-05-30: a KÉK variant csak keresztelőhöz létezik
+              if (selectedVariant === 'kek' && next !== 'kereszteles') setSelectedVariant('erek')
+            }}
             className="rounded-md border border-input bg-background px-2 py-1 text-sm"
           >
             <option value="kereszteles">Keresztelői emléklap</option>
@@ -306,6 +311,18 @@ export function CertificateGenerator({
           >
             KEREK
           </button>
+          {/* 2026-05-30: KÉK variant — csak keresztelőhöz, mert a kék-fehér
+              népi díszítésű sablon csak keresztelési ágon van. */}
+          {selectedType === 'kereszteles' && (
+            <button
+              type="button"
+              onClick={() => setSelectedVariant('kek')}
+              className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
+              title="Kék-fehér népi díszítésű sablon"
+            >
+              KÉK
+            </button>
+          )}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5">

@@ -270,7 +270,19 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   }
 
   // ─── 2026-05-29: élő emléklap-preview ────────────────────────────────────
-  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['kereszteles-erek']
+  // 2026-05-30: dinamikus variant (erek / kerek / kek). A localStorage-be is
+  // mentődik, hogy a következő rögzítéskor a felhasználó preferenciája maradjon.
+  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek' | 'kek'>(() => {
+    try {
+      const saved = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.kereszteloVariant')) || 'erek'
+      return (saved === 'kerek' || saved === 'kek') ? saved : 'erek'
+    } catch { return 'erek' }
+  })
+  function changeVariant(v: 'erek' | 'kerek' | 'kek') {
+    setSelectedVariant(v)
+    try { localStorage.setItem('kartoteka.emleklap.kereszteloVariant', v) } catch {}
+  }
+  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP[`kereszteles-${selectedVariant}`] ?? EMLEKLAP_TEMPLATES_MAP['kereszteles-erek']
 
   const fieldValues = useMemo(() => {
     const childName = selectedPerson
@@ -305,12 +317,22 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       parentsNames: parentsNames || '',
       birthPlace: '',
       birthDate: childBirthDate,
+      // EREK paragrafusban: "akit a {{baptismCongregation}} {{baptismDate}}..."
+      // → '-ben' suffix-szel adjuk. A KÉK eventText viszont {{congregationName}}-t
+      // használ (natural case, suffix nélkül), így a KÉK preview is helyes.
       baptismCongregation: congregationName ? congregationName + 'ben' : '',
       baptismDate,
       issueLocation,
       issueDate,
-      pastorName: (lelkesz || '').toUpperCase(),
-      wardenName: (gondnok || '').toUpperCase(),
+      // 2026-05-30: a pastorName/wardenName proper case-ben passzol. Az EREK
+      // template textTransform: 'uppercase'-szel CSS-en uppercase-eli a megjelenítést;
+      // a KÉK natural case-t mutat.
+      pastorName: lelkesz || '',
+      wardenName: gondnok || '',
+      // 2026-05-30 (KÉK template): igevers + igehely default. A vásznon
+      // in-place szerkeszthető, ha a user másikat akar.
+      verseText: 'Engedjétek hozzám jönni a kisgyermekeket,\nés ne tiltsátok el őket tőlem;\nmert ilyeneké az Isten országa.',
+      verseReference: 'Márk 10,14',
     }
 
     const out: Record<string, string> = {}
@@ -638,6 +660,25 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   A „<strong>Mentés és nyomtatás</strong>" gombbal egy lépésben rögzítheted és kinyomtathatod.
                 </p>
               </div>
+              {/* 2026-05-30: variant-választó chip (EREK / KEREK / KÉK) */}
+              <div className="flex justify-center gap-1 mb-2 rounded-md bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => changeVariant('erek')}
+                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >EREK</button>
+                <button
+                  type="button"
+                  onClick={() => changeVariant('kerek')}
+                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >KEREK</button>
+                <button
+                  type="button"
+                  onClick={() => changeVariant('kek')}
+                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
+                  title="Kék-fehér népi díszítésű sablon"
+                >KÉK</button>
+              </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
                 <CertificateRenderer
                   ref={printRef}
@@ -648,7 +689,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                 />
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400 text-center">
-                A4 álló · EREK keresztelői sablon
+                A4 álló · {selectedVariant === 'kek' ? 'KÉK (kék-fehér népi)' : selectedVariant === 'kerek' ? 'KEREK' : 'EREK'} keresztelői sablon
               </p>
             </aside>
           </div>
