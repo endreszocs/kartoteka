@@ -207,6 +207,8 @@ export interface ParentInfo {
     adrlocality: { name: string | null } | null
     adrstreet: { name: string | null } | null
     c_szam: string | null
+    /** 2026-05-29: vallás auto-fill-hez. */
+    vallas?: string | null
   } | null
   anya: {
     id: number | null
@@ -217,6 +219,8 @@ export interface ParentInfo {
     adrlocality: { name: string | null } | null
     adrstreet: { name: string | null } | null
     c_szam: string | null
+    /** 2026-05-29: vallás auto-fill-hez. */
+    vallas?: string | null
   } | null
   /** Az anya leánykori neve (szemely.szcs_nev) — ha az anya megtalálható. */
   anyaLeanyneve: string | null
@@ -328,7 +332,8 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
 
   if (ferfiId) {
     const { data: a, error: apaErr } = await supabase.from('szemely')
-      .select('id, csaladnev, k_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+      // 2026-05-29: vallas-t is hozzáadva az auto-fill-hez
+      .select('id, csaladnev, k_nev, cnp, sz_datum, c_szam, vallas, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
       .eq('id', ferfiId).limit(1)
     if (apaErr) console.error('[getParentsForChild] apa szemely lekérdezés hiba:', apaErr.message)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -336,7 +341,8 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
   }
   if (noId) {
     const { data: m, error: anyaErr } = await supabase.from('szemely')
-      .select('id, csaladnev, k_nev, szcs_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+      // 2026-05-29: vallas-t is hozzáadva (szcs_nev már ott van)
+      .select('id, csaladnev, k_nev, szcs_nev, cnp, sz_datum, c_szam, vallas, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
       .eq('id', noId).limit(1)
     if (anyaErr) console.error('[getParentsForChild] anya szemely lekérdezés hiba:', anyaErr.message)
     if (m?.[0]) {
@@ -370,7 +376,9 @@ export async function searchMemberForRegistry(query: string, genderFilter?: bool
   if (!congId) return []
   const parts = query.trim().split(/\s+/)
   let q = supabase.from('szemely')
-    .select('id, csaladnev, k_nev, ferfi, sz_datum, cnp, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+    // 2026-05-29: vallas + szcs_nev (leánykori név) is — a baptism-dialog
+    // apa/anya kiválasztáskor ezekből automatikusan kitölti a megfelelő mezőket.
+    .select('id, csaladnev, k_nev, ferfi, sz_datum, cnp, c_szam, vallas, szcs_nev, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
     .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false)
 
   if (genderFilter !== null && genderFilter !== undefined) q = q.eq('ferfi', genderFilter)
@@ -454,6 +462,43 @@ export async function saveBaptism(data: BaptismInput) {
 
   if (d.id_apja_cnp || d.id_anyja_cnp) {
     await checkAndCreateFamily(supabase, d.id_szemely, d.id_apja_cnp || null, d.id_anyja_cnp || null)
+  }
+
+  // 2026-05-29: ha a felhasználó megadta az anya leánykori nevét
+  // (anya_leanyneve), és az anya CNP-je is ismert, az anya szemely.szcs_nev
+  // mezőjébe is bementjük — DE csak akkor, ha ott eddig üres volt (ne írjuk
+  // felül a meglévő adatot). Ezzel a jövőbeli keresztelésekkor az auto-load
+  // is ki tudja venni.
+  if (d.anya_leanyneve && d.id_anyja_cnp) {
+    const { data: existing } = await supabase.from('szemely')
+      .select('id, szcs_nev')
+      .eq('cnp', d.id_anyja_cnp)
+      .eq('congregation_id', congId)
+      .limit(1)
+    if (existing?.[0] && !existing[0].szcs_nev) {
+      const updateErr = await supabase.from('szemely')
+        .update({ szcs_nev: d.anya_leanyneve })
+        .eq('id', existing[0].id)
+      if (updateErr.error) {
+        console.warn('[saveBaptism] anya szcs_nev frissítés hiba:', updateErr.error.message)
+      }
+    }
+  }
+  // Ugyanígy a vallás-mezőket is automatikusan visszamentjük az apa/anya
+  // rekordba, ha eddig üres volt.
+  if (d.apa_vallas && d.id_apja_cnp) {
+    const { data: existing } = await supabase.from('szemely')
+      .select('id, vallas').eq('cnp', d.id_apja_cnp).eq('congregation_id', congId).limit(1)
+    if (existing?.[0] && !existing[0].vallas) {
+      await supabase.from('szemely').update({ vallas: d.apa_vallas }).eq('id', existing[0].id)
+    }
+  }
+  if (d.anya_vallas && d.id_anyja_cnp) {
+    const { data: existing } = await supabase.from('szemely')
+      .select('id, vallas').eq('cnp', d.id_anyja_cnp).eq('congregation_id', congId).limit(1)
+    if (existing?.[0] && !existing[0].vallas) {
+      await supabase.from('szemely').update({ vallas: d.anya_vallas }).eq('id', existing[0].id)
+    }
   }
 
   // Munkanapló — csak új kereszteléskor, hogy ne duplikáljunk.

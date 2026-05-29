@@ -30,6 +30,10 @@ export interface MemberSearchResult {
   c_szam: string | null
   adrlocality?: { name: string | null } | null
   adrstreet?: { name: string | null } | null
+  // 2026-05-29: a baptism dialog auto-fill-hez (vallás + leánykori név)
+  vallas?: string | null
+  /** Születési családi név (= leánykori név anya esetén). DB: szemely.szcs_nev */
+  szcs_nev?: string | null
 }
 
 interface MemberSearchSelectProps {

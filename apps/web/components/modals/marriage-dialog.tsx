@@ -53,6 +53,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   const [tanuk, setTanuk] = useState('')
   const [vegyes, setVegyes] = useState(false)
   const [megj, setMegj] = useState('')
+  const [gondnok, setGondnok] = useState('')
   const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -79,6 +80,10 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       setGroom(null); setBride(null)
       setDatum(new Date().toISOString().slice(0, 10))
       setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMegj('')
+      try {
+        const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
+        if (savedGondnok) setGondnok(savedGondnok)
+      } catch {}
       getNextEgyhaziSzam('marriage', new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
@@ -111,7 +116,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       issueLocation,
       issueDate,
       pastorName: (lelkesz || '').toUpperCase(),
-      wardenName: '',
+      wardenName: (gondnok || '').toUpperCase(),
     }
 
     const out: Record<string, string> = {}
@@ -119,7 +124,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, groom, bride, datum, lelkesz, congregationName])
+  }, [template, groom, bride, datum, lelkesz, gondnok, congregationName])
 
   async function handleSubmit(): Promise<boolean> {
     if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return false }
@@ -149,10 +154,29 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   }
 
   async function handleSaveAndPrint() {
+    let pastor = lelkesz.trim()
+    let warden = gondnok.trim()
+    if (!pastor) {
+      const v = window.prompt('A lelkész neve nincs megadva — az emléklapra kerül. Add meg most:', '')
+      if (v === null) return
+      pastor = v.trim()
+      if (pastor) setLelkesz(pastor)
+    }
+    if (!warden) {
+      const v = window.prompt('A gondnok neve nincs megadva. Add meg most (megőrződik a következő alkalmakra):', '')
+      if (v === null) return
+      warden = v.trim()
+      if (warden) {
+        setGondnok(warden)
+        try { localStorage.setItem('kartoteka.emleklap.gondnokName', warden) } catch {}
+      }
+    }
     const ok = await handleSubmit()
     if (!ok) return
-    handlePrint()
-    setTimeout(() => onOpenChange(false), 500)
+    setTimeout(() => {
+      handlePrint()
+      setTimeout(() => onOpenChange(false), 500)
+    }, 50)
   }
 
   function handlePrint() {
@@ -224,6 +248,16 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               <div className="space-y-1.5"><Label>Tanúk</Label><Input value={tanuk} onChange={e => setTanuk(e.target.value)} placeholder="Tanúk neve" className={FIELD_INPUT_CLASS} /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Gondnok <span className="text-[10px] font-normal text-slate-500">(az emléklapra — automatikusan megőrződik)</span></Label>
+              <Input
+                value={gondnok}
+                onChange={e => setGondnok(e.target.value)}
+                placeholder="Gondnok teljes neve"
+                className={FIELD_INPUT_CLASS}
+                onBlur={() => { try { if (gondnok) localStorage.setItem('kartoteka.emleklap.gondnokName', gondnok) } catch {} }}
+              />
             </div>
             <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
             <label className="flex items-center gap-2 text-sm">

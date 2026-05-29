@@ -69,6 +69,10 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
   const [apavallas, setApavallas] = useState('')
   const [anyavallas, setAnyavallas] = useState('')
   const [anyaLeanykori, setAnyaLeanykori] = useState('')
+  // 2026-05-29: gondnok neve az emléklap-vászonhoz. localStorage-be is
+  // mentődik, hogy a következő rögzítéskor ne kelljen újra beírni
+  // (gyülekezetenként 1 gondnok jellemzően).
+  const [gondnok, setGondnok] = useState('')
 
   // 2026-05-29: az emléklap-vászon ref-je a print-funkcióhoz
   const printRef = useRef<HTMLDivElement>(null)
@@ -115,6 +119,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       setDatum(today); setOkirat(''); setLelkesz(''); setKeresztszulok('')
       setAlapige(''); setMegjegyzes(''); setMunkanaploba(false)
       setApavallas(''); setAnyavallas(''); setAnyaLeanykori('')
+      // 2026-05-29: gondnok visszatöltése localStorage-ból (sticky)
+      try {
+        const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
+        if (savedGondnok) setGondnok(savedGondnok)
+      } catch { /* SSR / private mode */ }
       getNextEgyhaziSzam('baptism', new Date().getFullYear()).then(value => {
         if (!cancelled) setEgyhaziSzam(value)
       })
@@ -149,7 +158,11 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
           c_szam: info.apa.c_szam,
           adrlocality: info.apa.adrlocality,
           adrstreet: info.apa.adrstreet,
+          vallas: info.apa.vallas,
         })
+        // 2026-05-29: ha az apa-rekordban van vallás és a mezőnk még üres,
+        // automatikusan kitöltjük.
+        if (info.apa.vallas && !apavallas) setApavallas(info.apa.vallas)
       }
       if (info.anya) {
         setMother({
@@ -162,7 +175,9 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
           c_szam: info.anya.c_szam,
           adrlocality: info.anya.adrlocality,
           adrstreet: info.anya.adrstreet,
+          vallas: info.anya.vallas,
         })
+        if (info.anya.vallas && !anyavallas) setAnyavallas(info.anya.vallas)
       }
       if (info.anyaLeanyneve && !anyaLeanykori) setAnyaLeanykori(info.anyaLeanyneve)
 
@@ -191,7 +206,18 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       setFamilyAutoLoaded(true)
     })
     return () => { cancelled = true }
-  }, [selectedPerson, open, editEntry, familyAutoLoaded, father, mother, anyaLeanykori])
+  }, [selectedPerson, open, editEntry, familyAutoLoaded, father, mother, anyaLeanykori, apavallas, anyavallas])
+
+  // 2026-05-29: manuális szülő-kiválasztáskor is auto-fill (vallás + leánykori név).
+  function handleFatherChange(p: MemberSearchResult | null) {
+    setFather(p)
+    if (p?.vallas && !apavallas) setApavallas(p.vallas)
+  }
+  function handleMotherChange(p: MemberSearchResult | null) {
+    setMother(p)
+    if (p?.vallas && !anyavallas) setAnyavallas(p.vallas)
+    if (p?.szcs_nev && !anyaLeanykori) setAnyaLeanykori(p.szcs_nev)
+  }
 
   function handlePersonChange(p: MemberSearchResult | null) {
     setSelectedPerson(p)
@@ -236,7 +262,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       issueLocation,
       issueDate,
       pastorName: (lelkesz || '').toUpperCase(),
-      wardenName: '',
+      wardenName: (gondnok || '').toUpperCase(),
     }
 
     const out: Record<string, string> = {}
@@ -244,7 +270,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, selectedPerson, father, mother, datum, lelkesz, congregationName])
+  }, [template, selectedPerson, father, mother, datum, lelkesz, gondnok, congregationName])
 
   async function handleSubmit(): Promise<boolean> {
     if (!selectedPerson) { toast.error('Válasszon személyt!'); return false }
@@ -287,13 +313,41 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
     if (ok) onOpenChange(false)
   }
 
+  /**
+   * 2026-05-29: Mentés és nyomtatás előtt ellenőrzi a lelkész + gondnok mező
+   * kitöltöttségét. Ha hiányzik, prompt-tal bekéri, majd elmenti és nyomtat.
+   */
   async function handleSaveAndPrint() {
+    let pastor = lelkesz.trim()
+    let warden = gondnok.trim()
+    if (!pastor) {
+      const v = window.prompt(
+        'A lelkész neve nincs megadva — az emléklapra kerül. Add meg most:',
+        '',
+      )
+      if (v === null) return
+      pastor = v.trim()
+      if (pastor) setLelkesz(pastor)
+    }
+    if (!warden) {
+      const v = window.prompt(
+        'A gondnok neve nincs megadva — az emléklapra kerül. Add meg most (a jövőben automatikusan használjuk):',
+        '',
+      )
+      if (v === null) return
+      warden = v.trim()
+      if (warden) {
+        setGondnok(warden)
+        try { localStorage.setItem('kartoteka.emleklap.gondnokName', warden) } catch {}
+      }
+    }
     const ok = await handleSubmit()
     if (!ok) return
-    handlePrint()
-    // Nyomtatás után a dialog még nyitva marad pár pillanatig, hogy a felhasználó
-    // lássa a vásznat — aztán bezáródik.
-    setTimeout(() => onOpenChange(false), 500)
+    // Várunk egy tick-et, hogy a fieldValues a friss state-tel frissüljön a print előtt
+    setTimeout(() => {
+      handlePrint()
+      setTimeout(() => onOpenChange(false), 500)
+    }, 50)
   }
 
   function handlePrint() {
@@ -403,7 +457,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   <Label>Édesapa</Label>
                   <MemberSearchSelect
                     value={father}
-                    onChange={setFather}
+                    onChange={handleFatherChange}
                     genderFilter={true}
                     placeholder="Apa keresése (férfi)…"
                   />
@@ -416,7 +470,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   <Label>Édesanya</Label>
                   <MemberSearchSelect
                     value={mother}
-                    onChange={setMother}
+                    onChange={handleMotherChange}
                     genderFilter={false}
                     placeholder="Anya keresése (nő)…"
                   />
@@ -453,6 +507,20 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
                 <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  Gondnok <span className="text-[10px] font-normal text-slate-500">(az emléklapra — automatikusan megőrződik a következő kereszteléshez)</span>
+                </Label>
+                <Input
+                  value={gondnok}
+                  onChange={e => setGondnok(e.target.value)}
+                  className={FIELD_INPUT_CLASS}
+                  placeholder="Gondnok teljes neve"
+                  onBlur={() => {
+                    try { if (gondnok) localStorage.setItem('kartoteka.emleklap.gondnokName', gondnok) } catch {}
+                  }}
+                />
               </div>
               <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} className={FIELD_INPUT_CLASS} /></div>

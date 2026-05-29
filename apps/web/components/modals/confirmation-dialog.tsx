@@ -69,6 +69,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
   const [munkanaploba, setMunkanaploba] = useState(false)
   const [loading, setLoading] = useState(false)
   const [egyhaziSzam, setEgyhaziSzam] = useState('')
+  const [fogondnok, setFogondnok] = useState('')
   const printRef = useRef<HTMLDivElement>(null)
 
   // 2026-05-29: élő konfirmációi emléklap-preview (csak szerkesztés módban)
@@ -91,7 +92,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       confirmCongregation: congregationName ? congregationName + 'ben' : '',
       issueLocation,
       issueDate,
-      mainWardenName: '',
+      mainWardenName: (fogondnok || '').toUpperCase(),
       pastorName: (lelkesz || '').toUpperCase(),
     }
     const out: Record<string, string> = {}
@@ -99,7 +100,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, editPerson, datum, lelkesz, congregationName])
+  }, [template, editPerson, datum, lelkesz, fogondnok, congregationName])
 
   useEffect(() => {
     if (!open) return
@@ -124,7 +125,10 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
       setCandidates([])
       setDatum(new Date().toISOString().slice(0, 10))
       setLelkesz(''); setMegj(''); setMunkanaploba(false)
-      // Auto-fill: a következő EGYHÁZI anyakönyvi szám előnézet
+      try {
+        const saved = localStorage.getItem('kartoteka.emleklap.gondnokName')
+        if (saved) setFogondnok(saved)
+      } catch {}
       getNextEgyhaziSzam('confirmation', new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
@@ -192,10 +196,29 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
   }
 
   async function handleSaveAndPrintEdit() {
+    let pastor = lelkesz.trim()
+    let warden = fogondnok.trim()
+    if (!pastor) {
+      const v = window.prompt('A lelkész neve nincs megadva — az emléklapra kerül. Add meg most:', '')
+      if (v === null) return
+      pastor = v.trim()
+      if (pastor) setLelkesz(pastor)
+    }
+    if (!warden) {
+      const v = window.prompt('A főgondnok neve nincs megadva. Add meg most (megőrződik):', '')
+      if (v === null) return
+      warden = v.trim()
+      if (warden) {
+        setFogondnok(warden)
+        try { localStorage.setItem('kartoteka.emleklap.gondnokName', warden) } catch {}
+      }
+    }
     const ok = await handleSubmitEdit()
     if (!ok) return
-    handlePrint()
-    setTimeout(() => onOpenChange(false), 500)
+    setTimeout(() => {
+      handlePrint()
+      setTimeout(() => onOpenChange(false), 500)
+    }, 50)
   }
 
   function handlePrint() {
@@ -255,6 +278,16 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
                   </div>
                 </div>
                 <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
+                <div className="space-y-1.5">
+                  <Label>Főgondnok <span className="text-[10px] font-normal text-slate-500">(az emléklapra)</span></Label>
+                  <Input
+                    value={fogondnok}
+                    onChange={e => setFogondnok(e.target.value)}
+                    placeholder="Főgondnok teljes neve"
+                    className={FIELD_INPUT_CLASS}
+                    onBlur={() => { try { if (fogondnok) localStorage.setItem('kartoteka.emleklap.gondnokName', fogondnok) } catch {} }}
+                  />
+                </div>
                 <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megj} onChange={e => setMegj(e.target.value)} className={FIELD_INPUT_CLASS} /></div>
               </div>
 
