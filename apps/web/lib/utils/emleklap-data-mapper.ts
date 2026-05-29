@@ -94,6 +94,8 @@ function mapKeresztseg(entry: RegistryEntry, opts: { congregationName: string })
  */
 function mapKonfirmalas(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
   return {
+    // 2026-05-29 v6: a sablonra hozzáadott felső gyülekezet-név mezőhöz.
+    congregationName: opts.congregationName,
     fullName: fullName(entry.szemely).toUpperCase(),
     birthPlace: '',
     birthDate: formatHungarianDate(entry.szemely?.sz_datum) + (entry.szemely?.sz_datum ? '-én' : ''),

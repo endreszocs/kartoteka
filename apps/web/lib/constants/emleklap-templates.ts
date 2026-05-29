@@ -111,11 +111,14 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
   // 3. paragraph nagyobb (1.8 helyett 1.6) + félkövér (fw 500) az olvashatóságért
   // 4. pastorName/wardenName az aláírás-vonalakhoz igazítva (y=75-76)
   {
+    // v6 (2026-05-29) — user: „a kerületi logó alatti dísz és a keresztelői
+    // felirat közé". A hatter címer-dísze y~16%-ig tart, a KERESZTELŐI cím
+    // y~22%-tól kezdődik — a gyülekezet neve ebbe a sávba kerül.
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 26.5,
+    y: 14.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
@@ -273,11 +276,13 @@ const ESKETESI_FIELDS: EmleklapField[] = [
   // cursive nevek kisebbek + díszes keret közepén, paragraph nagyobb + félkövér,
   // aláírások az aláírás-vonalakhoz igazítva.
   {
+    // v6 (2026-05-29): a címer-dísz és HÁZASSÁGKÖTÉSI cím közé (azonos logika
+    // mint a keresztelőin).
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 23.0,
+    y: 14.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
@@ -491,6 +496,25 @@ const ESKETESI_FIELDS: EmleklapField[] = [
 //   alsó vízszintes vonal: y~67%
 //   alsó dekoráció: y~92–95%
 const KONFIRMACIOI_FIELDS: EmleklapField[] = [
+  // v6 (2026-05-29): a 2 igevers/címer és a KONFIRMÁCIÓI cím közé. Az eredeti
+  // minta nem tartalmazza, de user-kérésre minden sablonon legyen.
+  {
+    id: 'congregationName',
+    label: 'Gyülekezet neve (felső sor)',
+    defaultValue: '{{congregationName}}',
+    x: 7.5,
+    y: 14.0,
+    width: 85,
+    fontSize: 1.7,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_HEADING,
+    textAlign: 'center',
+    lineHeight: 1.2,
+    letterSpacing: 0.06,
+    textTransform: 'uppercase',
+    hint: 'pl. BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG',
+  },
   // v4 (2026-05-29) — konfirmacioi: bevezető + név a felső vonal alatt szorosan,
   // paragraph nagyobb + félkövér, aláírások az aláírás-vonalakhoz igazítva.
   {
@@ -738,6 +762,7 @@ export const EMLEKLAP_SAMPLE_DATA: Record<EmleklapType, Record<string, string>> 
     wardenName: 'MÁRK A. LÁSZLÓ',
   },
   konfirmacio: {
+    congregationName: 'BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG',
     fullName: 'CSÁKÁNY ÁRPÁD',
     birthPlace: 'Kovásznán',
     birthDate: '2005. április 12-én',
