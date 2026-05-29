@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import {
   ArrowRightLeft,
+  Award,
   Baby,
   ChevronRight,
   Cross,
@@ -29,6 +30,7 @@ const CATEGORIES: HelpCategory[] = [
   { id: 'burial', label: 'Temetés', Icon: Cross, short: 'Elhunyt anyakönyvezése' },
   { id: 'movement', label: 'Mozgás (be/elköltözés)', Icon: ArrowRightLeft, short: 'Gyülekezetbe lépés / távozás' },
   { id: 'denomination', label: 'Át- és kitérés', Icon: FileSignature, short: 'Vallásváltás követése' },
+  { id: 'emleklap', label: 'Emléklap-stúdió', Icon: Award, short: 'Élő előnézet + pecsét/aláírás + nyomtatás' },
 ]
 
 export function AnyakonyvHelp() {
@@ -90,6 +92,7 @@ export function AnyakonyvHelp() {
             {active === 'burial' && <BurialContent />}
             {active === 'movement' && <MovementContent />}
             {active === 'denomination' && <DenominationContent />}
+            {active === 'emleklap' && <EmleklapContent />}
           </div>
         </main>
       </div>
@@ -184,12 +187,34 @@ function BaptismContent() {
         <li>Születés dátuma és helye</li>
         <li>Lakcím</li>
         <li>Okirat (állami anyakönyvi szám)</li>
+        <li><strong>Alapige</strong> — a keresztelői igehirdetés alapigéje (pl. Mk 10,14)</li>
         <li>Megjegyzés (pl. szülőgyülekezet, ha másik gyülekezetből hozzák)</li>
       </ul>
       <S>Felnőtt keresztelés</S>
       <p>
         Felnőtt keresztelés esetén a hitvallás-tétel is részletezhető a megjegyzésben,
         valamint külön „felnőtt keresztelés" jelölést érdemes a kartonon hozzáfűzni.
+      </p>
+
+      <S>🌟 Élő emléklap-előnézet a rögzítés közben (2026-05-29 ÚJ)</S>
+      <p>
+        A „Keresztelés rögzítése" ablak <strong>kétoszlopos elrendezésű</strong>: a bal
+        oldalon írod be az adatokat, a jobb oldalon pedig <strong>azonnal látod a
+        keresztelői emléklap kitöltődését</strong>. Ahogy gépeled a nevet, dátumot,
+        kiválasztod a szülőket, a vászonon valós időben jelennek meg a beírt értékek.
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Mentés</strong> — csak rögzíti a bejegyzést és bezárja az ablakot.</li>
+        <li>
+          <strong>Mentés és nyomtatás</strong> (amber gomb) — egy lépésben rögzít és
+          azonnal megnyit egy nyomtatható A4-es ablakot. Hasznos, ha a keresztelés után
+          mindjárt át tudod adni az emléklapot a családnak.
+        </li>
+      </ul>
+      <p>
+        Keskeny képernyőn (mobil) a vászon a forma alá ugrik. Az emléklap-szövegek
+        később bármikor finomíthatók a sor-szintű „Emléklap" gombbal (Award-ikon a
+        bejegyzések táblázatában).
       </p>
     </>
   )
@@ -365,6 +390,96 @@ function DenominationContent() {
       <p>
         A kitérés érzékeny pasztorális helyzet — érdemes a megjegyzésben rögzíteni az
         okát és a kapcsolat fenntartási próbálkozásokat.
+      </p>
+    </>
+  )
+}
+
+function EmleklapContent() {
+  return (
+    <>
+      <p>
+        Az <strong>Anyakönyvi emléklap-stúdió</strong> a sákramentumok (keresztelés,
+        konfirmáció, esketés) hivatalos kinyomtatható emléklap-jainak elkészítésére
+        szolgál. Mindhárom típushoz <strong>EREK</strong> (Erdélyi) és{' '}
+        <strong>KEREK</strong> (Királyhágómelléki) egyházkerület-variáns elérhető.
+      </p>
+
+      <S>Hogyan nyitod meg?</S>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Új keresztelés rögzítésekor</strong> — a „Keresztelés rögzítése"
+          ablak jobb oldalán azonnal látszik az élő előnézet, és a „Mentés és nyomtatás"
+          gombbal egy lépésben rögzítheted + kinyomtathatod.
+        </li>
+        <li>
+          <strong>Meglévő bejegyzéshez</strong> — a bejegyzések táblázatában minden
+          sorban van egy <Award className="size-3.5 inline text-amber-600" />{' '}
+          („Emléklap") gomb, ami a teljes stúdiót megnyitja, az adott bejegyzés
+          adataival előtöltve.
+        </li>
+        <li>
+          <strong>A Hero „Emléklap-stúdió" gombja</strong> — az aktuálisan aktív
+          fülnek megfelelő üres sablont nyit (pl. ha a Keresztelés tabon vagy, akkor
+          keresztelői emléklapot).
+        </li>
+      </ul>
+
+      <S>Mit tudsz a stúdióban?</S>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Közvetlenül szerkeszthető szövegek</strong> — kattints rá bármelyik
+          szövegre az emléklapon, és gépeld be a helyes adatot. Enter-rel kiléphetsz
+          a mezőből.
+        </li>
+        <li>
+          <strong>Pecsét + 2 aláírás feltöltése</strong> — a jobb oldali panelben
+          tölthetsz fel szkennelt pecsétet és aláírásokat (lelkipásztor + gondnok).
+          Az egérrel közvetlenül a vásznon húzhatod a helyükre, csúszkával állíthatod
+          a méretet, és pecsétet forgathatsz is.
+        </li>
+        <li>
+          <strong>Egy gombos háttér-eltávolítás</strong> — a szkennelt papír fehér
+          háttere áttetszővé tehető a „Háttér el" gombbal, hogy a pecsét/aláírás
+          szépen ráüljön az emléklapra.
+        </li>
+        <li>
+          <strong>Sablon-háttér be/ki</strong> — ha saját nyomtatott emléklap-papírra
+          szeretnél csak szöveget nyomtatni (felülnyomás), a háttér-toggle-lel kikapcsolhatod
+          a háttérképet.
+        </li>
+        <li>
+          <strong>Nyomtatás / PDF-export</strong> — A4 álló méretben, böngészőből (a
+          „Mentés PDF-ként" opcióval PDF is készíthető).
+        </li>
+      </ul>
+
+      <S>Automatikus adatok az anyakönyvi bejegyzésből</S>
+      <p>
+        A stúdió a bejegyzésből automatikusan kitölti az alábbi mezőket:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>Megkeresztelt / konfirmált / esketett személy(ek) neve</li>
+        <li>Születési dátum (magyar formátumban, „-én"/„-án" toldalékkal)</li>
+        <li>Keresztelés / konfirmáció / esketés dátuma</li>
+        <li>Gyülekezet neve (a felső sorban + a paragrafusban „...-ben" alakban)</li>
+        <li>
+          <strong>Helység</strong> a Kelt: soroknál — a gyülekezet nevéből
+          automatikusan (pl. „Barátosi Református Egyházközség" → „Barátos")
+        </li>
+        <li>Lelkipásztor neve (nagybetűkkel)</li>
+      </ul>
+      <p>
+        A többi mező (szülők neve, születési hely, igevers, gondnok neve, …)
+        kézzel kitölthető a vásznon — egyszerűen kattints rá és írd be.
+      </p>
+
+      <S>Pixelpontos kalibráció (fejlesztői)</S>
+      <p>
+        Ha a sablon-mezők nem ott vannak ahol szeretnéd, a vászon alatti{' '}
+        <strong>„▾ Pixelpontos kalibráció"</strong> gombbal előhívható egy fejlesztői
+        eszköz: drag-elhetők a szövegek, csúszkával állítható X/Y/szélesség/betűméret,
+        majd JSON-ba exportálható a végső koordináta-készlet.
       </p>
     </>
   )

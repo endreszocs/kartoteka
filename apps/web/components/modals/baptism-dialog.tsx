@@ -329,9 +329,14 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
             </DialogTitle>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+          {/*
+            2026-05-29 v2: 2-oszlopos elrendezés már md (≥768px) breakpoint-tól,
+            nem csak lg-tól (1024). A user-szándék: a preview szinte mindig
+            jobb oldalt látsszon, csak nagyon keskeny mobilon ugorjon alulra.
+          */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
             {/* ─── BAL OSZLOP: Adatbeviteli űrlap ─── */}
-            <div className="space-y-4 lg:max-h-[78vh] lg:overflow-y-auto lg:pr-2">
+            <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>Megkeresztelt személy *</Label>
@@ -449,7 +454,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
             </div>
 
             {/* ─── JOBB OSZLOP: Élő emléklap-vászon ─── */}
-            <aside className="lg:sticky lg:top-0 lg:self-start">
+            <aside className="md:sticky md:top-0 md:self-start">
               <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
                 <p className="text-[11px] text-amber-900 leading-relaxed">
                   <Sparkles className="size-3 inline mr-1 text-amber-600" />
@@ -462,7 +467,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   ref={printRef}
                   template={template}
                   fieldValues={fieldValues}
-                  previewWidth={420}
+                  previewWidth={360}
                   showBackground={true}
                 />
               </div>
