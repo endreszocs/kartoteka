@@ -111,14 +111,15 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
   // 3. paragraph nagyobb (1.8 helyett 1.6) + félkövér (fw 500) az olvashatóságért
   // 4. pastorName/wardenName az aláírás-vonalakhoz igazítva (y=75-76)
   {
-    // v6 (2026-05-29) — user: „a kerületi logó alatti dísz és a keresztelői
-    // felirat közé". A hatter címer-dísze y~16%-ig tart, a KERESZTELŐI cím
-    // y~22%-tól kezdődik — a gyülekezet neve ebbe a sávba kerül.
+    // v7 (2026-05-29) — a tényleges rendering alapján kalibrálva:
+    // a hatter címere y~17-30% környékét foglalja el (nagyobb mint gondoltam),
+    // a címer-dísz y~30-36%, KERESZTELŐI cím y~42%. A gyülekezet neve a
+    // y~36-42% gap-be kerül. Set y=32, renders visible ≈y=37-38%.
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 14.0,
+    y: 32.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
@@ -276,13 +277,12 @@ const ESKETESI_FIELDS: EmleklapField[] = [
   // cursive nevek kisebbek + díszes keret közepén, paragraph nagyobb + félkövér,
   // aláírások az aláírás-vonalakhoz igazítva.
   {
-    // v6 (2026-05-29): a címer-dísz és HÁZASSÁGKÖTÉSI cím közé (azonos logika
-    // mint a keresztelőin).
+    // v7 (2026-05-29): azonos logika mint a keresztelőin (lásd ott).
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 14.0,
+    y: 32.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
