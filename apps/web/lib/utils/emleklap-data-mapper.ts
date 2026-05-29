@@ -71,6 +71,32 @@ function fullName(p?: { csaladnev?: string; k_nev?: string } | null): string {
 }
 
 /**
+ * Gyülekezet nevéből a város/helység kinyerése.
+ * Heurisztika: az első szó az -i melléknév-rag levágásával adja a helység nevét.
+ *
+ * Példák:
+ *   "BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG"           → "Barátos"
+ *   "KOLOZSVÁRI BELVÁROSI REF. EGYHÁZKÖZSÉG"     → "Kolozsvár"
+ *   "Sepsiszentgyörgyi Református Egyházközség"  → "Sepsiszentgyörgy"
+ *
+ * Az emléklap „Kelt: <hely>, <dátum>." soránál használjuk, ha az anyakönyvi
+ * bejegyzésben nincs explicit helység megadva.
+ */
+export function extractCityFromCongregationName(congregationName: string | null | undefined): string {
+  if (!congregationName) return ''
+  const firstWord = congregationName.trim().split(/\s+/)[0]
+  if (!firstWord) return ''
+  // Cím-case (első betű nagy, többi kicsi)
+  const titleCased = firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase()
+  // Trailing "i" levágása (magyar melléknévi rag — pl. "Barátosi" → "Barátos").
+  // Csak akkor, ha a szó hosszabb mint 3 betű (különben pl. "Pri" → "Pr" lenne).
+  if (titleCased.length > 3 && titleCased.endsWith('i')) {
+    return titleCased.slice(0, -1)
+  }
+  return titleCased
+}
+
+/**
  * Keresztelés → emléklap placeholder-adatok.
  */
 function mapKeresztseg(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
@@ -80,9 +106,14 @@ function mapKeresztseg(entry: RegistryEntry, opts: { congregationName: string })
     parentsNames: '', // a registry nem tárolja közvetlenül — a user kitölti
     birthPlace: '', // nincs a registry-ben — kitöltendő
     birthDate: formatHungarianDate(entry.szemely?.sz_datum) + (entry.szemely?.sz_datum ? '-én' : ''),
+    // 2026-05-29 v8: már nem fűzünk hozzá "ben"-t — a sablon szöveg most már
+    // önállóan ad „-ben" suffix-et a placeholder után (template-fix).
     baptismCongregation: opts.congregationName + 'ben',
     baptismDate: formatHungarianDate(entry.datum) + (entry.datum ? '-én' : ''),
-    issueLocation: '',
+    // 2026-05-29: a helység a gyülekezet nevéből kerül kinyerésre (pl.
+    // "BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG" → "Barátos"). Egyezések más
+    // gyülekezeteknél: Kolozsvári → Kolozsvár, Sepsiszentgyörgyi → Sepsiszentgyörgy.
+    issueLocation: extractCityFromCongregationName(opts.congregationName),
     issueDate: formatHungarianDate(entry.datum),
     pastorName: (entry.lelkeszneve || '').toUpperCase(),
     wardenName: '',
@@ -94,7 +125,6 @@ function mapKeresztseg(entry: RegistryEntry, opts: { congregationName: string })
  */
 function mapKonfirmalas(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
   return {
-    // 2026-05-29 v6: a sablonra hozzáadott felső gyülekezet-név mezőhöz.
     congregationName: opts.congregationName,
     fullName: fullName(entry.szemely).toUpperCase(),
     birthPlace: '',
@@ -102,7 +132,8 @@ function mapKonfirmalas(entry: RegistryEntry, opts: { congregationName: string }
     baptismCongregation: '',
     baptismDate: '',
     confirmCongregation: opts.congregationName + 'ben',
-    issueLocation: '',
+    // 2026-05-29: helység automatikus kinyerése a gyülekezet nevéből.
+    issueLocation: extractCityFromCongregationName(opts.congregationName),
     issueDate: formatHungarianDate(entry.datum).toUpperCase(),
     mainWardenName: '',
     pastorName: (entry.lelkeszneve || '').toUpperCase(),
@@ -125,7 +156,8 @@ function mapHazassag(entry: RegistryEntry, opts: { congregationName: string }): 
     marriageDate: formatHungarianDate(entry.datum) + (entry.datum ? '-én' : ''),
     verseText: '',
     verseReference: '',
-    issueLocation: '',
+    // 2026-05-29: helység automatikus kinyerése a gyülekezet nevéből.
+    issueLocation: extractCityFromCongregationName(opts.congregationName),
     issueDate: formatHungarianDate(entry.datum),
     pastorName: (entry.lelkeszneve || '').toUpperCase(),
     wardenName: '',

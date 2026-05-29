@@ -111,15 +111,13 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
   // 3. paragraph nagyobb (1.8 helyett 1.6) + félkövér (fw 500) az olvashatóságért
   // 4. pastorName/wardenName az aláírás-vonalakhoz igazítva (y=75-76)
   {
-    // v7 (2026-05-29) — a tényleges rendering alapján kalibrálva:
-    // a hatter címere y~17-30% környékét foglalja el (nagyobb mint gondoltam),
-    // a címer-dísz y~30-36%, KERESZTELŐI cím y~42%. A gyülekezet neve a
-    // y~36-42% gap-be kerül. Set y=32, renders visible ≈y=37-38%.
+    // v8 (2026-05-29): user-screenshot szerint y=32 a KERESZTELŐI cím belsejébe
+    // került (rendering offset ~+5-10%). y=23 a gap-ben, a cím FÖLÉ.
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 32.0,
+    y: 23.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
@@ -165,9 +163,11 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
     letterSpacing: 0,
   },
   {
+    // v8 (2026-05-29): user-kérés: sorkizárt + a {{baptismCongregation}}-ből
+    // eltávolítva a "-ben" suffix (a mapper most már önállóan adja hozzá).
     id: 'paragraph',
     label: 'Fő szöveg (5-6 sor)',
-    defaultValue: '{{parentsNames}} gyermekét, aki {{birthPlace}} született {{birthDate}}, és akit a {{baptismCongregation}}-ben {{baptismDate}} a szent keresztség által az Atya, Fiú, Szentlélek Isten szövetségébe, a keresztyén Anyaszentegyházba befogadtunk.',
+    defaultValue: '{{parentsNames}} gyermekét, aki {{birthPlace}} született {{birthDate}}, és akit a {{baptismCongregation}} {{baptismDate}} a szent keresztség által az Atya, Fiú, Szentlélek Isten szövetségébe, a keresztyén Anyaszentegyházba befogadtunk.',
     x: 10,
     y: 53.5,
     width: 80,
@@ -175,7 +175,7 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
     fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_HEADING,
-    textAlign: 'center',
+    textAlign: 'justify',
     lineHeight: 1.45,
     letterSpacing: 0,
     multiline: true,
@@ -277,12 +277,12 @@ const ESKETESI_FIELDS: EmleklapField[] = [
   // cursive nevek kisebbek + díszes keret közepén, paragraph nagyobb + félkövér,
   // aláírások az aláírás-vonalakhoz igazítva.
   {
-    // v7 (2026-05-29): azonos logika mint a keresztelőin (lásd ott).
+    // v8 (2026-05-29): azonos a keresztelőivel (gap a címer és cím között).
     id: 'congregationName',
     label: 'Gyülekezet neve (felső sor)',
     defaultValue: '{{congregationName}}',
     x: 7.5,
-    y: 32.0,
+    y: 23.0,
     width: 85,
     fontSize: 1.85,
     fontFamily: FONT_SERIF,
@@ -372,9 +372,10 @@ const ESKETESI_FIELDS: EmleklapField[] = [
     letterSpacing: 0,
   },
   {
+    // v8: sorkizárt + a -ben suffix eltávolítva a placeholder mellől.
     id: 'paragraph',
     label: 'Esketés szöveg',
-    defaultValue: 'a {{marriageCongregation}}-ben {{marriageDate}} Isten és a gyülekezet színe előtt házassági szent szövetséget kötött.',
+    defaultValue: 'a {{marriageCongregation}} {{marriageDate}} Isten és a gyülekezet színe előtt házassági szent szövetséget kötött.',
     x: 10,
     y: 56.0,
     width: 80,
@@ -382,7 +383,7 @@ const ESKETESI_FIELDS: EmleklapField[] = [
     fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_HEADING,
-    textAlign: 'center',
+    textAlign: 'justify',
     lineHeight: 1.45,
     letterSpacing: 0,
     multiline: true,
@@ -550,9 +551,10 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     textTransform: 'uppercase',
   },
   {
+    // v8: sorkizárt + a -ben suffix-ek eltávolítva (a mapper most már ben-nel ad).
     id: 'paragraph',
     label: 'Fő szöveg (részletek)',
-    defaultValue: 'testvérünk, aki {{birthPlace}}, {{birthDate}} született, akit a {{baptismCongregation}}-ben {{baptismDate}} megkereszteltek, miután a gyülekezet presbiterei a Heidelbergi Káté alapján hite felől megvizsgálták, a mai napon a {{confirmCongregation}}-ben a szent gyülekezet előtt igaz hitéről vallást, egyháza iránti hűségére fogadást tett. Mindezek alapján a Református Anyaszentegyház önálló tagjai közé felvettük és az úrvacsora vételére felhatalmaztuk.',
+    defaultValue: 'testvérünk, aki {{birthPlace}}, {{birthDate}} született, akit a {{baptismCongregation}} {{baptismDate}} megkereszteltek, miután a gyülekezet presbiterei a Heidelbergi Káté alapján hite felől megvizsgálták, a mai napon a {{confirmCongregation}} a szent gyülekezet előtt igaz hitéről vallást, egyháza iránti hűségére fogadást tett. Mindezek alapján a Református Anyaszentegyház önálló tagjai közé felvettük és az úrvacsora vételére felhatalmaztuk.',
     x: 8,
     y: 41.0,
     width: 84,
@@ -560,7 +562,7 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_HEADING,
-    textAlign: 'center',
+    textAlign: 'justify',
     lineHeight: 1.45,
     letterSpacing: 0,
     multiline: true,
