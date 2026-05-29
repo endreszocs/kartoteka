@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { UserPlus, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { UserPlus, Users, Printer, Save, Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,16 @@ import { Separator } from '@/components/ui/separator'
 import { saveBaptism, getNextEgyhaziSzam, getParentsForChild } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
+import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
+import {
+  EMLEKLAP_TEMPLATES_MAP,
+  fillTemplate,
+  type EmleklapTemplate,
+} from '@/lib/constants/emleklap-templates'
+import {
+  extractCityFromCongregationName,
+  formatHungarianDate,
+} from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
 
 interface BaptismDialogProps {
@@ -30,24 +40,18 @@ interface BaptismDialogProps {
   } | null
 }
 
-export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogProps) {
+export function BaptismDialog({ open, onOpenChange, congregationName, editEntry }: BaptismDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<MemberSearchResult | null>(null)
   const [familyAutoLoaded, setFamilyAutoLoaded] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
 
-  // Szülők — a CNP a kiválasztott személyből származik (derived state)
   const [father, setFather] = useState<MemberSearchResult | null>(null)
   const [mother, setMother] = useState<MemberSearchResult | null>(null)
-  // TEXT-csak szülő-nevek a szemely.apjaneve / anyjaneve-ből (régebbi
-  // adat — nincs feloldható ID). Banner-ben jelezzük a felhasználónak.
   const [apjaneveText, setApjaneveText] = useState<string | null>(null)
   const [anyjaneveText, setAnyjaneveText] = useState<string | null>(null)
-  // Diagnosztika debug-paneles megjelenítéshez (Endre kérése: 2026-04-30k —
-  // "diagnosztika" — a baptism-dialog felső szelvényében mutatjuk mi történt)
   const [parentDiag, setParentDiag] = useState<string | null>(null)
 
-  // Mezők
   const [datum, setDatum] = useState('')
   const [egyhaziSzam, setEgyhaziSzam] = useState('')
   const [okirat, setOkirat] = useState('')
@@ -60,13 +64,15 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
   const [anyavallas, setAnyavallas] = useState('')
   const [anyaLeanykori, setAnyaLeanykori] = useState('')
 
+  // 2026-05-29: az emléklap-vászon ref-je a print-funkcióhoz
+  const printRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
       if (editEntry) {
-        // Szerkesztés: előtöltés
         setSelectedPerson(editEntry.szemely
           ? { ...editEntry.szemely, cnp: null, c_szam: null }
           : null)
@@ -96,7 +102,6 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
         setMunkanaploba(false)
         return
       }
-      // Új rögzítés
       setSelectedPerson(null)
       setFather(null); setMother(null); setFamilyAutoLoaded(false)
       setApjaneveText(null); setAnyjaneveText(null); setParentDiag(null)
@@ -104,7 +109,6 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
       setDatum(today); setOkirat(''); setLelkesz(''); setKeresztszulok('')
       setAlapige(''); setMegjegyzes(''); setMunkanaploba(false)
       setApavallas(''); setAnyavallas(''); setAnyaLeanykori('')
-      // Auto-fill egyházi anyakönyvi szám (Endre kérése: 2026-04-30)
       getNextEgyhaziSzam('baptism', new Date().getFullYear()).then(value => {
         if (!cancelled) setEgyhaziSzam(value)
       })
@@ -112,16 +116,11 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
     return () => { cancelled = true }
   }, [open, editEntry])
 
-  // Endre kérése (2026-04-30): ha a kiválasztott keresztelendő már családhoz
-  // van rendelve (gyerek táblában), akkor a szülők neveit automatikusan
-  // betöltjük. Csak új-rögzítésnél, és csak ha a szülők még nincsenek
-  // beállítva manuálisan. A reset (selectedPerson=null) az onChange-ben
-  // történik, NEM itt — a useEffect csak az async family-load-ot kezeli.
   useEffect(() => {
     if (!open || editEntry) return
     if (!selectedPerson) return
     if (familyAutoLoaded) return
-    if (father || mother) return  // ne írjuk felül a manuális választást
+    if (father || mother) return
 
     let cancelled = false
     if (process.env.NODE_ENV === 'development') {
@@ -161,13 +160,9 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
       }
       if (info.anyaLeanyneve && !anyaLeanykori) setAnyaLeanykori(info.anyaLeanyneve)
 
-      // TEXT-fallback: ha nincs feloldható apa/anya ID, de a szemely
-      // táblában szöveges szülő-név van, akkor azt megjelenítjük
-      // (banner) hogy a felhasználó kézzel rákereshessen.
       setApjaneveText(info.apa ? null : info.apjaneveText)
       setAnyjaneveText(info.anya ? null : info.anyjaneveText)
 
-      // Diagnosztikai szöveg — Endre számára, hogy lássa MIÉRT nem jelennek meg
       const d = info.diagnostic
       const lines: string[] = []
       if (!d.hasGyerekRow) lines.push('A tag NINCS családhoz rendelve (gyerek tábla üres).')
@@ -192,9 +187,6 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
     return () => { cancelled = true }
   }, [selectedPerson, open, editEntry, familyAutoLoaded, father, mother, anyaLeanykori])
 
-  // A személy kiürítése / új személy választása reseteli a "családi adat
-  // betöltve" flag-et és a szülő-mezőket, hogy következő választáskor
-  // újra próbálhassa az auto-load-ot.
   function handlePersonChange(p: MemberSearchResult | null) {
     setSelectedPerson(p)
     setFamilyAutoLoaded(false)
@@ -205,18 +197,52 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
   function handleQuickAddOpenChange(open: boolean) {
     setQuickAddOpen(open)
     if (!open) {
-      // A MemberFormDialog bezárult — vagy mentés után, vagy megse-vel.
-      // Endre kérése: az új tag a kereső találatai közt megjelenjen.
-      // Mivel a MemberFormDialog nem ad vissza ID-t, csak emlékeztetjük
-      // a felhasználót, hogy keressen rá. (Toast csak akkor mutatkozik
-      // ha a dialog ténylegesen nyitva volt — mentés vagy lemondás után.)
       toast.info('Ha új személyt adtál hozzá, most kereshető a fenti mezőben.', { duration: 3500 })
     }
   }
 
-  async function handleSubmit() {
-    if (!selectedPerson) { toast.error('Válasszon személyt!'); return }
-    if (!datum) { toast.error('A dátum kötelező!'); return }
+  // ─── 2026-05-29: élő emléklap-preview ────────────────────────────────────
+  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['kereszteles-erek']
+
+  const fieldValues = useMemo(() => {
+    const childName = selectedPerson
+      ? `${selectedPerson.csaladnev || ''} ${selectedPerson.k_nev || ''}`.trim()
+      : ''
+    const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
+    const motherName = mother ? `${mother.csaladnev || ''} ${mother.k_nev || ''}`.trim() : ''
+    const parentsNames = [fatherName, motherName].filter(Boolean).join(' és ')
+
+    const childBirthDate = selectedPerson?.sz_datum
+      ? formatHungarianDate(selectedPerson.sz_datum) + '-én'
+      : ''
+    const baptismDate = datum ? formatHungarianDate(datum) + '-én' : ''
+    const issueDate = datum ? formatHungarianDate(datum) : ''
+    const issueLocation = extractCityFromCongregationName(congregationName)
+
+    const data: Record<string, string> = {
+      congregationName: congregationName || '',
+      fullName: childName,
+      parentsNames: parentsNames || '',
+      birthPlace: '',
+      birthDate: childBirthDate,
+      baptismCongregation: congregationName ? congregationName + 'ben' : '',
+      baptismDate,
+      issueLocation,
+      issueDate,
+      pastorName: (lelkesz || '').toUpperCase(),
+      wardenName: '',
+    }
+
+    const out: Record<string, string> = {}
+    for (const field of template.fields) {
+      out[field.id] = fillTemplate(field.defaultValue, data)
+    }
+    return out
+  }, [template, selectedPerson, father, mother, datum, lelkesz, congregationName])
+
+  async function handleSubmit(): Promise<boolean> {
+    if (!selectedPerson) { toast.error('Válasszon személyt!'); return false }
+    if (!datum) { toast.error('A dátum kötelező!'); return false }
     setLoading(true)
     const fatherName = father ? `${father.csaladnev || ''} ${father.k_nev || ''}`.trim() : ''
     const motherName = mother ? `${mother.csaladnev || ''} ${mother.k_nev || ''}`.trim() : ''
@@ -241,150 +267,242 @@ export function BaptismDialog({ open, onOpenChange, editEntry }: BaptismDialogPr
       munkanaploba,
       megjegyzes: megjegyzes || null,
     })
-    if (result.error) toast.error(result.error)
-    else { toast.success('Keresztelés rögzítve!'); onOpenChange(false) }
     setLoading(false)
+    if (result.error) {
+      toast.error(result.error)
+      return false
+    }
+    toast.success('Keresztelés rögzítve!')
+    return true
+  }
+
+  async function handleSaveOnly() {
+    const ok = await handleSubmit()
+    if (ok) onOpenChange(false)
+  }
+
+  async function handleSaveAndPrint() {
+    const ok = await handleSubmit()
+    if (!ok) return
+    handlePrint()
+    // Nyomtatás után a dialog még nyitva marad pár pillanatig, hogy a felhasználó
+    // lássa a vásznat — aztán bezáródik.
+    setTimeout(() => onOpenChange(false), 500)
+  }
+
+  function handlePrint() {
+    if (!printRef.current) return
+    const html = printRef.current.outerHTML
+    const win = window.open('', '_blank', 'width=900,height=1200')
+    if (!win) {
+      toast.error('A böngésző blokkolta a popup-ot. Engedélyezd a felugró ablakokat.')
+      return
+    }
+    win.document.write(`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"><title>Keresztelői emléklap</title>
+      <style>
+        @page { size: A4 portrait; margin: 0; }
+        html, body { margin: 0; padding: 0; background: white; }
+        body { display: flex; align-items: center; justify-content: center; }
+        .certificate-renderer { width: 210mm !important; height: 297mm !important; max-width: 210mm !important; aspect-ratio: 210/297 !important; }
+        .certificate-renderer img { width: 100% !important; height: 100% !important; }
+        @media print {
+          html, body { width: 210mm; height: 297mm; }
+          .certificate-renderer { box-shadow: none !important; }
+        }
+      </style>
+    </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
+    win.document.close()
   }
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editEntry ? 'Keresztelés szerkesztése' : 'Keresztelés rögzítése'}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            {/* Személy + új-személy gomb */}
-            <div className="space-y-1.5">
+        {/* Szélesebb dialog hogy 2-oszlopos layout legyen (form + emléklap) */}
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {editEntry ? 'Keresztelés szerkesztése' : 'Keresztelés rögzítése'}
+              <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+                <Sparkles className="size-3.5" />
+                élő emléklap-előnézet
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+            {/* ─── BAL OSZLOP: Adatbeviteli űrlap ─── */}
+            <div className="space-y-4 lg:max-h-[78vh] lg:overflow-y-auto lg:pr-2">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Megkeresztelt személy *</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    onClick={() => setQuickAddOpen(true)}
+                  >
+                    <UserPlus className="size-3.5" />
+                    Új személy
+                  </Button>
+                </div>
+                <MemberSearchSelect
+                  value={selectedPerson}
+                  onChange={handlePersonChange}
+                  placeholder="Keresés (családnév, keresztnév)…"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Ha a keresztelendő még nincs a tagnyilvántartásban, az „Új személy" gombbal hozzáadhatod.
+                </p>
+              </div>
+
+              <Separator />
               <div className="flex items-center justify-between">
-                <Label>Megkeresztelt személy *</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                  onClick={() => setQuickAddOpen(true)}
-                >
-                  <UserPlus className="size-3.5" />
-                  Új személy a tagnyilvántartáshoz
-                </Button>
+                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Users className="size-4 text-slate-500" />
+                  Szülők
+                </h4>
+                {familyAutoLoaded && (father || mother) && (
+                  <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                    Családi adatokból
+                  </span>
+                )}
               </div>
-              <MemberSearchSelect
-                value={selectedPerson}
-                onChange={handlePersonChange}
-                placeholder="Keresés (családnév, keresztnév)…"
-              />
-              <p className="text-[11px] text-slate-500">
-                Ha a keresztelendő még nincs a tagnyilvántartásban, az &quot;Új személy&quot; gombbal hozzáadhatod, majd visszatérve kiválaszthatod itt.
-              </p>
-            </div>
 
-            <Separator />
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-                <Users className="size-4 text-slate-500" />
-                Szülők
-              </h4>
-              {familyAutoLoaded && (father || mother) && (
-                <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                  Családi adatokból kitöltve
-                </span>
+              {(apjaneveText || anyjaneveText) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-800">
+                  <p className="font-medium mb-1">A korábbi adatok szerint a szülők neve:</p>
+                  {apjaneveText && <div>• Édesapa: <span className="font-semibold">{apjaneveText}</span></div>}
+                  {anyjaneveText && <div>• Édesanya: <span className="font-semibold">{anyjaneveText}</span></div>}
+                  <p className="mt-1.5 text-[11px] text-amber-700/80">
+                    Csak szövegként rögzítették — keresd ki őket az alábbi mezőkben.
+                  </p>
+                </div>
               )}
+
+              {parentDiag && familyAutoLoaded && !father && !mother && !apjaneveText && !anyjaneveText && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600">
+                  <p className="font-medium mb-1">Miért nincs szülő-adat?</p>
+                  <p className="text-slate-500">{parentDiag}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Édesapa</Label>
+                  <MemberSearchSelect
+                    value={father}
+                    onChange={setFather}
+                    genderFilter={true}
+                    placeholder="Apa keresése (férfi)…"
+                  />
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Apa vallása</Label>
+                    <Input value={apavallas} onChange={e => setApavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Édesanya</Label>
+                  <MemberSearchSelect
+                    value={mother}
+                    onChange={setMother}
+                    genderFilter={false}
+                    placeholder="Anya keresése (nő)…"
+                  />
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Anya vallása</Label>
+                    <Input value={anyavallas} onChange={e => setAnyavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Leánykori név</Label>
+                    <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className="h-8 text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+              <h4 className="text-sm font-semibold text-slate-700">Részletek</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    Egyházi anyakönyvi szám
+                    <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
+                  </Label>
+                  <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className="font-mono text-violet-700" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Állami anyakönyvi szám</Label>
+                  <Input value={okirat} onChange={e => setOkirat(e.target.value)} placeholder="opcionális" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Dátum *</Label>
+                  <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} /></div>
+              </div>
+              <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} /></div>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
             </div>
 
-            {/* TEXT-fallback: ha a régi szöveges szülő-név szerepel a tagnál,
-                de nem találtunk hozzá ID-t, mutatjuk hogy a felhasználó
-                tudja kézzel hozzárendelni. */}
-            {(apjaneveText || anyjaneveText) && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-800">
-                <p className="font-medium mb-1">A korábbi adatok szerint a szülők neve:</p>
-                {apjaneveText && <div>• Édesapa: <span className="font-semibold">{apjaneveText}</span></div>}
-                {anyjaneveText && <div>• Édesanya: <span className="font-semibold">{anyjaneveText}</span></div>}
-                <p className="mt-1.5 text-[11px] text-amber-700/80">
-                  Ezeket a neveket csak szövegként rögzítették — kérlek keresd ki őket az alábbi mezőben, hogy az ID-k is összekapcsolódjanak.
+            {/* ─── JOBB OSZLOP: Élő emléklap-vászon ─── */}
+            <aside className="lg:sticky lg:top-0 lg:self-start">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  <Sparkles className="size-3 inline mr-1 text-amber-600" />
+                  Ahogy gépeled az adatokat, a keresztelői emléklap automatikusan kitöltődik.
+                  A „<strong>Mentés és nyomtatás</strong>" gombbal egy lépésben rögzítheted és kinyomtathatod.
                 </p>
               </div>
-            )}
-
-            {/* Diagnosztika: csak akkor mutatkozik ha kiválasztott tag van
-                ÉS nem sikerült szülőt találni (sem ID, sem text). Endre
-                tudja megnézni hogy MIÉRT nem jelennek meg. */}
-            {parentDiag && familyAutoLoaded && !father && !mother && !apjaneveText && !anyjaneveText && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600">
-                <p className="font-medium mb-1">Miért nincs szülő-adat?</p>
-                <p className="text-slate-500">{parentDiag}</p>
-                <p className="mt-1 text-slate-500">
-                  Az alábbi mezőkben kézzel rákereshetsz a szülőkre.
-                </p>
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Édesapa</Label>
-                <MemberSearchSelect
-                  value={father}
-                  onChange={setFather}
-                  genderFilter={true}
-                  placeholder="Apa keresése (férfi)…"
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
+                <CertificateRenderer
+                  ref={printRef}
+                  template={template}
+                  fieldValues={fieldValues}
+                  previewWidth={420}
+                  showBackground={true}
                 />
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Apa vallása</Label>
-                  <Input value={apavallas} onChange={e => setApavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
-                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>Édesanya</Label>
-                <MemberSearchSelect
-                  value={mother}
-                  onChange={setMother}
-                  genderFilter={false}
-                  placeholder="Anya keresése (nő)…"
-                />
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Anya vallása</Label>
-                  <Input value={anyavallas} onChange={e => setAnyavallas(e.target.value)} className="h-8 text-xs" placeholder="Református" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Leánykori név</Label>
-                  <Input value={anyaLeanykori} onChange={e => setAnyaLeanykori(e.target.value)} className="h-8 text-xs" />
-                </div>
-              </div>
-            </div>
+              <p className="mt-1.5 text-[10px] text-slate-400 text-center">
+                A4 álló · EREK keresztelői sablon
+              </p>
+            </aside>
+          </div>
 
-            <Separator />
-            <h4 className="text-sm font-semibold text-slate-700">Részletek</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  Egyházi anyakönyvi szám
-                  <span className="ml-1 text-[10px] font-normal text-violet-600">(automatikus)</span>
-                </Label>
-                <Input value={egyhaziSzam} onChange={e => setEgyhaziSzam(e.target.value)} className="font-mono text-violet-700" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Állami anyakönyvi szám</Label>
-                <Input value={okirat} onChange={e => setOkirat(e.target.value)} placeholder="opcionális" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Dátum *</Label>
-                <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Keresztszülők</Label><Input value={keresztszulok} onChange={e => setKeresztszulok(e.target.value)} /></div>
-            </div>
-            <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Megjegyzés</Label><Input value={megjegyzes} onChange={e => setMegjegyzes(e.target.value)} /></div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} /> Rögzítés a munkanaplóba</label>
-
-            <div className="flex gap-2 pt-4 border-t border-zinc-100">
-              <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
-              <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleSubmit} disabled={loading}>{loading ? 'Mentés...' : 'Mentés'}</Button>
-            </div>
+          {/* ─── Alsó akciósor (mindkét oszlop alatt) ─── */}
+          <div className="flex flex-wrap gap-2 pt-4 border-t border-zinc-100 mt-4">
+            <Button
+              variant="outline"
+              className="rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600"
+              onClick={() => onOpenChange(false)}
+            >
+              Mégse
+            </Button>
+            <div className="flex-1" />
+            <Button
+              variant="outline"
+              onClick={handleSaveOnly}
+              disabled={loading}
+              className="border-blue-300 text-blue-700 hover:bg-blue-50"
+            >
+              <Save className="size-4 mr-1.5" />
+              {loading ? 'Mentés…' : 'Mentés'}
+            </Button>
+            <Button
+              onClick={handleSaveAndPrint}
+              disabled={loading}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <Printer className="size-4 mr-1.5" />
+              {loading ? 'Mentés…' : 'Mentés és nyomtatás'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Új tag hozzáadás — beágyazott MemberFormDialog (a tagnyilvántartásból) */}
       <MemberFormDialog open={quickAddOpen} onOpenChange={handleQuickAddOpenChange} editMember={null} />
     </>
   )
