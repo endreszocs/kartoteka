@@ -71,8 +71,26 @@ export interface RegistryEntry {
     member_status?: string | null
   } | null
   // Házasság: két személy
-  ferfi?: { id: number; csaladnev: string; k_nev: string } | null
-  no?: { id: number; csaladnev: string; k_nev: string } | null
+  // 2026-05-30: bővítve sz_datum, cnp, vallas, szcs_nev — az esketési emléklap
+  // élő preview-hoz és a marriage-dialog szerkesztés módjához.
+  ferfi?: {
+    id: number
+    csaladnev: string
+    k_nev: string
+    sz_datum?: string | null
+    cnp?: string | null
+    vallas?: string | null
+    szcs_nev?: string | null
+  } | null
+  no?: {
+    id: number
+    csaladnev: string
+    k_nev: string
+    sz_datum?: string | null
+    cnp?: string | null
+    vallas?: string | null
+    szcs_nev?: string | null
+  } | null
   // Egyéb
   tanuk?: string
   hoka?: string

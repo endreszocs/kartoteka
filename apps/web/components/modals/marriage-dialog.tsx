@@ -36,8 +36,25 @@ interface MarriageDialogProps {
     tanuk?: string
     vegyes?: boolean
     megjegyzes?: string
-    ferfi?: { id: number; csaladnev: string; k_nev: string } | null
-    no?: { id: number; csaladnev: string; k_nev: string } | null
+    // 2026-05-30: bővítve sz_datum, cnp, vallas, szcs_nev — a query is ezeket szelektálja.
+    ferfi?: {
+      id: number
+      csaladnev: string
+      k_nev: string
+      sz_datum?: string | null
+      cnp?: string | null
+      vallas?: string | null
+      szcs_nev?: string | null
+    } | null
+    no?: {
+      id: number
+      csaladnev: string
+      k_nev: string
+      sz_datum?: string | null
+      cnp?: string | null
+      vallas?: string | null
+      szcs_nev?: string | null
+    } | null
     [key: string]: unknown
   } | null
 }
@@ -62,11 +79,34 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     queueMicrotask(() => {
       if (cancelled) return
       if (editEntry) {
+        // 2026-05-30: a vőlegény/menyasszony embedded objektumból most már
+        // sz_datum / cnp / vallas / szcs_nev mezőket is átveszünk — az emléklap
+        // élő preview helyesen mutatja a születési dátumot.
         setGroom(editEntry.ferfi
-          ? { id: editEntry.ferfi.id, csaladnev: editEntry.ferfi.csaladnev, k_nev: editEntry.ferfi.k_nev, ferfi: true, sz_datum: null, cnp: null, c_szam: null }
+          ? {
+              id: editEntry.ferfi.id,
+              csaladnev: editEntry.ferfi.csaladnev,
+              k_nev: editEntry.ferfi.k_nev,
+              ferfi: true,
+              sz_datum: editEntry.ferfi.sz_datum ?? null,
+              cnp: editEntry.ferfi.cnp ?? null,
+              c_szam: null,
+              vallas: editEntry.ferfi.vallas ?? null,
+              szcs_nev: editEntry.ferfi.szcs_nev ?? null,
+            }
           : null)
         setBride(editEntry.no
-          ? { id: editEntry.no.id, csaladnev: editEntry.no.csaladnev, k_nev: editEntry.no.k_nev, ferfi: false, sz_datum: null, cnp: null, c_szam: null }
+          ? {
+              id: editEntry.no.id,
+              csaladnev: editEntry.no.csaladnev,
+              k_nev: editEntry.no.k_nev,
+              ferfi: false,
+              sz_datum: editEntry.no.sz_datum ?? null,
+              cnp: editEntry.no.cnp ?? null,
+              c_szam: null,
+              vallas: editEntry.no.vallas ?? null,
+              szcs_nev: editEntry.no.szcs_nev ?? null,
+            }
           : null)
         setDatum((editEntry.datum as string)?.split('T')[0] || '')
         setEgyhaziSzam((editEntry.egyhazi_szam as string) || '')

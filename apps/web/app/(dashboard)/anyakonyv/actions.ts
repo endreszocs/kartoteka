@@ -32,7 +32,11 @@ export async function getRegistryData(tab: string): Promise<RegistryEntry[]> {
       query = supabase.from('konfirmalas').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum)')
       break
     case 'hazassag':
-      query = supabase.from('hazassag').select('*, ferfi:szemely!id_ferfi(id, csaladnev, k_nev), no:szemely!id_no(id, csaladnev, k_nev)')
+      // 2026-05-30: a vőlegény/menyasszony embedded most már tartalmazza a
+      // sz_datum, cnp, vallas, szcs_nev mezőket is — az esketési emléklap
+      // élő preview-jához (husbandBirthDate, wifeBirthDate) és a szerkesztés
+      // módban a helyes adatok visszatöltéséhez.
+      query = supabase.from('hazassag').select('*, ferfi:szemely!id_ferfi(id, csaladnev, k_nev, sz_datum, cnp, vallas, szcs_nev), no:szemely!id_no(id, csaladnev, k_nev, sz_datum, cnp, vallas, szcs_nev)')
       break
     case 'temetes':
       query = supabase.from('temetes').select('*, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum), adrlocality!thelyid(name)')
