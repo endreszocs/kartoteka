@@ -73,6 +73,18 @@ export const burialSchema = z.object({
   lelkeszneve: z.string().nullable().optional(),
   munkanaploba: z.boolean().default(false),
   megjegyzes: z.string().nullable().optional(),
+  // 2026-05-30: gyászjelentés-specifikus mezők — a temetes táblának nincs
+  // saját oszlopa rájuk, ezért a megjegyzes mezőben sablon JSON-ként
+  // tárolódnak (a baptism mintára: `|sablon:{...}` suffix).
+  funeral_time: z.string().nullable().optional(),
+  funeral_place: z.string().nullable().optional(),
+  vigil_date: z.string().nullable().optional(),
+  vigil_time: z.string().nullable().optional(),
+  vigil_place: z.string().nullable().optional(),
+  verse_text: z.string().nullable().optional(),
+  verse_reference: z.string().nullable().optional(),
+  relative_relation: z.string().nullable().optional(),
+  mourners: z.string().nullable().optional(),
 })
 export type BurialInput = z.infer<typeof burialSchema>
 

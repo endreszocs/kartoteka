@@ -72,6 +72,9 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
   // Igevers a formról is szerkeszthető (az alapértelmezett mellé)
   const [verseText, setVerseText] = useState('')
   const [verseReference, setVerseReference] = useState('')
+  // 2026-05-30: rokoni viszony + gyászolók — szerkeszthető és skippelhető
+  const [relativeRelation, setRelativeRelation] = useState('egyháztagunk és hitbeli testvérünk')
+  const [mourners, setMourners] = useState('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
   const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -89,7 +92,40 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
         setOkirat((editEntry.okirat as string) || '')
         setEgyhaziSzam((editEntry.egyhazi_szam as string) || '')
         setLelkesz((editEntry.lelkeszneve as string) || '')
-        setMegj((editEntry.megjegyzes as string) || '')
+        // 2026-05-30: a megjegyzes-ből kicsomagoljuk a gyászjelentés-specifikus
+        // mezőket (sablon JSON, baptism mintára). Reset alapertekekre.
+        const megj = (editEntry.megjegyzes as string) || ''
+        const sablonIdx = megj.indexOf('|sablon:')
+        if (sablonIdx > -1) {
+          setMegj(megj.slice(0, sablonIdx))
+          try {
+            const s = JSON.parse(megj.slice(sablonIdx + 8))
+            setFuneralTime(s.funeral_time || '14:00')
+            setFuneralPlace(s.funeral_place || '')
+            setVigilDate(s.vigil_date || '')
+            setVigilTime(s.vigil_time || '')
+            setVigilPlace(s.vigil_place || '')
+            setVerseText(s.verse_text || 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.')
+            setVerseReference(s.verse_reference || 'Jób 1,21')
+            setRelativeRelation(s.relative_relation || 'egyháztagunk és hitbeli testvérünk')
+            setMourners(s.mourners ?? 'Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
+          } catch {
+            setFuneralTime('14:00'); setFuneralPlace('')
+            setVigilDate(''); setVigilTime(''); setVigilPlace('')
+            setVerseText('Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.')
+            setVerseReference('Jób 1,21')
+            setRelativeRelation('egyháztagunk és hitbeli testvérünk')
+            setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
+          }
+        } else {
+          setMegj(megj)
+          setFuneralTime('14:00'); setFuneralPlace('')
+          setVigilDate(''); setVigilTime(''); setVigilPlace('')
+          setVerseText('Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.')
+          setVerseReference('Jób 1,21')
+          setRelativeRelation('egyháztagunk és hitbeli testvérünk')
+          setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
+        }
         setMunkanaploba(false)
         return
       }
@@ -102,6 +138,8 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       // hagyománya szerint). A felhasználó cserélheti.
       setVerseText('Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.')
       setVerseReference('Jób 1,21')
+      setRelativeRelation('egyháztagunk és hitbeli testvérünk')
+      setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
       getNextEgyhaziSzam('burial', new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
@@ -140,13 +178,13 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
 
     const data: Record<string, string> = {
       fullName,
-      relativeRelation: 'édesapánk, nagyapánk és rokonunk', // user-szerkeszthető a vásznon
+      relativeRelation, // form-ből szerkeszthető
       age,
       deathDate,
       funeralDate,
       funeralPlace: funeralPlace || 'a Református Temetőben.',
       vigilLine,
-      mourners: 'Szerető családja és mindazok,\nakik ismerték és tisztelték',
+      mourners, // form-ből szerkeszthető vagy üres (skippelhető)
       verseText: verseText || 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
       verseReference: verseReference || 'Jób 1,21',
     }
@@ -155,7 +193,7 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       out[field.id] = fillTemplate(field.defaultValue, data)
     }
     return out
-  }, [template, person, hdatum, tdatum, funeralPlace, funeralTime, vigilDate, vigilTime, vigilPlace, verseText, verseReference])
+  }, [template, person, hdatum, tdatum, funeralPlace, funeralTime, vigilDate, vigilTime, vigilPlace, verseText, verseReference, relativeRelation, mourners])
 
   async function handleSubmit(): Promise<boolean> {
     if (!person) { toast.error('Válasszon személyt!'); return false }
@@ -171,6 +209,17 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
       lelkeszneve: lelkesz || null,
       munkanaploba,
       megjegyzes: megj || null,
+      // 2026-05-30: gyászjelentés-specifikus mezők (a megjegyzés sablon JSON-be
+      // kerülnek a saveBurial action által).
+      funeral_time: funeralTime || null,
+      funeral_place: funeralPlace || null,
+      vigil_date: vigilDate || null,
+      vigil_time: vigilTime || null,
+      vigil_place: vigilPlace || null,
+      verse_text: verseText || null,
+      verse_reference: verseReference || null,
+      relative_relation: relativeRelation || null,
+      mourners: mourners || '', // üres string is OK — skip esetén üres sor jelenik meg
     })
     setLoading(false)
     if (result.error) { toast.error(result.error); return false }
@@ -277,6 +326,52 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
                 placeholder="pl. a Felsővárosi Református Temető ravatalozójában."
                 className={FIELD_INPUT_CLASS}
               />
+            </div>
+
+            {/* 2026-05-30: Bevezető (rokoni viszony) — szerkeszthető */}
+            <div className="space-y-1.5">
+              <Label>
+                Bevezető szöveg <span className="text-[10px] font-normal text-slate-500">(rokoni / egyházi viszony)</span>
+              </Label>
+              <Input
+                value={relativeRelation}
+                onChange={e => setRelativeRelation(e.target.value)}
+                placeholder="pl. egyháztagunk és hitbeli testvérünk"
+                className={FIELD_INPUT_CLASS}
+              />
+              <p className="text-[10px] text-slate-500">
+                A gyászjelentésen: „Mély fájdalommal tudatjuk, hogy szeretett <strong>{relativeRelation || '...'}</strong>"
+              </p>
+            </div>
+
+            {/* 2026-05-30: Gyászolók — szerkeszthető + skippelhető */}
+            <div className="space-y-1.5">
+              <Label>
+                Gyászolják <span className="text-[10px] font-normal text-slate-500">(opcionális — ürítsd ha nem kell)</span>
+              </Label>
+              <textarea
+                value={mourners}
+                onChange={e => setMourners(e.target.value)}
+                rows={3}
+                placeholder="Gyászolják:&#10;Szerető családja és mindazok,&#10;akik ismerték és tisztelték"
+                className={`w-full rounded-md px-3 py-2 text-sm ${FIELD_INPUT_CLASS}`}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMourners('')}
+                  className="text-[10px] text-slate-500 hover:text-slate-700 underline"
+                >
+                  Ürítés (a sor nem jelenik meg)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')}
+                  className="text-[10px] text-slate-500 hover:text-slate-700 underline"
+                >
+                  Alapérték visszaállítása
+                </button>
+              </div>
             </div>
 
             {/* 2026-05-30: Virrasztás (opcionális) — csak akkor jelenik meg a gyászjelentésen, ha legalább egyik mező ki van töltve */}

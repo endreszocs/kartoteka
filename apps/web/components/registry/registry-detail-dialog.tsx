@@ -205,22 +205,66 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
           }
         } catch {}
       }
+      // 2026-05-30: kicsomagoljuk a megjegyzés sablon JSON-jából a mentett
+      // virrasztó / temetés-időpont / igevers értékeket.
+      let funeralTimeStored = ''
+      let funeralPlaceStored = ''
+      let vigilDateStored = ''
+      let vigilTimeStored = ''
+      let vigilPlaceStored = ''
+      let verseTextStored = 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.'
+      let verseReferenceStored = 'Jób 1,21'
+      let relativeRelationStored = 'egyháztagunk és hitbeli testvérünk'
+      let mournersStored = 'Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték'
+      const megj = (entry.megjegyzes as string) || ''
+      const sablonIdx = megj.indexOf('|sablon:')
+      if (sablonIdx > -1) {
+        try {
+          const s = JSON.parse(megj.slice(sablonIdx + 8))
+          if (s.funeral_time) funeralTimeStored = s.funeral_time
+          if (s.funeral_place) funeralPlaceStored = s.funeral_place
+          if (s.vigil_date) vigilDateStored = s.vigil_date
+          if (s.vigil_time) vigilTimeStored = s.vigil_time
+          if (s.vigil_place) vigilPlaceStored = s.vigil_place
+          if (s.verse_text) verseTextStored = s.verse_text
+          if (s.verse_reference) verseReferenceStored = s.verse_reference
+          if (s.relative_relation) relativeRelationStored = s.relative_relation
+          if (s.mourners !== undefined && s.mourners !== null) mournersStored = s.mourners
+        } catch {}
+      }
       const deathDate = entry.hdatum ? formatHungarianDate(entry.hdatum as string) + '-án' : ''
-      const funeralDate = entry.tdatum ? formatHungarianDate(entry.tdatum as string) + '-én lesz' : ''
-      const funeralPlace = (entry.adrlocality as { name?: string } | null)?.name
-        ? `a ${(entry.adrlocality as { name?: string }).name} temetőjében.`
-        : 'a Református Temetőben.'
+      const funeralDateBase = entry.tdatum ? formatHungarianDate(entry.tdatum as string) + '-én' : ''
+      const funeralDate = funeralDateBase
+        ? (funeralTimeStored ? `${funeralDateBase}, ${funeralTimeStored} órakor lesz` : `${funeralDateBase} lesz`)
+        : ''
+      const funeralPlace = funeralPlaceStored
+        || ((entry.adrlocality as { name?: string } | null)?.name
+          ? `a ${(entry.adrlocality as { name?: string }).name} temetőjében.`
+          : 'a Református Temetőben.')
+
+      // Virrasztó vonal (csak ha van mentett adat)
+      let vigilLine = ''
+      if (vigilDateStored || vigilTimeStored || vigilPlaceStored) {
+        const vigilDateFmt = vigilDateStored ? formatHungarianDate(vigilDateStored) + '-én' : ''
+        const parts: string[] = []
+        if (vigilDateFmt) parts.push(vigilDateFmt)
+        if (vigilTimeStored) parts.push(`${vigilTimeStored} órakor`)
+        let head = parts.join(' ')
+        if (vigilPlaceStored) head = head ? `${head}, ${vigilPlaceStored}` : vigilPlaceStored
+        vigilLine = head ? `Virrasztás: ${head}` : ''
+      }
+
       data = {
         fullName,
-        relativeRelation: 'édesapánk, nagyapánk és rokonunk',
+        relativeRelation: relativeRelationStored,
         age,
         deathDate,
         funeralDate,
         funeralPlace,
-        vigilLine: '', // a részletek nézetből nem ismerjük, üresen marad
-        mourners: 'Szerető családja és mindazok,\nakik ismerték és tisztelték',
-        verseText: 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
-        verseReference: 'Jób 1,21',
+        vigilLine,
+        mourners: mournersStored,
+        verseText: verseTextStored,
+        verseReference: verseReferenceStored,
       }
     }
     const out: Record<string, string> = {}

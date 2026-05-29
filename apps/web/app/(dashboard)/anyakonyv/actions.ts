@@ -674,6 +674,22 @@ export async function saveBurial(data: BurialInput) {
     egyhaziSzam = rpcData ? String(rpcData) : null
   }
 
+  // 2026-05-30: gyászjelentés-specifikus mezők → sablon JSON a megjegyzés
+  // mezőben (a temetes táblának nincs sajat oszlopa nekik). Baptism mintára.
+  let megjegyzes = d.megjegyzes || ''
+  const sablon: Record<string, string> = {}
+  if (d.funeral_time) sablon.funeral_time = d.funeral_time
+  if (d.funeral_place) sablon.funeral_place = d.funeral_place
+  if (d.vigil_date) sablon.vigil_date = d.vigil_date
+  if (d.vigil_time) sablon.vigil_time = d.vigil_time
+  if (d.vigil_place) sablon.vigil_place = d.vigil_place
+  if (d.verse_text) sablon.verse_text = d.verse_text
+  if (d.verse_reference) sablon.verse_reference = d.verse_reference
+  if (d.relative_relation) sablon.relative_relation = d.relative_relation
+  // mourners: üres string is mentődik (a "skip" eset különbözik az alapértelmezettől)
+  if (d.mourners !== undefined && d.mourners !== null) sablon.mourners = d.mourners
+  if (Object.keys(sablon).length > 0) megjegyzes = `${megjegyzes}|sablon:${JSON.stringify(sablon)}`
+
   const record = {
     id_szemely: d.id_szemely,
     hdatum: d.hdatum,
@@ -685,7 +701,7 @@ export async function saveBurial(data: BurialInput) {
     thelyid: d.thelyid || null,
     lelkeszneve: d.lelkeszneve || null,
     munkanaploba: d.munkanaploba,
-    megjegyzes: d.megjegyzes || null,
+    megjegyzes: megjegyzes || null,
     congregation_id: congId,
   }
   if (d.id) { const { error } = await supabase.from('temetes').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }

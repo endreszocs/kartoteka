@@ -682,6 +682,9 @@ const TEMETESI_FIELDS: EmleklapField[] = [
   // már tartalmazza, nem kell külön szöveg-rétegbe írni. A bevezető helye
   // (y=26.94%) változatlan, mivel az abszolút koordináta.
   // 6.3 Bevezető szöveg (spec: x=1240, y=945, w=1450, fs=60, ls=1px)
+  // 2026-05-30: a user kérésére a default szöveg "egyháztagunk és hitbeli
+  // testvérünk" — családi rokonság helyett az egyházi kontextus. A user
+  // a vászonon (in-place) cserélheti pl. "édesapánk, nagyapánk és rokonunk"-ra.
   {
     id: 'intro',
     label: 'Bevezető (rokoni viszony)',
@@ -733,10 +736,11 @@ const TEMETESI_FIELDS: EmleklapField[] = [
     letterSpacing: 0.018,
   },
   // 6.6 Elhunyt dátuma (spec: x=1240, y=1625, w=1550, fs=72, ls=3px, fw=600)
+  // 2026-05-30: a "csendesen" jelző eltávolítva — csak "elhunyt"
   {
     id: 'deathDate',
     label: 'Elhunyt dátuma',
-    defaultValue: '{{deathDate}} csendesen elhunyt.',
+    defaultValue: '{{deathDate}} elhunyt.',
     x: 18.75,
     y: 46.32,
     width: 62.50,
@@ -805,10 +809,12 @@ const TEMETESI_FIELDS: EmleklapField[] = [
     letterSpacing: 0.031,
   },
   // 6.9 Gyászolók (spec: x=1240, y=2485, w=1450, fs=62)
+  // 2026-05-30: csak a {{mourners}} placeholder — ha üres, a teljes
+  // sor eltűnik. A "Gyászolják:" prefix-et a felhasználó írja be ha kéri.
   {
     id: 'family',
     label: 'Gyászolók',
-    defaultValue: 'Gyászolják:\n{{mourners}}',
+    defaultValue: '{{mourners}}',
     x: 20.77,
     y: 70.83,
     width: 58.47,
