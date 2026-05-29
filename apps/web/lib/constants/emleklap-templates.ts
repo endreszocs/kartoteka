@@ -14,7 +14,7 @@
  * a `data` objektumból olvassa be a kulcsokat.
  */
 
-export type EmleklapType = 'kereszteles' | 'esketes' | 'konfirmacio'
+export type EmleklapType = 'kereszteles' | 'esketes' | 'konfirmacio' | 'temetes'
 export type EmleklapVariant = 'erek' | 'kerek'
 
 export interface EmleklapField {
@@ -89,6 +89,11 @@ const COLOR_ACCENT = '#5c4220'
 const COLOR_SMALL = '#3f4a44'
 // 2026-05-30 (konfirmáció spec): mély-fekete a Cinzel szövegekhez
 const COLOR_BLACK = '#0B0B0A'
+// 2026-05-30 (temetés / gyászjelentés spec): fekete háttér + fehér/szürke szövegek
+const FONT_CINZEL_DECO = "'Cinzel Decorative', 'Cinzel', Georgia, serif"
+const COLOR_GRIEF_WHITE = '#F5F5F1'  // fő fehér
+const COLOR_GRIEF_GRAY = '#D9D9D4'   // másodlagos szürke
+const COLOR_GRIEF_MUTED = '#C8C8C2'  // halvány szürke
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. KERESZTELŐI EMLÉKLAP
@@ -664,7 +669,187 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────
-// Sablon-katalógus (6 sablon)
+// 4. TEMETÉSI EMLÉKLAP / GYÁSZJELENTÉS
+// ─────────────────────────────────────────────────────────────────────────
+//
+// 2026-05-30: a gyaszjelentes_web_rekonstrukcio_specifikacio.md spec alapján.
+// Koordinátarendszer: 2480 × 3508 px (A4 300 DPI) — %-ban átszámítva.
+// Fekete háttér (#020202), fehér/szürke szövegek.
+// Központi vonal: x=1240 px (50%).
+
+const TEMETESI_FIELDS: EmleklapField[] = [
+  // 6.1 Főcím GYÁSZJELENTÉS (spec: x=1240, y=565, w=1200, fs=132, ls=8px, fw=900)
+  {
+    id: 'title',
+    label: 'Főcím',
+    defaultValue: 'GYÁSZJELENTÉS',
+    x: 25.81, // (1240-600)/2480
+    y: 16.11, // 565/3508
+    width: 48.39, // 1200/2480
+    fontSize: 3.76, // 132/3508
+    fontFamily: FONT_CINZEL_DECO,
+    fontWeight: 900,
+    color: COLOR_GRIEF_WHITE,
+    textAlign: 'center',
+    lineHeight: 1.14, // 150/132
+    letterSpacing: 0.061, // 8/132
+  },
+  // 6.3 Bevezető szöveg (spec: x=1240, y=945, w=1450, fs=60, ls=1px)
+  {
+    id: 'intro',
+    label: 'Bevezető (rokoni viszony)',
+    defaultValue: 'Mély fájdalommal tudatjuk, hogy szeretett\n{{relativeRelation}}',
+    x: 20.77, // (1240-725)/2480
+    y: 26.94, // 945/3508
+    width: 58.47, // 1450/2480
+    fontSize: 1.71, // 60/3508
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.37, // 82/60
+    letterSpacing: 0.017,
+    multiline: true,
+    hint: 'pl. "édesapánk, nagyapánk és rokonunk"',
+  },
+  // 6.4 Név (spec: x=1240, y=1225, w=1600, fs=158, ls=8px, fw=700)
+  {
+    id: 'fullName',
+    label: 'Elhunyt neve',
+    defaultValue: '{{fullName}}',
+    x: 17.74,
+    y: 34.92,
+    width: 64.52,
+    fontSize: 4.50,
+    fontFamily: FONT_SERIF,
+    fontWeight: 700,
+    color: COLOR_GRIEF_WHITE,
+    textAlign: 'center',
+    lineHeight: 1.11,
+    letterSpacing: 0.051,
+    textTransform: 'uppercase',
+  },
+  // 6.5 Életkor (spec: x=1240, y=1445, w=1550, fs=57)
+  {
+    id: 'ageContext',
+    label: 'Életkor / körülmény',
+    defaultValue: 'életének {{age}}. évében, türelemmel viselt betegség után',
+    x: 18.75,
+    y: 41.19,
+    width: 62.50,
+    fontSize: 1.62,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.26,
+    letterSpacing: 0.018,
+  },
+  // 6.6 Elhunyt dátuma (spec: x=1240, y=1625, w=1550, fs=72, ls=3px, fw=600)
+  {
+    id: 'deathDate',
+    label: 'Elhunyt dátuma',
+    defaultValue: '{{deathDate}} csendesen elhunyt.',
+    x: 18.75,
+    y: 46.32,
+    width: 62.50,
+    fontSize: 2.05,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
+    color: COLOR_GRIEF_WHITE,
+    textAlign: 'center',
+    lineHeight: 1.25,
+    letterSpacing: 0.042,
+  },
+  // 6.7 Temetési információk (spec: x=1240, y=1850, w=1550, fs=62, ls=1px)
+  {
+    id: 'funeral',
+    label: 'Temetési info',
+    defaultValue: 'Búcsúztatása református szertartás szerint\n{{funeralDate}} órakor lesz\n{{funeralPlace}}',
+    x: 18.75,
+    y: 52.74,
+    width: 62.50,
+    fontSize: 1.77,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.35,
+    letterSpacing: 0.016,
+    multiline: true,
+  },
+  // 6.8 Emlékező sor (spec: x=1240, y=2255, w=1500, fs=65, italic)
+  {
+    id: 'memory',
+    label: 'Emlékező sor',
+    defaultValue: 'Emlékét szeretettel és kegyelettel megőrizzük.',
+    x: 19.76,
+    y: 64.28,
+    width: 60.48,
+    fontSize: 1.85,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    italic: true,
+    color: COLOR_GRIEF_WHITE,
+    textAlign: 'center',
+    lineHeight: 1.26,
+    letterSpacing: 0.031,
+  },
+  // 6.9 Gyászolók (spec: x=1240, y=2485, w=1450, fs=62)
+  {
+    id: 'family',
+    label: 'Gyászolók',
+    defaultValue: 'Gyászolják:\n{{mourners}}',
+    x: 20.77,
+    y: 70.83,
+    width: 58.47,
+    fontSize: 1.77,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.32,
+    letterSpacing: 0.016,
+    multiline: true,
+  },
+  // 6.10 Igevers (spec: x=1240, y=2875, w=1200, fs=52, italic)
+  {
+    id: 'verse',
+    label: 'Igevers',
+    defaultValue: '„{{verseText}}"',
+    x: 25.81,
+    y: 81.96,
+    width: 48.39,
+    fontSize: 1.48,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    italic: true,
+    color: COLOR_GRIEF_GRAY,
+    textAlign: 'center',
+    lineHeight: 1.31,
+    letterSpacing: 0.019,
+    multiline: true,
+  },
+  // 6.11 Igehely (spec: x=1240, y=3065, w=500, fs=44, ls=3px)
+  {
+    id: 'verseRef',
+    label: 'Igehely',
+    defaultValue: '{{verseReference}}',
+    x: 39.92,
+    y: 87.37,
+    width: 20.16,
+    fontSize: 1.25,
+    fontFamily: FONT_SERIF,
+    fontWeight: 400,
+    color: COLOR_GRIEF_MUTED,
+    textAlign: 'center',
+    lineHeight: 1.27,
+    letterSpacing: 0.068,
+  },
+]
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sablon-katalógus (8 sablon: 3 sákramentum × EREK/KEREK + temetés/gyászjelentés)
 // ─────────────────────────────────────────────────────────────────────────
 
 export const EMLEKLAP_TEMPLATES: EmleklapTemplate[] = [
@@ -721,6 +906,17 @@ export const EMLEKLAP_TEMPLATES: EmleklapTemplate[] = [
     backgroundImage: '/templates/emleklap/kerek-konfirmalasi-hatter.png',
     aspectRatio: 210 / 297,
     fields: KONFIRMACIOI_FIELDS,
+  },
+  // 2026-05-30: gyászjelentés sablon. Nincs EREK/KEREK variáció — egy
+  // egységes, fekete-fehér ornamentikás (magyar népi motívumos) dizájn.
+  {
+    id: 'temetes-erek',
+    name: 'Gyászjelentés',
+    type: 'temetes',
+    variant: 'erek',
+    backgroundImage: '/templates/emleklap/temetes-hatter.png',
+    aspectRatio: 210 / 297,
+    fields: TEMETESI_FIELDS,
   },
 ]
 
@@ -790,5 +986,16 @@ export const EMLEKLAP_SAMPLE_DATA: Record<EmleklapType, Record<string, string>> 
     issueDate: '2020. AUGUSZTUS 23.',
     mainWardenName: 'MÁRK A. LÁSZLÓ',
     pastorName: 'SZŐCS ENDRE',
+  },
+  temetes: {
+    fullName: 'KOVÁCS ISTVÁN',
+    relativeRelation: 'édesapánk, nagyapánk és rokonunk',
+    age: '78',
+    deathDate: '2026. március 18-án',
+    funeralDate: '2026. március 25-én, szerdán 14:00',
+    funeralPlace: 'a Felsővárosi Református Temető ravatalozójában.',
+    mourners: 'Szerető családja és mindazok,\nakik ismerték és tisztelték',
+    verseText: 'Az Úr adta, az Úr vette el,\náldott legyen az Úr neve.',
+    verseReference: 'Jób 1,21',
   },
 }

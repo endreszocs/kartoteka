@@ -19,6 +19,7 @@ export function registryTabToEmleklapType(tab: RegistryTab): EmleklapType | unde
   if (tab === 'keresztseg') return 'kereszteles'
   if (tab === 'konfirmalas') return 'konfirmacio'
   if (tab === 'hazassag') return 'esketes'
+  if (tab === 'temetes') return 'temetes'
   return undefined
 }
 
@@ -207,6 +208,51 @@ function mapHazassag(entry: RegistryEntry, opts: { congregationName: string }): 
 }
 
 /**
+ * Életkor számítás születési-dátum + halálozási-dátum párból (csak év, magyar
+ * konvenció szerint = "életének X. évében").
+ */
+function calculateAge(birthDate: string | null | undefined, deathDate: string | null | undefined): string {
+  if (!birthDate || !deathDate) return ''
+  try {
+    const b = new Date(birthDate)
+    const d = new Date(deathDate)
+    if (isNaN(b.getTime()) || isNaN(d.getTime())) return ''
+    let age = d.getFullYear() - b.getFullYear()
+    const m = d.getMonth() - b.getMonth()
+    if (m < 0 || (m === 0 && d.getDate() < b.getDate())) age--
+    return String(age)
+  } catch { return '' }
+}
+
+/**
+ * Temetés / Gyászjelentés → emléklap placeholder-adatok.
+ *
+ * Az entry.hdatum = halálozás dátuma, entry.tdatum = temetés dátuma.
+ * entry.szemely = elhunyt személy adatai (csaladnev + k_nev + sz_datum).
+ * entry.adrlocality?.name = temetés helye (ha rögzítve).
+ */
+function mapTemetes(entry: RegistryEntry, _opts: { congregationName: string }): Record<string, string> {
+  const fullName = entry.szemely
+    ? `${entry.szemely.csaladnev || ''} ${entry.szemely.k_nev || ''}`.trim().toUpperCase()
+    : ''
+  const age = calculateAge(entry.szemely?.sz_datum, entry.hdatum)
+  const deathDate = formatHungarianDate(entry.hdatum) + (entry.hdatum ? '-án' : '')
+  const funeralDate = entry.tdatum ? formatHungarianDate(entry.tdatum) + '-én' : ''
+  const funeralPlace = entry.adrlocality?.name ? `a(z) ${entry.adrlocality.name} temetőjében.` : ''
+  return {
+    fullName,
+    relativeRelation: '', // a család tölti ki ("édesapánk, nagyapánk és rokonunk")
+    age,
+    deathDate,
+    funeralDate,
+    funeralPlace,
+    mourners: '', // a család tölti ki
+    verseText: '', // a család vagy lelkész választja
+    verseReference: '',
+  }
+}
+
+/**
  * Univerzális dispatcher: RegistryEntry + tab → emléklap-placeholder-adatok.
  */
 export function mapRegistryEntryToEmleklapData(
@@ -217,5 +263,6 @@ export function mapRegistryEntryToEmleklapData(
   if (tab === 'keresztseg') return mapKeresztseg(entry, opts)
   if (tab === 'konfirmalas') return mapKonfirmalas(entry, opts)
   if (tab === 'hazassag') return mapHazassag(entry, opts)
+  if (tab === 'temetes') return mapTemetes(entry, opts)
   return {}
 }
