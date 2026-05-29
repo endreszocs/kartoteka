@@ -48,41 +48,42 @@ COMMENT ON TABLE public.iktato_yearly_closures IS
   '2026-05-29: évvégi iktatókönyv-lezárások. Egy év-gyülekezet páronként 1 sor. A lezárt évre nem lehet új iktatást felvenni, és a meglévőket sem módosítani — a UI ezt a tábla létezésével ellenőrzi.';
 
 -- ─── 3. RLS — gyülekezet-szintű izoláció ─────────────────────────────────
--- A lezárások csak ahhoz a gyülekezethez tartoznak, amelynek a felhasználó tagja.
--- A meglévő `congregations`-alapú RLS-helper-eket használjuk.
+-- A profiles.congregation_id az aktuális gyülekezete a felhasználónak.
+-- A profiles.role 'admin' a master/system admin, 'lelkesz' a gyülekezeti lelkész.
+-- (A korábbi pr.congregation_id hivatkozás a profile_roles-re hibás volt —
+-- a profile_roles-ben scope+scope_id van, nem külön congregation_id.)
 ALTER TABLE public.iktato_yearly_closures ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Users can view yearly closures of their congregation"
+DROP POLICY IF EXISTS iktato_yearly_closures_select_own
   ON public.iktato_yearly_closures;
-CREATE POLICY "Users can view yearly closures of their congregation"
+CREATE POLICY iktato_yearly_closures_select_own
   ON public.iktato_yearly_closures
   FOR SELECT
   USING (
     congregation_id IN (
-      SELECT pr.congregation_id
-      FROM public.profile_roles pr
-      WHERE pr.profile_id = (SELECT auth.uid())
-        AND pr.congregation_id IS NOT NULL
+      SELECT p.congregation_id FROM public.profiles p WHERE p.id = (SELECT auth.uid())
     )
   );
 
-DROP POLICY IF EXISTS "Users can create yearly closures for their congregation"
+DROP POLICY IF EXISTS iktato_yearly_closures_insert_own
   ON public.iktato_yearly_closures;
-CREATE POLICY "Users can create yearly closures for their congregation"
+CREATE POLICY iktato_yearly_closures_insert_own
   ON public.iktato_yearly_closures
   FOR INSERT
   WITH CHECK (
     congregation_id IN (
-      SELECT pr.congregation_id
-      FROM public.profile_roles pr
-      WHERE pr.profile_id = (SELECT auth.uid())
-        AND pr.congregation_id IS NOT NULL
-        AND pr.role IN ('admin', 'pastor', 'master')
+      SELECT p.congregation_id
+      FROM public.profiles p
+      WHERE p.id = (SELECT auth.uid())
+        AND p.role IN ('admin', 'lelkesz')
     )
   );
 
--- DELETE-et szándékosan nem engedünk a lezárásnak — egy egyszer lezárt év
--- csak admin/master beavatkozással bontható fel (god mode / kézi DB-műveletek).
+-- DELETE policy NINCS — egy egyszer lezárt év csak service-role (admin/master
+-- beavatkozással), pl. god mode-on keresztül vagy kézi DB-műveletekkel
+-- bontható fel. A service-role bypass-olja az RLS-t.
+
+GRANT SELECT, INSERT ON public.iktato_yearly_closures TO authenticated;
 
 -- ─── 4. Verifikáció ──────────────────────────────────────────────────────
 -- (megj.: az `AS check` nem használható ORDER BY-ban — "check" foglalt szó
