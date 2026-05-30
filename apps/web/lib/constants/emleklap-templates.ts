@@ -17,7 +17,7 @@
 export type EmleklapType = 'kereszteles' | 'esketes' | 'konfirmacio' | 'temetes'
 // 2026-05-30: 'kek' variant — a kék-fehér népi díszítésű keresztelési sablon
 // (lásd migration-docs/.../Regi/keresztelesi_emleklap_web_rekonstrukcio_specifikacio.md)
-export type EmleklapVariant = 'erek' | 'kerek' | 'kek'
+export type EmleklapVariant = 'erek' | 'kerek' | 'kek' | 'hagyomanyos'
 
 export interface EmleklapField {
   /** Egyedi mező-azonosító (a template-en belül). */
@@ -290,6 +290,10 @@ const COLOR_KEK_BLUE = '#061B5C'
 // egyházközség-név (#B58942) + sötét fő-szöveg (#2A2728).
 const COLOR_ESK_GOLD = '#B58942'
 const COLOR_ESK_DARK = '#2A2728'
+// 2026-05-30 (Hagyományos esketés — piros népi keret spec):
+//   sötét vörös fejlécek/nevek (#641A16), sötét fő-szöveg (#2E2523).
+const COLOR_ESK_DARK_RED = '#641A16'
+const COLOR_ESK_HAGY_BODY = '#2E2523'
 
 // 2026-05-30 v4 (Hagyományos kék – Keret_1.png + kereszteloi_emleklap_szoveg_elhelyezes.md):
 // Vászon: 1054 × 1492 px. Színek: egységes mélykék #061B5C.
@@ -749,6 +753,270 @@ const ESKETESI_FIELDS: EmleklapField[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────
+// 2b. HÁZASSÁGKÖTÉSI EMLÉKLAP — Hagyományos (piros népi keret)
+//     Spec: hazassagkotesi_emleklap_piros_keret_pixelterv.md (1055×1491 px)
+//     Center-anchored: x_field = center_x_pct - width/2, y_field = center_y_pct - font/2
+// ─────────────────────────────────────────────────────────────────────────
+const ESKETESI_HAGYOMANYOS_FIELDS: EmleklapField[] = [
+  // 6.1 Egyházközség — Cinzel 23 px 600, ls=3.5 px (=0.152em), center (528, 245)
+  {
+    id: 'congregationName',
+    label: 'Gyülekezet neve',
+    defaultValue: '{{congregationName}}',
+    x: 10,
+    y: 15.66,
+    width: 80,
+    fontSize: 1.543,
+    fontFamily: FONT_CINZEL,
+    fontWeight: 600,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0.152,
+    textTransform: 'uppercase',
+  },
+  // 6.1 Főcím 1 „HÁZASSÁGKÖTÉSI" — Cinzel 56 px 600, ls=3 px (=0.054em), center (528, 359)
+  {
+    id: 'titleLine1',
+    label: 'Főcím – 1. sor',
+    defaultValue: 'HÁZASSÁGKÖTÉSI',
+    x: 10,
+    y: 22.20,
+    width: 80,
+    fontSize: 3.756,
+    fontFamily: FONT_CINZEL,
+    fontWeight: 600,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.05,
+    letterSpacing: 0.054,
+    textTransform: 'uppercase',
+  },
+  // 6.1 Főcím 2 „EMLÉKLAP" — Cinzel 56 px 600, ls=5 px (=0.089em), center (528, 428)
+  {
+    id: 'titleLine2',
+    label: 'Főcím – 2. sor',
+    defaultValue: 'EMLÉKLAP',
+    x: 10,
+    y: 26.83,
+    width: 80,
+    fontSize: 3.756,
+    fontFamily: FONT_CINZEL,
+    fontWeight: 600,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.05,
+    letterSpacing: 0.089,
+    textTransform: 'uppercase',
+  },
+  // 6.2 Férj neve — Cormorant 39 px italic 700, center (528, 544)
+  {
+    id: 'husbandName',
+    label: 'Vőlegény neve',
+    defaultValue: '{{husbandName}}',
+    x: 15,
+    y: 35.18,
+    width: 70,
+    fontSize: 2.616,
+    fontFamily: FONT_SERIF,
+    fontWeight: 700,
+    italic: true,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.05,
+    letterSpacing: 0,
+  },
+  // 6.2 Férj szül. — Cormorant 25 px 500, center (528, 600)
+  {
+    id: 'husbandBirth',
+    label: 'Vőlegény születése',
+    defaultValue: 'aki {{husbandBirthPlace}} született {{husbandBirthDate}}',
+    x: 10,
+    y: 39.40,
+    width: 80,
+    fontSize: 1.677,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0,
+  },
+  // 6.2 „és" — Cormorant 24 px 500, center (528, 645)
+  {
+    id: 'andLabel',
+    label: '„és" szó',
+    defaultValue: 'és',
+    x: 45,
+    y: 42.45,
+    width: 10,
+    fontSize: 1.610,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0,
+  },
+  // 6.2 Feleség neve — Cormorant 39 px italic 700, center (528, 699)
+  {
+    id: 'wifeName',
+    label: 'Menyasszony neve',
+    defaultValue: '{{wifeName}}',
+    x: 15,
+    y: 45.57,
+    width: 70,
+    fontSize: 2.616,
+    fontFamily: FONT_SERIF,
+    fontWeight: 700,
+    italic: true,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.05,
+    letterSpacing: 0,
+  },
+  // 6.2 Feleség szül. — center (528, 755)
+  {
+    id: 'wifeBirth',
+    label: 'Menyasszony születése',
+    defaultValue: 'aki {{wifeBirthPlace}} született {{wifeBirthDate}}',
+    x: 10,
+    y: 49.80,
+    width: 80,
+    fontSize: 1.677,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0,
+  },
+  // 6.3 Házasságkötési 3-soros blokk — Cormorant 24 px 500, gap 37-38 px (lineHeight≈1.563)
+  // Center y1=824 → y_top=54.46%.
+  {
+    id: 'paragraph',
+    label: 'Esketés-szöveg (3 sor)',
+    defaultValue: 'a {{marriageCongregation}}\n{{marriageDate}} Isten és a gyülekezet színe előtt\nházassági szent szövetséget kötött.',
+    x: 10,
+    y: 54.46,
+    width: 80,
+    fontSize: 1.610,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.563,
+    letterSpacing: 0,
+    multiline: true,
+    hint: 'Fix 3 sorra tördelve (\\n-nel).',
+  },
+  // 6.4 Igevers 2 sor — Cormorant 30 px italic 600, gap 48 px (lineHeight=1.6)
+  // Center (528, 958) → y_top=63.24%.
+  {
+    id: 'biblicalVerse',
+    label: 'Igevers (idézet)',
+    defaultValue: '„{{verseText}}" ({{verseReference}})',
+    x: 10,
+    y: 63.24,
+    width: 80,
+    fontSize: 2.012,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
+    italic: true,
+    color: COLOR_ESK_DARK_RED,
+    textAlign: 'center',
+    lineHeight: 1.6,
+    letterSpacing: 0,
+    multiline: true,
+    hint: 'pl. „Egymás terhét hordozzátok…" (Gal 6,2). \\n-nel törhető 2 sorra.',
+  },
+  // 6.5 Alsó dátum — Cormorant 27 px 500, center (528, 1074) → y_top=71.12%.
+  {
+    id: 'placeAndDate',
+    label: 'Kelt (hely + dátum)',
+    defaultValue: '{{issueLocation}}, {{issueDate}}',
+    x: 20,
+    y: 71.12,
+    width: 60,
+    fontSize: 1.811,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0,
+  },
+  // 9. Bal név — Cormorant 23 px 600, center x=316 (29.95%), y=1202 → y_top=79.85%.
+  {
+    id: 'pastorName',
+    label: 'Lelkipásztor neve',
+    defaultValue: '{{pastorName}}',
+    x: 17.95,
+    y: 79.85,
+    width: 24,
+    fontSize: 1.543,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+  },
+  // 9. Bal tisztség — Cormorant 13 px 500, y=1230 → y_top=82.07%.
+  {
+    id: 'pastorRole',
+    label: 'Lelkipásztor titulus',
+    defaultValue: 'LELKIPÁSZTOR',
+    x: 17.95,
+    y: 82.07,
+    width: 24,
+    fontSize: 0.872,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.2,
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+  },
+  // 9. Jobb név — center x=740 (70.14%).
+  {
+    id: 'wardenName',
+    label: 'Gondnok neve',
+    defaultValue: '{{wardenName}}',
+    x: 58.14,
+    y: 79.85,
+    width: 24,
+    fontSize: 1.543,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.15,
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+  },
+  // 9. Jobb tisztség
+  {
+    id: 'wardenRole',
+    label: 'Gondnok titulus',
+    defaultValue: 'GONDNOK',
+    x: 58.14,
+    y: 82.07,
+    width: 24,
+    fontSize: 0.872,
+    fontFamily: FONT_SERIF,
+    fontWeight: 500,
+    color: COLOR_ESK_HAGY_BODY,
+    textAlign: 'center',
+    lineHeight: 1.2,
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+  },
+]
+
+// ─────────────────────────────────────────────────────────────────────────
 // 3. KONFIRMÁCIÓI EMLÉKLAP
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1170,6 +1438,17 @@ export const EMLEKLAP_TEMPLATES: EmleklapTemplate[] = [
     backgroundImage: '/templates/emleklap/kerek-esketesi-hatter.png',
     aspectRatio: 210 / 297,
     fields: ESKETESI_FIELDS,
+  },
+  // 2026-05-30: új hagyományos (piros népi keret) esketési sablon.
+  // Spec: hazassagkotesi_emleklap_piros_keret_pixelterv.md (1055×1491 px)
+  {
+    id: 'esketes-hagyomanyos',
+    name: 'Házasságkötési emléklap — Hagyományos (piros népi keret)',
+    type: 'esketes',
+    variant: 'hagyomanyos',
+    backgroundImage: '/templates/emleklap/hagyomanyos-esketesi-hatter.png',
+    aspectRatio: 210 / 297,
+    fields: ESKETESI_HAGYOMANYOS_FIELDS,
   },
   {
     id: 'konfirmacio-erek',

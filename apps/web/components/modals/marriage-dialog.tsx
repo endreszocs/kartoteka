@@ -196,7 +196,19 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   }, [bride])
 
   // 2026-05-29: élő esketési emléklap-preview
-  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['esketes-erek']
+  // 2026-05-30: variant-választó (Erdélyi új / Királyhágós új / Hagyományos).
+  // localStorage-be is mentődik a felhasználói preferencia.
+  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek' | 'hagyomanyos'>(() => {
+    try {
+      const saved = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.esketesVariant')) || 'erek'
+      return (saved === 'kerek' || saved === 'hagyomanyos') ? saved : 'erek'
+    } catch { return 'erek' }
+  })
+  function changeVariant(v: 'erek' | 'kerek' | 'hagyomanyos') {
+    setSelectedVariant(v)
+    try { localStorage.setItem('kartoteka.emleklap.esketesVariant', v) } catch {}
+  }
+  const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP[`esketes-${selectedVariant}`] ?? EMLEKLAP_TEMPLATES_MAP['esketes-erek']
 
   const fieldValues = useMemo(() => {
     const husbandName = groom ? `${groom.csaladnev || ''} ${groom.k_nev || ''}`.trim() : ''
@@ -459,6 +471,25 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                 Az esketési emléklap automatikusan kitöltődik a beírt adatokkal.
               </p>
             </div>
+            {/* 2026-05-30: variant-választó chip (Erdélyi új / Királyhágós új / Hagyományos) */}
+            <div className="flex justify-center gap-1 mb-2 rounded-md bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => changeVariant('erek')}
+                className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+              >Erdélyi új</button>
+              <button
+                type="button"
+                onClick={() => changeVariant('kerek')}
+                className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+              >Királyhágós új</button>
+              <button
+                type="button"
+                onClick={() => changeVariant('hagyomanyos')}
+                className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'hagyomanyos' ? 'bg-white text-red-800 shadow-sm' : 'text-slate-500'}`}
+                title="Piros népi keret — hagyományos sablon"
+              >Hagyományos</button>
+            </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
               <CertificateRenderer
                 ref={printRef}
@@ -468,7 +499,9 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                 showBackground={true}
               />
             </div>
-            <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · Erdélyi új esketési sablon</p>
+            <p className="mt-1.5 text-[10px] text-slate-400 text-center">
+              A4 álló · {selectedVariant === 'hagyomanyos' ? 'Hagyományos' : selectedVariant === 'kerek' ? 'Királyhágós új' : 'Erdélyi új'} esketési sablon
+            </p>
           </aside>
         </div>
 

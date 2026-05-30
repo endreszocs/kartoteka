@@ -115,13 +115,25 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
     setKerVariant(v)
     try { localStorage.setItem('kartoteka.emleklap.kereszteloVariant', v) } catch {}
   }
+  // 2026-05-30: esketés esetén variant-választó (erek/kerek/hagyomanyos).
+  // A 'hagyomanyos' a piros népi keretes sablon.
+  const [eskVariant, setEskVariant] = useState<'erek' | 'kerek' | 'hagyomanyos'>(() => {
+    try {
+      const saved = (typeof window !== 'undefined' && localStorage.getItem('kartoteka.emleklap.esketesVariant')) || 'erek'
+      return (saved === 'kerek' || saved === 'hagyomanyos') ? saved : 'erek'
+    } catch { return 'erek' }
+  })
+  function changeEskVariant(v: 'erek' | 'kerek' | 'hagyomanyos') {
+    setEskVariant(v)
+    try { localStorage.setItem('kartoteka.emleklap.esketesVariant', v) } catch {}
+  }
   const template: EmleklapTemplate | null = useMemo(() => {
     if (tab === 'keresztseg') return EMLEKLAP_TEMPLATES_MAP[`kereszteles-${kerVariant}`] ?? EMLEKLAP_TEMPLATES_MAP['kereszteles-erek'] ?? null
     if (tab === 'konfirmalas') return EMLEKLAP_TEMPLATES_MAP['konfirmacio-erek'] ?? null
-    if (tab === 'hazassag') return EMLEKLAP_TEMPLATES_MAP['esketes-erek'] ?? null
+    if (tab === 'hazassag') return EMLEKLAP_TEMPLATES_MAP[`esketes-${eskVariant}`] ?? EMLEKLAP_TEMPLATES_MAP['esketes-erek'] ?? null
     if (tab === 'temetes') return EMLEKLAP_TEMPLATES_MAP['temetes-erek'] ?? null
     return null
-  }, [tab, kerVariant])
+  }, [tab, kerVariant, eskVariant])
 
   const fieldValues = useMemo<Record<string, string>>(() => {
     if (!template || !entry) return {}
@@ -207,6 +219,9 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
           verseReference = s.verse_reference || ''
         } catch { /* invalid */ }
       }
+      // 2026-05-30: alapértelmezett igevers, ha a sablon nem tartalmaz konkrétat
+      if (!verseText) verseText = 'Egymás terhét hordozzátok, és úgy töltsétek\nbe a Krisztus törvényét'
+      if (!verseReference) verseReference = 'Gal 6,2'
       data = {
         congregationName,
         husbandName,
@@ -546,6 +561,18 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                     title="Kék-fehér népi díszítésű hagyományos sablon">Hagyományos kék</button>
                 </div>
               )}
+              {/* 2026-05-30: variant-választó esketési ágon (Erdélyi új / Királyhágós új / Hagyományos) */}
+              {tab === 'hazassag' && (
+                <div className="flex gap-1 mb-2 rounded-md bg-slate-100 p-1">
+                  <button type="button" onClick={() => changeEskVariant('erek')}
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${eskVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Erdélyi új</button>
+                  <button type="button" onClick={() => changeEskVariant('kerek')}
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${eskVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Királyhágós új</button>
+                  <button type="button" onClick={() => changeEskVariant('hagyomanyos')}
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${eskVariant === 'hagyomanyos' ? 'bg-white text-red-800 shadow-sm' : 'text-slate-500'}`}
+                    title="Piros népi keret — hagyományos sablon">Hagyományos</button>
+                </div>
+              )}
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
                 <CertificateRenderer
                   ref={printRef}
@@ -560,7 +587,9 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                   ? 'A4 álló · Gyászjelentés sablon'
                   : tab === 'keresztseg'
                     ? `A4 álló · ${kerVariant === 'kek' ? 'Hagyományos kék' : kerVariant === 'kerek' ? 'Királyhágós új' : 'Erdélyi új'} keresztelői sablon`
-                    : `A4 álló · Erdélyi új ${tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
+                    : tab === 'hazassag'
+                      ? `A4 álló · ${eskVariant === 'hagyomanyos' ? 'Hagyományos' : eskVariant === 'kerek' ? 'Királyhágós új' : 'Erdélyi új'} esketési sablon`
+                      : `A4 álló · Erdélyi új konfirmációi sablon`}
               </p>
             </aside>
           )}

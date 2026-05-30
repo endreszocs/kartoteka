@@ -37,7 +37,7 @@ import { fileToDataUrl, removeWhiteBackground } from '@/lib/utils/image-bg-remov
 
 interface CertificateGeneratorProps {
   initialType?: EmleklapType
-  initialVariant?: 'erek' | 'kerek' | 'kek'
+  initialVariant?: 'erek' | 'kerek' | 'kek' | 'hagyomanyos'
   initialData?: Record<string, string | undefined>
   onClose?: () => void
   /** Ha true, a típus-választó rejtve van — a stúdió a megnyitáskor kapott
@@ -109,7 +109,7 @@ export function CertificateGenerator({
   lockType = false,
 }: CertificateGeneratorProps) {
   const [selectedType, setSelectedType] = useState<EmleklapType>(initialType)
-  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek' | 'kek'>(initialVariant)
+  const [selectedVariant, setSelectedVariant] = useState<'erek' | 'kerek' | 'kek' | 'hagyomanyos'>(initialVariant)
   const [showBackground, setShowBackground] = useState(true)
   const [overlays, setOverlays] = useState<OverlayImage[]>([])
   const [processingId, setProcessingId] = useState<string | null>(null)
@@ -311,8 +311,9 @@ export function CertificateGenerator({
             onChange={(e) => {
               const next = e.target.value as EmleklapType
               setSelectedType(next)
-              // 2026-05-30: a KÉK variant csak keresztelőhöz létezik
+              // 2026-05-30: a KÉK csak keresztelőn, a Hagyományos csak esketésen.
               if (selectedVariant === 'kek' && next !== 'kereszteles') setSelectedVariant('erek')
+              if (selectedVariant === 'hagyomanyos' && next !== 'esketes') setSelectedVariant('erek')
             }}
             className="rounded-md border border-input bg-background px-2 py-1 text-sm"
           >
@@ -347,6 +348,17 @@ export function CertificateGenerator({
               title="Kék-fehér népi díszítésű hagyományos sablon"
             >
               Hagyományos kék
+            </button>
+          )}
+          {/* 2026-05-30: Hagyományos (piros népi keret) — csak esketéshez */}
+          {selectedType === 'esketes' && (
+            <button
+              type="button"
+              onClick={() => setSelectedVariant('hagyomanyos')}
+              className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'hagyomanyos' ? 'bg-white text-red-800 shadow-sm' : 'text-slate-500'}`}
+              title="Piros népi keret — hagyományos sablon"
+            >
+              Hagyományos
             </button>
           )}
         </div>

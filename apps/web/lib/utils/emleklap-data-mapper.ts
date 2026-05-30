@@ -216,6 +216,14 @@ function parseMarriageSablon(megj: string | null | undefined): {
   return out
 }
 
+/**
+ * 2026-05-30: alapértelmezett igevers a házasságkötési emléklaphoz —
+ * ha a sablon JSON nem tartalmaz konkrét igeverset, ezt mutatjuk
+ * (a marriage-dialog ugyanezt használja).
+ */
+const DEFAULT_MARRIAGE_VERSE_TEXT = 'Egymás terhét hordozzátok, és úgy töltsétek\nbe a Krisztus törvényét'
+const DEFAULT_MARRIAGE_VERSE_REFERENCE = 'Gal 6,2'
+
 function mapHazassag(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
   const sablon = parseMarriageSablon(entry.megjegyzes)
   const husbandBirthDate = entry.ferfi?.sz_datum
@@ -234,8 +242,8 @@ function mapHazassag(entry: RegistryEntry, opts: { congregationName: string }): 
     wifeBirthDate,
     marriageCongregation: opts.congregationName + 'ben',
     marriageDate: formatHungarianDate(entry.datum) + (entry.datum ? '-én' : ''),
-    verseText: sablon.verse_text,
-    verseReference: sablon.verse_reference,
+    verseText: sablon.verse_text || DEFAULT_MARRIAGE_VERSE_TEXT,
+    verseReference: sablon.verse_reference || DEFAULT_MARRIAGE_VERSE_REFERENCE,
     issueLocation: extractCityFromCongregationName(opts.congregationName),
     issueDate: formatHungarianDate(entry.datum),
     pastorName: (entry.lelkeszneve || '').toUpperCase(),
