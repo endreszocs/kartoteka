@@ -758,13 +758,14 @@ const ESKETESI_FIELDS: EmleklapField[] = [
 //     Center-anchored: x_field = center_x_pct - width/2, y_field = center_y_pct - font/2
 // ─────────────────────────────────────────────────────────────────────────
 const ESKETESI_HAGYOMANYOS_FIELDS: EmleklapField[] = [
-  // 6.1 Egyházközség — Cinzel 23 px 600, ls=3.5 px (=0.152em), center (528, 245)
+  // 6.1 Egyházközség — Cinzel 23 px 600, ls=3.5 px (=0.152em), center (528, 250)
+  // 2026-05-30: +5 px (15.66 → 16.0%) — felhasználói finomhangolás.
   {
     id: 'congregationName',
     label: 'Gyülekezet neve',
     defaultValue: '{{congregationName}}',
     x: 10,
-    y: 15.66,
+    y: 16.0,
     width: 80,
     fontSize: 1.543,
     fontFamily: FONT_CINZEL,
