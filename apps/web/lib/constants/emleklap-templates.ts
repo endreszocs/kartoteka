@@ -1034,9 +1034,11 @@ const ESKETESI_HAGYOMANYOS_FIELDS: EmleklapField[] = [
 // Pl. y=776 px → 776/2048 = 37.89%; fontSize=25 px → 25/2048 = 1.22%.
 // A center-anchored elemek bal-felső sarkát kiszámoljuk: leftX = centerX - width/2.
 const KONFIRMACIOI_FIELDS: EmleklapField[] = [
-  // v4 (2026-05-29) — konfirmacioi: bevezető + név a felső vonal alatt szorosan,
-  // paragraph nagyobb + félkövér, aláírások az aláírás-vonalakhoz igazítva.
-  // 7.1 Bevezető (spec: x=724, y=776, w=850, fontSize=25, ls=8px, fw=500)
+  // 2026-05-30 v10: a Cinzel font (dekoratív all-caps) hosszú UPPERCASE
+  // szövegen + nagy 0.32em letter-spacing-en olvashatatlan volt. Egységesen
+  // Cormorant Garamond serif fontra cserélve, és a betűközöket is reális,
+  // olvasható szintre csökkentve. A textTransform: uppercase marad (spec).
+  // 7.1 Bevezető
   {
     id: 'introLabel',
     label: 'Bevezető (Alulírottak hivatalosan bizonyítjuk)',
@@ -1045,32 +1047,33 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     y: 37.89,
     width: 58.70,
     fontSize: 1.22,
-    fontFamily: FONT_CINZEL,
+    fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_BLACK,
     textAlign: 'center',
     lineHeight: 1.36,
-    letterSpacing: 0.32,
+    letterSpacing: 0.10,
     textTransform: 'uppercase',
   },
-  // 7.2 Konfirmált neve (spec: x=724, y=820, w=700, fontSize=33, ls=8px, fw=700)
+  // 7.2 Konfirmált neve — kissé nagyobb font (1.61 → 1.85) + bold, hogy
+  // Cormorant-ban is dekoratív hatás maradjon.
   {
     id: 'fullName',
     label: 'Konfirmált teljes neve',
     defaultValue: '{{fullName}}',
-    x: 25.83,
+    x: 22,
     y: 40.04,
-    width: 48.34,
-    fontSize: 1.61,
-    fontFamily: FONT_CINZEL,
+    width: 56,
+    fontSize: 1.85,
+    fontFamily: FONT_SERIF,
     fontWeight: 700,
     color: COLOR_BLACK,
     textAlign: 'center',
-    lineHeight: 1.27,
-    letterSpacing: 0.24,
+    lineHeight: 1.2,
+    letterSpacing: 0.08,
     textTransform: 'uppercase',
   },
-  // 7.3 Személyes adat sor (spec: x=724, y=880, w=1150, fontSize=25, ls=8px)
+  // 7.3 Személyes adat sor
   {
     id: 'personalLine',
     label: 'Személyes adat sor (szül. hely + dátum)',
@@ -1079,17 +1082,17 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     y: 42.97,
     width: 79.42,
     fontSize: 1.22,
-    fontFamily: FONT_CINZEL,
+    fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_BLACK,
     textAlign: 'center',
     lineHeight: 1.36,
-    letterSpacing: 0.32,
+    letterSpacing: 0.06,
     textTransform: 'uppercase',
   },
-  // 7.4 Törzsszöveg (spec: 8 sor, x=724, w=1250, fontSize=25, ls=8px, y=927-1262)
-  // Multiline-bal egy mezőben tartjuk — a renderer ránéz a 86.32% width-re
-  // és letter-spacing 0.32-rel hasonló sortörést ad. UPPERCASE.
+  // 7.4 Törzsszöveg — Cormorant + kisebb ls (0.32 → 0.04em) drámaian javítja
+  // az olvashatóságot. A textAlign: 'center' helyett 'justify' egységesebb
+  // sorvégződést ad ennek a hosszú bekezdésnek.
   {
     id: 'paragraph',
     label: 'Konfirmációs törzsszöveg',
@@ -1097,17 +1100,17 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     x: 6.84,
     y: 45.27,
     width: 86.32,
-    fontSize: 1.22,
-    fontFamily: FONT_CINZEL,
+    fontSize: 1.32,
+    fontFamily: FONT_SERIF,
     fontWeight: 500,
     color: COLOR_BLACK,
-    textAlign: 'center',
-    lineHeight: 1.36,
-    letterSpacing: 0.32,
+    textAlign: 'justify',
+    lineHeight: 1.45,
+    letterSpacing: 0.04,
     textTransform: 'uppercase',
     multiline: true,
   },
-  // 8. Kelt (spec: x=724, y=1578, w=700, fontSize=26, ls=8px, fw=400)
+  // 8. Kelt
   {
     id: 'placeAndDate',
     label: 'Kelt (hely + dátum)',
@@ -1116,15 +1119,15 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     y: 77.05,
     width: 48.34,
     fontSize: 1.27,
-    fontFamily: FONT_CINZEL,
+    fontFamily: FONT_SERIF,
     fontWeight: 400,
     color: COLOR_BLACK,
     textAlign: 'center',
     lineHeight: 1.31,
-    letterSpacing: 0.31,
+    letterSpacing: 0.06,
     textTransform: 'uppercase',
   },
-  // 9.1 Főgondnok BAL (spec: x=255 left, y=1650, w=330, fontSize=26, ls=7px, fw=400)
+  // 9.1 Főgondnok BAL
   {
     id: 'mainWardenName',
     label: 'Fő-gondnok neve',
@@ -1133,12 +1136,12 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     y: 80.57,
     width: 22.79,
     fontSize: 1.27,
-    fontFamily: FONT_CINZEL,
-    fontWeight: 400,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
     color: COLOR_BLACK,
     textAlign: 'left',
     lineHeight: 1.62,
-    letterSpacing: 0.27,
+    letterSpacing: 0.05,
     textTransform: 'uppercase',
   },
   {
@@ -1146,18 +1149,18 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     label: 'Fő-gondnok titulus',
     defaultValue: 'FŐGONDNOK',
     x: 17.61,
-    y: 82.62, // +42px (line-height) = +2.05%
+    y: 82.62,
     width: 22.79,
-    fontSize: 1.27,
-    fontFamily: FONT_CINZEL,
+    fontSize: 1.10,
+    fontFamily: FONT_SERIF,
     fontWeight: 400,
     color: COLOR_BLACK,
     textAlign: 'left',
     lineHeight: 1.62,
-    letterSpacing: 0.27,
+    letterSpacing: 0.06,
     textTransform: 'uppercase',
   },
-  // 9.2 Lelkipásztor JOBB (spec: x=980 left, y=1650, w=370, fontSize=26, ls=7px)
+  // 9.2 Lelkipásztor JOBB
   {
     id: 'pastorName',
     label: 'Lelkipásztor neve',
@@ -1166,12 +1169,12 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     y: 80.57,
     width: 25.55,
     fontSize: 1.27,
-    fontFamily: FONT_CINZEL,
-    fontWeight: 400,
+    fontFamily: FONT_SERIF,
+    fontWeight: 600,
     color: COLOR_BLACK,
     textAlign: 'left',
     lineHeight: 1.62,
-    letterSpacing: 0.27,
+    letterSpacing: 0.05,
     textTransform: 'uppercase',
   },
   {
@@ -1181,13 +1184,13 @@ const KONFIRMACIOI_FIELDS: EmleklapField[] = [
     x: 67.68,
     y: 82.62,
     width: 25.55,
-    fontSize: 1.27,
-    fontFamily: FONT_CINZEL,
+    fontSize: 1.10,
+    fontFamily: FONT_SERIF,
     fontWeight: 400,
     color: COLOR_BLACK,
     textAlign: 'left',
     lineHeight: 1.62,
-    letterSpacing: 0.27,
+    letterSpacing: 0.06,
     textTransform: 'uppercase',
   },
 ]
