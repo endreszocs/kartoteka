@@ -185,18 +185,40 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
       const husbandName = entry.ferfi ? `${entry.ferfi.csaladnev || ''} ${entry.ferfi.k_nev || ''}`.trim() : ''
       const wifeName = entry.no ? `${entry.no.csaladnev || ''} ${entry.no.k_nev || ''}`.trim() : ''
       const marriageDate = entry.datum ? formatHungarianDate(entry.datum as string) + '-én' : ''
+      // 2026-05-30: szül. dátum a tag-rekordból, hely + igevers sablon JSON-ből
+      const husbandBirthDate = entry.ferfi?.sz_datum
+        ? formatHungarianDate(entry.ferfi.sz_datum) + '-én'
+        : ''
+      const wifeBirthDate = entry.no?.sz_datum
+        ? formatHungarianDate(entry.no.sz_datum) + '-án'
+        : ''
+      const rawMegj = (entry.megjegyzes as string) || ''
+      const sIdx = rawMegj.indexOf('|sablon:')
+      let husbandBirthPlace = ''
+      let wifeBirthPlace = ''
+      let verseText = ''
+      let verseReference = ''
+      if (sIdx > -1) {
+        try {
+          const s = JSON.parse(rawMegj.slice(sIdx + 8))
+          husbandBirthPlace = s.husband_birth_place || ''
+          wifeBirthPlace = s.wife_birth_place || ''
+          verseText = s.verse_text || ''
+          verseReference = s.verse_reference || ''
+        } catch { /* invalid */ }
+      }
       data = {
         congregationName,
         husbandName,
-        husbandBirthPlace: '',
-        husbandBirthDate: '',
+        husbandBirthPlace,
+        husbandBirthDate,
         wifeName,
-        wifeBirthPlace: '',
-        wifeBirthDate: '',
+        wifeBirthPlace,
+        wifeBirthDate,
         marriageCongregation: congregationName ? congregationName + 'ben' : '',
         marriageDate,
-        verseText: '',
-        verseReference: '',
+        verseText,
+        verseReference,
         issueLocation,
         issueDate,
         pastorName,

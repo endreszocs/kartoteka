@@ -192,20 +192,50 @@ function mapKonfirmalas(entry: RegistryEntry, opts: { congregationName: string }
 /**
  * Esketés → emléklap placeholder-adatok.
  */
+/**
+ * 2026-05-30: a hazassag.megjegyzes-ben tárolt sablon JSON parse.
+ * Format: "<user megjegyzes>|sablon:{...}" — saveMarriage rakja össze.
+ */
+function parseMarriageSablon(megj: string | null | undefined): {
+  husband_birth_place: string
+  wife_birth_place: string
+  verse_text: string
+  verse_reference: string
+} {
+  const out = { husband_birth_place: '', wife_birth_place: '', verse_text: '', verse_reference: '' }
+  if (!megj) return out
+  const idx = megj.indexOf('|sablon:')
+  if (idx === -1) return out
+  try {
+    const s = JSON.parse(megj.slice(idx + 8))
+    out.husband_birth_place = s.husband_birth_place || ''
+    out.wife_birth_place = s.wife_birth_place || ''
+    out.verse_text = s.verse_text || ''
+    out.verse_reference = s.verse_reference || ''
+  } catch { /* invalid JSON */ }
+  return out
+}
+
 function mapHazassag(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
+  const sablon = parseMarriageSablon(entry.megjegyzes)
+  const husbandBirthDate = entry.ferfi?.sz_datum
+    ? formatHungarianDate(entry.ferfi.sz_datum) + '-én'
+    : ''
+  const wifeBirthDate = entry.no?.sz_datum
+    ? formatHungarianDate(entry.no.sz_datum) + '-án'
+    : ''
   return {
     congregationName: opts.congregationName,
     husbandName: fullName(entry.ferfi),
-    husbandBirthPlace: '',
-    husbandBirthDate: '',
+    husbandBirthPlace: sablon.husband_birth_place,
+    husbandBirthDate,
     wifeName: fullName(entry.no),
-    wifeBirthPlace: '',
-    wifeBirthDate: '',
+    wifeBirthPlace: sablon.wife_birth_place,
+    wifeBirthDate,
     marriageCongregation: opts.congregationName + 'ben',
     marriageDate: formatHungarianDate(entry.datum) + (entry.datum ? '-én' : ''),
-    verseText: '',
-    verseReference: '',
-    // 2026-05-29: helység automatikus kinyerése a gyülekezet nevéből.
+    verseText: sablon.verse_text,
+    verseReference: sablon.verse_reference,
     issueLocation: extractCityFromCongregationName(opts.congregationName),
     issueDate: formatHungarianDate(entry.datum),
     pastorName: (entry.lelkeszneve || '').toUpperCase(),

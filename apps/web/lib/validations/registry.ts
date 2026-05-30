@@ -57,6 +57,13 @@ export const marriageSchema = z.object({
   vegyes: z.boolean().optional(),
   megjegyzes: z.string().nullable().optional(),
   munkanaploba: z.boolean().default(false),
+  // 2026-05-30: emléklap-specifikus, opcionális adatok. A hazassag táblában
+  // nincs külön oszlop nekik, ezért a megjegyzes-be sablon JSON-ként
+  // perzisztáljuk (saveMarriage action ezt összerakja).
+  husband_birth_place: z.string().nullable().optional(),
+  wife_birth_place: z.string().nullable().optional(),
+  verse_text: z.string().nullable().optional(),
+  verse_reference: z.string().nullable().optional(),
 })
 export type MarriageInput = z.input<typeof marriageSchema>
 

@@ -634,6 +634,21 @@ export async function saveMarriage(data: MarriageInput) {
     egyhaziSzam = rpcData ? String(rpcData) : null
   }
 
+  // 2026-05-30: az emléklap-specifikus adatok (szül. helyek + igevers/igehely)
+  // a megjegyzes-be sablon JSON-ként mentődnek — ugyanaz a pattern, mint a
+  // baptism vigil/verse-nél. Format: "<user megjegyzes>|sablon:{...}"
+  const sablonObj = {
+    husband_birth_place: d.husband_birth_place || '',
+    wife_birth_place: d.wife_birth_place || '',
+    verse_text: d.verse_text || '',
+    verse_reference: d.verse_reference || '',
+  }
+  const sablonNonEmpty = Object.values(sablonObj).some(v => v.length > 0)
+  const baseMegj = d.megjegyzes || ''
+  const finalMegj = sablonNonEmpty
+    ? (baseMegj ? baseMegj + '|sablon:' : '|sablon:') + JSON.stringify(sablonObj)
+    : (baseMegj || null)
+
   const record = {
     id_ferfi: d.id_ferfi,
     id_no: d.id_no,
@@ -645,7 +660,7 @@ export async function saveMarriage(data: MarriageInput) {
     helyid: d.helyid || null,
     vegyes: d.vegyes ?? false,
     munkanaploba: d.munkanaploba ?? false,
-    megjegyzes: d.megjegyzes || null,
+    megjegyzes: finalMegj,
     congregation_id: congId,
   }
   if (d.id) { const { error } = await supabase.from('hazassag').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
