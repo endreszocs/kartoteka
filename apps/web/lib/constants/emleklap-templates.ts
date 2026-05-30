@@ -292,21 +292,24 @@ const COLOR_KEK_BLUE = '#061B5C'
 // ezért: x_field = (x_center_pct - width_field/2),
 //        y_field = y_center_pct - fontSize/2.
 const KERESZTELESI_KEK_FIELDS: EmleklapField[] = [
-  // 4.1 Egyházközség neve — Cinzel 30px, ls=8px (=0.267em), center (527,322)
+  // 4.1 Egyházközség neve — Cinzel
+  // 2026-05-30 fix: a spec 30 px font + ls=8 px hosszú gyülekezet-névnél
+  // (pl. „BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG") kilóg a kék díszítésű széleken
+  // („B" + „G" levágódott). Csökkentett betűméret és betűköz, szélesebb width.
   {
     id: 'congregationName',
     label: 'Gyülekezet neve',
     defaultValue: '{{congregationName}}',
-    x: 10,
-    y: 20.58,
-    width: 80,
-    fontSize: 2.01,
+    x: 7,
+    y: 20.4,
+    width: 86,
+    fontSize: 1.55,
     fontFamily: FONT_CINZEL,
     fontWeight: 500,
     color: COLOR_KEK_BLUE,
     textAlign: 'center',
     lineHeight: 1.15,
-    letterSpacing: 0.267,
+    letterSpacing: 0.13,
     textTransform: 'uppercase',
     hint: 'pl. BARÁTOSI REFORMÁTUS EGYHÁZKÖZSÉG',
   },
@@ -361,17 +364,20 @@ const KERESZTELESI_KEK_FIELDS: EmleklapField[] = [
     letterSpacing: 0.129,
     textTransform: 'uppercase',
   },
-  // 4.5 Gyermek neve — Great Vibes 78px, center (527,652)
-  // 2026-05-30: multiline + auto-wrap, hosszú nevekhez. A spec auto-szűkítést is
-  // ajánl (82/78/70/62 px), de a Great Vibes kalligráfia 78 px-en jól skálázódik.
+  // 4.5 Gyermek neve — Great Vibes, hosszú név wrap-pelhet 2 sorra.
+  // 2026-05-30 fix v2: a spec 78 px (5.23%) hosszú név (pl. „Kádár Viktória-
+  // Olivia") esetén 2 sorra ment és a 2. sor rácsúszott a „testvérünket"-re.
+  // 4.0% font (≈60 px) + szélesebb (88%) width → 22-25 karakteres név még 1
+  // sorba fér; ennél hosszabb 2 sorba wrap-pel és sűrűbb lineHeight=1.05-tel
+  // még belefér a „testvérünket" elé.
   {
     id: 'fullName',
     label: 'Keresztelt neve',
     defaultValue: '{{fullName}}',
-    x: 10,
-    y: 41.09,
-    width: 80,
-    fontSize: 5.23,
+    x: 6,
+    y: 41.5,
+    width: 88,
+    fontSize: 4.0,
     fontFamily: FONT_CURSIVE,
     fontWeight: 400,
     color: COLOR_KEK_BLUE,
@@ -380,13 +386,16 @@ const KERESZTELESI_KEK_FIELDS: EmleklapField[] = [
     letterSpacing: 0,
     multiline: true,
   },
-  // 4.6 „testvérünket" — Cormorant 29px SemiBold, ls=3px (=0.103em), center (527,732)
+  // 4.6 „testvérünket" — Cormorant 29px SemiBold.
+  // 2026-05-30: y 48.09 → 50.5% (kompromisszum: 1-soros névnél kicsivel
+  // távolabb, 2-soros wrap-pelt névnél is van levegő — fullName 2 sor bottom
+  // ≈49.9%, így legalább 0.6% kiscsi puffer).
   {
     id: 'relativeLabel',
     label: '„testvérünket" sor',
     defaultValue: 'testvérünket',
     x: 40,
-    y: 48.09,
+    y: 50.5,
     width: 20,
     fontSize: 1.94,
     fontFamily: FONT_SERIF,
