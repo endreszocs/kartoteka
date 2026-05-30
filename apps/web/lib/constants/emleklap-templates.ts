@@ -377,7 +377,7 @@ const KERESZTELESI_KEK_FIELDS: EmleklapField[] = [
     x: 6,
     y: 41.5,
     width: 88,
-    fontSize: 4.0,
+    fontSize: 3.66, // 2026-05-30: -5 px (≈55 px @ 1492-es vászon)
     fontFamily: FONT_CURSIVE,
     fontWeight: 400,
     color: COLOR_KEK_BLUE,
