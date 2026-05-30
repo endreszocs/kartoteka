@@ -69,6 +69,26 @@ function normalizeData(data: Record<string, string | undefined>): Record<string,
   return out
 }
 
+/**
+ * 2026-05-30: a gondnok neve a baptism-dialog-ban localStorage-be mentődik
+ * (`kartoteka.emleklap.gondnokName`), hogy a következő rögzítéskor automatikus
+ * legyen. A stúdiónak is innen kell betöltenie, ha a caller nem adott át
+ * `wardenName`-et — különben a sor-szintű „Emléklap" gombból nyitott stúdió
+ * üres gondnok-mezővel jelenik meg, és a felhasználó azt hiszi, „nem jegyezte
+ * meg" a rendszer.
+ */
+function enrichFromLocalStorage(data: Record<string, string>): Record<string, string> {
+  if (typeof window === 'undefined') return data
+  const out = { ...data }
+  try {
+    if (!out.wardenName) {
+      const saved = localStorage.getItem('kartoteka.emleklap.gondnokName')
+      if (saved) out.wardenName = saved
+    }
+  } catch { /* SSR / private mode — silent */ }
+  return out
+}
+
 /** Adott sablonra az alap szövegértékek (placeholder → adat behelyettesítés). */
 function buildInitialFieldValues(
   template: EmleklapTemplate,
@@ -105,21 +125,21 @@ export function CertificateGenerator({
 
   // Sablon-váltáskor az új sablon mezőinek alapértékeit építjük (placeholder feloldva)
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
-    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
-    return buildInitialFieldValues(activeTemplate, merged)
+    const base = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    return buildInitialFieldValues(activeTemplate, enrichFromLocalStorage(base))
   })
 
   // Sablon-váltáskor reset
   useEffect(() => {
-    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
-    setFieldValues(buildInitialFieldValues(activeTemplate, merged))
+    const base = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    setFieldValues(buildInitialFieldValues(activeTemplate, enrichFromLocalStorage(base)))
     setFieldOverrides({})
     setActiveFieldId(null)
   }, [activeTemplate.id, selectedType, initialData])
 
   function resetToSample() {
-    const merged = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
-    setFieldValues(buildInitialFieldValues(activeTemplate, merged))
+    const base = { ...EMLEKLAP_SAMPLE_DATA[selectedType], ...(initialData ? normalizeData(initialData) : {}) }
+    setFieldValues(buildInitialFieldValues(activeTemplate, enrichFromLocalStorage(base)))
   }
 
   const printRef = useRef<HTMLDivElement>(null)
@@ -127,6 +147,12 @@ export function CertificateGenerator({
   // ─── Mezőszöveg-szerkesztés ─────────────────────────────────────────────
   function handleFieldEdit(fieldId: string, newText: string) {
     setFieldValues((prev) => ({ ...prev, [fieldId]: newText }))
+    // 2026-05-30: a gondnok nevét localStorage-ben is tároljuk, hogy a
+    // következő stúdió-megnyitáskor / kereszteléskor sticky legyen
+    // (a baptism-dialog ugyanezt a kulcsot használja).
+    if (fieldId === 'wardenName' && newText.trim()) {
+      try { localStorage.setItem('kartoteka.emleklap.gondnokName', newText.trim()) } catch {}
+    }
   }
 
   // ─── Overlay-kezelők ─────────────────────────────────────────────────────
