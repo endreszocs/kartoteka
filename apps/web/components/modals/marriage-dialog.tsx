@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { saveMarriage, getNextEgyhaziSzam } from '@/app/(dashboard)/anyakonyv/actions'
+import { saveMarriage, getNextEgyhaziSzam, getMemberBirthPlace } from '@/app/(dashboard)/anyakonyv/actions'
 import { MemberSearchSelect, type MemberSearchResult } from '@/components/registry/member-search-select'
 import { CertificateRenderer } from '@/components/registry/emleklap/certificate-renderer'
 import {
@@ -22,6 +22,11 @@ import { toast } from 'sonner'
 
 // Jól látható input-stílus (felhasználói kérés alapján)
 const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
+
+// 2026-05-30: alapértelmezett igevers a házasságkötési emléklapon.
+// A felhasználó tetszőlegesen átírhatja; \n-nel törhet 2 sorra.
+const DEFAULT_VERSE_TEXT = 'Egymás terhét hordozzátok, és úgy töltsétek\nbe a Krisztus törvényét'
+const DEFAULT_VERSE_REFERENCE = 'Gal 6,2'
 
 interface MarriageDialogProps {
   open: boolean
@@ -75,8 +80,15 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   // oszlop nekik — sablon JSON-ben tárolódnak a megjegyzes-ben).
   const [husbandBirthPlace, setHusbandBirthPlace] = useState('')
   const [wifeBirthPlace, setWifeBirthPlace] = useState('')
-  const [verseText, setVerseText] = useState('')
-  const [verseReference, setVerseReference] = useState('')
+  const [verseText, setVerseText] = useState(DEFAULT_VERSE_TEXT)
+  const [verseReference, setVerseReference] = useState(DEFAULT_VERSE_REFERENCE)
+  // 2026-05-30: a tag-rekord szerinti születési helység (szemely.sz_helyid →
+  // adrlocality.name). Csak hint-ként mutatjuk, hogy a user tudja melyiket
+  // kell ragozni. null = még nem lekérdezve / nincs rögzítve.
+  const [groomBirthPlaceRaw, setGroomBirthPlaceRaw] = useState<string | null>(null)
+  const [brideBirthPlaceRaw, setBrideBirthPlaceRaw] = useState<string | null>(null)
+  const [groomBirthPlaceLoaded, setGroomBirthPlaceLoaded] = useState(false)
+  const [brideBirthPlaceLoaded, setBrideBirthPlaceLoaded] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -120,7 +132,9 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         setLelkesz((editEntry.lelkeszneve as string) || '')
         setTanuk((editEntry.tanuk as string) || '')
         setVegyes(!!editEntry.vegyes)
-        // 2026-05-30: a sablon JSON parse a megjegyzes-ből (baptism mintára)
+        // 2026-05-30: a sablon JSON parse a megjegyzes-ből (baptism mintára).
+        // Ha az igevers/igehely üres, az alapértelmezett szöveget töltjük be —
+        // a régi (sablon JSON előtti) bejegyzéseknél is azonnal kitölthető.
         const rawMegj = (editEntry.megjegyzes as string) || ''
         const idx = rawMegj.indexOf('|sablon:')
         if (idx > -1) {
@@ -129,16 +143,16 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
             const s = JSON.parse(rawMegj.slice(idx + 8))
             setHusbandBirthPlace(s.husband_birth_place || '')
             setWifeBirthPlace(s.wife_birth_place || '')
-            setVerseText(s.verse_text || '')
-            setVerseReference(s.verse_reference || '')
+            setVerseText(s.verse_text || DEFAULT_VERSE_TEXT)
+            setVerseReference(s.verse_reference || DEFAULT_VERSE_REFERENCE)
           } catch {
             setHusbandBirthPlace(''); setWifeBirthPlace('')
-            setVerseText(''); setVerseReference('')
+            setVerseText(DEFAULT_VERSE_TEXT); setVerseReference(DEFAULT_VERSE_REFERENCE)
           }
         } else {
           setMegj(rawMegj)
           setHusbandBirthPlace(''); setWifeBirthPlace('')
-          setVerseText(''); setVerseReference('')
+          setVerseText(DEFAULT_VERSE_TEXT); setVerseReference(DEFAULT_VERSE_REFERENCE)
         }
         return
       }
@@ -146,7 +160,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       setDatum(new Date().toISOString().slice(0, 10))
       setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMegj('')
       setHusbandBirthPlace(''); setWifeBirthPlace('')
-      setVerseText(''); setVerseReference('')
+      setVerseText(DEFAULT_VERSE_TEXT); setVerseReference(DEFAULT_VERSE_REFERENCE)
       try {
         const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
         if (savedGondnok) setGondnok(savedGondnok)
@@ -157,6 +171,29 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     })
     return () => { cancelled = true }
   }, [open, editEntry])
+
+  // 2026-05-30: amikor a vőlegény / menyasszony változik, lekérdezzük a
+  // tag-rekord szerinti születési helységet — hintként mutatjuk a UI-n,
+  // hogy a user tudja melyiket kell ragozni („Kovászna" → „Kovásznán").
+  useEffect(() => {
+    if (!groom) { setGroomBirthPlaceRaw(null); setGroomBirthPlaceLoaded(false); return }
+    let cancelled = false
+    setGroomBirthPlaceLoaded(false)
+    getMemberBirthPlace(groom.id).then(place => {
+      if (!cancelled) { setGroomBirthPlaceRaw(place); setGroomBirthPlaceLoaded(true) }
+    })
+    return () => { cancelled = true }
+  }, [groom])
+
+  useEffect(() => {
+    if (!bride) { setBrideBirthPlaceRaw(null); setBrideBirthPlaceLoaded(false); return }
+    let cancelled = false
+    setBrideBirthPlaceLoaded(false)
+    getMemberBirthPlace(bride.id).then(place => {
+      if (!cancelled) { setBrideBirthPlaceRaw(place); setBrideBirthPlaceLoaded(true) }
+    })
+    return () => { cancelled = true }
+  }, [bride])
 
   // 2026-05-29: élő esketési emléklap-preview
   const template: EmleklapTemplate = EMLEKLAP_TEMPLATES_MAP['esketes-erek']
@@ -354,6 +391,17 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                     placeholder="pl. Kovásznán"
                     className={`h-8 text-xs ${FIELD_INPUT_CLASS}`}
                   />
+                  {groom && groomBirthPlaceLoaded && (
+                    groomBirthPlaceRaw ? (
+                      <p className="text-[10px] text-emerald-700 leading-relaxed">
+                        💡 Tag-rekord szerint: <strong>{groomBirthPlaceRaw}</strong> — ragozd be (pl. „{groomBirthPlaceRaw}n" / „{groomBirthPlaceRaw}on" / „{groomBirthPlaceRaw}en")
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-amber-700 leading-relaxed">
+                        ⚠️ Nincs rögzítve születési hely a tag-nyilvántartásban
+                      </p>
+                    )
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Menyasszony szül. helye (ragozva)</Label>
@@ -363,6 +411,17 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                     placeholder="pl. Kovásznán"
                     className={`h-8 text-xs ${FIELD_INPUT_CLASS}`}
                   />
+                  {bride && brideBirthPlaceLoaded && (
+                    brideBirthPlaceRaw ? (
+                      <p className="text-[10px] text-emerald-700 leading-relaxed">
+                        💡 Tag-rekord szerint: <strong>{brideBirthPlaceRaw}</strong> — ragozd be (pl. „{brideBirthPlaceRaw}n" / „{brideBirthPlaceRaw}on" / „{brideBirthPlaceRaw}en")
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-amber-700 leading-relaxed">
+                        ⚠️ Nincs rögzítve születési hely a tag-nyilvántartásban
+                      </p>
+                    )
+                  )}
                 </div>
               </div>
               <div className="space-y-1.5">

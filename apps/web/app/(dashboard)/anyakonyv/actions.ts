@@ -379,6 +379,35 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
 // ── Személy keresés ──────────────────────────────────────────
 
 /**
+ * 2026-05-30: A tag rekordjához tartozó születési helység (szemely.sz_helyid →
+ * adrlocality.name). Az esketési dialog ezt használja, hogy a felhasználónak
+ * megsúgja: melyik helységet kell ragozni az „aki … született" mezőbe.
+ * Visszatérés: a helység neve (string) vagy null, ha nincs rögzítve / nincs
+ * jogosultság.
+ */
+export async function getMemberBirthPlace(memberId: number): Promise<string | null> {
+  const { supabase, congId } = await getCongregation()
+  if (!congId) return null
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('sz_hely:adrlocality!sz_helyid(name)')
+    .eq('id', memberId)
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (error) {
+    console.warn('[getMemberBirthPlace] lekérdezés hiba:', error.message)
+    return null
+  }
+  // A Supabase nested join egy objektum-ot vagy null-t ad vissza — vagy bizonyos
+  // esetekben tömböt, attól függően, hogy 1:1 vagy 1:N FK-t azonosított. Mindkét
+  // formátum kezelve:
+  const szHely = data?.sz_hely as { name?: string | null } | { name?: string | null }[] | null | undefined
+  if (!szHely) return null
+  if (Array.isArray(szHely)) return szHely[0]?.name || null
+  return szHely.name || null
+}
+
+/**
  * 2026-05-30: Ellenőrzi, hogy két személy között létezik-e egyházi
  * házassági bejegyzés (a `hazassag` táblában). A keresztelői emléklapon
  * az anya nevét így formázzuk: ha igen, akkor „Kádár Zoltánné Tódor Enikő",
