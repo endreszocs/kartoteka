@@ -145,7 +145,7 @@ const KERESZTELESI_FIELDS: EmleklapField[] = [
     label: 'Megkeresztelt teljes neve',
     defaultValue: '{{fullName}}',
     x: 20,
-    y: 44.0,
+    y: 44.49, // 2026-05-30: +10 px lejjebb (44.0 → 44.49, vászon 2047 px)
     width: 60,
     fontSize: 3.0,
     fontFamily: FONT_CURSIVE,
