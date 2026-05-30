@@ -766,7 +766,7 @@ const ESKETESI_HAGYOMANYOS_FIELDS: EmleklapField[] = [
     label: 'Gyülekezet neve',
     defaultValue: '{{congregationName}}',
     x: 10,
-    y: 17.0,
+    y: 17.34, // 2026-05-30: +5 px tovább (17.0 → 17.34)
     width: 80,
     fontSize: 1.543,
     fontFamily: FONT_CINZEL,
