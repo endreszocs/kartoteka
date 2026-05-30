@@ -143,10 +143,16 @@ export function extractCityFromCongregationName(congregationName: string | null 
  * Keresztelés → emléklap placeholder-adatok.
  */
 function mapKeresztseg(entry: RegistryEntry, opts: { congregationName: string }): Record<string, string> {
+  // 2026-05-30: a szülő-nevek a szemely.apjaneve / anyjaneve text-mezőkből
+  // ("Kádár Zoltán", "Kádár Zoltánné Tódor Enikő"). A baptism-dialog mentéskor
+  // tölti ki őket. Ha bármelyik hiányzik, csak a meglévőt írjuk ki.
+  const apa = (entry.szemely?.apjaneve || '').trim()
+  const anya = (entry.szemely?.anyjaneve || '').trim()
+  const parentsNames = [apa, anya].filter(Boolean).join(' és ')
   return {
     congregationName: opts.congregationName,
     fullName: fullName(entry.szemely),
-    parentsNames: '', // a registry nem tárolja közvetlenül — a user kitölti
+    parentsNames,
     birthPlace: '', // nincs a registry-ben — kitöltendő
     birthDate: formatHungarianDate(entry.szemely?.sz_datum) + (entry.szemely?.sz_datum ? '-én' : ''),
     // 2026-05-29 v8: már nem fűzünk hozzá "ben"-t — a sablon szöveg most már

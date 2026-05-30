@@ -329,7 +329,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
                     showBackground={true}
                   />
                 </div>
-                <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · EREK konfirmációi sablon</p>
+                <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · Erdélyi új konfirmációi sablon</p>
               </aside>
             </div>
 
@@ -437,7 +437,7 @@ export function ConfirmationDialog({ open, onOpenChange, congregationName = '', 
                     showBackground={true}
                   />
                 </div>
-                <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · EREK konfirmációi sablon</p>
+                <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · Erdélyi új konfirmációi sablon</p>
               </aside>
             </div>
 

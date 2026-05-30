@@ -302,25 +302,25 @@ export function CertificateGenerator({
             onClick={() => setSelectedVariant('erek')}
             className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
           >
-            EREK
+            Erdélyi új
           </button>
           <button
             type="button"
             onClick={() => setSelectedVariant('kerek')}
             className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
           >
-            KEREK
+            Királyhágós új
           </button>
-          {/* 2026-05-30: KÉK variant — csak keresztelőhöz, mert a kék-fehér
+          {/* 2026-05-30: Hagyományos kék — csak keresztelőhöz, mert a kék-fehér
               népi díszítésű sablon csak keresztelési ágon van. */}
           {selectedType === 'kereszteles' && (
             <button
               type="button"
               onClick={() => setSelectedVariant('kek')}
               className={`px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
-              title="Kék-fehér népi díszítésű sablon"
+              title="Kék-fehér népi díszítésű hagyományos sablon"
             >
-              KÉK
+              Hagyományos kék
             </button>
           )}
         </div>

@@ -323,7 +323,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                 showBackground={true}
               />
             </div>
-            <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · EREK esketési sablon</p>
+            <p className="mt-1.5 text-[10px] text-slate-400 text-center">A4 álló · Erdélyi új esketési sablon</p>
           </aside>
         </div>
 

@@ -512,16 +512,16 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                     : 'Az anyakönyvi adatok alapján generált emléklap. A „Nyomtatás" gombbal A4-en kinyomtathatod.'}
                 </p>
               </div>
-              {/* 2026-05-30: variant-választó keresztelési ágon (EREK/KEREK/KÉK) */}
+              {/* 2026-05-30: variant-választó keresztelési ágon (Erdélyi új / Királyhágós új / Hagyományos kék) */}
               {tab === 'keresztseg' && (
                 <div className="flex gap-1 mb-2 rounded-md bg-slate-100 p-1">
                   <button type="button" onClick={() => changeKerVariant('erek')}
-                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>EREK</button>
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${kerVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Erdélyi új</button>
                   <button type="button" onClick={() => changeKerVariant('kerek')}
-                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>KEREK</button>
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${kerVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Királyhágós új</button>
                   <button type="button" onClick={() => changeKerVariant('kek')}
-                    className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${kerVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
-                    title="Kék-fehér népi díszítésű sablon">KÉK</button>
+                    className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${kerVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
+                    title="Kék-fehér népi díszítésű hagyományos sablon">Hagyományos kék</button>
                 </div>
               )}
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
@@ -537,8 +537,8 @@ export function RegistryDetailDialog({ open, onOpenChange, entry, tab, congregat
                 {tab === 'temetes'
                   ? 'A4 álló · Gyászjelentés sablon'
                   : tab === 'keresztseg'
-                    ? `A4 álló · ${kerVariant === 'kek' ? 'KÉK (kék-fehér népi)' : kerVariant === 'kerek' ? 'KEREK' : 'EREK'} keresztelői sablon`
-                    : `A4 álló · EREK ${tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
+                    ? `A4 álló · ${kerVariant === 'kek' ? 'Hagyományos kék' : kerVariant === 'kerek' ? 'Királyhágós új' : 'Erdélyi új'} keresztelői sablon`
+                    : `A4 álló · Erdélyi új ${tab === 'konfirmalas' ? 'konfirmációi' : 'esketési'} sablon`}
               </p>
             </aside>
           )}

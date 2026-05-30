@@ -660,24 +660,24 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                   A „<strong>Mentés és nyomtatás</strong>" gombbal egy lépésben rögzítheted és kinyomtathatod.
                 </p>
               </div>
-              {/* 2026-05-30: variant-választó chip (EREK / KEREK / KÉK) */}
+              {/* 2026-05-30: variant-választó chip (Erdélyi új / Királyhágós új / Hagyományos kék) */}
               <div className="flex justify-center gap-1 mb-2 rounded-md bg-slate-100 p-1">
                 <button
                   type="button"
                   onClick={() => changeVariant('erek')}
-                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                >EREK</button>
+                  className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'erek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >Erdélyi új</button>
                 <button
                   type="button"
                   onClick={() => changeVariant('kerek')}
-                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                >KEREK</button>
+                  className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'kerek' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                >Királyhágós új</button>
                 <button
                   type="button"
                   onClick={() => changeVariant('kek')}
-                  className={`flex-1 px-2.5 py-1 text-xs font-medium rounded ${selectedVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
-                  title="Kék-fehér népi díszítésű sablon"
-                >KÉK</button>
+                  className={`flex-1 px-2.5 py-0.5 text-[11px] font-medium rounded ${selectedVariant === 'kek' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500'}`}
+                  title="Kék-fehér népi díszítésű hagyományos sablon"
+                >Hagyományos kék</button>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-inner">
                 <CertificateRenderer
@@ -689,7 +689,7 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
                 />
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400 text-center">
-                A4 álló · {selectedVariant === 'kek' ? 'KÉK (kék-fehér népi)' : selectedVariant === 'kerek' ? 'KEREK' : 'EREK'} keresztelői sablon
+                A4 álló · {selectedVariant === 'kek' ? 'Hagyományos kék' : selectedVariant === 'kerek' ? 'Királyhágós új' : 'Erdélyi új'} keresztelői sablon
               </p>
             </aside>
           </div>
