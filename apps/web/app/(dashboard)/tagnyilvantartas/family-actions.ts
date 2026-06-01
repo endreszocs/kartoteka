@@ -136,10 +136,16 @@ export async function getFamilyDetails(id: number) {
   const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
   if (!allowedFamilyIds.has(id)) return null
 
-  // 1. Alap adatok
-  const [familyRes, childrenRes, districtState] = await Promise.all([
+  // 2026-06-01 (hibrid család-modell Fázis 2): a `family` alapadat továbbra
+  // is a régi `csalad`-ról jön (visszafelé kompatibilitás — a UI a family.id_ferfi
+  // / family.id_no / family.c_utcaid mezőket használja a saveFamily-hez és
+  // hasonlókhoz). A gyerekeket viszont az ÚJ modellből (haztartas_tag) szedjük,
+  // mert a `haztartas_tag.ervenyes_ig` szűréssel automatikusan kihagyjuk a
+  // költözött / elhalálozott / lezárt tagokat.
+  const [familyRes, haztartasRes, districtState] = await Promise.all([
     supabase.from('csalad').select('*, ferfi:szemely!id_ferfi(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot), no:szemely!id_no(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot), utca:adrstreet!c_utcaid(name), csoport:csoport!id_csoport(nev)').eq('id', id).single(),
-    supabase.from('gyerek').select('id_szemely, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot)').eq('id_csalad', id),
+    // A `legacy_csalad_id = id` alapján megtaláljuk az új háztartást.
+    supabase.from('haztartas').select('id').eq('legacy_csalad_id', id).is('ervenyes_ig', null).limit(1).maybeSingle(),
     getVisibleDistrictState(supabase, congregationId),
   ])
 
@@ -149,9 +155,31 @@ export async function getFamilyDetails(id: number) {
         districtState.visibleIds,
       )
     : null
-  const children = (childrenRes.data || []).map((c: { szemely: unknown }) => c.szemely).filter(Boolean) as {
-    id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; meghalt: boolean; vallas: string | null; foglalkozas?: string | null; namepattern?: string | null; allapot?: string | null
-  }[]
+
+  // A háztartás-tagok közül a gyerekeket szedjük ki — aktív (ervenyes_ig IS NULL)
+  // + szerep IN ('gyermek', 'unoka'). Ez automatikusan kihagyja a már nem-tagokat.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const haztartasId = (haztartasRes.data as any)?.id as string | undefined
+  let children: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; meghalt: boolean; vallas: string | null; foglalkozas?: string | null; namepattern?: string | null; allapot?: string | null }[] = []
+  if (haztartasId) {
+    const { data: tagok } = await supabase
+      .from('haztartas_tag')
+      .select('szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot)')
+      .eq('id_haztartas', haztartasId)
+      .is('ervenyes_ig', null)
+      .in('szerep', ['gyermek', 'unoka'])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    children = (tagok || []).map((t: any) => Array.isArray(t.szemely) ? t.szemely[0] : t.szemely).filter(Boolean)
+  } else {
+    // Fallback: ha a háztartás nincs az új modellben (még nem backfill-elt vagy
+    // valami baj van), a régi `gyerek` táblát olvassuk.
+    const { data: gyerekek } = await supabase
+      .from('gyerek')
+      .select('id_szemely, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot)')
+      .eq('id_csalad', id)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    children = (gyerekek || []).map((c: any) => c.szemely).filter(Boolean)
+  }
 
   // 2. Tagok ID-k összegyűjtése az anyakönyvi lekérdezésekhez
   const memberIds = [family?.id_ferfi, family?.id_no, ...children.map(c => c.id)].filter(Boolean) as number[]
