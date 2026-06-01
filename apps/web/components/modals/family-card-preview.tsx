@@ -2,42 +2,53 @@
 
 import {
   AlertCircle,
+  Crown,
+  Heart,
   Home,
   MapPin,
   Sparkles,
   User,
-  UserCircle2,
   Users,
 } from 'lucide-react'
 
 /**
- * 2026-06-02 — Egységes „családi karton" megjelenítés.
+ * 2026-06-02 v2 — Családi karton: design-os, átlátható, papír-szerű.
  *
- * Egy elegáns, papír-szerű kártya, ami a család aktuális állapotát mutatja:
- * családfő + házastárs + gyerekek + cím + körzet, és **inline jelzi a hiányzó
- * adatokat**, hogy a felhasználó tudja mit kell még pótolni.
+ * Layout:
+ *   ┌──────────────────────────────────────────┐
+ *   │ Kovács család           ✨    [Fizetett] │  ← név + státusz pill
+ *   │ ────────────────────────────────────     │
+ *   │  Templom utca 3                          │  ← cím (pecsét-szerűen)
+ *   │                                          │
+ *   │  ♂ Családfő   Kovács Pista (55)          │  ← felnőttek 2 sorban
+ *   │  ♀ Házastárs  Tóth Mária (53)            │
+ *   │                                          │
+ *   │  3 gyermek                               │  ← gyermek-összesítő
+ *   │  • Kovács Anna (25)                      │
+ *   │  • Kovács Béla (22)                      │
+ *   │                                          │
+ *   │  📍 Körzet: 3. Templomszer               │
+ *   │                                          │
+ *   │  ⚠ Hiányzik: utca, házszám               │  ← inline figyelmeztetés
+ *   └──────────────────────────────────────────┘
  *
- * Két fő használat:
- *   1. `FamilyFormDialog` jobb oszlopában — élő előnézet, ahogy a felhasználó
- *      gépeli/válogatja az adatokat. Frissül minden state-változásra.
- *   2. `FamiliesTab` „Kártyák" nézetében — a meglévő családok rácsban.
- *
- * A karton stílusa a kereszteleői emléklap mintájára épül: lekerekített
- * sarkok, finom shadow, halvány gradient háttér, dekoratív tipográfia
- * (Cormorant Garamond serif).
+ * Színek:
+ *   - Fizetett (paid):     emerald — minden járulék rendben
+ *   - Részben (partial):   amber  — fizetett valamit, de nem mindent
+ *   - Nem fizetett:        rose   — soha vagy idén nem
+ *   - Ismeretlen:          slate  — adat-státusz nincs feldolgozva
  */
 
 interface FamilyMember {
   id: number
   name: string
-  /** Opcionális kor — a kártyán "(X éves)" megjelenítéshez. */
   age?: number | null
-  /** Elhunyt jelölés — szürkül és „†" symbol. */
   meghalt?: boolean
 }
 
+export type PaymentStatus = 'paid' | 'partial' | 'inactive' | 'unknown'
+
 export interface FamilyCardData {
-  /** A család „családneve" — a családfő vagy házastárs családnevéből számolva. */
   familyName: string | null
   husband: FamilyMember | null
   wife: FamilyMember | null
@@ -45,146 +56,202 @@ export interface FamilyCardData {
   street: string | null
   houseNumber: string | null
   districtName: string | null
-  /** Ha true, a kártya „szerkesztés folyamatban" jelzéssel (kis amber sav). */
+  /** Élő előnézet jelzés (a form-dialog jobb oldali panelén). */
   isPreview?: boolean
-  /** Ha false, a karton szürke (inaktív/törölt). */
+  /** Aktív háztartás? false = lezárt/archív. */
   isActive?: boolean
+  /** Egyházfenntartó járulék-státusz (új, a régi „aktív/inaktív" helyett). */
+  paymentStatus?: PaymentStatus
 }
 
 interface FamilyCardPreviewProps {
   data: FamilyCardData
-  /** Kompakt mód: kisebb fontok, kevesebb padding (kártya-rácshoz). */
   compact?: boolean
-  /** Kattintható? */
   onClick?: () => void
+}
+
+const PAYMENT_TONE: Record<PaymentStatus, {
+  label: string
+  pill: string
+  accent: string
+  description: string
+}> = {
+  paid: {
+    label: 'Fizetett',
+    pill: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    accent: 'from-emerald-50/60 via-white to-white',
+    description: 'Idei egyházfenntartói járulék rendezve',
+  },
+  partial: {
+    label: 'Részben fizetett',
+    pill: 'bg-amber-100 text-amber-800 border-amber-200',
+    accent: 'from-amber-50/60 via-white to-white',
+    description: 'Részben fizette az idei egyházfenntartói járulékot',
+  },
+  inactive: {
+    label: 'Nem fizetett',
+    pill: 'bg-rose-100 text-rose-800 border-rose-200',
+    accent: 'from-rose-50/40 via-white to-white',
+    description: 'Idén még nem fizetett egyházfenntartói járulékot',
+  },
+  unknown: {
+    label: 'Ismeretlen',
+    pill: 'bg-slate-100 text-slate-600 border-slate-200',
+    accent: 'from-slate-50 via-white to-white',
+    description: 'A járulék-státusz még nincs lekérdezve',
+  },
 }
 
 export function FamilyCardPreview({ data, compact, onClick }: FamilyCardPreviewProps) {
   const isActive = data.isActive !== false
   const missing = collectMissingFields(data)
   const hasMissing = missing.length > 0
+  const tone = PAYMENT_TONE[data.paymentStatus ?? 'unknown']
 
-  const cardClasses = [
-    'relative rounded-2xl border bg-gradient-to-br shadow-sm transition-shadow',
-    isActive
-      ? 'border-amber-200 from-amber-50/40 via-white to-emerald-50/40'
-      : 'border-slate-200 from-slate-50 via-white to-slate-50 opacity-70',
-    onClick ? 'cursor-pointer hover:shadow-md' : '',
-    compact ? 'p-3' : 'p-5',
+  const padding = compact ? 'p-4' : 'p-5'
+  const wrapClasses = [
+    'group relative rounded-2xl border bg-gradient-to-br shadow-sm transition-all',
+    isActive ? `border-slate-200 ${tone.accent}` : 'border-slate-200 from-slate-100 via-white to-slate-50 opacity-70',
+    onClick ? 'cursor-pointer hover:shadow-lg hover:border-violet-300 hover:-translate-y-0.5' : '',
+    padding,
   ].join(' ')
 
   return (
-    <div className={cardClasses} onClick={onClick} role={onClick ? 'button' : undefined}>
-      {data.isPreview && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-          <Sparkles className="size-2.5" />
-          Élő előnézet
+    <div className={wrapClasses} onClick={onClick} role={onClick ? 'button' : undefined}>
+      {/* Fejléc: család neve + státusz */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <h3
+            className={`font-heading font-semibold leading-tight text-slate-800 ${
+              compact ? 'text-base' : 'text-lg'
+            }`}
+            title={data.familyName ? `${data.familyName} család` : 'névtelen család'}
+          >
+            {data.familyName ? (
+              <>
+                {data.familyName}{' '}
+                <span className="font-normal text-slate-500">család</span>
+              </>
+            ) : (
+              <span className="italic text-slate-400">— névtelen család —</span>
+            )}
+          </h3>
         </div>
-      )}
 
-      {/* Felső sáv: család neve + cím */}
-      <div className={compact ? 'mb-2' : 'mb-3'}>
-        <h3 className={`font-heading font-semibold text-slate-800 ${compact ? 'text-base' : 'text-xl'}`}>
-          {data.familyName ?? <span className="text-slate-400">— család neve hiányzik —</span>}
-          {data.familyName && ' család'}
-        </h3>
-        {(data.street || data.houseNumber) ? (
-          <div className={`flex items-center gap-1 text-slate-500 ${compact ? 'text-xs' : 'text-sm'} mt-0.5`}>
-            <MapPin className={compact ? 'size-3' : 'size-3.5'} />
-            <span>
-              {data.street || <em className="text-amber-700">— utca hiányzik —</em>}
-              {data.houseNumber ? ` ${data.houseNumber}` : ''}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {data.isPreview && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+              <Sparkles className="size-2.5" />
+              élő
             </span>
-          </div>
+          )}
+          {data.paymentStatus && (
+            <span
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${tone.pill}`}
+              title={tone.description}
+            >
+              {tone.label}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Cím (pecsét-szerűen) */}
+      <div
+        className={`inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-xs shadow-sm border ${
+          data.street || data.houseNumber ? 'border-violet-100 text-slate-600' : 'border-amber-200 text-amber-700'
+        }`}
+      >
+        <MapPin className="size-3 shrink-0" />
+        {data.street || data.houseNumber ? (
+          <span>
+            {data.street ?? <em>utca?</em>}
+            {data.houseNumber ? ` ${data.houseNumber}` : ''}
+          </span>
         ) : (
-          <div className={`flex items-center gap-1 text-amber-700 ${compact ? 'text-xs' : 'text-sm'} mt-0.5`}>
-            <MapPin className={compact ? 'size-3' : 'size-3.5'} />
-            <em>cím hiányzik</em>
-          </div>
+          <em>Cím hiányzik</em>
         )}
       </div>
 
-      {/* Felnőttek: családfő + házastárs */}
-      <div className={`space-y-${compact ? '1' : '1.5'}`}>
-        {data.husband ? (
-          <MemberRow icon={<UserCircle2 className="size-3.5 text-blue-600" />}
-            roleColor="text-blue-700"
-            roleName="Családfő"
-            member={data.husband}
+      {/* Tagok blokk */}
+      <div className="mt-3 space-y-1">
+        {/* Családfő */}
+        {data.husband || data.wife ? (
+          <MemberLine
+            role="csaladfo"
+            label="Családfő"
+            member={data.husband ?? data.wife!}
             compact={compact}
           />
         ) : (
-          <MissingRow color="blue" roleName="Családfő" compact={compact} />
+          <MissingLine label="Családfő" tone="missing" compact={compact} />
         )}
-        {data.wife ? (
-          <MemberRow icon={<UserCircle2 className="size-3.5 text-pink-600" />}
-            roleColor="text-pink-700"
-            roleName="Házastárs"
+        {/* Házastárs — csak ha mindkettő megvan, vagy ha mindkettő hiányzik (akkor opcionálisan jelezzük) */}
+        {data.husband && data.wife ? (
+          <MemberLine
+            role="hazastars"
+            label="Házastárs"
             member={data.wife}
             compact={compact}
           />
         ) : (
-          <MissingRow color="pink" roleName="Házastárs" optional compact={compact} />
+          (data.husband || data.wife) && (
+            <MissingLine label="Házastárs" tone="optional" compact={compact} />
+          )
         )}
       </div>
 
-      {/* Gyermekek lista */}
+      {/* Gyermekek */}
       {data.children.length > 0 ? (
-        <div className={`${compact ? 'mt-2' : 'mt-3'} border-t border-slate-100 pt-${compact ? '2' : '3'}`}>
-          <div className={`flex items-center gap-1 ${compact ? 'text-xs' : 'text-sm'} font-medium text-slate-600 mb-1`}>
-            <Users className={compact ? 'size-3' : 'size-3.5'} />
-            Gyermekek ({data.children.length})
+        <div className="mt-3 border-t border-slate-100 pt-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 mb-1">
+            <Users className="size-3 text-slate-500" />
+            {data.children.length} gyermek
           </div>
           <ul className="space-y-0.5">
-            {data.children.map((c) => (
+            {data.children.slice(0, compact ? 3 : 5).map((c) => (
               <li
                 key={c.id}
-                className={`flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'} text-slate-700`}
+                className="flex items-center gap-1.5 text-xs text-slate-700"
               >
-                <User className={compact ? 'size-2.5' : 'size-3'} />
+                <User className="size-2.5 text-slate-400" />
                 <span className={c.meghalt ? 'text-slate-400 line-through' : ''}>
                   {c.meghalt && '† '}
                   {c.name}
                   {c.age != null && (
-                    <span className="text-slate-400"> ({c.age} éves)</span>
+                    <span className="text-slate-400"> ({c.age})</span>
                   )}
                 </span>
               </li>
             ))}
+            {data.children.length > (compact ? 3 : 5) && (
+              <li className="text-[11px] text-slate-400 italic pl-4">
+                + még {data.children.length - (compact ? 3 : 5)} gyermek…
+              </li>
+            )}
           </ul>
         </div>
-      ) : (
-        <div className={`${compact ? 'mt-2' : 'mt-3'} ${compact ? 'text-xs' : 'text-sm'} text-slate-400 italic`}>
-          Nincs gyermek rögzítve.
-        </div>
-      )}
+      ) : null}
 
-      {/* Körzet badge */}
-      <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
-        <Home className={compact ? 'size-3' : 'size-3.5'} />
+      {/* Körzet */}
+      <div className="mt-3 flex items-center gap-1.5 text-xs">
+        <Home className="size-3 text-slate-400" />
         {data.districtName ? (
-          <span className={`inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 ${compact ? 'text-[10px]' : 'text-xs'} font-medium text-emerald-700`}>
-            Körzet: {data.districtName}
+          <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700 border border-violet-100">
+            {data.districtName}
           </span>
         ) : (
-          <span className={`${compact ? 'text-[10px]' : 'text-xs'} text-slate-400 italic`}>
-            Körzet nincs hozzárendelve
-          </span>
+          <span className="text-slate-400 italic">körzet nincs hozzárendelve</span>
         )}
       </div>
 
-      {/* Hiányzó adatok figyelmeztetés (csak ha vannak) */}
+      {/* Hiányzó adatok — diszkrét */}
       {hasMissing && (
-        <div className={`${compact ? 'mt-2' : 'mt-3'} rounded-lg border border-amber-200 bg-amber-50/70 ${compact ? 'p-2' : 'p-2.5'}`}>
-          <div className={`flex items-start gap-1.5 ${compact ? 'text-[10px]' : 'text-xs'} text-amber-800`}>
-            <AlertCircle className={`${compact ? 'size-3' : 'size-3.5'} shrink-0 mt-0.5`} />
-            <div>
-              <strong className="font-semibold">
-                Hiányzó adatok ({missing.length}):
-              </strong>{' '}
-              {missing.join(', ')}
-            </div>
-          </div>
+        <div className="mt-3 flex items-start gap-1.5 text-[11px] text-amber-700/85">
+          <AlertCircle className="size-3 mt-0.5 shrink-0" />
+          <span>
+            <strong className="font-semibold">Hiányzik:</strong> {missing.join(', ')}
+          </span>
         </div>
       )}
     </div>
@@ -194,54 +261,71 @@ export function FamilyCardPreview({ data, compact, onClick }: FamilyCardPreviewP
 // ─────────────────────────────────────────────────────────────────────────
 // Alkomponensek
 
-function MemberRow({
-  icon,
-  roleColor,
-  roleName,
+function MemberLine({
+  role,
+  label,
   member,
   compact,
 }: {
-  icon: React.ReactNode
-  roleColor: string
-  roleName: string
+  role: 'csaladfo' | 'hazastars'
+  label: string
   member: FamilyMember
   compact?: boolean
 }) {
+  const isHead = role === 'csaladfo'
+  const Icon = isHead ? Crown : Heart
+  const iconColor = isHead ? 'text-amber-600' : 'text-rose-500'
+  const labelColor = isHead ? 'text-amber-800' : 'text-rose-700'
+
   return (
-    <div className={`flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'}`}>
-      {icon}
-      <span className={`${roleColor} font-semibold`}>{roleName}:</span>
-      <span className={member.meghalt ? 'text-slate-400 line-through' : 'text-slate-800'}>
+    <div className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-sm'}`}>
+      <span className={`inline-flex items-center justify-center size-5 rounded-full bg-white border border-slate-200 shadow-sm shrink-0 ${iconColor}`}>
+        <Icon className="size-3" />
+      </span>
+      <span className={`font-medium ${labelColor} w-16 shrink-0`}>{label}</span>
+      <span
+        className={`truncate ${member.meghalt ? 'text-slate-400 line-through' : 'text-slate-800'}`}
+        title={member.name}
+      >
         {member.meghalt && '† '}
         {member.name}
         {member.age != null && (
-          <span className="text-slate-400"> ({member.age} éves)</span>
+          <span className="text-slate-400 font-normal"> ({member.age})</span>
         )}
       </span>
     </div>
   )
 }
 
-function MissingRow({
-  color,
-  roleName,
-  optional,
+function MissingLine({
+  label,
+  tone,
   compact,
 }: {
-  color: 'blue' | 'pink'
-  roleName: string
-  optional?: boolean
+  label: string
+  tone: 'missing' | 'optional'
   compact?: boolean
 }) {
-  const tone =
-    color === 'blue'
-      ? 'text-blue-400'
-      : 'text-pink-400'
+  const isMissing = tone === 'missing'
+  const Icon = label === 'Családfő' ? Crown : Heart
   return (
-    <div className={`flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'} ${optional ? 'text-slate-400' : tone}`}>
-      <UserCircle2 className={compact ? 'size-3' : 'size-3.5'} />
-      <span className="italic">
-        {roleName}: {optional ? '— nincs megadva (opcionális)' : '— hiányzik'}
+    <div
+      className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-sm'} ${
+        isMissing ? 'text-amber-700' : 'text-slate-400'
+      }`}
+    >
+      <span
+        className={`inline-flex items-center justify-center size-5 rounded-full border shrink-0 ${
+          isMissing
+            ? 'bg-amber-50 border-amber-200 text-amber-500'
+            : 'bg-white border-dashed border-slate-300 text-slate-300'
+        }`}
+      >
+        <Icon className="size-3" />
+      </span>
+      <span className="font-medium w-16 shrink-0">{label}</span>
+      <span className="italic text-slate-400">
+        {isMissing ? 'hiányzik' : 'nincs megadva'}
       </span>
     </div>
   )
@@ -259,20 +343,22 @@ function collectMissingFields(data: FamilyCardData): string[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Helper: a régi `FamilyRow` (tagnyilv. lista) átkonvertálása `FamilyCardData`-vá
+// Helper: FamilyRow → FamilyCardData
 import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import type { DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 
 export function familyRowToCardData(
   row: FamilyRow,
-  districtMap?: Map<number, string>,
+  opts?: {
+    districtMap?: Map<number, string>
+    paymentStatus?: PaymentStatus
+  },
 ): FamilyCardData {
   const yearNow = new Date().getFullYear()
   const ageOf = (d: string | null | undefined) =>
     d ? yearNow - new Date(d).getFullYear() : null
 
-  const familyName =
-    row.ferfi?.csaladnev || row.no?.csaladnev || null
+  const familyName = row.ferfi?.csaladnev || row.no?.csaladnev || null
 
   return {
     familyName,
@@ -292,12 +378,15 @@ export function familyRowToCardData(
           meghalt: row.no.meghalt,
         }
       : null,
-    children: [], // a lista-nézetben nem hozzuk be (több query lenne); a részletek dialog mutatja
+    children: [],
     street: row.utca?.name ?? null,
     houseNumber: row.c_szam,
     districtName:
-      row.id_csoport != null && districtMap ? districtMap.get(row.id_csoport) ?? null : null,
+      row.id_csoport != null && opts?.districtMap
+        ? opts.districtMap.get(row.id_csoport) ?? null
+        : null,
     isActive: row.isaktiv,
+    paymentStatus: opts?.paymentStatus,
   }
 }
 

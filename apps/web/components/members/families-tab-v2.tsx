@@ -19,7 +19,10 @@ import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
 
 type SortKey = 'head' | 'spouse' | 'address' | 'district' | 'status'
 type SortDir = 'asc' | 'desc'
-type StatusFilter = 'all' | 'active' | 'inactive'
+// 2026-06-02: a `deceased` szűrő azokat a családokat mutatja, ahol minden
+// rögzített felnőtt fél elhunyt (üres család = nincs senki). Az `inactive`
+// külön kategória a manuálisan lezárt háztartásokra (isaktiv=false).
+type StatusFilter = 'all' | 'active' | 'deceased' | 'inactive'
 
 export function FamiliesTab() {
   const [families, setFamilies] = useState<FamilyRow[]>([])
@@ -40,12 +43,13 @@ export function FamiliesTab() {
   const [districtFilter, setDistrictFilter] = useState<number | 'all' | 'none'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   // 2026-06-02: lista vs. kártya nézet — sticky lokál-tárolva.
+  // Default: kártya (átláthatóbb, vizuálisabb).
   const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
-    if (typeof window === 'undefined') return 'list'
+    if (typeof window === 'undefined') return 'cards'
     try {
       const saved = localStorage.getItem('kartoteka.families.viewMode')
-      return saved === 'cards' ? 'cards' : 'list'
-    } catch { return 'list' }
+      return saved === 'list' ? 'list' : 'cards'
+    } catch { return 'cards' }
   })
   function changeViewMode(v: 'list' | 'cards') {
     setViewMode(v)
@@ -101,8 +105,26 @@ export function FamiliesTab() {
     } else if (districtFilter !== 'all') {
       arr = arr.filter((f) => f.id_csoport === districtFilter)
     }
-    if (statusFilter === 'active') arr = arr.filter((f) => f.isaktiv)
-    else if (statusFilter === 'inactive') arr = arr.filter((f) => !f.isaktiv)
+    // 2026-06-02: szűrés státusz szerint.
+    // - active:   legalább egy rögzített felnőtt él (nem meghalt)
+    // - deceased: minden rögzített felnőtt elhunyt
+    // - inactive: a háztartás kézzel lezárva (isaktiv=false)
+    if (statusFilter === 'active') {
+      arr = arr.filter((f) => {
+        if (!f.isaktiv) return false
+        const adults = [f.ferfi, f.no].filter(Boolean) as NonNullable<FamilyRow['ferfi']>[]
+        if (adults.length === 0) return false
+        return adults.some((a) => !a.meghalt)
+      })
+    } else if (statusFilter === 'deceased') {
+      arr = arr.filter((f) => {
+        const adults = [f.ferfi, f.no].filter(Boolean) as NonNullable<FamilyRow['ferfi']>[]
+        if (adults.length === 0) return false // üres család nem "elhunyt"
+        return adults.every((a) => a.meghalt)
+      })
+    } else if (statusFilter === 'inactive') {
+      arr = arr.filter((f) => !f.isaktiv)
+    }
     return arr
   }, [families, searchQuery, districtFilter, statusFilter])
 
@@ -146,18 +168,24 @@ export function FamiliesTab() {
     return arr
   }, [searchFiltered, sortKey, sortDir, districtNameById])
 
-  const totalFamilies = filtered.length
-  const activeFamilies = filtered.filter((family) => family.isaktiv).length
-  const mixedConfessionFamilies = filtered.filter((family) =>
-    family.ferfi &&
-    family.no &&
-    (family.ferfi.vallas || 'Református').trim().toLowerCase() !== (family.no.vallas || 'Református').trim().toLowerCase()
-  ).length
-  const sameConfessionFamilies = filtered.filter((family) =>
-    family.ferfi &&
-    family.no &&
-    (family.ferfi.vallas || 'Református').trim().toLowerCase() === (family.no.vallas || 'Református').trim().toLowerCase()
-  ).length
+  // 2026-06-02: új statisztika-számolók a teljes `families`-en (nem a filtered-en),
+  // hogy az áttekintés ne ugráljon a szűrőkkel. A „Hiányzó cím" + „Hiányzó körzet"
+  // KPI-k azonnal mutatják mennyit kell pótolni.
+  const totalFamilies = families.length
+  const livingFamilies = families.filter((f) => {
+    if (!f.isaktiv) return false
+    const adults = [f.ferfi, f.no].filter(Boolean) as NonNullable<FamilyRow['ferfi']>[]
+    if (adults.length === 0) return false
+    return adults.some((a) => !a.meghalt)
+  }).length
+  const deceasedFamilies = families.filter((f) => {
+    const adults = [f.ferfi, f.no].filter(Boolean) as NonNullable<FamilyRow['ferfi']>[]
+    return adults.length > 0 && adults.every((a) => a.meghalt)
+  }).length
+  const addressMissing = families.filter((f) => !f.utca?.name || !f.c_szam).length
+  const districtMissing = families.filter((f) => f.id_csoport == null).length
+  // Megjegyzés: a régi „aktív / mixedConfession / singledStatus" stat-okat
+  // kivettük — a fizetési-státusz-alapú új KPI-kre fogunk áttérni Fázis 3-ban.
   const singledStatusCounts = filtered.reduce((acc, family) => {
     const adults = [family.ferfi, family.no].filter(Boolean)
     adults.forEach((adult) => {
@@ -205,43 +233,61 @@ export function FamiliesTab() {
 
   return (
     <div className="space-y-4">
-      {/* Statisztikai kártyák — alapértelmezetten rejtve, a "Kartonok" gomb mutatja meg. */}
+      {/* 2026-06-02 — Új áttekintő-blokk: 4 KPI-kártya egy szép gradient-soron */}
       {showCards && (
-        <>
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <div className="card-raised p-4 sm:p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-600/70">Családi kartonok</p>
-                  <h3 className="mt-1 font-heading text-2xl text-slate-800">Otthonosabb, átláthatóbb családnézet</h3>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                    A családok most már egy gazdagabb áttekintő táblában jelennek meg, ahol gyorsabban látszik az állapot, a háztartás szerkezete és a lakcím is.
-                  </p>
-                </div>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCards(false)}
-                  className="rounded-full text-slate-500 hover:text-slate-700"
-                  title="Elrejtés"
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <MiniStat label="Összes család" value={<>{totalFamilies}<MiniNote>Aktív: {activeFamilies}</MiniNote></>} icon={<Home className="size-4" />} />
-              <MiniStat label="Vegyes és egyező" value={<StatSplit left={`Vegyes: ${mixedConfessionFamilies}`} right={`Egyező: ${sameConfessionFamilies}`} />} icon={<Sparkles className="size-4" />} />
-              <MiniStat label="Özvegy • egyedülálló • elvált" value={<><StatSplit left={`Özvegy: ${singledStatusCounts.widowed}`} right={`Egyedülálló: ${singledStatusCounts.single}`} /><MiniNote>Elvált: {singledStatusCounts.divorced}</MiniNote></>} icon={<Users2 className="size-4" />} />
-            </div>
+        <div className="rounded-[1.4rem] border border-violet-100 bg-gradient-to-br from-violet-50/80 via-white to-emerald-50/60 p-4 sm:p-5 shadow-sm relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowCards(false)}
+            className="absolute top-3 right-3 rounded-full text-slate-400 hover:text-slate-700"
+            title="Elrejtés"
+          >
+            <X className="size-4" />
+          </Button>
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-600/70">
+              Áttekintés
+            </p>
+            <h3 className="mt-1 font-heading text-2xl text-slate-800">
+              Családi adatok pillanatképe
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Az összes regisztrált család a gyülekezetben — élő, elhunyt és hiányzó-adat csoportokra bontva.
+            </p>
           </div>
 
-          <div className="rounded-[1.2rem] border border-emerald-100 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-800 shadow-sm">
-            <strong>Aktív család</strong> jelzés: a családi kapcsolat jelenleg élő, nem felbontott háztartásként szerepel a nyilvántartásban.
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              tone="violet"
+              icon={<Home className="size-4" />}
+              label="Összes család"
+              value={totalFamilies}
+              hint={`${livingFamilies} élő · ${deceasedFamilies} elhunyt`}
+            />
+            <KpiCard
+              tone="emerald"
+              icon={<Sparkles className="size-4" />}
+              label="Élő családok"
+              value={livingFamilies}
+              hint="Legalább egy felnőtt tag él"
+            />
+            <KpiCard
+              tone="amber"
+              icon={<MapPin className="size-4" />}
+              label="Cím hiányzik"
+              value={addressMissing}
+              hint="Pótlandó utca vagy házszám"
+            />
+            <KpiCard
+              tone="rose"
+              icon={<Users2 className="size-4" />}
+              label="Körzet nélkül"
+              value={districtMissing}
+              hint="Még nincs hozzárendelve körzet"
+            />
           </div>
-        </>
+        </div>
       )}
 
       <div className="card-raised p-3 sm:p-4 space-y-3">
@@ -308,18 +354,31 @@ export function FamiliesTab() {
         {/* Szűrők: státusz + körzet (chip-ek) */}
         <div className="flex flex-wrap items-center gap-2 border-t border-violet-100/70 pt-3">
           <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Státusz:</span>
-          {(['all', 'active', 'inactive'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                statusFilter === s ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
-              }`}
-            >
-              {s === 'all' ? 'Mind' : s === 'active' ? 'Aktív' : 'Inaktív'}
-            </button>
-          ))}
+          {(['all', 'active', 'deceased', 'inactive'] as const).map((s) => {
+            const labels: Record<typeof s, string> = {
+              all: 'Mind',
+              active: 'Élő',
+              deceased: 'Elhunyt',
+              inactive: 'Inaktív',
+            }
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  statusFilter === s ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                }`}
+                title={
+                  s === 'active' ? 'Legalább egy felnőtt tag még él' :
+                  s === 'deceased' ? 'Minden rögzített felnőtt elhunyt' :
+                  s === 'inactive' ? 'A háztartás kézzel lezárva' : ''
+                }
+              >
+                {labels[s]}
+              </button>
+            )
+          })}
 
           {districts.length > 0 && (
             <>
@@ -389,7 +448,7 @@ export function FamiliesTab() {
           {filtered.map((family) => (
             <FamilyCardPreview
               key={family.id}
-              data={familyRowToCardData(family, districtMap)}
+              data={familyRowToCardData(family, { districtMap })}
               compact
               onClick={() => openDetails(family.id)}
             />
@@ -560,6 +619,43 @@ function MiniStat({ label, value, icon }: { label: string; value: React.ReactNod
       <div className="flex items-center gap-2 text-violet-600">{icon}</div>
       <p className="mt-3 text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</p>
       <div className="mt-2 text-2xl font-semibold text-slate-800">{value}</div>
+    </div>
+  )
+}
+
+// 2026-06-02: új KPI-kártya az áttekintő-blokkhoz — színes accent + hint sor.
+function KpiCard({
+  tone,
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  tone: 'violet' | 'emerald' | 'amber' | 'rose'
+  icon: React.ReactNode
+  label: string
+  value: number
+  hint: string
+}) {
+  const TONES: Record<typeof tone, { ring: string; accent: string; valueClr: string }> = {
+    violet: { ring: 'border-violet-200', accent: 'bg-violet-100 text-violet-700', valueClr: 'text-violet-900' },
+    emerald: { ring: 'border-emerald-200', accent: 'bg-emerald-100 text-emerald-700', valueClr: 'text-emerald-900' },
+    amber: { ring: 'border-amber-200', accent: 'bg-amber-100 text-amber-700', valueClr: 'text-amber-900' },
+    rose: { ring: 'border-rose-200', accent: 'bg-rose-100 text-rose-700', valueClr: 'text-rose-900' },
+  }
+  const t = TONES[tone]
+  return (
+    <div className={`rounded-2xl bg-white border ${t.ring} p-4 shadow-sm flex flex-col gap-2`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500">
+          {label}
+        </span>
+        <span className={`inline-flex items-center justify-center size-7 rounded-full ${t.accent}`}>
+          {icon}
+        </span>
+      </div>
+      <div className={`text-3xl font-bold leading-tight ${t.valueClr}`}>{value}</div>
+      <div className="text-[11px] text-slate-500 leading-relaxed">{hint}</div>
     </div>
   )
 }

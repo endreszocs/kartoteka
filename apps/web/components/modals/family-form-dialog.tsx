@@ -30,6 +30,11 @@ interface FamilyFormDialogProps {
   editFamily: FamilyRow | null
 }
 
+// 2026-06-02: jól látható input-stílus — a default bg-card/78 (78% áttetszős)
+// egybeolvad a dialog-háttérrel. Ez a stílus tisztán fehér háttérrel + finom
+// shadow-val tér el — mint a baptism-dialog mintában.
+const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
+
 type PersonRef = { id: number; name: string; age?: number | null }
 
 export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormDialogProps) {
@@ -216,7 +221,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               </div>
             ) : (
               <Input placeholder="Keresés név alapján (3+ karakter)..." value={husbandQuery}
-                onChange={e => { setHusbandQuery(e.target.value); handleSearch(e.target.value, 'husband') }} />
+                onChange={e => { setHusbandQuery(e.target.value); handleSearch(e.target.value, 'husband') }}
+                className={FIELD_INPUT_CLASS} />
             )}
             {renderSearchDropdown(husbandResults, showHusband, 'husband')}
           </div>
@@ -231,7 +237,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               </div>
             ) : (
               <Input placeholder="Keresés név alapján (3+ karakter)..." value={wifeQuery}
-                onChange={e => { setWifeQuery(e.target.value); handleSearch(e.target.value, 'wife') }} />
+                onChange={e => { setWifeQuery(e.target.value); handleSearch(e.target.value, 'wife') }}
+                className={FIELD_INPUT_CLASS} />
             )}
             {renderSearchDropdown(wifeResults, showWife, 'wife')}
           </div>
@@ -250,7 +257,8 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
               </div>
             )}
             <Input placeholder="Gyermek hozzáadása (keresés)..." value={childQuery}
-              onChange={e => { setChildQuery(e.target.value); handleSearch(e.target.value, 'child') }} />
+              onChange={e => { setChildQuery(e.target.value); handleSearch(e.target.value, 'child') }}
+              className={FIELD_INPUT_CLASS} />
             {renderSearchDropdown(childResults, showChild, 'child')}
           </div>
 
@@ -258,12 +266,14 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Utca</Label>
-              <Input value={cUtcaName} onChange={e => setCUtcaName(e.target.value)} placeholder="Automatikusan töltődik" />
+              <Input value={cUtcaName} onChange={e => setCUtcaName(e.target.value)}
+                placeholder="Automatikusan töltődik" className={FIELD_INPUT_CLASS} />
               <p className="text-xs text-muted-foreground">A kiválasztott fél lakcíméből töltődik</p>
             </div>
             <div className="space-y-1.5">
               <Label>Házszám</Label>
-              <Input value={cSzam} onChange={e => setCSzam(e.target.value)} placeholder="Pl. 12/A" />
+              <Input value={cSzam} onChange={e => setCSzam(e.target.value)}
+                placeholder="Pl. 12/A" className={FIELD_INPUT_CLASS} />
             </div>
           </div>
 
@@ -273,7 +283,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
             <select
               value={idCsoport}
               onChange={e => setIdCsoport(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className={`w-full rounded-md border px-3 py-2 text-sm ${FIELD_INPUT_CLASS}`}
             >
               <option value="">— Nincs körzet —</option>
               {districts.map(d => (
