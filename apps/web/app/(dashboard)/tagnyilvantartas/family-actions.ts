@@ -22,6 +22,138 @@ async function getFamilyAccessContext() {
   return { supabase, congregationId, userId }
 }
 
+/**
+ * 2026-06-01 (hibrid család-modell Fázis 2): a régi `csalad` rekord aktuális
+ * állapotát szinkronizálja az új `haztartas` + `cim` + `haztartas_tag`
+ * táblákba. A `saveFamily` és a `checkAndCreateFamily` (anyakönyvi) is hívja,
+ * hogy az új modell mindig naprakész legyen.
+ *
+ * Logika:
+ *   1. csalad + gyerek olvasása
+ *   2. haztartas keresése (legacy_csalad_id alapján); ha nincs → új cim + haztartas
+ *      ha van → update isaktiv + id_csoport
+ *   3. haztartas_tag-ok diff: a csalad/gyerek célállapotához igazítjuk —
+ *      lezárjuk a már nem szereplő tagokat (ervenyes_ig = today), beszúrjuk az újakat
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function syncHouseholdFromCsalad(supabase: any, csaladId: number, congregationId: string) {
+  // 1. Olvas: csalad + gyerek
+  const { data: csaladRow } = await supabase
+    .from('csalad')
+    .select('id_ferfi, id_no, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, id_csoport, isaktiv')
+    .eq('id', csaladId)
+    .single()
+  if (!csaladRow) return
+
+  const { data: gyerekRows } = await supabase
+    .from('gyerek')
+    .select('id_szemely')
+    .eq('id_csalad', csaladId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gyerekIds = ((gyerekRows || []) as any[]).map((g) => g.id_szemely as number)
+
+  // 2. Olvas vagy hoz létre: haztartas
+  const { data: existingHaztartas } = await supabase
+    .from('haztartas')
+    .select('id, id_cim')
+    .eq('legacy_csalad_id', csaladId)
+    .is('ervenyes_ig', null)
+    .limit(1)
+    .maybeSingle()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let haztartasId: string | null = (existingHaztartas as any)?.id ?? null
+
+  if (!haztartasId) {
+    // Új cim
+    const { data: cimRow } = await supabase
+      .from('cim')
+      .insert([{
+        congregation_id: congregationId,
+        id_utca: csaladRow.c_utcaid,
+        szam: csaladRow.c_szam,
+        tombhaz: csaladRow.c_tombhaz,
+        lepcsohaz: csaladRow.c_lepcsohaz,
+        emelet: csaladRow.c_emelet,
+        ajto: csaladRow.c_ajto,
+        tipus: 'otthon',
+        megjegyzes: 'saveFamily-sync',
+      }])
+      .select('id')
+      .single()
+
+    // Új haztartas (legacy_csalad_id-vel)
+    const { data: haztartasRow } = await supabase
+      .from('haztartas')
+      .insert([{
+        congregation_id: congregationId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        id_cim: (cimRow as any)?.id ?? null,
+        id_csoport: csaladRow.id_csoport,
+        isaktiv: csaladRow.isaktiv,
+        legacy_csalad_id: csaladId,
+        ervenyes_tol: new Date().toISOString().slice(0, 10),
+      }])
+      .select('id')
+      .single()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    haztartasId = (haztartasRow as any)?.id ?? null
+  } else {
+    await supabase
+      .from('haztartas')
+      .update({ isaktiv: csaladRow.isaktiv, id_csoport: csaladRow.id_csoport })
+      .eq('id', haztartasId)
+  }
+
+  if (!haztartasId) return
+
+  // 3. Tagok szinkronizálása (diff a célállapottal)
+  const { data: existingTags } = await supabase
+    .from('haztartas_tag')
+    .select('id, id_szemely, szerep')
+    .eq('id_haztartas', haztartasId)
+    .is('ervenyes_ig', null)
+    .in('szerep', ['csaladfo', 'hazastars', 'gyermek'])
+
+  // Célállapot: 1 csaladfo (id_ferfi), 1 hazastars (id_no), n gyermek
+  const desiredTags = new Map<number, string>()
+  if (csaladRow.id_ferfi) desiredTags.set(csaladRow.id_ferfi as number, 'csaladfo')
+  if (csaladRow.id_no) desiredTags.set(csaladRow.id_no as number, 'hazastars')
+  for (const gyerekId of gyerekIds) desiredTags.set(gyerekId, 'gyermek')
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  // 3a. Lezárjuk a már nem szereplő tagokat
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const tag of (existingTags || []) as any[]) {
+    const desiredSzerep = desiredTags.get(tag.id_szemely as number)
+    if (!desiredSzerep) {
+      await supabase
+        .from('haztartas_tag')
+        .update({ ervenyes_ig: today })
+        .eq('id', tag.id)
+    } else {
+      // Már aktív tag a megfelelő szerepben → kihúzzuk a desired-ből
+      // (Ha más szerep van, NEM frissítjük: a backfill 'csaladfo'-t adott meg
+      // alapból, így a UI tartja a régi mintát.)
+      desiredTags.delete(tag.id_szemely as number)
+    }
+  }
+
+  // 3b. Új tagokat beszúrjuk
+  const newTags = Array.from(desiredTags.entries()).map(([id_szemely, szerep]) => ({
+    id_haztartas: haztartasId,
+    id_szemely,
+    szerep,
+    is_primary: szerep === 'csaladfo' || (szerep === 'hazastars' && !csaladRow.id_ferfi),
+    ervenyes_tol: today,
+    congregation_id: congregationId,
+  }))
+  if (newTags.length > 0) {
+    await supabase.from('haztartas_tag').insert(newTags)
+  }
+}
+
 async function getAllowedFamilyIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   congregationId: string,
@@ -274,6 +406,18 @@ export async function saveFamily(data: FamilyInput) {
     await supabase.from('gyerek').insert(gyerekRows)
   }
 
+  // 2026-06-01 (hibrid család-modell Fázis 2): az új modellt is naprakésszé
+  // tesszük (haztartas + cim + haztartas_tag). Ha a saveFamily új csalad-ot
+  // hozott létre vagy a meglévőt változtatta, a háztartás-szinkron lefut.
+  if (familyId) {
+    try {
+      await syncHouseholdFromCsalad(supabase, familyId, congregationId)
+    } catch (e) {
+      console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen (nem blokkoló):',
+        e instanceof Error ? e.message : e)
+    }
+  }
+
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -319,6 +463,38 @@ export async function deleteFamily(id: number) {
   await supabase.from('gyerek').delete().eq('id_csalad', id)
   const { error } = await supabase.from('csalad').delete().eq('id', id)
   if (error) return { error: `Hiba: ${error.message}` }
+
+  // 2026-06-01 (hibrid család-modell Fázis 2): a hozzátartozó haztartas-t
+  // NEM töröljük (mert anyakönyvi rekordok, családlátogatási naplók
+  // hivatkozhatnak rá), hanem ARCHIVÁLJUK — isaktiv=false, ervenyes_ig=today,
+  // és minden aktív tagság is lezárul.
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data: haztartas } = await supabase
+      .from('haztartas')
+      .select('id')
+      .eq('legacy_csalad_id', id)
+      .is('ervenyes_ig', null)
+      .limit(1)
+      .maybeSingle()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const haztartasId = (haztartas as any)?.id as string | undefined
+    if (haztartasId) {
+      await supabase
+        .from('haztartas')
+        .update({ isaktiv: false, ervenyes_ig: today })
+        .eq('id', haztartasId)
+      await supabase
+        .from('haztartas_tag')
+        .update({ ervenyes_ig: today })
+        .eq('id_haztartas', haztartasId)
+        .is('ervenyes_ig', null)
+    }
+  } catch (e) {
+    console.warn('[deleteFamily] haztartas archiválás sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
+  }
+
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
