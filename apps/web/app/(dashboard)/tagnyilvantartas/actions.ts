@@ -461,6 +461,76 @@ export async function saveMember(data: MemberInput) {
         if (!check?.length) {
           await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: savedId }])
         }
+
+        // 2026-06-01 (hibrid család-modell Fázis 2): dual-write az új modellbe
+        // — vér szerinti szülő-gyerek kapcsolatok + háztartás-tagság (mint a
+        // baptism-action checkAndCreateFamily helper-je).
+        try {
+          // szülő-gyerek kapcsolatok (idempotens — partial unique index)
+          if (ferfiId) {
+            const { data: existingApa } = await supabase
+              .from('szemely_kapcsolat')
+              .select('id')
+              .eq('id_szemely_1', ferfiId)
+              .eq('id_szemely_2', savedId)
+              .eq('tipus', 'szulo_gyermek')
+              .is('ervenyes_ig', null)
+              .limit(1)
+            if (!existingApa?.length) {
+              await supabase.from('szemely_kapcsolat').insert([{
+                id_szemely_1: ferfiId, id_szemely_2: savedId,
+                tipus: 'szulo_gyermek', ver_szerinti: true,
+                congregation_id: congregationId,
+              }])
+            }
+          }
+          if (noId) {
+            const { data: existingAnya } = await supabase
+              .from('szemely_kapcsolat')
+              .select('id')
+              .eq('id_szemely_1', noId)
+              .eq('id_szemely_2', savedId)
+              .eq('tipus', 'szulo_gyermek')
+              .is('ervenyes_ig', null)
+              .limit(1)
+            if (!existingAnya?.length) {
+              await supabase.from('szemely_kapcsolat').insert([{
+                id_szemely_1: noId, id_szemely_2: savedId,
+                tipus: 'szulo_gyermek', ver_szerinti: true,
+                congregation_id: congregationId,
+              }])
+            }
+          }
+          // háztartás-tagság (haztartas legacy_csalad_id = famId alapján)
+          const { data: haztartas } = await supabase
+            .from('haztartas')
+            .select('id')
+            .eq('legacy_csalad_id', famId)
+            .is('ervenyes_ig', null)
+            .limit(1)
+            .maybeSingle()
+          const haztartasId = (haztartas as { id: string } | null)?.id
+          if (haztartasId) {
+            const { data: existingTag } = await supabase
+              .from('haztartas_tag')
+              .select('id')
+              .eq('id_haztartas', haztartasId)
+              .eq('id_szemely', savedId)
+              .is('ervenyes_ig', null)
+              .limit(1)
+            if (!existingTag?.length) {
+              await supabase.from('haztartas_tag').insert([{
+                id_haztartas: haztartasId, id_szemely: savedId,
+                szerep: 'gyermek', is_primary: false,
+                ervenyes_tol: new Date().toISOString().slice(0, 10),
+                congregation_id: congregationId,
+              }])
+            }
+          }
+        } catch (e) {
+          console.warn('[saveMember] hibrid-modell dual-write sikertelen (nem blokkoló):',
+            e instanceof Error ? e.message : e)
+        }
       }
     }
   }
@@ -590,6 +660,27 @@ export async function removeMember(data: RemoveInput) {
       supabase.from('gyerek').delete().eq('id_szemely', id),
       supabase.from('presbiter').delete().eq('id_szemely', id),
     ])
+
+    // 2026-06-01 (hibrid család-modell Fázis 2): az új modellben a tag
+    // háztartás-tagságát és kapcsolatait LEZÁRJUK (nem töröljük). Ezzel a
+    // történet megmarad — pl. az anyakönyvi rekordok továbbra is hivatkoznak
+    // a személyre, de a jelenlegi háztartásokban már nem tűnik aktív tagnak.
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      await supabase
+        .from('haztartas_tag')
+        .update({ ervenyes_ig: today })
+        .eq('id_szemely', id)
+        .is('ervenyes_ig', null)
+      await supabase
+        .from('szemely_kapcsolat')
+        .update({ ervenyes_ig: today })
+        .or(`id_szemely_1.eq.${id},id_szemely_2.eq.${id}`)
+        .is('ervenyes_ig', null)
+    } catch (e) {
+      console.warn('[removeMember] hibrid-modell lezárás sikertelen (nem blokkoló):',
+        e instanceof Error ? e.message : e)
+    }
 
     // Fizikai törlés (RLS fallback: elrejtés)
     const { data: delData, error: delErr } = await supabase.from('szemely').delete().eq('id', id).eq('congregation_id', congregationId).select('id')
