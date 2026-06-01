@@ -57,10 +57,77 @@ async function getAllowedFamilyIds(
 export async function getFamilies(): Promise<FamilyRow[]> {
   const { supabase, congregationId } = await getFamilyAccessContext()
   if (!congregationId) return []
-  const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
-  const { data } = await supabase.from('csalad')
-    .select('id, c_szam, isaktiv, id_csoport, ferfi:szemely!id_ferfi(id, csaladnev, k_nev, ferfi, sz_datum, allapot, meghalt, namepattern, vallas), no:szemely!id_no(id, csaladnev, k_nev, ferfi, sz_datum, allapot, meghalt, namepattern, vallas), utca:adrstreet!c_utcaid(name)')
-  return ((data || []) as unknown as FamilyRow[]).filter(family => allowedFamilyIds.has(family.id))
+
+  // 2026-06-01 (hibrid család-modell Fázis 2): a Családok lista most az ÚJ
+  // modellből (haztartas + haztartas_tag + cim) olvas. A `FamilyRow.id` mező
+  // továbbra is a `legacy_csalad_id` (int) marad — így a többi action
+  // (saveFamily, getFamilyDetails, deleteFamily) érintetlenül futnak a régi
+  // `csalad.id`-vel, amíg a Fázis 2 fokozatosan átáll.
+  //
+  // Aktív háztartások: ervenyes_ig IS NULL + legacy_csalad_id NOT NULL
+  // (csak a backfill-elt vagy duál-write-tal létrejöttek; a tisztán új
+  // háztartások a Fázis 3-ig nem létezhetnek mert minden saveBaptism a
+  // régi csalad-ba is ír).
+  const { data: haztartasok } = await supabase
+    .from('haztartas')
+    .select(`
+      id, isaktiv, id_csoport, legacy_csalad_id,
+      cim:cim!id_cim(szam, utca:adrstreet!id_utca(name))
+    `)
+    .eq('congregation_id', congregationId)
+    .is('ervenyes_ig', null)
+    .not('legacy_csalad_id', 'is', null)
+
+  if (!haztartasok?.length) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const haztartasIds = haztartasok.map((h: any) => h.id as string)
+
+  // Aktív családfők + házastársak ezekhez a háztartásokhoz
+  const { data: tagok } = await supabase
+    .from('haztartas_tag')
+    .select(`
+      id_haztartas, szerep, is_primary,
+      szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, allapot, meghalt, namepattern, vallas)
+    `)
+    .in('id_haztartas', haztartasIds)
+    .is('ervenyes_ig', null)
+    .in('szerep', ['csaladfo', 'hazastars'])
+
+  // Map: haztartas_id → { ferfi, no }
+  type SzemelyRef = FamilyRow['ferfi']
+  const tagokByHaztartas = new Map<string, { ferfi: SzemelyRef; no: SzemelyRef }>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const tag of (tagok || []) as any[]) {
+    const szuloRaw = tag.szemely
+    const szulo = (Array.isArray(szuloRaw) ? szuloRaw[0] : szuloRaw) as SzemelyRef
+    if (!szulo) continue
+    const entry = tagokByHaztartas.get(tag.id_haztartas) ?? { ferfi: null, no: null }
+    if (szulo.ferfi === true && !entry.ferfi) entry.ferfi = szulo
+    else if (szulo.ferfi === false && !entry.no) entry.no = szulo
+    tagokByHaztartas.set(tag.id_haztartas, entry)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return haztartasok.map((h: any) => {
+    const cimRaw = h.cim
+    const cim = (Array.isArray(cimRaw) ? cimRaw[0] : cimRaw) as
+      | { szam: string | null; utca: { name: string } | { name: string }[] | null }
+      | null
+      | undefined
+    const utcaRaw = cim?.utca
+    const utca = (Array.isArray(utcaRaw) ? utcaRaw[0] : utcaRaw) as { name: string } | null | undefined
+    const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null }
+    return {
+      id: h.legacy_csalad_id as number,
+      c_szam: cim?.szam ?? null,
+      isaktiv: h.isaktiv as boolean,
+      id_csoport: h.id_csoport as number | null,
+      ferfi: entry.ferfi,
+      no: entry.no,
+      utca: utca ?? null,
+    } satisfies FamilyRow
+  })
 }
 
 export async function getFamilyDetails(id: number) {
