@@ -103,10 +103,11 @@ működik tovább. Senki nem használja még az új táblákat.
 
 **Mit NEM csinálunk**: meglévő adatok átemelése, UI változtatás, action-frissítés.
 
-### Fázis 1 — Adat-szinkron (2-3 nap)
+### Fázis 1 — Backfill (egyszeri egyirányú migráció, 1 nap)
 
-**Cél**: Minden új `csalad` rekord automatikusan tükröződik a `haztartas`-on
-is (dual-write). Egyszeri backfill a meglévő adatokra.
+**Cél**: A meglévő `csalad` + `gyerek` rekordokat **egyszer átemeljük** az új
+táblákba. Nincs dual-write, nincs konzisztencia-trigger. A backfill után a
+kódot átállítjuk az új modellre (Fázis 2).
 
 **Tartalom**:
 1. **Backfill SQL** (`migration-docs/sql/2026-06-01-fazis1-backfill.sql`):
@@ -115,14 +116,13 @@ is (dual-write). Egyszeri backfill a meglévő adatokra.
    - `gyerek.id_szemely` → `haztartas_tag` (szerep: gyermek)
    - `id_ferfi + id_no` → `szemely_kapcsolat` (típus: házastársi)
    - Minden `gyerek` → `szemely_kapcsolat` 2 rekord (apa-gyerek + anya-gyerek)
-2. **Dual-write action-ök**: a `saveFamilyAction`, `addChildToFamilyAction`
-   stb. minden update-et **MINDKÉT** táblába ír.
-3. **Konzisztencia-trigger** (Postgres): ha valaki közvetlenül a `csalad`-on
-   módosít (legacy import), egy trigger automatikusan szinkronizál.
+   - Idempotens: `legacy_csalad_id` mező + partial unique index-ek miatt
+     újrafuttatható duplikálás nélkül.
 
-**Mit NEM csinálunk**: UI változtatás. A lelkész ugyanazt látja, mint most.
+**Mit NEM csinálunk**: UI változtatás, dual-write logika, trigger. A lelkész
+ugyanazt látja, mint most — a kód MÉG a `csalad` + `gyerek` táblát olvassa.
 
-### Fázis 2 — UI átépítés (4-5 nap)
+### Fázis 2 — Kód- és UI-átállás az új modellre (4-5 nap)
 
 **Cél**: A tagnyilvántartás + családlátogatás UI-ja az új modellből olvas.
 

@@ -171,7 +171,7 @@ SELECT
   c.id_no,
   'hazastars',
   false, -- a házastárs nem vér szerinti rokon
-  NULL,  -- ismeretlen házasság-dátum a csalad táblából
+  NULL::date,  -- ismeretlen házasság-dátum a csalad táblából
   h.congregation_id,
   'fazis1-backfill'
 FROM public.haztartas h
@@ -210,7 +210,7 @@ SELECT DISTINCT
   g.id_szemely, -- gyermek
   'szulo_gyermek',
   true,
-  NULL,
+  NULL::date,
   h.congregation_id,
   'fazis1-backfill'
 FROM public.gyerek g
@@ -231,7 +231,7 @@ SELECT DISTINCT
   g.id_szemely, -- gyermek
   'szulo_gyermek',
   true,
-  NULL,
+  NULL::date,
   h.congregation_id,
   'fazis1-backfill'
 FROM public.gyerek g
