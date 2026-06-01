@@ -6,8 +6,10 @@ import {
   ChevronRight,
   Crown,
   HandCoins,
+  HomeIcon,
   Info,
   MapPin,
+  Sparkles,
   UserCheck,
   Users,
   Vote,
@@ -45,6 +47,12 @@ const CATEGORIES: HelpCategory[] = [
     label: 'Családok',
     Icon: Users,
     short: 'Családfő, házaspár, gyerekek',
+  },
+  {
+    id: 'family-modell',
+    label: 'Új család-modell',
+    Icon: HomeIcon,
+    short: 'A 3-rétegű hibrid modell — válás, költözés, többgenerációs',
   },
   {
     id: 'fees',
@@ -163,6 +171,7 @@ export function TagnyilvantartasHelp() {
             {active === 'general' && <GeneralContent />}
             {active === 'membership' && <MembershipContent />}
             {active === 'families' && <FamiliesContent />}
+            {active === 'family-modell' && <FamilyModellContent />}
             {active === 'fees' && <FeesContent />}
             {active === 'districts' && <DistrictsContent />}
             {active === 'voters' && <VotersContent />}
@@ -518,5 +527,299 @@ function ErrorsContent() {
           „mellőzve" státusszal.</li>
       </ul>
     </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ÚJ CSALÁD-MODELL — részletes magyarázat lelkipásztoroknak (2026-06-01)
+// ─────────────────────────────────────────────────────────────────────────
+
+function FamilyModellContent() {
+  return (
+    <>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+        <p className="flex items-start gap-2 text-amber-900">
+          <Sparkles className="size-4 mt-0.5 shrink-0" />
+          <span>
+            <strong>Új funkció — fokozatosan vezetjük be.</strong> A meglévő
+            adataid <strong>nem törlődnek</strong>: minden család, gyerek,
+            cím megmarad. Az új modell ezeket kiegészíti, hogy a modern élet-
+            szituációkat (válás, költözés, többgenerációs együttélés) is
+            tudja kezelni.
+          </span>
+        </p>
+      </div>
+
+      <SectionTitle>Mit jelent a „család" a rendszerben?</SectionTitle>
+      <p>
+        A jelenlegi rendszerben a <em>család</em> egy doboz: <strong>férj + feleség +
+        gyerekek egy cím alatt</strong>. Ez az 1950-es évek modellje — jól működik,
+        amíg minden tradicionális.
+      </p>
+      <p>
+        De a valóságban sokszor másképp van: elvált szülők gyermeke váltakozva
+        él két helyen; özvegy édesanya a fia családjához költözött; az egyetemista
+        gyerek a kollégiumban lakik, de a szüleinél is családtag. Az új modell
+        ezeket is le tudja képezni.
+      </p>
+
+      <SectionTitle>A 3 különálló kartonlap</SectionTitle>
+      <p>
+        Képzeld el úgy, mintha minden emberről <strong>három különböző karton</strong>
+        lenne — mindegyik más célt szolgál:
+      </p>
+
+      <div className="space-y-4 mt-3">
+        <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+          <h4 className="flex items-center gap-2 font-semibold text-blue-900">
+            <UserCheck className="size-4" />
+            1. „Ki ő?" — Személyi karton
+          </h4>
+          <p className="mt-2 text-blue-900/85 text-sm leading-relaxed">
+            Minden emberről egy karton: név, születés, vallás, telefon, email,
+            kép. <strong>Sose változik</strong>, csak az adatok frissülnek. Ha
+            Kovács Pista elválik, a kartonja ugyanaz marad — csak a kapcsolatai
+            módosulnak. <em>„A személy az ember maga — Isten gyermeke, akit
+            megkereszteltünk."</em>
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+          <h4 className="flex items-center gap-2 font-semibold text-emerald-900">
+            <HomeIcon className="size-4" />
+            2. „Hol lakik most?" — Háztartási karton
+          </h4>
+          <p className="mt-2 text-emerald-900/85 text-sm leading-relaxed">
+            Külön karton arról, hogy <strong>most kivel él egy fedél alatt</strong>.
+            Egy háztartáshoz tartozik:
+          </p>
+          <ul className="mt-2 list-disc pl-5 text-sm space-y-1 text-emerald-900/85">
+            <li>egy cím (utca, házszám)</li>
+            <li>a benne lakó személyek (1, 2, 5, 8 — bármennyi)</li>
+            <li>mindenkinek van szerepe (családfő, házastárs, gyermek,
+                mostohaszülő, lakótárs)</li>
+          </ul>
+          <p className="mt-2 text-emerald-900/85 text-sm leading-relaxed">
+            <strong>Ez változhat!</strong> Költözéskor a régi háztartás
+            „lezárul", új háztartás jön létre. Az egyetemista gyerek lehet
+            egyszerre tagja a szülei háztartásának ÉS a kollégiuménak is.{' '}
+            <em>„A háztartás a mostani közös élet — ami változik."</em>
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
+          <h4 className="flex items-center gap-2 font-semibold text-violet-900">
+            <Users className="size-4" />
+            3. „Ki a rokona?" — Kapcsolati karton
+          </h4>
+          <p className="mt-2 text-violet-900/85 text-sm leading-relaxed">
+            Külön karton a vér szerinti és életen át tartó rokoni kötelékekről:
+          </p>
+          <ul className="mt-2 list-disc pl-5 text-sm space-y-1 text-violet-900/85">
+            <li>Kovács Pista <strong>gyermeke</strong> Kovács Anna</li>
+            <li>Kovács Pista <strong>volt házastársa</strong> Tóth Mária</li>
+            <li>Kovács Anna <strong>testvére</strong> Kovács Béla</li>
+          </ul>
+          <p className="mt-2 text-violet-900/85 text-sm leading-relaxed">
+            <strong>Ez nem változik költözéssel.</strong> Ha Pista elválik Máriától,
+            ők továbbra is a közös gyerekek vér szerinti szülei. Csak a házassági
+            kapcsolat státusza változik „aktív" → „lezárt"-ra.{' '}
+            <em>„A kapcsolat az Istenadta vagy törvényadta kötelék."</em>
+          </p>
+        </div>
+      </div>
+
+      <SectionTitle>Élet-példák — mit jelent a napi munkában?</SectionTitle>
+
+      <div className="space-y-3 mt-2">
+        <ExamplePanel
+          tone="emerald"
+          title="Új gyerek megkeresztelése"
+          situation="Beder Attila és Beder Henrietta gyermeke megszületett."
+          old="Hozzáadod a babát a Beder családhoz."
+          new={'1) Felveszed a babát mint új személyt. 2) Rögzíted a két vér szerinti szülő-gyermek kapcsolatot. 3) A szülők háztartásába felveszed a babát is. Az anyakönyvi emléklap AUTOMATIKUSAN a vér szerinti szülőket írja — akkor is, ha az anya újraházasodott.'}
+        />
+        <ExamplePanel
+          tone="emerald"
+          title="Családlátogatás"
+          situation="A Templom utca 3-ban él Nagy néni, a fia, a menye, és 2 unoka."
+          old={'Egy „Nagy család” rekord — de csak 1 férj + 1 feleség + 4 név fér el.'}
+          new={'Egy háztartás 5 taggal: Nagy néni (nagyszülő), a fia (családfő), a menye (házastárs), 2 unoka (gyermek). A vér szerinti rokoni szálakat külön látod (Nagy néni a fiának vér szerinti anyja, a menye szülei egy másik gyülekezetben).'}
+        />
+        <ExamplePanel
+          tone="amber"
+          title="Költözés"
+          situation="A Kovács család átköltözik a Templom utcáról az Iskola utcára."
+          old="A család címét felülírod — a régi cím elveszik."
+          new={'A régi háztartás lezárul (érvényes-ig = ma). Új háztartás jön létre az új címmel, ugyanazokkal a tagokkal. A korábbi családlátogatások visszakereshetők, hogy 2024-ben még a Templom utcában tartottad őket.'}
+        />
+        <ExamplePanel
+          tone="amber"
+          title="Egyetemista gyerek"
+          situation="Szabó Ákos Kolozsváron egyetemista, a kollégiumban lakik."
+          old={'Vagy a szüleinél van (téves cím), vagy egy „egyfős család” lesz a kollégiumban (furcsa).'}
+          new={'Ákos kartonja a sajátja. Tagja a szülei háztartásának (szerepe: gyermek, másodlagos) ÉS a kollégium háztartásának (lakó, elsődleges). A vér szerinti szülei örökre az ő szülei. A családlátogatáskor MINDKÉT háztartásban látod őt.'}
+        />
+        <ExamplePanel
+          tone="red"
+          title="Elvált család / patchwork"
+          situation="Pista elvált Máriától; mindkettő újraházasodott. A közös gyerek hétközben Máriánál, hétvégén Pistánál."
+          old="Az egész helyzet NEM FÉR a férj+feleség modellbe."
+          new={'Pista új háztartása: ő + új felesége + a régi gyereke (hétvégi tag) + új gyerek. Mária háztartása: ő + új férje + a régi gyerek (hétközi tag). A kapcsolati réteg azt mondja: a gyerek vér szerinti szülei Pista és Mária — ez SOSE változik. Az anyakönyvi adatok ezt használják.'}
+        />
+      </div>
+
+      <SectionTitle>Mit kell Önnek csinálnia?</SectionTitle>
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+        <p className="font-semibold text-emerald-900">Semmit azonnal.</p>
+        <ul className="mt-2 list-disc pl-5 text-sm space-y-1 text-emerald-900/85">
+          <li>A meglévő családi adatok automatikusan átkerülnek az új modellbe
+              (egy éjszakai folyamat).</li>
+          <li>Minden meglévő család → új háztartás (a tagok, a cím megmarad).</li>
+          <li>A férj+feleség jelölésből automatikusan generálódnak a házastársi
+              kapcsolatok.</li>
+          <li>A gyerekek megkapják a „szülő-gyerek" kapcsolatot mindkét szülővel.</li>
+          <li>A családlátogatási napló érintetlen marad.</li>
+        </ul>
+        <p className="mt-3 text-sm text-emerald-900/85">
+          Új eseteknél (új keresztelő, beköltöző tag, válás) <strong>több
+          opciója lesz</strong> a sajátos helyzetek rögzítésére.
+        </p>
+      </div>
+
+      <SectionTitle>Mi a hátránya?</SectionTitle>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Több kattintás új ember felvételénél</strong> — nem csak
+            „új család", hanem külön a kapcsolatokat is rögzíteni kell. (A
+            felület úgy lesz felépítve, hogy egy űrlapon belül megy minden.)</li>
+        <li><strong>Tanulási görbe</strong> — pár hétig megszokás, hogy a
+            „családlátogatás" most háztartás-látogatást is jelent.</li>
+      </ul>
+
+      <SectionTitle>Mi az előnye?</SectionTitle>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Valós élet leképezése</strong>: ha holnap a presbiterünk
+            bejelenti hogy elvált, van hova rögzíteni a valódi szituációt.</li>
+        <li><strong>Anyakönyvek pontosak</strong>: a vér szerinti szülők soha
+            nem keverednek a mostohaszülőkkel.</li>
+        <li><strong>Történet megmarad</strong>: költözés, válás, újraházasodás
+            után is visszakereshető „ki kivel élt 2018-ban".</li>
+        <li><strong>Jogilag is helyes</strong>: a GDPR + a református
+            adatkezelési minta is személy-központú nyilvántartást ír elő.</li>
+      </ul>
+
+      <SectionTitle>Bevezetési ütemterv</SectionTitle>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200 text-left">
+              <th className="py-2 pr-3 font-semibold text-slate-700">Fázis</th>
+              <th className="py-2 pr-3 font-semibold text-slate-700">Mi történik</th>
+              <th className="py-2 font-semibold text-slate-700">Önre nézve</th>
+            </tr>
+          </thead>
+          <tbody className="text-slate-700">
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pr-3 align-top">
+                <Pill tone="emerald">Fázis 0 — kész</Pill>
+              </td>
+              <td className="py-2 pr-3 align-top">
+                Új táblák létrejöttek az adatbázisban. A régi rendszer érintetlen.
+              </td>
+              <td className="py-2 align-top text-slate-500">Nincs változás.</td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pr-3 align-top">
+                <Pill tone="amber">Fázis 1 — 2-3 nap</Pill>
+              </td>
+              <td className="py-2 pr-3 align-top">
+                Meglévő családok automatikus átemelése. Minden mentés mindkét
+                rendszerbe kerül („kettős könyvelés").
+              </td>
+              <td className="py-2 align-top text-slate-500">Nincs változás.</td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pr-3 align-top">
+                <Pill tone="amber">Fázis 2 — 4-5 nap</Pill>
+              </td>
+              <td className="py-2 pr-3 align-top">
+                Új felhasználói felület: háztartás-dialog, kapcsolat-szerkesztő,
+                költözés-rögzítő.
+              </td>
+              <td className="py-2 align-top text-slate-700">
+                Új lehetőségek a felületen — előzetes tájékoztatás után.
+              </td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-3 align-top">
+                <Pill tone="slate">Fázis 3 — 1-2 nap</Pill>
+              </td>
+              <td className="py-2 pr-3 align-top">
+                Régi családi rekordok csak olvashatóvá válnak (történeti
+                archívumként).
+              </td>
+              <td className="py-2 align-top text-slate-700">
+                Új rögzítések csak az új modellben.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        <p>
+          <strong>Kérdés?</strong> A részletes technikai terv elérhető:{' '}
+          <code className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-700 border border-slate-200">
+            docs/project-tracking/KARTOTEKA-csalad-hibrid-modell-terv-2026-06-01.md
+          </code>
+        </p>
+      </div>
+    </>
+  )
+}
+
+// Színes panel-doboz az élet-példákhoz
+function ExamplePanel({
+  tone,
+  title,
+  situation,
+  old,
+  new: newDesc,
+}: {
+  tone: 'emerald' | 'amber' | 'red'
+  title: string
+  situation: string
+  old: string
+  new: string
+}) {
+  const toneClasses = {
+    emerald: 'border-emerald-200 bg-emerald-50/40',
+    amber: 'border-amber-200 bg-amber-50/40',
+    red: 'border-red-200 bg-red-50/40',
+  }
+  const titleColor = {
+    emerald: 'text-emerald-900',
+    amber: 'text-amber-900',
+    red: 'text-red-900',
+  }
+  return (
+    <div className={`rounded-xl border p-4 ${toneClasses[tone]}`}>
+      <h4 className={`font-semibold ${titleColor[tone]}`}>{title}</h4>
+      <p className="mt-1 text-sm text-slate-700 italic">{situation}</p>
+      <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Most
+          </span>
+          <p className="mt-0.5 text-slate-700">{old}</p>
+        </div>
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Új modellben
+          </span>
+          <p className="mt-0.5 text-slate-700">{newDesc}</p>
+        </div>
+      </div>
+    </div>
   )
 }
