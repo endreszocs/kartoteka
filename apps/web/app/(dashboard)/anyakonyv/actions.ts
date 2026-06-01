@@ -715,10 +715,77 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
     }
   }
 
-  // Gyerek regisztráció
+  // Gyerek regisztráció — RÉGI modell (csalad + gyerek)
   if (famId) {
     const { data: check } = await supabase.from('gyerek').select('id').eq('id_szemely', childId).eq('id_csalad', famId).limit(1)
     if (!check?.length) await supabase.from('gyerek').insert([{ id_csalad: famId, id_szemely: childId }])
+  }
+
+  // 2026-06-01 (hibrid család-modell Fázis 2): ÚJ modell írás-oldal
+  // A vér szerinti szülő-gyerek kapcsolatokat és a háztartás-tagságot is
+  // rögzítjük az új táblákba, hogy az új keresztelők után a getParentsForChild
+  // azonnal az új modellből olvashasson (ne kelljen a régi-fallback ágra menni).
+  //
+  // A congregation_id-t a gyermek szemely-rekordjából vesszük.
+  const { data: childRow } = await supabase
+    .from('szemely')
+    .select('congregation_id')
+    .eq('id', childId)
+    .single()
+  const congId = childRow?.congregation_id as string | undefined
+  if (!congId) return // védelmi háló — congregation_id nélkül nem írhatunk
+
+  // ── A) szülő-gyerek kapcsolatok rögzítése ────────────────────────────
+  // Idempotens: előbb check, csak ha nincs aktív rekord → insert.
+  async function ensureSzemelyKapcsolat(szuloId: number) {
+    const { data: existing } = await supabase
+      .from('szemely_kapcsolat')
+      .select('id')
+      .eq('id_szemely_1', szuloId)
+      .eq('id_szemely_2', childId)
+      .eq('tipus', 'szulo_gyermek')
+      .is('ervenyes_ig', null)
+      .limit(1)
+    if (existing?.length) return
+    await supabase.from('szemely_kapcsolat').insert([{
+      id_szemely_1: szuloId,
+      id_szemely_2: childId,
+      tipus: 'szulo_gyermek',
+      ver_szerinti: true,
+      congregation_id: congId,
+    }])
+  }
+  if (ferfiId) await ensureSzemelyKapcsolat(ferfiId)
+  if (noId) await ensureSzemelyKapcsolat(noId)
+
+  // ── B) Gyerek háztartás-tagság az új modellben ────────────────────────
+  // A háztartást a régi csalad.id alapján találjuk meg (`legacy_csalad_id`).
+  if (famId) {
+    const { data: haztartas } = await supabase
+      .from('haztartas')
+      .select('id')
+      .eq('legacy_csalad_id', famId)
+      .limit(1)
+    const haztartasId = haztartas?.[0]?.id as string | undefined
+    if (haztartasId) {
+      const { data: existingTag } = await supabase
+        .from('haztartas_tag')
+        .select('id')
+        .eq('id_haztartas', haztartasId)
+        .eq('id_szemely', childId)
+        .is('ervenyes_ig', null)
+        .limit(1)
+      if (!existingTag?.length) {
+        await supabase.from('haztartas_tag').insert([{
+          id_haztartas: haztartasId,
+          id_szemely: childId,
+          szerep: 'gyermek',
+          is_primary: false,
+          ervenyes_tol: new Date().toISOString().slice(0, 10),
+          congregation_id: congId,
+        }])
+      }
+    }
   }
 }
 
