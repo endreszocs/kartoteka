@@ -488,13 +488,33 @@ export async function getMemberBirthPlace(memberId: number): Promise<string | nu
 
 /**
  * 2026-05-30: Ellenőrzi, hogy két személy között létezik-e egyházi
- * házassági bejegyzés (a `hazassag` táblában). A keresztelői emléklapon
- * az anya nevét így formázzuk: ha igen, akkor „Kádár Zoltánné Tódor Enikő",
- * ha nem, akkor csak a leánykori név („Tódor Enikő").
+ * házassági bejegyzés. A keresztelői emléklapon az anya nevét így formázzuk:
+ * ha igen, akkor „Kádár Zoltánné Tódor Enikő", ha nem, akkor csak a
+ * leánykori név („Tódor Enikő").
+ *
+ * 2026-06-01 (hibrid család-modell Fázis 2): elsőként az új `szemely_kapcsolat`
+ * táblát kérdezzük (tipus='hazastars', aktív rekord) — szimmetrikusan, mert
+ * a kapcsolatban szemely_1 és szemely_2 sorrendje konvenció szerint
+ * (id_ferfi, id_no), de védelmi háló a fordítottra is. Fallback a régi
+ * `hazassag` táblára, ha nincs új-modell kapcsolat (pl. még nem szinkronizált
+ * legacy import).
  */
 export async function getMarriageBetween(ferfiId: number, noId: number): Promise<boolean> {
   const { supabase, congId } = await getCongregation()
   if (!congId) return false
+
+  // 1) ÚJ modell — szemely_kapcsolat hazastars (aktív, mindkét irányban)
+  const { data: kapcsolat } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id')
+    .or(`and(id_szemely_1.eq.${ferfiId},id_szemely_2.eq.${noId}),and(id_szemely_1.eq.${noId},id_szemely_2.eq.${ferfiId})`)
+    .eq('tipus', 'hazastars')
+    .is('ervenyes_ig', null)
+    .eq('congregation_id', congId)
+    .limit(1)
+  if (kapcsolat && kapcsolat.length > 0) return true
+
+  // 2) RÉGI modell fallback — hazassag tábla
   const { data, error } = await supabase.from('hazassag')
     .select('id')
     .eq('id_ferfi', ferfiId)
