@@ -24,6 +24,11 @@ export interface Profile {
   diocese_id: string | null
   district_id: string | null
   created_at: string
+  // 2026-06-01: a layout-fetch optimalizációhoz — ha mindkettő igaz, az
+  // onboarding-state lekérdezés (welcome-status + walkthrough-check)
+  // teljesen átugorható.
+  onboarding_completed_at?: string | null
+  walkthrough_completed?: boolean | null
 }
 
 export interface Congregation {

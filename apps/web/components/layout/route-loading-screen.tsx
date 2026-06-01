@@ -1,6 +1,8 @@
 'use client'
 
 import Image from 'next/image'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface RouteLoadingScreenProps {
   /** A betöltött modul neve — pl. "Tagnyilvántartás", "Pénzügy". */
@@ -17,13 +19,24 @@ interface RouteLoadingScreenProps {
  * használja (root, dashboard, modulok), így minden módnál (full-screen,
  * sidebar-os, dialog-mögött) ugyanaz a "homályos háttér + lebegő kártya"
  * élmény jelenik meg. Mintája a [[dashboard-intro-overlay]].
+ *
+ * 2026-06-01: a kliens-hidratáció után a `document.body`-hoz portal-eljük,
+ * mert a `.page-shell` `isolation: isolate`-tel új stacking-context-et hoz
+ * létre — emiatt a `z-[1000]` overlay korábban CSAK a content-területet
+ * blur-elte, a header-t (sticky, a page-shell-en kívül) nem. A portal a
+ * stacking-context-et megkerüli, így a header is elhomályosodik.
+ * SSR-en a fallback még a normál DOM-pozícióban renderelődik (nincs
+ * blur-flash), client hidratáció után a portal átmozgatja a body-ra.
  */
 export function RouteLoadingScreen({
   module = 'Kartotéka',
   subtitle = 'Erdélyi Református Egyházkerület',
   message = 'A modul betöltése folyamatban van, az adatok hamarosan megérkeznek.',
 }: RouteLoadingScreenProps) {
-  return (
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  const content = (
     <div
       role="status"
       aria-live="polite"
@@ -69,4 +82,10 @@ export function RouteLoadingScreen({
       </div>
     </div>
   )
+
+  // SSR + initial render: a content a normál DOM-pozícióban (a page-shell-en
+  // belül) marad — még nincs portal. Client-hidratáció után portal a body-ra,
+  // ami kilép a .page-shell stacking-context-éből → a header is blur-elve.
+  if (!mounted) return content
+  return createPortal(content, document.body)
 }
