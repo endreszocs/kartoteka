@@ -41,8 +41,13 @@ export async function getVoters(): Promise<VoterRow[]> {
     supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
       .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev'),
     supabase.from('konfirmalas').select('id_szemely').eq('congregation_id', congId),
-    supabase.from('csalad').select('id, id_csoport, id_ferfi, id_no').eq('congregation_id', congId),
-    supabase.from('gyerek').select('id_szemely, id_csalad'),
+    // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas + haztartas_tag-ból
+    supabase.from('haztartas')
+      .select('legacy_csalad_id, id_csoport, tagok:haztartas_tag(id_szemely, szerep)')
+      .eq('congregation_id', congId)
+      .is('ervenyes_ig', null)
+      .not('legacy_csalad_id', 'is', null),
+    Promise.resolve({ data: [] }),
     supabase.from('befizetes').select('id_szemely, fizetettev, osszeg, befizetescel!id_befizetescel(szamadasicel(kod))').eq('congregation_id', congId).or('deleted.eq.false,deleted.is.null'),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congId).in('id', [String(prevYear), String(currentYear)]),
     getVisibleDistrictNameMap(supabase, congId),
@@ -50,8 +55,24 @@ export async function getVoters(): Promise<VoterRow[]> {
 
   const szemelyek = (szemelyRes.data || []) as unknown as { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; adrlocality: { name: string } | null; adrstreet: { name: string } | null }[]
   const konfirmaltIds = new Set((konfirmRes.data || []).map((k: { id_szemely: number }) => k.id_szemely))
-  const csaladok = (csaladRes.data || []) as { id: number; id_csoport: number | null; id_ferfi: number | null; id_no: number | null }[]
-  const gyerekLinks = (gyerekRes.data || []) as { id_szemely: number; id_csalad: number }[]
+  // 2026-06-01 (hibrid család-modell Fázis 2): a haztartas-ot átkonvertáljuk
+  // a régi csalad-szerkezetbe (id, id_csoport, id_ferfi, id_no) — backward-kompat.
+  const csaladok: { id: number; id_csoport: number | null; id_ferfi: number | null; id_no: number | null }[] = []
+  const gyerekLinks: { id_szemely: number; id_csalad: number }[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const h of (csaladRes.data || []) as any[]) {
+    const legacyId = h.legacy_csalad_id as number
+    let id_ferfi: number | null = null
+    let id_no: number | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const t of (h.tagok || []) as any[]) {
+      const szId = t.id_szemely as number
+      if (t.szerep === 'csaladfo' && !id_ferfi) id_ferfi = szId
+      else if (t.szerep === 'hazastars' && !id_no) id_no = szId
+      else if (t.szerep === 'gyermek') gyerekLinks.push({ id_szemely: szId, id_csalad: legacyId })
+    }
+    csaladok.push({ id: legacyId, id_csoport: h.id_csoport ?? null, id_ferfi, id_no })
+  }
   const districtNameMap = districtState.districtNameMap
 
   // Éves beállítás → várható járulék évenként

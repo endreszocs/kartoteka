@@ -50,13 +50,19 @@ export async function getDistrictsWithCounts() {
   const { supabase, congregationId } = await getScopedContext()
   if (!congregationId) return []
   const { districts } = await getVisibleDistrictState(supabase, congregationId)
+  // 2026-06-01 (hibrid család-modell Fázis 2): az új haztartas-ot olvassuk —
+  // a congregation_id direkt szűrhető, és a legacy_csalad_id visszafelé
+  // kompat a régi csalad.id-vel.
   const { data: csaladData } = await supabase
-    .from('csalad')
-    .select('id, id_csoport')
+    .from('haztartas')
+    .select('legacy_csalad_id, id_csoport')
     .eq('congregation_id', congregationId)
+    .is('ervenyes_ig', null)
+    .not('legacy_csalad_id', 'is', null)
     .not('id_csoport', 'is', null)
   const korzetek = districts
-  const csaladok = (csaladData || []) as { id: number; id_csoport: number }[]
+  const csaladok = ((csaladData || []) as Array<{ legacy_csalad_id: number; id_csoport: number }>)
+    .map((r) => ({ id: r.legacy_csalad_id, id_csoport: r.id_csoport }))
   return korzetek.map(k => ({
     ...k,
     familyCount: csaladok.filter(c => c.id_csoport === k.id).length,
@@ -114,10 +120,14 @@ export async function deleteDistrict(id: number) {
     await supabase.from('presbiter').delete().in('id', presbyterIds)
   }
 
-  await supabase.from('csalad').update({ id_csoport: null }).eq('id_csoport', id).eq('congregation_id', congregationId)
+  // 2026-06-01 (hibrid család-modell Fázis 2): dual-write — a régi csalad és
+  // az új haztartas táblákon is nullázzuk az id_csoport mezőt.
+  await supabase.from('csalad').update({ id_csoport: null }).eq('id_csoport', id)
+  await supabase.from('haztartas').update({ id_csoport: null }).eq('id_csoport', id).eq('congregation_id', congregationId)
 
   const [remainingFamilies, remainingPresbyters] = await Promise.all([
-    supabase.from('csalad').select('id', { count: 'exact', head: true }).eq('id_csoport', id),
+    supabase.from('haztartas').select('id', { count: 'exact', head: true })
+      .eq('id_csoport', id).eq('congregation_id', congregationId).is('ervenyes_ig', null),
     supabase.from('presbiter').select('id', { count: 'exact', head: true }).eq('id_csoport', id),
   ])
 
@@ -145,16 +155,22 @@ export async function assignFamilyToDistrict(familyId: number, districtId: numbe
     return { error: 'Ez a korzet mas gyulekezethez kapcsolodik, ezert ide nem rendelheto csalad.' }
   }
 
-  const { error } = await supabase.from('csalad').update({ id_csoport: districtId }).eq('id', familyId).eq('congregation_id', congregationId)
+  // 2026-06-01 (hibrid család-modell Fázis 2): dual-write — régi csalad +
+  // új haztartas (legacy_csalad_id alapján).
+  const { error } = await supabase.from('csalad').update({ id_csoport: districtId }).eq('id', familyId)
   if (error) return { error: `Hiba: ${error.message}` }
+  await supabase.from('haztartas').update({ id_csoport: districtId })
+    .eq('legacy_csalad_id', familyId).eq('congregation_id', congregationId).is('ervenyes_ig', null)
   return { success: true }
 }
 
 export async function removeFamilyFromDistrict(familyId: number) {
   const { supabase, congregationId } = await getScopedContext()
   if (!congregationId) return { error: 'Nincs aktiv gyulekezet kivalasztva.' }
-  const { error } = await supabase.from('csalad').update({ id_csoport: null }).eq('id', familyId).eq('congregation_id', congregationId)
+  const { error } = await supabase.from('csalad').update({ id_csoport: null }).eq('id', familyId)
   if (error) return { error: `Hiba: ${error.message}` }
+  await supabase.from('haztartas').update({ id_csoport: null })
+    .eq('legacy_csalad_id', familyId).eq('congregation_id', congregationId).is('ervenyes_ig', null)
   return { success: true }
 }
 
@@ -165,15 +181,59 @@ export async function getDistrictFamilies(districtId: number) {
   const { visibleIds } = await getVisibleDistrictState(supabase, congregationId)
   if (!visibleIds.has(districtId)) return { families: [], assignedIds: [] }
 
-  const [allFamRes, assignedRes] = await Promise.all([
-    supabase.from('csalad').select('id, c_szam, id_csoport, ferfi:szemely!id_ferfi(csaladnev, k_nev), no:szemely!id_no(csaladnev, k_nev), utca:adrstreet!c_utcaid(name)').eq('congregation_id', congregationId),
-    supabase.from('csalad').select('id').eq('congregation_id', congregationId).eq('id_csoport', districtId),
-  ])
-  const assignedIds = new Set((assignedRes.data || []).map((f: { id: number }) => f.id))
-  return {
-    families: (allFamRes.data || []) as unknown as { id: number; c_szam: string | null; id_csoport: number | null; ferfi: { csaladnev: string; k_nev: string } | null; no: { csaladnev: string; k_nev: string } | null; utca: { name: string } | null }[],
-    assignedIds: [...assignedIds],
+  // 2026-06-01 (hibrid család-modell Fázis 2): az új haztartas + haztartas_tag
+  // szerinti aktív családok. Backward-kompat: a `families[*].id` továbbra is
+  // a régi `csalad.id` (legacy_csalad_id), hogy a UI változatlanul működjön.
+  const { data: haztartasok } = await supabase
+    .from('haztartas')
+    .select(`
+      legacy_csalad_id, id_csoport,
+      cim:cim!id_cim(szam, utca:adrstreet!id_utca(name)),
+      tagok:haztartas_tag(szerep, szemely:szemely!id_szemely(csaladnev, k_nev, ferfi))
+    `)
+    .eq('congregation_id', congregationId)
+    .is('ervenyes_ig', null)
+    .not('legacy_csalad_id', 'is', null)
+
+  type FamilyOut = {
+    id: number
+    c_szam: string | null
+    id_csoport: number | null
+    ferfi: { csaladnev: string; k_nev: string } | null
+    no: { csaladnev: string; k_nev: string } | null
+    utca: { name: string } | null
   }
+  const families: FamilyOut[] = []
+  const assignedIds: number[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const h of (haztartasok || []) as any[]) {
+    const legacyId = h.legacy_csalad_id as number
+    let ferfi: FamilyOut['ferfi'] = null
+    let no: FamilyOut['no'] = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const t of (h.tagok || []) as any[]) {
+      if (t.szerep !== 'csaladfo' && t.szerep !== 'hazastars') continue
+      const szRaw = t.szemely
+      const sz = Array.isArray(szRaw) ? szRaw[0] : szRaw
+      if (!sz) continue
+      if (sz.ferfi === true && !ferfi) ferfi = { csaladnev: sz.csaladnev, k_nev: sz.k_nev }
+      else if (sz.ferfi === false && !no) no = { csaladnev: sz.csaladnev, k_nev: sz.k_nev }
+    }
+    const cimRaw = h.cim
+    const cim = Array.isArray(cimRaw) ? cimRaw[0] : cimRaw
+    const utcaRaw = cim?.utca
+    const utca = Array.isArray(utcaRaw) ? utcaRaw[0] : utcaRaw
+    families.push({
+      id: legacyId,
+      c_szam: cim?.szam ?? null,
+      id_csoport: h.id_csoport ?? null,
+      ferfi,
+      no,
+      utca: utca ?? null,
+    })
+    if (h.id_csoport === districtId) assignedIds.push(legacyId)
+  }
+  return { families, assignedIds }
 }
 
 // ── Presbiterek ──────────────────────────────────────────────

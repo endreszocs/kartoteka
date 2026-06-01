@@ -126,10 +126,13 @@ export async function getPresentationData(year: number): Promise<{
       .from('szemely')
       .select('id, sz_datum, ferfi, meghalt')
       .eq('congregation_id', effectiveCongregationId),
+    // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas táblát olvassuk
     supabase
-      .from('csalad')
-      .select('id, id_ferfi, id_no, isaktiv')
-      .eq('isaktiv', true),
+      .from('haztartas')
+      .select('id')
+      .eq('congregation_id', effectiveCongregationId)
+      .eq('isaktiv', true)
+      .is('ervenyes_ig', null),
     supabase
       .from('befizetes')
       .select('osszeg, datum, fizetettev, id_szemely, id_befizetescel, befizetescel(nev)')

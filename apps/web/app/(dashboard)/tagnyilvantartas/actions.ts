@@ -80,8 +80,15 @@ export async function getMembers(): Promise<{
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
     supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
-    supabase.from('csalad').select('id, id_ferfi, id_no'),
-    supabase.from('gyerek').select('id_szemely, id_csalad'),
+    // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
+    // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
+    // visszafelé kompatibilis a régi `csalad.id`-vel.
+    supabase.from('haztartas_tag')
+      .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+      .eq('congregation_id', congregationId)
+      .is('ervenyes_ig', null),
+    // 2026-06-01: a `childrenRes` üresen marad (a fenti egy lekérdezés átveszi)
+    Promise.resolve({ data: [] }),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(currentYear)),
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true),
     supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
@@ -110,15 +117,22 @@ export async function getMembers(): Promise<{
     }
   })
 
-  // Személy → család mapping
+  // 2026-06-01 (hibrid család-modell Fázis 2): Személy → család (legacy id)
+  // mapping az új haztartas_tag-ból. A légkonyabb úton: aktív tag + aktív
+  // háztartás + van legacy_csalad_id.
   const personToFamilyMap: Record<number, number> = {}
-  if (familiesRes.data) familiesRes.data.forEach((f: { id: number; id_ferfi: number | null; id_no: number | null }) => {
-    if (f.id_ferfi) personToFamilyMap[f.id_ferfi] = f.id
-    if (f.id_no) personToFamilyMap[f.id_no] = f.id
-  })
-  if (childrenRes.data) childrenRes.data.forEach((c: { id_szemely: number; id_csalad: number }) => {
-    if (c.id_szemely) personToFamilyMap[c.id_szemely] = c.id_csalad
-  })
+  if (familiesRes.data) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (familiesRes.data as any[]).forEach((t) => {
+      const haztartasRaw = t.haztartas
+      const haztartas = Array.isArray(haztartasRaw) ? haztartasRaw[0] : haztartasRaw
+      if (!haztartas) return
+      if (haztartas.isaktiv !== true) return
+      if (haztartas.ervenyes_ig != null) return
+      const legacyId = haztartas.legacy_csalad_id as number | null
+      if (legacyId && t.id_szemely) personToFamilyMap[t.id_szemely] = legacyId
+    })
+  }
 
   // Fizetők
   const paidPersonIds: number[] = []

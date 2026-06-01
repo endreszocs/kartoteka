@@ -31,7 +31,13 @@ export default async function CongregationHomePage({
     const [membersRes, presbytersRes, familiesRes] = await Promise.all([
       site.show_member_count ? supabase.from('szemely').select('*', { count: 'exact', head: true }).eq('congregation_id', site.congregation_id).eq('isvisible', true).eq('meghalt', false) : Promise.resolve({ count: 0 }),
       site.show_presbyter_count ? supabase.from('presbiter').select('*', { count: 'exact', head: true }) : Promise.resolve({ count: 0 }),
-      site.show_family_count ? supabase.from('csalad').select('*', { count: 'exact', head: true }).eq('isaktiv', true) : Promise.resolve({ count: 0 }),
+      // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas-számláló
+      site.show_family_count
+        ? supabase.from('haztartas').select('*', { count: 'exact', head: true })
+            .eq('congregation_id', site.congregation_id)
+            .eq('isaktiv', true)
+            .is('ervenyes_ig', null)
+        : Promise.resolve({ count: 0 }),
     ])
     stats = {
       members: site.override_member_count || (membersRes as { count: number | null }).count || 0,

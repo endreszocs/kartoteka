@@ -401,13 +401,19 @@ export async function executeEgyhfImport(
     }
   }
   if (allCsaladIds.size > 0) {
+    // 2026-06-01 (hibrid család-modell Fázis 2): a régi `csalad` táblán nincs
+    // congregation_id oszlop (a query sosem talált semmit). Helyette az új
+    // `haztartas`-ből szűrünk congregation_id szerint, és a legacy_csalad_id
+    // visszafelé-kompatibilis a régi csalad.id-vel.
     const { data: csRows } = await supabase
-      .from('csalad')
-      .select('id')
-      .in('id', Array.from(allCsaladIds))
+      .from('haztartas')
+      .select('legacy_csalad_id')
+      .in('legacy_csalad_id', Array.from(allCsaladIds))
       .eq('congregation_id', profile.congregation_id)
     for (const r of csRows ?? []) {
-      if (typeof r.id === 'number') validCsaladIds.add(r.id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const id = (r as any).legacy_csalad_id
+      if (typeof id === 'number') validCsaladIds.add(id)
     }
   }
 
@@ -736,6 +742,23 @@ async function lookupCsaladId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   szemelyId: number,
 ): Promise<number | null> {
+  // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas_tag-ból kérdezzük,
+  // bármely szerepben (családfő/házastárs/gyermek). A legacy_csalad_id-t
+  // adjuk vissza visszafelé-kompatibilitás miatt.
+  const { data: tagRows } = await supabase
+    .from('haztartas_tag')
+    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .eq('id_szemely', szemelyId)
+    .is('ervenyes_ig', null)
+    .limit(5)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (tagRows || []) as any[]) {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) {
+      return h.legacy_csalad_id as number
+    }
+  }
+  // Fallback a régi modellre
   const { data: cs } = await supabase
     .from('csalad')
     .select('id')

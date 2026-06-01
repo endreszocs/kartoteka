@@ -164,26 +164,29 @@ export async function autoIssueChitantaForBefizetes(
     }
   }
   if (!befizetoNev && befizetes.id_csalad) {
-    // Család esetén a családfő címét vesszük (ha van kapcsolt személy)
-    const { data: cs } = await access.supabase
-      .from('csalad')
-      .select('csaladnev')
-      .eq('id', befizetes.id_csalad)
-      .maybeSingle()
-    if (cs?.csaladnev) befizetoNev = String(cs.csaladnev) + ' család'
-    // Család cím: az első kapcsolt személy (pl. családfő) címét vesszük
-    const { data: csalaTag } = await access.supabase
-      .from('szemely')
-      .select('c_szam, adrlocality:c_helysegid(name), adrstreet:c_utcaid(name)')
-      .eq('id_csalad', befizetes.id_csalad)
-      .order('id', { ascending: true })
+    // 2026-06-01 (hibrid család-modell Fázis 2): a háztartást a legacy_csalad_id
+    // alapján találjuk meg, és a megnevezés-mezőből hozzuk a család-nevet
+    // ("Kovács család — Templom u. 3"). A cím szintén a haztartas.cim-ből
+    // (utca + szám + tömbház + ajtó) — pontosabb mint a régi szemely-bug.
+    const { data: haztartas } = await access.supabase
+      .from('haztartas')
+      .select(`
+        megnevezes,
+        cim:cim!id_cim(szam, tombhaz, lepcsohaz, emelet, ajto, utca:adrstreet!id_utca(name))
+      `)
+      .eq('legacy_csalad_id', befizetes.id_csalad)
+      .is('ervenyes_ig', null)
       .limit(1)
       .maybeSingle()
-    if (csalaTag) {
-      const loc = csalaTag.adrlocality as { name?: string | null } | null
-      const str = csalaTag.adrstreet as { name?: string | null } | null
-      const cimParts = [loc?.name, str?.name, csalaTag.c_szam].filter(Boolean)
-      if (cimParts.length > 0) befizetoCim = cimParts.join(', ')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const h = haztartas as any
+    if (h?.megnevezes) befizetoNev = String(h.megnevezes)
+    if (h?.cim) {
+      const cim = Array.isArray(h.cim) ? h.cim[0] : h.cim
+      const utcaRaw = cim?.utca
+      const utca = Array.isArray(utcaRaw) ? utcaRaw[0] : utcaRaw
+      const cimParts = [utca?.name, cim?.szam].filter(Boolean)
+      if (cimParts.length > 0) befizetoCim = cimParts.join(' ')
     }
   }
   if (!befizetoNev && typeof befizetes.forrasa === 'string') {

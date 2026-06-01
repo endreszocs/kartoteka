@@ -46,11 +46,6 @@ interface ActivityRow {
   created_at: string
 }
 
-interface FamilySummary {
-  id: number
-  id_ferfi: number | null
-  id_no: number | null
-}
 
 interface PresbiterSummary {
   id: number
@@ -104,10 +99,14 @@ export default async function DashboardPage() {
     // születésnap-listában csak a házszám jelent meg helység/utcanév nélkül.
     supabase.from('szemely').select('id, csaladnev, k_nev, namepattern, sz_datum, ferfi, c_szam, c_szcim, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', effectiveCongregationId).eq('meghalt', false),
     supabase.from('elkoltozott').select('id_szemely').eq('congregation_id', effectiveCongregationId),
-    // 2026-04-19 JAVÍTÁS: a `csalad` táblán NINCS congregation_id oszlop.
-    // A szűrést a filter-nél végezzük (memberIds-szel kereszt-szűrés).
-    // Plus: isaktiv = true, hogy csak aktív családokat számoljunk.
-    supabase.from('csalad').select('id, id_ferfi, id_no, isaktiv').eq('isaktiv', true),
+    // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ `haztartas` táblát
+    // olvassuk — congregation_id direkt szűr, és a tagság aktív tagjai a
+    // `haztartas_tag`-ban élnek (csaladfo/hazastars szerepekkel).
+    supabase.from('haztartas')
+      .select('id, isaktiv, tagok:haztartas_tag(id_szemely, szerep)')
+      .eq('congregation_id', effectiveCongregationId)
+      .eq('isaktiv', true)
+      .is('ervenyes_ig', null),
     // deleted/stornozott törölt tételek kizárva — 2026-04-21t
     supabase.from('befizetes').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).eq('stornozott', false).gte('datum', chartStartDate),
     supabase.from('kiadas').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).gte('datum', chartStartDate),
@@ -132,10 +131,18 @@ export default async function DashboardPage() {
   // (elköltözötteket + meghaltakat kizárjuk). Így a „rendezve" családszám
   // a ténylegesen gyülekezethez tartozó családokat tükrözi.
   const activeMemberIds = new Set(activeMembers.map(member => Number(member.id)))
-  const familyCount = ((csaladResult.data || []) as FamilySummary[]).filter(family =>
-    (family.id_ferfi && activeMemberIds.has(family.id_ferfi)) ||
-    (family.id_no && activeMemberIds.has(family.id_no))
-  ).length
+  // 2026-06-01 (hibrid család-modell): a háztartást aktívnak vesszük, ha
+  // legalább egy családfő/házastárs aktív tagja a gyülekezetnek.
+  const familyCount = ((csaladResult.data || []) as Array<{
+    id: string; isaktiv: boolean;
+    tagok: Array<{ id_szemely: number; szerep: string }> | null;
+  }>).filter(h => {
+    const tagok = h.tagok || []
+    return tagok.some(t =>
+      (t.szerep === 'csaladfo' || t.szerep === 'hazastars') &&
+      activeMemberIds.has(t.id_szemely)
+    )
+  }).length
   const presbCount = ((presbResult.data || []) as PresbiterSummary[]).filter(row =>
     row.id_szemely !== null && memberIds.has(row.id_szemely)
   ).length

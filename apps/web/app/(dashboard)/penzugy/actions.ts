@@ -652,8 +652,12 @@ export async function initFinance(year: number) {
       .eq('fizetettev', year)
       .or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
-    supabase.from('csalad').select('id, id_ferfi, id_no'),
-    supabase.from('gyerek').select('id_szemely, id_csalad'),
+    // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas_tag-ból mapping
+    supabase.from('haztartas_tag')
+      .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+      .eq('congregation_id', congregationId)
+      .is('ervenyes_ig', null),
+    Promise.resolve({ data: [] }),
     supabase
       .from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
@@ -850,13 +854,20 @@ export async function initFinance(year: number) {
     }
   })
 
+  // 2026-06-01 (hibrid család-modell Fázis 2): Személy → család (legacy_csalad_id)
+  // mapping az új haztartas_tag-ból; csak aktív tagság + aktív háztartás számít.
   const personToFamilyMap: Record<number, number> = {}
-  ;((familiesRes.data || []) as Array<{ id: number; id_ferfi: number | null; id_no: number | null }>).forEach((family) => {
-    if (family.id_ferfi) personToFamilyMap[family.id_ferfi] = family.id
-    if (family.id_no) personToFamilyMap[family.id_no] = family.id
-  })
-  ;((childrenRes.data || []) as Array<{ id_szemely: number; id_csalad: number }>).forEach((child) => {
-    if (child.id_szemely) personToFamilyMap[child.id_szemely] = child.id_csalad
+  ;(
+    (familiesRes.data || []) as Array<{
+      id_szemely: number
+      haztartas: { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null } | { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null }[] | null
+    }>
+  ).forEach((row) => {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (!h || h.isaktiv !== true || h.ervenyes_ig != null) return
+    if (h.legacy_csalad_id && row.id_szemely) {
+      personToFamilyMap[row.id_szemely] = h.legacy_csalad_id
+    }
   })
 
   const maintenancePayments = ((debtPaymentsRes.data || []) as Array<{
@@ -1537,6 +1548,23 @@ export async function searchMembersForFinance(query: string) {
 
 export async function getFamilyIdForPerson(personId: number): Promise<number | null> {
   const supabase = await createClient()
+  // 2026-06-01 (hibrid család-modell Fázis 2): aktív haztartas_tag-ból kérdezzük,
+  // a haztartas.legacy_csalad_id visszafelé-kompatibilis a régi csalad.id-vel.
+  // Bármilyen szerep (családfő/házastárs/gyermek/lakótárs) jó — fő a tagság.
+  const { data } = await supabase
+    .from('haztartas_tag')
+    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .eq('id_szemely', personId)
+    .is('ervenyes_ig', null)
+    .limit(5)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (data || []) as any[]) {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) {
+      return h.legacy_csalad_id as number
+    }
+  }
+  // Fallback a régi modellre (ha valamiért nincs új-modell tagság)
   const { data: asParent } = await supabase.from('csalad')
     .select('id').or(`id_ferfi.eq.${personId},id_no.eq.${personId}`).limit(1)
   if (asParent?.[0]) return asParent[0].id

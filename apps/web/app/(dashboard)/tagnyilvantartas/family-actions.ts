@@ -154,36 +154,30 @@ async function syncHouseholdFromCsalad(supabase: any, csaladId: number, congrega
   }
 }
 
+/**
+ * 2026-06-01 (hibrid család-modell Fázis 2): a `csalad.id`-k halmaza, amelyhez
+ * a felhasználónak hozzáférése van. Az új modellből számoljuk: a `haztartas`
+ * tábla congregation_id-vel szűrve azonosítja a saját gyülekezetes
+ * háztartásokat, a `legacy_csalad_id` a régi `csalad.id`-re mutat vissza.
+ *
+ * Ez egyszerűbb és gyorsabb, mint a régi 2x JOIN szemely-csalad-gyerek logika.
+ */
 async function getAllowedFamilyIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   congregationId: string,
 ): Promise<Set<number>> {
-  const { data: memberRows } = await supabase
-    .from('szemely')
-    .select('id')
+  const { data } = await supabase
+    .from('haztartas')
+    .select('legacy_csalad_id')
     .eq('congregation_id', congregationId)
+    .not('legacy_csalad_id', 'is', null)
 
-  const memberIds = new Set((memberRows || []).map((row: { id: number }) => row.id))
-  if (memberIds.size === 0) return new Set()
-
-  const [familiesRes, childrenRes] = await Promise.all([
-    supabase.from('csalad').select('id, id_ferfi, id_no'),
-    supabase.from('gyerek').select('id_csalad, id_szemely'),
-  ])
-
-  const allowed = new Set<number>()
-  ;(familiesRes.data || []).forEach((family: { id: number; id_ferfi: number | null; id_no: number | null }) => {
-    if ((family.id_ferfi && memberIds.has(family.id_ferfi)) || (family.id_no && memberIds.has(family.id_no))) {
-      allowed.add(family.id)
-    }
-  })
-  ;(childrenRes.data || []).forEach((child: { id_csalad: number; id_szemely: number }) => {
-    if (memberIds.has(child.id_szemely)) {
-      allowed.add(child.id_csalad)
-    }
-  })
-
-  return allowed
+  return new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((data || []) as any[])
+      .map((row) => row.legacy_csalad_id as number)
+      .filter((id): id is number => id != null),
+  )
 }
 
 export async function getFamilies(): Promise<FamilyRow[]> {
