@@ -1,13 +1,18 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Home, MapPin, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Grid3x3, Home, List, MapPin, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteFamily, getFamilies, type FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
 import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
+import {
+  FamilyCardPreview,
+  familyRowToCardData,
+  districtsToMap,
+} from '@/components/modals/family-card-preview'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
@@ -34,6 +39,19 @@ export function FamiliesTab() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [districtFilter, setDistrictFilter] = useState<number | 'all' | 'none'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // 2026-06-02: lista vs. kártya nézet — sticky lokál-tárolva.
+  const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
+    if (typeof window === 'undefined') return 'list'
+    try {
+      const saved = localStorage.getItem('kartoteka.families.viewMode')
+      return saved === 'cards' ? 'cards' : 'list'
+    } catch { return 'list' }
+  })
+  function changeViewMode(v: 'list' | 'cards') {
+    setViewMode(v)
+    try { localStorage.setItem('kartoteka.families.viewMode', v) } catch {}
+  }
+  const districtMap = useMemo(() => districtsToMap(districts), [districts])
 
   const loadFamilies = useCallback(async () => {
     const data = await getFamilies()
@@ -241,6 +259,31 @@ export function FamiliesTab() {
             <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
               {filtered.length} találat
             </span>
+            {/* 2026-06-02: lista / kártya nézet-váltó */}
+            <div className="inline-flex rounded-full bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => changeViewMode('list')}
+                title="Lista nézet"
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  viewMode === 'list' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <List className="size-3.5" />
+                Lista
+              </button>
+              <button
+                type="button"
+                onClick={() => changeViewMode('cards')}
+                title="Kártya nézet"
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  viewMode === 'cards' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Grid3x3 className="size-3.5" />
+                Kártyák
+              </button>
+            </div>
             {!showCards && (
               <Button
                 size="sm"
@@ -341,6 +384,17 @@ export function FamiliesTab() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="card-raised p-8 text-center text-slate-500">Nincs a keresésnek megfelelő család.</div>
+      ) : viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((family) => (
+            <FamilyCardPreview
+              key={family.id}
+              data={familyRowToCardData(family, districtMap)}
+              compact
+              onClick={() => openDetails(family.id)}
+            />
+          ))}
+        </div>
       ) : (
         <div className="card-raised overflow-hidden">
           <div className="overflow-x-auto">

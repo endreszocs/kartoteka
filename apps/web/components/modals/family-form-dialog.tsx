@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +11,7 @@ import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantart
 import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { toast } from 'sonner'
+import { FamilyCardPreview, type FamilyCardData } from '@/components/modals/family-card-preview'
 
 interface SearchResult {
   id: number
@@ -28,11 +30,13 @@ interface FamilyFormDialogProps {
   editFamily: FamilyRow | null
 }
 
+type PersonRef = { id: number; name: string; age?: number | null }
+
 export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [husband, setHusband] = useState<{ id: number; name: string } | null>(null)
-  const [wife, setWife] = useState<{ id: number; name: string } | null>(null)
-  const [children, setChildren] = useState<{ id: number; name: string }[]>([])
+  const [husband, setHusband] = useState<PersonRef | null>(null)
+  const [wife, setWife] = useState<PersonRef | null>(null)
+  const [children, setChildren] = useState<PersonRef[]>([])
   const [cSzam, setCSzam] = useState('')
   const [cUtcaid, setCUtcaid] = useState<number | undefined>(undefined)
   const [cUtcaName, setCUtcaName] = useState('')
@@ -60,8 +64,14 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
         if (!cancelled) setDistricts(data)
       })
       if (editFamily) {
-        setHusband(editFamily.ferfi ? { id: editFamily.ferfi.id, name: `${editFamily.ferfi.csaladnev} ${editFamily.ferfi.k_nev}` } : null)
-        setWife(editFamily.no ? { id: editFamily.no.id, name: `${editFamily.no.csaladnev} ${editFamily.no.k_nev}` } : null)
+        const ageOf = (d: string | null | undefined) =>
+          d ? new Date().getFullYear() - new Date(d).getFullYear() : null
+        setHusband(editFamily.ferfi
+          ? { id: editFamily.ferfi.id, name: `${editFamily.ferfi.csaladnev} ${editFamily.ferfi.k_nev}`, age: ageOf(editFamily.ferfi.sz_datum) }
+          : null)
+        setWife(editFamily.no
+          ? { id: editFamily.no.id, name: `${editFamily.no.csaladnev} ${editFamily.no.k_nev}`, age: ageOf(editFamily.no.sz_datum) }
+          : null)
         setCSzam(editFamily.c_szam || '')
         setCUtcaName(editFamily.utca?.name || '')
         setCUtcaid(undefined)
@@ -104,18 +114,19 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
 
   function selectPerson(r: SearchResult, type: 'husband' | 'wife' | 'child') {
     const name = `${r.csaladnev} ${r.k_nev}`
+    const age = r.sz_datum ? new Date().getFullYear() - new Date(r.sz_datum).getFullYear() : null
     if (type === 'husband') {
-      setHusband({ id: r.id, name }); setHusbandQuery(''); setShowHusband(false)
+      setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
       // Cím auto-töltés a férj lakcíméből
       if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(undefined) }
       if (r.c_szam) setCSzam(r.c_szam)
     } else if (type === 'wife') {
-      setWife({ id: r.id, name }); setWifeQuery(''); setShowWife(false)
+      setWife({ id: r.id, name, age }); setWifeQuery(''); setShowWife(false)
       // Ha nincs még cím → a feleség lakcíméből tölt
       if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(undefined) }
       if (!cSzam && r.c_szam) setCSzam(r.c_szam)
     } else {
-      if (!children.find(c => c.id === r.id)) setChildren(prev => [...prev, { id: r.id, name }])
+      if (!children.find(c => c.id === r.id)) setChildren(prev => [...prev, { id: r.id, name, age }])
       setChildQuery('')
       setShowChild(false)
     }
@@ -158,14 +169,43 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     )
   }
 
+  // 2026-06-02: élő kártya-előnézet — minden state-frissítésre újraszámol.
+  // A „familyName" a férj családnevéből vesszük (vagy a feleségéből, ha nincs férj).
+  const previewData: FamilyCardData = useMemo(() => {
+    const husbandLastName = husband?.name.split(' ')[0]
+    const wifeLastName = wife?.name.split(' ')[0]
+    const familyName = husbandLastName || wifeLastName || null
+    const districtName = idCsoport
+      ? districts.find((d) => String(d.id) === idCsoport)?.nev ?? null
+      : null
+    return {
+      familyName,
+      husband: husband ? { id: husband.id, name: husband.name, age: husband.age ?? null } : null,
+      wife: wife ? { id: wife.id, name: wife.name, age: wife.age ?? null } : null,
+      children: children.map((c) => ({ id: c.id, name: c.name, age: c.age ?? null })),
+      street: cUtcaName || null,
+      houseNumber: cSzam || null,
+      districtName,
+      isPreview: true,
+      isActive: true,
+    }
+  }, [husband, wife, children, cUtcaName, cSzam, idCsoport, districts])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editFamily ? 'Család szerkesztése' : 'Új család létrehozása'}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {editFamily ? 'Család szerkesztése' : 'Új család létrehozása'}
+            <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+              <Sparkles className="size-3.5" />
+              élő karton-előnézet
+            </span>
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+          <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
           {/* Férj */}
           <div className="space-y-1.5 relative">
             <Label>Férj</Label>
@@ -245,12 +285,27 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
             </p>
           </div>
 
-          <div className="flex gap-2 pt-4 border-t border-zinc-100">
-            <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
-            <Button onClick={handleSubmit} disabled={loading}>
-              {loading ? 'Mentés...' : 'Mentés'}
-            </Button>
           </div>
+
+          {/* ─── JOBB OSZLOP: Élő karton-előnézet ─── */}
+          <aside className="md:sticky md:top-0 md:self-start">
+            <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
+              <p className="text-[11px] text-amber-900 leading-relaxed">
+                <Sparkles className="size-3 inline mr-1 text-amber-600" />
+                Ahogy gépeled / választod az adatokat, a családi karton automatikusan
+                kitöltődik. A sárga figyelmeztetésnél a kártya megmutatja, mi hiányzik még.
+              </p>
+            </div>
+            <FamilyCardPreview data={previewData} />
+          </aside>
+        </div>
+
+        {/* ─── Alsó akciósor ─── */}
+        <div className="flex gap-2 pt-4 border-t border-zinc-100 mt-4">
+          <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? 'Mentés...' : 'Mentés'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
