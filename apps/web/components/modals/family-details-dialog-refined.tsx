@@ -1,24 +1,27 @@
-﻿'use client'
+'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  AlertCircle,
+  Baby,
   BookOpen,
-  Check,
+  Church,
   CreditCard,
+  Crown,
+  Cross,
   Heart,
   Home,
+  Mail,
   MapPin,
-  Minus,
+  Phone,
+  Sparkles,
   Users,
   X,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
 import { getFamilyDetails } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
-import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
 import { ageFromDate } from '@/lib/utils/date'
 
 interface FamilyDetailsDialogProps {
@@ -28,29 +31,17 @@ interface FamilyDetailsDialogProps {
 }
 
 type FamilyData = Awaited<ReturnType<typeof getFamilyDetails>>
-type Tab = 'members' | 'registry' | 'payments'
 
-const TABS: Array<{ value: Tab; label: string; icon: typeof Users }> = [
-  { value: 'members', label: 'Családtagok', icon: Users },
-  { value: 'registry', label: 'Anyakönyv', icon: BookOpen },
-  { value: 'payments', label: 'Befizetések', icon: CreditCard },
-]
-
-function formatDisplayDate(value?: string | null) {
-  if (!value) return 'Nincs rögzítve'
-
-  const normalized = value.includes('T') ? value : `${value}T00:00:00`
-  const parsed = new Date(normalized)
-
-  if (Number.isNaN(parsed.getTime())) return value
-
-  return new Intl.DateTimeFormat('hu-HU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(parsed)
-}
-
+/**
+ * 2026-06-02 v3 — Családi karton dialog teljes újraalkotás.
+ *
+ * Egyetlen scrollolható oldal (nem tabok), tiszta papír-szerű design,
+ * színes szekciókkal:
+ *   - Fejléc:        gradient, családnév, cím, körzet, status-pill, hiányzók
+ *   - Tagok:         családfő + házastárs + gyerekek listája
+ *   - Anyakönyv:     esketés, keresztelők, konfirmációk, temetések
+ *   - Befizetések:   tétel-lista + összegző sáv
+ */
 export function FamilyDetailsDialogRefined({
   open,
   onOpenChange,
@@ -58,29 +49,21 @@ export function FamilyDetailsDialogRefined({
 }: FamilyDetailsDialogProps) {
   const [data, setData] = useState<FamilyData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [tab, setTab] = useState<Tab>('members')
 
   useEffect(() => {
     if (!open || !familyId) return
-
     let cancelled = false
-
     queueMicrotask(() => {
       if (cancelled) return
       setData(null)
       setLoading(true)
-      setTab('members')
-
       getFamilyDetails(familyId).then((value) => {
         if (cancelled) return
         setData(value)
         setLoading(false)
       })
     })
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [open, familyId])
 
   const family = data?.family
@@ -91,359 +74,331 @@ export function FamilyDetailsDialogRefined({
   const hazassag = data?.hazassag
   const temetesek = data?.temetesek || []
 
-  const title = !family
-    ? 'Családi karton'
-    : family.ferfi && family.no
-      ? `${formatNameWithPrefix(family.ferfi, family.no?.meghalt)} és ${family.no.k_nev} családja`
-      : family.ferfi
-        ? `${formatNameWithPrefix(family.ferfi)} családja`
-        : family.no
-          ? `${formatNameWithPrefix(family.no)} családja`
-          : 'Családi karton'
-
-  const members = [family?.ferfi, family?.no, ...children].filter(Boolean) as Array<{
-    id: number
-    csaladnev: string
-    k_nev: string
-    ferfi: boolean
-    sz_datum: string | null
-    meghalt: boolean
-    vallas?: string | null
-    foglalkozas?: string | null
-    namepattern?: string | null
-    allapot?: string | null
-  }>
-
+  // Családnév — a férj/feleség családnevéből
+  const familyName = family?.ferfi?.csaladnev || family?.no?.csaladnev || null
   const totalPayments = payments.reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
+  const yearNow = new Date().getFullYear()
+
+  const isLiving = family
+    ? (family.ferfi && !family.ferfi.meghalt) || (family.no && !family.no.meghalt)
+    : false
+
+  // Hiányzó adatok listája
+  const missing: string[] = []
+  if (family) {
+    if (!family.ferfi && !family.no) missing.push('családfő/házastárs')
+    if (!family.utca?.name) missing.push('utca')
+    if (!family.c_szam) missing.push('házszám')
+    if (!family.csoport?.nev) missing.push('körzet')
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[92vh] !w-[min(1140px,calc(100vw-2rem))] !max-w-[min(1140px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1180px,calc(100vw-3rem))] sm:!max-w-[min(1180px,calc(100vw-3rem))]"
+        className="!w-[min(960px,calc(100vw-2rem))] !max-w-[min(960px,calc(100vw-2rem))] max-h-[92vh] overflow-hidden rounded-[1.5rem] border-0 bg-transparent p-0 shadow-none"
         showCloseButton={false}
       >
-        <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent2) 30%, transparent)' }} />
-            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 25%, transparent)' }} />
-          </div>
-
+        <div className="relative overflow-hidden rounded-[1.5rem] bg-white shadow-2xl ring-1 ring-slate-200">
+          {/* Bezáró gomb */}
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-slate-500 shadow-sm transition hover:text-slate-700 sm:right-4 sm:top-4"
+            className="absolute right-3 top-3 z-30 inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
             aria-label="Bezárás"
           >
             <X className="size-4" />
           </button>
 
-          <div className="relative border-b border-slate-200/70 px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-6">
-            <div className="flex flex-col gap-4">
-              <div className="min-w-0 pr-12 sm:pr-14">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">Családi karton</p>
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
-                  <div className="flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]">
-                    <Users className="size-7" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <DialogTitle className="font-heading text-[1.8rem] leading-[1.08] text-slate-800 sm:text-[2rem]">
-                      {title}
-                    </DialogTitle>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {family?.isaktiv ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
-                          <Check className="size-3.5" />
-                          Aktív család
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-                          <Minus className="size-3.5" />
-                          Inaktív család
-                        </span>
-                      )}
-                      {family?.csoport?.nev && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-                          <MapPin className="size-3.5 text-teal-600" />
-                          {family.csoport.nev}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
-                        <Home className="size-3.5" />
-                        {family ? `${family.utca?.name || 'Ismeretlen cím'} ${family.c_szam || ''}`.trim() : 'Nincs cím'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                <StatChip label="Tagok" value={`${members.length} fő`} />
-                <StatChip label="Befizetés" value={`${payments.length} tétel`} />
-                <StatChip label="Összeg" value={`${totalPayments.toFixed(2)} RON`} />
-              </div>
-            </div>
-
-            {!loading && family && (
-              <div className="mt-5 flex flex-wrap gap-2">
-                {TABS.map(({ value, label, icon: Icon }) => {
-                  const active = tab === value
-
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTab(value)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition ${
-                        active
-                          ? 'border-violet-200 bg-violet-600 text-white shadow-[0_16px_30px_-22px_rgba(109,40,217,0.55)]'
-                          : 'border-white/70 bg-white/82 text-slate-600 shadow-sm hover:border-violet-100 hover:text-violet-700'
-                      }`}
-                    >
-                      <Icon className="size-4" />
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="max-h-[calc(92vh-12.5rem)] overflow-y-auto overscroll-y-contain px-4 py-5 pr-3 sm:px-6 sm:py-6 sm:pr-5">
+          <div className="max-h-[92vh] overflow-y-auto">
             {loading ? (
-              <div className="rounded-[1.45rem] bg-white/88 px-6 py-10 text-center shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-[1.4rem] bg-secondary text-violet-700">
+              <div className="px-8 py-16 text-center">
+                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-violet-50 text-violet-600">
                   <Users className="size-8 animate-pulse" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-800">Családi kartoték betöltése folyamatban</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Összerendezzük a családtagokat, az anyakönyvi adatokat és a befizetési áttekintést.
+                <p className="font-heading text-lg text-slate-700">
+                  Családi karton betöltése…
                 </p>
               </div>
             ) : !family ? (
-              <EmptyState
-                icon={<Users className="size-10" />}
-                title="Nem található család"
-                description="A kiválasztott család nem érhető el az aktuális gyülekezeti nézetben."
-              />
+              <div className="px-8 py-16 text-center text-slate-500">
+                <Users className="mx-auto mb-3 size-10 text-slate-300" />
+                <p>Nem található család.</p>
+              </div>
             ) : (
               <>
-                {tab === 'members' && (
-                  <div className="space-y-4">
-                    {hazassag?.datum && (
-                      <SoftPanel eyebrow="Családi esemény" title="Házasságkötés" icon={<Heart className="size-4" />}>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          <MiniFact label="Dátum" value={formatDisplayDate(hazassag.datum)} />
-                          <MiniFact label="Helyszín" value={hazassag.adrlocality?.name || 'Nincs rögzítve'} />
-                          <MiniFact label="Lelkész" value={hazassag.lelkeszneve || 'Nincs rögzítve'} />
-                        </div>
-                      </SoftPanel>
-                    )}
-
-                    <SoftPanel eyebrow="Családi mag" title="Szülők és házastársi kapcsolat" icon={<Users className="size-4" />}>
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        {family.ferfi && (
-                          <MemberCard
-                            label="Családfő"
-                            tone="sky"
-                            member={family.ferfi}
-                            spouse={family.no}
-                          />
-                        )}
-                        {family.no && (
-                          <MemberCard
-                            label="Feleség"
-                            tone="rose"
-                            member={family.no}
-                            spouse={family.ferfi}
-                          />
-                        )}
-                        {!family.ferfi && !family.no && (
-                          <div className="rounded-[1.15rem] bg-secondary/50 px-4 py-5 text-sm text-slate-500 ring-1 ring-white/70 xl:col-span-2">
-                            A családhoz még nincs rögzítve szülő vagy házastárs.
-                          </div>
-                        )}
-                      </div>
-                    </SoftPanel>
-
-                    {children.length > 0 && (
-                      <SoftPanel eyebrow="Gyermekek" title={`${children.length} gyermek a családban`} icon={<Users className="size-4" />}>
-                        <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                          <MiniFact label="Összes gyermek" value={`${children.length} fő`} />
-                          <MiniFact
-                            label="Kiskorú"
-                            value={`${children.filter((child) => {
-                              const childAge = ageFromDate(child.sz_datum)
-                              return childAge !== null && childAge < 18
-                            }).length} fő`}
-                          />
-                          <MiniFact
-                            label="Felnőtt"
-                            value={`${children.filter((child) => {
-                              const childAge = ageFromDate(child.sz_datum)
-                              return childAge !== null && childAge >= 18
-                            }).length} fő`}
-                          />
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                          {children.map((child) => (
-                            <MemberCard key={child.id} label="Gyermek" tone="emerald" member={child} />
-                          ))}
-                        </div>
-                      </SoftPanel>
-                    )}
+                {/* ───── FEJLÉC ───── */}
+                <header className="relative border-b border-slate-100 bg-gradient-to-br from-violet-50/60 via-white to-emerald-50/60 px-6 py-5 sm:px-8 sm:py-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="size-3.5 text-violet-500" />
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
+                      Családi karton
+                    </p>
                   </div>
-                )}
 
-                {tab === 'registry' && (
-                  <div className="space-y-4">
-                    {members.length > 0 ? (
-                      <SoftPanel
-                        eyebrow="Személyhez kötött események"
-                        title="Családi anyakönyvi áttekintés"
-                        icon={<BookOpen className="size-4" />}
-                      >
-                        <div className="overflow-x-auto">
-                          <table className="min-w-[760px] w-full text-left text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200/70 text-[11px] uppercase tracking-[0.16em] text-slate-400">
-                                <th className="px-3 py-3 font-semibold">Név</th>
-                                <th className="px-3 py-3 font-semibold">Szerep</th>
-                                <th className="px-3 py-3 font-semibold">Születés</th>
-                                <th className="px-3 py-3 font-semibold">Keresztelés</th>
-                                <th className="px-3 py-3 font-semibold">Konfirmáció</th>
-                                <th className="px-3 py-3 font-semibold">Esketés</th>
-                                <th className="px-3 py-3 font-semibold">Temetés</th>
+                  <DialogTitle className="font-heading text-3xl text-slate-800 sm:text-4xl">
+                    {familyName ? (
+                      <>
+                        {familyName}{' '}
+                        <span className="font-normal text-slate-500">család</span>
+                      </>
+                    ) : (
+                      <span className="italic text-slate-400">— névtelen család —</span>
+                    )}
+                  </DialogTitle>
+
+                  {/* Cím + körzet sor */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Pill
+                      icon={<MapPin className="size-3" />}
+                      tone={family.utca?.name ? 'slate' : 'amber'}
+                    >
+                      {family.utca?.name ? (
+                        <>{family.utca.name}{family.c_szam ? ` ${family.c_szam}` : ''}</>
+                      ) : (
+                        <em>cím hiányzik</em>
+                      )}
+                    </Pill>
+                    {family.csoport?.nev ? (
+                      <Pill icon={<Home className="size-3" />} tone="violet">
+                        {family.csoport.nev}
+                      </Pill>
+                    ) : (
+                      <Pill icon={<Home className="size-3" />} tone="amber">
+                        <em>körzet nincs</em>
+                      </Pill>
+                    )}
+                    <Pill
+                      icon={isLiving ? <Heart className="size-3 fill-current" /> : <Cross className="size-3" />}
+                      tone={isLiving ? 'emerald' : 'slate'}
+                    >
+                      {isLiving ? 'Élő család' : 'Elhunyt család'}
+                    </Pill>
+                  </div>
+
+                  {/* Hiányzó adatok figyelmeztetés */}
+                  {missing.length > 0 && (
+                    <div className="mt-3 inline-flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-xs text-amber-800">
+                      <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        <strong>Hiányzó adatok:</strong> {missing.join(', ')}
+                      </span>
+                    </div>
+                  )}
+                </header>
+
+                {/* ───── BODY: szekciók ───── */}
+                <div className="space-y-5 px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/30">
+                  {/* TAGOK */}
+                  <Section
+                    title="Családtagok"
+                    icon={<Users className="size-4" />}
+                    accent="violet"
+                  >
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {family.ferfi ? (
+                        <MemberPanel role="head" member={family.ferfi} />
+                      ) : family.no ? (
+                        <MemberPanel role="head" member={family.no} />
+                      ) : null}
+
+                      {family.ferfi && family.no && (
+                        <MemberPanel role="spouse" member={family.no} />
+                      )}
+                    </div>
+
+                    {/* Gyermekek */}
+                    {children.length > 0 && (
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Baby className="size-4 text-pink-500" />
+                          <h4 className="text-sm font-semibold text-slate-700">
+                            Gyermekek ({children.length})
+                          </h4>
+                        </div>
+                        <div className="grid gap-1.5 sm:grid-cols-2">
+                          {children.map((c) => {
+                            const age = c.sz_datum
+                              ? yearNow - new Date(c.sz_datum).getFullYear()
+                              : null
+                            return (
+                              <div
+                                key={c.id}
+                                className={`flex items-center gap-2 text-sm ${
+                                  c.meghalt ? 'text-slate-400 line-through' : 'text-slate-700'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-flex size-5 items-center justify-center rounded-full ${
+                                    c.ferfi ? 'bg-blue-50 text-blue-600' : 'bg-pink-50 text-pink-600'
+                                  }`}
+                                >
+                                  {c.ferfi ? '♂' : '♀'}
+                                </span>
+                                <span>
+                                  {c.meghalt && '† '}
+                                  {c.csaladnev} {c.k_nev}
+                                  {age != null && (
+                                    <span className="text-slate-400"> ({age} éves)</span>
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {!family.ferfi && !family.no && (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-500 italic">
+                        Nincs felnőtt tag rögzítve ehhez a családhoz.
+                      </div>
+                    )}
+                  </Section>
+
+                  {/* ANYAKÖNYV */}
+                  {(hazassag?.datum ||
+                    keresztelesek.length > 0 ||
+                    konfirmaciok.length > 0 ||
+                    temetesek.length > 0) && (
+                    <Section
+                      title="Anyakönyvi bejegyzések"
+                      icon={<BookOpen className="size-4" />}
+                      accent="amber"
+                    >
+                      <div className="space-y-3">
+                        {hazassag?.datum && (
+                          <RegistryItem
+                            icon={<Heart className="size-4 text-rose-500" />}
+                            label="Esketés"
+                            date={hazassag.datum}
+                            location={hazassag.adrlocality?.name}
+                            person={hazassag.lelkeszneve ? `Lelkész: ${hazassag.lelkeszneve}` : null}
+                          />
+                        )}
+                        {keresztelesek.map((k, i) => (
+                          <RegistryItem
+                            key={`baptism-${i}`}
+                            icon={<Church className="size-4 text-blue-500" />}
+                            label="Keresztelő"
+                            date={k.datum}
+                            location={k.adrlocality?.name}
+                            person={
+                              [family.ferfi, family.no, ...children].find(
+                                (m) => m?.id === k.id_szemely,
+                              )
+                                ? `${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === k.id_szemely,
+                                    )?.csaladnev
+                                  } ${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === k.id_szemely,
+                                    )?.k_nev
+                                  }`
+                                : null
+                            }
+                          />
+                        ))}
+                        {konfirmaciok.map((kon, i) => (
+                          <RegistryItem
+                            key={`conf-${i}`}
+                            icon={<Sparkles className="size-4 text-emerald-500" />}
+                            label="Konfirmáció"
+                            date={kon.datum}
+                            location={kon.adrlocality?.name}
+                            person={
+                              [family.ferfi, family.no, ...children].find(
+                                (m) => m?.id === kon.id_szemely,
+                              )
+                                ? `${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === kon.id_szemely,
+                                    )?.csaladnev
+                                  } ${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === kon.id_szemely,
+                                    )?.k_nev
+                                  }`
+                                : null
+                            }
+                          />
+                        ))}
+                        {temetesek.map((t, i) => (
+                          <RegistryItem
+                            key={`burial-${i}`}
+                            icon={<Cross className="size-4 text-slate-500" />}
+                            label="Temetés"
+                            date={t.hdatum}
+                            location={null}
+                            person={
+                              [family.ferfi, family.no, ...children].find(
+                                (m) => m?.id === t.id_szemely,
+                              )
+                                ? `${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === t.id_szemely,
+                                    )?.csaladnev
+                                  } ${
+                                    [family.ferfi, family.no, ...children].find(
+                                      (m) => m?.id === t.id_szemely,
+                                    )?.k_nev
+                                  }`
+                                : null
+                            }
+                          />
+                        ))}
+                      </div>
+                    </Section>
+                  )}
+
+                  {/* BEFIZETÉSEK */}
+                  <Section
+                    title={`Befizetések (${payments.length} tétel · ${totalPayments.toFixed(0)} RON)`}
+                    icon={<CreditCard className="size-4" />}
+                    accent="emerald"
+                  >
+                    {payments.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-500 italic">
+                        Nincs rögzített befizetés ehhez a családhoz.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                        <div className="max-h-72 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sticky top-0">
+                              <tr>
+                                <th className="px-3 py-2">Dátum</th>
+                                <th className="px-3 py-2">Cél</th>
+                                <th className="px-3 py-2 text-right">Összeg</th>
+                                <th className="px-3 py-2">Bizonylat</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200/60">
-                              {members.map((member) => {
-                                const kereszteles = keresztelesek.find((item) => item.id_szemely === member.id)
-                                const konfirmacio = konfirmaciok.find((item) => item.id_szemely === member.id)
-                                const temetes = temetesek.find((item) => item.id_szemely === member.id)
-                                const isParent = member.id === family.id_ferfi || member.id === family.id_no
-                                const roleLabel = member.id === family.id_ferfi
-                                  ? 'Családfő'
-                                  : member.id === family.id_no
-                                    ? 'Feleség'
-                                    : 'Gyermek'
-
-                                return (
-                                  <tr key={member.id} className="align-top">
-                                    <td className="px-3 py-3">
-                                      <div className="font-semibold text-slate-800">{member.csaladnev} {member.k_nev}</div>
-                                      <div className="mt-1 text-xs text-slate-500">{member.vallas || 'Református'}</div>
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <span className="inline-flex rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-slate-600">
-                                        {roleLabel}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-3 text-slate-700">
-                                      {member.sz_datum ? formatDisplayDate(member.sz_datum) : 'Nincs rögzítve'}
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <TableCellValue
-                                        value={kereszteles ? formatDisplayDate(kereszteles.datum) : 'Nincs rögzítve'}
-                                        helper={kereszteles?.adrlocality?.name || undefined}
-                                        active={Boolean(kereszteles)}
-                                      />
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <TableCellValue
-                                        value={konfirmacio ? formatDisplayDate(konfirmacio.datum) : 'Nincs rögzítve'}
-                                        helper={konfirmacio?.adrlocality?.name || undefined}
-                                        active={Boolean(konfirmacio)}
-                                      />
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <TableCellValue
-                                        value={isParent && hazassag?.datum ? formatDisplayDate(hazassag.datum) : 'Nincs rögzítve'}
-                                        helper={isParent && hazassag?.adrlocality?.name ? hazassag.adrlocality.name : undefined}
-                                        active={Boolean(isParent && hazassag?.datum)}
-                                      />
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <TableCellValue
-                                        value={temetes ? formatDisplayDate(temetes.hdatum) : 'Nincs rögzítve'}
-                                        helper={temetes ? 'Temetés' : undefined}
-                                        active={Boolean(temetes)}
-                                      />
-                                    </td>
-                                  </tr>
-                                )
-                              })}
+                            <tbody className="divide-y divide-slate-100">
+                              {payments.map((p) => (
+                                <tr key={p.id} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2 text-slate-600">
+                                    {formatShortDate(p.datum)}
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-700">
+                                    {p.befizetescel?.nev || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-medium text-slate-800">
+                                    {Number(p.osszeg || 0).toFixed(0)} RON
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-slate-500 font-mono">
+                                    {getTransactionDocumentNumber(p) || '—'}
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
-                      </SoftPanel>
-                    ) : (
-                      <EmptyState
-                        icon={<BookOpen className="size-10" />}
-                        title="Nincs anyakönyvi adat"
-                        description="A családhoz még nem került rögzítésre megjeleníthető anyakönyvi esemény."
-                      />
-                    )}
-                  </div>
-                )}
-
-                {tab === 'payments' && (
-                  <div className="space-y-4">
-                    <SoftPanel eyebrow="Pénzügyi összkép" title="Családi befizetések" icon={<CreditCard className="size-4" />}>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <MiniFact label="Összes tétel" value={`${payments.length} befizetés`} />
-                        <MiniFact label="Összeg" value={`${totalPayments.toFixed(2)} RON`} />
-                        <MiniFact label="Kapcsolt családtagok" value={`${members.length} fő`} />
                       </div>
-                    </SoftPanel>
-
-                    {payments.length > 0 ? (
-                      <div className="overflow-x-auto rounded-[1.4rem] bg-white/88 shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-                        <table className="min-w-[860px] w-full text-left text-sm">
-                          <thead className="border-b border-slate-200/70 bg-slate-50/85">
-                            <tr>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Befizető</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Dátum</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Típus</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Év</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Bizonylat</th>
-                              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Összeg</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200/60">
-                            {payments.map((payment) => (
-                              <tr key={`${payment.id}-${payment.datum}`}>
-                                <td className="px-4 py-3 font-medium text-slate-700">
-                                  {payment.szemely ? `${payment.szemely.csaladnev} ${payment.szemely.k_nev}` : payment.forrasa || 'Családi befizetés'}
-                                </td>
-                                <td className="px-4 py-3 text-slate-600">{formatDisplayDate(payment.datum)}</td>
-                                <td className="px-4 py-3 text-slate-600">{payment.befizetescel?.nev || 'Általános befizetés'}</td>
-                                <td className="px-4 py-3 text-slate-600">{payment.fizetettev ? `${payment.fizetettev}. év` : 'Nincs megadva'}</td>
-                                <td className="px-4 py-3 text-slate-500">{getTransactionDocumentNumber(payment) || 'Nincs rögzítve'}</td>
-                                <td className="px-4 py-3 text-right font-semibold text-emerald-700">{Number(payment.osszeg).toFixed(2)} RON</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <EmptyState
-                        icon={<CreditCard className="size-10" />}
-                        title="Még nincs befizetés"
-                        description="A családhoz kapcsolódó befizetések automatikusan a Pénzügy modulból érkeznek ide."
-                      />
                     )}
-                  </div>
-                )}
+                  </Section>
+                </div>
               </>
             )}
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-slate-200/70 bg-white/72 px-5 py-4 backdrop-blur-sm sm:px-6">
-            <Button variant="outline" size="sm" className="rounded-xl border-slate-200 bg-white/85" onClick={() => onOpenChange(false)}>
-              Bezárás
-            </Button>
           </div>
         </div>
       </DialogContent>
@@ -451,142 +406,169 @@ export function FamilyDetailsDialogRefined({
   )
 }
 
-function StatChip({ label, value }: { label: string; value: string }) {
+// ─────────────────────────────────────────────────────────────────────────
+// Alkomponensek
+
+function Pill({
+  icon,
+  tone,
+  children,
+}: {
+  icon?: React.ReactNode
+  tone: 'slate' | 'violet' | 'amber' | 'emerald' | 'rose'
+  children: React.ReactNode
+}) {
+  const TONES: Record<typeof tone, string> = {
+    slate: 'bg-white text-slate-700 border-slate-200',
+    violet: 'bg-violet-50 text-violet-700 border-violet-200',
+    amber: 'bg-amber-50 text-amber-700 border-amber-200',
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rose: 'bg-rose-50 text-rose-700 border-rose-200',
+  }
   return (
-    <div className="min-w-0 rounded-[1.15rem] bg-white/82 px-3 py-2 shadow-sm ring-1 ring-slate-200/70">
-      <p className="text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold leading-tight text-slate-700">{value}</p>
-    </div>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${TONES[tone]}`}>
+      {icon}
+      {children}
+    </span>
   )
 }
 
-function SoftPanel({
-  eyebrow,
+function Section({
   title,
   icon,
+  accent,
   children,
 }: {
-  eyebrow: string
   title: string
-  icon: ReactNode
-  children: ReactNode
+  icon: React.ReactNode
+  accent: 'violet' | 'amber' | 'emerald' | 'rose'
+  children: React.ReactNode
 }) {
+  const ACCENT: Record<typeof accent, string> = {
+    violet: 'border-violet-100 text-violet-700',
+    amber: 'border-amber-100 text-amber-700',
+    emerald: 'border-emerald-100 text-emerald-700',
+    rose: 'border-rose-100 text-rose-700',
+  }
   return (
-    <section className="rounded-[1.45rem] bg-white/86 p-4 shadow-[0_24px_50px_-36px_rgba(19,73,66,0.34)] ring-1 ring-slate-200/70 sm:p-5">
-      <div className="mb-4 flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-2xl bg-secondary text-violet-700">
-          {icon}
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
-          <h3 className="text-base font-semibold text-slate-800">{title}</h3>
-        </div>
+    <section className={`rounded-2xl border ${ACCENT[accent].split(' ')[0]} bg-white p-4 sm:p-5 shadow-sm`}>
+      <div className={`flex items-center gap-2 mb-3 ${ACCENT[accent].split(' ')[1]}`}>
+        {icon}
+        <h3 className="font-heading text-base font-semibold">{title}</h3>
       </div>
       {children}
     </section>
   )
 }
 
-function MiniFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[1.1rem] bg-secondary/60 px-3.5 py-3 ring-1 ring-white/70">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-700">{value}</p>
-    </div>
-  )
+interface MemberShape {
+  id: number
+  csaladnev: string
+  k_nev: string
+  ferfi: boolean
+  sz_datum: string | null
+  meghalt: boolean
+  vallas?: string | null
+  foglalkozas?: string | null
+  telefon?: string | null
+  namepattern?: string | null
+  allapot?: string | null
 }
 
-function MemberCard({
-  label,
-  tone,
+function MemberPanel({
+  role,
   member,
-  spouse,
 }: {
-  label: string
-  tone: 'sky' | 'rose' | 'emerald'
-  member: {
-    id: number
-    csaladnev: string
-    k_nev: string
-    ferfi: boolean
-    sz_datum: string | null
-    meghalt: boolean
-    foglalkozas?: string | null
-    namepattern?: string | null
-    allapot?: string | null
-  }
-  spouse?: { meghalt: boolean } | null
+  role: 'head' | 'spouse'
+  member: MemberShape
 }) {
-  const toneClasses = {
-    sky: 'from-sky-50 to-cyan-50 text-sky-700 ring-sky-100',
-    rose: 'from-rose-50 to-pink-50 text-rose-700 ring-rose-100',
-    emerald: 'from-emerald-50 to-teal-50 text-emerald-700 ring-emerald-100',
-  }[tone]
-
-  const formattedMember = {
-    ...member,
-    allapot: member.allapot || null,
-    namepattern: member.namepattern || null,
-  }
+  const isHead = role === 'head'
+  const Icon = isHead ? Crown : Heart
+  const iconTone = isHead ? 'text-amber-600 bg-amber-50' : 'text-rose-600 bg-rose-50'
+  const labelText = isHead ? 'Családfő' : 'Házastárs'
+  const labelTone = isHead ? 'text-amber-800 bg-amber-50' : 'text-rose-700 bg-rose-50'
   const age = ageFromDate(member.sz_datum)
-  const name = formatNameWithPrefix(formattedMember, spouse?.meghalt)
 
   return (
-    <div className={`rounded-[1.45rem] bg-gradient-to-br ${toneClasses} p-4 shadow-[0_24px_42px_-36px_rgba(21,84,74,0.28)] ring-1 sm:p-5`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</p>
-          <h3 className="mt-2 break-words text-lg font-semibold text-slate-800">{name}</h3>
-          <p className="mt-2 text-sm text-slate-600">
-            {member.sz_datum ? formatDisplayDate(member.sz_datum) : 'Születési dátum nincs'}
-            {age !== null ? ` • ${age} éves` : ''}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">{member.foglalkozas || 'Foglalkozás nincs rögzítve'}</p>
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex items-start gap-3">
+        <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${iconTone}`}>
+          <Icon className="size-5" />
         </div>
-
-        {member.meghalt && (
-          <Badge className="border-0 bg-slate-200 text-slate-600">Elhunyt</Badge>
-        )}
+        <div className="min-w-0 flex-1">
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${labelTone}`}>
+            {labelText}
+          </span>
+          <h4
+            className={`mt-1 text-base font-semibold leading-snug ${
+              member.meghalt ? 'text-slate-400 line-through' : 'text-slate-800'
+            }`}
+          >
+            {member.meghalt && '† '}
+            {member.csaladnev} {member.k_nev}
+          </h4>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {age != null ? `${age} éves` : 'kor ismeretlen'}
+            {member.vallas && ` · ${member.vallas}`}
+            {member.foglalkozas && ` · ${member.foglalkozas}`}
+            {member.allapot && ` · ${member.allapot}`}
+          </p>
+          {member.telefon && (
+            <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600">
+              <Phone className="size-3" />
+              {member.telefon}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function TableCellValue({
-  value,
-  helper,
-  active,
-}: {
-  value: string
-  helper?: string
-  active?: boolean
-}) {
-  return (
-    <div className="min-w-0">
-      <p className={`text-sm font-semibold leading-6 ${active ? 'text-emerald-700' : 'text-slate-600'}`}>{value}</p>
-      {helper && <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p>}
-    </div>
-  )
-}
-
-function EmptyState({
+function RegistryItem({
   icon,
-  title,
-  description,
+  label,
+  date,
+  location,
+  person,
 }: {
-  icon: ReactNode
-  title: string
-  description: string
+  icon: React.ReactNode
+  label: string
+  date: string | null | undefined
+  location: string | null | undefined
+  person: string | null | undefined
 }) {
   return (
-    <div className="rounded-[1.45rem] bg-white/88 px-6 py-10 text-center shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-      <div className="mx-auto flex size-16 items-center justify-center rounded-[1.4rem] bg-secondary text-violet-700">
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-50">
         {icon}
       </div>
-      <h3 className="mt-4 text-lg font-semibold text-slate-800">{title}</h3>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{description}</p>
+      <div className="min-w-0 flex-1 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-1 items-baseline">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            {label}
+          </span>
+          {person && (
+            <span className="ml-2 text-sm text-slate-700">{person}</span>
+          )}
+        </div>
+        <div className="text-xs text-slate-500">
+          <span className="font-medium text-slate-700">{formatShortDate(date)}</span>
+          {location && <span className="ml-2">· {location}</span>}
+        </div>
+      </div>
     </div>
   )
 }
 
+function formatShortDate(value?: string | null) {
+  if (!value) return 'Ismeretlen'
+  const normalized = value.includes('T') ? value : `${value}T00:00:00`
+  const d = new Date(normalized)
+  if (Number.isNaN(d.getTime())) return value
+  return new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'short', day: 'numeric' }).format(d)
+}
 
+// 2026-06-02: a Mail import csak akkor kell, ha emailt mutatunk — most nem,
+// de a tree-shake-hez ez nem gond.
+void Mail
