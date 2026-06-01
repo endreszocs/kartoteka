@@ -291,33 +291,68 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
   diagnostic.szemelyApjaCnp = (child.id_apja as string | null) || null
   diagnostic.szemelyAnyjaCnp = (child.id_anyja as string | null) || null
 
-  // ── 1) gyerek → csalad → id_ferfi + id_no
-  const { data: gyerekRows, error: gyerekErr } = await supabase.from('gyerek')
-    .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
-    .eq('id_szemely', personId).limit(1)
+  let ferfiId: number | null = null
+  let noId: number | null = null
 
-  if (gyerekErr) {
-    console.error(`[getParentsForChild] gyerek lekérdezés hiba (id=${personId}):`, gyerekErr.message)
+  // ── 1) ÚJ MODELL: szemely_kapcsolat (vér szerinti szülő-gyerek)
+  // A backfill után minden migrált család gyerekének itt él a 2 vér szerinti
+  // szülő-kapcsolata. A férj/nő megkülönböztetést a szemely.ferfi mezőből.
+  // (2026-06-01 — hibrid család-modell Fázis 2)
+  const { data: kapcsolatRows, error: kapcsolatErr } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id_szemely_1, szulo:szemely!id_szemely_1(id, ferfi)')
+    .eq('id_szemely_2', personId)
+    .eq('tipus', 'szulo_gyermek')
+    .eq('ver_szerinti', true)
+    .is('ervenyes_ig', null)
+    .eq('congregation_id', congId)
+
+  if (kapcsolatErr) {
+    console.error(`[getParentsForChild] szemely_kapcsolat lekérdezés hiba (id=${personId}):`, kapcsolatErr.message)
   }
 
-  // Defensive: a Supabase a "to-one" embedded join-t néha array-ként,
-  // néha object-ként adja vissza, a kapcsolati metaadatoktól függően.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gyerekRaw = (gyerekRows?.[0] as any)?.csalad
-  const csalad = (Array.isArray(gyerekRaw) ? gyerekRaw[0] : gyerekRaw) as
-    | { id: number; id_ferfi: number | null; id_no: number | null; isaktiv: boolean | null }
-    | null
-    | undefined
+  for (const row of kapcsolatRows ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const szuloRaw = (row as any).szulo
+    const szulo = (Array.isArray(szuloRaw) ? szuloRaw[0] : szuloRaw) as
+      | { id: number; ferfi: boolean | null }
+      | null
+      | undefined
+    if (!szulo) continue
+    if (szulo.ferfi === true && !ferfiId) ferfiId = szulo.id
+    else if (szulo.ferfi === false && !noId) noId = szulo.id
+  }
 
-  diagnostic.hasGyerekRow = !!gyerekRows?.[0]
-  diagnostic.csaladId = csalad?.id ?? null
-  diagnostic.csaladFerfiId = csalad?.id_ferfi ?? null
-  diagnostic.csaladNoId = csalad?.id_no ?? null
+  // ── 2) RÉGI MODELL fallback: gyerek → csalad → id_ferfi + id_no
+  // (csak akkor fut, ha az új modell nem talált legalább 1 szülőt — pl. új
+  // gyerek-rekord még nem került be a szemely_kapcsolat-ba, vagy a backfill
+  // előtti adatok valamiért nem migrálódtak át.)
+  if (!ferfiId || !noId) {
+    const { data: gyerekRows, error: gyerekErr } = await supabase.from('gyerek')
+      .select('id_csalad, csalad:csalad!id_csalad(id, id_ferfi, id_no, isaktiv)')
+      .eq('id_szemely', personId).limit(1)
 
-  let ferfiId: number | null = csalad?.id_ferfi || null
-  let noId: number | null = csalad?.id_no || null
+    if (gyerekErr) {
+      console.error(`[getParentsForChild] gyerek lekérdezés hiba (id=${personId}):`, gyerekErr.message)
+    }
 
-  // ── 2) Fallback: szemely.id_apja / szemely.id_anyja CNP-k
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gyerekRaw = (gyerekRows?.[0] as any)?.csalad
+    const csalad = (Array.isArray(gyerekRaw) ? gyerekRaw[0] : gyerekRaw) as
+      | { id: number; id_ferfi: number | null; id_no: number | null; isaktiv: boolean | null }
+      | null
+      | undefined
+
+    diagnostic.hasGyerekRow = !!gyerekRows?.[0]
+    diagnostic.csaladId = csalad?.id ?? null
+    diagnostic.csaladFerfiId = csalad?.id_ferfi ?? null
+    diagnostic.csaladNoId = csalad?.id_no ?? null
+
+    if (!ferfiId) ferfiId = csalad?.id_ferfi || null
+    if (!noId) noId = csalad?.id_no || null
+  }
+
+  // ── 3) Fallback: szemely.id_apja / szemely.id_anyja CNP-k
   if (!ferfiId && diagnostic.szemelyApjaCnp) {
     const { data: a } = await supabase.from('szemely').select('id').eq('cnp', diagnostic.szemelyApjaCnp).eq('congregation_id', congId).limit(1)
     if (a?.[0]) {
@@ -369,7 +404,9 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
   }
 
   return {
-    fromCsalad: !!csalad,
+    // 2026-06-01: az új modell (szemely_kapcsolat) is "családi adatnak" számít —
+    // a UI üzenete ("Szülők automatikusan kitöltve a családi adatokból") ugyanaz.
+    fromCsalad: !!(ferfiId || noId),
     apa, anya, anyaLeanyneve,
     apjaneveText, anyjaneveText,
     diagnostic,
