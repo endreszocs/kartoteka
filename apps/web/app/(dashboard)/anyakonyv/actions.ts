@@ -840,6 +840,29 @@ export async function saveMarriage(data: MarriageInput) {
   }
   if (d.id) { const { error } = await supabase.from('hazassag').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
   else { const { error } = await supabase.from('hazassag').insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
+
+  // 2026-06-01 (hibrid család-modell Fázis 2): ÚJ modell — házastársi kapcsolat
+  // rögzítése a szemely_kapcsolat táblában. Konvenció: id_szemely_1 = férfi
+  // (id_ferfi), id_szemely_2 = nő (id_no). A szimmetrikus duplikáció ellen
+  // (ferfi↔no fordított sorrendben) explicit OR-check van a meglévő rekordra.
+  const { data: existingMarriageLink } = await supabase
+    .from('szemely_kapcsolat')
+    .select('id')
+    .or(`and(id_szemely_1.eq.${d.id_ferfi},id_szemely_2.eq.${d.id_no}),and(id_szemely_1.eq.${d.id_no},id_szemely_2.eq.${d.id_ferfi})`)
+    .eq('tipus', 'hazastars')
+    .is('ervenyes_ig', null)
+    .limit(1)
+  if (!existingMarriageLink?.length) {
+    await supabase.from('szemely_kapcsolat').insert([{
+      id_szemely_1: d.id_ferfi,
+      id_szemely_2: d.id_no,
+      tipus: 'hazastars',
+      ver_szerinti: false,
+      ervenyes_tol: d.datum, // az esküvő dátuma
+      congregation_id: congId,
+    }])
+  }
+
   revalidatePath('/anyakonyv')
   return { success: true }
 }
@@ -932,6 +955,33 @@ export async function saveBurial(data: BurialInput) {
     // Ha a szemely-re nincs jogosultság vagy más hiba — a temetés-rögzítést NEM
     // blokkoljuk emiatt. A user explicit hibát látna a tag-frissítésről, de a
     // temetés már rögzítve van a temetes táblában.
+  }
+
+  // 2026-06-01 (hibrid család-modell Fázis 2): az új modell lezárása.
+  // Halálozáskor:
+  //   - a háztartás-tagság érvényes_ig dátumot kap (a tag már nem él itt)
+  //   - a házastársi kapcsolat lezárul (özveggyé válik a másik fél)
+  //   - a szülő-gyerek vér szerinti kapcsolatok ÉRINTETLENEK (a vér szerinti
+  //     kötelék nem szűnik meg halállal — a leszármazottak anyakönyvi
+  //     rekordjai továbbra is hivatkoznak rá)
+  try {
+    await supabase
+      .from('haztartas_tag')
+      .update({ ervenyes_ig: d.hdatum })
+      .eq('id_szemely', d.id_szemely)
+      .is('ervenyes_ig', null)
+      .eq('congregation_id', congId)
+
+    await supabase
+      .from('szemely_kapcsolat')
+      .update({ ervenyes_ig: d.hdatum })
+      .eq('tipus', 'hazastars')
+      .or(`id_szemely_1.eq.${d.id_szemely},id_szemely_2.eq.${d.id_szemely}`)
+      .is('ervenyes_ig', null)
+      .eq('congregation_id', congId)
+  } catch (e) {
+    console.warn('[saveBurial] hibrid-modell lezárás sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
   }
 
   revalidatePath('/anyakonyv')
