@@ -368,6 +368,48 @@ export async function getParentsForChild(personId: number): Promise<ParentInfo> 
     }
   }
 
+  // ── 4) NÉV-ALAPÚ fallback: a szemely.apjaneve / anyjaneve text-mezőből
+  // pontos egyezést keresünk a szemely-en belül (megfelelő nemmel + ugyanaz
+  // a gyülekezet). Csak akkor töltjük ki, ha PONTOSAN 1 találat van — több
+  // találat esetén kockázatos lenne automatikusan választani, a UI sárga
+  // banner-je mutatja a szöveget és a user kézzel keres.
+  // (2026-06-01 — hibrid család-modell Fázis 2)
+  if (!ferfiId && apjaneveText) {
+    const parts = apjaneveText.trim().split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) {
+      // Tipikus magyar név: "Vezetéknév Keresztnév" (lehet többszavas)
+      const csaladnev = parts[0]
+      const k_nev = parts.slice(1).join(' ')
+      const { data: matches } = await supabase.from('szemely')
+        .select('id')
+        .ilike('csaladnev', csaladnev)
+        .ilike('k_nev', k_nev)
+        .eq('ferfi', true)
+        .eq('congregation_id', congId)
+        .eq('meghalt', false)
+      if (matches && matches.length === 1) {
+        ferfiId = matches[0].id as number
+      }
+    }
+  }
+  if (!noId && anyjaneveText) {
+    const parts = anyjaneveText.trim().split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) {
+      const csaladnev = parts[0]
+      const k_nev = parts.slice(1).join(' ')
+      const { data: matches } = await supabase.from('szemely')
+        .select('id')
+        .ilike('csaladnev', csaladnev)
+        .ilike('k_nev', k_nev)
+        .eq('ferfi', false)
+        .eq('congregation_id', congId)
+        .eq('meghalt', false)
+      if (matches && matches.length === 1) {
+        noId = matches[0].id as number
+      }
+    }
+  }
+
   // Apa + anya teljes adatainak lekérdezése (ha van ID)
   let apa: ParentInfo['apa'] = null
   let anya: ParentInfo['anya'] = null
