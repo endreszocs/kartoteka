@@ -184,6 +184,12 @@ function SidebarItem({
 
   const showChildren = hasChildren && expanded && !collapsed
 
+  // 2026-06-02: modernebb sidebar dizájn
+  // - Ikon-chip: gradient háttérrel (item.gradient mező), aktív állapotban
+  //   szebben kiemelve. Eddig csak a bal oldali csíkkal jeleztük a fókuszt.
+  // - Betű: tracking finomítás, 13.5px (a 13px egy ki kicsit kicsi volt).
+  // - Submenu: vékony fa-ág vonal balra (border-l), pici horizontális
+  //   stub a child előtt — tábla-fa hangulatú visual hierarchy.
   return (
     <div className="space-y-0.5">
       <div className="relative">
@@ -195,28 +201,37 @@ function SidebarItem({
           data-walkthrough={walkthroughKey}
           suppressHydrationWarning
           className={cn(
-            'group relative flex w-full items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[13px] font-medium transition [@media(max-height:820px)]:py-2 [@media(max-height:820px)]:text-[12px]',
+            'group relative flex w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-[13.5px] font-medium tracking-[-0.005em] transition-all duration-200 [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12.5px]',
             active
-              ? 'bg-white/12 text-white font-semibold'
-              : 'text-white/78 hover:bg-white/8 hover:text-white',
-            collapsed && 'justify-center px-2 py-2.5',
+              ? 'bg-gradient-to-r from-white/14 via-white/8 to-transparent text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+              : 'text-white/78 hover:bg-white/6 hover:text-white',
+            collapsed && 'justify-center px-2 py-2',
             hasChildren && !collapsed && 'pr-9',
           )}
         >
           {active && !collapsed && (
             <span
               aria-hidden
-              className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r"
+              className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r"
               style={{ background: 'var(--accent2)' }}
             />
           )}
-          <Icon
+          {/* Ikon-chip: gradient háttérrel, aktív állapotban erősebben kiemelve */}
+          <span
             className={cn(
-              'size-[18px] shrink-0 transition-colors',
-              active ? 'text-white' : 'text-white/68 group-hover:text-white/90',
+              'relative flex size-7 shrink-0 items-center justify-center rounded-[9px] transition-all duration-200 [@media(max-height:820px)]:size-[26px]',
+              active
+                ? `bg-gradient-to-br ${item.gradient} shadow-[0_3px_10px_rgba(0,0,0,0.25)]`
+                : 'bg-white/6 group-hover:bg-white/10',
             )}
-            style={active ? { color: 'var(--accent2)' } : undefined}
-          />
+          >
+            <Icon
+              className={cn(
+                'size-[15px] transition-colors',
+                active ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]' : 'text-white/72 group-hover:text-white/95',
+              )}
+            />
+          </span>
           {!collapsed && <span className="min-w-0 flex-1 truncate leading-tight">{item.label}</span>}
         </Link>
 
@@ -230,7 +245,7 @@ function SidebarItem({
             }}
             aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
             aria-expanded={expanded}
-            className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[0.7rem] text-white/65 transition hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
+            className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-white/60 transition hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
           >
             {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
@@ -238,7 +253,7 @@ function SidebarItem({
       </div>
 
       {showChildren && (
-        <div className="mt-0.5 space-y-0.5 pl-7">
+        <div className="relative ml-[18px] mt-1 space-y-0.5 border-l border-white/12 pl-2.5">
           {item.children!.map((child) => {
             const [childPath, childHash] = child.href.split('#')
             const isChildActive = childHash
@@ -256,17 +271,25 @@ function SidebarItem({
                 data-walkthrough={childWalkthroughKey}
                 suppressHydrationWarning
                 className={cn(
-                  'group flex w-full items-center gap-2.5 rounded-[8px] px-3 py-1.5 text-[12px] transition [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11px]',
+                  'group relative flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-[12.5px] transition-all duration-150 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11.5px]',
                   isChildActive
-                    ? 'bg-white/12 text-white font-semibold'
-                    : 'text-white/65 hover:bg-white/6 hover:text-white',
+                    ? 'bg-white/10 text-white font-semibold'
+                    : 'text-white/65 hover:bg-white/5 hover:text-white',
                 )}
               >
+                {/* Fa-ág horizontális stub */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'inline-block h-px w-2 shrink-0 transition-colors',
+                    isChildActive ? 'bg-white/40' : 'bg-white/15',
+                  )}
+                />
                 <span
                   aria-hidden
                   className={cn(
                     'inline-block size-1.5 shrink-0 rounded-full transition-colors',
-                    isChildActive ? '' : 'bg-white/35',
+                    isChildActive ? '' : 'bg-white/30',
                   )}
                   style={isChildActive ? { background: 'var(--accent2)' } : undefined}
                 />
@@ -296,10 +319,11 @@ function SidebarSection({
   return (
     <section className={cn('space-y-1 [@media(max-height:1040px)]:space-y-0.5 [@media(max-height:820px)]:space-y-0', collapsed && 'space-y-0.5')}>
       {!collapsed && (
-        <div className="px-2.5 [@media(max-height:760px)]:hidden">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/55">
+        <div className="flex items-center gap-2 px-2.5 pb-0.5 [@media(max-height:760px)]:hidden">
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-white/55">
             {title}
           </p>
+          <div aria-hidden className="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent" />
         </div>
       )}
 

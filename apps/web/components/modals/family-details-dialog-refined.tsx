@@ -9,18 +9,23 @@ import {
   CreditCard,
   Crown,
   Cross,
+  DoorOpen,
   Heart,
   Home,
   Mail,
   MapPin,
   Phone,
   Sparkles,
+  TreePine,
   Users,
   X,
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { getFamilyDetails } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getFamilyDetails, getFamilyVisits } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
+import type { FamilyTreeData } from '@/lib/family-tree/types'
+import { FamilyTreeView } from '@/components/family-tree/family-tree-view'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
 
@@ -42,7 +47,15 @@ type FamilyData = Awaited<ReturnType<typeof getFamilyDetails>>
  *   - Anyakönyv:     esketés, keresztelők, konfirmációk, temetések
  *   - Befizetések:   tétel-lista + összegző sáv
  */
-type TabKey = 'general' | 'registry' | 'payments'
+type TabKey = 'general' | 'registry' | 'tree' | 'visits' | 'payments'
+
+type FamilyVisit = {
+  id: string
+  datum: string
+  lelkesz: string
+  alapige: string | null
+  megjegyzes: string | null
+}
 
 export function FamilyDetailsDialogRefined({
   open,
@@ -53,12 +66,23 @@ export function FamilyDetailsDialogRefined({
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('general')
 
+  // 2026-06-02: Családfa és Családlátogatás lazy-load — csak az adott tab
+  //    aktiválásakor töltjük le. A `*Loaded` flag biztosítja hogy nem
+  //    fetchelünk újra ha már sikerült (az eredmény cache-elve marad
+  //    amíg a dialog nyitva van).
+  const [treeData, setTreeData] = useState<FamilyTreeData | null>(null)
+  const [treeLoading, setTreeLoading] = useState(false)
+  const [visits, setVisits] = useState<FamilyVisit[] | null>(null)
+  const [visitsLoading, setVisitsLoading] = useState(false)
+
   useEffect(() => {
     if (!open || !familyId) return
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
       setData(null)
+      setTreeData(null)
+      setVisits(null)
       setLoading(true)
       setActiveTab('general')
       getFamilyDetails(familyId).then((value) => {
@@ -69,6 +93,32 @@ export function FamilyDetailsDialogRefined({
     })
     return () => { cancelled = true }
   }, [open, familyId])
+
+  // Lazy load: családfa
+  useEffect(() => {
+    if (activeTab !== 'tree' || !familyId || treeData !== null) return
+    let cancelled = false
+    setTreeLoading(true)
+    getFamilyTreeData(familyId).then((d) => {
+      if (cancelled) return
+      setTreeData(d)
+      setTreeLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [activeTab, familyId, treeData])
+
+  // Lazy load: családlátogatás
+  useEffect(() => {
+    if (activeTab !== 'visits' || !familyId || visits !== null) return
+    let cancelled = false
+    setVisitsLoading(true)
+    getFamilyVisits(familyId).then((v) => {
+      if (cancelled) return
+      setVisits(v as FamilyVisit[])
+      setVisitsLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [activeTab, familyId, visits])
 
   const family = data?.family
   const children = data?.children || []
@@ -131,24 +181,41 @@ export function FamilyDetailsDialogRefined({
             ) : (
               <>
                 {/* ───── FEJLÉC ───── */}
-                <header className="relative border-b border-slate-100 bg-gradient-to-br from-violet-50/60 via-white to-emerald-50/60 px-6 py-5 sm:px-8 sm:py-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="size-3.5 text-violet-500" />
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
-                      Családi karton
-                    </p>
-                  </div>
+                <header className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-violet-50/70 via-white to-emerald-50/60 px-6 py-5 sm:px-8 sm:py-6">
+                  {/* dekoratív háttér-blur */}
+                  <div aria-hidden className="pointer-events-none absolute -top-12 -right-8 size-40 rounded-full bg-violet-200/30 blur-3xl" />
+                  <div aria-hidden className="pointer-events-none absolute -bottom-12 -left-8 size-32 rounded-full bg-emerald-200/30 blur-3xl" />
 
-                  <DialogTitle className="font-heading text-3xl text-slate-800 sm:text-4xl">
-                    {familyName ? (
-                      <>
-                        {familyName}{' '}
-                        <span className="font-normal text-slate-500">család</span>
-                      </>
-                    ) : (
-                      <span className="italic text-slate-400">— névtelen család —</span>
-                    )}
-                  </DialogTitle>
+                  <div className="relative flex items-start gap-4">
+                    {/* Avatar/embléma — kezdőbetű(k) */}
+                    <div
+                      aria-hidden
+                      className="hidden sm:flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-rose-500 text-white shadow-lg ring-4 ring-white"
+                    >
+                      <span className="font-heading text-2xl font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
+                        {familyInitials(familyName) || '?'}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Sparkles className="size-3.5 text-violet-500" />
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
+                          Családi karton
+                        </p>
+                      </div>
+
+                      <DialogTitle className="font-heading text-3xl leading-tight text-slate-800 sm:text-4xl">
+                        {familyName ? (
+                          <>
+                            {familyName}{' '}
+                            <span className="font-normal text-slate-500">család</span>
+                          </>
+                        ) : (
+                          <span className="italic text-slate-400">— névtelen család —</span>
+                        )}
+                      </DialogTitle>
+                    </div>
+                  </div>
 
                   {/* Cím + körzet sor */}
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -209,6 +276,19 @@ export function FamilyDetailsDialogRefined({
                       konfirmaciok.length +
                       temetesek.length
                     }
+                  />
+                  <TabButton
+                    active={activeTab === 'tree'}
+                    onClick={() => setActiveTab('tree')}
+                    icon={<TreePine className="size-4" />}
+                    label="Családfa"
+                  />
+                  <TabButton
+                    active={activeTab === 'visits'}
+                    onClick={() => setActiveTab('visits')}
+                    icon={<DoorOpen className="size-4" />}
+                    label="Családlátogatás"
+                    count={visits?.length}
                   />
                   <TabButton
                     active={activeTab === 'payments'}
@@ -316,6 +396,54 @@ export function FamilyDetailsDialogRefined({
                     </Section>
                   )}
 
+                  {/* ───── CSALÁDFA ───── */}
+                  {activeTab === 'tree' && (
+                    <Section
+                      title="Családfa"
+                      icon={<TreePine className="size-4" />}
+                      accent="emerald"
+                    >
+                      {treeLoading ? (
+                        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+                          <TreePine className="mr-2 size-5 animate-pulse text-emerald-500" />
+                          Családfa betöltése…
+                        </div>
+                      ) : treeData ? (
+                        <FamilyTreeView data={treeData} />
+                      ) : null}
+                    </Section>
+                  )}
+
+                  {/* ───── CSALÁDLÁTOGATÁS ───── */}
+                  {activeTab === 'visits' && (
+                    <Section
+                      title={
+                        visits && visits.length > 0
+                          ? `Családlátogatások (${visits.length})`
+                          : 'Családlátogatás'
+                      }
+                      icon={<DoorOpen className="size-4" />}
+                      accent="rose"
+                    >
+                      {visitsLoading ? (
+                        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+                          <DoorOpen className="mr-2 size-5 animate-pulse text-rose-500" />
+                          Látogatások betöltése…
+                        </div>
+                      ) : !visits || visits.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+                          <DoorOpen className="mx-auto mb-3 size-10 text-slate-300" />
+                          Nincs rögzített családlátogatás.
+                          <p className="mt-2 text-xs text-slate-400">
+                            Új látogatás rögzítéséhez használja a Tagnyilvántartás → Családlátogatás űrlapot.
+                          </p>
+                        </div>
+                      ) : (
+                        <VisitsList visits={visits} />
+                      )}
+                    </Section>
+                  )}
+
                   {/* BEFIZETÉSEK — külön tab */}
                   {activeTab === 'payments' && (
                   <Section
@@ -390,10 +518,10 @@ function TabButton({
   count?: number
 }) {
   const baseClasses =
-    'inline-flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap '
+    'relative inline-flex items-center gap-2 px-3 sm:px-4 py-3 text-[13px] font-medium transition-all whitespace-nowrap '
   const activeClasses = active
-    ? 'border-violet-600 text-violet-700'
-    : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+    ? 'text-violet-700'
+    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/80'
   const badgeClasses = active
     ? 'bg-violet-100 text-violet-700'
     : 'bg-slate-100 text-slate-600'
@@ -410,6 +538,12 @@ function TabButton({
         >
           {count}
         </span>
+      )}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-rose-500 shadow-[0_-1px_4px_rgba(139,92,246,0.4)]"
+        />
       )}
     </button>
   )
@@ -702,12 +836,63 @@ function RegistryTable({ rows }: { rows: RegistryRow[] }) {
   )
 }
 
+// 2026-06-02: kezdőbetű-extraktor a fejléc-avatarhoz.
+// Pl. "Bartók" → "B"; "Albu Beder" → "AB"; null → null.
+function familyInitials(name: string | null): string | null {
+  if (!name) return null
+  const words = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
+  if (words.length === 0) return null
+  return words.map((w) => w[0].toUpperCase()).join('')
+}
+
 function formatShortDate(value?: string | null) {
   if (!value) return 'Ismeretlen'
   const normalized = value.includes('T') ? value : `${value}T00:00:00`
   const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return value
   return new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'short', day: 'numeric' }).format(d)
+}
+
+// 2026-06-02: Családlátogatás-lista — kompakt időrendi nézet, papír-érzet
+function VisitsList({ visits }: { visits: FamilyVisit[] }) {
+  return (
+    <ol className="relative ml-3 space-y-3 border-l-2 border-rose-200/60 pl-5">
+      {visits.map((v) => (
+        <li key={v.id} className="relative">
+          {/* időpont-pötty */}
+          <span
+            aria-hidden
+            className="absolute -left-[27px] top-2.5 flex size-4 items-center justify-center rounded-full border-2 border-rose-300 bg-white"
+          >
+            <span className="size-1.5 rounded-full bg-rose-400" />
+          </span>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold text-slate-800">
+                {formatShortDate(v.datum)}
+              </span>
+              {v.lelkesz && (
+                <span className="text-xs text-slate-500">
+                  <span className="text-slate-400">Lelkész: </span>
+                  {v.lelkesz}
+                </span>
+              )}
+            </div>
+            {v.alapige && (
+              <p className="mt-1.5 text-sm italic text-rose-700">
+                <span className="text-rose-400">„</span>{v.alapige}<span className="text-rose-400">"</span>
+              </p>
+            )}
+            {v.megjegyzes && (
+              <p className="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-slate-600">
+                {v.megjegyzes}
+              </p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
 }
 
 // 2026-06-02: a Mail import csak akkor kell, ha emailt mutatunk — most nem,
