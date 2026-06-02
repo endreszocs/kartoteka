@@ -101,7 +101,7 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
               </div>
             )}
             {!loading && !error && data && data.members.length > 0 && (
-              <FamilyTreeView data={data} />
+              <FamilyTreeView data={data} layoutMode="ego-top" />
             )}
           </div>
 

@@ -109,26 +109,68 @@ async function buildTreeFromCenters(
     }
   }
 
-  // 4. Person-adatok
+  // 4. Person-adatok — bővítve a "több info" toggle-hoz
   const finalIds = Array.from(generationOf.keys())
   if (finalIds.length === 0) return { members: [], edges: [], centerIds }
 
   const { data: persons } = await supabase
     .from('szemely')
-    .select('id, csaladnev, k_nev, ferfi, sz_datum, meghalt')
+    .select('id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas')
     .in('id', finalIds)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const members: FamilyTreeMember[] = ((persons || []) as any[]).map((p) => ({
-    id: p.id as number,
-    csaladnev: (p.csaladnev as string | null) ?? '',
-    k_nev: (p.k_nev as string | null) ?? '',
-    ferfi: p.ferfi as boolean,
-    sz_datum: (p.sz_datum as string | null) ?? null,
-    meghalt: !!p.meghalt,
-    generation: generationOf.get(p.id as number)!,
-    isCenter: centerIds.includes(p.id as number),
-  }))
+  const personsRaw = (persons || []) as any[]
+
+  // 2026-06-02: role-label számítás (szülő/testvér/nagyszülő...)
+  // A központhoz képest a kapcsolat típusát levezetjük a generációs szintből
+  // és a nemből. Egyszerű approach — közeli rokonokra pontos, távolira általános.
+  const rolesByDistance: { [gen: number]: { ferfi: string; no: string; semleges: string } } = {
+    [-3]: { ferfi: 'Dédnagyapa', no: 'Dédnagyanya', semleges: 'Dédnagyszülő' },
+    [-2]: { ferfi: 'Nagyapa', no: 'Nagyanya', semleges: 'Nagyszülő' },
+    [-1]: { ferfi: 'Apa', no: 'Anya', semleges: 'Szülő' },
+    [1]: { ferfi: 'Fiú', no: 'Lánya', semleges: 'Gyermek' },
+    [2]: { ferfi: 'Unoka (fiú)', no: 'Unoka (lány)', semleges: 'Unoka' },
+    [3]: { ferfi: 'Dédunoka (fiú)', no: 'Dédunoka (lány)', semleges: 'Dédunoka' },
+  }
+  // 0-szint nem-center: testvér vagy házastárs — az edges-ből nézzük meg
+
+  // members: id → person + generation
+  const generationByPersonId = new Map<number, number>()
+  for (const p of personsRaw) generationByPersonId.set(p.id as number, generationOf.get(p.id as number)!)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const members: FamilyTreeMember[] = personsRaw.map((p) => {
+    const gen = generationOf.get(p.id as number)!
+    const isCenter = centerIds.includes(p.id as number)
+    let roleLabel: string | null = null
+    if (!isCenter) {
+      if (gen !== 0 && rolesByDistance[gen]) {
+        const r = rolesByDistance[gen]
+        roleLabel = p.ferfi === true ? r.ferfi : p.ferfi === false ? r.no : r.semleges
+      } else if (gen === 0) {
+        // A spouse/testver megkülönböztetést a `centerIds`-szel csekkoljuk:
+        // - házastárs: a központok valamelyikével direkt hazastars-kapcsolata van
+        // - testvér: a központtal közös szülő (= a saját szülő-kapcsolatok generációja -1)
+        // Egyszerűbb: a központ házastársa = "Házastárs", egyébként "Testvér".
+        // A pontos hovatartozás (test/féltest stb.) későbbi finomítás.
+        roleLabel = 'Testvér'
+      }
+    }
+    return {
+      id: p.id as number,
+      csaladnev: (p.csaladnev as string | null) ?? '',
+      k_nev: (p.k_nev as string | null) ?? '',
+      ferfi: p.ferfi as boolean,
+      sz_datum: (p.sz_datum as string | null) ?? null,
+      meghalt: !!p.meghalt,
+      generation: gen,
+      isCenter,
+      roleLabel,
+      telefon: (p.telefon as string | null) ?? null,
+      foglalkozas: (p.foglalkozas as string | null) ?? null,
+      vallas: (p.vallas as string | null) ?? null,
+    }
+  })
 
   // 5. Edges
   const finalIdsSet = new Set(finalIds)
@@ -156,6 +198,23 @@ async function buildTreeFromCenters(
       if (seenEdges.has(key)) continue
       seenEdges.add(key)
       edges.push({ type: 'parent-child', from: a, to: b })
+    }
+  }
+
+  // Role-label finomítás: a központ HÁZASTÁRSAIT a "Testvér" helyett
+  // "Házastárs"-nak címkézzük. Az edges-ből most már látjuk.
+  const centerIdSet = new Set(centerIds)
+  const spouseOfCenter = new Set<number>()
+  for (const e of edges) {
+    if (e.type === 'spouse') {
+      if (centerIdSet.has(e.from) && !centerIdSet.has(e.to)) spouseOfCenter.add(e.to)
+      if (centerIdSet.has(e.to) && !centerIdSet.has(e.from)) spouseOfCenter.add(e.from)
+    }
+  }
+  // Update members
+  for (const m of members) {
+    if (m.generation === 0 && !m.isCenter && spouseOfCenter.has(m.id)) {
+      m.roleLabel = 'Házastárs'
     }
   }
 

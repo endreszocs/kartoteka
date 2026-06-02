@@ -169,6 +169,15 @@ function SidebarItem({
           window.location.hash === `#${hash}`
         )
       }
+      // Hash-mentes default-child: csak akkor aktív, ha az URL-en sincs hash
+      // (különben az "Áttekintés" mindig aktívnak látszott más hash-fülön is)
+      const siblingHasHash = item.children!.some((sib) => sib.href.includes('#'))
+      if (siblingHasHash) {
+        return (
+          isActivePath(pathname, c.href) &&
+          (typeof window === 'undefined' || !window.location.hash)
+        )
+      }
       return isActivePath(pathname, c.href)
     })
   const active = parentActive || childActive
@@ -285,11 +294,21 @@ function SidebarItem({
             >
               {item.children!.map((child, idx) => {
                 const [childPath, childHash] = child.href.split('#')
+                // 2026-06-02 BUG FIX: hash-mentes child (pl. "Áttekintés"
+                // = /tagnyilvantartas) eddig MINDIG aktívnak látszott amikor
+                // a pathname matchel — akkor is amikor egy testvér hash-fülön
+                // (pl. #persons) voltunk. Most: ha a fő-menü-nek vannak
+                // hash-szel rendelkező childoki, akkor a hash-mentes "default"
+                // gyermek CSAK akkor aktív, ha az URL-en sincs hash.
+                const siblingHasHash = item.children!.some((c) => c.href.includes('#'))
                 const isChildActive = childHash
                   ? pathname === childPath &&
                     typeof window !== 'undefined' &&
                     window.location.hash === `#${childHash}`
-                  : isActivePath(pathname, child.href)
+                  : siblingHasHash
+                    ? isActivePath(pathname, child.href) &&
+                      (typeof window === 'undefined' || !window.location.hash)
+                    : isActivePath(pathname, child.href)
                 const childWalkthroughKey = `menu-${child.href.replace(/^\//, '').replace(/[#?].*$/, '').split('/').join('-')}`
                 return (
                   <Link
