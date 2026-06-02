@@ -298,7 +298,7 @@ export function FamiliesTab() {
               placeholder="Keresés név vagy cím alapján..."
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              className="pl-9"
+              className="pl-9 bg-white shadow-sm border-slate-300"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">

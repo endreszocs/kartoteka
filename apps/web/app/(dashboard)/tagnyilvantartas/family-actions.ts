@@ -449,6 +449,94 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   return members.filter(m => !marriedIds.has(m.id) || (editFamilyId !== undefined))
 }
 
+/**
+ * 2026-06-02: Veszélyes művelet — a teljes családi struktúrát törli a
+ * gyülekezetben, hogy a rendszergazda újra importálhassa Excel-ből (vagy
+ * újra-építhesse a felületen) az új modell szerint.
+ *
+ * MIT törölünk:
+ *   - haztartas_tag (M:N kapcsolótábla)
+ *   - szemely_kapcsolat (rokoni viszonyok)
+ *   - haztartas (háztartások)
+ *   - cim (címek)
+ *   - csalad + gyerek (régi modell)
+ *
+ * MIT NEM törölünk:
+ *   - szemely (személyek — az anyakönyvek + befizetések rájuk hivatkoznak!)
+ *   - keresztseg, hazassag, temetes (anyakönyvi rekordok érintetlen)
+ *   - befizetes, csaladlatogatas (érintetlenek)
+ *
+ * Védelmek:
+ *   - csak admin / egyházkerületi admin használhatja
+ *   - megerősítés-szöveg kötelező ('TÖRLÉS')
+ *   - csak a saját gyülekezet adatai
+ */
+export async function wipeFamilyStructure(confirmation: string) {
+  if (confirmation !== 'TÖRLÉS') {
+    return { error: 'Hibás megerősítés. A „TÖRLÉS" szót kell pontosan beírni.' }
+  }
+  const { supabase, congregationId, userId } = await getFamilyAccessContext()
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  // Csak admin / egyházkerületi admin
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const role = (profile as any)?.role
+  if (role !== 'admin' && role !== 'egyhazkeruleti_admin') {
+    return { error: 'Csak rendszergazda használhatja ezt a funkciót.' }
+  }
+
+  // 1. Saját gyülekezet szemely-id-i (a régi csalad+gyerek szűréshez)
+  const { data: szemely } = await supabase
+    .from('szemely').select('id')
+    .eq('congregation_id', congregationId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const szemIds = ((szemely || []) as any[]).map((s) => s.id as number)
+
+  // 2. Új modell törlés (congregation_id-vel direkt)
+  let stats = { haztartas_tag: 0, szemely_kapcsolat: 0, haztartas: 0, cim: 0, csalad: 0, gyerek: 0 }
+
+  const t1 = await supabase.from('haztartas_tag').delete({ count: 'exact' }).eq('congregation_id', congregationId)
+  stats.haztartas_tag = t1.count ?? 0
+  const t2 = await supabase.from('szemely_kapcsolat').delete({ count: 'exact' }).eq('congregation_id', congregationId)
+  stats.szemely_kapcsolat = t2.count ?? 0
+
+  // cim: csak a saját gyülekezet háztartásaihoz tartozó címeket töröljük
+  const { data: hRows } = await supabase
+    .from('haztartas').select('id_cim').eq('congregation_id', congregationId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cimIds = ((hRows || []) as any[]).map((h) => h.id_cim).filter((v): v is string => !!v)
+
+  const t3 = await supabase.from('haztartas').delete({ count: 'exact' }).eq('congregation_id', congregationId)
+  stats.haztartas = t3.count ?? 0
+
+  if (cimIds.length > 0) {
+    const t4 = await supabase.from('cim').delete({ count: 'exact' }).in('id', cimIds)
+    stats.cim = t4.count ?? 0
+  }
+
+  // 3. Régi csalad + gyerek (a csalad táblán nincs congregation_id, a szemely-en keresztül szűrünk)
+  if (szemIds.length > 0) {
+    const t5 = await supabase.from('gyerek').delete({ count: 'exact' }).in('id_szemely', szemIds)
+    stats.gyerek = t5.count ?? 0
+    const t6 = await supabase.from('csalad').delete({ count: 'exact' })
+      .or(`id_ferfi.in.(${szemIds.join(',')}),id_no.in.(${szemIds.join(',')})`)
+    stats.csalad = t6.count ?? 0
+  }
+
+  revalidatePath('/tagnyilvantartas')
+  return {
+    success: true,
+    message: 'Családi struktúra törölve. A személyek, anyakönyvek, befizetések érintetlenek maradtak.',
+    stats,
+  }
+}
+
 export async function deleteFamily(id: number) {
   const { supabase, congregationId } = await getFamilyAccessContext()
   if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }

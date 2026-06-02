@@ -303,89 +303,16 @@ export function FamilyDetailsDialogRefined({
                       icon={<BookOpen className="size-4" />}
                       accent="amber"
                     >
-                      <div className="space-y-3">
-                        {hazassag?.datum && (
-                          <RegistryItem
-                            icon={<Heart className="size-4 text-rose-500" />}
-                            label="Esketés"
-                            date={hazassag.datum}
-                            location={hazassag.adrlocality?.name}
-                            person={hazassag.lelkeszneve ? `Lelkész: ${hazassag.lelkeszneve}` : null}
-                          />
-                        )}
-                        {keresztelesek.map((k, i) => (
-                          <RegistryItem
-                            key={`baptism-${i}`}
-                            icon={<Church className="size-4 text-blue-500" />}
-                            label="Keresztelő"
-                            date={k.datum}
-                            location={k.adrlocality?.name}
-                            person={
-                              [family.ferfi, family.no, ...children].find(
-                                (m) => m?.id === k.id_szemely,
-                              )
-                                ? `${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === k.id_szemely,
-                                    )?.csaladnev
-                                  } ${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === k.id_szemely,
-                                    )?.k_nev
-                                  }`
-                                : null
-                            }
-                          />
-                        ))}
-                        {konfirmaciok.map((kon, i) => (
-                          <RegistryItem
-                            key={`conf-${i}`}
-                            icon={<Sparkles className="size-4 text-emerald-500" />}
-                            label="Konfirmáció"
-                            date={kon.datum}
-                            location={kon.adrlocality?.name}
-                            person={
-                              [family.ferfi, family.no, ...children].find(
-                                (m) => m?.id === kon.id_szemely,
-                              )
-                                ? `${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === kon.id_szemely,
-                                    )?.csaladnev
-                                  } ${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === kon.id_szemely,
-                                    )?.k_nev
-                                  }`
-                                : null
-                            }
-                          />
-                        ))}
-                        {temetesek.map((t, i) => (
-                          <RegistryItem
-                            key={`burial-${i}`}
-                            icon={<Cross className="size-4 text-slate-500" />}
-                            label="Temetés"
-                            date={t.hdatum}
-                            location={null}
-                            person={
-                              [family.ferfi, family.no, ...children].find(
-                                (m) => m?.id === t.id_szemely,
-                              )
-                                ? `${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === t.id_szemely,
-                                    )?.csaladnev
-                                  } ${
-                                    [family.ferfi, family.no, ...children].find(
-                                      (m) => m?.id === t.id_szemely,
-                                    )?.k_nev
-                                  }`
-                                : null
-                            }
-                          />
-                        ))}
-                      </div>
+                      {/* 2026-06-02: táblázatos forma — átláthatóbb mint a kártya-lista */}
+                      <RegistryTable
+                        rows={buildRegistryRows({
+                          hazassag,
+                          keresztelesek,
+                          konfirmaciok,
+                          temetesek,
+                          members: [family.ferfi, family.no, ...children],
+                        })}
+                      />
                     </Section>
                   )}
 
@@ -604,37 +531,172 @@ function MemberPanel({
   )
 }
 
-function RegistryItem({
-  icon,
-  label,
-  date,
-  location,
-  person,
-}: {
-  icon: React.ReactNode
-  label: string
+// 2026-06-02: anyakönyvi sor-építő — minden esetet egységesen kezel
+interface RegistryRow {
+  key: string
+  type: 'esketes' | 'kereszteles' | 'konfirmacio' | 'temetes'
   date: string | null | undefined
+  person: string | null
   location: string | null | undefined
-  person: string | null | undefined
-}) {
+  pastor: string | null | undefined
+}
+
+const REGISTRY_TYPE_META: Record<
+  RegistryRow['type'],
+  { label: string; icon: React.ReactNode; tone: string }
+> = {
+  esketes: {
+    label: 'Esketés',
+    icon: <Heart className="size-3.5 text-rose-500" />,
+    tone: 'bg-rose-50 text-rose-700 border-rose-200',
+  },
+  kereszteles: {
+    label: 'Keresztelő',
+    icon: <Church className="size-3.5 text-blue-500" />,
+    tone: 'bg-blue-50 text-blue-700 border-blue-200',
+  },
+  konfirmacio: {
+    label: 'Konfirmáció',
+    icon: <Sparkles className="size-3.5 text-emerald-500" />,
+    tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  },
+  temetes: {
+    label: 'Temetés',
+    icon: <Cross className="size-3.5 text-slate-500" />,
+    tone: 'bg-slate-100 text-slate-700 border-slate-300',
+  },
+}
+
+interface MemberLike {
+  id: number
+  csaladnev: string
+  k_nev: string
+}
+
+function buildRegistryRows(args: {
+  hazassag: { datum?: string; adrlocality?: { name: string } | null; lelkeszneve?: string } | null | undefined
+  keresztelesek: Array<{ id_szemely: number; datum: string; adrlocality?: { name: string } | null; lelkeszneve?: string }>
+  konfirmaciok: Array<{ id_szemely: number; datum: string; adrlocality?: { name: string } | null; lelkeszneve?: string }>
+  temetesek: Array<{ id_szemely: number; hdatum: string }>
+  members: Array<MemberLike | null | undefined>
+}): RegistryRow[] {
+  const memberMap = new Map<number, string>()
+  for (const m of args.members) {
+    if (m) memberMap.set(m.id, `${m.csaladnev || ''} ${m.k_nev || ''}`.trim())
+  }
+  const rows: RegistryRow[] = []
+  if (args.hazassag?.datum) {
+    rows.push({
+      key: 'esketes',
+      type: 'esketes',
+      date: args.hazassag.datum,
+      person: null, // mindkét fél, a tagok-tabon látszik
+      location: args.hazassag.adrlocality?.name ?? null,
+      pastor: args.hazassag.lelkeszneve ?? null,
+    })
+  }
+  args.keresztelesek.forEach((k, i) => rows.push({
+    key: `b-${i}`,
+    type: 'kereszteles',
+    date: k.datum,
+    person: memberMap.get(k.id_szemely) ?? null,
+    location: k.adrlocality?.name ?? null,
+    pastor: k.lelkeszneve ?? null,
+  }))
+  args.konfirmaciok.forEach((kon, i) => rows.push({
+    key: `c-${i}`,
+    type: 'konfirmacio',
+    date: kon.datum,
+    person: memberMap.get(kon.id_szemely) ?? null,
+    location: kon.adrlocality?.name ?? null,
+    pastor: kon.lelkeszneve ?? null,
+  }))
+  args.temetesek.forEach((t, i) => rows.push({
+    key: `t-${i}`,
+    type: 'temetes',
+    date: t.hdatum,
+    person: memberMap.get(t.id_szemely) ?? null,
+    location: null,
+    pastor: null,
+  }))
+  // Dátum szerint csökkenően rendezve (legújabb felül)
+  rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  return rows
+}
+
+function RegistryTable({ rows }: { rows: RegistryRow[] }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-50">
-        {icon}
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {/* Desktop táblázat */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <tr>
+              <th className="px-3 py-2 w-32">Esemény</th>
+              <th className="px-3 py-2 w-28">Dátum</th>
+              <th className="px-3 py-2">Érintett személy</th>
+              <th className="px-3 py-2">Helyszín</th>
+              <th className="px-3 py-2">Lelkész</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => {
+              const meta = REGISTRY_TYPE_META[row.type]
+              return (
+                <tr key={row.key} className="hover:bg-slate-50/60">
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
+                      {meta.icon}
+                      {meta.label}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
+                    {formatShortDate(row.date)}
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">
+                    {row.person ?? <span className="text-slate-400 italic">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {row.location ?? <span className="text-slate-400">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {row.pastor ?? <span className="text-slate-400">—</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
-      <div className="min-w-0 flex-1 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-1 items-baseline">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            {label}
-          </span>
-          {person && (
-            <span className="ml-2 text-sm text-slate-700">{person}</span>
-          )}
-        </div>
-        <div className="text-xs text-slate-500">
-          <span className="font-medium text-slate-700">{formatShortDate(date)}</span>
-          {location && <span className="ml-2">· {location}</span>}
-        </div>
+
+      {/* Mobil: kompakt kártya-lista */}
+      <div className="sm:hidden divide-y divide-slate-100">
+        {rows.map((row) => {
+          const meta = REGISTRY_TYPE_META[row.type]
+          return (
+            <div key={row.key} className="p-3 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
+                  {meta.icon}
+                  {meta.label}
+                </span>
+                <span className="text-xs font-medium text-slate-700">
+                  {formatShortDate(row.date)}
+                </span>
+              </div>
+              {row.person && (
+                <div className="text-sm text-slate-700">{row.person}</div>
+              )}
+              {(row.location || row.pastor) && (
+                <div className="text-[11px] text-slate-500">
+                  {row.location}
+                  {row.location && row.pastor && ' · '}
+                  {row.pastor && `Lelkész: ${row.pastor}`}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
