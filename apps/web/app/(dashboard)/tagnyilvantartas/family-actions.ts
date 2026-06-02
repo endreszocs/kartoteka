@@ -190,10 +190,12 @@ export async function getFamilies(): Promise<FamilyRow[]> {
   // (saveFamily, getFamilyDetails, deleteFamily) érintetlenül futnak a régi
   // `csalad.id`-vel, amíg a Fázis 2 fokozatosan átáll.
   //
-  // 2026-06-02: a Supabase nested JOIN `cim:cim!id_cim(...)` szintaxissal néha
-  // nem találja meg a Foreign Key kapcsolatot az új cim+adrstreet táblákon
-  // (a FK-constraint nem volt explicit elnevezve). Ezért külön query-kkel
-  // hozzuk be a címeket + utcaneveket, és in-memory join-oljuk. Ez biztosabb.
+  // 2026-06-02: Diagnózis után kiderült, hogy az új `haztartas → cim` lánc
+  // valahol szakad (vagy a backfill subquery nem találta a megfelelő cim-rekordot,
+  // vagy a cim-rekordok üres `id_utca`/`szam` mezőkkel jöttek létre).
+  // Megoldás: az új haztartas-ból olvassuk a struktúrát (legacy_csalad_id alapján),
+  // DE a CÍMET a régi `csalad.c_utcaid + c_szam` mezőkből szedjük FALLBACK-kel.
+  // Az új `cim` táblát PRIORITÁSSAL próbáljuk; ha üres, visszanyúlunk a régire.
   const { data: haztartasok } = await supabase
     .from('haztartas')
     .select('id, isaktiv, id_csoport, legacy_csalad_id, id_cim')
@@ -207,19 +209,32 @@ export async function getFamilies(): Promise<FamilyRow[]> {
   const haztartasIds = haztartasok.map((h: any) => h.id as string)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cimIds = haztartasok.map((h: any) => h.id_cim as string | null).filter((v): v is string => !!v)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const legacyCsaladIds = haztartasok.map((h: any) => h.legacy_csalad_id as number | null).filter((v): v is number => v != null)
 
-  // Címek lekérdezése
+  // ─── ÚJ MODELL: cim + adrstreet az haztartas.id_cim-en keresztül ────────
   const { data: cimekRaw } = cimIds.length > 0
     ? await supabase
         .from('cim')
         .select('id, szam, id_utca')
         .in('id', cimIds)
     : { data: [] }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const utcaIds = ((cimekRaw || []) as any[]).map((c) => c.id_utca as number | null).filter((v): v is number => v != null)
-  const utcaIdsUnique = Array.from(new Set(utcaIds))
 
-  // Utcanevek lekérdezése
+  // ─── RÉGI MODELL FALLBACK: csalad.c_utcaid + c_szam ─────────────────────
+  const { data: csaladokRaw } = legacyCsaladIds.length > 0
+    ? await supabase
+        .from('csalad')
+        .select('id, c_utcaid, c_szam')
+        .in('id', legacyCsaladIds)
+    : { data: [] }
+
+  // Mindkét forrás utca-ID-it egyesítjük az adrstreet lekérdezéshez
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const utcaIdsUj = ((cimekRaw || []) as any[]).map((c) => c.id_utca as number | null).filter((v): v is number => v != null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const utcaIdsRegi = ((csaladokRaw || []) as any[]).map((c) => c.c_utcaid as number | null).filter((v): v is number => v != null)
+  const utcaIdsUnique = Array.from(new Set([...utcaIdsUj, ...utcaIdsRegi]))
+
   const { data: utcakRaw } = utcaIdsUnique.length > 0
     ? await supabase
         .from('adrstreet')
@@ -227,16 +242,27 @@ export async function getFamilies(): Promise<FamilyRow[]> {
         .in('id', utcaIdsUnique)
     : { data: [] }
 
-  // Mapping: cim_id → { szam, utca_name }
+  // Mappingok
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const utcaNameById = new Map<number, string>(((utcakRaw || []) as any[]).map((u) => [u.id, u.name]))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+  // cim_id (uuid) → { szam, utca_name } — új modell
   const cimById = new Map<string, { szam: string | null; utca_name: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const c of (cimekRaw || []) as any[]) {
     cimById.set(c.id, {
       szam: c.szam ?? null,
       utca_name: c.id_utca != null ? utcaNameById.get(c.id_utca) ?? null : null,
+    })
+  }
+
+  // csalad_id (int) → { szam, utca_name } — régi modell (FALLBACK forrás)
+  const csaladCimById = new Map<number, { szam: string | null; utca_name: string | null }>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const c of (csaladokRaw || []) as any[]) {
+    csaladCimById.set(c.id, {
+      szam: c.c_szam ?? null,
+      utca_name: c.c_utcaid != null ? utcaNameById.get(c.c_utcaid) ?? null : null,
     })
   }
 
@@ -267,16 +293,24 @@ export async function getFamilies(): Promise<FamilyRow[]> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return haztartasok.map((h: any) => {
-    const cim = h.id_cim ? cimById.get(h.id_cim) ?? null : null
+    const ujCim = h.id_cim ? cimById.get(h.id_cim) ?? null : null
+    const regiCim = h.legacy_csalad_id != null ? csaladCimById.get(h.legacy_csalad_id) ?? null : null
+
+    // PRIORITÁS: új cim, ha van utca-név. Ha NEM, fallback a régi csalad-ra.
+    // (Külön ellenőrzés a szam-ra és az utca-névre, mert előfordulhat hogy
+    // az új cim-en csak az egyik mező van kitöltve.)
+    const utca_name = ujCim?.utca_name ?? regiCim?.utca_name ?? null
+    const szam = ujCim?.szam ?? regiCim?.szam ?? null
+
     const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null }
     return {
       id: h.legacy_csalad_id as number,
-      c_szam: cim?.szam ?? null,
+      c_szam: szam,
       isaktiv: h.isaktiv as boolean,
       id_csoport: h.id_csoport as number | null,
       ferfi: entry.ferfi,
       no: entry.no,
-      utca: cim?.utca_name ? { name: cim.utca_name } : null,
+      utca: utca_name ? { name: utca_name } : null,
     } satisfies FamilyRow
   })
 }
