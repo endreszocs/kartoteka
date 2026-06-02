@@ -283,7 +283,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
             <select
               value={idCsoport}
               onChange={e => setIdCsoport(e.target.value)}
-              className={`w-full rounded-md border px-3 py-2 text-sm ${FIELD_INPUT_CLASS}`}
+              className={'w-full rounded-md border px-3 py-2 text-sm ' + FIELD_INPUT_CLASS}
             >
               <option value="">— Nincs körzet —</option>
               {districts.map(d => (
