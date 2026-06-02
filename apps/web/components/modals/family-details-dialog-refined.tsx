@@ -14,7 +14,9 @@ import {
   Home,
   Mail,
   MapPin,
+  Pencil,
   Phone,
+  Plus,
   Sparkles,
   TreePine,
   Users,
@@ -27,6 +29,8 @@ import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
 import type { FamilyTreeData } from '@/lib/family-tree/types'
 import { FamilyTreeView } from '@/components/family-tree/family-tree-view'
 import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
+import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
+import { FamilyVisitFormDialog } from '@/components/modals/family-visit-form-dialog'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
@@ -85,12 +89,24 @@ export function FamilyDetailsDialogRefined({
   const [memberDialogMember, setMemberDialogMember] = useState<EnrichedMember | null>(null)
   const [memberDialogLoading, setMemberDialogLoading] = useState(false)
 
+  // 2026-06-02: család szerkesztés + új családlátogatás
+  const [editFamilyOpen, setEditFamilyOpen] = useState(false)
+  const [visitFormOpen, setVisitFormOpen] = useState(false)
+
   async function openMemberCard(memberId: number) {
     if (!familyId) return
     setMemberDialogLoading(true)
     const enriched = await getEnrichedMemberById(memberId, familyId)
     setMemberDialogMember(enriched as EnrichedMember | null)
     setMemberDialogLoading(false)
+  }
+
+  // Visits frissítése mentés után
+  async function refreshVisits() {
+    if (!familyId) return
+    const { getFamilyVisits } = await import('@/app/(dashboard)/tagnyilvantartas/family-actions')
+    const v = await getFamilyVisits(familyId)
+    setVisits(v as FamilyVisit[])
   }
 
   useEffect(() => {
@@ -171,15 +187,28 @@ export function FamilyDetailsDialogRefined({
         showCloseButton={false}
       >
         <div className="relative overflow-hidden rounded-[1.5rem] bg-white shadow-2xl ring-1 ring-slate-200">
-          {/* Bezáró gomb */}
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="absolute right-3 top-3 z-30 inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
-            aria-label="Bezárás"
-          >
-            <X className="size-4" />
-          </button>
+          {/* 2026-06-02: Szerkesztés + Bezárás gombok a fejléc jobb felső sarkán */}
+          <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+            {family && (
+              <button
+                type="button"
+                onClick={() => setEditFamilyOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-md transition hover:bg-white hover:text-violet-800"
+                title="Családi karton szerkesztése (körzet, cím, tagok)"
+              >
+                <Pencil className="size-3.5" />
+                <span className="hidden sm:inline">Szerkesztés</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
+              aria-label="Bezárás"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
 
           <div className="max-h-[92vh] overflow-y-auto">
             {loading ? (
@@ -445,6 +474,16 @@ export function FamilyDetailsDialogRefined({
                       }
                       icon={<DoorOpen className="size-4" />}
                       accent="rose"
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => setVisitFormOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-700"
+                        >
+                          <Plus className="size-3.5" />
+                          Új látogatás
+                        </button>
+                      }
                     >
                       {visitsLoading ? (
                         <div className="flex items-center justify-center py-12 text-sm text-slate-500">
@@ -456,7 +495,7 @@ export function FamilyDetailsDialogRefined({
                           <DoorOpen className="mx-auto mb-3 size-10 text-slate-300" />
                           Nincs rögzített családlátogatás.
                           <p className="mt-2 text-xs text-slate-400">
-                            Új látogatás rögzítéséhez használja a Tagnyilvántartás → Családlátogatás űrlapot.
+                            Az „Új látogatás" gombbal rögzíthet egy új családlátogatást — amely a Munkanaplóban is megjelenik.
                           </p>
                         </div>
                       ) : (
@@ -519,10 +558,7 @@ export function FamilyDetailsDialogRefined({
         </div>
       </DialogContent>
 
-      {/* 2026-06-02: Drill-down dialog — egy person-kartonra kattintáskor.
-          A MemberDetailsDialogV2 a family dialog tetejére ráül (nested Radix
-          Dialog). X-en bezárul a member dialog ÉS a family dialog marad nyitva
-          a megfelelő tab-on. */}
+      {/* 2026-06-02: Drill-down dialog — egy person-kartonra kattintáskor. */}
       <MemberDetailsDialogV2
         open={!!memberDialogMember || memberDialogLoading}
         onOpenChange={(open) => {
@@ -534,6 +570,64 @@ export function FamilyDetailsDialogRefined({
         member={memberDialogMember}
         familyId={familyId}
         onEdit={() => { /* a karton-szerkesztést a tagnyilv. tabnál intézzük */ }}
+      />
+
+      {/* 2026-06-02: Családi karton szerkesztése (cím, körzet, tagok) */}
+      <FamilyFormDialog
+        open={editFamilyOpen}
+        onOpenChange={(open) => {
+          setEditFamilyOpen(open)
+          if (!open && familyId) {
+            // Reload az adatokat — a felhasználó esetleg módosította
+            getFamilyDetails(familyId).then(setData)
+          }
+        }}
+        editFamily={
+          family
+            ? {
+                id: family.id,
+                c_szam: family.c_szam ?? null,
+                isaktiv: family.isaktiv ?? true,
+                id_csoport: family.id_csoport ?? null,
+                ferfi: family.ferfi
+                  ? {
+                      id: family.ferfi.id,
+                      csaladnev: family.ferfi.csaladnev ?? '',
+                      k_nev: family.ferfi.k_nev ?? '',
+                      ferfi: true,
+                      sz_datum: family.ferfi.sz_datum ?? null,
+                      allapot: family.ferfi.allapot ?? null,
+                      meghalt: !!family.ferfi.meghalt,
+                      namepattern: family.ferfi.namepattern ?? null,
+                      vallas: family.ferfi.vallas ?? null,
+                    }
+                  : null,
+                no: family.no
+                  ? {
+                      id: family.no.id,
+                      csaladnev: family.no.csaladnev ?? '',
+                      k_nev: family.no.k_nev ?? '',
+                      ferfi: false,
+                      sz_datum: family.no.sz_datum ?? null,
+                      allapot: family.no.allapot ?? null,
+                      meghalt: !!family.no.meghalt,
+                      namepattern: family.no.namepattern ?? null,
+                      vallas: family.no.vallas ?? null,
+                    }
+                  : null,
+                utca: family.utca?.name ? { name: family.utca.name } : null,
+              }
+            : null
+        }
+      />
+
+      {/* 2026-06-02: Új családlátogatás rögzítése — közös form a munkanaplóval */}
+      <FamilyVisitFormDialog
+        open={visitFormOpen}
+        onOpenChange={setVisitFormOpen}
+        familyId={familyId}
+        familyLabel={familyName}
+        onSaved={refreshVisits}
       />
     </Dialog>
   )
@@ -616,11 +710,14 @@ function Section({
   icon,
   accent,
   children,
+  action,
 }: {
   title: string
   icon: React.ReactNode
   accent: 'violet' | 'amber' | 'emerald' | 'rose'
   children: React.ReactNode
+  /** Opcionális akció-gomb a header jobb oldalán */
+  action?: React.ReactNode
 }) {
   const ACCENT: Record<typeof accent, string> = {
     violet: 'border-violet-100 text-violet-700',
@@ -630,9 +727,12 @@ function Section({
   }
   return (
     <section className={`rounded-2xl border ${ACCENT[accent].split(' ')[0]} bg-white p-4 sm:p-5 shadow-sm`}>
-      <div className={`flex items-center gap-2 mb-3 ${ACCENT[accent].split(' ')[1]}`}>
-        {icon}
-        <h3 className="font-heading text-base font-semibold">{title}</h3>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className={`flex items-center gap-2 ${ACCENT[accent].split(' ')[1]}`}>
+          {icon}
+          <h3 className="font-heading text-base font-semibold">{title}</h3>
+        </div>
+        {action}
       </div>
       {children}
     </section>

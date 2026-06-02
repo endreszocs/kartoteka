@@ -157,7 +157,94 @@ export function FamilyTreeView({
   }
 
   function handlePrint() {
-    window.print()
+    // 2026-06-02 v3: külön ablakos nyomtatás. A Radix Dialog Portal +
+    // `@media print` body-szelektor kombinációval a window.print() nem
+    // mindig fedte le a fa-tartalmat. Most a tree-konténer HTML-jét
+    // egy új ablakba másoljuk az aktív stylesheet-ekkel együtt, és
+    // ott nyomtatjuk.
+    if (typeof window === 'undefined') return
+    const canvas = containerRef.current?.querySelector('.family-tree-canvas-inner')
+    if (!canvas) return
+
+    // CSS gyűjtés
+    const cssParts: string[] = []
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        if (sheet.cssRules) {
+          for (const rule of Array.from(sheet.cssRules)) {
+            cssParts.push(rule.cssText)
+          }
+        }
+      } catch {
+        // CORS védett stylesheet (külső) — átugorjuk
+      }
+    }
+
+    const printWin = window.open('', '_blank', 'width=1280,height=900')
+    if (!printWin) {
+      alert('Engedélyezd a felugró ablakokat a nyomtatáshoz!')
+      return
+    }
+
+    printWin.document.write(`<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<title>Családfa</title>
+<style>
+  ${cssParts.join('\n')}
+  body {
+    margin: 0;
+    padding: 20px;
+    background: white;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .print-header {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .print-header h1 {
+    margin: 0;
+    font-size: 20px;
+    color: #1e293b;
+  }
+  .print-header p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .print-canvas {
+    position: relative;
+    transform-origin: top left;
+  }
+  @page {
+    size: A3 landscape;
+    margin: 1.2cm;
+  }
+</style>
+</head>
+<body>
+  <div class="print-header">
+    <h1>Családfa</h1>
+    <p>Nyomtatva: ${new Date().toLocaleDateString('hu-HU')} · ${data.members.length} személy · ${summary.gens} generáció</p>
+  </div>
+  <div class="print-canvas">${canvas.outerHTML}</div>
+  <script>
+    window.onload = function() {
+      // A scale a print-pillanatban van kiértékelve. Reset-eljük 1-re a
+      // canvas-divon, hogy ne fejen a zoom.
+      var c = document.querySelector('.print-canvas > div');
+      if (c) c.style.transform = 'none';
+      setTimeout(function() {
+        window.print();
+        setTimeout(function() { window.close(); }, 400);
+      }, 200);
+    };
+  </script>
+</body>
+</html>`)
+    printWin.document.close()
   }
 
   function handleResetView() {
@@ -281,7 +368,7 @@ export function FamilyTreeView({
           }}
         >
           <div
-            className="relative"
+            className="family-tree-canvas-inner relative"
             style={{ width: layout.width + 16, height: layout.height + 16 }}
           >
             {/* SVG vonalak */}

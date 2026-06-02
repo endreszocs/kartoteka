@@ -198,7 +198,28 @@ function SidebarItem({
       <div className="relative">
         <Link
           href={item.href}
-          onClick={onNavigate}
+          onClick={(e) => {
+            // 2026-06-02 bug fix: a fő-menüpontra kattintáskor MANUÁLISAN
+            // szinkronizáljuk az `expandedHref`-et. Eddig csak a useEffect
+            // figyelte a pathname-et, és ha a router prefetch+routing
+            // valamiért késleltette a pathname-frissítést, az akkordeon
+            // becsavar. Most a klikk azonnal nyitja a saját menüt
+            // (és csukja a többit), a useEffect csak biztonsági fallback.
+            if (hasChildren) {
+              // Egy mikrotaszk késleltetés: hogy a Link navigáció után
+              // (ami onClick után fut le) a state-update ne ütközzön az
+              // useEffect-tel, ami a pathname-változásra reagál.
+              queueMicrotask(() => {
+                if (typeof window !== 'undefined') {
+                  // Az event delegation a szülőre megy fel — a SidebarItem
+                  // egyébként a `onToggle`-t a chevron-on használja. Itt
+                  // dispatch-elunk egy custom eventet, amit a parent figyel.
+                  window.dispatchEvent(new CustomEvent('sidebar-expand-href', { detail: item.href }))
+                }
+              })
+            }
+            onNavigate?.()
+          }}
           title={collapsed ? item.label : undefined}
           aria-label={item.label}
           data-walkthrough={walkthroughKey}
@@ -493,6 +514,22 @@ function SidebarNav({
     // Egyébként ne piszkáljuk az állapotot — a felhasználó által nyitva
     // hagyott menü maradjon nyitva navigáció közben is.
   }, [pathname])
+
+  // 2026-06-02: Custom event a fő-menüpontra kattintáshoz. Ezt a SidebarItem
+  // Link onClick-jébe dispatch-eljük — biztosítja hogy a kattintás AZONNAL
+  // szinkronizálja az akkordeon állapotot, függetlenül a router prefetch
+  // időzítésétől.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    function handler(e: Event) {
+      const ev = e as CustomEvent<string>
+      if (typeof ev.detail === 'string') {
+        setExpandedHref(ev.detail)
+      }
+    }
+    window.addEventListener('sidebar-expand-href', handler)
+    return () => window.removeEventListener('sidebar-expand-href', handler)
+  }, [])
 
   const handleToggleHref = (href: string) => {
     setExpandedHref((prev) => (prev === href ? null : href))

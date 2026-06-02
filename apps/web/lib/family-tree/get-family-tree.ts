@@ -81,6 +81,31 @@ async function buildTreeFromCenters(
     frontierDown = next
   }
 
+  // 2.5. TESTVÉR-bevétel: a szülők (-1 szint) MINDEN gyermekét lekérdezzük
+  // — így a center testvérei (akik a centerrel közös szülő alatt vannak)
+  // is bekerülnek 0-szintre. Hasonlóan a -2 szint MINDEN gyermeke -1-szintű
+  // (= nagybácsi/néni), és így tovább.
+  for (let upGen = -1; upGen >= -generationsUp; upGen--) {
+    const upPersons = Array.from(generationOf.entries())
+      .filter(([, g]) => g === upGen)
+      .map(([id]) => id)
+    if (upPersons.length === 0) continue
+    const { data: kapcs } = await supabase
+      .from('szemely_kapcsolat')
+      .select('id_szemely_1, id_szemely_2')
+      .eq('tipus', 'szulo_gyermek')
+      .in('id_szemely_1', upPersons)
+      .is('ervenyes_ig', null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const k of (kapcs || []) as any[]) {
+      const gyermekId = k.id_szemely_2 as number
+      const targetGen = upGen + 1
+      if (!generationOf.has(gyermekId)) {
+        generationOf.set(gyermekId, targetGen)
+      }
+    }
+  }
+
   // 3. Házastársak (ugyanaz a generáció)
   const allIds = Array.from(generationOf.keys())
   if (allIds.length > 0) {

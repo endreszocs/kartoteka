@@ -101,7 +101,10 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
               </div>
             )}
             {!loading && !error && data && data.members.length > 0 && (
-              <FamilyTreeView data={data} layoutMode="ego-top" />
+              // 2026-06-02: a user kérése — a családi kartonon levő dizájn
+              // (couple-layout, klasszikus tier-by-tier) szebb és átláthatóbb
+              // mint az ego-top szárny-elrendezés. Mindkét helyen ezt használjuk.
+              <FamilyTreeView data={data} layoutMode="couple" />
             )}
           </div>
 

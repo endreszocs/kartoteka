@@ -7,12 +7,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { memberSchema, type MemberInput } from '@/lib/validations/members'
 import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
+import { Check, ChevronLeft, ChevronRight, User, BookOpen, CreditCard } from 'lucide-react'
 
 interface MemberFormDialogProps {
   open: boolean
@@ -20,10 +20,25 @@ interface MemberFormDialogProps {
   editMember: EnrichedMember | null
 }
 
+// 2026-06-02: a user kérése — input mezők JOBBAN láthatóak legyenek.
+// Egységes osztály minden szerkeszthető mezőre: fehér háttér, finom shadow,
+// határozott szürke border. (Eddig az alap Input bg-background = transparent-szerű.)
+const FIELD_CLASS = 'bg-white shadow-sm border-slate-300 focus-visible:border-emerald-400 focus-visible:ring-emerald-300/40'
+const FIELD_CLASS_COMPACT = FIELD_CLASS + ' h-9'
+
+type WizardStep = 1 | 2 | 3
+const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
+  { id: 1, label: 'Személyes', icon: User },
+  { id: 2, label: 'Anyakönyvi', icon: BookOpen },
+  { id: 3, label: 'Pénzügyi', icon: CreditCard },
+]
+
 export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormDialogProps) {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<'choose' | 'form'>('choose')
-  const [formTab, setFormTab] = useState('personal')
+  // 2026-06-02: wizard step + tetejétől átment lépések (visszamenni szabad)
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1)
+  const [maxReachedStep, setMaxReachedStep] = useState<WizardStep>(1)
 
   // Szülő keresés
   const [parentResults, setParentResults] = useState<{ apa: ParentResult[]; anya: ParentResult[] }>({ apa: [], anya: [] })
@@ -43,6 +58,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       if (cancelled) return
     if (editMember) {
       setStep('form')
+      setWizardStep(1)
+      setMaxReachedStep(3) // szerkesztésnél MIND lépés szabadon elérhető
       reset({
         id: editMember.id,
         csaladnev: editMember.csaladnev || '',
@@ -68,7 +85,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       })
     } else {
       setStep('choose')
-      setFormTab('personal')
+      setWizardStep(1)
+      setMaxReachedStep(1)
       reset({ belepes_oka: 'alap', vallas: 'Református', ferfi: true, c_szam: '1' })
     }
     setParentResults({ apa: [], anya: [] })
@@ -156,29 +174,66 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           </div>
         )}
 
-        {/* Form */}
+        {/* Form — WIZARD MÓD (2026-06-02) */}
         {step === 'form' && (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
             <input type="hidden" {...register('id')} />
 
-            <Tabs value={formTab} onValueChange={setFormTab}>
-              <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 bg-zinc-100 rounded-xl p-1">
-                <TabsTrigger value="personal">Személyes</TabsTrigger>
-                <TabsTrigger value="registry">Anyakönyvi</TabsTrigger>
-                <TabsTrigger value="financial">Pénzügyi</TabsTrigger>
-              </TabsList>
+            {/* Wizard-stepper indicator (kötelező lépés-sor) */}
+            <div className="mb-1 flex items-center justify-between gap-2 sm:gap-4">
+              {WIZARD_STEPS.map((s, idx) => {
+                const isActive = wizardStep === s.id
+                const isCompleted = wizardStep > s.id || maxReachedStep > s.id
+                const isClickable = s.id <= maxReachedStep
+                const Icon = s.icon
+                return (
+                  <div key={s.id} className="flex flex-1 items-center gap-1.5 sm:gap-2">
+                    <button
+                      type="button"
+                      onClick={() => isClickable && setWizardStep(s.id)}
+                      disabled={!isClickable}
+                      className={`group flex flex-1 items-center gap-2 rounded-lg border px-2 py-1.5 transition sm:px-3 sm:py-2 ${
+                        isActive
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm'
+                          : isCompleted
+                            ? 'border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50/60'
+                            : 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400'
+                      }`}
+                    >
+                      <span
+                        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                          isActive
+                            ? 'bg-emerald-500 text-white'
+                            : isCompleted
+                              ? 'bg-emerald-200 text-emerald-700'
+                              : 'bg-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {isCompleted && !isActive ? <Check className="size-3.5" /> : <Icon className="size-3" />}
+                      </span>
+                      <span className="hidden text-xs font-semibold sm:inline">{s.label}</span>
+                      <span className="text-[10px] font-semibold sm:hidden">{idx + 1}/3</span>
+                    </button>
+                    {idx < WIZARD_STEPS.length - 1 && (
+                      <div className={`hidden h-px w-4 sm:block ${maxReachedStep > s.id ? 'bg-emerald-300' : 'bg-slate-200'}`} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
 
-              {/* ── SZEMÉLYES ── */}
-              <TabsContent value="personal" className="space-y-3 pt-3">
+            {/* ─────── 1. SZEMÉLYES ─────── */}
+            {wizardStep === 1 && (
+              <div className="space-y-3 pt-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Családnév *</Label>
-                    <Input {...register('csaladnev')} placeholder="Kovács" />
+                    <Input {...register('csaladnev')} placeholder="Kovács" className={FIELD_CLASS} />
                     {errors.csaladnev && <p className="text-red-500 text-xs">{errors.csaladnev.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Keresztnév *</Label>
-                    <Input {...register('k_nev')} placeholder="János" />
+                    <Input {...register('k_nev')} placeholder="János" className={FIELD_CLASS} />
                     {errors.k_nev && <p className="text-red-500 text-xs">{errors.k_nev.message}</p>}
                   </div>
                 </div>
@@ -186,46 +241,49 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
                     <Label>Nem *</Label>
-                    <select {...register('ferfi', { setValueAs: v => v === 'true' || v === true })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <select
+                      {...register('ferfi', { setValueAs: v => v === 'true' || v === true })}
+                      className={'w-full rounded-md border px-3 py-2 text-sm ' + FIELD_CLASS}
+                    >
                       <option value="true">Férfi</option>
                       <option value="false">Nő</option>
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Születési dátum</Label>
-                    <Input type="date" {...register('sz_datum')} />
+                    <Input type="date" {...register('sz_datum')} className={FIELD_CLASS} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Vallás</Label>
-                    <Input {...register('vallas')} placeholder="Református" />
+                    <Input {...register('vallas')} placeholder="Református" className={FIELD_CLASS} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
                     <Label>Település *</Label>
-                    <Input {...register('c_helyseg_text')} placeholder="Kovászna" />
+                    <Input {...register('c_helyseg_text')} placeholder="Kovászna" className={FIELD_CLASS} />
                     {errors.c_helyseg_text && <p className="text-red-500 text-xs">{errors.c_helyseg_text.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Utca *</Label>
-                    <Input {...register('c_utca_text')} placeholder="Fő utca" />
+                    <Input {...register('c_utca_text')} placeholder="Fő utca" className={FIELD_CLASS} />
                     {errors.c_utca_text && <p className="text-red-500 text-xs">{errors.c_utca_text.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Házszám</Label>
-                    <Input {...register('c_szam')} placeholder="1" />
+                    <Input {...register('c_szam')} placeholder="1" className={FIELD_CLASS} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Foglalkozás</Label>
-                    <Input {...register('foglalkozas')} />
+                    <Input {...register('foglalkozas')} className={FIELD_CLASS} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Telefon</Label>
-                    <Input {...register('telefon')} type="tel" />
+                    <Input {...register('telefon')} type="tel" className={FIELD_CLASS} />
                   </div>
                 </div>
 
@@ -237,6 +295,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                       <Input
                         {...register(type === 'apa' ? 'apjaneve' : 'anyjaneve')}
                         placeholder={`Keresés... (3+ karakter)`}
+                        className={FIELD_CLASS}
                         onChange={e => {
                           register(type === 'apa' ? 'apjaneve' : 'anyjaneve').onChange(e)
                           handleParentSearch(e.target.value, type)
@@ -259,75 +318,152 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   ))}
                 </div>
 
-                {/* Beköltözött / Áttért extra */}
                 {belepesOka === 'bekoltozott' && (
-                  <div className="p-3 bg-blue-50 rounded-lg space-y-2">
-                    <h4 className="text-sm font-semibold">Beköltözés részletei</h4>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+                    <h4 className="text-sm font-semibold text-blue-900">Beköltözés részletei</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('bek_datum')} className="h-8" /></div>
-                      <div><Label className="text-xs">Honnan</Label><Input {...register('bek_honnan')} className="h-8" placeholder="Település" /></div>
+                      <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('bek_datum')} className={FIELD_CLASS_COMPACT} /></div>
+                      <div><Label className="text-xs">Honnan</Label><Input {...register('bek_honnan')} className={FIELD_CLASS_COMPACT} placeholder="Település" /></div>
                     </div>
-                    <div><Label className="text-xs">Igazolás</Label><Input {...register('bek_igazolas')} className="h-8" /></div>
+                    <div><Label className="text-xs">Igazolás</Label><Input {...register('bek_igazolas')} className={FIELD_CLASS_COMPACT} /></div>
                   </div>
                 )}
                 {belepesOka === 'attert' && (
-                  <div className="p-3 bg-orange-50 rounded-lg space-y-2">
-                    <h4 className="text-sm font-semibold">Áttérés részletei</h4>
+                  <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 space-y-2">
+                    <h4 className="text-sm font-semibold text-orange-900">Áttérés részletei</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('att_datum')} className="h-8" /></div>
-                      <div><Label className="text-xs">Korábbi felekezet</Label><Input {...register('att_felekezet')} className="h-8" /></div>
-                      <div><Label className="text-xs">Honnan</Label><Input {...register('att_honnan')} className="h-8" /></div>
+                      <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('att_datum')} className={FIELD_CLASS_COMPACT} /></div>
+                      <div><Label className="text-xs">Korábbi felekezet</Label><Input {...register('att_felekezet')} className={FIELD_CLASS_COMPACT} /></div>
+                      <div><Label className="text-xs">Honnan</Label><Input {...register('att_honnan')} className={FIELD_CLASS_COMPACT} /></div>
                     </div>
                   </div>
                 )}
 
                 <div className="space-y-1.5">
                   <Label>Megjegyzés</Label>
-                  <textarea {...register('megjegyzes')} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[50px] resize-y" />
+                  <textarea
+                    {...register('megjegyzes')}
+                    className={'w-full rounded-md border px-3 py-2 text-sm min-h-[60px] resize-y ' + FIELD_CLASS}
+                  />
                 </div>
-              </TabsContent>
+              </div>
+            )}
 
-              {/* ── ANYAKÖNYVI ── */}
-              <TabsContent value="registry" className="space-y-3 pt-3">
-                <div className="p-3 bg-slate-50 rounded-lg space-y-2">
-                  <h4 className="text-sm font-semibold">Keresztelés</h4>
+            {/* ─────── 2. ANYAKÖNYVI ─────── */}
+            {wizardStep === 2 && (
+              <div className="space-y-3 pt-2">
+                <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                  <h4 className="text-sm font-semibold text-blue-900">Keresztelés</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('kereszteles_datum')} className="h-8" /></div>
-                    <div><Label className="text-xs">Hely</Label><Input {...register('kereszteles_hely')} className="h-8" /></div>
-                    <div><Label className="text-xs">Lelkész</Label><Input {...register('kereszteles_lelkesz')} className="h-8" /></div>
+                    <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('kereszteles_datum')} className={FIELD_CLASS_COMPACT} /></div>
+                    <div><Label className="text-xs">Hely</Label><Input {...register('kereszteles_hely')} className={FIELD_CLASS_COMPACT} placeholder="Település/templom" /></div>
+                    <div><Label className="text-xs">Lelkész</Label><Input {...register('kereszteles_lelkesz')} className={FIELD_CLASS_COMPACT} /></div>
                   </div>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-lg space-y-2">
-                  <h4 className="text-sm font-semibold">Konfirmáció</h4>
+
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
+                  <h4 className="text-sm font-semibold text-emerald-900">Konfirmáció</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('konfirmacio_datum')} className="h-8" /></div>
-                    <div><Label className="text-xs">Hely</Label><Input {...register('konfirmacio_hely')} className="h-8" /></div>
-                    <div><Label className="text-xs">Lelkész</Label><Input {...register('konfirmacio_lelkesz')} className="h-8" /></div>
+                    <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('konfirmacio_datum')} className={FIELD_CLASS_COMPACT} /></div>
+                    <div><Label className="text-xs">Hely</Label><Input {...register('konfirmacio_hely')} className={FIELD_CLASS_COMPACT} placeholder="Település/templom" /></div>
+                    <div><Label className="text-xs">Lelkész</Label><Input {...register('konfirmacio_lelkesz')} className={FIELD_CLASS_COMPACT} /></div>
                   </div>
                 </div>
-              </TabsContent>
 
-              {/* ── PÉNZÜGYI ── */}
-              <TabsContent value="financial" className="space-y-3 pt-3">
+                {/* 2026-06-02: ESKETÉS — eddig hiányzott! */}
+                <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 space-y-2">
+                  <h4 className="text-sm font-semibold text-rose-900">Esketés</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div><Label className="text-xs">Dátum</Label><Input type="date" {...register('esketes_datum')} className={FIELD_CLASS_COMPACT} /></div>
+                    <div><Label className="text-xs">Hely</Label><Input {...register('esketes_hely')} className={FIELD_CLASS_COMPACT} placeholder="Település/templom" /></div>
+                    <div><Label className="text-xs">Lelkész</Label><Input {...register('esketes_lelkesz')} className={FIELD_CLASS_COMPACT} /></div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Házastárs neve</Label>
+                    <Input
+                      {...register('esketes_hazastars_nev')}
+                      className={FIELD_CLASS_COMPACT}
+                      placeholder="Pl. Kovács Mária"
+                    />
+                    <p className="mt-0.5 text-[10.5px] text-rose-700/70">
+                      Csak név — a kapcsolat összekötése az Anyakönyv → Esketés modulban történik
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ─────── 3. PÉNZÜGYI ─────── */}
+            {wizardStep === 3 && (
+              <div className="space-y-3 pt-2">
                 <div className="space-y-1.5">
                   <Label>Fizetési státusz</Label>
-                  <select {...register('fizeto_status')} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <select
+                    {...register('fizeto_status')}
+                    className={'w-full rounded-md border px-3 py-2 text-sm ' + FIELD_CLASS}
+                  >
                     <option value="fizet">Fizető</option>
                     <option value="felmentett">Felmentett</option>
                     <option value="nem_fizet">Nem fizet (18 év alatti)</option>
                   </select>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    A pontos járulékösszeg és kedvezmények a Pénzügy modulban állíthatóak.
+                  </p>
                 </div>
-              </TabsContent>
-            </Tabs>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900">
+                  <strong>Utolsó lépés!</strong> Ellenőrizd a megadott adatokat, majd kattints
+                  a „Tag mentése" gombra. Az alapadatok mellett a megadott anyakönyvi események
+                  rögzítődnek a megfelelő modulokban.
+                </div>
+              </div>
+            )}
 
-            <div className="flex gap-2 pt-4 border-t border-zinc-100">
-              {!editMember && step === 'form' && (
-                <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setStep('choose')}>Vissza</Button>
+            {/* Wizard navigáció — alsó footer */}
+            <div className="flex flex-wrap gap-2 pt-3 sm:pt-4 border-t border-zinc-100">
+              {wizardStep === 1 ? (
+                !editMember && (
+                  <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setStep('choose')}>
+                    <ChevronLeft className="mr-1 size-4" /> Vissza
+                  </Button>
+                )
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="rounded-xl"
+                  onClick={() => setWizardStep((s) => Math.max(1, s - 1) as WizardStep)}
+                >
+                  <ChevronLeft className="mr-1 size-4" /> Vissza
+                </Button>
               )}
-              <Button type="button" variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
-              <Button type="submit" disabled={loading} className="flex-[2] rounded-xl bg-emerald-600 hover:bg-emerald-700">
-                {loading ? 'Mentés...' : editMember ? 'Módosítások mentése' : 'Tag mentése'}
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600"
+                onClick={() => onOpenChange(false)}
+              >
+                Mégse
               </Button>
+              {wizardStep < 3 ? (
+                <Button
+                  type="button"
+                  className="flex-[1.5] rounded-xl bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => {
+                    setWizardStep((s) => Math.min(3, s + 1) as WizardStep)
+                    setMaxReachedStep((m) => Math.max(m, (wizardStep + 1) as WizardStep))
+                  }}
+                >
+                  Tovább <ChevronRight className="ml-1 size-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-[2] rounded-xl bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {loading ? 'Mentés...' : editMember ? 'Módosítások mentése' : 'Tag mentése'}
+                </Button>
+              )}
             </div>
           </form>
         )}
