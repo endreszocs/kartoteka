@@ -30,7 +30,14 @@ const SPOUSE_GAP = 14 // házastársak közötti rövidebb gap
  *
  * Zoom: 50–150% (a sok generációhoz kényelmes).
  */
-export function FamilyTreeView({ data }: { data: FamilyTreeData }) {
+export function FamilyTreeView({
+  data,
+  onMemberClick,
+}: {
+  data: FamilyTreeData
+  /** 2026-06-02: ha megadva, a node-okra kattintva meghívódik az ID-vel. */
+  onMemberClick?: (id: number) => void
+}) {
   const [zoom, setZoom] = useState(1)
 
   // Hooks szabály miatt mindig sorrendben — a korai return UTÁN nem szabad
@@ -177,11 +184,26 @@ export function FamilyTreeView({ data }: { data: FamilyTreeData }) {
           {data.members.map((m) => {
             const pos = layout.positions.get(m.id)
             if (!pos) return null
+            const handleClick = onMemberClick ? () => onMemberClick(m.id) : undefined
             return (
               <div
                 key={m.id}
-                className="absolute"
+                className={cn('absolute', handleClick && 'cursor-pointer')}
                 style={{ left: pos.x, top: pos.y, width: NODE_W, height: NODE_H }}
+                onClick={handleClick}
+                role={handleClick ? 'button' : undefined}
+                tabIndex={handleClick ? 0 : undefined}
+                onKeyDown={
+                  handleClick
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleClick()
+                        }
+                      }
+                    : undefined
+                }
+                title={handleClick ? 'Személyi karton megnyitása' : undefined}
               >
                 <PersonCard member={m} />
               </div>

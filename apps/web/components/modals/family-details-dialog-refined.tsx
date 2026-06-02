@@ -22,12 +22,14 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { getFamilyDetails, getFamilyVisits } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { getFamilyDetails, getFamilyVisits, getEnrichedMemberById } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
 import type { FamilyTreeData } from '@/lib/family-tree/types'
 import { FamilyTreeView } from '@/components/family-tree/family-tree-view'
+import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
+import type { EnrichedMember } from '@/lib/constants/members'
 
 interface FamilyDetailsDialogProps {
   open: boolean
@@ -74,6 +76,22 @@ export function FamilyDetailsDialogRefined({
   const [treeLoading, setTreeLoading] = useState(false)
   const [visits, setVisits] = useState<FamilyVisit[] | null>(null)
   const [visitsLoading, setVisitsLoading] = useState(false)
+
+  // 2026-06-02: Drill-down a személy-kartonra
+  // A felhasználó kattintással megnyitja a kiválasztott szemely teljes
+  // kartonját — a MemberDetailsDialogV2 ráül a family dialog tetejére.
+  // X-en (vagy ESC-en) bezárul a member dialog és visszakerül a fókusz
+  // a családi kartonra (a family dialog open marad).
+  const [memberDialogMember, setMemberDialogMember] = useState<EnrichedMember | null>(null)
+  const [memberDialogLoading, setMemberDialogLoading] = useState(false)
+
+  async function openMemberCard(memberId: number) {
+    if (!familyId) return
+    setMemberDialogLoading(true)
+    const enriched = await getEnrichedMemberById(memberId, familyId)
+    setMemberDialogMember(enriched as EnrichedMember | null)
+    setMemberDialogLoading(false)
+  }
 
   useEffect(() => {
     if (!open || !familyId) return
@@ -310,13 +328,13 @@ export function FamilyDetailsDialogRefined({
                   >
                     <div className="grid gap-3 md:grid-cols-2">
                       {family.ferfi ? (
-                        <MemberPanel role="head" member={family.ferfi} />
+                        <MemberPanel role="head" member={family.ferfi} onClick={() => openMemberCard(family.ferfi!.id)} />
                       ) : family.no ? (
-                        <MemberPanel role="head" member={family.no} />
+                        <MemberPanel role="head" member={family.no} onClick={() => openMemberCard(family.no!.id)} />
                       ) : null}
 
                       {family.ferfi && family.no && (
-                        <MemberPanel role="spouse" member={family.no} />
+                        <MemberPanel role="spouse" member={family.no} onClick={() => openMemberCard(family.no!.id)} />
                       )}
                     </div>
 
@@ -335,11 +353,14 @@ export function FamilyDetailsDialogRefined({
                               ? yearNow - new Date(c.sz_datum).getFullYear()
                               : null
                             return (
-                              <div
+                              <button
                                 key={c.id}
-                                className={`flex items-center gap-2 text-sm ${
+                                type="button"
+                                onClick={() => openMemberCard(c.id)}
+                                className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition hover:bg-pink-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-pink-300 ${
                                   c.meghalt ? 'text-slate-400 line-through' : 'text-slate-700'
                                 }`}
+                                title="Személyi karton megnyitása"
                               >
                                 <span
                                   className={`inline-flex size-5 items-center justify-center rounded-full ${
@@ -355,7 +376,7 @@ export function FamilyDetailsDialogRefined({
                                     <span className="text-slate-400"> ({age} éves)</span>
                                   )}
                                 </span>
-                              </div>
+                              </button>
                             )
                           })}
                         </div>
@@ -409,7 +430,7 @@ export function FamilyDetailsDialogRefined({
                           Családfa betöltése…
                         </div>
                       ) : treeData ? (
-                        <FamilyTreeView data={treeData} />
+                        <FamilyTreeView data={treeData} onMemberClick={openMemberCard} />
                       ) : null}
                     </Section>
                   )}
@@ -497,6 +518,23 @@ export function FamilyDetailsDialogRefined({
           </div>
         </div>
       </DialogContent>
+
+      {/* 2026-06-02: Drill-down dialog — egy person-kartonra kattintáskor.
+          A MemberDetailsDialogV2 a family dialog tetejére ráül (nested Radix
+          Dialog). X-en bezárul a member dialog ÉS a family dialog marad nyitva
+          a megfelelő tab-on. */}
+      <MemberDetailsDialogV2
+        open={!!memberDialogMember || memberDialogLoading}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMemberDialogMember(null)
+            setMemberDialogLoading(false)
+          }
+        }}
+        member={memberDialogMember}
+        familyId={familyId}
+        onEdit={() => { /* a karton-szerkesztést a tagnyilv. tabnál intézzük */ }}
+      />
     </Dialog>
   )
 }
@@ -618,9 +656,11 @@ interface MemberShape {
 function MemberPanel({
   role,
   member,
+  onClick,
 }: {
   role: 'head' | 'spouse'
   member: MemberShape
+  onClick?: () => void
 }) {
   const isHead = role === 'head'
   const Icon = isHead ? Crown : Heart
@@ -629,8 +669,19 @@ function MemberPanel({
   const labelTone = isHead ? 'text-amber-800 bg-amber-50' : 'text-rose-700 bg-rose-50'
   const age = ageFromDate(member.sz_datum)
 
+  const Wrapper: 'button' | 'div' = onClick ? 'button' : 'div'
+  const wrapperProps = onClick
+    ? {
+        type: 'button' as const,
+        onClick,
+        title: 'Személyi karton megnyitása',
+        className:
+          'group block w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-violet-300',
+      }
+    : { className: 'rounded-xl border border-slate-200 bg-white p-4' }
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <Wrapper {...(wrapperProps as Record<string, unknown>)}>
       <div className="flex items-start gap-3">
         <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${iconTone}`}>
           <Icon className="size-5" />
@@ -661,7 +712,7 @@ function MemberPanel({
           )}
         </div>
       </div>
-    </div>
+    </Wrapper>
   )
 }
 

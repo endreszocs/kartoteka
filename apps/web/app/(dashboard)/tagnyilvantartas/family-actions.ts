@@ -693,3 +693,31 @@ export async function saveFamilyVisit(data: { familyId: number; datum: string; l
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
+
+// ── Egyetlen tag minimális EnrichedMember-ként ───────────────────────────
+// 2026-06-02: A családi kartonon a felhasználó a személyekre kattintva
+// nyithatja meg a `MemberDetailsDialogV2`-t. Ez az action visszaadja az
+// alapadatokat — a payment-status és átjelentkezés-info nem fontos itt,
+// mert a dialog belül `getMemberDetails(id)`-vel úgyis lekéri a részletes
+// adatokat (anyakönyv, befizetések, hátralék).
+//
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getEnrichedMemberById(id: number, familyId: number | null): Promise<any> {
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return null
+  const { data, error } = await supabase
+    .from('szemely')
+    .select('*, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)')
+    .eq('id', id)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (error || !data) return null
+
+  return {
+    ...data,
+    paymentStatus: 'rendezve',
+    familyId,
+    pendingTransfer: null,
+    hasEverPaid: false,
+  }
+}
