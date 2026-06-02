@@ -13,7 +13,7 @@ import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers
 import { ageFromDate } from '@/lib/utils/date'
 import { MEMBER_STATUS_FILTERS } from '@/lib/constants/members'
 import type { EnrichedMember, MemberStatusFilter, SortColumn } from '@/lib/constants/members'
-import { Search, UserPlus, Trash2, Cake, Link2 } from 'lucide-react'
+import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles } from 'lucide-react'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
 
 interface PersonsTabProps {
@@ -81,6 +81,17 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
     return set
   }, [crossNotifs])
 
+  // 2026-06-02: statisztika a persons-tab-hoz (mint a családoknál)
+  const stats = useMemo(() => {
+    const total = members.length
+    const active = members.filter((m) => isActiveMember(m, paidSet, everPaidSet)).length
+    const birthdays = members.filter((m) => isBirthdayThisMonth(m) && !m.meghalt).length
+    const floating = members.filter(
+      (m) => m.familyId === null && !m.meghalt && m.member_status !== 'elkoltozott' && !m.elkoltozott,
+    ).length
+    return { total, active, birthdays, floating }
+  }, [members, paidSet, everPaidSet])
+
   const filtered = useMemo(() => {
     const query = searchQuery.toLowerCase()
     const result = members.filter(m => {
@@ -124,6 +135,35 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
 
   return (
     <div className="space-y-4">
+      {/* ═══ Statisztika dashboard (2026-06-02) ═══ */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <PersonKpiCard
+          tone="violet"
+          icon={<Users className="size-5" />}
+          label="Összes tag"
+          value={stats.total}
+        />
+        <PersonKpiCard
+          tone="emerald"
+          icon={<CheckCircle2 className="size-5" />}
+          label="Aktív"
+          value={stats.active}
+          hint={stats.total > 0 ? `${Math.round((stats.active / stats.total) * 100)}%` : null}
+        />
+        <PersonKpiCard
+          tone="amber"
+          icon={<Cake className="size-5" />}
+          label="Születésnaposok hónapja"
+          value={stats.birthdays}
+        />
+        <PersonKpiCard
+          tone="rose"
+          icon={<Unlink className="size-5" />}
+          label="Lebegő (család nélkül)"
+          value={stats.floating}
+        />
+      </div>
+
       {/* ═══ Toolbar ═══ */}
       <div className="card-raised flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
         <div className="flex flex-1 items-center gap-3 flex-wrap">
@@ -299,3 +339,49 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
     </div>
   )
 }
+
+// 2026-06-02: KPI-kártya a statisztika dashboardhoz — mint a családoknál
+function PersonKpiCard({
+  tone,
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  tone: 'violet' | 'emerald' | 'amber' | 'rose'
+  icon: React.ReactNode
+  label: string
+  value: number
+  hint?: string | null
+}) {
+  const TONES: Record<typeof tone, { bg: string; iconBg: string; iconText: string; valueText: string }> = {
+    violet: { bg: 'from-violet-50 to-white', iconBg: 'bg-violet-100', iconText: 'text-violet-600', valueText: 'text-violet-900' },
+    emerald: { bg: 'from-emerald-50 to-white', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', valueText: 'text-emerald-900' },
+    amber: { bg: 'from-amber-50 to-white', iconBg: 'bg-amber-100', iconText: 'text-amber-600', valueText: 'text-amber-900' },
+    rose: { bg: 'from-rose-50 to-white', iconBg: 'bg-rose-100', iconText: 'text-rose-600', valueText: 'text-rose-900' },
+  }
+  const t = TONES[tone]
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-white/70 bg-gradient-to-br ${t.bg} p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500 sm:text-xs">
+            {label}
+          </p>
+          <p className={`mt-1 text-2xl font-bold tabular-nums ${t.valueText} sm:text-3xl`}>
+            {value}
+            {hint && (
+              <span className="ml-1 text-sm font-normal text-slate-500 sm:text-base">{hint}</span>
+            )}
+          </p>
+        </div>
+        <div className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${t.iconBg} ${t.iconText} shadow-sm`}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Csendes referencia — esetleg később jelmagyarázathoz
+void Sparkles

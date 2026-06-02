@@ -174,9 +174,11 @@ export function MemberDetailsDialogV2({
         showCloseButton={false}
       >
         <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
+          {/* 2026-06-02: háttér-blob-ok csillapítva (30% → 15%, 25% → 12%) —
+              a "kaotikus" érzéshez jelentősen hozzájárultak. */}
           <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent) 30%, transparent)' }} />
-            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 25%, transparent)' }} />
+            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent) 15%, transparent)' }} />
+            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 12%, transparent)' }} />
           </div>
 
           <button
@@ -238,36 +240,46 @@ export function MemberDetailsDialogV2({
                 </div>
               </div>
 
-              {!loading && (
-                <div className="mt-2 flex flex-wrap justify-center gap-2">
-                  {tabs.map(({ value, label, icon: Icon }) => {
-                    const active = tab === value
-                    const isArrearsTab = value === 'arrears'
-
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setTab(value)}
-                        className={`inline-flex min-w-[11.5rem] items-center justify-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
-                          active
-                            ? isArrearsTab
-                              ? 'border-red-200 bg-red-600 text-white shadow-[0_16px_30px_-22px_rgba(220,38,38,0.48)]'
-                              : 'border-teal-200 bg-teal-600 text-white shadow-[0_16px_30px_-22px_rgba(13,115,102,0.55)]'
-                            : isArrearsTab
-                              ? 'border-red-100 bg-red-50/80 text-red-600 shadow-sm hover:border-red-200 hover:bg-red-100'
-                              : 'border-white/70 bg-white/82 text-slate-600 shadow-sm hover:border-teal-100 hover:text-teal-700'
-                        }`}
-                      >
-                        <Icon className="size-4" />
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
             </div>
           </div>
+
+          {/* 2026-06-02 redesign: prémium tab-bar — gradient underline, mint
+              a családi kartonon. Csendesebb, jobb hierarchy. */}
+          {!loading && (
+            <nav className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-slate-200 bg-white/95 px-3 backdrop-blur-sm sm:px-6">
+              {tabs.map(({ value, label, icon: Icon }) => {
+                const active = tab === value
+                const isArrears = value === 'arrears'
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setTab(value)}
+                    className={`relative inline-flex items-center gap-2 whitespace-nowrap px-3 py-3 text-[13px] font-medium transition-all sm:px-4 ${
+                      active
+                        ? isArrears
+                          ? 'text-red-700'
+                          : 'text-teal-700'
+                        : 'text-slate-500 hover:bg-slate-50/80 hover:text-slate-700'
+                    }`}
+                  >
+                    <Icon className="size-4" />
+                    <span>{label}</span>
+                    {active && (
+                      <span
+                        aria-hidden
+                        className={`absolute inset-x-2 bottom-0 h-[3px] rounded-t-full ${
+                          isArrears
+                            ? 'bg-gradient-to-r from-red-500 via-rose-500 to-pink-500 shadow-[0_-1px_4px_rgba(244,63,94,0.4)]'
+                            : 'bg-gradient-to-r from-teal-500 via-emerald-500 to-cyan-500 shadow-[0_-1px_4px_rgba(20,184,166,0.4)]'
+                        }`}
+                      />
+                    )}
+                  </button>
+                )
+              })}
+            </nav>
+          )}
 
           <div className="max-h-[calc(92vh-12.5rem)] overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
             {loading ? (
@@ -566,8 +578,8 @@ export function MemberDetailsDialogV2({
 
 function StatChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-[1.15rem] bg-white/82 px-3 py-2 shadow-sm ring-1 ring-slate-200/70">
-      <p className="text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] text-slate-400">{label}</p>
+    <div className="min-w-0 rounded-xl border border-slate-200/70 bg-white/85 px-3 py-2 shadow-sm transition hover:bg-white">
+      <p className="text-[10px] font-medium uppercase leading-tight tracking-[0.16em] text-slate-400">{label}</p>
       <p className="mt-1 text-sm font-semibold leading-tight text-slate-700">{value}</p>
     </div>
   )
