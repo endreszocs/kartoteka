@@ -129,19 +129,30 @@ function isActivePath(pathname: string, href: string) {
 
 /**
  * Egy menüpont — kibontható almenüvel, ha van `children`.
- * Hash-alapú aktivitás: `/penzugy#cashbook` matchel ha pathname=='/penzugy'
- * és window.location.hash === '#cashbook'.
+ *
+ * 2026-06-02 v2 — accordion mód: csak EGY menü lehet egyszerre nyitva.
+ * Az `expanded` állapot a szülő SidebarNav-on él (`expandedHref`), amit
+ * pathname-re reagálva auto-szinkronizál. Ettől:
+ *   - csak az nyílik ki, amelyiknek az URL-jén dolgozunk
+ *   - a kattintásra a többi automatikusan becsukódik (akkordeon)
+ *
+ * Animáció: grid-rows trükk (0fr → 1fr) — height-anim, no JS, smooth.
+ * A child-elemek stagger-elt fade-slide-in animációval érkeznek.
  */
 function SidebarItem({
   item,
   pathname,
   collapsed,
   onNavigate,
+  expanded,
+  onToggle,
 }: {
   item: MenuItem
   pathname: string
   collapsed: boolean
   onNavigate?: () => void
+  expanded: boolean
+  onToggle: () => void
 }) {
   const Icon = item.icon
   const walkthroughKey = `menu-${item.href.replace(/^\//, '').split('/')[0]}`
@@ -152,7 +163,6 @@ function SidebarItem({
     hasChildren && item.children!.some((c) => {
       const [path, hash] = c.href.split('#')
       if (hash) {
-        // hash-alapú: csak akkor aktív, ha pathname matchel ÉS hash matchel
         return (
           pathname === path &&
           typeof window !== 'undefined' &&
@@ -163,33 +173,17 @@ function SidebarItem({
     })
   const active = parentActive || childActive
 
-  // Auto-expand: ha bármelyik gyermek aktív vagy a parent matchel.
-  const [expanded, setExpanded] = useState(parentActive || childActive)
-
-  useEffect(() => {
-    if (parentActive || childActive) setExpanded(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname])
-
-  // Hash változás figyelése — a finance fülek aktivitása frissül
+  // Hash változás figyelése — re-render trigger ha hash változik
+  const [, setHashTick] = useState(0)
   useEffect(() => {
     if (typeof window === 'undefined') return
     function handleHashChange() {
-      // re-render trigger; az `childActive` újraszámolódik a következő render-ben
-      setExpanded((v) => v)
+      setHashTick((v) => v + 1)
     }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
-  const showChildren = hasChildren && expanded && !collapsed
-
-  // 2026-06-02: modernebb sidebar dizájn
-  // - Ikon-chip: gradient háttérrel (item.gradient mező), aktív állapotban
-  //   szebben kiemelve. Eddig csak a bal oldali csíkkal jeleztük a fókuszt.
-  // - Betű: tracking finomítás, 13.5px (a 13px egy ki kicsit kicsi volt).
-  // - Submenu: vékony fa-ág vonal balra (border-l), pici horizontális
-  //   stub a child előtt — tábla-fa hangulatú visual hierarchy.
   return (
     <div className="space-y-0.5">
       <div className="relative">
@@ -201,36 +195,51 @@ function SidebarItem({
           data-walkthrough={walkthroughKey}
           suppressHydrationWarning
           className={cn(
-            'group relative flex w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-[13.5px] font-medium tracking-[-0.005em] transition-all duration-200 [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12.5px]',
+            'group relative flex w-full items-center gap-2.5 overflow-hidden rounded-[12px] px-2.5 py-2 text-[13.5px] font-medium tracking-[-0.005em] transition-all duration-300 ease-out [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12.5px]',
             active
-              ? 'bg-gradient-to-r from-white/14 via-white/8 to-transparent text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-              : 'text-white/78 hover:bg-white/6 hover:text-white',
+              ? 'bg-gradient-to-r from-white/14 via-white/8 to-transparent text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+              : 'text-white/78 hover:bg-white/6 hover:text-white hover:translate-x-[1px]',
             collapsed && 'justify-center px-2 py-2',
             hasChildren && !collapsed && 'pr-9',
           )}
         >
+          {/* Aktív bal csík — finom glow-val */}
           {active && !collapsed && (
             <span
               aria-hidden
-              className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r"
-              style={{ background: 'var(--accent2)' }}
+              className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r shadow-[0_0_8px_currentColor]"
+              style={{ background: 'var(--accent2)', color: 'var(--accent2)' }}
             />
           )}
-          {/* Ikon-chip: gradient háttérrel, aktív állapotban erősebben kiemelve */}
+          {/* Aktív halvány sheen — szín-mosó effekt jobbra */}
+          {active && !collapsed && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-gradient-to-l from-white/[0.04] to-transparent"
+            />
+          )}
+          {/* Ikon-chip: gradient háttérrel */}
           <span
             className={cn(
-              'relative flex size-7 shrink-0 items-center justify-center rounded-[9px] transition-all duration-200 [@media(max-height:820px)]:size-[26px]',
+              'relative flex size-7 shrink-0 items-center justify-center rounded-[9px] transition-all duration-300 ease-out [@media(max-height:820px)]:size-[26px]',
               active
-                ? `bg-gradient-to-br ${item.gradient} shadow-[0_3px_10px_rgba(0,0,0,0.25)]`
-                : 'bg-white/6 group-hover:bg-white/10',
+                ? `bg-gradient-to-br ${item.gradient} shadow-[0_4px_14px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.25)] scale-105`
+                : 'bg-white/6 group-hover:bg-white/10 group-hover:scale-105',
             )}
           >
             <Icon
               className={cn(
-                'size-[15px] transition-colors',
-                active ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]' : 'text-white/72 group-hover:text-white/95',
+                'size-[15px] transition-all duration-200',
+                active ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]' : 'text-white/72 group-hover:text-white/95',
               )}
             />
+            {/* Aktív állapotban: pici fény-pötty az ikon jobb felső sarkán */}
+            {active && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.7)]"
+              />
+            )}
           </span>
           {!collapsed && <span className="min-w-0 flex-1 truncate leading-tight">{item.label}</span>}
         </Link>
@@ -241,62 +250,107 @@ function SidebarItem({
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              setExpanded((v) => !v)
+              onToggle()
             }}
             aria-label={expanded ? `${item.label} almenü becsukása` : `${item.label} almenü kibontása`}
             aria-expanded={expanded}
-            className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-white/60 transition hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
+            className="group/chev absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-white/55 transition-all duration-300 hover:bg-white/10 hover:text-white [@media(max-height:820px)]:size-6"
           >
-            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            <ChevronRight
+              className={cn(
+                'size-3.5 transition-transform duration-300 ease-out',
+                expanded && 'rotate-90',
+              )}
+            />
           </button>
         )}
       </div>
 
-      {showChildren && (
-        <div className="relative ml-[18px] mt-1 space-y-0.5 border-l border-white/12 pl-2.5">
-          {item.children!.map((child) => {
-            const [childPath, childHash] = child.href.split('#')
-            const isChildActive = childHash
-              ? pathname === childPath &&
-                typeof window !== 'undefined' &&
-                window.location.hash === `#${childHash}`
-              : isActivePath(pathname, child.href)
-            const childWalkthroughKey = `menu-${child.href.replace(/^\//, '').replace(/[#?].*$/, '').split('/').join('-')}`
-            return (
-              <Link
-                key={child.href}
-                href={child.href}
-                onClick={onNavigate}
-                aria-label={child.label}
-                data-walkthrough={childWalkthroughKey}
-                suppressHydrationWarning
-                className={cn(
-                  'group relative flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-[12.5px] transition-all duration-150 [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11.5px]',
-                  isChildActive
-                    ? 'bg-white/10 text-white font-semibold'
-                    : 'text-white/65 hover:bg-white/5 hover:text-white',
-                )}
-              >
-                {/* Fa-ág horizontális stub */}
-                <span
-                  aria-hidden
-                  className={cn(
-                    'inline-block h-px w-2 shrink-0 transition-colors',
-                    isChildActive ? 'bg-white/40' : 'bg-white/15',
-                  )}
-                />
-                <span
-                  aria-hidden
-                  className={cn(
-                    'inline-block size-1.5 shrink-0 rounded-full transition-colors',
-                    isChildActive ? '' : 'bg-white/30',
-                  )}
-                  style={isChildActive ? { background: 'var(--accent2)' } : undefined}
-                />
-                <span className="truncate leading-tight">{child.label}</span>
-              </Link>
-            )
-          })}
+      {/* PRÉMIUM SUBMENU: grid-rows animation (no JS) + glass effect + stagger */}
+      {hasChildren && !collapsed && (
+        <div
+          className={cn(
+            'grid transition-[grid-template-rows] duration-300 ease-out',
+            expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+          )}
+        >
+          <div className="overflow-hidden">
+            <div
+              className={cn(
+                'relative ml-[18px] mt-1 mb-0.5 space-y-0.5 rounded-[10px] bg-gradient-to-b from-white/[0.04] to-transparent px-2 py-1.5 backdrop-blur-[1px]',
+                // bal vonal — animáltan rajzolódik amikor kibontunk
+                'before:absolute before:bottom-2 before:left-0 before:top-2 before:w-px before:bg-gradient-to-b before:from-white/30 before:via-white/20 before:to-white/5 before:transition-opacity before:duration-500',
+                expanded ? 'before:opacity-100' : 'before:opacity-0',
+              )}
+            >
+              {item.children!.map((child, idx) => {
+                const [childPath, childHash] = child.href.split('#')
+                const isChildActive = childHash
+                  ? pathname === childPath &&
+                    typeof window !== 'undefined' &&
+                    window.location.hash === `#${childHash}`
+                  : isActivePath(pathname, child.href)
+                const childWalkthroughKey = `menu-${child.href.replace(/^\//, '').replace(/[#?].*$/, '').split('/').join('-')}`
+                return (
+                  <Link
+                    key={child.href}
+                    href={child.href}
+                    onClick={onNavigate}
+                    aria-label={child.label}
+                    data-walkthrough={childWalkthroughKey}
+                    suppressHydrationWarning
+                    style={{
+                      // Stagger fade-slide: minden child kicsit később úszik be
+                      transitionDelay: expanded ? `${idx * 35}ms` : '0ms',
+                    }}
+                    className={cn(
+                      'group/child relative flex w-full items-center gap-2 rounded-[8px] pl-3 pr-2.5 py-1.5 text-[12.5px] transition-all duration-300 ease-out [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11.5px]',
+                      expanded
+                        ? 'translate-x-0 opacity-100'
+                        : 'translate-x-1 opacity-0',
+                      isChildActive
+                        ? 'bg-white/12 text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                        : 'text-white/65 hover:bg-white/6 hover:text-white hover:translate-x-[2px]',
+                    )}
+                  >
+                    {/* Bal kapcsolódási stub-vonal — child→fő-vonal */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'absolute -left-[8px] top-1/2 h-px w-2 -translate-y-1/2 transition-colors duration-300',
+                        isChildActive ? 'bg-white/40' : 'bg-white/15',
+                      )}
+                    />
+                    {/* Pötty — aktív állapotban pulse + glow */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'relative inline-block size-1.5 shrink-0 rounded-full transition-all duration-300',
+                        isChildActive ? '' : 'bg-white/30 group-hover/child:bg-white/55',
+                      )}
+                      style={
+                        isChildActive
+                          ? {
+                              background: 'var(--accent2)',
+                              boxShadow: '0 0 8px var(--accent2), 0 0 14px color-mix(in srgb, var(--accent2) 35%, transparent)',
+                            }
+                          : undefined
+                      }
+                    />
+                    <span className="truncate leading-tight">{child.label}</span>
+                    {/* Aktív állapot: jobb oldali chevron (deli vissza-jelzés) */}
+                    {isChildActive && (
+                      <ChevronRight
+                        aria-hidden
+                        className="ml-auto size-3 shrink-0 opacity-60"
+                        style={{ color: 'var(--accent2)' }}
+                      />
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -309,12 +363,16 @@ function SidebarSection({
   pathname,
   collapsed,
   onNavigate,
+  expandedHref,
+  onToggleHref,
 }: {
   title: string
   items: MenuItem[]
   pathname: string
   collapsed: boolean
   onNavigate?: () => void
+  expandedHref: string | null
+  onToggleHref: (href: string) => void
 }) {
   return (
     <section className={cn('space-y-1 [@media(max-height:1040px)]:space-y-0.5 [@media(max-height:820px)]:space-y-0', collapsed && 'space-y-0.5')}>
@@ -335,6 +393,8 @@ function SidebarSection({
             pathname={pathname}
             collapsed={collapsed}
             onNavigate={onNavigate}
+            expanded={expandedHref === item.href}
+            onToggle={() => onToggleHref(item.href)}
           />
         ))}
       </div>
@@ -391,6 +451,33 @@ function SidebarNav({
 }) {
   const pathname = usePathname()
   const sections: MenuSection[] = []
+
+  // 2026-06-02 v2 — akkordeon-szerű állapot: csak EGY menü lehet egyszerre
+  // nyitva. Az `expandedHref` az aktuálisan kibontott menü `href`-jét tartja
+  // (null = mind csukva). Pathname-ről auto-szinkron: amikor a felhasználó
+  // egy submenu-elemen navigál, a hozzá tartozó fő-menü kinyílik, a többi
+  // becsukódik. A felhasználó kattintással felülbírálhatja (más menüt nyit).
+  const [expandedHref, setExpandedHref] = useState<string | null>(null)
+
+  // Pathname → auto-expand: megkeressük melyik MenuItem.href prefixje
+  // illeszkedik az URL-re. Csak akkor frissítünk ha tényleg változás van
+  // (hogy a felhasználó manuálisan-nyitott menüjét ne csukjuk be).
+  useEffect(() => {
+    // A három fő-menü amik submenu-kkel rendelkeznek
+    const candidates = ['/penzugy', '/tagnyilvantartas', '/anyakonyv']
+    for (const href of candidates) {
+      if (pathname === href || pathname.startsWith(`${href}/`)) {
+        setExpandedHref(href)
+        return
+      }
+    }
+    // Egyébként ne piszkáljuk az állapotot — a felhasználó által nyitva
+    // hagyott menü maradjon nyitva navigáció közben is.
+  }, [pathname])
+
+  const handleToggleHref = (href: string) => {
+    setExpandedHref((prev) => (prev === href ? null : href))
+  }
 
   // 2026-04-18: dinamikus "Irányítópult" menüpont scope alapján
   const hasExplicitScope = activeScope !== null
@@ -573,6 +660,8 @@ function SidebarNav({
               pathname={pathname}
               collapsed={collapsed}
               onNavigate={onNavigate}
+              expandedHref={expandedHref}
+              onToggleHref={handleToggleHref}
             />
           ))}
         </nav>
