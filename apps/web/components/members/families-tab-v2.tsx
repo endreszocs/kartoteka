@@ -41,7 +41,10 @@ export function FamiliesTab() {
   const [sortKey, setSortKey] = useState<SortKey>('head')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [districtFilter, setDistrictFilter] = useState<number | 'all' | 'none'>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // 2026-06-02: alapértelmezetten csak az ÉLŐ családok látszanak — a
+  // tagnyilvántartás napi munkájához ez a releváns nézet. Az elhunyt /
+  // inaktív családok továbbra is elérhetők a chip-ekkel.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   // 2026-06-02: lista vs. kártya nézet — sticky lokál-tárolva.
   // Default: kártya (átláthatóbb, vizuálisabb).
   const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
@@ -417,11 +420,11 @@ export function FamiliesTab() {
             </>
           )}
 
-          {(statusFilter !== 'all' || districtFilter !== 'all' || searchQuery) && (
+          {(statusFilter !== 'active' || districtFilter !== 'all' || searchQuery) && (
             <button
               type="button"
               onClick={() => {
-                setStatusFilter('all')
+                setStatusFilter('active')
                 setDistrictFilter('all')
                 setSearchQuery('')
               }}
