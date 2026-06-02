@@ -42,6 +42,8 @@ type FamilyData = Awaited<ReturnType<typeof getFamilyDetails>>
  *   - Anyakönyv:     esketés, keresztelők, konfirmációk, temetések
  *   - Befizetések:   tétel-lista + összegző sáv
  */
+type TabKey = 'general' | 'registry' | 'payments'
+
 export function FamilyDetailsDialogRefined({
   open,
   onOpenChange,
@@ -49,6 +51,7 @@ export function FamilyDetailsDialogRefined({
 }: FamilyDetailsDialogProps) {
   const [data, setData] = useState<FamilyData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabKey>('general')
 
   useEffect(() => {
     if (!open || !familyId) return
@@ -57,6 +60,7 @@ export function FamilyDetailsDialogRefined({
       if (cancelled) return
       setData(null)
       setLoading(true)
+      setActiveTab('general')
       getFamilyDetails(familyId).then((value) => {
         if (cancelled) return
         setData(value)
@@ -186,9 +190,39 @@ export function FamilyDetailsDialogRefined({
                   )}
                 </header>
 
-                {/* ───── BODY: szekciók ───── */}
-                <div className="space-y-5 px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/30">
-                  {/* TAGOK */}
+                {/* ───── TAB-BAR ───── */}
+                <nav className="sticky top-0 z-10 flex gap-1 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-3 sm:px-6 overflow-x-auto">
+                  <TabButton
+                    active={activeTab === 'general'}
+                    onClick={() => setActiveTab('general')}
+                    icon={<Users className="size-4" />}
+                    label="Általános"
+                  />
+                  <TabButton
+                    active={activeTab === 'registry'}
+                    onClick={() => setActiveTab('registry')}
+                    icon={<BookOpen className="size-4" />}
+                    label="Anyakönyv"
+                    count={
+                      (hazassag?.datum ? 1 : 0) +
+                      keresztelesek.length +
+                      konfirmaciok.length +
+                      temetesek.length
+                    }
+                  />
+                  <TabButton
+                    active={activeTab === 'payments'}
+                    onClick={() => setActiveTab('payments')}
+                    icon={<CreditCard className="size-4" />}
+                    label="Befizetések"
+                    count={payments.length}
+                  />
+                </nav>
+
+                {/* ───── TAB-CONTENT ───── */}
+                <div className="space-y-5 px-4 py-5 sm:px-6 sm:py-6 bg-slate-50/30 animate-in fade-in duration-200">
+                  {/* ÁLTALÁNOS — Tagok */}
+                  {activeTab === 'general' && (
                   <Section
                     title="Családtagok"
                     icon={<Users className="size-4" />}
@@ -254,12 +288,16 @@ export function FamilyDetailsDialogRefined({
                       </div>
                     )}
                   </Section>
+                  )}
 
-                  {/* ANYAKÖNYV */}
-                  {(hazassag?.datum ||
-                    keresztelesek.length > 0 ||
-                    konfirmaciok.length > 0 ||
-                    temetesek.length > 0) && (
+                  {/* ANYAKÖNYV — külön tab */}
+                  {activeTab === 'registry' && !(hazassag?.datum || keresztelesek.length > 0 || konfirmaciok.length > 0 || temetesek.length > 0) && (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+                      <BookOpen className="mx-auto mb-3 size-10 text-slate-300" />
+                      Nincs anyakönyvi bejegyzés ehhez a családhoz.
+                    </div>
+                  )}
+                  {activeTab === 'registry' && (hazassag?.datum || keresztelesek.length > 0 || konfirmaciok.length > 0 || temetesek.length > 0) && (
                     <Section
                       title="Anyakönyvi bejegyzések"
                       icon={<BookOpen className="size-4" />}
@@ -351,7 +389,8 @@ export function FamilyDetailsDialogRefined({
                     </Section>
                   )}
 
-                  {/* BEFIZETÉSEK */}
+                  {/* BEFIZETÉSEK — külön tab */}
+                  {activeTab === 'payments' && (
                   <Section
                     title={`Befizetések (${payments.length} tétel · ${totalPayments.toFixed(0)} RON)`}
                     icon={<CreditCard className="size-4" />}
@@ -396,6 +435,7 @@ export function FamilyDetailsDialogRefined({
                       </div>
                     )}
                   </Section>
+                  )}
                 </div>
               </>
             )}
@@ -408,6 +448,45 @@ export function FamilyDetailsDialogRefined({
 
 // ─────────────────────────────────────────────────────────────────────────
 // Alkomponensek
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+  count?: number
+}) {
+  const baseClasses =
+    'inline-flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap '
+  const activeClasses = active
+    ? 'border-violet-600 text-violet-700'
+    : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+  const badgeClasses = active
+    ? 'bg-violet-100 text-violet-700'
+    : 'bg-slate-100 text-slate-600'
+  return (
+    <button type="button" onClick={onClick} className={baseClasses + activeClasses}>
+      {icon}
+      <span>{label}</span>
+      {count != null && count > 0 && (
+        <span
+          className={
+            'inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-semibold ' +
+            badgeClasses
+          }
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  )
+}
 
 function Pill({
   icon,
