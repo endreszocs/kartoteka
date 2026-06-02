@@ -18,11 +18,15 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Network, Users } from 'lucide-react'
+import { Network, ShieldAlert, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { PageHero } from '@kartoteka/ui-app'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { wipeFamilyStructure } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getCongregations } from '@/app/(dashboard)/admin/actions'
 import {
   PROFILE_PERSONS,
@@ -179,6 +183,30 @@ export function TagnyilvantartasImportWizard({
   adminCongregations,
 }: TagnyilvantartasImportWizardProps) {
   const router = useRouter()
+
+  // 2026-06-02: „Veszélyzóna" — családi struktúra törlése
+  const [wipeDialogOpen, setWipeDialogOpen] = useState(false)
+  const [wipeConfirmation, setWipeConfirmation] = useState('')
+  const [wiping, setWiping] = useState(false)
+
+  async function handleWipeFamilyStructure() {
+    setWiping(true)
+    const result = await wipeFamilyStructure(wipeConfirmation)
+    setWiping(false)
+    if ('error' in result && result.error) {
+      toast.error(result.error)
+      return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stats = (result as any).stats
+    toast.success(
+      `Családi struktúra törölve! (${stats?.csalad ?? 0} család, ${stats?.haztartas ?? 0} háztartás, ${stats?.szemely_kapcsolat ?? 0} kapcsolat)`,
+      { duration: 6000 },
+    )
+    setWipeDialogOpen(false)
+    setWipeConfirmation('')
+    router.refresh()
+  }
 
   // Admin módnál: gyülekezet választás (saját lekérdezéssel ha nincs prop)
   const [selectedCongId, setSelectedCongId] = useState<string>(
@@ -533,6 +561,109 @@ export function TagnyilvantartasImportWizard({
           },
         ]}
       />
+
+      {/* 2026-06-02: VESZÉLYZÓNA — családi struktúra törlése (csak module módban) */}
+      {mode === 'module' && (
+        <div className="rounded-[1.4rem] border-2 border-red-300 bg-red-50/50 p-5">
+          <div className="flex items-start gap-3 mb-3">
+            <ShieldAlert className="size-5 text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <h4 className="font-heading text-lg font-semibold text-red-800">
+                Veszélyzóna — családi struktúra újra-építés
+              </h4>
+              <p className="text-sm text-red-700/85 mt-1">
+                Ha a teljes családi struktúrát tisztán szeretnéd újra felépíteni
+                (pl. mert sok családon hiányzik a cím vagy a házastárs), itt
+                törölheted az összes családot, háztartást és kapcsolatot. A
+                <strong> személyek, anyakönyvek és befizetések érintetlenek maradnak</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-red-200 bg-white p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  Családi struktúra törlése
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Törli: <code className="bg-slate-100 px-1 rounded">csalad</code>,{' '}
+                  <code className="bg-slate-100 px-1 rounded">gyerek</code>,{' '}
+                  <code className="bg-slate-100 px-1 rounded">haztartas</code>,{' '}
+                  <code className="bg-slate-100 px-1 rounded">haztartas_tag</code>,{' '}
+                  <code className="bg-slate-100 px-1 rounded">szemely_kapcsolat</code>,{' '}
+                  <code className="bg-slate-100 px-1 rounded">cim</code>
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => setWipeDialogOpen(true)}
+                className="rounded-full bg-red-600 hover:bg-red-700 text-white whitespace-nowrap"
+              >
+                <ShieldAlert className="size-4 mr-1.5" />
+                Családi struktúra törlése
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Megerősítés-dialog */}
+      <Dialog open={wipeDialogOpen} onOpenChange={setWipeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <ShieldAlert className="size-5" />
+              Családi struktúra törlése
+            </DialogTitle>
+            <DialogDescription>
+              Ez a művelet <strong>visszafordíthatatlan</strong>. Az összes család,
+              háztartás, családi-tagsági és rokoni kapcsolat törlődik a
+              gyülekezetben.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+              <p>
+                <strong>✓ Megmarad:</strong> személyi adatok, anyakönyvi rekordok
+                (keresztelő, esketés, temetés), befizetések, családlátogatási napló.
+              </p>
+              <p className="mt-1">
+                <strong>✗ Törlődik:</strong> a teljes családi struktúra (régi és új modell).
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="wipe-confirmation">
+                Megerősítés: írd be a <code className="bg-slate-100 px-1 rounded text-red-700 font-bold">TÖRLÉS</code> szót
+              </Label>
+              <Input
+                id="wipe-confirmation"
+                value={wipeConfirmation}
+                onChange={(e) => setWipeConfirmation(e.target.value)}
+                placeholder="TÖRLÉS"
+                className="bg-white shadow-sm border-slate-300 font-mono"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={() => { setWipeDialogOpen(false); setWipeConfirmation('') }}>
+                Mégse
+              </Button>
+              <Button
+                type="button"
+                onClick={handleWipeFamilyStructure}
+                disabled={wiping || wipeConfirmation !== 'TÖRLÉS'}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {wiping ? 'Törlés…' : 'Törlés véglegesen'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <WizardStepper steps={STEPS} activeId={activeStepId} completedIds={completedIds} />
 
