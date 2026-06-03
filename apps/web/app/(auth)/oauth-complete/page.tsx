@@ -10,27 +10,29 @@ export default async function OAuthCompletePage() {
   // Ha nincs bejelentkezve → login
   if (!user) redirect('/login')
 
-  // Ha már van profilja → dashboard
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, status, role, congregation_id')
+    .select('id, status, role, congregation_id, diocese_id, full_name')
     .eq('id', user.id)
     .single()
 
-  if (profile) {
-    const master = isMasterAdmin(user.email)
-    const isActive = profile.status === 'active'
+  const master = isMasterAdmin(user.email)
+  const isActive = profile?.status === 'active'
 
-    if (!master && !isActive) {
-      await supabase.auth.signOut()
-      redirect('/login?error=pending')
-    }
+  // Aktív (vagy master) → kész, mehet tovább
+  if (master || isActive) redirect('/valassz-profilt')
 
-    redirect('/valassz-profilt')
+  // Nem aktív, de az org-adatokat már kitöltötte (van egyházmegye) → csak
+  // jóváhagyásra vár; ne mutassuk újra az űrlapot.
+  if (profile?.diocese_id) {
+    await supabase.auth.signOut()
+    redirect('/login?error=pending')
   }
 
-  // Név előtöltése az OAuth adatokból
-  const defaultName = user.user_metadata?.full_name || user.user_metadata?.name || ''
+  // Egyébként (hiányos vagy hiányzó profil) → kiegészítő űrlap.
+  // Név előtöltése a profilból vagy az OAuth-metaadatokból.
+  const defaultName =
+    profile?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || ''
 
   return <OAuthCompleteForm defaultName={defaultName} />
 }

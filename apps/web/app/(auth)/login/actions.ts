@@ -28,7 +28,34 @@ export async function signIn(data: LoginInput) {
     if (error.message.includes('Email not confirmed')) {
       return { error: 'Kérem, erősítse meg az e-mail címét a fiókjába küldött linkkel!' }
     }
-    return { error: 'Érvénytelen e-mail cím vagy jelszó.' }
+
+    // Explicit "nincs regisztrálva" megkülönböztetés (Endre kérése).
+    // A Supabase generikus "Invalid login credentials"-t ad mind a nem létező
+    // email-re, mind a rossz jelszóra. Egy SECURITY DEFINER RPC
+    // (login_email_status) megnézi, létezik-e a profil az adott email-lel, így
+    // pontosabb üzenetet adhatunk. Lásd: 2026-06-03-login-email-status-rpc.sql
+    const { data: emailStatus } = await supabase.rpc('login_email_status', {
+      p_email: parsed.data.email,
+    })
+
+    if (emailStatus === 'not_registered') {
+      return {
+        error:
+          'Ez az e-mail cím nincs regisztrálva a rendszerben. Kérjük, először igényeljen hozzáférést a Regisztráció oldalon.',
+      }
+    }
+    if (emailStatus && emailStatus !== 'active') {
+      // Létezik, de még nem aktív (pl. pending) → jóváhagyásra vár
+      return {
+        error:
+          'Fiókja még jóváhagyásra vár — a rendszergazda értesítve van. Türelmét kérjük.',
+      }
+    }
+    // Létezik és aktív (vagy az RPC nem elérhető) → hibás jelszó
+    return {
+      error:
+        'Hibás jelszó. Kérjük, próbálja újra, vagy állítsa vissza az „Elfelejtett jelszó" oldalon.',
+    }
   }
 
   // Profil ellenőrzés

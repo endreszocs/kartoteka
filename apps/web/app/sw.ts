@@ -35,7 +35,7 @@ const authRouteCaching: RuntimeCaching = {
     request.mode === 'navigate'
     && (
       url.pathname.startsWith('/login')
-      || url.pathname.startsWith('/register')
+      || url.pathname.startsWith('/hozzaferes-kerese')
       || url.pathname.startsWith('/auth/callback')
       || url.pathname.startsWith('/oauth-complete')
       || url.pathname.startsWith('/forgot-password')

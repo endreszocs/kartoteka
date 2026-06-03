@@ -119,6 +119,9 @@ export function adminNotificationEmail(args: {
   requesterEmail: string
   requestedRole: string
   congregationSlug?: string | null
+  districtName?: string | null
+  dioceseName?: string | null
+  hasDocument?: boolean
   justification?: string | null
   adminPortalUrl: string
 }): EmailSendArgs {
@@ -129,7 +132,7 @@ export function adminNotificationEmail(args: {
 Név: ${args.requesterName}
 Email: ${args.requesterEmail}
 Szerepkör: ${args.requestedRole}
-${args.congregationSlug ? `Gyülekezet: ${args.congregationSlug}\n` : ''}${args.justification ? `Indoklás: ${args.justification}\n\n` : '\n'}
+${args.districtName ? `Egyházkerület: ${args.districtName}\n` : ''}${args.dioceseName ? `Egyházmegye: ${args.dioceseName}\n` : ''}${args.congregationSlug ? `Gyülekezet: ${args.congregationSlug}\n` : ''}${args.hasDocument ? `Csatolt igazolás: igen (az admin felületen tekinthető meg)\n` : ''}${args.justification ? `Indoklás: ${args.justification}\n\n` : '\n'}
 Átnézés: ${args.adminPortalUrl}
 
 Kartotéka Admin`
@@ -161,10 +164,28 @@ Kartotéka Admin`
           <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">Szerepkör:</td>
           <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escHtml(args.requestedRole)}</td>
         </tr>
+        ${args.districtName ? `
+        <tr>
+          <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">Egyházkerület:</td>
+          <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escHtml(args.districtName)}</td>
+        </tr>
+        ` : ''}
+        ${args.dioceseName ? `
+        <tr>
+          <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">Egyházmegye:</td>
+          <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escHtml(args.dioceseName)}</td>
+        </tr>
+        ` : ''}
         ${args.congregationSlug ? `
         <tr>
           <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">Gyülekezet:</td>
           <td style="padding:8px 12px;border:1px solid #e2e8f0;">${escHtml(args.congregationSlug)}</td>
+        </tr>
+        ` : ''}
+        ${args.hasDocument ? `
+        <tr>
+          <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">Csatolt igazolás:</td>
+          <td style="padding:8px 12px;border:1px solid #e2e8f0;">📎 Igen — az admin felületen tekinthető meg.</td>
         </tr>
         ` : ''}
       </table>

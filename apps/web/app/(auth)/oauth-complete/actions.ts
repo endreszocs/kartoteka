@@ -16,28 +16,29 @@ export async function completeOAuthProfile(data: OAuthCompleteInput) {
     return { error: 'Nincs bejelentkezett felhasználó.' }
   }
 
-  // Ellenőrizzük, nincs-e már profil (duplikáció védelem)
-  const { data: existing } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('id', user.id)
-    .single()
-
-  if (existing) {
-    return { error: 'A profil már létezik. Kérem, jelentkezzen be újra.' }
-  }
-
-  const { error: insertError } = await supabase.from('profiles').insert([{
+  // A `handle_new_user` trigger az OAuth-belépéskor MÁR létrehozott egy
+  // 'pending' státuszú profilt. Itt a kiegészítő adatokat MENTJÜK rá — NEM új
+  // INSERT (az PK-ütközést dobna), hanem upsert (UPDATE a meglévő sorra).
+  // A status marad 'pending' — a belépéshez admin jóváhagyás kell.
+  const profileUpdate: Record<string, unknown> = {
     id: user.id,
     email: user.email,
     full_name: parsed.data.fullName,
     phone: parsed.data.phone,
     congregation: parsed.data.congregation,
-    status: 'pending',
-  }])
+    district_id: parsed.data.districtId,
+    diocese_id: parsed.data.dioceseId,
+  }
+  if (parsed.data.birthDate && parsed.data.birthDate.trim()) {
+    profileUpdate.birth_date = parsed.data.birthDate
+  }
 
-  if (insertError) {
-    return { error: `Hiba a profil létrehozásakor: ${insertError.message}` }
+  const { error: upsertError } = await supabase
+    .from('profiles')
+    .upsert(profileUpdate, { onConflict: 'id' })
+
+  if (upsertError) {
+    return { error: `Hiba a profil mentésekor: ${upsertError.message}` }
   }
 
   // SzuperAdmin értesítés az új regisztrációról

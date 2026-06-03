@@ -42,6 +42,13 @@ export interface AccessRequest {
   created_at: string
   updated_at: string
   resulting_user_id: string | null
+  // 2026-06-03 — egyházkerület/egyházmegye választás + opcionális igazolás
+  requested_district_id: string | null
+  requested_diocese_id: string | null
+  document_path: string | null
+  // A listázáskor join-olt nevek (districts/dioceses) — csak olvasásra
+  district?: { name: string } | null
+  diocese?: { name: string } | null
 }
 
 export interface AccessRequestStats {

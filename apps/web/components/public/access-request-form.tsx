@@ -10,20 +10,27 @@
  *   - Kötelező mezők: email, teljes név, szerepkör. Opcionális: gyülekezet, telefon, indoklás
  */
 
-import { useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Lock, LogIn, Mail, Send, Loader2 } from 'lucide-react'
+import { ArrowRight, Building2, CheckCircle2, Eye, EyeOff, FileUp, KeyRound, Lock, LogIn, Mail, Paperclip, Send, X, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LegalDialog, type LegalKind } from '@/components/auth/legal-dialog'
 import { ContactSysadminDialog } from '@/components/public/contact-sysadmin-dialog'
+import { createClient } from '@/lib/supabase/client'
 import {
   submitAccessRequest,
   type AccessRequestRole,
 } from '@/app/(public)/hozzaferes-kerese/actions'
+
+interface RefDistrict { id: string; name: string }
+interface RefDiocese { id: string; name: string; district_id: string | null }
+
+const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png']
+const MAX_DOC_BYTES = 10 * 1024 * 1024 // 10 MB
 
 const ROLES: { value: AccessRequestRole; label: string; description: string }[] = [
   { value: 'lelkesz', label: 'Lelkész', description: 'Gyülekezet vezető lelkésze' },
@@ -60,6 +67,64 @@ export function AccessRequestForm() {
     referrer: '',
   })
 
+  // ── 2026-06-03: egyházkerület + egyházmegye (DB-ből, kötelező) ────────────
+  const supabase = useMemo(() => createClient(), [])
+  const [districts, setDistricts] = useState<RefDistrict[]>([])
+  const [dioceses, setDioceses] = useState<RefDiocese[]>([])
+  const [districtId, setDistrictId] = useState('')
+  const [dioceseId, setDioceseId] = useState('')
+  const [refDataError, setRefDataError] = useState(false)
+
+  // ── 2026-06-03: opcionális igazolás (dokumentum) ──────────────────────────
+  const [file, setFile] = useState<File | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const [districtRes, dioceseRes] = await Promise.all([
+        supabase.from('districts').select('id, name').order('name'),
+        supabase.from('dioceses').select('id, name, district_id').order('name'),
+      ])
+      if (!active) return
+      if (districtRes.error || dioceseRes.error) {
+        setRefDataError(true)
+        return
+      }
+      setDistricts((districtRes.data as RefDistrict[]) ?? [])
+      setDioceses((dioceseRes.data as RefDiocese[]) ?? [])
+    })()
+    return () => {
+      active = false
+    }
+  }, [supabase])
+
+  // A választott egyházkerülethez tartozó egyházmegyék
+  const filteredDioceses = useMemo(
+    () => (districtId ? dioceses.filter((d) => d.district_id === districtId) : []),
+    [districtId, dioceses],
+  )
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null
+    setFileError(null)
+    if (!f) {
+      setFile(null)
+      return
+    }
+    if (!ALLOWED_DOC_TYPES.includes(f.type)) {
+      setFileError('Csak PDF, JPG vagy PNG fájl tölthető fel.')
+      setFile(null)
+      return
+    }
+    if (f.size > MAX_DOC_BYTES) {
+      setFileError('A fájl legfeljebb 10 MB lehet.')
+      setFile(null)
+      return
+    }
+    setFile(f)
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!acceptPrivacy || !acceptTerms) {
@@ -74,6 +139,14 @@ export function AccessRequestForm() {
       toast.error('Kérjük, adja meg a telefonszámát.')
       return
     }
+    if (!districtId) {
+      toast.error('Kérjük, válassza ki az egyházkerületet.')
+      return
+    }
+    if (!dioceseId) {
+      toast.error('Kérjük, válassza ki az egyházmegyét.')
+      return
+    }
     if (password.length < 8) {
       toast.error('A jelszó legalább 8 karakter hosszú legyen.')
       return
@@ -83,6 +156,21 @@ export function AccessRequestForm() {
       return
     }
     startTransition(async () => {
+      // Opcionális igazolás feltöltése a privát bucketbe (ha van)
+      let documentPath: string | undefined
+      if (file) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'igazolas'
+        const path = `requests/${crypto.randomUUID()}/${safeName}`
+        const { error: upErr } = await supabase.storage
+          .from('access-request-docs')
+          .upload(path, file, { contentType: file.type, upsert: false })
+        if (upErr) {
+          toast.error('A dokumentum feltöltése nem sikerült: ' + upErr.message)
+          return
+        }
+        documentPath = path
+      }
+
       // Magyar konvenció: vezetéknév + keresztnév (Szőcs Endre)
       const fullName = `${form.family_name.trim()} ${form.given_name.trim()}`
       const res = await submitAccessRequest({
@@ -94,6 +182,9 @@ export function AccessRequestForm() {
         phone: form.phone.trim() || undefined,
         justification: form.justification.trim() || undefined,
         referrer: form.referrer.trim() || undefined,
+        requested_district_id: districtId,
+        requested_diocese_id: dioceseId,
+        document_path: documentPath,
       })
 
       if (res.success) {
@@ -351,6 +442,66 @@ export function AccessRequestForm() {
         </div>
       </div>
 
+      {/* Egyházkerület + Egyházmegye — kötelező, DB-ből (2026-06-03) */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="ar-district">
+            Egyházkerület <span className="text-rose-500">*</span>
+          </Label>
+          <div className="relative">
+            <Building2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <select
+              id="ar-district"
+              required
+              value={districtId}
+              onChange={(e) => {
+                setDistrictId(e.target.value)
+                setDioceseId('')
+              }}
+              disabled={isPending || districts.length === 0}
+              className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-200 disabled:opacity-60"
+            >
+              <option value="">— Válasszon —</option>
+              {districts.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="ar-diocese">
+            Egyházmegye <span className="text-rose-500">*</span>
+          </Label>
+          <select
+            id="ar-diocese"
+            required
+            value={dioceseId}
+            onChange={(e) => setDioceseId(e.target.value)}
+            disabled={isPending || !districtId}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-200 disabled:opacity-60"
+          >
+            <option value="">
+              {districtId ? '— Válasszon —' : 'Előbb válasszon egyházkerületet'}
+            </option>
+            {filteredDioceses.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {refDataError && (
+        <p className="text-[12px] text-rose-600">
+          Az egyházkerület/egyházmegye lista betöltése nem sikerült. Kérjük, frissítse az oldalt,
+          vagy próbálja meg később.
+        </p>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="ar-congregation">Gyülekezet</Label>
@@ -402,6 +553,50 @@ export function AccessRequestForm() {
           placeholder="Pl. esperesi körlevél, kollégám ajánlása"
           disabled={isPending}
         />
+      </div>
+
+      {/* Opcionális igazolás feltöltése — egyházmegyei/egyházkerületi (2026-06-03) */}
+      <div className="space-y-1.5">
+        <Label htmlFor="ar-document">Igazolás csatolása (opcionális)</Label>
+        {file ? (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2">
+            <span className="flex min-w-0 items-center gap-2 text-sm text-teal-900">
+              <Paperclip className="size-4 shrink-0" />
+              <span className="truncate">{file.name}</span>
+              <span className="shrink-0 text-teal-700/70">({Math.round(file.size / 1024)} KB)</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              disabled={isPending}
+              className="shrink-0 text-teal-700 hover:text-teal-900"
+              aria-label="Fájl eltávolítása"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ) : (
+          <label
+            htmlFor="ar-document"
+            className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-600 transition hover:border-teal-400 hover:bg-teal-50/40"
+          >
+            <FileUp className="size-4 text-slate-400" />
+            Kattintson a feltöltéshez — PDF, JPG vagy PNG (max 10 MB)
+          </label>
+        )}
+        <input
+          id="ar-document"
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+          onChange={handleFileChange}
+          disabled={isPending}
+          className="hidden"
+        />
+        {fileError && <p className="text-[11px] text-rose-600">{fileError}</p>}
+        <p className="text-[11px] text-slate-500">
+          Pl. egyházmegyei vagy egyházkerületi igazolás a szolgálatáról — segíti a rendszergazda
+          elbírálását.
+        </p>
       </div>
 
       {/* Kötelező pipák — adatvédelem + ÁSZF (modal-link-kel) */}

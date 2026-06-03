@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { motion, type Variants } from 'framer-motion'
@@ -13,6 +13,8 @@ import { OAuthButtons } from './oauth-buttons'
 
 interface LoginFormProps {
   initialError?: string
+  /** Nem-hiba értesítés (pl. "E-mail cím megerősítve") — zöld dobozban jelenik meg. */
+  initialNotice?: string
 }
 
 const containerVariants: Variants = {
@@ -32,8 +34,9 @@ const itemVariants: Variants = {
   },
 }
 
-export function LoginForm({ initialError }: LoginFormProps) {
+export function LoginForm({ initialError, initialNotice }: LoginFormProps) {
   const [serverError, setServerError] = useState<string | null>(initialError || null)
+  const [notice, setNotice] = useState<string | null>(initialNotice || null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -48,14 +51,38 @@ export function LoginForm({ initialError }: LoginFormProps) {
     },
   })
 
+  // Bfcache-guard: ha a böngésző a /login-t a vissza-gombbal a bfcache-ből
+  // állítja vissza (tipikusan a Google OAuth-ról visszalépve), a framer-motion
+  // belépő animáció NEM játszódik le újra, és a form `opacity:0`-n ragadhat
+  // (üres kártya). Ilyenkor friss betöltést kérünk, hogy a felület biztosan
+  // megjelenjen.
+  useEffect(() => {
+    function onPageShow(e: PageTransitionEvent) {
+      if (e.persisted) window.location.reload()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   async function onSubmit(data: LoginInput) {
     setServerError(null)
+    setNotice(null)
     setLoading(true)
     try {
       const result = await signIn(data)
       if (result?.error) setServerError(result.error)
-    } catch {
-      // redirect() throwol — ez nem hiba
+    } catch (err) {
+      // A redirect() egy speciális NEXT_REDIRECT "hibát" dob — ez NEM valódi
+      // hiba, hanem a sikeres bejelentkezés utáni navigáció. Minden mást valódi
+      // hibaként kezelünk, hogy a felhasználó ne maradjon néma képernyővel.
+      const digest =
+        err && typeof err === 'object' && 'digest' in err
+          ? (err as { digest?: unknown }).digest
+          : undefined
+      if (typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')) {
+        return // a navigáció megtörténik, a finally lefut
+      }
+      setServerError('Váratlan hiba történt a bejelentkezés során. Kérjük, próbálja újra.')
     } finally {
       setLoading(false)
     }
@@ -83,6 +110,17 @@ export function LoginForm({ initialError }: LoginFormProps) {
         </Link>
         <span className="kt-auth-tab-indicator" aria-hidden />
       </motion.div>
+
+      {notice && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 200 }}
+          className="kt-auth-server-notice"
+        >
+          {notice}
+        </motion.div>
+      )}
 
       {serverError && (
         <motion.div
@@ -202,7 +240,7 @@ export function LoginForm({ initialError }: LoginFormProps) {
       </motion.div>
 
       <motion.p variants={itemVariants} className="kt-auth-fineprint">
-        A regisztráció kerületi jóváhagyáshoz kötött.
+        A regisztráció egyházkerületi illetve egyházmegyei jóváhagyáshoz kötött.
       </motion.p>
     </motion.div>
   )

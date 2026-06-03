@@ -52,7 +52,9 @@ export async function listAccessRequests(
 
   let query = ctx.supabase
     .from('access_requests')
-    .select('*')
+    .select(
+      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name)',
+    )
     .order('created_at', { ascending: false })
 
   if (filter.status && filter.status !== 'all') {
@@ -82,7 +84,9 @@ export async function getAccessRequest(
 
   const { data, error } = await ctx.supabase
     .from('access_requests')
-    .select('*')
+    .select(
+      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name)',
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -90,6 +94,36 @@ export async function getAccessRequest(
   if (!data) return { error: 'A kérelem nem található.' }
 
   return { data: data as AccessRequest }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2/b) Feltöltött igazolás aláírt URL-je (privát bucket, csak admin)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Rövid életű (5 perc) signed URL-t ad az `access-request-docs` privát bucketben
+ * tárolt igazoláshoz. A service_role kulccsal (getSupabaseAdminClient) generálja,
+ * de a hívás CSAK admin-nak engedélyezett (requireAdmin).
+ */
+export async function getAccessRequestDocumentUrl(
+  path: string,
+): Promise<{ url?: string; error?: string }> {
+  const ctx = await requireAdmin()
+  if ('error' in ctx) return { error: ctx.error }
+  if (!path || !path.trim()) return { error: 'Nincs csatolt dokumentum.' }
+
+  try {
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin.storage
+      .from('access-request-docs')
+      .createSignedUrl(path, 300)
+    if (error || !data?.signedUrl) {
+      return { error: error?.message || 'A dokumentum hivatkozása nem hozható létre.' }
+    }
+    return { url: data.signedUrl }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Ismeretlen hiba.' }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -118,7 +152,7 @@ export async function approveAccessRequest(
 
   const { data: current, error: readErr } = await ctx.supabase
     .from('access_requests')
-    .select('status, email, full_name, requested_role')
+    .select('status, email, full_name, requested_role, requested_district_id, requested_diocese_id')
     .eq('id', input.id)
     .maybeSingle()
 
@@ -133,6 +167,8 @@ export async function approveAccessRequest(
     email: string
     full_name: string
     requested_role: keyof typeof ROLE_LABELS
+    requested_district_id: string | null
+    requested_diocese_id: string | null
   }
 
   // ── 1. Status frissítés ─────────────────────────────────────
@@ -184,7 +220,11 @@ export async function approveAccessRequest(
       resultingUserId = existingUser.id
       await ctx.supabase
         .from('profiles')
-        .update({ status: 'active' })
+        .update({
+          status: 'active',
+          district_id: req.requested_district_id,
+          diocese_id: req.requested_diocese_id,
+        })
         .eq('id', resultingUserId)
       await ctx.supabase
         .from('access_requests')
@@ -218,6 +258,8 @@ export async function approveAccessRequest(
             status: 'active',
             role: req.requested_role,
             full_name: req.full_name,
+            district_id: req.requested_district_id,
+            diocese_id: req.requested_diocese_id,
           })
           .eq('id', resultingUserId)
         await ctx.supabase

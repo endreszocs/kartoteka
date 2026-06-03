@@ -102,7 +102,7 @@ const ERROR_MAP: Record<string, string> = {
   'Invalid login credentials': 'Érvénytelen e-mail cím vagy jelszó.',
   'Email not confirmed': 'Kérem, erősítse meg az e-mail címét a fiókjába küldött linkkel!',
   'User already registered': 'Ez az e-mail cím már regisztrálva van.',
-  'Password should be at least 6 characters': 'A jelszónak legalább 6 karakter hosszúnak kell lennie.',
+  'Password should be at least': 'A jelszónak legalább 8 karakter hosszúnak kell lennie.',
   'Email rate limit exceeded': 'Túl sok próbálkozás. Kérem, várjon néhány percet.',
   'Signups not allowed for this instance': 'A regisztráció jelenleg nem engedélyezett.',
 }

@@ -1,7 +1,7 @@
 import { LoginForm } from '@/components/auth/login-form'
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string; reason?: string }>
+  searchParams: Promise<{ error?: string; reason?: string; confirmed?: string }>
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -14,5 +14,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         ? 'A bejelentkezésed lejárt — biztonsági okokból egy nap után újra be kell jelentkezned. Ha szeretnéd, hogy ne kelljen, pipáld be a "Maradjak bejelentkezve" mezőt.'
         : undefined
 
-  return <LoginForm initialError={errorFromUrl} />
+  // Az access-request flow e-mail-megerősítő linkje ide irányít (?confirmed=1).
+  // A fiók ettől még jóváhagyásra vár — ezt jelezzük is.
+  const noticeFromUrl = params.confirmed === '1'
+    ? 'E-mail címét sikeresen megerősítette. A fiókja a rendszergazda jóváhagyására vár — a jóváhagyásról értesítést kap.'
+    : undefined
+
+  return <LoginForm initialError={errorFromUrl} initialNotice={noticeFromUrl} />
 }

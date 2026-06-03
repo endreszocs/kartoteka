@@ -32,7 +32,6 @@ export default function robots(): MetadataRoute.Robots {
           '/notifications',
           '/support',
           '/login',
-          '/register',
           '/forgot-password',
           '/oauth-complete',
           '/auth/',

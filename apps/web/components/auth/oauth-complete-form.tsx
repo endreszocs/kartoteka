@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { oauthCompleteSchema, type OAuthCompleteInput } from '@/lib/validations/auth'
 import { completeOAuthProfile } from '@/app/(auth)/oauth-complete/actions'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,6 +16,12 @@ interface OAuthCompleteFormProps {
   defaultName?: string
 }
 
+interface RefDistrict { id: string; name: string }
+interface RefDiocese { id: string; name: string; district_id: string | null }
+
+const SELECT_CLASS =
+  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+
 export function OAuthCompleteForm({ defaultName }: OAuthCompleteFormProps) {
   const [serverError, setServerError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -24,14 +31,50 @@ export function OAuthCompleteForm({ defaultName }: OAuthCompleteFormProps) {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<OAuthCompleteInput>({
     resolver: zodResolver(oauthCompleteSchema),
     defaultValues: {
       fullName: defaultName || '',
+      districtId: '',
+      dioceseId: '',
       termsAccepted: false as unknown as true,
     },
   })
+
+  // ── Egyházkerület + egyházmegye (DB-ből, kötelező) ────────────────────────
+  const supabase = useMemo(() => createClient(), [])
+  const [districts, setDistricts] = useState<RefDistrict[]>([])
+  const [dioceses, setDioceses] = useState<RefDiocese[]>([])
+  const [districtId, setDistrictId] = useState('')
+  const [dioceseId, setDioceseId] = useState('')
+  const [refDataError, setRefDataError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const [districtRes, dioceseRes] = await Promise.all([
+        supabase.from('districts').select('id, name').order('name'),
+        supabase.from('dioceses').select('id, name, district_id').order('name'),
+      ])
+      if (!active) return
+      if (districtRes.error || dioceseRes.error) {
+        setRefDataError(true)
+        return
+      }
+      setDistricts((districtRes.data as RefDistrict[]) ?? [])
+      setDioceses((dioceseRes.data as RefDiocese[]) ?? [])
+    })()
+    return () => {
+      active = false
+    }
+  }, [supabase])
+
+  const filteredDioceses = useMemo(
+    () => (districtId ? dioceses.filter((d) => d.district_id === districtId) : []),
+    [districtId, dioceses],
+  )
 
   async function onSubmit(data: OAuthCompleteInput) {
     setServerError(null)
@@ -92,11 +135,69 @@ export function OAuthCompleteForm({ defaultName }: OAuthCompleteFormProps) {
             {errors.phone && <p className="text-red-500 text-sm">{errors.phone.message}</p>}
           </div>
 
+          {/* Egyházkerület — kötelező, DB-ből */}
+          <div className="space-y-1.5">
+            <Label htmlFor="oc-district">Egyházkerület *</Label>
+            <select
+              id="oc-district"
+              value={districtId}
+              disabled={districts.length === 0}
+              onChange={(e) => {
+                const v = e.target.value
+                setDistrictId(v)
+                setDioceseId('')
+                setValue('districtId', v, { shouldValidate: true })
+                setValue('dioceseId', '', { shouldValidate: false })
+              }}
+              className={SELECT_CLASS}
+            >
+              <option value="">— Válasszon —</option>
+              {districts.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            {errors.districtId && <p className="text-red-500 text-sm">{errors.districtId.message}</p>}
+          </div>
+
+          {/* Egyházmegye — kötelező, a választott egyházkerülethez szűrve */}
+          <div className="space-y-1.5">
+            <Label htmlFor="oc-diocese">Egyházmegye *</Label>
+            <select
+              id="oc-diocese"
+              value={dioceseId}
+              disabled={!districtId}
+              onChange={(e) => {
+                const v = e.target.value
+                setDioceseId(v)
+                setValue('dioceseId', v, { shouldValidate: true })
+              }}
+              className={SELECT_CLASS}
+            >
+              <option value="">
+                {districtId ? '— Válasszon —' : 'Előbb válasszon egyházkerületet'}
+              </option>
+              {filteredDioceses.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            {errors.dioceseId && <p className="text-red-500 text-sm">{errors.dioceseId.message}</p>}
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="oc-cong">Egyházközség *</Label>
             <Input id="oc-cong" placeholder="Pl. Siculeni" {...register('congregation')} />
             {errors.congregation && <p className="text-red-500 text-sm">{errors.congregation.message}</p>}
           </div>
+
+          {refDataError && (
+            <p className="text-red-500 text-sm">
+              Az egyházkerület/egyházmegye lista betöltése nem sikerült. Kérjük, frissítse az oldalt.
+            </p>
+          )}
 
           <div className="flex items-start gap-2 pt-1">
             <input type="checkbox" id="oc-terms" className="mt-1 shrink-0" {...register('termsAccepted')} />

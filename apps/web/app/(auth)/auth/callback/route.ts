@@ -73,24 +73,28 @@ export async function GET(request: Request) {
       if (user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('id, status, role, congregation_id')
+          .select('id, status, role, congregation_id, diocese_id')
           .eq('id', user.id)
           .single()
 
-        // Nincs profil → kiegészítő adatbekérés
-        if (!profile) {
+        const master = isMasterAdmin(user.email)
+        const isActive = profile?.status === 'active'
+
+        // Aktív (vagy master) → mehet a kezdőoldalra
+        if (master || isActive) {
+          return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
+        }
+
+        // Nem aktív. A `handle_new_user` trigger minden OAuth-belépéskor létrehoz
+        // egy 'pending' profilt, ezért NEM a `!profile`-t, hanem a hiányos profilt
+        // figyeljük: ha még nincs egyházmegye kitöltve → kiegészítő űrlap.
+        if (!profile || !profile.diocese_id) {
           return applySessionModeCookie(NextResponse.redirect(`${origin}/oauth-complete`))
         }
 
-        const master = isMasterAdmin(user.email)
-        const isActive = profile.status === 'active'
-
-        if (!master && !isActive) {
-          await supabase.auth.signOut()
-          return NextResponse.redirect(`${origin}/login?error=pending`)
-        }
-
-        return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
+        // Profil kitöltve, de még jóváhagyásra vár
+        await supabase.auth.signOut()
+        return NextResponse.redirect(`${origin}/login?error=pending`)
       }
     }
   }

@@ -9,7 +9,8 @@
  */
 
 import { useState } from 'react'
-import { CheckCircle2, XCircle, Clock, Mail, Phone, Home, FileText, Eye } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, Mail, Phone, Home, FileText, Eye, Building2, Download, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import type {
   AccessRequestStatus,
 } from '@/app/(dashboard)/admin/access-requests-shared'
 import { ROLE_LABELS, STATUS_LABELS } from '@/app/(dashboard)/admin/access-requests-shared'
+import { getAccessRequestDocumentUrl } from '@/app/(dashboard)/admin/access-requests-actions'
 
 interface AccessRequestsTableProps {
   requests: AccessRequest[]
@@ -145,6 +147,12 @@ function AccessRequestRow({
               {req.congregation_slug}
             </div>
           )}
+          {req.diocese?.name && (
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+              <Building2 className="size-3 text-slate-400" />
+              {req.diocese.name}
+            </div>
+          )}
         </td>
         <td className="p-3">
           <Badge className="bg-indigo-100 text-indigo-800 border-0 text-[10px]">
@@ -199,6 +207,26 @@ function AccessRequestRow({
         <tr className="bg-slate-50/60">
           <td colSpan={6} className="p-4">
             <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
+              {req.district?.name && (
+                <div>
+                  <p className="font-medium text-slate-600">Egyházkerület:</p>
+                  <p className="mt-1 text-slate-700">{req.district.name}</p>
+                </div>
+              )}
+              {req.diocese?.name && (
+                <div>
+                  <p className="font-medium text-slate-600">Egyházmegye:</p>
+                  <p className="mt-1 text-slate-700">{req.diocese.name}</p>
+                </div>
+              )}
+              {req.document_path && (
+                <div>
+                  <p className="font-medium text-slate-600">Csatolt igazolás:</p>
+                  <div className="mt-1">
+                    <DocumentButton path={req.document_path} />
+                  </div>
+                </div>
+              )}
               {req.justification && (
                 <div>
                   <p className="font-medium text-slate-600">Indoklás:</p>
@@ -238,5 +266,40 @@ function AccessRequestRow({
         </tr>
       )}
     </>
+  )
+}
+
+/**
+ * Letöltő gomb a feltöltött igazoláshoz — rövid életű signed URL-t kér a
+ * szervertől (csak admin), majd új lapon megnyitja.
+ */
+function DocumentButton({ path }: { path: string }) {
+  const [loading, setLoading] = useState(false)
+
+  async function handleOpen() {
+    setLoading(true)
+    try {
+      const res = await getAccessRequestDocumentUrl(path)
+      if (res.error || !res.url) {
+        toast.error(res.error || 'A dokumentum nem nyitható meg.')
+        return
+      }
+      window.open(res.url, '_blank', 'noopener,noreferrer')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={handleOpen}
+      disabled={loading}
+      className="gap-1.5 rounded-lg"
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+      Igazolás megnyitása
+    </Button>
   )
 }

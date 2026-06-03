@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { SESSION_MODE_COOKIE } from '@/lib/auth/session-mode'
 
 // Lelkészi auth útvonalak — bejelentkezett usernek nem kell ide visszamennie
-const PASTOR_AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/oauth-complete', '/auth/callback']
+const PASTOR_AUTH_ROUTES = ['/login', '/forgot-password', '/oauth-complete', '/auth/callback']
 
 // Publikus auth-related útvonalak — anonim user is elérheti (pl. hozzáférés-kérő űrlap).
 // A `(public)` Next.js route-group NEM jelenik meg a pathname-ben, ezért szükség

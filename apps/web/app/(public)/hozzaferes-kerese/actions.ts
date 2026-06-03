@@ -49,7 +49,15 @@ export interface SubmitAccessRequestInput {
   phone?: string
   justification?: string
   referrer?: string
+  /** 2026-06-03 — kötelező egyházkerület (districts FK, UUID). */
+  requested_district_id: string
+  /** 2026-06-03 — kötelező egyházmegye (dioceses FK, UUID). */
+  requested_diocese_id: string
+  /** 2026-06-03 — opcionális feltöltött igazolás útvonala (access-request-docs bucket). */
+  document_path?: string
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface SubmitResult {
   success: boolean
@@ -101,6 +109,13 @@ export async function submitAccessRequest(
   // 2026-05-02 (v0.9.39) — Telefonszám kötelezővé téve.
   if (!input.phone?.trim()) {
     return { success: false, error: 'A telefonszám megadása kötelező.' }
+  }
+  // 2026-06-03 — Egyházkerület + egyházmegye kötelezővé téve.
+  if (!input.requested_district_id || !UUID_RE.test(input.requested_district_id)) {
+    return { success: false, error: 'Válassza ki az egyházkerületet.' }
+  }
+  if (!input.requested_diocese_id || !UUID_RE.test(input.requested_diocese_id)) {
+    return { success: false, error: 'Válassza ki az egyházmegyét.' }
   }
 
   // ── 2. IP-hash (GDPR-kompatibilis: csak hash, nem IP) ───────
@@ -191,6 +206,9 @@ export async function submitAccessRequest(
       phone: input.phone?.trim() || null,
       justification: input.justification?.trim() || null,
       referrer: input.referrer?.trim() || null,
+      requested_district_id: input.requested_district_id,
+      requested_diocese_id: input.requested_diocese_id,
+      document_path: input.document_path?.trim() || null,
       ip_hash: ipHash,
       user_agent: userAgent,
     })
@@ -199,6 +217,23 @@ export async function submitAccessRequest(
     return {
       success: false,
       error: insErr.message || 'Nem sikerült rögzíteni a kérelmet.',
+    }
+  }
+
+  // ── 6/0. Egyházkerület + egyházmegye nevek az admin-emailhez ────────
+  // (a dioceses → districts join-ból; az anon SELECT engedélyezett rajtuk)
+  let dioceseName: string | null = null
+  let districtName: string | null = null
+  {
+    const { data: dioceseRow } = await supabase
+      .from('dioceses')
+      .select('name, districts(name)')
+      .eq('id', input.requested_diocese_id)
+      .maybeSingle()
+    if (dioceseRow) {
+      dioceseName = (dioceseRow as { name?: string }).name ?? null
+      const dist = (dioceseRow as { districts?: { name?: string } | null }).districts
+      districtName = dist?.name ?? null
     }
   }
 
@@ -237,6 +272,9 @@ export async function submitAccessRequest(
           requesterEmail: email,
           requestedRole: ROLE_LABELS[role],
           congregationSlug: input.congregation_slug || null,
+          districtName,
+          dioceseName,
+          hasDocument: Boolean(input.document_path?.trim()),
           justification: input.justification || null,
           adminPortalUrl,
         }),
