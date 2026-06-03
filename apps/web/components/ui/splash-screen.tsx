@@ -566,7 +566,10 @@ function MobileSplash({ fading, phases, progress }: MobileSplashProps) {
       className="fixed inset-0 z-50"
       style={{
         background: '#d8cfba',
-        overflow: 'hidden',
+        // Rövid képernyőkön (pl. landscape telefon) a tartalom ne vágódjon le:
+        // overflow-y auto biztonsági háló, a column minHeight-tal nőhet.
+        overflowY: 'auto',
+        overflowX: 'hidden',
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
         opacity: fading ? 0 : 1,
         transition: 'opacity 700ms ease-in',
@@ -624,7 +627,7 @@ function MobileSplash({ fading, phases, progress }: MobileSplashProps) {
       <div
         style={{
           position: 'relative',
-          height: '100%',
+          minHeight: '100%',
           width: '100%',
           display: 'flex',
           flexDirection: 'column',

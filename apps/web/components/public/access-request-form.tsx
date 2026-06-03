@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { ArrowRight, Building2, CheckCircle2, Eye, EyeOff, FileUp, KeyRound, Lock, LogIn, Mail, Paperclip, Send, X, Loader2 } from 'lucide-react'
+import { ArrowRight, Building2, CheckCircle2, Church, Eye, EyeOff, FileUp, KeyRound, Lock, LogIn, Mail, Paperclip, Send, X, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,7 @@ import {
 
 interface RefDistrict { id: string; name: string }
 interface RefDiocese { id: string; name: string; district_id: string | null }
+interface RefCongregation { id: string; name: string; diocese_id: string | null }
 
 const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_DOC_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -71,8 +72,10 @@ export function AccessRequestForm() {
   const supabase = useMemo(() => createClient(), [])
   const [districts, setDistricts] = useState<RefDistrict[]>([])
   const [dioceses, setDioceses] = useState<RefDiocese[]>([])
+  const [congregations, setCongregations] = useState<RefCongregation[]>([])
   const [districtId, setDistrictId] = useState('')
   const [dioceseId, setDioceseId] = useState('')
+  const [congregationId, setCongregationId] = useState('')
   const [refDataError, setRefDataError] = useState(false)
 
   // ── 2026-06-03: opcionális igazolás (dokumentum) ──────────────────────────
@@ -82,17 +85,19 @@ export function AccessRequestForm() {
   useEffect(() => {
     let active = true
     ;(async () => {
-      const [districtRes, dioceseRes] = await Promise.all([
+      const [districtRes, dioceseRes, congRes] = await Promise.all([
         supabase.from('districts').select('id, name').order('name'),
         supabase.from('dioceses').select('id, name, district_id').order('name'),
+        supabase.rpc('congregations_for_registration'),
       ])
       if (!active) return
-      if (districtRes.error || dioceseRes.error) {
+      if (districtRes.error || dioceseRes.error || congRes.error) {
         setRefDataError(true)
         return
       }
       setDistricts((districtRes.data as RefDistrict[]) ?? [])
       setDioceses((dioceseRes.data as RefDiocese[]) ?? [])
+      setCongregations((congRes.data as RefCongregation[]) ?? [])
     })()
     return () => {
       active = false
@@ -103,6 +108,12 @@ export function AccessRequestForm() {
   const filteredDioceses = useMemo(
     () => (districtId ? dioceses.filter((d) => d.district_id === districtId) : []),
     [districtId, dioceses],
+  )
+
+  // A választott egyházmegyéhez tartozó egyházközségek
+  const filteredCongregations = useMemo(
+    () => (dioceseId ? congregations.filter((c) => c.diocese_id === dioceseId) : []),
+    [dioceseId, congregations],
   )
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -147,6 +158,10 @@ export function AccessRequestForm() {
       toast.error('Kérjük, válassza ki az egyházmegyét.')
       return
     }
+    if (!congregationId) {
+      toast.error('Kérjük, válassza ki az egyházközséget.')
+      return
+    }
     if (password.length < 8) {
       toast.error('A jelszó legalább 8 karakter hosszú legyen.')
       return
@@ -173,17 +188,21 @@ export function AccessRequestForm() {
 
       // Magyar konvenció: vezetéknév + keresztnév (Szőcs Endre)
       const fullName = `${form.family_name.trim()} ${form.given_name.trim()}`
+      // A congregation_slug-ot a kiválasztott gyülekezet nevével töltjük (megjelenítéshez,
+      // backward-compat); a tényleges hozzárendelés a requested_congregation_id alapján megy.
+      const selectedCong = congregations.find((c) => c.id === congregationId)
       const res = await submitAccessRequest({
         email: form.email.trim(),
         full_name: fullName,
         requested_role: form.requested_role,
         password,
-        congregation_slug: form.congregation_slug.trim() || undefined,
+        congregation_slug: selectedCong?.name || undefined,
         phone: form.phone.trim() || undefined,
         justification: form.justification.trim() || undefined,
         referrer: form.referrer.trim() || undefined,
         requested_district_id: districtId,
         requested_diocese_id: dioceseId,
+        requested_congregation_id: congregationId,
         document_path: documentPath,
       })
 
@@ -479,7 +498,10 @@ export function AccessRequestForm() {
             id="ar-diocese"
             required
             value={dioceseId}
-            onChange={(e) => setDioceseId(e.target.value)}
+            onChange={(e) => {
+              setDioceseId(e.target.value)
+              setCongregationId('')
+            }}
             disabled={isPending || !districtId}
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-200 disabled:opacity-60"
           >
@@ -495,6 +517,39 @@ export function AccessRequestForm() {
         </div>
       </div>
 
+      {/* Egyházközség — kötelező, a választott egyházmegyéhez szűrve (2026-06-04) */}
+      <div className="space-y-1.5">
+        <Label htmlFor="ar-congregation-select">
+          Egyházközség <span className="text-rose-500">*</span>
+        </Label>
+        <div className="relative">
+          <Church className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <select
+            id="ar-congregation-select"
+            required
+            value={congregationId}
+            onChange={(e) => setCongregationId(e.target.value)}
+            disabled={isPending || !dioceseId}
+            className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-200 disabled:opacity-60"
+          >
+            <option value="">
+              {dioceseId ? '— Válasszon egyházközséget —' : 'Előbb válasszon egyházmegyét'}
+            </option>
+            {filteredCongregations.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {dioceseId && filteredCongregations.length === 0 && (
+          <p className="text-[11px] text-amber-600">
+            Ehhez az egyházmegyéhez még nincs gyülekezet a listában. Kérjük, jelezze a
+            rendszergazdának.
+          </p>
+        )}
+      </div>
+
       {refDataError && (
         <p className="text-[12px] text-rose-600">
           Az egyházkerület/egyházmegye lista betöltése nem sikerült. Kérjük, frissítse az oldalt,
@@ -503,17 +558,6 @@ export function AccessRequestForm() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="ar-congregation">Gyülekezet</Label>
-          <Input
-            id="ar-congregation"
-            value={form.congregation_slug}
-            onChange={(e) => setForm({ ...form, congregation_slug: e.target.value })}
-            placeholder="pl. Kolozsvár-Belváros"
-            disabled={isPending}
-          />
-        </div>
-
         <div className="space-y-1.5">
           <Label htmlFor="ar-phone">
             Telefonszám <span className="text-rose-500">*</span>

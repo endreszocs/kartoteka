@@ -46,9 +46,12 @@ export interface AccessRequest {
   requested_district_id: string | null
   requested_diocese_id: string | null
   document_path: string | null
-  // A listázáskor join-olt nevek (districts/dioceses) — csak olvasásra
+  // 2026-06-04 — listából választott egyházközség (a jóváhagyáskor congregation_id)
+  requested_congregation_id: string | null
+  // A listázáskor join-olt nevek (districts/dioceses/congregations) — csak olvasásra
   district?: { name: string } | null
   diocese?: { name: string } | null
+  congregation?: { name: string | null; nev_hu: string | null } | null
 }
 
 export interface AccessRequestStats {

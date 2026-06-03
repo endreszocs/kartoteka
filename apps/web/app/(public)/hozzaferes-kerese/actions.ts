@@ -53,6 +53,9 @@ export interface SubmitAccessRequestInput {
   requested_district_id: string
   /** 2026-06-03 — kötelező egyházmegye (dioceses FK, UUID). */
   requested_diocese_id: string
+  /** 2026-06-04 — kötelező egyházközség listából (congregations FK, UUID).
+   *  A jóváhagyáskor ez lesz a profiles.congregation_id. */
+  requested_congregation_id: string
   /** 2026-06-03 — opcionális feltöltött igazolás útvonala (access-request-docs bucket). */
   document_path?: string
 }
@@ -116,6 +119,10 @@ export async function submitAccessRequest(
   }
   if (!input.requested_diocese_id || !UUID_RE.test(input.requested_diocese_id)) {
     return { success: false, error: 'Válassza ki az egyházmegyét.' }
+  }
+  // 2026-06-04 — Egyházközség listából, kötelező.
+  if (!input.requested_congregation_id || !UUID_RE.test(input.requested_congregation_id)) {
+    return { success: false, error: 'Válassza ki az egyházközséget.' }
   }
 
   // ── 2. IP-hash (GDPR-kompatibilis: csak hash, nem IP) ───────
@@ -208,6 +215,7 @@ export async function submitAccessRequest(
       referrer: input.referrer?.trim() || null,
       requested_district_id: input.requested_district_id,
       requested_diocese_id: input.requested_diocese_id,
+      requested_congregation_id: input.requested_congregation_id,
       document_path: input.document_path?.trim() || null,
       ip_hash: ipHash,
       user_agent: userAgent,

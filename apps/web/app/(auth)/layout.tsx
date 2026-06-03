@@ -1,7 +1,7 @@
 import Image from 'next/image'
-import Link from 'next/link'
 import { AuthLeftPane } from '@/components/auth/auth-left-pane'
 import { AuthFooterLinks } from '@/components/auth/auth-footer-links'
+import { SplashScreen } from '@/components/ui/splash-screen'
 
 /**
  * Auth layout — sablon-konform 2-oszlopos onboarding.
@@ -26,6 +26,11 @@ export default function AuthLayout({
 }) {
   return (
     <div className="kt-auth-page">
+      {/* Belépés előtti fogadóképernyő — munkamenetenként egyszer, reszponzív
+          (desktop/tablet stage + külön mobil layout). Self-managing: ~5s + fade,
+          sessionStorage-szal egyszer jelenik meg. */}
+      <SplashScreen />
+
       {/* Background vignette overlay (a Hatter.png-re ráhúzva) */}
       <div aria-hidden className="kt-auth-vignette" />
 

@@ -95,10 +95,18 @@ export function AccessRequestApproveDialog({
                   <p className="text-slate-800">{request.phone}</p>
                 </div>
               )}
-              {request.congregation_slug && (
+              {request.diocese?.name && (
                 <div>
-                  <p className="font-medium text-slate-500">Gyülekezet:</p>
-                  <p className="text-slate-800">{request.congregation_slug}</p>
+                  <p className="font-medium text-slate-500">Egyházmegye:</p>
+                  <p className="text-slate-800">{request.diocese.name}</p>
+                </div>
+              )}
+              {(request.congregation?.nev_hu || request.congregation?.name || request.congregation_slug) && (
+                <div>
+                  <p className="font-medium text-slate-500">Egyházközség:</p>
+                  <p className="text-slate-800">
+                    {request.congregation?.nev_hu || request.congregation?.name || request.congregation_slug}
+                  </p>
                 </div>
               )}
             </div>
@@ -124,20 +132,16 @@ export function AccessRequestApproveDialog({
             />
           </ModalField>
 
-          {/* M0.1 figyelmeztetés */}
-          <div className="rounded-xl bg-amber-50/60 border border-amber-200 p-3">
+          {/* Elfogadás hatása */}
+          <div className="rounded-xl bg-emerald-50/60 border border-emerald-200 p-3">
             <div className="flex items-start gap-2">
-              <Info className="size-4 text-amber-700 flex-shrink-0 mt-0.5" />
-              <div className="text-[11px] text-amber-900 leading-relaxed">
-                <p className="font-medium">M0.1 fázis — email még NEM küldődik automatikusan</p>
+              <Info className="size-4 text-emerald-700 flex-shrink-0 mt-0.5" />
+              <div className="text-[11px] text-emerald-900 leading-relaxed">
+                <p className="font-medium">Az elfogadás azonnal aktiválja a fiókot</p>
                 <p className="mt-1">
-                  A jelenlegi verzióban csak a kérelem státusza változik <code className="bg-amber-100 px-1 rounded">approved</code>-ra.
-                  Az invite-emailt az M0.3 fázisban fogjuk implementálni (a profiles.status workflow-hoz).
-                  Addig az admin köteles{' '}
-                  <a href={`mailto:${request.email}`} className="underline font-medium">
-                    kézzel értesíteni
-                  </a>{' '}
-                  a kérelmezőt (Mail ikon → email kliens).
+                  A felhasználó <strong>aktív</strong> lesz, a rendszer a választott
+                  egyházközséghez rendeli (egyházmegyével/egyházkerülettel együtt), és
+                  automatikus értesítő e-mailt küld. Ezután a megadott jelszavával beléphet.
                 </p>
               </div>
             </div>

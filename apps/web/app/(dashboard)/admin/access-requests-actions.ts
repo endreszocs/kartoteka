@@ -53,7 +53,7 @@ export async function listAccessRequests(
   let query = ctx.supabase
     .from('access_requests')
     .select(
-      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name)',
+      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name), congregation:congregations!requested_congregation_id(name, nev_hu)',
     )
     .order('created_at', { ascending: false })
 
@@ -85,7 +85,7 @@ export async function getAccessRequest(
   const { data, error } = await ctx.supabase
     .from('access_requests')
     .select(
-      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name)',
+      '*, district:districts!requested_district_id(name), diocese:dioceses!requested_diocese_id(name), congregation:congregations!requested_congregation_id(name, nev_hu)',
     )
     .eq('id', id)
     .maybeSingle()
@@ -152,7 +152,7 @@ export async function approveAccessRequest(
 
   const { data: current, error: readErr } = await ctx.supabase
     .from('access_requests')
-    .select('status, email, full_name, requested_role, requested_district_id, requested_diocese_id')
+    .select('status, email, full_name, requested_role, requested_district_id, requested_diocese_id, requested_congregation_id')
     .eq('id', input.id)
     .maybeSingle()
 
@@ -169,6 +169,7 @@ export async function approveAccessRequest(
     requested_role: keyof typeof ROLE_LABELS
     requested_district_id: string | null
     requested_diocese_id: string | null
+    requested_congregation_id: string | null
   }
 
   // ── 1. Status frissítés ─────────────────────────────────────
@@ -224,6 +225,7 @@ export async function approveAccessRequest(
           status: 'active',
           district_id: req.requested_district_id,
           diocese_id: req.requested_diocese_id,
+          congregation_id: req.requested_congregation_id,
         })
         .eq('id', resultingUserId)
       await ctx.supabase
@@ -260,6 +262,7 @@ export async function approveAccessRequest(
             full_name: req.full_name,
             district_id: req.requested_district_id,
             diocese_id: req.requested_diocese_id,
+            congregation_id: req.requested_congregation_id,
           })
           .eq('id', resultingUserId)
         await ctx.supabase
@@ -281,6 +284,47 @@ export async function approveAccessRequest(
 
   if (inviteWarning) {
     console.warn('[approve-access-request]', inviteWarning)
+  }
+
+  // ── 4/b. Gyülekezeti profile_role automatikus beillesztése ───
+  // A frissen jóváhagyott lelkész (vagy gyülekezeti könyvelő) a választott
+  // gyülekezethez kötött profile_role-t kap, hogy a multi-role rendszer + a
+  // profilváltó is lássa, és a belépés utáni dashboard a gyülekezetet nyissa.
+  // Más szintű szerepköröket (esperes, egyházmegyei/kerületi admin) az admin a
+  // Felhasználók fülön rendel a megfelelő scope-pal.
+  const CONGREGATION_SCOPED_ROLES: readonly string[] = ['lelkesz', 'konyvelo']
+  if (
+    resultingUserId &&
+    req.requested_congregation_id &&
+    CONGREGATION_SCOPED_ROLES.includes(req.requested_role)
+  ) {
+    try {
+      const { data: existingRole } = await ctx.supabase
+        .from('profile_roles')
+        .select('id')
+        .eq('profile_id', resultingUserId)
+        .eq('scope', 'congregation')
+        .eq('scope_id', req.requested_congregation_id)
+        .eq('role', req.requested_role)
+        .maybeSingle()
+
+      if (!existingRole) {
+        await ctx.supabase.from('profile_roles').insert({
+          profile_id: resultingUserId,
+          scope: 'congregation',
+          scope_id: req.requested_congregation_id,
+          role: req.requested_role,
+          approval_status: 'approved',
+          granted_by: ctx.userId,
+          approved_by: ctx.userId,
+          approved_at: new Date().toISOString(),
+          active: true,
+        })
+      }
+    } catch (e) {
+      console.error('[approve-access-request] profile_roles insert hiba:', e)
+      // best-effort — a fő aktiválás sikeres
+    }
   }
 
   // ── 5. Saját magyar nyelvű email-értesítés ──────────────────
