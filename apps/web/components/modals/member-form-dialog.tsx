@@ -449,8 +449,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   type="button"
                   className="flex-[1.5] rounded-xl bg-emerald-600 hover:bg-emerald-700"
                   onClick={() => {
-                    setWizardStep((s) => Math.min(3, s + 1) as WizardStep)
-                    setMaxReachedStep((m) => Math.max(m, (wizardStep + 1) as WizardStep))
+                    const next = Math.min(3, wizardStep + 1) as WizardStep
+                    setWizardStep(next)
+                    setMaxReachedStep((m) => (next > m ? next : m))
                   }}
                 >
                   Tovább <ChevronRight className="ml-1 size-4" />
