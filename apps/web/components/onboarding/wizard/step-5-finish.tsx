@@ -47,9 +47,11 @@ export function Step5Finish() {
       setError(null)
       toast.success('Minden készen áll! 🎉')
 
-      // Dashboard-ra átirányítás — adunk egy kis időt az animációnak
+      // Kezdőoldalra átirányítás — adunk egy kis időt az animációnak.
+      // A `/` (root-resolver) a szerepkörnek megfelelő dashboardra visz
+      // (lelkésznél /dashboard; multi-role usernél a megfelelő scope-ra).
       setTimeout(() => {
-        router.push('/dashboard')
+        router.push('/')
         router.refresh()
       }, 1800)
     } catch (e) {
@@ -109,7 +111,7 @@ export function Step5Finish() {
           <Button
             size="lg"
             className="mt-4 rounded-xl bg-emerald-600 hover:bg-emerald-700"
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.push('/')}
           >
             Ugrás a Főoldalra →
           </Button>

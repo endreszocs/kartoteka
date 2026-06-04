@@ -727,10 +727,50 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 export async function quickApproveUser(userId: string) {
   const { supabase } = await requireMasterAdmin()
 
+  // 2026-06-04 (P3): ha a usernek van regisztrációs access_request-je a listából
+  // választott gyülekezettel, a Gyors jóváhagyás IS rendelje hozzá a gyülekezetet
+  // (+ egyházmegyét) — különben gyülekezet nélkül a lelkész a belépés után a
+  // CongregationOnlyNotice holtpontra jutna. A profiles.congregation_id elég a
+  // dashboardhoz (az effectiveCongregationId arra esik vissza). Best-effort: ha
+  // nincs access_request, marad a sima aktiválás.
+  let congId: string | null = null
+  let dioceseId: string | null = null
+  try {
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', userId)
+      .maybeSingle()
+    const email = (prof as { email?: string | null } | null)?.email
+    if (email) {
+      const { data: ar } = await supabase
+        .from('access_requests')
+        .select('requested_congregation_id, requested_diocese_id')
+        .ilike('email', email)
+        .not('requested_congregation_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (ar) {
+        const row = ar as {
+          requested_congregation_id?: string | null
+          requested_diocese_id?: string | null
+        }
+        congId = row.requested_congregation_id ?? null
+        dioceseId = row.requested_diocese_id ?? null
+      }
+    }
+  } catch {
+    // best-effort — gyülekezet nélkül is aktiválható
+  }
+
   // FIX 2026-05-04: SECURITY DEFINER RPC használata — megkerüli az RLS-t
   // ÉS a profiles GRANT-okat is. A jogosultság-check az SQL függvényben.
+  const rpcArgs: Record<string, unknown> = { p_user_id: userId }
+  if (congId) rpcArgs.p_congregation_id = congId
+  if (dioceseId) rpcArgs.p_diocese_id = dioceseId
   const { data: rpcRes, error: rpcErr } = await supabase
-    .rpc('admin_activate_user', { p_user_id: userId })
+    .rpc('admin_activate_user', rpcArgs)
     .single()
 
   if (rpcErr) return { error: `Profil frissítési hiba: ${rpcErr.message}` }

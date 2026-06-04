@@ -923,6 +923,47 @@ export async function completeWizard(): Promise<
     }
   }
 
+  // ─── P2 (2026-06-04): welcomeStatus-ellenőrzés a véglegesítés ELŐTT ───
+  // Mielőtt "kész"-re állítjuk az onboarding-ot, ellenőrizzük, hogy a kötelező
+  // alapadatok TÉNYLEG mentődtek. Ha nem (pl. egy írás némán elbukott), inkább
+  // érthető hibát adunk, mintsem hogy az onboarding_completed_at beállítása után
+  // a guardok visszaküldjék a lelkészt a wizardba (soft-loop). A friss adatokat
+  // a service-role klienssel (writeClient) olvassuk, hogy az RLS ne szűrjön.
+  const { data: freshProfile } = await writeClient
+    .from('profiles')
+    .select('onboarding_completed_at, congregation_id, full_name')
+    .eq('id', user.id)
+    .maybeSingle()
+  const postStatus = await getWelcomeWizardStatus(
+    writeClient,
+    (freshProfile as {
+      onboarding_completed_at?: string | null
+      congregation_id?: string | null
+      full_name?: string | null
+    } | null) ?? null,
+    profile.congregation_id,
+  )
+  // Az 'onboarding-not-completed' reason itt szándékosan jelen van (épp most
+  // állítjuk be) — ezért azt kihagyjuk a blokkoló okok közül.
+  const REASON_LABELS: Record<string, string> = {
+    'congregation-missing':
+      'Nincs gyülekezet hozzárendelve a fiókodhoz — kérjük, lépj kapcsolatba a rendszergazdával.',
+    'congregation-row-missing': 'A gyülekezet adatai nem találhatók a rendszerben.',
+    'congregation-name-missing': 'A gyülekezet neve hiányzik.',
+    'congregation-address-missing':
+      'A gyülekezet települése hiányzik — töltsd ki a Gyülekezet lépésben.',
+    'pastor-name-missing': 'A lelkész neve hiányzik — töltsd ki a Lelkész lépésben.',
+    'yearly-fee-missing':
+      'Az éves járulék összege hiányzik — töltsd ki a Pénzügy lépésben.',
+    'yearly-fee-deadline-missing':
+      'A járulék fizetési határideje hiányzik — töltsd ki a Pénzügy lépésben.',
+  }
+  const blockingReasons = postStatus.reasons.filter((r) => r !== 'onboarding-not-completed')
+  if (blockingReasons.length > 0) {
+    const msg = blockingReasons.map((r) => REASON_LABELS[r] || r).join(' ')
+    return { error: `A beállítás nem véglegesíthető: ${msg}` }
+  }
+
   // ─── profiles.onboarding_completed_at + wizard_progress.completed_at ───
   // FIX 2026-05-04: a regular session-kliens UPDATE-je RLS-be ütközött →
   // silent fail, és a wizard a következő reload-on újra megnyílt. SECURITY
