@@ -23,7 +23,7 @@ const DICSHUB_URL = 'https://www.dicshub.com/'
 /** A hírlevél végére kerülő, barátságos „kedvcsináló" a DicsHub projekthez. */
 function dicsHubPromoHtml(): string {
   return `
-    <div style="margin:0 28px 24px;padding:22px 20px;background:linear-gradient(135deg,#f0f9ff 0%,#eef2ff 100%);border:1px solid #bae6fd;border-radius:14px;text-align:center;">
+    <div class="kt-promo" style="margin:0 28px 24px;padding:22px 20px;background:linear-gradient(135deg,#f0f9ff 0%,#eef2ff 100%);border:1px solid #bae6fd;border-radius:14px;text-align:center;">
       <p style="margin:0 0 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#0369a1;">Egy másik eszköz a szolgálatához</p>
       <img src="${DICSHUB_LOGO_URL}" alt="DicsHub" width="190" style="display:inline-block;width:190px;max-width:72%;height:auto;margin-bottom:10px;" />
       <p style="margin:0 0 12px;font-size:13px;color:#334155;line-height:1.65;">
@@ -233,12 +233,12 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
       const itemsHtml = items
         .map(
           (e) => `
-            <article style="margin:0 0 18px;padding:14px 16px;background:#ffffff;border:1px solid ${meta.borderColor};border-left:4px solid ${meta.color};border-radius:10px;overflow-wrap:break-word;word-break:break-word;">
+            <article class="kt-art" style="margin:0 0 18px;padding:14px 16px;background:#ffffff;border:1px solid ${meta.borderColor};border-left:4px solid ${meta.color};border-radius:10px;overflow-wrap:break-word;word-break:break-word;">
               <header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
                 <span style="font-size:11px;color:#94a3b8;font-family:monospace;">${esc(e.date)}</span>
                 ${e.version ? `<span style="display:inline-block;padding:1px 8px;background:#eef2ff;color:#4338ca;border-radius:10px;font-size:10px;font-weight:700;">v${esc(e.version)}</span>` : ''}
               </header>
-              <h3 style="margin:2px 0 6px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.3;overflow-wrap:break-word;word-break:break-word;">${esc(e.title)}</h3>
+              <h3 class="kt-art-h3" style="margin:2px 0 6px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.3;overflow-wrap:break-word;word-break:break-word;">${esc(e.title)}</h3>
               <div style="font-size:14px;color:#334155;overflow-wrap:break-word;word-break:break-word;">
                 ${markdownToHtml(e.bodyMarkdown)}
               </div>
@@ -249,7 +249,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 
       return `
         <section style="margin:24px 0;">
-          <h2 style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;padding:12px 16px;background:${meta.bgColor};border-radius:12px;color:${meta.color};font-size:17px;font-weight:700;border:1px solid ${meta.borderColor};overflow-wrap:break-word;word-break:break-word;">
+          <h2 class="kt-sec-h2" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;padding:12px 16px;background:${meta.bgColor};border-radius:12px;color:${meta.color};font-size:17px;font-weight:700;border:1px solid ${meta.borderColor};overflow-wrap:break-word;word-break:break-word;">
             <span style="font-size:22px;">${meta.icon}</span>
             <span style="flex:1 1 auto;min-width:0;">${esc(meta.label)}</span>
             <span style="font-size:13px;font-weight:500;opacity:0.75;white-space:nowrap;">${items.length} tétel</span>
@@ -309,22 +309,40 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
   <title>${esc(headerTitle)}</title>
+  <style>
+    /* Mobil-optimalizálás — kisebb kijelzőkön kompaktabb paddingek és
+       betűméretek, hogy a hírlevél telefonon is jól nézzen ki. A media query-t
+       a böngésző-előnézet és az Apple/iOS Mail alkalmazza; ahol nincs <style>
+       támogatás, ott az inline (asztali) stílus a fallback. */
+    @media only screen and (max-width: 480px) {
+      .kt-outer { padding: 12px 8px !important; }
+      .kt-card { border-radius: 12px !important; }
+      .kt-hero { padding: 22px 18px 18px !important; }
+      .kt-h1 { font-size: 21px !important; }
+      .kt-px { padding-left: 16px !important; padding-right: 16px !important; }
+      .kt-promo { padding: 18px 14px !important; margin-left: 16px !important; margin-right: 16px !important; }
+      .kt-sec-h2 { font-size: 15px !important; padding: 10px 12px !important; }
+      .kt-art { padding: 12px 13px !important; }
+      .kt-art-h3 { font-size: 16px !important; }
+    }
+  </style>
 </head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;overflow-x:hidden;word-break:break-word;overflow-wrap:break-word;-webkit-text-size-adjust:100%;">
 
   <!-- Külső wrapper (email kliensek miatt) -->
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f5f9;padding:24px 12px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="kt-outer" style="background:#f1f5f9;padding:24px 12px;">
     <tr>
       <td align="center">
 
         <!-- Belső kártya -->
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 40px -20px rgba(15,23,42,0.22);">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="kt-card" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 40px -20px rgba(15,23,42,0.22);">
           <tr>
             <td>
 
               <!-- HERO -->
-              <div style="position:relative;padding:30px 28px 24px;background:linear-gradient(135deg,#0f766e 0%,#0ea5e9 60%,#4f46e5 100%);color:#ffffff;">
+              <div class="kt-hero" style="position:relative;padding:30px 28px 24px;background:linear-gradient(135deg,#0f766e 0%,#0ea5e9 60%,#4f46e5 100%);color:#ffffff;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:6px;">
                   <tr>
                     <td valign="middle" style="padding-right:12px;">
@@ -335,7 +353,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                     </td>
                   </tr>
                 </table>
-                <h1 style="margin:6px 0 4px;font-family:Georgia,'Cormorant Garamond',serif;font-size:28px;font-weight:700;line-height:1.2;overflow-wrap:break-word;word-break:break-word;">
+                <h1 class="kt-h1" style="margin:6px 0 4px;font-family:Georgia,'Cormorant Garamond',serif;font-size:28px;font-weight:700;line-height:1.2;overflow-wrap:break-word;word-break:break-word;">
                   ${esc(headerTitle.replace(/^Kartotéka — /, ''))}
                 </h1>
                 <p style="margin:8px 0 0;font-size:14px;opacity:0.88;">
@@ -344,7 +362,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
               </div>
 
               <!-- Üdvözlés + intro -->
-              <div style="padding:24px 28px 0;">
+              <div class="kt-px" style="padding:24px 28px 0;">
                 <p style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.6;font-weight:600;">
                   Kedves Felhasználók!
                 </p>
@@ -355,12 +373,12 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
               </div>
 
               <!-- Tartalomjegyzék -->
-              <div style="padding:8px 28px 0;">
+              <div class="kt-px" style="padding:8px 28px 0;">
                 ${tocHtml}
               </div>
 
               <!-- Szekciók (részletes kifejtés) -->
-              <div style="padding:8px 28px 24px;">
+              <div class="kt-px" style="padding:8px 28px 24px;">
                 ${sections}
               </div>
 
@@ -368,7 +386,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
               ${dicsHubPromoHtml()}
 
               <!-- Lábléc üzenet -->
-              <div style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+              <div class="kt-px" style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
                 <p style="margin:0;font-size:13px;color:#334155;line-height:1.55;">
                   <strong>Kérdésed van?</strong> Fordulj bizalommal Szőcs Endréhez
                   (<a href="mailto:endreszocs@gmail.com" style="color:#0f766e;text-decoration:none;">endreszocs@gmail.com</a>).
@@ -376,7 +394,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
               </div>
 
               <!-- Láblec meta -->
-              <div style="padding:14px 28px;background:#0f172a;color:#94a3b8;font-size:11px;text-align:center;">
+              <div class="kt-px" style="padding:14px 28px;background:#0f172a;color:#94a3b8;font-size:11px;text-align:center;">
                 <p style="margin:0 0 4px;">
                   Kartotéka administrációs rendszer
                 </p>
