@@ -22,6 +22,16 @@ Ez a dokumentum **három** kért fejlesztés átfogó terve. Most **nem** írunk
 
 ---
 
+## 0/b. Eldöntött részletek (2026-06-05, Endre)
+
+- **#1 Törlés:** a **végleges törlés** a jó út, de **CSAK a személyes adat + az autentikáló email** anonimizálódik/törlődik — **semmi más nem törlődik** (a gyülekezetet más veszi át). + **Lelkészi szolgálati napló** fül a gyülekezeti adatok közt (mikor regisztrált / vette át / adta át — lelkész-lista pontos időpontokkal). **[IMPLEMENTÁLVA: F2a, lásd lent]**
+- **#2 Átadás indítása:** az átadást a **TÁVOZÓ lelkész** indítja egy gombbal, amikor készen áll → **értesítést kap az adott egyházmegye számvevője ÉS a rendszergazda**. Ha az egyházmegyében **nincs még regisztrált számvevő**, akkor **a rendszergazda jóváhagyása elég** (a rendszergazda veszi fel a kapcsolatot a számvevővel). A **rendszergazda adja meg** a beérkező lelkésznek a jóváhagyást a gyülekezeti **lelkészi szerepre**.
+- **#3 Audit:** a terv szerint.
+
+**Megvalósítás-haladás:** F1 (audit-alap) ✅ kész + deployolva. **F2a (lelkészi szolgálati napló)** ✅ kész + deployolva. Következik: F2b (törlés/anonimizálás), F3 (átadás a fenti review-flow-val), F4 (sor-szintű audit).
+
+---
+
 ## 1. Meglévő infrastruktúra (amire építünk)
 
 A feltérképezés alapján ezekre támaszkodunk (ne építsünk újra meglévőt):

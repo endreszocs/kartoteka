@@ -357,6 +357,19 @@ export async function approveAccessRequest(
     ctx.supabase,
   )
 
+  // Lelkészi szolgálati napló: új lelkész jóváhagyásakor nyitunk egy tenure-t
+  // (mikortól szolgál ebben a gyülekezetben). Idempotens az RPC oldalán.
+  if (req.requested_role === 'lelkesz' && req.requested_congregation_id && resultingUserId) {
+    const { error: tenureErr } = await ctx.supabase.rpc('record_pastor_tenure_start', {
+      p_congregation_id: req.requested_congregation_id,
+      p_user_id: resultingUserId,
+      p_role: 'lelkesz',
+    })
+    if (tenureErr) {
+      console.warn('[approve-access-request] tenure-start hiba:', tenureErr.message)
+    }
+  }
+
   revalidatePath('/admin')
   return {}
 }

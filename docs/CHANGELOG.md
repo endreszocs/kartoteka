@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Lelkészi szolgálati napló a gyülekezetnél
+<!-- key: 2026-06-05-lelkeszi-szolgalati-naplo -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkció
+
+- **Lelkészek fül a gyülekezeti beállításoknál**: a gyülekezet adatai közt mostantól egy új **„Lelkészek"** fül mutatja, **kik szolgáltak / szolgálnak** a gyülekezetben, és **mikortól meddig** (pontos időpontokkal). A jelenleg szolgáló lelkész „Aktív" jelzést kap, a korábbiak a szolgálati idejükkel látszanak.
+- A lista **automatikusan bővül**: amikor a rendszergazda jóváhagy egy új lelkészt a gyülekezethez, bekerül a naplóba; a későbbi lelkészcsere-átadás pedig lezárja a korábbi és megnyitja az új szolgálatot.
+- A **korábbi lelkészek neve a listában megmarad** akkor is, ha az illető később törli a fiókját — így a gyülekezet szolgálati története végig átlátható és visszakövethető marad.
+
+*(Ez egy nagyobb fejlesztés része: hamarosan jön a fiók végleges törlése és a lelkészcsere-átadás biztonságos, kétlépcsős jóváhagyással.)*
+
+---
+
 ## [2026-06-05] — Biztonság és átláthatóság: tevékenység-napló (1. lépés)
 <!-- key: 2026-06-05-tevekenyseg-naplo-1 -->
 <!-- category: improvement -->

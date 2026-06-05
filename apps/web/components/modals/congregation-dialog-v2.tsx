@@ -26,6 +26,8 @@ import {
   getCongregationBankAccounts,
   getCongregationCustomFees,
   getCongregationFeeDiscounts,
+  getCongregationPastors,
+  type CongregationPastorRow,
   getDioceses,
   saveCongregationBankAccount,
   saveCongregationCustomFee,
@@ -150,6 +152,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const [customFees, setCustomFees] = useState<CustomFeeRow[]>([])
   const [customFeeSchemaReady, setCustomFeeSchemaReady] = useState(true)
   const [customFeeWarning, setCustomFeeWarning] = useState<string | null>(null)
+  // 2026-06-05: lelkészi szolgálati napló
+  const [pastors, setPastors] = useState<CongregationPastorRow[]>([])
+  const [pastorsSchemaReady, setPastorsSchemaReady] = useState(true)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -197,13 +202,14 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const loadData = useCallback(async () => {
     if (!congregationId) return
 
-    const [congregation, dioceseList, annualFeeResult, bankResult, discountResult, customFeeResult] = await Promise.all([
+    const [congregation, dioceseList, annualFeeResult, bankResult, discountResult, customFeeResult, pastorResult] = await Promise.all([
       getCongregation(congregationId),
       getDioceses(),
       getCongregationAnnualFees(congregationId),
       getCongregationBankAccounts(congregationId),
       getCongregationFeeDiscounts(congregationId),
       getCongregationCustomFees(congregationId),
+      getCongregationPastors(congregationId),
     ])
 
     if ('error' in annualFeeResult && annualFeeResult.error) toast.error(annualFeeResult.error)
@@ -222,6 +228,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     setCustomFees(customFeeResult.rows || [])
     setCustomFeeSchemaReady(customFeeResult.schemaReady !== false)
     setCustomFeeWarning('warning' in customFeeResult ? customFeeResult.warning || null : null)
+    setPastors(pastorResult.rows || [])
+    setPastorsSchemaReady(pastorResult.schemaReady !== false)
+    if (pastorResult.error) toast.error(pastorResult.error)
 
     if (congregation) {
       const currentYear = new Date().getFullYear()
@@ -490,10 +499,72 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
           </div>
 
           <Tabs defaultValue="alap" className="w-full">
-            <TabsList className="grid w-full grid-cols-1 gap-2 rounded-[1.4rem] bg-slate-50 p-2 sm:grid-cols-2">
+            <TabsList className="grid w-full grid-cols-1 gap-2 rounded-[1.4rem] bg-slate-50 p-2 sm:grid-cols-3">
               <TabsTrigger value="alap">Alapadatok</TabsTrigger>
               <TabsTrigger value="penzugy">Pénzügy</TabsTrigger>
+              <TabsTrigger value="lelkeszek">Lelkészek</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="lelkeszek" className="space-y-4 pt-4">
+              <Panel title="Lelkészi szolgálati napló">
+                <p className="mb-3 text-sm text-slate-600">
+                  A gyülekezetben szolgáló (és korábban szolgált) lelkészek, a szolgálat
+                  pontos időpontjaival. A lista automatikusan bővül a jóváhagyásokkor és a
+                  lelkészcsere-átadásokkor.
+                </p>
+                {!pastorsSchemaReady ? (
+                  <div className="rounded-[1rem] border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-xs text-amber-900">
+                    A lelkészi napló adatbázis-táblája még nincs telepítve. Futtasd le a
+                    <code className="mx-1">2026-06-05e-congregation-pastor-history.sql</code> fájlt.
+                  </div>
+                ) : pastors.length === 0 ? (
+                  <p className="rounded-[1rem] border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
+                    Még nincs rögzített lelkészi szolgálat ehhez a gyülekezethez.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {pastors.map((p) => {
+                      const fmt = (d: string | null) =>
+                        d
+                          ? new Date(d).toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })
+                          : null
+                      const isCurrent = !p.ended_at
+                      return (
+                        <li
+                          key={p.id}
+                          className={`flex flex-wrap items-center justify-between gap-2 rounded-[1rem] border px-3 py-2.5 ${
+                            isCurrent ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium text-slate-800">{p.full_name}</p>
+                            <p className="text-xs text-slate-500">
+                              {fmt(p.started_at)} –{' '}
+                              {isCurrent ? (
+                                <span className="font-medium text-emerald-700">jelenleg is szolgál</span>
+                              ) : (
+                                <>
+                                  {fmt(p.ended_at)}
+                                  {p.end_reason === 'transfer' && ' · átadás'}
+                                  {p.end_reason === 'deletion' && ' · fiók törölve'}
+                                </>
+                              )}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              isCurrent ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {isCurrent ? 'Aktív' : 'Korábbi'}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </Panel>
+            </TabsContent>
 
             <TabsContent value="alap" className="pt-4">
               <form onSubmit={handleSubmit} className="space-y-4">

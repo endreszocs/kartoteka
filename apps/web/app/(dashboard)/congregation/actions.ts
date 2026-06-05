@@ -241,6 +241,43 @@ export async function getCongregation(id: string) {
   }
 }
 
+export interface CongregationPastorRow {
+  id: string
+  user_id: string | null
+  full_name: string
+  role: string
+  started_at: string
+  ended_at: string | null
+  end_reason: string | null
+}
+
+/**
+ * 2026-06-05: lelkészi szolgálati napló — a gyülekezetben szolgáló (és korábban
+ * szolgált) lelkészek, pontos időpontokkal. A `congregation_pastor_history`
+ * táblából. Ha a tábla még nem létezik (SQL nem futott), üres listát ad
+ * `schemaReady:false` jelzéssel — a UI ekkor segítő üzenetet mutat.
+ */
+export async function getCongregationPastors(
+  congregationId: string,
+): Promise<{ rows: CongregationPastorRow[]; schemaReady: boolean; error?: string }> {
+  const permission = await requireActiveCongregation(congregationId)
+  if ('error' in permission) return { rows: [], schemaReady: true, error: permission.error }
+
+  const { supabase } = permission.access
+  const { data, error } = await supabase
+    .from('congregation_pastor_history')
+    .select('id, user_id, full_name, role, started_at, ended_at, end_reason')
+    .eq('congregation_id', congregationId)
+    .order('started_at', { ascending: false })
+
+  if (error) {
+    // Hiányzó tábla (42P01) → schemaReady:false
+    const missing = /relation .* does not exist|schema cache/i.test(error.message)
+    return { rows: [], schemaReady: !missing, error: missing ? undefined : error.message }
+  }
+  return { rows: (data || []) as CongregationPastorRow[], schemaReady: true }
+}
+
 export async function getCongregationAnnualFees(congregationId: string) {
   const permission = await requireActiveCongregation(congregationId)
   if ('error' in permission) return { error: permission.error, rows: [], schemaReady: false }
