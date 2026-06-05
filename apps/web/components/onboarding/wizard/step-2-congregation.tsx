@@ -75,8 +75,11 @@ export function Step2Congregation({
         if (cong) {
           setForm((f) => ({
             ...f,
-            nev: f.nev || cong.name || cong.nev_hu || '',
-            nev_hu: f.nev_hu || cong.nev_hu || '',
+            // A regisztrációnál választott egyházközség neve (a lista a
+            // COALESCE(nev_hu, name)-t mutatta) — ezt töltjük a hivatalos
+            // elnevezésekbe is. Üres mezőket nem írunk felül.
+            nev: f.nev || cong.nev_hu || cong.name || '',
+            nev_hu: f.nev_hu || cong.nev_hu || cong.name || '',
             nev_ro: f.nev_ro || cong.nev_ro || '',
             adoszam: f.adoszam || cong.adoszam || '',
             email: f.email || cong.email || '',

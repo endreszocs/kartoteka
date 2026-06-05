@@ -288,6 +288,37 @@ export interface CongregationContext {
   congregation: CongregationPrefill | null
 }
 
+// A Step 2 auto-kitöltéshez beolvasandó gyülekezet-oszlopok (+ egyházmegye JOIN).
+const CONGREGATION_PREFILL_COLUMNS =
+  'name, nev_hu, nev_ro, adoszam, cim, email, telefon, web, megye, varos, iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id, diocese_id, dioceses(name)'
+
+function buildCongregationPrefill(c: Record<string, unknown>): CongregationPrefill {
+  return {
+    name: (c.name as string | null) ?? null,
+    nev_hu: (c.nev_hu as string | null) ?? null,
+    nev_ro: (c.nev_ro as string | null) ?? null,
+    adoszam: (c.adoszam as string | null) ?? null,
+    cim: (c.cim as string | null) ?? null,
+    email: (c.email as string | null) ?? null,
+    telefon: (c.telefon as string | null) ?? null,
+    web: (c.web as string | null) ?? null,
+    megye: (c.megye as string | null) ?? null,
+    varos: (c.varos as string | null) ?? null,
+    iranyitoszam: (c.iranyitoszam as string | null) ?? null,
+    hazszam: (c.hazszam as string | null) ?? null,
+    country: (c.country as string | null) ?? null,
+    adrlocality_id: (c.adrlocality_id as number | null) ?? null,
+    adrstreet_id: (c.adrstreet_id as number | null) ?? null,
+  }
+}
+
+function extractDioceseName(c: Record<string, unknown>): string | null {
+  const d = c.dioceses as { name?: string | null } | { name?: string | null }[] | null
+  if (Array.isArray(d)) return d[0]?.name ?? null
+  if (d && typeof d === 'object') return d.name ?? null
+  return null
+}
+
 export async function getCongregationContext(): Promise<
   { data: CongregationContext } | { error: string }
 > {
@@ -326,9 +357,7 @@ export async function getCongregationContext(): Promise<
   if (ctx.congregationId) {
     const { data: cong } = await supabase
       .from('congregations')
-      .select(
-        'name, nev_hu, nev_ro, adoszam, cim, email, telefon, web, megye, varos, iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id, diocese_id, dioceses(name)',
-      )
+      .select(CONGREGATION_PREFILL_COLUMNS)
       .eq('id', ctx.congregationId)
       .maybeSingle()
 
@@ -338,30 +367,48 @@ export async function getCongregationContext(): Promise<
       if (c.diocese_id) {
         ctx.dioceseId = c.diocese_id as string
       }
-      // dioceses JOIN eredmény shape: { name } | { name }[] (Supabase függő)
-      const d = c.dioceses as { name?: string | null } | { name?: string | null }[] | null
-      if (Array.isArray(d)) {
-        ctx.dioceseName = d[0]?.name ?? null
-      } else if (d && typeof d === 'object') {
-        ctx.dioceseName = d.name ?? null
+      ctx.dioceseName = extractDioceseName(c)
+      ctx.congregation = buildCongregationPrefill(c)
+    }
+  }
+
+  // 2026-06-05 FALLBACK: ha a profilon még nincs congregation_id (vagy az
+  // olvasás RLS miatt üres volt), a regisztrációnál VÁLASZTOTT egyházközséget
+  // töltjük be a legutóbbi access_requests sorból — service-role klienssel,
+  // hogy az RLS ne szűrjön. Így a "Hivatalos elnevezések" a regisztrált
+  // gyülekezet nevét mutatja már a jóváhagyás/véglegesítés előtt is.
+  if (!ctx.congregation && user.email) {
+    try {
+      const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+      const admin = getSupabaseAdminClient()
+      const { data: ar } = await admin
+        .from('access_requests')
+        .select('requested_congregation_id')
+        .ilike('email', user.email)
+        .not('requested_congregation_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const reqCongId = (ar as { requested_congregation_id?: string | null } | null)
+        ?.requested_congregation_id
+      if (reqCongId) {
+        const { data: cong2 } = await admin
+          .from('congregations')
+          .select(CONGREGATION_PREFILL_COLUMNS)
+          .eq('id', reqCongId)
+          .maybeSingle()
+        if (cong2) {
+          const c = cong2 as Record<string, unknown>
+          ctx.congregationId = ctx.congregationId ?? reqCongId
+          ctx.congregationName =
+            ctx.congregationName || (c.nev_hu as string | null) || (c.name as string | null) || null
+          if (!ctx.dioceseName) ctx.dioceseName = extractDioceseName(c)
+          if (!ctx.dioceseId && c.diocese_id) ctx.dioceseId = c.diocese_id as string
+          ctx.congregation = buildCongregationPrefill(c)
+        }
       }
-      ctx.congregation = {
-        name: (c.name as string | null) ?? null,
-        nev_hu: (c.nev_hu as string | null) ?? null,
-        nev_ro: (c.nev_ro as string | null) ?? null,
-        adoszam: (c.adoszam as string | null) ?? null,
-        cim: (c.cim as string | null) ?? null,
-        email: (c.email as string | null) ?? null,
-        telefon: (c.telefon as string | null) ?? null,
-        web: (c.web as string | null) ?? null,
-        megye: (c.megye as string | null) ?? null,
-        varos: (c.varos as string | null) ?? null,
-        iranyitoszam: (c.iranyitoszam as string | null) ?? null,
-        hazszam: (c.hazszam as string | null) ?? null,
-        country: (c.country as string | null) ?? null,
-        adrlocality_id: (c.adrlocality_id as number | null) ?? null,
-        adrstreet_id: (c.adrstreet_id as number | null) ?? null,
-      }
+    } catch {
+      // Service-role kliens nem elérhető (pl. dev) — csendben kihagyjuk.
     }
   }
 
