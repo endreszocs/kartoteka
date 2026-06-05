@@ -162,6 +162,15 @@ const STEPS = [
   { id: 4, title: 'Pénzügy', icon: Wallet, description: 'Járulék és nyitó egyenleg' },
   { id: 5, title: 'Kész', icon: Download, description: 'Beállítás véglegesítése' },
 ]
+// Rövid flow (2026-06-05): ha a gyülekezetet egy korábbi lelkész már beállította,
+// az új felhasználó csak a SAJÁT adatait adja meg (Lelkész), majd átnézheti a
+// gyülekezeti adatokat (Adatok ellenőrzése — Step 2, előre kitöltve, opcionális),
+// végül Kész. A Pénzügy lépés kimarad (a meglévő gyülekezeti értékből pótlódik).
+const SHORT_FLOW_STEPS = [
+  { id: 3, title: 'Saját adatok', icon: User, description: 'Személyes adataid' },
+  { id: 2, title: 'Adatok ellenőrzése', icon: Church, description: 'Gyülekezeti adatok — opcionális' },
+  { id: 5, title: 'Kész', icon: Download, description: 'Beállítás véglegesítése' },
+]
 const FIRST_STEP_ID = 2
 const LAST_STEP_ID = 5
 
@@ -244,9 +253,10 @@ export function WelcomeWizardClient() {
       // korrigáljuk, hogy a wizard mindig a Gyülekezet lépésen induljon.
       const savedStep = wp.current_step || FIRST_STEP_ID
       let initialStep = savedStep < FIRST_STEP_ID ? FIRST_STEP_ID : savedStep
-      // Rövid flow (konfigurált gyülekezet): csak a Lelkész (3) és Kész (5)
-      // lépés érvényes — bármi mást a Lelkész lépésre korrigálunk.
-      if (congConfigured && initialStep !== 3 && initialStep !== LAST_STEP_ID) {
+      // Rövid flow (konfigurált gyülekezet): csak a 3 / 2 / 5 lépés érvényes —
+      // bármi mást (pl. a kihagyott Pénzügy 4-et) a Saját adatok (3) lépésre
+      // korrigálunk.
+      if (congConfigured && ![3, 2, LAST_STEP_ID].includes(initialStep)) {
         initialStep = 3
       }
       setCurrentStep(initialStep)
@@ -275,11 +285,9 @@ export function WelcomeWizardClient() {
     }
   }
 
-  // Aktív lépések: rövid flow esetén (konfigurált gyülekezet) csak a Lelkész (3)
-  // és a Kész (5) lépés látszik; egyébként mind a négy.
-  const activeSteps = congregationConfigured
-    ? STEPS.filter(s => s.id === 3 || s.id === LAST_STEP_ID)
-    : STEPS
+  // Aktív lépések: rövid flow esetén (konfigurált gyülekezet) Saját adatok (3) →
+  // Adatok ellenőrzése (2) → Kész (5); egyébként mind a négy.
+  const activeSteps = congregationConfigured ? SHORT_FLOW_STEPS : STEPS
   const firstActiveStepId = activeSteps[0].id
 
   const goNext = () =>
@@ -382,7 +390,8 @@ export function WelcomeWizardClient() {
               <span className="font-medium text-slate-700">
                 csak a saját adataidat kell megadnod
               </span>
-              {' '}— pár perc az egész.
+              . Utána átnézheted a gyülekezeti adatokat is, és ha valami kimaradt,
+              ott ki tudod egészíteni — pár perc az egész.
             </p>
           ) : (
             <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
@@ -417,6 +426,7 @@ export function WelcomeWizardClient() {
                 onNext={handleNextFromStep2}
                 onBack={goBack}
                 saving={saving}
+                reviewMode={congregationConfigured}
               />
             )}
             {currentStep === 3 && (
@@ -479,11 +489,13 @@ function ProgressBar({
   currentStep: number
   steps?: typeof STEPS
 }) {
+  // Index-alapú állapot (a rövid flow sorrendje nem növekvő id szerinti: 3→2→5).
+  const currentIndex = steps.findIndex(s => s.id === currentStep)
   return (
     <ol className="flex items-center justify-between gap-2">
       {steps.map((step, idx) => {
-        const isActive = step.id === currentStep
-        const isDone = step.id < currentStep
+        const isActive = idx === currentIndex
+        const isDone = currentIndex >= 0 && idx < currentIndex
         const Icon = step.icon
 
         return (

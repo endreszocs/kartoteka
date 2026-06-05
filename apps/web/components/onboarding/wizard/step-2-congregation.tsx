@@ -40,6 +40,10 @@ interface Step2Props {
   ) => void | Promise<void>
   onBack: () => void
   saving?: boolean
+  /** 2026-06-05: "Adatok ellenőrzése" mód — egy újabb lelkésznél, ahol a
+   *  gyülekezetet egy korábbi lelkész már beállította. A mezők előre kitöltöttek;
+   *  a felhasználó csak átnézi és a hiányzókat pótolja. */
+  reviewMode?: boolean
 }
 
 export function Step2Congregation({
@@ -48,6 +52,7 @@ export function Step2Congregation({
   onNext,
   onBack,
   saving,
+  reviewMode = false,
 }: Step2Props) {
   const [form, setForm] = useState(data.congregation)
   const [bankAccounts, setBankAccounts] = useState(data.bankAccounts)
@@ -140,15 +145,25 @@ export function Step2Congregation({
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="font-heading text-2xl text-slate-800">
-            Gyülekezeti alapadatok
+            {reviewMode ? 'Adatok ellenőrzése' : 'Gyülekezeti alapadatok'}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Az itt megadott adatok a gyülekezetére vonatkoznak — ezek szerepelnek
-            majd a hivatalos iratokon, nyomtatványokon. A saját személyes adatait a
-            következő lépésen adja meg.
+            {reviewMode
+              ? 'A gyülekezet adatait egy korábbi lelkész már kitöltötte. Kérjük, nézd át, és ha valami hiányzik vagy pontosításra szorul, itt kiegészítheted. Ha minden rendben, kattints a Tovább gombra.'
+              : 'Az itt megadott adatok a gyülekezetére vonatkoznak — ezek szerepelnek majd a hivatalos iratokon, nyomtatványokon. A saját személyes adatait a következő lépésen adja meg.'}
           </p>
         </div>
       </header>
+
+      {reviewMode && (
+        <WizardBanner tone="info">
+          <p>
+            <strong>Ezt a lépést átugorhatod,</strong> ha a lentebbi adatok rendben
+            vannak — semmit nem kötelező módosítanod. Csak akkor írj át valamit, ha
+            hiányos vagy pontatlan.
+          </p>
+        </WizardBanner>
+      )}
 
       {/* Egyházi hovatartozás (egyházkerület + egyházmegye) — csak olvasható,
           a regisztrációból / admin-jóváhagyásból */}
