@@ -70,6 +70,22 @@ export const brevoProvider: EmailProvider = {
 
       if (!res.ok) {
         const errBody = await res.text()
+        // Gyakori, cselekvésre váltható hibák felismerése — barátságos üzenettel.
+        const lower = errBody.toLowerCase()
+        if (res.status === 401 && (lower.includes('ip address') || lower.includes('unrecognised'))) {
+          // Brevo IP-engedélyezőlista blokkolja az API-kulcsot erről az IP-ről.
+          const ipMatch = errBody.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/)
+          const ip = ipMatch ? ipMatch[1] : 'az aktuális'
+          return {
+            success: false,
+            provider: 'brevo',
+            error:
+              `A Brevo letiltotta a küldést, mert az API-kulcs IP-korlátozása aktív (IP: ${ip}). ` +
+              `Megoldás: Brevo → Security → Authorized IPs (https://app.brevo.com/security/authorised_ips) ` +
+              `és kapcsold KI a korlátozást az API-kulcsokra (Deactivate), vagy add hozzá ezt az IP-t. ` +
+              `Production (Railway) IP-je is változhat, ezért a kikapcsolás a megbízható megoldás.`,
+          }
+        }
         return {
           success: false,
           provider: 'brevo',
