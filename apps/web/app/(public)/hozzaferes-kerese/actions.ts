@@ -69,6 +69,9 @@ export interface SubmitResult {
   /** 2026-05-02 (v0.9.43): jelzi, hogy az email már regisztrálva van —
    *  a UI ekkor egy speciális képernyőt mutat: "Belépés / Elfelejtett jelszó". */
   alreadyExists?: boolean
+  /** 2026-06-05: ha az email már regisztrálva van, MELYIK gyülekezetnél
+   *  (a registration_email_info RPC-ből). A UI kiírja az alreadyExists képernyőn. */
+  congregationName?: string | null
 }
 
 /**
@@ -146,6 +149,33 @@ export async function submitAccessRequest(
         success: false,
         rateLimited: true,
         error: 'Túl sok kérelem érkezett erről az eszközről 24 órán belül. Kérjük, próbálja később.',
+      }
+    }
+  }
+
+  // ── 4/b. Előzetes email-ellenőrzés (2026-06-05) ────────────────────
+  // Ha az email MÁR regisztrálva van, NE a signUp anti-enumeration
+  // viselkedésére hagyatkozzunk (egyes Supabase-verziók némán sikert
+  // jeleznek). A registration_email_info RPC megbízhatóan visszaadja a
+  // státuszt ÉS a gyülekezet nevét — így megmondhatjuk a felhasználónak,
+  // melyik gyülekezetnél van regisztrálva, és átirányíthatjuk az
+  // "Elfelejtett jelszó" oldalra.
+  {
+    const { data: emailInfo } = await supabase.rpc('registration_email_info', {
+      p_email: email,
+    })
+    const info = (emailInfo || null) as { status?: string; congregation_name?: string | null } | null
+    if (info && info.status && info.status !== 'not_registered') {
+      const congName = info.congregation_name?.trim() || null
+      return {
+        success: false,
+        alreadyExists: true,
+        congregationName: congName,
+        error: congName
+          ? `Ez az email-cím már regisztrálva van a(z) ${congName} gyülekezetnél. ` +
+            'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.'
+          : 'Ez az email-cím már regisztrálva van a Kartotéka rendszerben. ' +
+            'Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza az "Elfelejtett jelszó" oldalon.',
       }
     }
   }

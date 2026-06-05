@@ -47,6 +47,8 @@ export function AccessRequestForm() {
   const [submitted, setSubmitted] = useState(false)
   const [submittedEmail, setSubmittedEmail] = useState('')
   const [alreadyExists, setAlreadyExists] = useState(false)
+  // 2026-06-05: melyik gyülekezetnél van már regisztrálva (ha kideríthető)
+  const [alreadyExistsCong, setAlreadyExistsCong] = useState<string | null>(null)
   const [acceptPrivacy, setAcceptPrivacy] = useState(false)
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [openLegal, setOpenLegal] = useState<LegalKind | null>(null)
@@ -213,6 +215,7 @@ export function AccessRequestForm() {
       } else if (res.alreadyExists) {
         // Email-foglalt — speciális képernyőre váltunk a Belépés / Elfelejtett jelszó link-ekkel
         setSubmittedEmail(form.email.trim())
+        setAlreadyExistsCong(res.congregationName || null)
         setAlreadyExists(true)
       } else if (res.rateLimited) {
         toast.error(res.error || 'Túl sok kérelem ebből az eszközből.')
@@ -237,7 +240,14 @@ export function AccessRequestForm() {
         </h2>
         <p className="mt-3 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
           A <strong className="text-slate-900">{submittedEmail}</strong> email-cím már szerepel a
-          Kartotéka rendszerben. Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza
+          Kartotéka rendszerben
+          {alreadyExistsCong ? (
+            <>
+              {' — '}
+              <strong className="text-slate-900">{alreadyExistsCong}</strong> gyülekezetnél
+            </>
+          ) : null}
+          . Ha emlékszik a jelszavára, lépjen be — különben állítsa vissza
           az <em>Elfelejtett jelszó</em> oldalon.
         </p>
 
