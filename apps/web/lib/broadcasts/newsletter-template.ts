@@ -134,7 +134,7 @@ function markdownInlineToHtml(s: string): string {
   // *italic* vagy _italic_
   result = result.replace(/(?:^|\s)\*([^*\s][^*]*[^*\s]|\w)\*(?=\s|$)/g, (m, g) => m.replace(`*${g}*`, `<em>${g}</em>`))
   // `code`
-  result = result.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:2px 5px;border-radius:3px;font-family:monospace;font-size:90%;">$1</code>')
+  result = result.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:2px 5px;border-radius:3px;font-family:monospace;font-size:90%;overflow-wrap:anywhere;word-break:break-word;">$1</code>')
   return result
 }
 
@@ -233,13 +233,13 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
       const itemsHtml = items
         .map(
           (e) => `
-            <article style="margin:0 0 18px;padding:14px 16px;background:#ffffff;border:1px solid ${meta.borderColor};border-left:4px solid ${meta.color};border-radius:10px;">
+            <article style="margin:0 0 18px;padding:14px 16px;background:#ffffff;border:1px solid ${meta.borderColor};border-left:4px solid ${meta.color};border-radius:10px;overflow-wrap:break-word;word-break:break-word;">
               <header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
                 <span style="font-size:11px;color:#94a3b8;font-family:monospace;">${esc(e.date)}</span>
                 ${e.version ? `<span style="display:inline-block;padding:1px 8px;background:#eef2ff;color:#4338ca;border-radius:10px;font-size:10px;font-weight:700;">v${esc(e.version)}</span>` : ''}
               </header>
-              <h3 style="margin:2px 0 6px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.3;">${esc(e.title)}</h3>
-              <div style="font-size:14px;color:#334155;">
+              <h3 style="margin:2px 0 6px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.3;overflow-wrap:break-word;word-break:break-word;">${esc(e.title)}</h3>
+              <div style="font-size:14px;color:#334155;overflow-wrap:break-word;word-break:break-word;">
                 ${markdownToHtml(e.bodyMarkdown)}
               </div>
             </article>
@@ -249,10 +249,10 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 
       return `
         <section style="margin:24px 0;">
-          <h2 style="display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:12px 16px;background:${meta.bgColor};border-radius:12px;color:${meta.color};font-size:17px;font-weight:700;border:1px solid ${meta.borderColor};">
+          <h2 style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;padding:12px 16px;background:${meta.bgColor};border-radius:12px;color:${meta.color};font-size:17px;font-weight:700;border:1px solid ${meta.borderColor};overflow-wrap:break-word;word-break:break-word;">
             <span style="font-size:22px;">${meta.icon}</span>
-            ${esc(meta.label)}
-            <span style="margin-left:auto;font-size:13px;font-weight:500;opacity:0.75;">${items.length} tétel</span>
+            <span style="flex:1 1 auto;min-width:0;">${esc(meta.label)}</span>
+            <span style="font-size:13px;font-weight:500;opacity:0.75;white-space:nowrap;">${items.length} tétel</span>
           </h2>
           ${itemsHtml}
         </section>
@@ -311,7 +311,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${esc(headerTitle)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;overflow-x:hidden;word-break:break-word;overflow-wrap:break-word;-webkit-text-size-adjust:100%;">
 
   <!-- Külső wrapper (email kliensek miatt) -->
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f5f9;padding:24px 12px;">
@@ -335,7 +335,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                     </td>
                   </tr>
                 </table>
-                <h1 style="margin:6px 0 4px;font-family:Georgia,'Cormorant Garamond',serif;font-size:28px;font-weight:700;line-height:1.2;">
+                <h1 style="margin:6px 0 4px;font-family:Georgia,'Cormorant Garamond',serif;font-size:28px;font-weight:700;line-height:1.2;overflow-wrap:break-word;word-break:break-word;">
                   ${esc(headerTitle.replace(/^Kartotéka — /, ''))}
                 </h1>
                 <p style="margin:8px 0 0;font-size:14px;opacity:0.88;">
@@ -369,14 +369,9 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 
               <!-- Lábléc üzenet -->
               <div style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-                <p style="margin:0 0 6px;font-size:13px;color:#334155;line-height:1.55;">
+                <p style="margin:0;font-size:13px;color:#334155;line-height:1.55;">
                   <strong>Kérdésed van?</strong> Fordulj bizalommal Szőcs Endréhez
-                  (<a href="mailto:endreszocs@gmail.com" style="color:#0f766e;text-decoration:none;">endreszocs@gmail.com</a>)
-                  — bármilyen észrevételt szívesen fogadunk.
-                </p>
-                <p style="margin:0;font-size:12px;color:#64748b;">
-                  Szeretettel,<br>
-                  <strong style="color:#0f172a;">A Kartotéka fejlesztőcsapata</strong>
+                  (<a href="mailto:endreszocs@gmail.com" style="color:#0f766e;text-decoration:none;">endreszocs@gmail.com</a>).
                 </p>
               </div>
 
@@ -504,7 +499,6 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
   lines.push('═══════════════════════════════════════════════════')
   lines.push('Kérdésed van? Fordulj Szőcs Endréhez: endreszocs@gmail.com')
   lines.push('')
-  lines.push('Szeretettel, a Kartotéka fejlesztőcsapata')
   lines.push('Kartotéka administrációs rendszer')
   lines.push('═══════════════════════════════════════════════════')
 
