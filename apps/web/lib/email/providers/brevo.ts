@@ -28,7 +28,7 @@ export const brevoProvider: EmailProvider = {
       }
     }
 
-    const fromEmail = args.from?.email || process.env.BREVO_FROM_EMAIL
+    let fromEmail = args.from?.email || process.env.BREVO_FROM_EMAIL
     const fromName = args.from?.name || process.env.BREVO_FROM_NAME || 'Kartotéka'
     if (!fromEmail) {
       return {
@@ -36,6 +36,20 @@ export const brevoProvider: EmailProvider = {
         provider: 'brevo',
         error: 'BREVO_FROM_EMAIL env változó nincs beállítva.',
       }
+    }
+
+    // Védelmi háló (2026-06-06): a Brevo ELUTASÍTJA a szabad-levelező (gmail,
+    // yahoo, outlook stb.) feladókat — "the sender you used ... is not valid"
+    // (Gmail/Yahoo DMARC p=reject). Ha ilyen van beállítva, a hitelesített saját
+    // domain feladóra váltunk, hogy a küldés ne pattanjon vissza.
+    const FREEMAIL_RE = /@(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|aol|proton(mail)?)\./i
+    if (FREEMAIL_RE.test(fromEmail)) {
+      const safeFrom = process.env.BREVO_AUTH_FROM_EMAIL || 'noreply@kartoteka.app'
+      console.warn(
+        `[brevo] A beállított feladó (${fromEmail}) szabad-levelező domain, amit a Brevo elutasít. ` +
+          `Átváltás a hitelesített feladóra: ${safeFrom}. Állítsd be a BREVO_FROM_EMAIL-t erre az értékre.`,
+      )
+      fromEmail = safeFrom
     }
 
     const toList = Array.isArray(args.to) ? args.to : [args.to]
