@@ -241,11 +241,33 @@ async function resolveFallbackStreetId(
 // Ha a Master Admin még nem rendelt gyülekezetet, NULL-okat ad vissza.
 // ──────────────────────────────────────────────────────────────────
 
+export interface CongregationPrefill {
+  name: string | null
+  nev_hu: string | null
+  nev_ro: string | null
+  adoszam: string | null
+  cim: string | null
+  email: string | null
+  telefon: string | null
+  web: string | null
+  megye: string | null
+  varos: string | null
+  iranyitoszam: string | null
+  hazszam: string | null
+  country: string | null
+  adrlocality_id: number | null
+  adrstreet_id: number | null
+}
+
 export interface CongregationContext {
   congregationId: string | null
   congregationName: string | null
   dioceseId: string | null
   dioceseName: string | null
+  /** 2026-06-04 — a regisztrációnál választott egyházkerület neve. */
+  districtName: string | null
+  /** 2026-06-04 — a hozzárendelt gyülekezet meglévő adatai (Step 2 auto-kitöltés). */
+  congregation: CongregationPrefill | null
 }
 
 export async function getCongregationContext(): Promise<
@@ -260,10 +282,11 @@ export async function getCongregationContext(): Promise<
     return { error: 'Nincs bejelentkezett felhasználó.' }
   }
 
-  // Profil → congregation_id
+  // Profil → congregation_id / diocese_id / district_id (a regisztrációból /
+  // admin-jóváhagyásból már beállítva)
   const { data: profile, error: pErr } = await supabase
     .from('profiles')
-    .select('congregation_id, diocese_id')
+    .select('congregation_id, diocese_id, district_id')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -276,32 +299,55 @@ export async function getCongregationContext(): Promise<
     congregationName: null,
     dioceseId: profile?.diocese_id ?? null,
     dioceseName: null,
+    districtName: null,
+    congregation: null,
   }
 
-  // Ha van congregation_id, olvassuk a congregation + dioceses JOIN-t
+  // Ha van congregation_id, olvassuk a teljes gyülekezeti adatot (auto-kitöltéshez)
+  // + a dioceses JOIN-t (egyházmegye-név).
   if (ctx.congregationId) {
     const { data: cong } = await supabase
       .from('congregations')
-      .select('name, nev_hu, diocese_id, dioceses(name)')
+      .select(
+        'name, nev_hu, nev_ro, adoszam, cim, email, telefon, web, megye, varos, iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id, diocese_id, dioceses(name)',
+      )
       .eq('id', ctx.congregationId)
       .maybeSingle()
 
     if (cong) {
-      ctx.congregationName = cong.nev_hu || cong.name || null
-      if (cong.diocese_id) {
-        ctx.dioceseId = cong.diocese_id as string
+      const c = cong as Record<string, unknown>
+      ctx.congregationName = (c.nev_hu as string | null) || (c.name as string | null) || null
+      if (c.diocese_id) {
+        ctx.dioceseId = c.diocese_id as string
       }
-      // dioceses JOIN eredmény shape: { name: string } | { name: string }[] (Supabase függő)
-      const d = cong.dioceses as { name: string } | { name: string }[] | null
+      // dioceses JOIN eredmény shape: { name } | { name }[] (Supabase függő)
+      const d = c.dioceses as { name?: string | null } | { name?: string | null }[] | null
       if (Array.isArray(d)) {
         ctx.dioceseName = d[0]?.name ?? null
       } else if (d && typeof d === 'object') {
         ctx.dioceseName = d.name ?? null
       }
+      ctx.congregation = {
+        name: (c.name as string | null) ?? null,
+        nev_hu: (c.nev_hu as string | null) ?? null,
+        nev_ro: (c.nev_ro as string | null) ?? null,
+        adoszam: (c.adoszam as string | null) ?? null,
+        cim: (c.cim as string | null) ?? null,
+        email: (c.email as string | null) ?? null,
+        telefon: (c.telefon as string | null) ?? null,
+        web: (c.web as string | null) ?? null,
+        megye: (c.megye as string | null) ?? null,
+        varos: (c.varos as string | null) ?? null,
+        iranyitoszam: (c.iranyitoszam as string | null) ?? null,
+        hazszam: (c.hazszam as string | null) ?? null,
+        country: (c.country as string | null) ?? null,
+        adrlocality_id: (c.adrlocality_id as number | null) ?? null,
+        adrstreet_id: (c.adrstreet_id as number | null) ?? null,
+      }
     }
   }
 
-  // Ha nincs dioceseName a congregation-ből, de van diocese_id a profile-on, olvassuk direkt
+  // Egyházmegye-név fallback a profile.diocese_id-ból
   if (!ctx.dioceseName && ctx.dioceseId) {
     const { data: diocese } = await supabase
       .from('dioceses')
@@ -309,6 +355,17 @@ export async function getCongregationContext(): Promise<
       .eq('id', ctx.dioceseId)
       .maybeSingle()
     if (diocese) ctx.dioceseName = diocese.name
+  }
+
+  // Egyházkerület-név a profile.district_id-ból
+  const districtId = profile?.district_id ?? null
+  if (districtId) {
+    const { data: district } = await supabase
+      .from('districts')
+      .select('name')
+      .eq('id', districtId)
+      .maybeSingle()
+    if (district) ctx.districtName = (district as { name?: string | null }).name ?? null
   }
 
   return { data: ctx }

@@ -26,7 +26,6 @@ import { Button } from '@/components/ui/button'
 import {
   WizardSectionCard,
   WizardField,
-  WizardInputGrid,
   WizardBanner,
   Input,
 } from './_helpers/wizard-ui'
@@ -75,10 +74,10 @@ export function Step4Finance({
       toast.error('Az éves alap járulék legyen nagyobb mint 0.')
       return
     }
-    if (!/^\d{2}-\d{2}$/.test(form.jarulek_hatarid || '')) {
-      toast.error('A járulék határidejét MM-DD formátumban add meg.')
-      return
-    }
+    // 2026-06-04: a teljes-összegre vonatkozó fizetési határidőt eltávolítottuk
+    // (alapértelmezetten egész évben fizethető). A határidő csak a kedvezményes
+    // időszakoknál releváns (lentebb, periódusonként). A congregation
+    // jarulek_hatarid mezője az alapértelmezett '12-31'-et kapja (egész év).
     // Validáció: kedvezményes időszakok mindegyike helyesen kitöltve
     for (const p of discountPeriods) {
       if (!/^\d{2}-\d{2}$/.test(p.hatarid)) {
@@ -138,9 +137,9 @@ export function Step4Finance({
         iconColor="text-amber-700"
         iconBg="bg-amber-50"
         title="Aktuális év alapösszege"
-        description={`A ${new Date().getFullYear()}. évre vonatkozó éves járulék és a teljes-összegre vonatkozó határidő.`}
+        description={`A ${new Date().getFullYear()}. évre vonatkozó teljes éves egyházfenntartási járulék. Alapértelmezetten egész évben fizethető — fizetési határidő csak kedvezményeknél releváns (lent állítható).`}
       >
-        <WizardInputGrid cols={2}>
+        <div className="md:max-w-md">
           <WizardField
             id="eves_jarulek"
             label="Éves alap járulék (RON)"
@@ -157,39 +156,7 @@ export function Step4Finance({
               onChange={e => update('eves_jarulek', Number(e.target.value))}
             />
           </WizardField>
-
-          <WizardField
-            id="jarulek_hatarid"
-            label="Fizetési határidő (MM-DD)"
-            required
-            hint="Hónap-Nap formátum (pl. 07-01 = július 1.). Eddig az időpontig fizethet a tag teljes járulékot tartozás nélkül."
-          >
-            <Input
-              id="jarulek_hatarid"
-              placeholder="pl. 07-01"
-              value={form.jarulek_hatarid}
-              onChange={e => update('jarulek_hatarid', e.target.value)}
-            />
-          </WizardField>
-        </WizardInputGrid>
-
-        <WizardField
-          id="jarulek_kedvezmenyes"
-          label="Általános kedvezményes járulék (RON, opcionális)"
-          hint="Ha van egy alapértelmezett kedvezményes összeg (pl. nyugdíjasoknak, diákoknak), itt add meg. A részletes kedvezmény-szabályokat lent állíthatod be."
-        >
-          <Input
-            id="jarulek_kedvezmenyes"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="pl. 60"
-            value={form.jarulek_kedvezmenyes || ''}
-            onChange={e =>
-              update('jarulek_kedvezmenyes', Number(e.target.value))
-            }
-          />
-        </WizardField>
+        </div>
       </WizardSectionCard>
 
       {/* Tartozás-számítási mód */}
@@ -258,10 +225,12 @@ export function Step4Finance({
         </div>
       </WizardSectionCard>
 
-      {/* Kedvezmények — időszaki + kor */}
+      {/* Kedvezmények — általános kedvezményes járulék + időszaki + kor */}
       <FeeDiscountsSection
         periods={discountPeriods}
         ageDiscount={ageDiscount}
+        jarulekKedvezmenyes={form.jarulek_kedvezmenyes}
+        onJarulekKedvezmenyesChange={(n) => update('jarulek_kedvezmenyes', n)}
         onPeriodsChange={setDiscountPeriods}
         onAgeChange={setAgeDiscount}
       />

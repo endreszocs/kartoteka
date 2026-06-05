@@ -61,15 +61,21 @@ export function createDefaultAgeDiscount(): AgeDiscountSlot {
 interface FeeDiscountsSectionProps {
   periods: DiscountPeriodSlot[]
   ageDiscount: AgeDiscountSlot
+  /** 2026-06-04: az általános kedvezményes járulék ide került át a Step 4 fő
+   *  alapösszeg-szakaszából (a kedvezmények rögzítéséhez tartozik). */
+  jarulekKedvezmenyes: number
   onPeriodsChange: (next: DiscountPeriodSlot[]) => void
   onAgeChange: (next: AgeDiscountSlot) => void
+  onJarulekKedvezmenyesChange: (next: number) => void
 }
 
 export function FeeDiscountsSection({
   periods,
   ageDiscount,
+  jarulekKedvezmenyes,
   onPeriodsChange,
   onAgeChange,
+  onJarulekKedvezmenyesChange,
 }: FeeDiscountsSectionProps) {
   function addPeriod() {
     onPeriodsChange([...periods, createEmptyDiscountPeriod()])
@@ -83,6 +89,33 @@ export function FeeDiscountsSection({
 
   return (
     <>
+      {/* Általános kedvezményes járulék (áthelyezve a fő alapösszeg-szakaszból) */}
+      <WizardSectionCard
+        icon={Tags}
+        iconColor="text-amber-700"
+        iconBg="bg-amber-50"
+        title="Általános kedvezményes járulék (opcionális)"
+        description="Ha van egy alapértelmezett kedvezményes összeg (pl. nyugdíjasoknak, diákoknak), itt add meg. A részletes, határidőhöz kötött szabályokat lentebb állíthatod be."
+      >
+        <div className="md:max-w-md">
+          <WizardField
+            id="jarulek_kedvezmenyes"
+            label="Általános kedvezményes járulék (RON)"
+            hint="Hagyd üresen, ha nincs ilyen alapértelmezett kedvezmény."
+          >
+            <Input
+              id="jarulek_kedvezmenyes"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="pl. 60"
+              value={jarulekKedvezmenyes || ''}
+              onChange={e => onJarulekKedvezmenyesChange(Number(e.target.value))}
+            />
+          </WizardField>
+        </div>
+      </WizardSectionCard>
+
       {/* Időszaki kedvezmények */}
       <WizardSectionCard
         icon={Calendar}

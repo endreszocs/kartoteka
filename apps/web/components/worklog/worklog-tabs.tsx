@@ -1,12 +1,12 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Download, FileText, Printer } from 'lucide-react'
+import { Download, FileText, NotebookPen, Printer } from 'lucide-react'
 
 import { ColorTabs } from '@/components/ui/color-tabs'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
@@ -257,7 +257,14 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
       ) : loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
       ) : filtered.length === 0 ? (
-        <Card><CardContent className="py-8 text-center text-muted-foreground">Nincs bejegyzés.</CardContent></Card>
+        <EmptyFirstRecord
+          accent="violet"
+          icon={NotebookPen}
+          title="Még nincs munkanapló-bejegyzés"
+          description="Kezdd el a szolgálati napló vezetését — rögzítsd az első igehirdetést, családlátogatást vagy katekézist."
+          ctaLabel="Rögzítsd az első bejegyzést"
+          onCta={() => { setEditEntry(null); setDialogOpen(true) }}
+        />
       ) : (
         <div className="space-y-3">
           <Badge variant="secondary" className="text-xs">{filtered.length} bejegyzés</Badge>

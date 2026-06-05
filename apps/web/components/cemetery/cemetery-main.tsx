@@ -1,7 +1,9 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -318,9 +320,16 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">Nincs megjeleníthető sírhely.</CardContent>
-        </Card>
+        <EmptyFirstRecord
+          accent="emerald"
+          icon={MapPin}
+          title="Még nincs sírhely rögzítve"
+          description="Kezdd el a temetői nyilvántartást — rögzítsd az első sírhelyet (parcella, sor, szám, megváltás). Ha még nincs temető, előbb hozz létre egyet."
+          ctaLabel="Rögzítsd az első sírhelyet"
+          onCta={() => openPlotDialog()}
+          secondaryLabel="Temető létrehozása"
+          onSecondary={() => openCemDialog()}
+        />
       ) : viewMode === 'table' ? (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">

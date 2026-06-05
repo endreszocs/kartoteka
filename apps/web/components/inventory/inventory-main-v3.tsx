@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CircleHelp, Scale } from 'lucide-react'
+import { Boxes, CircleHelp, Scale } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -485,11 +486,22 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
               </CardContent>
             </Card>
           ) : filtered.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center text-muted-foreground">
-                A megadott szűrés mellett nincs megjeleníthető leltári tétel.
-              </CardContent>
-            </Card>
+            activeItems.length === 0 ? (
+              <EmptyFirstRecord
+                accent="amber"
+                icon={Boxes}
+                title="Még nincs leltári tétel"
+                description="Kezdd el a gyülekezeti leltárt — rögzítsd az első tárgyat (ingóság, eszköz, érték) néhány alapadattal."
+                ctaLabel="Rögzítsd az első leltári tételt"
+                onCta={() => openDialog()}
+              />
+            ) : (
+              <Card>
+                <CardContent className="py-10 text-center text-muted-foreground">
+                  A megadott szűrés mellett nincs megjeleníthető leltári tétel.
+                </CardContent>
+              </Card>
+            )
           ) : (
             <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white shadow-sm">
               <table className="w-full text-sm">

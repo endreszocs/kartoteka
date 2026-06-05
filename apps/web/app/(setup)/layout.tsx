@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import { redirect } from 'next/navigation'
 import { LogOut } from 'lucide-react'
 
@@ -77,7 +78,14 @@ export default async function SetupLayout({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-xl bg-white shadow-md">
-              <span className="font-heading text-xl font-bold text-primary">K</span>
+              <Image
+                src="/KARTOTEKA_V3.png"
+                alt="Kartotéka logó"
+                width={32}
+                height={32}
+                priority
+                className="object-contain"
+              />
             </div>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/70">

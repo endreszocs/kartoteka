@@ -140,7 +140,10 @@ const INITIAL_DATA: WizardData = {
   finance: {
     eves_jarulek: 0,
     jarulek_kedvezmenyes: 0,
-    jarulek_hatarid: '07-01',
+    // 2026-06-04: a teljes-összegre vonatkozó fizetési határidőt a wizardból
+    // eltávolítottuk — alapértelmezetten egész évben fizethető (12-31). A
+    // határidő csak a kedvezményes időszakoknál releváns (periódusonként).
+    jarulek_hatarid: '12-31',
     tartozas_szamitas_mod: 'akkori',
   },
   discountPeriods: [],

@@ -7,7 +7,7 @@ import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { RegistryOverview } from './registry-overview'
 import { RegistryDetailDialog } from './registry-detail-dialog'
 import { getRegistryData, deleteRegistryEntry } from '@/app/(dashboard)/anyakonyv/actions'
@@ -426,7 +426,19 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
   }
 
   function renderTable() {
-    if (filtered.length === 0) return <Card><CardContent className="py-8 text-center text-muted-foreground">Nincs bejegyzés.</CardContent></Card>
+    if (filtered.length === 0) {
+      const tabLabel = (REGISTRY_TAB_LABELS[activeTab] || 'anyakönyvi').toLowerCase()
+      return (
+        <EmptyFirstRecord
+          accent="rose"
+          icon={Award}
+          title="Még nincs anyakönyvi bejegyzés"
+          description={`Ebben a nyilvántartásban (${tabLabel}) még nincs bejegyzés. Rögzítsd az elsőt — a kiállított oklevelek innen generálhatók.`}
+          ctaLabel="Rögzítsd az első bejegyzést"
+          onCta={() => openModal()}
+        />
+      )
+    }
 
     return (
       <div className="border rounded-lg overflow-x-auto">

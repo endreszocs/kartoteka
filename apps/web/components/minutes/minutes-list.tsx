@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getMinutesList, searchMinutes, getMinutesById } from '@/app/(dashboard)/jegyzokonyvek/actions'
 import { MinutesPrintDialog } from './minutes-print-dialog'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { toast } from 'sonner'
 
 interface MinutesEntry {
@@ -175,17 +176,14 @@ export function MinutesList({ initialMinutes, currentYear, congregationName = 'R
 
       {/* Jegyzőkönyv lista */}
       {minutes.length === 0 ? (
-        <div className="card-raised p-12 text-center">
-          <BookOpen className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-          <h3 className="font-heading text-lg text-slate-700 mb-1">Nincs jegyzőkönyv</h3>
-          <p className="text-sm text-slate-500 mb-4">A {year}. évre még nincs rögzített jegyzőkönyv.</p>
-          <Link
-            href="/jegyzokonyvek/uj"
-            className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition"
-          >
-            Jegyzőkönyv rögzítése
-          </Link>
-        </div>
+        <EmptyFirstRecord
+          accent="indigo"
+          icon={BookOpen}
+          title="Még nincs jegyzőkönyv"
+          description={`A ${year}. évre még nincs rögzített jegyzőkönyv. Rögzítsd az elsőt — a presbiteri és közgyűlési határozatok így egy helyen, kereshetően maradnak.`}
+          ctaLabel="Rögzítsd az első jegyzőkönyvet"
+          ctaHref="/jegyzokonyvek/uj"
+        />
       ) : (
         <div className="space-y-2">
           {minutes.map((m) => {

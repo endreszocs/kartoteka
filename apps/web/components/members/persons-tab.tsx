@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { MemberStatusBadge } from './member-status-badge'
 import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
@@ -183,11 +184,22 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
 
       {/* ═══ Táblázat ═══ */}
       {filtered.length === 0 ? (
-        <div className="card-raised p-12 text-center">
-          <Search className="w-12 h-12 text-zinc-200 mx-auto mb-3" />
-          <p className="text-zinc-500 font-medium">Nincs a keresésnek megfelelő tag.</p>
-          <p className="text-xs text-zinc-400 mt-1">Próbáljon más keresőszót vagy szűrőt.</p>
-        </div>
+        members.length === 0 ? (
+          <EmptyFirstRecord
+            accent="emerald"
+            icon={UserPlus}
+            title="Még nincs egyetlen gyülekezeti tag sem"
+            description="Kezdd el a nyilvántartást — vedd fel az első tagot pár alapadattal (név, születés, lakcím). A családok, presbiterek és körzetek innen épülnek fel."
+            ctaLabel="Rögzítsd az első tagot"
+            onCta={() => openEdit(null)}
+          />
+        ) : (
+          <div className="card-raised p-12 text-center">
+            <Search className="w-12 h-12 text-zinc-200 mx-auto mb-3" />
+            <p className="text-zinc-500 font-medium">Nincs a keresésnek megfelelő tag.</p>
+            <p className="text-xs text-zinc-400 mt-1">Próbáljon más keresőszót vagy szűrőt.</p>
+          </div>
+        )
       ) : (
         <div className="card-raised overflow-hidden">
           <div className="overflow-x-auto">

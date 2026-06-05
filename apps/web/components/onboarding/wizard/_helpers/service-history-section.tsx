@@ -65,11 +65,15 @@ export function ServiceHistorySection({
     onChange(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
   }
 
+  // 2026-06-04 FIX: a korábbi verzió a részleges beírást (pl. "2", "20", "201")
+  // null-ra dobta (a < 1900 ellenőrzés miatt), így a kontrollált input sosem
+  // frissült — az évszám "nem volt írható". Most bármilyen egész elfogadott
+  // beírás közben; a tartomány-ellenőrzés a completeWizard Zod-sémájában történik.
   function parseYear(value: string): number | null {
-    if (!value.trim()) return null
-    const n = parseInt(value, 10)
-    if (Number.isNaN(n) || n < 1900 || n > 2100) return null
-    return n
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const n = parseInt(trimmed, 10)
+    return Number.isNaN(n) ? null : n
   }
 
   return (

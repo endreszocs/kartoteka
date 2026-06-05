@@ -17,12 +17,35 @@
  *   - WizardAddButton — szabványos "+ Új ..." gomb listás szakaszhoz
  */
 
-import type { ComponentType, ReactNode } from 'react'
+import type { ComponentProps, ComponentType, ReactNode } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Input as BaseInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
+
+// ──────────────────────────────────────────────────────────────────────
+// Input — a wizardban kiemeltebb beviteli mező (2026-06-04)
+//
+// A standard fehér input fehér kártyán egybeolvadt a háttérrel. Itt egy
+// határozottabb stílust adunk: világosszürke háttér + erősebb keret, fókuszban
+// fehér háttér + emerald gyűrű — így jól látszik, hova kell írni. Egy helyen
+// definiálva → az összes wizard-lépés azonnal öröklődik.
+// ──────────────────────────────────────────────────────────────────────
+
+export function Input({ className, ...props }: ComponentProps<typeof BaseInput>) {
+  return (
+    <BaseInput
+      className={cn(
+        'border-slate-300 bg-slate-50 text-slate-900 placeholder:text-slate-400 shadow-inner',
+        'focus-visible:border-emerald-400 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // WizardSectionCard
@@ -227,5 +250,6 @@ export function WizardInputGrid({
   return <div className={`grid gap-4 ${colClass}`}>{children}</div>
 }
 
-// Re-export, hogy a step-fájlok egy helyről importálhassanak
-export { Input, Label, Button }
+// Re-export, hogy a step-fájlok egy helyről importálhassanak.
+// (Az `Input` fentebb, saját, kiemeltebb wrapper-ként van exportálva.)
+export { Label, Button }

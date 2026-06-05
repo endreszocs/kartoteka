@@ -24,7 +24,6 @@ import { CalendarRange, ChevronDown, ChevronUp, Info } from 'lucide-react'
 import {
   WizardSectionCard,
   WizardField,
-  WizardInputGrid,
   WizardBanner,
   Input,
 } from './wizard-ui'
@@ -65,9 +64,7 @@ export function PastYearsSection({
     onChange(years.map((y, i) => (i === idx ? { ...y, ...patch } : y)))
   }
 
-  const filledCount = years.filter(
-    y => y.eves_jarulek || y.jarulek_kedvezmenyes || y.jarulek_hatarid,
-  ).length
+  const filledCount = years.filter(y => y.eves_jarulek).length
 
   return (
     <WizardSectionCard
@@ -121,11 +118,11 @@ export function PastYearsSection({
               <h4 className="mb-3 text-sm font-semibold text-slate-800">
                 {y.ev}. év
               </h4>
-              <WizardInputGrid cols={3}>
+              <div className="md:max-w-xs">
                 <WizardField
                   id={`past-${y.ev}-jarulek`}
                   label="Alapösszeg (RON)"
-                  hint={`A ${y.ev} évi éves járulék`}
+                  hint={`A ${y.ev} évi éves járulék alapösszege`}
                 >
                   <Input
                     id={`past-${y.ev}-jarulek`}
@@ -143,42 +140,7 @@ export function PastYearsSection({
                     }
                   />
                 </WizardField>
-                <WizardField
-                  id={`past-${y.ev}-kedv`}
-                  label="Kedvezményes (RON)"
-                  hint="Ha volt kedvezmény"
-                >
-                  <Input
-                    id={`past-${y.ev}-kedv`}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="60"
-                    value={y.jarulek_kedvezmenyes ?? ''}
-                    onChange={e =>
-                      updateYear(idx, {
-                        jarulek_kedvezmenyes: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      })
-                    }
-                  />
-                </WizardField>
-                <WizardField
-                  id={`past-${y.ev}-hatarid`}
-                  label="Határidő (MM-DD)"
-                  hint="pl. 07-01"
-                >
-                  <Input
-                    id={`past-${y.ev}-hatarid`}
-                    placeholder="07-01"
-                    value={y.jarulek_hatarid}
-                    onChange={e =>
-                      updateYear(idx, { jarulek_hatarid: e.target.value })
-                    }
-                  />
-                </WizardField>
-              </WizardInputGrid>
+              </div>
             </div>
           ))}
         </div>

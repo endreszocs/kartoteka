@@ -51,6 +51,7 @@ export function Step2Congregation({
 }: Step2Props) {
   const [form, setForm] = useState(data.congregation)
   const [bankAccounts, setBankAccounts] = useState(data.bankAccounts)
+  const [districtName, setDistrictName] = useState<string | null>(null)
   const [dioceseName, setDioceseName] = useState<string | null>(null)
   const [dioceseLoading, setDioceseLoading] = useState(true)
 
@@ -60,7 +61,32 @@ export function Step2Congregation({
       const result = await getCongregationContext()
       if (cancelled) return
       if ('data' in result) {
+        setDistrictName(result.data.districtName)
         setDioceseName(result.data.dioceseName)
+        // 2026-06-04: auto-kitöltés a hozzárendelt gyülekezet meglévő adataiból
+        // (regisztrációból + seed). CSAK az üres mezőket töltjük, hogy a
+        // felhasználó esetleges beírását ne írjuk felül.
+        const cong = result.data.congregation
+        if (cong) {
+          setForm((f) => ({
+            ...f,
+            nev: f.nev || cong.name || cong.nev_hu || '',
+            nev_hu: f.nev_hu || cong.nev_hu || '',
+            nev_ro: f.nev_ro || cong.nev_ro || '',
+            adoszam: f.adoszam || cong.adoszam || '',
+            email: f.email || cong.email || '',
+            telefon: f.telefon || cong.telefon || '',
+            web: f.web || cong.web || '',
+            megye: f.megye || cong.megye || '',
+            varos: f.varos || cong.varos || '',
+            cim: f.cim || cong.cim || '',
+            iranyitoszam: f.iranyitoszam || cong.iranyitoszam || '',
+            hazszam: f.hazszam || cong.hazszam || '',
+            country: f.country || cong.country || 'Románia',
+            adrlocality_id: f.adrlocality_id ?? cong.adrlocality_id ?? null,
+            adrstreet_id: f.adrstreet_id ?? cong.adrstreet_id ?? null,
+          }))
+        }
       }
       setDioceseLoading(false)
     })()
@@ -124,27 +150,39 @@ export function Step2Congregation({
         </div>
       </header>
 
-      {/* Egyházmegye chip — csak olvasható */}
+      {/* Egyházi hovatartozás (egyházkerület + egyházmegye) — csak olvasható,
+          a regisztrációból / admin-jóváhagyásból */}
       <WizardSectionCard
         icon={Landmark}
         iconColor="text-sky-700"
         iconBg="bg-sky-50"
-        title="Egyházmegye"
-        description="A rendszergazda a gyülekezet hozzárendelésekor állítja be — ez itt csak információ."
+        title="Egyházi hovatartozás"
+        description="A regisztrációkor megadott, a rendszergazda által jóváhagyott besorolás — itt csak információ."
       >
         {dioceseLoading ? (
           <p className="flex items-center gap-2 text-sm text-slate-600">
             <Loader2 className="size-3.5 animate-spin" />
             <span>Betöltés…</span>
           </p>
-        ) : dioceseName ? (
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-base font-semibold text-sky-900">
-            {dioceseName}
-          </p>
         ) : (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Még nincs beállítva — a rendszergazda állítja be.
-          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Egyházkerület
+              </p>
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">
+                {districtName || '— nincs beállítva —'}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Egyházmegye
+              </p>
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900">
+                {dioceseName || '— nincs beállítva —'}
+              </p>
+            </div>
+          </div>
         )}
       </WizardSectionCard>
 

@@ -5,6 +5,7 @@ import { AlertTriangle, Building2, CalendarRange, Printer, ShieldCheck, Wallet }
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
 import { CashbookTab } from './cashbook-tab'
@@ -339,6 +340,19 @@ export function FinanceTabs({
         />
 
         <TabsContent value="dashboard" className="mt-4">
+          {incomeRecords.length === 0 && expenseRecords.length === 0 && (
+            <EmptyFirstRecord
+              className="mb-4"
+              accent="emerald"
+              icon={Wallet}
+              title="Még nincs pénzügyi tétel"
+              description="Kezdd el a gyülekezet pénzügyi nyilvántartását — rögzítsd az első befizetést vagy kiadást. A kassza, bank és számadás innen épül fel."
+              ctaLabel="Rögzítsd az első befizetést"
+              onCta={() => setIncomeOpen(true)}
+              secondaryLabel="Kiadás rögzítése"
+              onSecondary={() => setExpenseOpen(true)}
+            />
+          )}
           <FinanceDashboard
             balances={balances}
             incomeRecords={incomeRecords}

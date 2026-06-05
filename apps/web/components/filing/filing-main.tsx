@@ -4,11 +4,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { FileText, Files, Lock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import {
   getFilingEntries,
   saveFilingEntry,
@@ -623,9 +623,14 @@ function FilingEntriesView({
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">Nincs iktatott irat.</CardContent>
-        </Card>
+        <EmptyFirstRecord
+          accent="sky"
+          icon={Files}
+          title="Még nincs iktatott irat"
+          description="Indítsd el az iktatókönyvet — rögzítsd az első érkező vagy kimenő iratot, és a rendszer adja a következő sorszámot."
+          ctaLabel="Iktasd az első iratot"
+          onCta={() => openDialog()}
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
