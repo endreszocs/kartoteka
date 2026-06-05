@@ -6,6 +6,9 @@ import { z } from 'zod'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
 import { createClient } from '@/lib/supabase/server'
+import { sendEmail } from '@/lib/email/send'
+import { transferInitiatedEmail } from '@/lib/email/templates/congregation-transfer'
+import { logAuditEvent } from '@/lib/audit/log'
 
 const congregationSchema = z.object({
   id: z.string().uuid(),
@@ -276,6 +279,137 @@ export async function getCongregationPastors(
     return { rows: [], schemaReady: !missing, error: missing ? undefined : error.message }
   }
   return { rows: (data || []) as CongregationPastorRow[], schemaReady: true }
+}
+
+/**
+ * 2026-06-05 (F3a) — Lelkészcsere-átadás INDÍTÁSA.
+ * A távozó lelkész elindítja az átadást → létrejön egy `congregation_transfers`
+ * rekord (status='requested'), és értesül a RENDSZERGAZDA + az egyházmegye
+ * SZÁMVEVŐJE (in-app értesítés + email). Ha az egyházmegyében nincs számvevő,
+ * csak az admin(ok) értesülnek (a felhasználó döntése: ez elég).
+ */
+export async function initiateCongregationTransfer(input: {
+  congregationId: string
+  reason?: string
+}): Promise<{ success?: boolean; error?: string; auditorsNotified?: number; alreadyOpen?: boolean }> {
+  const permission = await requireActiveCongregation(input.congregationId)
+  if ('error' in permission) return { error: permission.error }
+  const { supabase, user } = permission.access
+
+  // 1) Átadás rekord létrehozása (RPC — jogosultság-ellenőrzéssel)
+  const { data: rpcRes, error: rpcErr } = await supabase.rpc('initiate_congregation_transfer', {
+    p_congregation_id: input.congregationId,
+    p_reason: input.reason?.trim() || null,
+  })
+  if (rpcErr) {
+    const missing = /relation .* does not exist|schema cache|function .* does not exist/i.test(rpcErr.message)
+    return {
+      error: missing
+        ? 'Az átadás-funkció adatbázis-része még nincs telepítve (2026-06-05g SQL).'
+        : rpcErr.message,
+    }
+  }
+  const info = (rpcRes || {}) as { transfer_id?: string; already_open?: boolean; diocese_id?: string | null }
+  if (info.already_open) {
+    return { success: true, alreadyOpen: true, auditorsNotified: 0 }
+  }
+
+  // 2) Értesítendők (service-role: az RLS ne szűrje a más-profilú címzetteket)
+  let auditorsNotified = 0
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    const admin = getSupabaseAdminClient()
+
+    const { data: congRow } = await admin
+      .from('congregations')
+      .select('nev_hu, name')
+      .eq('id', input.congregationId)
+      .maybeSingle()
+    const congName =
+      ((congRow as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu) ||
+      ((congRow as { name?: string | null } | null)?.name) ||
+      'a gyülekezet'
+
+    const fromName = permission.access.fullName || 'A lelkész'
+
+    // Rendszergazdák
+    const { data: admins } = await admin
+      .from('profiles')
+      .select('id, email, full_name')
+      .eq('role', 'admin')
+      .eq('status', 'active')
+      .not('email', 'is', null)
+
+    // Egyházmegyei számvevők (az adott egyházmegyében)
+    let auditors: Array<{ id: string; email: string; full_name: string | null }> = []
+    if (info.diocese_id) {
+      const { data: auds } = await admin
+        .from('profiles')
+        .select('id, email, full_name')
+        .eq('role', 'egyhazmegyei_szamvevo')
+        .eq('diocese_id', info.diocese_id)
+        .eq('status', 'active')
+        .not('email', 'is', null)
+      auditors = (auds || []) as typeof auditors
+    }
+    auditorsNotified = auditors.length
+
+    const portalUrl =
+      (process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app') + '/admin?tab=access-requests'
+
+    const recipients: Array<{ id: string; email: string; full_name: string | null; role: 'rendszergazda' | 'számvevő' }> = [
+      ...((admins || []) as Array<{ id: string; email: string; full_name: string | null }>).map((a) => ({
+        ...a,
+        role: 'rendszergazda' as const,
+      })),
+      ...auditors.map((a) => ({ ...a, role: 'számvevő' as const })),
+    ]
+    // Dedup (id szerint), és a saját magát (kezdeményező) kihagyjuk
+    const seen = new Set<string>()
+    for (const r of recipients) {
+      if (!r.email || seen.has(r.id) || r.id === user?.id) continue
+      seen.add(r.id)
+
+      await admin.from('ertesitesek').insert([
+        {
+          congregation_id: input.congregationId,
+          user_id: r.id,
+          cim: `Lelkészcsere-átadás indult: ${congName}`,
+          uzenet: `${fromName} elindította a(z) ${congName} gyülekezet átadását. Kérjük, nézd át a gyülekezet adatait, és hagyd jóvá vagy rögzíts meghagyásokat.`,
+          tipus: 'warning',
+          hivatkozas: '/admin?tab=access-requests',
+        },
+      ])
+
+      const emailRes = await sendEmail(
+        transferInitiatedEmail({
+          recipientEmail: r.email,
+          recipientName: r.full_name || undefined,
+          recipientRole: r.role,
+          congregationName: congName,
+          fromPastorName: fromName,
+          reason: input.reason?.trim() || null,
+          portalUrl,
+        }),
+      )
+      if (!emailRes.success) {
+        console.error(`[transfer-initiate] email hiba (${r.email}):`, emailRes.error)
+      }
+    }
+  } catch (err) {
+    console.error('[transfer-initiate] értesítés hiba:', err instanceof Error ? err.message : err)
+    // Nem blokkoljuk — az átadás már létrejött, az admin a felületen is látja.
+  }
+
+  await logAuditEvent({
+    action: 'transfer.initiate',
+    targetTable: 'congregation_transfers',
+    targetId: info.transfer_id ?? null,
+    metadata: { congregation_id: input.congregationId, auditors_notified: auditorsNotified },
+  }, supabase)
+
+  revalidatePath('/congregation')
+  return { success: true, auditorsNotified }
 }
 
 export async function getCongregationAnnualFees(congregationId: string) {

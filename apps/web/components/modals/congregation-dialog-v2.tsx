@@ -28,6 +28,7 @@ import {
   getCongregationFeeDiscounts,
   getCongregationPastors,
   type CongregationPastorRow,
+  initiateCongregationTransfer,
   getDioceses,
   saveCongregationBankAccount,
   saveCongregationCustomFee,
@@ -155,6 +156,10 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   // 2026-06-05: lelkészi szolgálati napló
   const [pastors, setPastors] = useState<CongregationPastorRow[]>([])
   const [pastorsSchemaReady, setPastorsSchemaReady] = useState(true)
+  // 2026-06-05: gyülekezet-átadás indítása
+  const [transferReason, setTransferReason] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [transferStarted, setTransferStarted] = useState(false)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -379,6 +384,32 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
   }
 
+  async function handleInitiateTransfer() {
+    setTransferring(true)
+    try {
+      const res = await initiateCongregationTransfer({
+        congregationId: activeCongregationId,
+        reason: transferReason,
+      })
+      if ('error' in res && res.error) {
+        toast.error(res.error)
+        return
+      }
+      setTransferStarted(true)
+      if (res.alreadyOpen) {
+        toast.info('Ehhez a gyülekezethez már folyamatban van egy átadás.')
+      } else {
+        toast.success(
+          res.auditorsNotified && res.auditorsNotified > 0
+            ? 'Átadás elindítva — a rendszergazda és az egyházmegyei számvevő értesítve.'
+            : 'Átadás elindítva — a rendszergazda értesítve (az egyházmegyében nincs számvevő).',
+        )
+      }
+    } finally {
+      setTransferring(false)
+    }
+  }
+
   async function handleSaveCustomFee() {
     const result = await saveCongregationCustomFee(activeCongregationId, customFeeForm)
     if (result.error) {
@@ -562,6 +593,49 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                       )
                     })}
                   </ul>
+                )}
+              </Panel>
+
+              <Panel title="Gyülekezet átadása másik lelkésznek">
+                {transferStarted ? (
+                  <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-sm text-emerald-900">
+                    <p className="font-semibold">Az átadás elindult. ✓</p>
+                    <p className="mt-1">
+                      A rendszergazda és — ha van — az egyházmegyei számvevő értesítést kapott.
+                      Átnézik a gyülekezet adatait, majd jóváhagyják az átadást, vagy
+                      meghagyásokat rögzítenek. Utána a rendszergazda adja meg az új
+                      lelkésznek a hozzáférést.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="mb-3 text-sm text-slate-600">
+                      Ha másik gyülekezetbe távozol, itt indíthatod el a gyülekezet
+                      <strong> átadását</strong>. Az indítással a <strong>rendszergazda</strong> és az
+                      egyházmegye <strong>számvevője</strong> értesül; átnézik a gyülekezet adatait,
+                      és jóváhagyják az átadást vagy meghagyásokat rögzítenek. A gyülekezet adatai
+                      nem vesznek el — csak a felelős lelkész változik.
+                    </p>
+                    <Field label="Indok / megjegyzés (opcionális)">
+                      <textarea
+                        value={transferReason}
+                        onChange={(e) => setTransferReason(e.target.value)}
+                        rows={2}
+                        placeholder="pl. Másik gyülekezetbe helyeztek át 2026 szeptemberétől."
+                        className="w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                      />
+                    </Field>
+                    <div className="mt-3">
+                      <Button
+                        type="button"
+                        onClick={handleInitiateTransfer}
+                        disabled={transferring}
+                        className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+                      >
+                        {transferring ? 'Indítás…' : 'Gyülekezet átadásának indítása'}
+                      </Button>
+                    </div>
+                  </>
                 )}
               </Panel>
             </TabsContent>

@@ -28,7 +28,12 @@ Ez a dokumentum **három** kért fejlesztés átfogó terve. Most **nem** írunk
 - **#2 Átadás indítása:** az átadást a **TÁVOZÓ lelkész** indítja egy gombbal, amikor készen áll → **értesítést kap az adott egyházmegye számvevője ÉS a rendszergazda**. Ha az egyházmegyében **nincs még regisztrált számvevő**, akkor **a rendszergazda jóváhagyása elég** (a rendszergazda veszi fel a kapcsolatot a számvevővel). A **rendszergazda adja meg** a beérkező lelkésznek a jóváhagyást a gyülekezeti **lelkészi szerepre**.
 - **#3 Audit:** a terv szerint.
 
-**Megvalósítás-haladás:** F1 (audit-alap) ✅ · F2a (lelkészi szolgálati napló) ✅ · **F2b (fiók végleges törlése = GDPR-anonimizálás)** ✅ — mind deployolva. A `deleteUser` mostantól anonimizál (csak személyes adat + email tűnik el; minden más marad), auth-oldali soft-delete-tel; az `admin_erase_user()` RPC lezárja a lelkészi tenure-t + megfelelőségi naplót ír. Következik: **F3** (átadás a review-flow-val), **F4** (sor-szintű audit).
+**Megvalósítás-haladás:** F1 (audit-alap) ✅ · F2a (lelkészi szolgálati napló) ✅ · F2b (fiók végleges törlése = GDPR-anonimizálás) ✅ · **F3a (átadás INDÍTÁSA + értesítés)** ✅ — mind deployolva. Az `initiate_congregation_transfer()` RPC + `congregation_transfers`/`congregation_remarks` táblák; a távozó lelkész a „Lelkészek" fülön indítja → admin + egyházmegyei számvevő értesül (in-app + email). Következik: **F3b** (read-only review + jóváhagyás/meghagyás), **F3c** (végrehajtás + bejövő lelkész jóváhagyása/meghívása), **F4** (sor-szintű audit).
+
+**Endre újabb észrevételei (2026-06-05), beépítendők:**
+- **Bejövő lelkész email** (F3c): a rendszergazda jóváhagyásakor az új lelkész emailt kap; ha még NINCS a rendszerben, regisztrálnia kell (a meglévő hozzáférés-kérés flow-n át, amit az admin a gyülekezethez hagy jóvá).
+- **Saját profil törlése** (új, ÚTon): a lelkész a **header lenyíló menü → Beállítások**-ban törölheti a saját profilját → a gyülekezet **megürül** (felelős nélkül marad), ezt a **rendszergazda látja** (üres gyülekezet + értesítés). Self-erasure RPC (a felhasználó saját magát anonimizálja), congregation_id ürül, tenure lezárul.
+- **Inaktív gyülekezetek** (új, tervbe): ahol **1 éve nincs aktivitás** → `congregations.status='inactive'`. Kell egy congregations.status oszlop + utolsó-aktivitás jel + `pg_cron` napi/heti söprés. (F4 körül, az audit/last_seen alapokra építve.)
 
 ---
 
