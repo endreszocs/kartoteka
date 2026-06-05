@@ -72,6 +72,16 @@ export default async function DashboardPage() {
 
   // Gyülekezeti setup status — ha hiányosak az adatok, auto-open wizard
   const setupStatus = await checkCongregationSetupStatus(effectiveCongregationId)
+  // 2026-06-05: ha a bevezető körbevezetés (walkthrough) még nem futott le, a
+  // setup-wizard csak ANNAK befejezése után nyíljon (ne fedjék egymást).
+  const { data: walkthroughRow } = await supabase
+    .from('profiles')
+    .select('walkthrough_completed')
+    .eq('id', access.userId ?? '')
+    .maybeSingle()
+  const deferSetupForWalkthrough = !(
+    walkthroughRow as { walkthrough_completed?: boolean | null } | null
+  )?.walkthrough_completed
   const today = new Date()
   const curYear = today.getFullYear()
   const curMonth = today.getMonth() + 1
@@ -369,6 +379,7 @@ export default async function DashboardPage() {
       <CongregationSetupAutoOpen
         congregationId={setupStatus.congregationId}
         needsSetup={setupStatus.needsSetup}
+        deferForWalkthrough={deferSetupForWalkthrough}
       />
     </div>
   )
