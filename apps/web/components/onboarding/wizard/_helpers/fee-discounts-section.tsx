@@ -13,7 +13,7 @@
  * "május végéig 50% kedvezmény, június végéig 25% kedvezmény").
  */
 
-import { Tags, Calendar, UserCheck } from 'lucide-react'
+import { Tags, Calendar, Info, UserCheck } from 'lucide-react'
 
 import {
   WizardSectionCard,
@@ -40,6 +40,17 @@ export interface AgeDiscountSlot {
   type: 'percent' | 'fix'
 }
 
+export interface OccupationDiscountSlot {
+  /** Vesszővel elválasztott foglalkozás-kulcsszavak, pl. "tanuló, diák". A
+   *  rendszer a tag `foglalkozas` mezőjét hasonlítja ezekhez (ékezet/kisbetű-
+   *  érzéketlenül, teljes szó egyezéssel). */
+  foglalkozasok: string
+  /** 'nem_fizet' → 0 RON (mentesül); 'fix' → a megadott összeget fizeti. */
+  mode: 'nem_fizet' | 'fix'
+  fix_osszeg: number | null
+  _clientKey: string
+}
+
 export function createEmptyDiscountPeriod(): DiscountPeriodSlot {
   return {
     hatarid: '',
@@ -58,24 +69,32 @@ export function createDefaultAgeDiscount(): AgeDiscountSlot {
   }
 }
 
+export function createEmptyOccupationDiscount(): OccupationDiscountSlot {
+  return {
+    foglalkozasok: '',
+    mode: 'nem_fizet',
+    fix_osszeg: null,
+    _clientKey: `occ-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  }
+}
+
 interface FeeDiscountsSectionProps {
   periods: DiscountPeriodSlot[]
   ageDiscount: AgeDiscountSlot
-  /** 2026-06-04: az általános kedvezményes járulék ide került át a Step 4 fő
-   *  alapösszeg-szakaszából (a kedvezmények rögzítéséhez tartozik). */
-  jarulekKedvezmenyes: number
+  /** 2026-06-05: foglalkozás-alapú kedvezmény (pl. tanuló/diák → nem fizet). */
+  occupationDiscounts: OccupationDiscountSlot[]
   onPeriodsChange: (next: DiscountPeriodSlot[]) => void
   onAgeChange: (next: AgeDiscountSlot) => void
-  onJarulekKedvezmenyesChange: (next: number) => void
+  onOccupationChange: (next: OccupationDiscountSlot[]) => void
 }
 
 export function FeeDiscountsSection({
   periods,
   ageDiscount,
-  jarulekKedvezmenyes,
+  occupationDiscounts,
   onPeriodsChange,
   onAgeChange,
-  onJarulekKedvezmenyesChange,
+  onOccupationChange,
 }: FeeDiscountsSectionProps) {
   function addPeriod() {
     onPeriodsChange([...periods, createEmptyDiscountPeriod()])
@@ -87,33 +106,155 @@ export function FeeDiscountsSection({
     onPeriodsChange(periods.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
   }
 
+  function addOccupation() {
+    onOccupationChange([...occupationDiscounts, createEmptyOccupationDiscount()])
+  }
+  function removeOccupation(idx: number) {
+    onOccupationChange(occupationDiscounts.filter((_, i) => i !== idx))
+  }
+  function updateOccupation(idx: number, patch: Partial<OccupationDiscountSlot>) {
+    onOccupationChange(
+      occupationDiscounts.map((o, i) => (i === idx ? { ...o, ...patch } : o)),
+    )
+  }
+
   return (
     <>
-      {/* Általános kedvezményes járulék (áthelyezve a fő alapösszeg-szakaszból) */}
+      {/* Foglalkozás-alapú kedvezmény (pl. tanuló/diák → nem fizet) */}
       <WizardSectionCard
         icon={Tags}
         iconColor="text-amber-700"
         iconBg="bg-amber-50"
-        title="Általános kedvezményes járulék (opcionális)"
-        description="Ha van egy alapértelmezett kedvezményes összeg (pl. nyugdíjasoknak, diákoknak), itt add meg. A részletes, határidőhöz kötött szabályokat lentebb állíthatod be."
+        title="Foglalkozás-alapú kedvezmény (opcionális)"
+        description="Adott foglalkozású tagok automatikus kedvezménye — pl. a tanulók/diákok nem fizetnek, vagy csökkentett összeget fizetnek."
       >
-        <div className="md:max-w-md">
-          <WizardField
-            id="jarulek_kedvezmenyes"
-            label="Általános kedvezményes járulék (RON)"
-            hint="Hagyd üresen, ha nincs ilyen alapértelmezett kedvezmény."
-          >
-            <Input
-              id="jarulek_kedvezmenyes"
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="pl. 60"
-              value={jarulekKedvezmenyes || ''}
-              onChange={e => onJarulekKedvezmenyesChange(Number(e.target.value))}
-            />
-          </WizardField>
-        </div>
+        <WizardBanner tone="info" icon={Info}>
+          <p>
+            <strong>Hogyan működik?</strong> Megadsz egy vagy több foglalkozást
+            (pl. <em>tanuló, diák</em>), és hogy ők mennyit fizetnek. A rendszer a
+            tag <strong>Foglalkozás</strong> mezőjéhez hasonlítja — ezt a
+            Tagnyilvántartásban töltöd ki tagonként.
+          </p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4">
+            <li>
+              Több kulcsszót <strong>vesszővel</strong> sorolj fel
+              (pl. <code>tanuló, diák, egyetemista</code>) — bármelyikre illeszkedik.
+            </li>
+            <li>
+              Az egyezés <strong>ékezet- és kisbetű-érzéketlen</strong>, de teljes
+              szóra megy: a tag foglalkozása pontosan egyezzen valamelyik kulcsszóval.
+            </li>
+            <li>
+              Egyéni eseteket (egy-egy konkrét tag) a Tagnyilvántartásban,
+              felmentéssel is kezelhetsz.
+            </li>
+          </ul>
+        </WizardBanner>
+
+        {occupationDiscounts.length > 0 && (
+          <div className="space-y-3">
+            {occupationDiscounts.map((o, idx) => (
+              <WizardListItem
+                key={o._clientKey}
+                title={o.foglalkozasok || `Új foglalkozás-kedvezmény #${idx + 1}`}
+                subtitle={
+                  o.mode === 'nem_fizet'
+                    ? 'Nem fizet (mentesül)'
+                    : `Fix összeg: ${o.fix_osszeg || 0} RON`
+                }
+                onRemove={() => removeOccupation(idx)}
+              >
+                <WizardField
+                  id={`occ-fogl-${idx}`}
+                  label="Foglalkozás(ok)"
+                  required
+                  hint="Vesszővel elválasztva, pl. tanuló, diák"
+                >
+                  <Input
+                    id={`occ-fogl-${idx}`}
+                    placeholder="tanuló, diák"
+                    value={o.foglalkozasok}
+                    onChange={e =>
+                      updateOccupation(idx, { foglalkozasok: e.target.value })
+                    }
+                  />
+                </WizardField>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-slate-700">
+                    Mennyit fizetnek?
+                  </p>
+                  <div className="flex gap-2">
+                    <label
+                      className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 p-3 text-sm transition-colors ${
+                        o.mode === 'nem_fizet'
+                          ? 'border-amber-500 bg-amber-50'
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`occ-mode-${idx}`}
+                        className="size-4"
+                        checked={o.mode === 'nem_fizet'}
+                        onChange={() => updateOccupation(idx, { mode: 'nem_fizet' })}
+                      />
+                      <span>Nem fizet (0 RON)</span>
+                    </label>
+                    <label
+                      className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 p-3 text-sm transition-colors ${
+                        o.mode === 'fix'
+                          ? 'border-amber-500 bg-amber-50'
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`occ-mode-${idx}`}
+                        className="size-4"
+                        checked={o.mode === 'fix'}
+                        onChange={() => updateOccupation(idx, { mode: 'fix' })}
+                      />
+                      <span>Csökkentett fix összeg</span>
+                    </label>
+                  </div>
+                </div>
+
+                {o.mode === 'fix' && (
+                  <WizardField
+                    id={`occ-osszeg-${idx}`}
+                    label="Fix kedvezményes összeg (RON)"
+                    required
+                    hint="Ennyit kell fizetnie az ilyen foglalkozású tagoknak."
+                  >
+                    <Input
+                      id={`occ-osszeg-${idx}`}
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="60"
+                      value={o.fix_osszeg ?? ''}
+                      onChange={e =>
+                        updateOccupation(idx, {
+                          fix_osszeg: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                    />
+                  </WizardField>
+                )}
+              </WizardListItem>
+            ))}
+          </div>
+        )}
+
+        <WizardAddButton
+          onClick={addOccupation}
+          label={
+            occupationDiscounts.length === 0
+              ? 'Foglalkozás-alapú kedvezmény hozzáadása'
+              : 'További foglalkozás hozzáadása'
+          }
+        />
       </WizardSectionCard>
 
       {/* Időszaki kedvezmények */}
@@ -203,8 +344,8 @@ export function FeeDiscountsSection({
         icon={UserCheck}
         iconColor="text-emerald-700"
         iconBg="bg-emerald-50"
-        title="Kor-alapú kedvezmény (opcionális)"
-        description="Idős tagok (pl. 70 év felettiek) automatikus kedvezménye. Egyetlen szabály — később a tagnyilvántartásban tovább finomítható."
+        title="Kor-alapú kedvezmény — pl. nyugdíjasok (opcionális)"
+        description="A nyugdíjas / idős tagok automatikus kedvezménye egy KORHATÁR alapján. A tag korát a rendszer a születési dátumból számolja, így ehhez nem kell külön jelölni, ki nyugdíjas — csak a korhatárt add meg (pl. 65 év). Egyéni eseteket a Tagnyilvántartásban finomíthatsz."
       >
         <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
           <input

@@ -25,8 +25,12 @@ import {
   WizardSectionCard,
   WizardField,
   WizardBanner,
+  WizardAddButton,
   Input,
 } from './wizard-ui'
+
+/** Mennyi visszamenő évet engedünk maximum felvenni. */
+const MAX_PAST_YEARS = 20
 
 export interface PastYearSlot {
   ev: number // év (pl. 2025)
@@ -62,6 +66,22 @@ export function PastYearsSection({
 
   function updateYear(idx: number, patch: Partial<PastYearSlot>) {
     onChange(years.map((y, i) => (i === idx ? { ...y, ...patch } : y)))
+  }
+
+  // A lista csökkenő sorrendű (legutóbbi év elöl); az új, még korábbi évet a
+  // végére fűzzük.
+  function addOlderYear() {
+    if (years.length >= MAX_PAST_YEARS) return
+    const oldest = years.length > 0 ? years[years.length - 1].ev : new Date().getFullYear() - 1
+    onChange([
+      ...years,
+      { ev: oldest - 1, eves_jarulek: null, jarulek_kedvezmenyes: null, jarulek_hatarid: '' },
+    ])
+  }
+
+  function removeOldestYear() {
+    if (years.length === 0) return
+    onChange(years.slice(0, -1))
   }
 
   const filledCount = years.filter(y => y.eves_jarulek).length
@@ -143,6 +163,26 @@ export function PastYearsSection({
               </div>
             </div>
           ))}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <WizardAddButton
+              onClick={addOlderYear}
+              label={
+                years.length >= MAX_PAST_YEARS
+                  ? `Elérted a maximumot (${MAX_PAST_YEARS} év)`
+                  : 'Még korábbi év hozzáadása'
+              }
+            />
+            {years.length > 1 && (
+              <button
+                type="button"
+                onClick={removeOldestYear}
+                className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-rose-600 hover:underline"
+              >
+                Legkorábbi év ({years[years.length - 1]?.ev}) eltávolítása
+              </button>
+            )}
+          </div>
         </div>
       )}
     </WizardSectionCard>

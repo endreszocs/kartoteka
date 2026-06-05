@@ -215,6 +215,7 @@ export async function getMembers(): Promise<{
         id: m.id,
         sz_datum: m.sz_datum,
         familyId,
+        foglalkozas: m.foglalkozas,
       },
       year: currentYear,
       currentYear,
@@ -252,7 +253,7 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
   const { supabase, congregationId } = await getProfileCongregation()
   const [memberRes, kereszt, konfirm, hazassagRes, temetesRes, bekolt, attert, payments, familyPayments, yearlySettingsRes, exemptionsRes, discountsRes, congregationRes] = await Promise.all([
     congregationId
-      ? supabase.from('szemely').select('sz_datum').eq('id', id).eq('congregation_id', congregationId).maybeSingle()
+      ? supabase.from('szemely').select('sz_datum, foglalkozas').eq('id', id).eq('congregation_id', congregationId).maybeSingle()
       : Promise.resolve({ data: null }),
     supabase.from('keresztseg').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
     supabase.from('konfirmalas').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
@@ -321,7 +322,7 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
       if (year > currentYear) return null
 
       const result = computeJarulekForMemberYear({
-        member: { id, sz_datum: memberRes.data?.sz_datum || null, familyId: familyId || null },
+        member: { id, sz_datum: memberRes.data?.sz_datum || null, familyId: familyId || null, foglalkozas: memberRes.data?.foglalkozas || null },
         year,
         currentYear,
         debtCalcMode,

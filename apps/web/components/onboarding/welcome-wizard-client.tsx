@@ -27,6 +27,7 @@ import {
 import {
   type DiscountPeriodSlot,
   type AgeDiscountSlot,
+  type OccupationDiscountSlot,
   createDefaultAgeDiscount,
 } from './wizard/_helpers/fee-discounts-section'
 import {
@@ -99,6 +100,7 @@ export interface WizardData {
   // Step 4 — Kedvezmények és múlt évek (új)
   discountPeriods: DiscountPeriodSlot[]
   ageDiscount: AgeDiscountSlot
+  occupationDiscounts: OccupationDiscountSlot[]
   pastYears: PastYearSlot[]
 }
 
@@ -148,6 +150,7 @@ const INITIAL_DATA: WizardData = {
   },
   discountPeriods: [],
   ageDiscount: createDefaultAgeDiscount(),
+  occupationDiscounts: [],
   pastYears: buildPastYearsList(CURRENT_YEAR, 5),
 }
 
@@ -220,6 +223,10 @@ export function WelcomeWizardClient() {
         ageDiscount: savedData.ageDiscount
           ? { ...prev.ageDiscount, ...savedData.ageDiscount }
           : prev.ageDiscount,
+        occupationDiscounts:
+          Array.isArray(savedData.occupationDiscounts)
+            ? (savedData.occupationDiscounts as OccupationDiscountSlot[])
+            : prev.occupationDiscounts,
         pastYears:
           Array.isArray(savedData.pastYears) && savedData.pastYears.length > 0
             ? (savedData.pastYears as PastYearSlot[])
@@ -278,6 +285,7 @@ export function WelcomeWizardClient() {
     finance: WizardData['finance'],
     discountPeriods: DiscountPeriodSlot[],
     ageDiscount: AgeDiscountSlot,
+    occupationDiscounts: OccupationDiscountSlot[],
     pastYears: PastYearSlot[],
   ) => {
     setData(prev => ({
@@ -285,12 +293,14 @@ export function WelcomeWizardClient() {
       finance,
       discountPeriods,
       ageDiscount,
+      occupationDiscounts,
       pastYears,
     }))
     const ok = await saveStep(4, {
       finance,
       discountPeriods,
       ageDiscount,
+      occupationDiscounts,
       pastYears,
     })
     if (ok) goNext()

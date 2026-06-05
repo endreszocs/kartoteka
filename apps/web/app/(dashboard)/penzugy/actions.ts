@@ -642,7 +642,7 @@ export async function initFinance(year: number) {
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     supabase
       .from('szemely')
-      .select('id, csaladnev, k_nev, prefix, sz_datum, meghalt, elkoltozott, member_status')
+      .select('id, csaladnev, k_nev, prefix, sz_datum, foglalkozas, meghalt, elkoltozott, member_status')
       .eq('congregation_id', congregationId)
       .eq('isvisible', true),
     supabase
@@ -896,6 +896,7 @@ export async function initFinance(year: number) {
     k_nev: string | null
     prefix: string | null
     sz_datum: string | null
+    foglalkozas: string | null
     meghalt: boolean | null
     elkoltozott: boolean | null
     member_status: string | null
@@ -908,6 +909,7 @@ export async function initFinance(year: number) {
           id: member.id,
           sz_datum: member.sz_datum,
           familyId,
+          foglalkozas: member.foglalkozas,
         },
         year,
         currentYear: year,

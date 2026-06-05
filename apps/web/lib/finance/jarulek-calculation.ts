@@ -3,7 +3,7 @@ import type { DebtCalcMode } from '@/lib/constants/finance'
 export interface JarulekDiscountRule {
   id?: string
   ev: number
-  tipus: 'idoszak' | 'kor' | 'jovedelem'
+  tipus: 'idoszak' | 'kor' | 'jovedelem' | 'foglalkozas'
   aktiv: boolean
   hatarid: string | null
   kedv_osszeg: number | null
@@ -24,6 +24,9 @@ export interface JarulekMemberLike {
   id: number
   sz_datum: string | null
   familyId?: number | null
+  /** 2026-06-05: foglalkozás-alapú kedvezményhez (pl. tanuló/diák). Szabad
+   *  szöveg a `szemely.foglalkozas` mezőből. */
+  foglalkozas?: string | null
 }
 
 export interface JarulekPaymentLike {
@@ -51,6 +54,15 @@ export interface JarulekComputationResult {
 
 function normalizeAmount(value: unknown) {
   return Math.max(0, Number(value) || 0)
+}
+
+/** Foglalkozás-egyezéshez: kisbetűs, ékezet nélküli, trimmelt forma. */
+function normalizeOccupation(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
 }
 
 function parseMonthDay(year: number, monthDay?: string | null) {
@@ -161,6 +173,47 @@ function getAgeAdjustedFee(
   return { amount: bestAmount, labels }
 }
 
+function getOccupationAdjustedFee(
+  member: JarulekMemberLike,
+  baseFee: number,
+  discounts: JarulekDiscountRule[],
+) {
+  const memberOccupation = normalizeOccupation(member.foglalkozas)
+  if (!memberOccupation) return { amount: baseFee, labels: [] as string[] }
+
+  let bestAmount = baseFee
+  const labels: string[] = []
+
+  discounts
+    .filter((discount) => discount.tipus === 'foglalkozas' && discount.aktiv)
+    .forEach((discount) => {
+      // jov_leiras = vesszővel elválasztott foglalkozás-kulcsszavak.
+      // Teljes (token) egyezés, ékezet/kisbetű-érzéketlenül — a részleges
+      // egyezés (pl. "tanulmányi" → "tanul") téves találatot adna.
+      const keywords = String(discount.jov_leiras ?? '')
+        .split(',')
+        .map(normalizeOccupation)
+        .filter(Boolean)
+      if (keywords.length === 0) return
+      if (!keywords.includes(memberOccupation)) return
+
+      const candidate =
+        discount.fix_osszeg != null
+          ? normalizeAmount(discount.fix_osszeg)
+          : discount.szazalek != null
+            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
+            : baseFee
+
+      if (candidate < bestAmount) {
+        bestAmount = candidate
+        labels.length = 0
+        labels.push(`Foglalkozás-kedvezmény (${discount.jov_leiras})`)
+      }
+    })
+
+  return { amount: bestAmount, labels }
+}
+
 function getEarlyPaymentAdjustedFee(
   year: number,
   baseFee: number,
@@ -247,10 +300,14 @@ export function computeJarulekForMemberYear(params: {
 
   const activeDiscounts = discounts.filter((discount) => discount.aktiv && discount.ev === year)
   const ageAdjusted = getAgeAdjustedFee(member, year, baseFee, activeDiscounts)
-  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, ageAdjusted.amount, setting, activeDiscounts, relevantPayments)
+  const occupationAdjusted = getOccupationAdjustedFee(member, baseFee, activeDiscounts)
+  // A kor- és foglalkozás-alapú kedvezmény közül a kedvezőbb (kisebb) megy
+  // tovább az időszaki (early-payment) számításba.
+  const bestBeforeEarly = Math.min(ageAdjusted.amount, occupationAdjusted.amount)
+  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, bestBeforeEarly, setting, activeDiscounts, relevantPayments)
 
-  const expected = Math.min(baseFee, ageAdjusted.amount, earlyAdjusted.amount)
-  const appliedRules = [...ageAdjusted.labels, ...earlyAdjusted.labels]
+  const expected = Math.min(baseFee, ageAdjusted.amount, occupationAdjusted.amount, earlyAdjusted.amount)
+  const appliedRules = [...ageAdjusted.labels, ...occupationAdjusted.labels, ...earlyAdjusted.labels]
 
   return {
     expected,

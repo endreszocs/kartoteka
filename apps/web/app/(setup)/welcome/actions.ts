@@ -96,6 +96,13 @@ export interface WizardPastYearSlot {
   jarulek_hatarid: string
 }
 
+export interface WizardOccupationDiscountSlot {
+  foglalkozasok: string
+  mode: 'nem_fizet' | 'fix'
+  fix_osszeg: number | null
+  _clientKey?: string
+}
+
 export interface WizardData {
   congregation?: Partial<WizardCongregationSlot>
   bankAccounts?: WizardBankAccountSlot[]
@@ -104,6 +111,7 @@ export interface WizardData {
   finance?: Partial<WizardFinanceSlot>
   discountPeriods?: WizardDiscountPeriodSlot[]
   ageDiscount?: WizardAgeDiscountSlot
+  occupationDiscounts?: WizardOccupationDiscountSlot[]
   pastYears?: WizardPastYearSlot[]
 }
 
@@ -197,6 +205,13 @@ const wizardPastYearSchema = z.object({
   jarulek_hatarid: z.string().max(20),
 })
 
+const wizardOccupationDiscountSchema = z.object({
+  foglalkozasok: z.string().max(500),
+  mode: z.enum(['nem_fizet', 'fix']),
+  fix_osszeg: z.number().finite().min(0).max(1_000_000_000).nullable(),
+  _clientKey: z.string().max(200).optional(),
+})
+
 const wizardDataSchema = z.object({
   congregation: wizardCongregationSchema.optional(),
   bankAccounts: z.array(wizardBankAccountSchema).max(50).optional(),
@@ -205,7 +220,8 @@ const wizardDataSchema = z.object({
   finance: wizardFinanceSchema.optional(),
   discountPeriods: z.array(wizardDiscountPeriodSchema).max(20).optional(),
   ageDiscount: wizardAgeDiscountSchema.optional(),
-  pastYears: z.array(wizardPastYearSchema).max(10).optional(),
+  occupationDiscounts: z.array(wizardOccupationDiscountSchema).max(30).optional(),
+  pastYears: z.array(wizardPastYearSchema).max(30).optional(),
 })
 
 export interface WizardProgressRow {
@@ -800,21 +816,23 @@ export async function completeWizard(): Promise<
       }
     }
 
-    // ─── jarulek_kedvezmeny (időszaki + kor-alapú) ───
+    // ─── jarulek_kedvezmeny (időszaki + kor-alapú + foglalkozás-alapú) ───
     // Az aktuális év kedvezmény-szabályait írjuk be. Idempotens újrafutáshoz
     // töröljük a wizard-rel létrehozott aktuális-évi kedvezményeket előbb.
     const currentYearNum = new Date().getFullYear()
     const periodCount = wd.discountPeriods?.length ?? 0
     const ageEnabled = wd.ageDiscount?.enabled === true
-    if (periodCount > 0 || ageEnabled) {
+    const occupationCount =
+      wd.occupationDiscounts?.filter(o => o.foglalkozasok.trim()).length ?? 0
+    if (periodCount > 0 || ageEnabled || occupationCount > 0) {
       // Töröljük a meglévő current_year kedvezmények közül azokat,
-      // amiket a wizard hozhatott létre (idoszak + kor)
+      // amiket a wizard hozhatott létre (idoszak + kor + foglalkozas)
       await writeClient
         .from('jarulek_kedvezmeny')
         .delete()
         .eq('congregation_id', profile.congregation_id)
         .eq('ev', currentYearNum)
-        .in('tipus', ['idoszak', 'kor'])
+        .in('tipus', ['idoszak', 'kor', 'foglalkozas'])
 
       const discountRows: Record<string, unknown>[] = []
 
@@ -855,6 +873,24 @@ export async function completeWizard(): Promise<
           }
           discountRows.push(ageRow)
         }
+      }
+
+      // Foglalkozás-alapú kedvezmény: jov_leiras = kulcsszavak; fix_osszeg =
+      // a fizetendő összeg (nem_fizet → 0).
+      if (Array.isArray(wd.occupationDiscounts)) {
+        wd.occupationDiscounts
+          .filter(o => o.foglalkozasok.trim())
+          .forEach((o, idx) => {
+            discountRows.push({
+              congregation_id: profile.congregation_id,
+              ev: currentYearNum,
+              tipus: 'foglalkozas',
+              sorrend: idx,
+              aktiv: true,
+              jov_leiras: o.foglalkozasok.trim(),
+              fix_osszeg: o.mode === 'nem_fizet' ? 0 : (o.fix_osszeg ?? 0),
+            })
+          })
       }
 
       if (discountRows.length > 0) {

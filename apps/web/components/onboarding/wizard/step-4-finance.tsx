@@ -33,6 +33,7 @@ import {
   FeeDiscountsSection,
   type DiscountPeriodSlot,
   type AgeDiscountSlot,
+  type OccupationDiscountSlot,
 } from './_helpers/fee-discounts-section'
 import {
   PastYearsSection,
@@ -47,6 +48,7 @@ interface Step4Props {
     finance: WizardData['finance'],
     discountPeriods: DiscountPeriodSlot[],
     ageDiscount: AgeDiscountSlot,
+    occupationDiscounts: OccupationDiscountSlot[],
     pastYears: PastYearSlot[],
   ) => void | Promise<void>
   onBack: () => void
@@ -63,6 +65,9 @@ export function Step4Finance({
   const [form, setForm] = useState(data.finance)
   const [discountPeriods, setDiscountPeriods] = useState(data.discountPeriods)
   const [ageDiscount, setAgeDiscount] = useState(data.ageDiscount)
+  const [occupationDiscounts, setOccupationDiscounts] = useState(
+    data.occupationDiscounts,
+  )
   const [pastYears, setPastYears] = useState(data.pastYears)
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
@@ -108,8 +113,20 @@ export function Step4Finance({
       }
     }
 
-    updateData({ finance: form, discountPeriods, ageDiscount, pastYears })
-    await onNext(form, discountPeriods, ageDiscount, pastYears)
+    // Foglalkozás-alapú kedvezmény validáció
+    for (const o of occupationDiscounts) {
+      if (!o.foglalkozasok.trim()) {
+        toast.error('Adj meg legalább egy foglalkozást a foglalkozás-alapú kedvezményhez.')
+        return
+      }
+      if (o.mode === 'fix' && (!Number.isFinite(o.fix_osszeg ?? NaN) || (o.fix_osszeg ?? 0) < 0)) {
+        toast.error('A foglalkozás-alapú fix kedvezményes összeg legyen 0 vagy nagyobb.')
+        return
+      }
+    }
+
+    updateData({ finance: form, discountPeriods, ageDiscount, occupationDiscounts, pastYears })
+    await onNext(form, discountPeriods, ageDiscount, occupationDiscounts, pastYears)
   }
 
   return (
@@ -225,14 +242,14 @@ export function Step4Finance({
         </div>
       </WizardSectionCard>
 
-      {/* Kedvezmények — általános kedvezményes járulék + időszaki + kor */}
+      {/* Kedvezmények — foglalkozás-alapú + időszaki + kor */}
       <FeeDiscountsSection
         periods={discountPeriods}
         ageDiscount={ageDiscount}
-        jarulekKedvezmenyes={form.jarulek_kedvezmenyes}
-        onJarulekKedvezmenyesChange={(n) => update('jarulek_kedvezmenyes', n)}
+        occupationDiscounts={occupationDiscounts}
         onPeriodsChange={setDiscountPeriods}
         onAgeChange={setAgeDiscount}
+        onOccupationChange={setOccupationDiscounts}
       />
 
       {/* Múlt évek — csak akkori módban van értelme */}
