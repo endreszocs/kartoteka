@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Loader2, RotateCcw, Sparkles } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, Loader2, RotateCcw, Sparkles, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { completeWizard } from '@/app/(setup)/welcome/actions'
@@ -28,6 +29,9 @@ export function Step5Finish() {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('committing')
   const [error, setError] = useState<string | null>(null)
+  // 2026-06-05: ha a fiók nincs rendesen összelinkelve egy gyülekezettel
+  // (pl. korábbi, kézzel kitöltött wizard ütközése), a regisztrációhoz irányítunk.
+  const [needsRegistration, setNeedsRegistration] = useState(false)
   const runningRef = useRef(false)
 
   const run = useCallback(async () => {
@@ -39,6 +43,9 @@ export function Step5Finish() {
       if ('error' in result) {
         setPhase('error')
         setError(result.error)
+        setNeedsRegistration(
+          'needsRegistration' in result && result.needsRegistration === true,
+        )
         toast.error('Nem sikerült a beállítás véglegesítése')
         return
       }
@@ -125,35 +132,74 @@ export function Step5Finish() {
             Nem sikerült véglegesíteni
           </h3>
           <p className="mt-2 text-sm text-red-800">{error}</p>
-          <div className="mt-4 text-xs text-red-700">
-            <p>Mit tehetsz:</p>
-            <ul className="mt-1 list-inside list-disc space-y-0.5">
-              <li>Ellenőrizd az internetkapcsolatot</li>
-              <li>Kattints a &quot;Újrapróbálkozás&quot; gombra</li>
-              <li>
-                Ha továbbra is problémás, írj nekünk:{' '}
-                <a
-                  href="mailto:endreszocs@gmail.com"
-                  className="font-semibold underline"
+
+          {needsRegistration ? (
+            <>
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Úgy tűnik, a fiókod nincs gyülekezethez kötve.</p>
+                <p className="mt-1">
+                  Ez akkor fordulhat elő, ha a beállítást még egy korábbi verzióban
+                  kezdted el. Kérjük, <strong>igényelj hozzáférést újra</strong> a
+                  regisztrációs felületen, és válaszd ki a gyülekezetedet — a
+                  rendszergazda gyorsan jóváhagyja.
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href="/hozzaferes-kerese"
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-700"
                 >
-                  endreszocs@gmail.com
-                </a>
-              </li>
-            </ul>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              className="rounded-xl bg-red-600 hover:bg-red-700"
-              onClick={() => {
-                setError(null)
-                setPhase('committing')
-                void run()
-              }}
-            >
-              <RotateCcw className="mr-1.5 size-4" />
-              Újrapróbálkozás
-            </Button>
-          </div>
+                  <UserPlus className="size-4" />
+                  Vissza a regisztrációhoz
+                </Link>
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setError(null)
+                    setNeedsRegistration(false)
+                    setPhase('committing')
+                    void run()
+                  }}
+                >
+                  <RotateCcw className="mr-1.5 size-4" />
+                  Újrapróbálkozás
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mt-4 text-xs text-red-700">
+                <p>Mit tehetsz:</p>
+                <ul className="mt-1 list-inside list-disc space-y-0.5">
+                  <li>Ellenőrizd az internetkapcsolatot</li>
+                  <li>Kattints a &quot;Újrapróbálkozás&quot; gombra</li>
+                  <li>
+                    Ha továbbra is problémás, írj nekünk:{' '}
+                    <a
+                      href="mailto:endreszocs@gmail.com"
+                      className="font-semibold underline"
+                    >
+                      endreszocs@gmail.com
+                    </a>
+                  </li>
+                </ul>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  className="rounded-xl bg-red-600 hover:bg-red-700"
+                  onClick={() => {
+                    setError(null)
+                    setPhase('committing')
+                    void run()
+                  }}
+                >
+                  <RotateCcw className="mr-1.5 size-4" />
+                  Újrapróbálkozás
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

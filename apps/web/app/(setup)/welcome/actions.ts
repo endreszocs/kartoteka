@@ -648,7 +648,7 @@ export async function restartWizard(): Promise<
 // ──────────────────────────────────────────────────────────────────
 
 export async function completeWizard(): Promise<
-  { success: true } | { error: string }
+  { success: true } | { error: string; needsRegistration?: boolean }
 > {
   const supabase = await createClient()
   const {
@@ -1154,7 +1154,15 @@ export async function completeWizard(): Promise<
     const blockingReasons = postStatus.reasons.filter((r) => r !== 'onboarding-not-completed')
     if (blockingReasons.length > 0) {
       const msg = blockingReasons.map((r) => REASON_LABELS[r] || r).join(' ')
-      return { error: `A beállítás nem véglegesíthető: ${msg}` }
+      // 2026-06-05: ha a gyülekezet egyáltalán nincs összelinkelve a fiókkal,
+      // vagy a sora nem létezik (pl. egy korábbi, KÉZZEL kitöltött wizard
+      // ütközése a mostani flow-val), a lelkész fiókja nincs rendesen beállítva.
+      // Ekkor a UI a REGISZTRÁCIÓS felülethez irányít (új hozzáférés-kérés),
+      // a beragadt hibaképernyő helyett.
+      const needsRegistration = blockingReasons.some(
+        (r) => r === 'congregation-missing' || r === 'congregation-row-missing',
+      )
+      return { error: `A beállítás nem véglegesíthető: ${msg}`, needsRegistration }
     }
   }
 
