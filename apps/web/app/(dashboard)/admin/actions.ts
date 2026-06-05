@@ -72,6 +72,11 @@ async function findApprovalTarget(supabase: SupabaseClient, congregationId: stri
 export async function getAdminOverview() {
   const { supabase } = await requireMasterAdmin()
 
+  // 2026-06-05 TELJESÍTMÉNY-FIX: a korábbi N+1 (egyházmegyénként 2 query +
+  // gyülekezetenként külön tagszám-count, ~130 DB round-trip) helyett MINDEN
+  // adatot EGYETLEN párhuzamos köteggel kérünk le. A gyülekezetenkénti aktív
+  // tagszámot egy GROUP BY RPC adja (admin_overview_member_counts), a bontást
+  // és a top10-et JS-ben aggregáljuk. Lásd: 2026-06-05o-admin-overview-stats.sql
   const [
     { count: congCount },
     { count: activeUserCount },
@@ -79,6 +84,8 @@ export async function getAdminOverview() {
     { count: pendingUserCount },
     pendingTicketCount,
     { data: dioceses },
+    { data: allCongs },
+    memberCountsRes,
   ] = await Promise.all([
     supabase.from('congregations').select('*', { count: 'exact', head: true }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'active'),
@@ -86,44 +93,41 @@ export async function getAdminOverview() {
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     getOpenSupportTicketCount(supabase),
     supabase.from('dioceses').select('id, name'),
+    supabase.from('congregations').select('id, nev_hu, name, diocese_id'),
+    supabase.rpc('admin_overview_member_counts'),
   ])
 
-  // EgyhĂˇzmegyĂ©nkĂ©nti megoszlĂˇs
-  const dioceseStats: { name: string; congregations: number; members: number }[] = []
-  if (dioceses) {
-    for (const d of dioceses) {
-      const { data: diocesanCongs } = await supabase
-        .from('congregations')
-        .select('id')
-        .eq('diocese_id', d.id)
-
-      const congregationIds = (diocesanCongs || []).map(congregation => congregation.id)
-      const dMem = await countActiveMembers(supabase, congregationIds)
-
-      dioceseStats.push({
-        name: d.name,
-        congregations: congregationIds.length,
-        members: dMem,
-      })
+  // Gyülekezetenkénti aktív tagszám az RPC-ből (egy GROUP BY). Ha az RPC még
+  // nincs létrehozva (az SQL nem futott le), üres marad → a KPI-k és az oldal
+  // gyorsan betöltenek, a részletes bontás tagszáma ideiglenesen 0.
+  const memberCountByCong = new Map<string, number>()
+  if (!('error' in memberCountsRes && memberCountsRes.error) && Array.isArray(memberCountsRes.data)) {
+    for (const row of memberCountsRes.data as Array<{ congregation_id: string; member_count: number }>) {
+      if (row.congregation_id) memberCountByCong.set(row.congregation_id, Number(row.member_count) || 0)
     }
   }
 
-  // Top 10 gyĂĽlekezet tagszĂˇm szerint
-  const { data: allCongs } = await supabase
-    .from('congregations')
-    .select('id, nev_hu, name')
+  const congs = (allCongs || []) as Array<{ id: string; nev_hu: string | null; name: string | null; diocese_id: string | null }>
 
-  const top10: { name: string; members: number }[] = []
-  if (allCongs) {
-    const counts = await Promise.all(
-      allCongs.map(async (c) => {
-        const count = await countActiveMembers(supabase, [c.id])
-        return { name: c.nev_hu || c.name || 'Ismeretlen', members: count }
-      })
-    )
-    counts.sort((a, b) => b.members - a.members)
-    top10.push(...counts.slice(0, 10))
+  // Egyházmegyénkénti megoszlás — a betöltött gyülekezet-listából aggregálva
+  const byDiocese = new Map<string, { congregations: number; members: number }>()
+  for (const c of congs) {
+    if (!c.diocese_id) continue
+    const e = byDiocese.get(c.diocese_id) || { congregations: 0, members: 0 }
+    e.congregations += 1
+    e.members += memberCountByCong.get(c.id) || 0
+    byDiocese.set(c.diocese_id, e)
   }
+  const dioceseStats = ((dioceses || []) as Array<{ id: string; name: string }>).map((d) => {
+    const e = byDiocese.get(d.id) || { congregations: 0, members: 0 }
+    return { name: d.name, congregations: e.congregations, members: e.members }
+  })
+
+  // Top 10 gyülekezet tagszám szerint
+  const top10 = congs
+    .map((c) => ({ name: c.nev_hu || c.name || 'Ismeretlen', members: memberCountByCong.get(c.id) || 0 }))
+    .sort((a, b) => b.members - a.members)
+    .slice(0, 10)
 
   return {
     kpis: {

@@ -14,7 +14,6 @@ import {
   Flame,
   Inbox,
   LifeBuoy,
-  Loader2,
   PiggyBank,
   ShieldAlert,
   UserCog,
@@ -334,13 +333,10 @@ export function AdminOverviewDashboard() {
           <h2 className="font-heading text-xl text-slate-800">Részletes statisztikák</h2>
         </div>
         <div className="card-raised p-4 sm:p-5">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <OverviewTabRefined />
-          )}
+          {/* 2026-06-05: az OverviewTabRefined saját loading-állapottal rendelkezik,
+              ezért NEM kapuzzuk a fenti két fetch-re — így a nehéz getAdminOverview
+              lekérdezés PÁRHUZAMOSAN fut a KPI-kkal, nem utánuk. */}
+          <OverviewTabRefined />
         </div>
       </section>
 
