@@ -436,6 +436,11 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             onClick={step === 'basics' ? () => onOpenChange(false) : handleBack}
             disabled={isPending || stepSaving}
             className="rounded-xl"
+            title={
+              step === 'basics'
+                ? 'Most kihagyom — 24 óra múlva újra emlékeztetjük a hiányzó adatokra'
+                : undefined
+            }
           >
             {step === 'basics' ? (
               <>
