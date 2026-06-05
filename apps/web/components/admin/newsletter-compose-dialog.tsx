@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Eye, FlaskConical, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react'
+import { Eye, FlaskConical, Loader2, Mail, Monitor, Send, Smartphone, Sparkles, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -60,6 +60,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
   const [showPreview, setShowPreview] = useState(false)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop')
 
   // Reset a megnyitáskor
   useEffect(() => {
@@ -420,8 +421,37 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
               </div>
             ) : (
               <div className="h-full flex flex-col">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-xs font-semibold text-slate-700">Élő előnézet</span>
+                  {/* Desktop / Mobil nézet-váltó — a reszponzivitás ellenőrzéséhez */}
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode('desktop')}
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                        previewMode === 'desktop'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                      title="Asztali nézet"
+                    >
+                      <Monitor className="size-3.5" />
+                      Asztali
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode('mobile')}
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                        previewMode === 'mobile'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                      title="Mobil nézet"
+                    >
+                      <Smartphone className="size-3.5" />
+                      Mobil
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={handlePreview}
@@ -437,11 +467,15 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
                     HTML letöltés
                   </button>
                 </div>
-                <div className="flex-1 rounded-xl bg-white shadow-inner border border-slate-200 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-slate-200/50 shadow-inner border border-slate-200 flex justify-center">
                   <iframe
                     title="Hírlevél előnézet"
                     srcDoc={previewHtml}
-                    className="w-full h-full"
+                    className={`h-full bg-white transition-all duration-300 ${
+                      previewMode === 'mobile'
+                        ? 'w-[390px] max-w-full border-x border-slate-300 shadow-lg'
+                        : 'w-full'
+                    }`}
                   />
                 </div>
               </div>

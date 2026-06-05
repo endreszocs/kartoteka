@@ -12,6 +12,10 @@
 
 import type { ChangelogEntry, ReleaseCategory } from './types'
 
+// A Kartotéka logó — a production domainről szolgáljuk ki, hogy minden
+// email-kliens letölthesse (ugyanaz a forrás, mint a broadcast emailben).
+const LOGO_URL = 'https://kartoteka.app/kartoteka-logo.png'
+
 export interface NewsletterInput {
   /** A hírlevélbe kerülő változásnaplók (már szűrt + sorrendezett). */
   entries: ChangelogEntry[]
@@ -244,6 +248,40 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
     `
     : ''
 
+  // Tartalomjegyzék — rövid áttekintés a kategóriákról és a bennük lévő
+  // bejegyzések címeiről, hogy az olvasó előre lássa, mire számíthat.
+  const presentCategories = orderedCategories.filter((c) => byCategory.has(c))
+  const tocHtml = `
+    <div style="margin:8px 0 4px;padding:18px 20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.6px;color:#64748b;">📑 Tartalomjegyzék</p>
+      <p style="margin:0 0 14px;color:#334155;font-size:13px;line-height:1.55;">
+        Ebben a hírlevélben összesen <strong>${entries.length} fejlesztés</strong> szerepel ${presentCategories.length} témakörben. Az alábbiakban először röviden, majd lentebb részletesen is kifejtve.
+      </p>
+      ${presentCategories
+        .map((c) => {
+          const meta = c === '_other' ? UNCATEGORIZED_META : CATEGORY_META[c as ReleaseCategory]
+          const items = byCategory.get(c)!
+          return `
+            <div style="margin:10px 0;">
+              <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:${meta.color};">
+                <span style="font-size:16px;">${meta.icon}</span>&nbsp; ${esc(meta.label)}
+                <span style="color:#94a3b8;font-weight:600;">(${items.length})</span>
+              </p>
+              <ul style="margin:2px 0 0;padding:0 0 0 26px;color:#475569;">
+                ${items
+                  .map(
+                    (e) =>
+                      `<li style="margin:3px 0;font-size:13px;line-height:1.45;">${esc(e.title)}</li>`,
+                  )
+                  .join('')}
+              </ul>
+            </div>
+          `
+        })
+        .join('')}
+    </div>
+  `
+
   return `<!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -265,10 +303,16 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 
               <!-- HERO -->
               <div style="position:relative;padding:30px 28px 24px;background:linear-gradient(135deg,#0f766e 0%,#0ea5e9 60%,#4f46e5 100%);color:#ffffff;">
-                <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
-                  <span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;background:rgba(255,255,255,0.18);border-radius:12px;font-size:22px;">📬</span>
-                  <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2.4px;opacity:0.9;">Kartotéka fejlesztések</span>
-                </div>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:6px;">
+                  <tr>
+                    <td valign="middle" style="padding-right:12px;">
+                      <img src="${LOGO_URL}" alt="Kartotéka" width="44" height="44" style="display:block;width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,0.18);padding:6px;" />
+                    </td>
+                    <td valign="middle">
+                      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2.4px;opacity:0.9;">Kartotéka fejlesztések</span>
+                    </td>
+                  </tr>
+                </table>
                 <h1 style="margin:6px 0 4px;font-family:Georgia,'Cormorant Garamond',serif;font-size:28px;font-weight:700;line-height:1.2;">
                   ${esc(headerTitle.replace(/^Kartotéka — /, ''))}
                 </h1>
@@ -288,8 +332,13 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                 ${introSection}
               </div>
 
-              <!-- Szekciók -->
-              <div style="padding:0 28px 24px;">
+              <!-- Tartalomjegyzék -->
+              <div style="padding:8px 28px 0;">
+                ${tocHtml}
+              </div>
+
+              <!-- Szekciók (részletes kifejtés) -->
+              <div style="padding:8px 28px 24px;">
                 ${sections}
               </div>
 
@@ -309,7 +358,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
               <!-- Láblec meta -->
               <div style="padding:14px 28px;background:#0f172a;color:#94a3b8;font-size:11px;text-align:center;">
                 <p style="margin:0 0 4px;">
-                  Erdélyi Református Egyházkerület · Kartotéka administrációs rendszer
+                  Kartotéka administrációs rendszer
                 </p>
                 <p style="margin:0;font-family:monospace;opacity:0.7;">
                   Készült: ${new Date().toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -386,6 +435,19 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
     'security', 'breaking', 'feature', 'improvement', 'bugfix', '_other',
   ]
 
+  // Tartalomjegyzék (rövid áttekintés)
+  lines.push('TARTALOMJEGYZÉK')
+  for (const c of orderedCategories) {
+    const items = byCategory.get(c)
+    if (!items || items.length === 0) continue
+    const meta = c === '_other' ? UNCATEGORIZED_META : CATEGORY_META[c as ReleaseCategory]
+    lines.push(`  ${meta.icon}  ${meta.label} (${items.length})`)
+    for (const e of items) {
+      lines.push(`       - ${e.title}`)
+    }
+  }
+  lines.push('')
+
   for (const c of orderedCategories) {
     const items = byCategory.get(c)
     if (!items || items.length === 0) continue
@@ -409,7 +471,7 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
   lines.push('Kérdésed van? Fordulj Szőcs Endréhez: endreszocs@gmail.com')
   lines.push('')
   lines.push('Szeretettel, a Kartotéka fejlesztőcsapata')
-  lines.push('Erdélyi Református Egyházkerület')
+  lines.push('Kartotéka administrációs rendszer')
   lines.push('═══════════════════════════════════════════════════')
 
   return lines.join('\n')

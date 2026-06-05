@@ -20,6 +20,7 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { resolveBroadcastRecipients } from '@/lib/broadcasts/recipients'
 import { sendBroadcastEmail } from '@/lib/broadcasts/email'
 import { parseChangelog } from '@/lib/broadcasts/changelog-parser'
+import { NEWSLETTER_READ_CUTOFF } from '@/lib/broadcasts/types'
 import type {
   BroadcastComposeInput,
   BroadcastRow,
@@ -489,6 +490,9 @@ export async function listChangelogEntries(): Promise<{ data?: ChangelogEntry[];
     return {
       ...e,
       alreadySent: !!status,
+      // A küszöb előtti, még ki nem küldött bejegyzések "olvasott/archivált"
+      // állapotúak — nem kerülnek a hírlevélbe / "kiküldésre vár" listába.
+      readMarked: !status && e.date < NEWSLETTER_READ_CUTOFF,
       broadcastStatus: status
         ? {
             sentAt: status.sent_at,

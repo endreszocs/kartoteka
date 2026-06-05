@@ -77,7 +77,21 @@ export interface ChangelogEntry {
   /** True, ha már broadcast-olva lett (meglévő release_changelog_key a DB-ben) */
   alreadySent: boolean
   broadcastStatus: ChangelogBroadcastStatus | null
+  /**
+   * True, ha a bejegyzés a "régi/archivált" küszöb (NEWSLETTER_READ_CUTOFF) előtti,
+   * és nem lett ténylegesen kiküldve — ezeket NEM küldjük ki hírlevélben, és nem
+   * számítanak "kiküldésre vár"-nak. (Endre kérése 2026-06-05: a május előtti
+   * bejegyzések legyenek olvasottnak tekintve.)
+   */
+  readMarked?: boolean
 }
+
+/**
+ * A változásnapló-küszöb: az ennél a dátumnál régebbi (és még ki nem küldött)
+ * bejegyzéseket "olvasott / archivált" állapotúnak tekintjük — nem kerülnek bele
+ * a hírlevélbe és a "kiküldésre vár" listába.
+ */
+export const NEWSLETTER_READ_CUTOFF = '2026-05-01'
 
 export const BROADCAST_TIPUS_LABELS: Record<BroadcastTipus, string> = {
   info: 'Tájékoztatás',

@@ -150,7 +150,15 @@ export function BroadcastsTab() {
     return () => { cancelled = true }
   }, [])
 
-  const unsentEntries = useMemo(() => entries.filter((e) => !e.alreadySent), [entries])
+  // Aktív bejegyzések: amiket még kezelünk (kiküldés/újraküldés). A "readMarked"
+  // (küszöb előtti, archivált) bejegyzéseket külön, csak-olvasható csoportban
+  // mutatjuk — ezeket nem küldjük ki hírlevélben.
+  const activeEntries = useMemo(() => entries.filter((e) => !e.readMarked), [entries])
+  const archivedEntries = useMemo(() => entries.filter((e) => e.readMarked), [entries])
+  const unsentEntries = useMemo(
+    () => entries.filter((e) => !e.alreadySent && !e.readMarked),
+    [entries],
+  )
 
   function toggleEntry(key: string) {
     setExpandedEntryKeys((current) => {
@@ -171,7 +179,7 @@ export function BroadcastsTab() {
   }
 
   function selectAll() {
-    setSelectedKeys(new Set(entries.map((e) => e.key)))
+    setSelectedKeys(new Set(activeEntries.map((e) => e.key)))
   }
 
   function clearSelection() {
@@ -444,16 +452,16 @@ export function BroadcastsTab() {
 
                 {/* Műveletsor */}
                 <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
-                  {entries.length > 0 && (
+                  {activeEntries.length > 0 && (
                     <>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={selectedKeys.size === entries.length ? clearSelection : selectAll}
+                        onClick={selectedKeys.size === activeEntries.length ? clearSelection : selectAll}
                         disabled={isPending}
                         className="text-xs"
                       >
-                        {selectedKeys.size === entries.length ? 'Kijelölés törlése' : 'Mind kijelölése'}
+                        {selectedKeys.size === activeEntries.length ? 'Kijelölés törlése' : 'Mind kijelölése'}
                       </Button>
                       <Button
                         size="sm"
@@ -477,13 +485,15 @@ export function BroadcastsTab() {
                   </Button>
                 </div>
 
-                {entries.length === 0 ? (
+                {activeEntries.length === 0 ? (
                   <p className="text-sm text-slate-500 italic">
-                    Még nincs rögzített CHANGELOG bejegyzés.
+                    {entries.length === 0
+                      ? 'Még nincs rögzített CHANGELOG bejegyzés.'
+                      : 'Nincs aktív, kiküldhető bejegyzés — a korábbiak archiváltak (lásd lent).'}
                   </p>
                 ) : (
                   <div className="grid gap-3 2xl:grid-cols-2">
-                    {entries.map((e) => (
+                    {activeEntries.map((e) => (
                       <ChangelogEntryCard
                         key={e.key}
                         entry={e}
@@ -499,6 +509,15 @@ export function BroadcastsTab() {
                       />
                     ))}
                   </div>
+                )}
+
+                {/* Archivált (küszöb előtti) bejegyzések — csak olvasásra */}
+                {archivedEntries.length > 0 && (
+                  <ArchivedEntriesGroup
+                    entries={archivedEntries}
+                    expandedKeys={expandedEntryKeys}
+                    onToggle={toggleEntry}
+                  />
                 )}
               </div>
             </section>
@@ -665,6 +684,71 @@ function OverviewSection({
 // ---------------------------------------------------------------------------
 // Részek
 // ---------------------------------------------------------------------------
+
+/**
+ * Archivált (küszöb előtti) bejegyzések — összecsukható, csak-olvasható csoport.
+ * Ezeket NEM küldjük ki hírlevélben; csak visszanézhetők.
+ */
+function ArchivedEntriesGroup({
+  entries,
+  expandedKeys,
+  onToggle,
+}: {
+  entries: ChangelogEntry[]
+  expandedKeys: Set<string>
+  onToggle: (key: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/50">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left"
+      >
+        <Clock className="size-4 text-slate-400" />
+        <span className="text-sm font-medium text-slate-600">Archivált korábbi bejegyzések</span>
+        <Badge className="bg-slate-200 text-slate-600 border-slate-300">{entries.length}</Badge>
+        <span className="ml-1 hidden text-xs text-slate-400 sm:inline">
+          — ezeket nem küldjük ki hírlevélben
+        </span>
+        <ChevronDown
+          className={`ml-auto size-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="divide-y divide-slate-100 border-t border-slate-200">
+          {entries.map((e) => {
+            const expanded = expandedKeys.has(e.key)
+            return (
+              <div key={e.key} className="px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => onToggle(e.key)}
+                  aria-expanded={expanded}
+                  className="flex w-full items-start gap-2 text-left"
+                >
+                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500 ring-1 ring-slate-200">
+                    {e.date}
+                  </span>
+                  <span className="flex-1 text-sm text-slate-600">{e.title}</span>
+                  <ChevronDown
+                    className={`mt-0.5 size-3.5 shrink-0 text-slate-300 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {expanded && (
+                  <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 font-sans text-xs leading-relaxed text-slate-500">
+                    {e.bodyMarkdown || 'Nincs részletes leírás.'}
+                  </pre>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ChangelogEntryCard({
   entry,
