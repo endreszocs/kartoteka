@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Egyszerűbb regisztráció: ha már van fiókod, megmutatjuk hová tartozol
+<!-- key: 2026-06-05-regisztracio-mar-letezo-email -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **„Ez az email már regisztrálva van"**: ha olyan email-címmel próbálsz újra hozzáférést kérni, amivel már van fiókod, a rendszer most megmondja, **melyik gyülekezetnél** vagy már regisztrálva — így nem kell találgatnod, hová tartozol.
+- **Elfelejtett jelszó egy kattintásra**: ugyanazon a képernyőn ott a **Belépés** és az **Elfelejtettem a jelszót** gomb, ami egyből átvisz a jelszó-visszaállításhoz. Nem kell új kérelmet beküldened.
+
+---
+
+## [2026-06-05] — Welcome varázsló: új lelkésznek csak a saját adatait kell megadnia
+<!-- key: 2026-06-05-welcome-ujabb-lelkesz-rovid -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 UX javítások
+
+- **Gyorsabb csatlakozás egy meglévő gyülekezethez**: ha a gyülekezet adatait egy korábbi lelkész már beállította, az újonnan csatlakozó lelkésznek **csak a saját (személyes) adatait** kell megadnia — a gyülekezeti és pénzügyi alapadatokat nem kell újra begépelnie.
+- **„Adatok ellenőrzése" lépés**: a személyes adatok után átnézheted a gyülekezet adatait, és ha valami **hiányzik vagy pontosításra szorul, ott kiegészítheted**. Ha minden rendben, egy kattintással továbbléphetsz.
+
+---
+
+## [2026-06-05] — Egyházfenntartási járulék: rugalmasabb kedvezmények
+<!-- key: 2026-06-05-jarulek-rugalmas-kedvezmenyek -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkciók
+
+- **Foglalkozás-alapú kedvezmény**: beállíthatod, hogy bizonyos foglalkozású tagok (pl. *tanuló, diák*) **ne fizessenek**, vagy csökkentett összeget fizessenek. A rendszer a tag „Foglalkozás" mezője alapján automatikusan alkalmazza. (A korábbi, félreérthető „Általános kedvezményes járulék" mező helyére került.)
+- **Időszaki kedvezmény dátum-tartománnyal**: egy kedvezményes időszaknak mostantól **kezdő ÉS vég dátuma** van, nem csak egyetlen határidő. Pl. *január 1. – július 1. között 160 lej, július 2. – október 31. között 190 lej* — a tag aszerint fizet, hogy mikor rendezi a járulékát.
+- **Korábbi évek bővíthetők**: a beállító varázslóban tetszőleges számú korábbi évet felvehetsz a régi tartozások pontos kiszámításához (nem csak 5-öt).
+
+### 🎨 UX javítások
+
+- **Egyértelműbb pénzügyi lépés**: az „Aktuális év alapösszege" résznél eltűnt a kötelező fizetési határidő — alapértelmezetten egész évben fizethető, a határidő csak a kedvezményeknél releváns.
+
+---
+
+## [2026-06-04] — „Rögzítsd az elsőt!" üdvözlő üres állapotok + welcome finomítások
+<!-- key: 2026-06-04-ures-allapot-udvozlok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 UX javítások
+
+- **Barátságos üres állapotok**: minden fő modulnál (Tagnyilvántartás, Anyakönyvek, Pénzügy, Iktató, Leltár, Temető, Munkanapló, Jegyzőkönyvek) — ha még nincs bejegyzés — egy szép **„Rögzítsd az első…"** üdvözlő kártya segít elindulni.
+- **Welcome varázsló csiszolások**: a beállító varázsló beviteli mezői kiemeltebbek, a fejlécben a Kartotéka logó látszik, és a regisztrációnál megadott **egyházkerület / egyházmegye / egyházközség automatikusan kitöltődik**.
+- **Szolgálati előzmények javítás**: a „Szolgálati előzmények" résznél az évszám mezők most már akadálytalanul szerkeszthetők.
+
+---
+
 ## [2026-05-06c] — 201.1↔201.10 ekvivalencia + 300.01 belső mozgás kód (v0.9.54, csak web)
 <!-- key: 2026-05-06c-201-1-300-01-equivalence -->
 <!-- category: bugfix -->
