@@ -6,6 +6,7 @@ import { ColorTabs } from '@/components/ui/color-tabs'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 
 import { AccessRequestsTab } from './access-requests-tab'
+import { AuditLogTab } from './audit-log-tab'
 import { BroadcastsTab } from './broadcasts-tab'
 import { CongregationsTab } from './congregations-tab'
 import { DataWipeTab } from './data-wipe-tab'
@@ -28,6 +29,7 @@ const TABS = [
   { value: 'users', label: 'Felhasználók', color: 'violet' },
   { value: 'assignments', label: 'Könyvelők / számvevők', color: 'teal' },
   { value: 'devices', label: 'Eszközök és napló', color: 'cyan' },
+  { value: 'audit-log', label: 'Tevékenység-napló', color: 'cyan' },
   { value: 'broadcasts', label: 'Frissítések', color: 'orange' },
   { value: 'support', label: 'Támogatás', color: 'yellow' },
   { value: 'import', label: 'Import', color: 'pink' },
@@ -60,6 +62,9 @@ export function AdminTabsV3({ isGodMode = false }: { isGodMode?: boolean }) {
       </TabsContent>
       <TabsContent value="devices">
         <DevicesLicensesTab />
+      </TabsContent>
+      <TabsContent value="audit-log">
+        <AuditLogTab />
       </TabsContent>
       <TabsContent value="broadcasts">
         <BroadcastsTab />
