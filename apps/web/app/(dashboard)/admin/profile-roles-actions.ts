@@ -218,7 +218,14 @@ export async function createProfileRole(
   let accountActivated = false
   if (!pastorApprovalNeeded) {
     try {
-      const result = await activateAccountOnRoleAssign(input.profileId, input.scope, input.scopeId, supabase)
+      const result = await activateAccountOnRoleAssign(
+        input.profileId,
+        input.scope,
+        input.scopeId,
+        supabase,
+        input.role,
+        input.customLabel,
+      )
       if (result.activated) {
         accountActivated = true
         await logAuditEvent({

@@ -3,7 +3,12 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
-import type { ProfileRoleScope } from '@/lib/profile-roles/types'
+import {
+  ROLE_LABELS,
+  SCOPE_LABELS,
+  type ProfileRoleScope,
+  type ProfileRoleType,
+} from '@/lib/profile-roles/types'
 
 export interface ActivationResult {
   activated: boolean
@@ -20,6 +25,10 @@ export async function activateAccountOnRoleAssign(
   scope: ProfileRoleScope,
   scopeId: string | null,
   client?: SupabaseClient,
+  /** A kiosztott szerepkör — az értesítő üzenethez (opcionális, best-effort). */
+  role?: ProfileRoleType,
+  /** Egyedi szerepkör-címke (ha role === 'custom'). */
+  customLabel?: string | null,
 ): Promise<ActivationResult> {
   const supabase = client ?? (await createClient())
 
@@ -28,15 +37,19 @@ export async function activateAccountOnRoleAssign(
   let p_congregation_id: string | null = null
   let p_diocese_id: string | null = null
   let p_district_id: string | null = null
+  // Az értesítő üzenethez: a hely (gyülekezet/egyházmegye/egyházkerület) neve.
+  let scopeName: string | null = null
 
   if (scope === 'congregation' && scopeId) {
     p_congregation_id = scopeId
     try {
       const { data: cong } = await supabase
         .from('congregations')
-        .select('diocese_id, dioceses:diocese_id(district_id)')
+        .select('nev_hu, name, diocese_id, dioceses:diocese_id(district_id)')
         .eq('id', scopeId)
         .maybeSingle()
+      scopeName =
+        (cong?.nev_hu as string | null) || (cong?.name as string | null) || null
       p_diocese_id = (cong?.diocese_id as string | null) || null
       p_district_id =
         ((cong?.dioceses as { district_id?: string | null } | null)?.district_id as string | null) ||
@@ -49,15 +62,26 @@ export async function activateAccountOnRoleAssign(
     try {
       const { data: dio } = await supabase
         .from('dioceses')
-        .select('district_id')
+        .select('name, district_id')
         .eq('id', scopeId)
         .maybeSingle()
+      scopeName = (dio?.name as string | null) || null
       p_district_id = (dio?.district_id as string | null) || null
     } catch {
       // best-effort
     }
   } else if (scope === 'district' && scopeId) {
     p_district_id = scopeId
+    try {
+      const { data: dis } = await supabase
+        .from('districts')
+        .select('name')
+        .eq('id', scopeId)
+        .maybeSingle()
+      scopeName = (dis?.name as string | null) || null
+    } catch {
+      // best-effort
+    }
   }
 
   // FIX 2026-05-04: SECURITY DEFINER RPC használata a GRANT/RLS megkerüléséhez.
@@ -83,14 +107,54 @@ export async function activateAccountOnRoleAssign(
     return { activated: false, previousStatus: result?.previous_status ?? null, setFields: {} }
   }
 
-  // Sikeres aktiválás — pasztorális értesítés (best-effort)
+  // Sikeres aktiválás — pasztorális, személyre szabott értesítés (best-effort).
+  // Tartalmazza: a felhasználó nevét + üdvözlést, a kiosztott szerepkört és a
+  // helyet, és ha több profilja van, a profilváltás helyét (header).
   try {
+    // Felhasználó neve + profilok száma (a profilváltás-tipphez)
+    const [{ data: prof }, { count: roleCount }] = await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id', profileId).maybeSingle(),
+      supabase
+        .from('profile_roles')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', profileId),
+    ])
+
+    const fullName = (prof?.full_name as string | null)?.trim() || null
+    const greetingName = fullName || 'Testvérünk'
+
+    const roleLabel =
+      role === 'custom'
+        ? customLabel?.trim() || ROLE_LABELS.custom
+        : role
+          ? ROLE_LABELS[role]
+          : null
+    const scopeKind = scope !== 'system' ? SCOPE_LABELS[scope] : null
+
+    // A szerepkör + hely sor összeállítása
+    let roleLine = ''
+    if (roleLabel && scopeName && scopeKind) {
+      roleLine = `\n\nA fiókjához rendelt szerepkör: ${roleLabel} — ${scopeKind}: ${scopeName}.`
+    } else if (roleLabel) {
+      roleLine = `\n\nA fiókjához rendelt szerepkör: ${roleLabel}.`
+    }
+
+    const hasMultipleProfiles = (roleCount ?? 0) > 1
+    const profileSwitchLine = hasMultipleProfiles
+      ? '\n\nMivel több hozzáférése (szerepköre) is van, a fejlécben — jobbra fent, a nevére kattintva — bármikor válthat a profiljai között.'
+      : ''
+
+    const uzenet =
+      `Kedves ${greetingName}! Szeretettel üdvözöljük a Kartotéka rendszer felhasználói között! 🎉\n\n` +
+      `A rendszergazda jóváhagyta a hozzáférését, és szerepkört rendelt a fiókjához — mostantól bejelentkezhet és használhatja a rendszert.` +
+      roleLine +
+      profileSwitchLine
+
     await supabase.from('ertesitesek').insert({
       user_id: profileId,
       tipus: 'success',
-      cim: 'Hozzáférése aktiválva',
-      uzenet:
-        'A rendszergazda jóváhagyta hozzáférését, és szerepkört is rendelt a fiókjához. Mostantól bejelentkezhet a Kartoteka rendszerbe.',
+      cim: 'Üdvözöljük a Kartotékában! 🎉',
+      uzenet,
       olvasva: false,
     })
   } catch {
