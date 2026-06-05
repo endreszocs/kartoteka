@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Lelkészcsere: biztonságos gyülekezet-átadás
+<!-- key: 2026-06-05-lelkeszcsere-atadas -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+Ha másik gyülekezetbe távozol, a gyülekezeted **biztonságosan átadható** az új lelkésznek — úgy, hogy a folytonosság és az adatok védve maradnak.
+
+### ✨ Hogyan működik?
+
+1. **Te indítod**: a gyülekezeti beállítások → **„Lelkészek" fül** alján elindítod az átadást (opcionális indokkal).
+2. **Kettős ellenőrzés**: az indításról a **rendszergazda** és az egyházmegye **számvevője** értesül. Átnézik a gyülekezet adatait, és vagy **jóváhagyják** az átadást, vagy **meghagyásokat** (észrevételeket) rögzítenek, amíg valami nincs rendben. (Ha az egyházmegyében nincs számvevő, a rendszergazda jóváhagyása elég.)
+3. **Véglegesítés**: ha mindkét fél rendben találta, a **rendszergazda** megadja a **bejövő lelkész** email-címét. Ha már a rendszerben van, azonnal megkapja a gyülekezetet (és értesítő emailt); ha még nincs, **meghívót** kap, hogy regisztráljon.
+4. **Automatikus napló**: az átadáskor a **lelkészi szolgálati naplóban** a korábbi szolgálat lezárul, az újé megnyílik — pontos időpontokkal.
+
+### 🔒 Mit jelent ez?
+
+A gyülekezet **adatai nem vesznek el** — csak a felelős lelkész változik. A kettős jóváhagyás (rendszergazda + számvevő) garantálja, hogy az átadás átlátható és ellenőrzött legyen.
+
+---
+
 ## [2026-06-05] — Saját profil törlése a Beállításokban
 <!-- key: 2026-06-05-sajat-profil-torles -->
 <!-- category: feature -->

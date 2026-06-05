@@ -32,6 +32,7 @@ import {
   getOpenTransfer,
   approveTransfer,
   addTransferRemark,
+  completeTransfer,
   type OpenTransfer,
   getDioceses,
   saveCongregationBankAccount,
@@ -167,6 +168,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const [openTransfer, setOpenTransfer] = useState<OpenTransfer | null>(null)
   const [remarkText, setRemarkText] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
+  // 2026-06-05 (F3c): véglegesítés (bejövő lelkész)
+  const [incomingEmail, setIncomingEmail] = useState('')
+  const [completing, setCompleting] = useState(false)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -456,6 +460,31 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     }
   }
 
+  async function handleCompleteTransfer() {
+    if (!openTransfer || !incomingEmail.trim()) return
+    setCompleting(true)
+    try {
+      const res = await completeTransfer({
+        transferId: openTransfer.id,
+        incomingEmail: incomingEmail,
+        congregationId: activeCongregationId,
+      })
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      if (res.needsRegistration) {
+        toast.info('A bejövő lelkész még nincs a rendszerben — meghívó emailt küldtünk. Miután regisztrált és jóváhagytad a hozzáférését, véglegesítheted.')
+      } else {
+        toast.success('Az átadás véglegesítve — az új lelkész hozzáfér a gyülekezethez.')
+        setIncomingEmail('')
+        await loadData()
+      }
+    } finally {
+      setCompleting(false)
+    }
+  }
+
   async function handleSaveCustomFee() {
     const result = await saveCongregationCustomFee(activeCongregationId, customFeeForm)
     if (result.error) {
@@ -727,11 +756,35 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                         </Button>
                       </div>
                     ) : openTransfer.status === 'ready' ? (
-                      <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-emerald-900">
-                        Mindkét fél jóváhagyta. Az átadás véglegesíthető — a rendszergazda megadja az
-                        új lelkésznek a hozzáférést. <em>(A véglegesítés és az új lelkész meghívása
-                        hamarosan elérhető.)</em>
-                      </div>
+                      openTransfer.my_review_role === 'admin' ? (
+                        <div className="space-y-2 rounded-[1rem] border border-emerald-200 bg-emerald-50/50 p-3">
+                          <p className="text-xs text-emerald-900">
+                            Mindkét fél jóváhagyta. Add meg a <strong>bejövő lelkész email-címét</strong>,
+                            és véglegesítsd az átadást. Ha még nincs a rendszerben, meghívó emailt küldünk neki.
+                          </p>
+                          <Field label="Bejövő lelkész email-címe">
+                            <Input
+                              type="email"
+                              value={incomingEmail}
+                              onChange={(e) => setIncomingEmail(e.target.value)}
+                              placeholder="uj.lelkesz@example.com"
+                            />
+                          </Field>
+                          <Button
+                            type="button"
+                            onClick={handleCompleteTransfer}
+                            disabled={completing || !incomingEmail.trim()}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          >
+                            {completing ? 'Véglegesítés…' : 'Átadás véglegesítése'}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-emerald-900">
+                          Mindkét fél jóváhagyta. Az átadást a <strong>rendszergazda</strong> véglegesíti — ő
+                          adja meg az új lelkésznek a hozzáférést.
+                        </div>
+                      )
                     ) : (
                       <p className="text-xs text-slate-500">
                         A felülvizsgálók (rendszergazda + egyházmegyei számvevő) jóváhagyására vár.

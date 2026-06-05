@@ -7,7 +7,11 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email/send'
-import { transferInitiatedEmail } from '@/lib/email/templates/congregation-transfer'
+import {
+  transferInitiatedEmail,
+  transferCompletedEmail,
+  transferInviteEmail,
+} from '@/lib/email/templates/congregation-transfer'
 import { logAuditEvent } from '@/lib/audit/log'
 
 const congregationSchema = z.object({
@@ -467,6 +471,93 @@ export async function addTransferRemark(transferId: string, szoveg: string): Pro
   const { error } = await supabase.rpc('transfer_add_remark', { p_transfer_id: transferId, p_szoveg: szoveg.trim() })
   if (error) return { error: error.message }
   await logAuditEvent({ action: 'transfer.remark.add', targetTable: 'congregation_transfers', targetId: transferId }, supabase)
+  revalidatePath('/congregation')
+  return { success: true }
+}
+
+/**
+ * 2026-06-05 (F3c) — Átadás VÉGREHAJTÁSA (csak rendszergazda, status='ready').
+ * A rendszergazda megadja a bejövő lelkész email-címét:
+ *   - ha létezik a rendszerben → hozzárendeljük a gyülekezethez (RPC), email,
+ *   - ha NEM létezik → meghívó emailt küldünk (regisztráljon), és az átadás
+ *     'ready' marad, amíg a regisztráció + jóváhagyás megtörténik.
+ */
+export async function completeTransfer(input: {
+  transferId: string
+  incomingEmail: string
+  congregationId: string
+}): Promise<{ success?: boolean; needsRegistration?: boolean; error?: string }> {
+  const permission = await requireActiveCongregation(input.congregationId)
+  if ('error' in permission) return { error: permission.error }
+  if (!permission.access.admin) return { error: 'Csak a rendszergazda véglegesítheti az átadást.' }
+  const { supabase } = permission.access
+
+  const email = (input.incomingEmail || '').trim().toLowerCase()
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: 'Adj meg egy érvényes email-címet a bejövő lelkészhez.' }
+  }
+
+  const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+  const admin = getSupabaseAdminClient()
+
+  // Gyülekezet neve az emailekhez
+  const { data: congRow } = await admin
+    .from('congregations')
+    .select('nev_hu, name')
+    .eq('id', input.congregationId)
+    .maybeSingle()
+  const congName =
+    ((congRow as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu) ||
+    ((congRow as { name?: string | null } | null)?.name) ||
+    'a gyülekezet'
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://kartoteka.app'
+
+  // Létezik-e a bejövő lelkész?
+  const { data: existing } = await admin
+    .from('profiles')
+    .select('id, full_name, email')
+    .ilike('email', email)
+    .maybeSingle()
+  const found = existing as { id: string; full_name: string | null; email: string | null } | null
+
+  if (!found) {
+    // Nincs a rendszerben → meghívó email + to_email rögzítése
+    await admin.from('congregation_transfers').update({ to_email: email }).eq('id', input.transferId)
+    const inviteRes = await sendEmail(
+      transferInviteEmail({ recipientEmail: email, congregationName: congName, registerUrl: `${appUrl}/hozzaferes-kerese` }),
+    )
+    if (!inviteRes.success) console.error('[completeTransfer] invite email hiba:', inviteRes.error)
+    await logAuditEvent(
+      { action: 'transfer.invite_sent', targetTable: 'congregation_transfers', targetId: input.transferId, metadata: { email } },
+      supabase,
+    )
+    return { needsRegistration: true }
+  }
+
+  // Létezik → véglegesítés az RPC-vel
+  const { error: rpcErr } = await supabase.rpc('complete_congregation_transfer', {
+    p_transfer_id: input.transferId,
+    p_to_user_id: found.id,
+  })
+  if (rpcErr) return { error: rpcErr.message }
+
+  if (found.email) {
+    const doneRes = await sendEmail(
+      transferCompletedEmail({
+        recipientEmail: found.email,
+        recipientName: found.full_name || undefined,
+        congregationName: congName,
+        loginUrl: `${appUrl}/login`,
+      }),
+    )
+    if (!doneRes.success) console.error('[completeTransfer] completed email hiba:', doneRes.error)
+  }
+
+  await logAuditEvent(
+    { action: 'transfer.complete', targetTable: 'congregation_transfers', targetId: input.transferId, metadata: { to_user_id: found.id } },
+    supabase,
+  )
   revalidatePath('/congregation')
   return { success: true }
 }
