@@ -44,6 +44,15 @@ import {
 
 type WizardStep = 'basics' | 'address' | 'contact' | 'bank' | 'confirm'
 
+/**
+ * 2026-06-05 — A beviteli mezők alapból áttetsző (bg-card/78) háttérrel és
+ * halvány kerettel jelennek meg, ezért beleolvadtak a wizard világos/teal
+ * gradient hátterébe. Ezzel a class-szal tömör fehér hátteret + határozottabb
+ * keretet + finom árnyékot kapnak, így jól kivehető, hova kell írni.
+ */
+const FIELD_INPUT_CLASS =
+  'bg-white border-slate-300 shadow-sm hover:border-slate-400 focus-visible:border-teal-500 focus-visible:ring-teal-500/25'
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -552,6 +561,7 @@ function StepBasics({
           value={form.nev_hu}
           onChange={(e) => setForm({ ...form, nev_hu: e.target.value })}
           placeholder="Pl. Barátosi Református Egyházközség"
+          className={FIELD_INPUT_CLASS}
         />
         {fieldErrors.nev_hu && <p className="text-xs text-rose-600 mt-1">{fieldErrors.nev_hu}</p>}
       </ModalField>
@@ -562,6 +572,7 @@ function StepBasics({
             value={form.nev_ro}
             onChange={(e) => setForm({ ...form, nev_ro: e.target.value })}
             placeholder="Pl. Parohia Reformată Brateș"
+            className={FIELD_INPUT_CLASS}
           />
         </ModalField>
         <ModalField label="Angol név (opcionális)">
@@ -569,6 +580,7 @@ function StepBasics({
             value={form.nev_en}
             onChange={(e) => setForm({ ...form, nev_en: e.target.value })}
             placeholder="Pl. Brateș Reformed Parish"
+            className={FIELD_INPUT_CLASS}
           />
         </ModalField>
       </div>
@@ -578,6 +590,7 @@ function StepBasics({
           value={form.adoszam}
           onChange={(e) => setForm({ ...form, adoszam: e.target.value })}
           placeholder="Pl. 12345678"
+          className={FIELD_INPUT_CLASS}
         />
         {fieldErrors.adoszam && <p className="text-xs text-rose-600 mt-1">{fieldErrors.adoszam}</p>}
       </ModalField>
@@ -671,16 +684,16 @@ function StepContact({
       </div>
 
       <ModalField label="E-mail *">
-        <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="pl. lelkeszi.hivatal@gyulekezet.ro" />
+        <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="pl. lelkeszi.hivatal@gyulekezet.ro" className={FIELD_INPUT_CLASS} />
         {fieldErrors.email && <p className="text-xs text-rose-600 mt-1">{fieldErrors.email}</p>}
       </ModalField>
 
       <ModalField label="Telefon *">
-        <Input value={form.telefon} onChange={(e) => setForm({ ...form, telefon: e.target.value })} placeholder="pl. +40 267 123 456" />
+        <Input value={form.telefon} onChange={(e) => setForm({ ...form, telefon: e.target.value })} placeholder="pl. +40 267 123 456" className={FIELD_INPUT_CLASS} />
       </ModalField>
 
       <ModalField label="Weboldal (opcionális)">
-        <Input value={form.web} onChange={(e) => setForm({ ...form, web: e.target.value })} placeholder="https://..." />
+        <Input value={form.web} onChange={(e) => setForm({ ...form, web: e.target.value })} placeholder="https://..." className={FIELD_INPUT_CLASS} />
       </ModalField>
     </div>
   )
@@ -729,12 +742,12 @@ function StepBank({
       )}
 
       <ModalField label="Bank neve *">
-        <Input value={form.bank} onChange={(e) => setForm({ ...form, bank: e.target.value })} placeholder="Pl. BCR" />
+        <Input value={form.bank} onChange={(e) => setForm({ ...form, bank: e.target.value })} placeholder="Pl. BCR" className={FIELD_INPUT_CLASS} />
         {fieldErrors.bank && <p className="text-xs text-rose-600 mt-1">{fieldErrors.bank}</p>}
       </ModalField>
 
       <ModalField label="IBAN *">
-        <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="RO..." className="font-mono text-xs" />
+        <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="RO..." className={`${FIELD_INPUT_CLASS} font-mono text-xs`} />
         {fieldErrors.iban && <p className="text-xs text-rose-600 mt-1">{fieldErrors.iban}</p>}
       </ModalField>
     </div>
