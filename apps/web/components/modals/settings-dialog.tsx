@@ -32,6 +32,7 @@ import {
   Shield,
   Sun,
   SunMedium,
+  Trash2,
   Type,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -44,7 +45,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
-import { updatePassword } from '@/app/(dashboard)/profile/actions'
+import { updatePassword, eraseMyAccount } from '@/app/(dashboard)/profile/actions'
 
 interface SettingsDialogProps {
   open: boolean
@@ -482,6 +483,10 @@ export function SettingsDialog({
                   Kijelentkezés minden eszközön (hamarosan)
                 </Button>
               </SettingsSection>
+
+              <SettingsSection title="Profil végleges törlése" icon={<Trash2 className="size-4" />}>
+                <SelfDeleteSection />
+              </SettingsSection>
             </TabsContent>
           </div>
         </Tabs>
@@ -618,6 +623,78 @@ function SizeCard({
       <span className={cn('font-serif font-bold text-slate-800', sampleSize)}>{sample}</span>
       <span className="text-xs font-medium text-slate-600">{label}</span>
     </button>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Saját profil végleges törlése (2026-06-05)
+// ──────────────────────────────────────────────────────────────────────────
+
+function SelfDeleteSection() {
+  const [confirmText, setConfirmText] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ready = confirmText.trim() === 'TÖRLÉS'
+
+  async function handle() {
+    if (!ready || busy) return
+    setBusy(true)
+    const res = await eraseMyAccount(reason)
+    if (res.error) {
+      setBusy(false)
+      toast.error(res.error)
+      return
+    }
+    toast.success('A fiókod törölve. Kijelentkeztetünk.')
+    // A session már érvénytelen — teljes újratöltés a login-ra.
+    setTimeout(() => {
+      window.location.href = '/login'
+    }, 1200)
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-[1rem] border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-900">
+        <p className="font-semibold">Ez a művelet visszafordíthatatlan!</p>
+        <p className="mt-1 text-rose-800">
+          A <strong>személyes adataid</strong> (név, e-mail, telefon) véglegesen anonimizálódnak,
+          és a <strong>belépésed megszűnik</strong>. A gyülekezet adatai (tagok, pénzügy, anyakönyv)
+          NEM törlődnek — de a gyülekezet <strong>felelős lelkész nélkül marad</strong>, amíg a
+          rendszergazda új lelkészt nem rendel hozzá. A rendszergazda értesítést kap.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="self-delete-reason">Indok (opcionális)</Label>
+        <Input
+          id="self-delete-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="pl. Nyugdíjba vonultam."
+          disabled={busy}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="self-delete-confirm">
+          A megerősítéshez írd be: <strong>TÖRLÉS</strong>
+        </Label>
+        <Input
+          id="self-delete-confirm"
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          autoComplete="off"
+          disabled={busy}
+        />
+      </div>
+      <Button
+        type="button"
+        onClick={handle}
+        disabled={!ready || busy}
+        className="w-full bg-rose-600 hover:bg-rose-700 text-white gap-2"
+      >
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+        Profilom végleges törlése
+      </Button>
+    </div>
   )
 }
 

@@ -4,6 +4,87 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { createClient } from '@/lib/supabase/server'
+import { logAuditEvent } from '@/lib/audit/log'
+
+/**
+ * 2026-06-05 — SAJÁT fiók végleges törlése (self-service, GDPR-anonimizálás).
+ * A header → Beállítások → Adat & biztonság résznél hívható. Csak a személyes
+ * adat + email tűnik el; a gyülekezet adatai megmaradnak, de a gyülekezet
+ * MEGÜRÜL (felelős lelkész nélkül marad) — erről a rendszergazda értesül.
+ */
+export async function eraseMyAccount(
+  reason?: string,
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezve.' }
+
+  // 1) DB-oldali anonimizálás + a gyülekezet ürítése
+  const { data: rpcRes, error: rpcErr } = await supabase.rpc('erase_my_account', {
+    p_reason: reason?.trim() || null,
+  })
+  if (rpcErr) {
+    const missing = /function .* does not exist|schema cache/i.test(rpcErr.message)
+    return {
+      error: missing
+        ? 'A törlés-funkció adatbázis-része még nincs telepítve (2026-06-05h SQL).'
+        : rpcErr.message,
+    }
+  }
+  const info = (rpcRes || {}) as { congregation_id?: string | null }
+
+  // 2) Audit (a session még él — auth.uid() érvényes)
+  await logAuditEvent(
+    { action: 'user.self_erase', targetTable: 'profiles', targetId: user.id, metadata: { self: true } },
+    supabase,
+  )
+
+  // 3) Rendszergazda értesítése (a gyülekezet megürült) + auth soft-delete
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    const admin = getSupabaseAdminClient()
+
+    if (info.congregation_id) {
+      const { data: congRow } = await admin
+        .from('congregations')
+        .select('nev_hu, name')
+        .eq('id', info.congregation_id)
+        .maybeSingle()
+      const congName =
+        ((congRow as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu) ||
+        ((congRow as { name?: string | null } | null)?.name) ||
+        'egy gyülekezet'
+
+      const { data: admins } = await admin
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+        .eq('status', 'active')
+      for (const a of (admins || []) as Array<{ id: string }>) {
+        await admin.from('ertesitesek').insert([
+          {
+            congregation_id: info.congregation_id,
+            user_id: a.id,
+            cim: `Gyülekezet megürült: ${congName}`,
+            uzenet: `Egy lelkész törölte a fiókját — a(z) ${congName} gyülekezet felelős lelkész nélkül maradt. Kérjük, rendelj hozzá új lelkészt.`,
+            tipus: 'warning',
+            hivatkozas: '/admin?tab=users',
+          },
+        ])
+      }
+    }
+
+    // Auth soft-delete: a belépés megszűnik, az auth-email törlődik (a profil-sor megmarad).
+    await admin.auth.admin.deleteUser(user.id, true)
+  } catch (err) {
+    console.error('[eraseMyAccount] értesítés/soft-delete hiba:', err instanceof Error ? err.message : err)
+  }
+
+  await supabase.auth.signOut()
+  return { success: true }
+}
 
 const profileSchema = z.object({
   fullName: z.string().min(2, 'A teljes név legalább 2 karakter legyen.'),

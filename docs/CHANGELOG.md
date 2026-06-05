@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Saját profil törlése a Beállításokban
+<!-- key: 2026-06-05-sajat-profil-torles -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### ✨ Új funkció
+
+- **Töröld a saját fiókod**: a jobb felső menü → **Beállítások → Adat & biztonság** résznél mostantól véglegesen **törölheted a saját profilodat** (pl. ha nyugdíjba vonulsz). Megerősítéshez be kell írnod, hogy „TÖRLÉS".
+- **Csak a személyes adatod tűnik el**: a neved, e-mailed és telefonszámod anonimizálódik, a belépésed megszűnik — de a **gyülekezet adatai megmaradnak** (tagok, pénzügy, anyakönyv).
+- **A gyülekezet felelős nélkül marad**, amíg a **rendszergazda** új lelkészt nem rendel hozzá — erről a rendszergazda automatikusan **értesítést kap**.
+
+*(Ha másik gyülekezetbe távozol és van utódod, használd inkább a „Gyülekezet átadása" lehetőséget, hogy a folytonosság biztosított legyen.)*
+
+---
+
 ## [2026-06-05] — Fiók végleges törlése — a gyülekezeti adat megőrzésével
 <!-- key: 2026-06-05-fiok-vegleges-torles-gdpr -->
 <!-- category: feature -->
