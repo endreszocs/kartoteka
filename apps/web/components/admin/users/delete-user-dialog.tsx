@@ -44,7 +44,15 @@ export function DeleteUserDialog({
           <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-900">
             <p className="font-semibold">Ez a művelet visszafordíthatatlan!</p>
             <p className="mt-1 text-rose-800">
-              A felhasználó az auth-rendszerből és a profiljából is törlődik. Az értesítések, kiosztott szerepkörök és minden hozzá kötött adat eltűnik.
+              A felhasználó <strong>személyes adatai</strong> (név, email, telefon)
+              véglegesen <strong>anonimizálódnak</strong>, és a <strong>belépése
+              megszűnik</strong>. A kiosztott szerepkörök visszavonódnak.
+            </p>
+            <p className="mt-2 text-rose-800">
+              A <strong>gyülekezet adatai</strong> (tagok, pénzügy, anyakönyv) és a
+              <strong> lelkészi szolgálati napló</strong> NEM törlődnek — a
+              gyülekezetet más veszi át. A naplóban a korábbi szolgálat
+              (a névvel) megmarad, lezárva.
             </p>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 text-sm">

@@ -28,7 +28,7 @@ Ez a dokumentum **három** kért fejlesztés átfogó terve. Most **nem** írunk
 - **#2 Átadás indítása:** az átadást a **TÁVOZÓ lelkész** indítja egy gombbal, amikor készen áll → **értesítést kap az adott egyházmegye számvevője ÉS a rendszergazda**. Ha az egyházmegyében **nincs még regisztrált számvevő**, akkor **a rendszergazda jóváhagyása elég** (a rendszergazda veszi fel a kapcsolatot a számvevővel). A **rendszergazda adja meg** a beérkező lelkésznek a jóváhagyást a gyülekezeti **lelkészi szerepre**.
 - **#3 Audit:** a terv szerint.
 
-**Megvalósítás-haladás:** F1 (audit-alap) ✅ kész + deployolva. **F2a (lelkészi szolgálati napló)** ✅ kész + deployolva. Következik: F2b (törlés/anonimizálás), F3 (átadás a fenti review-flow-val), F4 (sor-szintű audit).
+**Megvalósítás-haladás:** F1 (audit-alap) ✅ · F2a (lelkészi szolgálati napló) ✅ · **F2b (fiók végleges törlése = GDPR-anonimizálás)** ✅ — mind deployolva. A `deleteUser` mostantól anonimizál (csak személyes adat + email tűnik el; minden más marad), auth-oldali soft-delete-tel; az `admin_erase_user()` RPC lezárja a lelkészi tenure-t + megfelelőségi naplót ír. Következik: **F3** (átadás a review-flow-val), **F4** (sor-szintű audit).
 
 ---
 

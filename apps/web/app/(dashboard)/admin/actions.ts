@@ -663,10 +663,18 @@ export async function getAllUsersWithScope(): Promise<{
   return { data: result }
 }
 
-// 2026-05-02 (v0.9.45) — Felhasználó törlése a rendszerből.
+// 2026-06-05 (F2b) — Felhasználó "végleges törlése" = GDPR-ANONIMIZÁLÁS.
 //
-// A `auth.admin.deleteUser` (service-role) törli az auth.users sort. Az ON CASCADE
-// FK-k (profiles, profile_roles, ertesitesek, stb.) automatikusan törlődnek.
+// Endre döntése: a végleges törlés CSAK a SZEMÉLYES adatot + az autentikáló
+// email-t törli — SEMMI MÁS nem törlődik (a gyülekezetet más veszi át, a
+// pénzügyi/anyakönyvi adat megmarad, a lelkészi napló név-pillanatképe megmarad).
+//
+// Két lépés:
+//   1) admin_erase_user() RPC — a profiles PII anonimizálása, szerepek visszavonása,
+//      nyitott lelkészi tenure lezárása, megfelelőségi napló (erasure_requests).
+//   2) auth.admin.deleteUser(id, SOFT) — a login megszűnik, az auth email törlődik.
+//      SOFT (nem hard), mert a profiles_id_fkey NO ACTION — a profil-sornak meg
+//      KELL maradnia (anonimizálva) a hivatkozási integritásért + audit-nyomért.
 //
 // FONTOS: a master admin önmagát NEM törölheti (védelem).
 export async function deleteUser(userId: string): Promise<{ success?: boolean; error?: string }> {
@@ -674,14 +682,17 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
   if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
   if (user?.id === userId) return { error: 'Nem törölheted a saját fiókodat.' }
 
-  // Snapshot a metadata-hoz — a törlés után már nem lekérdezhető
-  const { data: snapshot } = await supabase
-    .from('profiles')
-    .select('email, full_name')
-    .eq('id', userId)
-    .maybeSingle()
+  // 1) DB-oldali anonimizálás (a profil-sor megmarad, csak a PII tűnik el)
+  const { data: eraseRes, error: eraseErr } = await supabase.rpc('admin_erase_user', {
+    p_user_id: userId,
+    p_reason: 'Admin törlés a felhasználó-kezelőből',
+  })
+  if (eraseErr) {
+    return { error: `Az anonimizálás nem sikerült: ${eraseErr.message}` }
+  }
+  const erased = (eraseRes || {}) as { full_name?: string | null; email?: string | null; closed_tenures?: number }
 
-  // Service-role admin client a törléshez
+  // 2) Auth-oldali SOFT-delete: a login megszűnik, az email törlődik az auth-ból.
   const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
   let adminClient
   try {
@@ -693,19 +704,26 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
     }
   }
 
-  const { error: delErr } = await adminClient.auth.admin.deleteUser(userId)
-  if (delErr) return { error: `A törlés nem sikerült: ${delErr.message}` }
-
-  // A profiles sort a CASCADE már törölte, de biztonság kedvéért is:
-  await supabase.from('profiles').delete().eq('id', userId)
+  // shouldSoftDelete = true → az auth.users sor megmarad (anonimizálva), a
+  // session-ök/identitások törlődnek, a belépés lehetetlenné válik.
+  const { error: delErr } = await adminClient.auth.admin.deleteUser(userId, true)
+  if (delErr) {
+    return {
+      error:
+        `A belépés letiltása nem sikerült: ${delErr.message}. ` +
+        'A személyes adatok már anonimizálva lettek; próbáld újra a belépés letiltását.',
+    }
+  }
 
   await logAuditEvent({
-    action: 'user.delete',
+    action: 'user.erase',
     targetTable: 'profiles',
     targetId: userId,
     metadata: {
-      email: snapshot?.email ?? null,
-      full_name: snapshot?.full_name ?? null,
+      email: erased.email ?? null,
+      full_name: erased.full_name ?? null,
+      closed_tenures: erased.closed_tenures ?? 0,
+      mode: 'gdpr_anonymize',
     },
   })
 

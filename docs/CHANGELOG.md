@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Fiók végleges törlése — a gyülekezeti adat megőrzésével
+<!-- key: 2026-06-05-fiok-vegleges-torles-gdpr -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+Ha egy lelkész felhagy a szolgálattal vagy nyugdíjba megy, a fiókja **véglegesen törölhető** — **úgy, hogy a gyülekezet adatai NEM vesznek el**.
+
+### ✨ Hogyan működik?
+
+- **Csak a személyes adatok törlődnek**: a név, az e-mail cím és a telefonszám véglegesen **anonimizálódik**, és a **belépés megszűnik**. Az illető a továbbiakban nem fér hozzá a rendszerhez.
+- **A gyülekezet adatai megmaradnak**: a tagok, a pénzügyi (járulék) és anyakönyvi nyilvántartás **érintetlen** marad — hiszen a gyülekezetet más lelkész veszi át. (Ezeket törvény is védi: megőrzési kötelezettség.)
+- **A szolgálati napló megmarad**: a [lelkészi szolgálati naplóban](#) a korábbi szolgálat a névvel és időponttal **megmarad, lezárva** — így a gyülekezet története végig átlátható.
+- **Adatvédelmi nyilvántartás**: minden törlésről a rendszer feljegyzést készít (ki, mikor, mit anonimizált) — a GDPR-megfelelőség bizonyításához.
+
+*(Hamarosan: a lelkészcsere-átadás biztonságos, kétlépcsős jóváhagyással — a rendszergazda és az egyházmegyei számvevő közös ellenőrzésével.)*
+
+---
+
 ## [2026-06-05] — Lelkészi szolgálati napló a gyülekezetnél
 <!-- key: 2026-06-05-lelkeszi-szolgalati-naplo -->
 <!-- category: feature -->
