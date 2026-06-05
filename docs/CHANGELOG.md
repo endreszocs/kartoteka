@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Inaktív gyülekezetek automatikus jelölése
+<!-- key: 2026-06-05-inaktiv-gyulekezetek -->
+<!-- category: improvement -->
+<!-- targets: rendszergazda -->
+
+### ✨ Új funkció
+
+- **Automatikus „inaktív" jelölés**: az a gyülekezet, ahol **egy éve nincs aktivitás** (sem lelkész-belépés, sem pénzügyi rögzítés), automatikusan **„inaktív" státuszba** kerül. A gyülekezet adatainál figyelmeztető jelzés látható.
+- **Önállóan visszaáll**: ha egy lelkész újra belép, a gyülekezet a következő ellenőrzéskor visszaáll „aktív"-ra. A státusz csak tájékoztató — senkit nem zár ki.
+- Naponta automatikusan frissül (pg_cron).
+
+---
+
 ## [2026-06-05] — Lelkészcsere: biztonságos gyülekezet-átadás
 <!-- key: 2026-06-05-lelkeszcsere-atadas -->
 <!-- category: feature -->

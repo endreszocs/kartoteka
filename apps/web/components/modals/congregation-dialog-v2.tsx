@@ -171,6 +171,8 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   // 2026-06-05 (F3c): véglegesítés (bejövő lelkész)
   const [incomingEmail, setIncomingEmail] = useState('')
   const [completing, setCompleting] = useState(false)
+  // 2026-06-05 (F4a): életciklus-státusz (inaktív gyülekezet jelzés)
+  const [congStatus, setCongStatus] = useState<string | null>(null)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -252,6 +254,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
 
     if (congregation) {
       const currentYear = new Date().getFullYear()
+      setCongStatus((congregation as { status?: string | null }).status ?? null)
       setPublicSite({
         enabled: !!congregation.public_site_enabled,
         slug: congregation.public_slug ?? null,
@@ -554,7 +557,14 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto w-[calc(100%-1rem)] sm:max-w-6xl xl:max-w-[94vw]">
         <DialogHeader>
-          <DialogTitle>Gyülekezetünk adatai</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-center gap-2">
+            Gyülekezetünk adatai
+            {congStatus === 'inactive' && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                Inaktív — 1+ éve nincs aktivitás
+              </span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5">
