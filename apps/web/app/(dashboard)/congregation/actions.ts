@@ -412,6 +412,65 @@ export async function initiateCongregationTransfer(input: {
   return { success: true, auditorsNotified }
 }
 
+export interface OpenTransferRemark {
+  id: string
+  author_role: string | null
+  szoveg: string
+  resolved: boolean
+  created_at: string
+}
+export interface OpenTransfer {
+  id: string
+  status: string
+  from_full_name: string | null
+  reason: string | null
+  admin_approved_at: string | null
+  auditor_approved_at: string | null
+  created_at: string
+  expires_at: string | null
+  /** A bejelentkezett felhasználó felülvizsgáló szerepe: 'admin' | 'szamvevo' | null */
+  my_review_role: 'admin' | 'szamvevo' | null
+  remarks: OpenTransferRemark[]
+}
+
+/** 2026-06-05 (F3b): a gyülekezet nyitott átadása + meghagyások (felülvizsgálathoz). */
+export async function getOpenTransfer(
+  congregationId: string,
+): Promise<{ transfer: OpenTransfer | null; error?: string }> {
+  const permission = await requireActiveCongregation(congregationId)
+  if ('error' in permission) return { transfer: null, error: permission.error }
+  const { supabase } = permission.access
+  const { data, error } = await supabase.rpc('get_open_transfer_for_congregation', {
+    p_congregation_id: congregationId,
+  })
+  if (error) {
+    const missing = /function .* does not exist|schema cache/i.test(error.message)
+    return { transfer: null, error: missing ? undefined : error.message }
+  }
+  return { transfer: (data as OpenTransfer | null) ?? null }
+}
+
+/** Átadás jóváhagyása (admin vagy számvevő). */
+export async function approveTransfer(transferId: string): Promise<{ status?: string; error?: string }> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('transfer_approve', { p_transfer_id: transferId })
+  if (error) return { error: error.message }
+  await logAuditEvent({ action: 'transfer.review.approve', targetTable: 'congregation_transfers', targetId: transferId }, supabase)
+  revalidatePath('/congregation')
+  return { status: (data as { status?: string } | null)?.status }
+}
+
+/** Meghagyás (észrevétel) rögzítése — blokkolja az átadást rendezésig. */
+export async function addTransferRemark(transferId: string, szoveg: string): Promise<{ success?: boolean; error?: string }> {
+  if (!szoveg.trim()) return { error: 'A meghagyás szövege kötelező.' }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('transfer_add_remark', { p_transfer_id: transferId, p_szoveg: szoveg.trim() })
+  if (error) return { error: error.message }
+  await logAuditEvent({ action: 'transfer.remark.add', targetTable: 'congregation_transfers', targetId: transferId }, supabase)
+  revalidatePath('/congregation')
+  return { success: true }
+}
+
 export async function getCongregationAnnualFees(congregationId: string) {
   const permission = await requireActiveCongregation(congregationId)
   if ('error' in permission) return { error: permission.error, rows: [], schemaReady: false }

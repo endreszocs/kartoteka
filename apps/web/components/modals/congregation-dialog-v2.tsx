@@ -29,6 +29,10 @@ import {
   getCongregationPastors,
   type CongregationPastorRow,
   initiateCongregationTransfer,
+  getOpenTransfer,
+  approveTransfer,
+  addTransferRemark,
+  type OpenTransfer,
   getDioceses,
   saveCongregationBankAccount,
   saveCongregationCustomFee,
@@ -159,7 +163,10 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   // 2026-06-05: gyülekezet-átadás indítása
   const [transferReason, setTransferReason] = useState('')
   const [transferring, setTransferring] = useState(false)
-  const [transferStarted, setTransferStarted] = useState(false)
+  // 2026-06-05 (F3b): nyitott átadás felülvizsgálata
+  const [openTransfer, setOpenTransfer] = useState<OpenTransfer | null>(null)
+  const [remarkText, setRemarkText] = useState('')
+  const [reviewBusy, setReviewBusy] = useState(false)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -207,7 +214,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const loadData = useCallback(async () => {
     if (!congregationId) return
 
-    const [congregation, dioceseList, annualFeeResult, bankResult, discountResult, customFeeResult, pastorResult] = await Promise.all([
+    const [congregation, dioceseList, annualFeeResult, bankResult, discountResult, customFeeResult, pastorResult, transferResult] = await Promise.all([
       getCongregation(congregationId),
       getDioceses(),
       getCongregationAnnualFees(congregationId),
@@ -215,6 +222,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
       getCongregationFeeDiscounts(congregationId),
       getCongregationCustomFees(congregationId),
       getCongregationPastors(congregationId),
+      getOpenTransfer(congregationId),
     ])
 
     if ('error' in annualFeeResult && annualFeeResult.error) toast.error(annualFeeResult.error)
@@ -236,6 +244,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     setPastors(pastorResult.rows || [])
     setPastorsSchemaReady(pastorResult.schemaReady !== false)
     if (pastorResult.error) toast.error(pastorResult.error)
+    setOpenTransfer(transferResult.transfer)
 
     if (congregation) {
       const currentYear = new Date().getFullYear()
@@ -395,7 +404,6 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
         toast.error(res.error)
         return
       }
-      setTransferStarted(true)
       if (res.alreadyOpen) {
         toast.info('Ehhez a gyülekezethez már folyamatban van egy átadás.')
       } else {
@@ -405,8 +413,46 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
             : 'Átadás elindítva — a rendszergazda értesítve (az egyházmegyében nincs számvevő).',
         )
       }
+      await loadData()
     } finally {
       setTransferring(false)
+    }
+  }
+
+  async function handleApproveTransfer() {
+    if (!openTransfer) return
+    setReviewBusy(true)
+    try {
+      const res = await approveTransfer(openTransfer.id)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(
+        res.status === 'ready'
+          ? 'Jóváhagyva — az átadás készen áll a véglegesítésre.'
+          : 'A jóváhagyásod rögzítve. A másik fél jóváhagyására várunk.',
+      )
+      await loadData()
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  async function handleAddRemark() {
+    if (!openTransfer || !remarkText.trim()) return
+    setReviewBusy(true)
+    try {
+      const res = await addTransferRemark(openTransfer.id, remarkText)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('Meghagyás rögzítve — az átadás a rendezésig blokkolva.')
+      setRemarkText('')
+      await loadData()
+    } finally {
+      setReviewBusy(false)
     }
   }
 
@@ -597,15 +643,100 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
               </Panel>
 
               <Panel title="Gyülekezet átadása másik lelkésznek">
-                {transferStarted ? (
-                  <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-sm text-emerald-900">
-                    <p className="font-semibold">Az átadás elindult. ✓</p>
-                    <p className="mt-1">
-                      A rendszergazda és — ha van — az egyházmegyei számvevő értesítést kapott.
-                      Átnézik a gyülekezet adatait, majd jóváhagyják az átadást, vagy
-                      meghagyásokat rögzítenek. Utána a rendszergazda adja meg az új
-                      lelkésznek a hozzáférést.
-                    </p>
+                {openTransfer ? (
+                  <div className="space-y-3 text-sm">
+                    <div className="rounded-[1rem] border border-amber-200 bg-amber-50/60 px-3 py-3 text-amber-900">
+                      <p className="font-semibold">Folyamatban lévő átadás</p>
+                      <p className="mt-1 text-amber-800">
+                        Indította: <strong>{openTransfer.from_full_name || 'a lelkész'}</strong>
+                        {' · '}Állapot:{' '}
+                        <strong>
+                          {(({
+                            requested: 'felülvizsgálatra vár',
+                            review: 'felülvizsgálat alatt',
+                            blocked_by_remarks: 'meghagyások miatt blokkolva',
+                            ready: 'jóváhagyva — véglegesítésre kész',
+                          }) as Record<string, string>)[openTransfer.status] || openTransfer.status}
+                        </strong>
+                      </p>
+                      {openTransfer.reason && (
+                        <p className="mt-1 text-amber-800">Indok: {openTransfer.reason}</p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${openTransfer.admin_approved_at ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                        {openTransfer.admin_approved_at ? '✓ Rendszergazda jóváhagyta' : 'Rendszergazda: várakozik'}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${openTransfer.auditor_approved_at ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                        {openTransfer.auditor_approved_at ? '✓ Számvevő jóváhagyta' : 'Számvevő: várakozik'}
+                      </span>
+                    </div>
+
+                    {openTransfer.remarks.length > 0 && (
+                      <div className="rounded-[1rem] border border-rose-200 bg-rose-50/50 p-3">
+                        <p className="mb-1 text-xs font-semibold text-rose-800">Meghagyások</p>
+                        <ul className="space-y-1.5">
+                          {openTransfer.remarks.map((r) => (
+                            <li key={r.id} className="text-xs text-rose-900">
+                              <span className="font-medium">
+                                {r.author_role === 'admin' ? 'Rendszergazda' : 'Számvevő'}:
+                              </span>{' '}
+                              {r.szoveg}
+                              {r.resolved && <span className="ml-1 text-emerald-700">(rendezve)</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {openTransfer.my_review_role && openTransfer.status !== 'ready' ? (
+                      <div className="space-y-2 rounded-[1rem] border border-sky-200 bg-sky-50/50 p-3">
+                        <p className="text-xs text-sky-900">
+                          Te{' '}
+                          <strong>
+                            {openTransfer.my_review_role === 'admin' ? 'rendszergazdaként' : 'számvevőként'}
+                          </strong>{' '}
+                          vizsgálhatod felül. Nézd át a gyülekezet adatait a többi fülön, majd hagyd
+                          jóvá, vagy rögzíts meghagyást.
+                        </p>
+                        <Button
+                          type="button"
+                          onClick={handleApproveTransfer}
+                          disabled={reviewBusy}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          Áttekintés rendben — jóváhagyom
+                        </Button>
+                        <Field label="Meghagyás / észrevétel (ha valami nincs rendben)">
+                          <textarea
+                            value={remarkText}
+                            onChange={(e) => setRemarkText(e.target.value)}
+                            rows={2}
+                            placeholder="pl. A 2024-es számadás hiányzik a pénzügynél."
+                            className="w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm"
+                          />
+                        </Field>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleAddRemark}
+                          disabled={reviewBusy || !remarkText.trim()}
+                        >
+                          Meghagyás rögzítése
+                        </Button>
+                      </div>
+                    ) : openTransfer.status === 'ready' ? (
+                      <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-emerald-900">
+                        Mindkét fél jóváhagyta. Az átadás véglegesíthető — a rendszergazda megadja az
+                        új lelkésznek a hozzáférést. <em>(A véglegesítés és az új lelkész meghívása
+                        hamarosan elérhető.)</em>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        A felülvizsgálók (rendszergazda + egyházmegyei számvevő) jóváhagyására vár.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <>
