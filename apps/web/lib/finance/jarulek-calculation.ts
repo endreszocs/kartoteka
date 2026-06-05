@@ -5,6 +5,8 @@ export interface JarulekDiscountRule {
   ev: number
   tipus: 'idoszak' | 'kor' | 'jovedelem' | 'foglalkozas'
   aktiv: boolean
+  /** 2026-06-05: időablak kezdő dátuma (HH-NN). NULL → régi (kumulatív) mód. */
+  kezdet?: string | null
   hatarid: string | null
   kedv_osszeg: number | null
   kor_tol: number | null
@@ -138,6 +140,19 @@ function sumPaymentsUntil(payments: JarulekPaymentLike[], deadline: Date | null)
   }, 0)
 }
 
+/** A [start, end] időablakba eső befizetések összege. Ha start null, az ablak
+ *  alsó határa nyitott (≙ a régi „határidőig" kumulatív viselkedés). */
+function sumPaymentsInRange(payments: JarulekPaymentLike[], start: Date | null, end: Date | null) {
+  if (!end) return 0
+  return payments.reduce((sum, payment) => {
+    const paymentDate = parseComparableDate(payment.datum)
+    if (!paymentDate) return sum
+    if (paymentDate.getTime() > end.getTime()) return sum
+    if (start && paymentDate.getTime() < start.getTime()) return sum
+    return sum + normalizeAmount(payment.osszeg)
+  }, 0)
+}
+
 function getAgeAdjustedFee(
   member: JarulekMemberLike,
   year: number,
@@ -241,6 +256,13 @@ function getEarlyPaymentAdjustedFee(
       const deadline = parseMonthDay(year, discount.hatarid)
       if (!deadline) return
 
+      // 2026-06-05: dátum-tartomány. Ha van kezdő dátum, a befizetésnek a
+      // [kezdet, hatarid] ablakba kell esnie. Ha nincs, az alsó határ nyitott
+      // (régi viselkedés). Az ablak végét egy nappal kiterjesztjük (a vég-nap
+      // is beleszámít, 23:59-ig).
+      const windowStart = parseMonthDay(year, discount.kezdet)
+      const windowEnd = new Date(deadline.getTime() + 24 * 60 * 60 * 1000 - 1)
+
       const candidate =
         discount.kedv_osszeg != null
           ? normalizeAmount(discount.kedv_osszeg)
@@ -250,11 +272,15 @@ function getEarlyPaymentAdjustedFee(
 
       if (candidate <= 0) return
 
-      const paidByDeadline = sumPaymentsUntil(relevantPayments, deadline)
-      if (paidByDeadline >= candidate && candidate < bestAmount) {
+      const paidInWindow = sumPaymentsInRange(relevantPayments, windowStart, windowEnd)
+      if (paidInWindow >= candidate && candidate < bestAmount) {
         bestAmount = candidate
         labels.length = 0
-        labels.push(`Időszaki kedvezmény (${discount.hatarid})`)
+        labels.push(
+          windowStart
+            ? `Időszaki kedvezmény (${discount.kezdet}–${discount.hatarid})`
+            : `Időszaki kedvezmény (${discount.hatarid})`,
+        )
       }
     })
 

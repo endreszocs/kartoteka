@@ -79,6 +79,7 @@ interface FeeDiscountRow {
   tipus: 'idoszak' | 'kor' | 'jovedelem'
   sorrend: number
   aktiv: boolean
+  kezdet: string | null
   hatarid: string | null
   kedv_osszeg: number | null
   kor_tol: number | null
@@ -122,6 +123,7 @@ function getEmptyDiscountForm(defaultYear: number) {
     tipus: 'idoszak' as 'idoszak' | 'kor' | 'jovedelem',
     sorrend: 0,
     aktiv: true,
+    kezdet: '01-01',
     hatarid: '07-01',
     kedvOsszeg: 0,
     korTol: 65,
@@ -731,6 +733,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                                           tipus: discount.tipus,
                                           sorrend: discount.sorrend,
                                           aktiv: discount.aktiv,
+                                          kezdet: discount.kezdet || '01-01',
                                           hatarid: discount.hatarid || '07-01',
                                           kedvOsszeg: discount.kedv_osszeg ?? 0,
                                           korTol: discount.kor_tol ?? 65,
@@ -797,8 +800,11 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
 
                       {discountForm.tipus === 'idoszak' && (
                         <div className="rounded-[1rem] border border-sky-100 bg-sky-50/40 p-3">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Fizetési határidő (HH-NN)">
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <Field label="Kezdő dátum (HH-NN)">
+                              <Input value={discountForm.kezdet} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kezdet: event.target.value }))} placeholder="01-01" />
+                            </Field>
+                            <Field label="Vég dátum (HH-NN)">
                               <Input value={discountForm.hatarid} onChange={(event) => setDiscountForm((prev) => ({ ...prev, hatarid: event.target.value }))} placeholder="07-01" />
                             </Field>
                             <Field label="Kedvezményes összeg (RON)">
@@ -806,7 +812,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                             </Field>
                           </div>
                           <p className="mt-2 text-[11px] text-slate-500">
-                            Aki a határidőig fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett.
+                            Aki a <strong>kezdő–vég dátum</strong> időablakban fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett. Több időablak is felvehető (pl. 01-01–07-01 → 160, 07-02–10-31 → 190).
                           </p>
                         </div>
                       )}
@@ -1495,7 +1501,7 @@ function DiscountCard({
 }) {
   const description =
     discount.tipus === 'idoszak'
-      ? `Határidő: ${discount.hatarid || '—'} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
+      ? `Időablak: ${discount.kezdet || '—'}–${discount.hatarid || '—'} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
       : discount.tipus === 'kor'
         ? `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
         : `${discount.szazalek || 0}% vagy ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON · ${discount.jov_leiras || 'Szociális kedvezmény'}`

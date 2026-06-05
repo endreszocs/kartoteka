@@ -76,6 +76,7 @@ export interface WizardFinanceSlot {
 }
 
 export interface WizardDiscountPeriodSlot {
+  kezdet: string
   hatarid: string
   kedv_osszeg: number
   _clientKey?: string
@@ -185,6 +186,7 @@ const wizardFinanceSchema = z.object({
 })
 
 const wizardDiscountPeriodSchema = z.object({
+  kezdet: z.string().regex(DATE_MM_DD).or(z.literal('')),
   hatarid: z.string().regex(DATE_MM_DD).or(z.literal('')),
   kedv_osszeg: z.number().finite().min(0).max(1_000_000_000),
   _clientKey: z.string().max(200).optional(),
@@ -840,7 +842,9 @@ export async function completeWizard(): Promise<
         wd.discountPeriods
           .filter(
             p =>
-              /^\d{2}-\d{2}$/.test(p.hatarid) && Number(p.kedv_osszeg) > 0,
+              /^\d{2}-\d{2}$/.test(p.kezdet) &&
+              /^\d{2}-\d{2}$/.test(p.hatarid) &&
+              Number(p.kedv_osszeg) > 0,
           )
           .forEach((p, idx) => {
             discountRows.push({
@@ -849,6 +853,7 @@ export async function completeWizard(): Promise<
               tipus: 'idoszak',
               sorrend: idx,
               aktiv: true,
+              kezdet: p.kezdet,
               hatarid: p.hatarid,
               kedv_osszeg: p.kedv_osszeg,
             })

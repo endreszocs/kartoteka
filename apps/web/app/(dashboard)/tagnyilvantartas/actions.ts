@@ -90,7 +90,7 @@ export async function getMembers(): Promise<{
     // 2026-06-01: a `childrenRes` üresen marad (a fenti egy lekérdezés átveszi)
     Promise.resolve({ data: [] }),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(currentYear)),
-    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true),
+    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true),
     supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
     // 2026-04-30: pending átjelentkezési kérelmek (a saját gyülekezet a forrás)
     supabase
@@ -272,7 +272,7 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
         : supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('id_szemely', id)
       : Promise.resolve({ data: [] }),
     congregationId
-      ? supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true)
+      ? supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true)
       : Promise.resolve({ data: [] }),
     congregationId
       ? supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle()

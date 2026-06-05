@@ -26,7 +26,8 @@ import {
 } from './wizard-ui'
 
 export interface DiscountPeriodSlot {
-  hatarid: string // MM-DD formátum
+  kezdet: string // MM-DD — az időablak kezdő dátuma
+  hatarid: string // MM-DD — az időablak vég dátuma
   kedv_osszeg: number // teljes RON összeg (NEM százalék) — egyszerűbb pasztorálisan
   _clientKey: string
 }
@@ -53,6 +54,7 @@ export interface OccupationDiscountSlot {
 
 export function createEmptyDiscountPeriod(): DiscountPeriodSlot {
   return {
+    kezdet: '',
     hatarid: '',
     kedv_osszeg: 0,
     _clientKey: `disc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -263,15 +265,17 @@ export function FeeDiscountsSection({
         iconColor="text-violet-700"
         iconBg="bg-violet-50"
         title="Kedvezményes időszakok (opcionális)"
-        description="Adott határidőig kedvezményes összeggel fizethetnek a tagok. Több időszak is felvehető — pl. március 31-ig 50%, május 31-ig 25%."
+        description="Dátum-tartományonként eltérő kedvezményes összeg. Több időszak is felvehető — pl. 01-01–07-01 között 160 RON, 07-02–10-31 között 190 RON."
       >
         <WizardBanner tone="info">
           <p>
-            <strong>Hogyan működik?</strong> A tagnyilvántartásban minden tagra
-            automatikusan kiszámolódik, mennyi a járuléka. Ha a tag a megadott
-            határidő (pl. <code>03-31</code>) <em>előtt</em> fizet, akkor a
-            kedvezményes összeg jár. Egyébként a teljes éves járulékot
-            kell befizetnie.
+            <strong>Hogyan működik?</strong> Minden időszaknak van egy
+            <strong> kezdő</strong> és egy <strong>vég</strong> dátuma + egy
+            összeg. A tag aszerint fizet, hogy a befizetése melyik időablakba
+            esik — pl. <code>01-01</code>–<code>07-01</code> között 160 RON,
+            <code> 07-02</code>–<code>10-31</code> között 190 RON. Aki egyik
+            ablakban sem fizeti be a kedvezményes összeget, a teljes éves
+            járulékkal tartozik.
           </p>
         </WizardBanner>
 
@@ -281,49 +285,65 @@ export function FeeDiscountsSection({
               <WizardListItem
                 key={p._clientKey}
                 title={
-                  p.hatarid
-                    ? `${p.hatarid} – ${p.kedv_osszeg || 0} RON`
+                  p.kezdet || p.hatarid
+                    ? `${p.kezdet || '?'}–${p.hatarid || '?'} · ${p.kedv_osszeg || 0} RON`
                     : `Új időszaki kedvezmény #${idx + 1}`
                 }
-                subtitle="Aki ezelőtt a határidő előtt fizet, ennyit fizet."
+                subtitle="Aki ebben az időablakban fizet, ennyit fizet."
                 onRemove={() => removePeriod(idx)}
               >
                 <WizardInputGrid cols={2}>
                   <WizardField
-                    id={`disc-hatarid-${idx}`}
-                    label="Határidő (MM-DD)"
+                    id={`disc-kezdet-${idx}`}
+                    label="Kezdő dátum (MM-DD)"
                     required
-                    hint="Hónap-Nap formátum, pl. 03-31"
+                    hint="Hónap-Nap, pl. 01-01"
+                  >
+                    <Input
+                      id={`disc-kezdet-${idx}`}
+                      placeholder="01-01"
+                      value={p.kezdet}
+                      onChange={e =>
+                        updatePeriod(idx, { kezdet: e.target.value })
+                      }
+                    />
+                  </WizardField>
+                  <WizardField
+                    id={`disc-hatarid-${idx}`}
+                    label="Vég dátum (MM-DD)"
+                    required
+                    hint="Hónap-Nap, pl. 07-01"
                   >
                     <Input
                       id={`disc-hatarid-${idx}`}
-                      placeholder="03-31"
+                      placeholder="07-01"
                       value={p.hatarid}
                       onChange={e =>
                         updatePeriod(idx, { hatarid: e.target.value })
                       }
                     />
                   </WizardField>
-                  <WizardField
-                    id={`disc-osszeg-${idx}`}
-                    label="Kedvezményes összeg (RON)"
-                    required
-                  >
-                    <Input
-                      id={`disc-osszeg-${idx}`}
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="60"
-                      value={p.kedv_osszeg || ''}
-                      onChange={e =>
-                        updatePeriod(idx, {
-                          kedv_osszeg: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </WizardField>
                 </WizardInputGrid>
+                <WizardField
+                  id={`disc-osszeg-${idx}`}
+                  label="Kedvezményes összeg (RON)"
+                  required
+                  hint="Aki ebben az időablakban fizet, ennyit fizet."
+                >
+                  <Input
+                    id={`disc-osszeg-${idx}`}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="160"
+                    value={p.kedv_osszeg || ''}
+                    onChange={e =>
+                      updatePeriod(idx, {
+                        kedv_osszeg: Number(e.target.value),
+                      })
+                    }
+                  />
+                </WizardField>
               </WizardListItem>
             ))}
           </div>

@@ -660,7 +660,7 @@ export async function initFinance(year: number) {
     Promise.resolve({ data: [] }),
     supabase
       .from('jarulek_kedvezmeny')
-      .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+      .select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
       .eq('congregation_id', congregationId)
       .eq('aktiv', true),
   ])

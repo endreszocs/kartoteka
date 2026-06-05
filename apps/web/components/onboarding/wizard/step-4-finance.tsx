@@ -85,8 +85,12 @@ export function Step4Finance({
     // jarulek_hatarid mezője az alapértelmezett '12-31'-et kapja (egész év).
     // Validáció: kedvezményes időszakok mindegyike helyesen kitöltve
     for (const p of discountPeriods) {
-      if (!/^\d{2}-\d{2}$/.test(p.hatarid)) {
-        toast.error('Minden kedvezményes időszak határidejét MM-DD formátumban add meg.')
+      if (!/^\d{2}-\d{2}$/.test(p.kezdet) || !/^\d{2}-\d{2}$/.test(p.hatarid)) {
+        toast.error('Minden kedvezményes időszak kezdő ÉS vég dátumát MM-DD formátumban add meg.')
+        return
+      }
+      if (p.kezdet > p.hatarid) {
+        toast.error('A kedvezményes időszak kezdő dátuma ne legyen későbbi, mint a vég dátuma.')
         return
       }
       if (!Number.isFinite(p.kedv_osszeg) || p.kedv_osszeg <= 0) {
