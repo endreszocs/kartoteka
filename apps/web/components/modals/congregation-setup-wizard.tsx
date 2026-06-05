@@ -1,29 +1,25 @@
 'use client'
 
 /**
- * Gyülekezeti setup wizard — a gyülekezet alapadatainak kötelező bevitele.
+ * Gyülekezeti setup — a gyülekezet alapadatainak bevitele / szerkesztése.
+ *
+ * 2026-06-05 (Endre kérése): a korábbi lépcsős "kezdő beállítás varázsló" helyett
+ * EGYLAPOS, görgethető szerkesztő. Minden szakasz egyszerre látható és bármikor
+ * szerkeszthető — ugyanaz a tartalom, ami a welcome oldalon is megtalálható és
+ * változtatható: alapadatok + címer, cím, elérhetőség, és TÖBB bankszámla.
  *
  * Mikor jelenik meg:
  *   - Automatikusan a /dashboard első betöltéskor, ha a gyülekezet alapadatai
- *     még hiányoznak (lásd checkCongregationSetupStatus).
+ *     még hiányoznak (lásd checkCongregationSetupStatus). A "Később" gomb
+ *     24 órára elhalasztja (lásd CongregationSetupAutoOpen).
  *   - Kattintásra a globális CongregationSetupBanner-ből (minden oldalon).
- *
- * 5 lépéses (mindent ki kell tölteni):
- *   1. Alapadatok + címer feltöltés
- *   2. Cím (megye, város, utca+házszám)
- *   3. Elérhetőségek (email, telefon, weboldal)
- *   4. Bank (bank név, IBAN)
- *   5. Megerősítés + mentés
- *
- * A wizard az X gombbal bezárható — ekkor a banner marad, és a lelkész
- * bármikor újra elindíthatja.
  */
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, ArrowRight, Church, CheckCircle2, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Phone, Save, Upload, X, AlertCircle,
+  AlertCircle, Banknote, Church, FileText, Image as ImageIcon,
+  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -33,22 +29,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModalField } from '@/components/ui/modal-field'
-import { Badge } from '@/components/ui/badge'
-import { AddressForm, EMPTY_ADDRESS, type AddressValue } from '@/components/ui/address-form'
+import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import {
   getCongregationForSetup,
   saveCongregationSetup,
-  saveCongregationSetupStep,
   uploadCongregationCimer,
+  getCongregationBankAccounts,
+  saveCongregationBankAccount,
+  deleteCongregationBankAccount,
 } from '@/app/(dashboard)/congregation/actions'
 
-type WizardStep = 'basics' | 'address' | 'contact' | 'bank' | 'confirm'
-
 /**
- * 2026-06-05 — A beviteli mezők alapból áttetsző (bg-card/78) háttérrel és
- * halvány kerettel jelennek meg, ezért beleolvadtak a wizard világos/teal
- * gradient hátterébe. Ezzel a class-szal tömör fehér hátteret + határozottabb
- * keretet + finom árnyékot kapnak, így jól kivehető, hova kell írni.
+ * A beviteli mezők erősebb kiemelése (tömör fehér háttér + határozott keret),
+ * hogy ne olvadjanak a wizard világos/teal gradient hátterébe.
  */
 const FIELD_INPUT_CLASS =
   'bg-white border-slate-300 shadow-sm hover:border-slate-400 focus-visible:border-teal-500 focus-visible:ring-teal-500/25'
@@ -85,58 +78,32 @@ interface SetupFormState {
 
 type SetForm = (f: SetupFormState) => void
 
-const STEP_ORDER: WizardStep[] = ['basics', 'address', 'contact', 'bank', 'confirm']
-
-// Pure step-validáció — a wizard kliens ÉS az init ugyanazt használja
-// (így a betöltés után meg tudja mondani, melyik az első hiányos lépés).
-function isStepValidOn(s: WizardStep, form: SetupFormState): boolean {
-  // FIX 2026-05-04: a címer-kötelezőség levéve (Endre kérése). A wizard
-  // tovább engedi enélkül; később bármikor feltölthető a Gyülekezetünk
-  // dialógusban. Hasonlóan a cím (utca) is opcionális — csak a megye + város
-  // kötelező (sok kis falusi gyülekezetnél nincs külön utcanév).
-  if (s === 'basics')
-    return form.nev_hu.length >= 2 && form.adoszam.trim().length > 0
-  if (s === 'address')
-    return form.megye.trim().length > 0 && form.varos.trim().length > 0
-  if (s === 'contact')
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) && form.telefon.trim().length > 0
-  if (s === 'bank')
-    return form.bank.trim().length > 0 && form.iban.trim().length > 0
-  if (s === 'confirm')
-    return STEP_ORDER.slice(0, -1).every((st) => isStepValidOn(st, form))
-  return false
+/** Egy bankszámla a szerkesztőben (meglévő → id; új → id undefined). */
+interface BankSlot {
+  id?: number
+  bank_neve: string
+  iban: string
+  valuta: 'RON' | 'EUR' | 'USD' | 'HUF'
+  is_default: boolean
+  /** Megőrzött, nem szerkesztett mezők (a mentésnél visszaírjuk). */
+  nyito_egyenleg: number
+  szin: string
+  ikon: string
+  _key: string
 }
 
-// Melyik mezőket ment a partial-save action az adott lépésen?
-// Megjegyzés: a "Partial<SetupFormState>" típust direkt `Record`-ként adjuk, hogy
-// a save-step-action minden új mezőjét is vehessük.
-function stepFields(s: WizardStep, form: SetupFormState): Record<string, unknown> {
-  switch (s) {
-    case 'basics':
-      return {
-        nev_hu: form.nev_hu,
-        nev_ro: form.nev_ro,
-        nev_en: form.nev_en,
-        adoszam: form.adoszam,
-        cimer_url: form.cimer_url,
-      }
-    case 'address':
-      return {
-        megye: form.megye,
-        varos: form.varos,
-        cim: form.cim,
-        iranyitoszam: form.iranyitoszam,
-        hazszam: form.hazszam,
-        country: form.country,
-        adrlocality_id: form.adrlocality_id,
-        adrstreet_id: form.adrstreet_id,
-      }
-    case 'contact':
-      return { email: form.email, telefon: form.telefon, web: form.web }
-    case 'bank':
-      return { bank: form.bank, iban: form.iban }
-    default:
-      return {}
+let bankKeySeq = 0
+function newBankSlot(isDefault: boolean): BankSlot {
+  bankKeySeq += 1
+  return {
+    bank_neve: '',
+    iban: '',
+    valuta: 'RON',
+    is_default: isDefault,
+    nyito_egyenleg: 0,
+    szin: '#206bc4',
+    ikon: 'building-2',
+    _key: `bank-new-${bankKeySeq}`,
   }
 }
 
@@ -146,7 +113,7 @@ function stepFields(s: WizardStep, form: SetupFormState): Record<string, unknown
 
 function formToAddressValue(form: SetupFormState): AddressValue {
   return {
-    countyId: null,                      // A county_id a megyenéven keresztül nincs tárolva — a helység-alapú match-re bízzuk
+    countyId: null,
     localityId: form.adrlocality_id,
     streetId: form.adrstreet_id,
     country: form.country || 'Románia',
@@ -177,45 +144,27 @@ function applyAddressToForm(form: SetupFormState, v: AddressValue): SetupFormSta
 export function CongregationSetupWizard({ open, onOpenChange, congregationId, onCompleted }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [step, setStep] = useState<WizardStep>('basics')
   const [loading, setLoading] = useState(true)
 
   const [form, setForm] = useState<SetupFormState>({
-    nev_hu: '',
-    nev_ro: '',
-    nev_en: '',
-    adoszam: '',
-    cimer_url: '',
-    megye: '',
-    varos: '',
-    cim: '',
-    email: '',
-    telefon: '',
-    web: '',
-    bank: '',
-    iban: '',
-    iranyitoszam: '',
-    hazszam: '',
-    country: 'Románia',
-    adrlocality_id: null,
-    adrstreet_id: null,
-    isForeign: false,
+    nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
+    megye: '', varos: '', cim: '', email: '', telefon: '', web: '',
+    bank: '', iban: '', iranyitoszam: '', hazszam: '', country: 'Románia',
+    adrlocality_id: null, adrstreet_id: null, isForeign: false,
   })
 
-  // Read-only kontextus: egyházkerület + egyházmegye név, már mentett bankszámlák
+  // Több bankszámla + a törlésre jelölt (meglévő) számlák id-jei.
+  const [bankAccounts, setBankAccounts] = useState<BankSlot[]>([])
+  const [removedBankIds, setRemovedBankIds] = useState<number[]>([])
+
+  // Read-only kontextus: egyházkerület + egyházmegye név
   const [context, setContext] = useState<{
     dioceseName: string | null
     districtName: string | null
-    existingBankCount: number
-  }>({
-    dioceseName: null,
-    districtName: null,
-    existingBankCount: 0,
-  })
+  }>({ dioceseName: null, districtName: null })
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
-  const [stepSaving, setStepSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -223,46 +172,52 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
-      void getCongregationForSetup(congregationId).then((res) => {
+      void Promise.all([
+        getCongregationForSetup(congregationId),
+        getCongregationBankAccounts(congregationId),
+      ]).then(([res, bankRes]) => {
         if (cancelled) return
         if (res.data) {
           const d = res.data
-          const loadedForm: SetupFormState = {
-            nev_hu: d.nev_hu || '',
-            nev_ro: d.nev_ro || '',
-            nev_en: d.nev_en || '',
-            adoszam: d.adoszam || '',
-            cimer_url: d.cimer_url || '',
-            megye: d.megye || '',
-            varos: d.varos || '',
-            cim: d.cim || '',
-            email: d.email || '',
-            telefon: d.telefon || '',
-            web: d.web || '',
-            bank: d.bank || '',
-            iban: d.iban || '',
-            iranyitoszam: d.iranyitoszam || '',
-            hazszam: d.hazszam || '',
+          setForm({
+            nev_hu: d.nev_hu || '', nev_ro: d.nev_ro || '', nev_en: d.nev_en || '',
+            adoszam: d.adoszam || '', cimer_url: d.cimer_url || '',
+            megye: d.megye || '', varos: d.varos || '', cim: d.cim || '',
+            email: d.email || '', telefon: d.telefon || '', web: d.web || '',
+            bank: d.bank || '', iban: d.iban || '',
+            iranyitoszam: d.iranyitoszam || '', hazszam: d.hazszam || '',
             country: d.country || 'Románia',
-            adrlocality_id: d.adrlocality_id,
-            adrstreet_id: d.adrstreet_id,
+            adrlocality_id: d.adrlocality_id, adrstreet_id: d.adrstreet_id,
             isForeign: (d.country && d.country !== 'Románia') || false,
-          }
-          setForm(loadedForm)
-          setContext({
-            dioceseName: d.diocese_name,
-            districtName: d.district_name,
-            existingBankCount: d.existing_bank_count,
           })
+          setContext({ dioceseName: d.diocese_name, districtName: d.district_name })
 
-          // Folytatás-logika: az első olyan lépésre ugrunk, amelyik még
-          // hiányos. Ha mindenki teljes, akkor a confirm-re.
-          const firstInvalid =
-            STEP_ORDER.slice(0, -1).find((s) => !isStepValidOn(s, loadedForm)) ||
-            'confirm'
-          setStep(firstInvalid)
-        } else {
-          setStep('basics')
+          // Bankszámlák betöltése; ha nincs külön rekord, de a congregations.bank
+          // ki van töltve (legacy), abból seedelünk egy fő számlát.
+          const rows = (bankRes as { rows?: Array<Record<string, unknown>> }).rows || []
+          if (rows.length > 0) {
+            setBankAccounts(
+              rows.map((r, i) => ({
+                id: Number(r.id),
+                bank_neve: String(r.bank_neve || ''),
+                iban: typeof r.iban === 'string' ? r.iban : '',
+                valuta: (typeof r.valuta === 'string' ? r.valuta : 'RON') as BankSlot['valuta'],
+                is_default: typeof r.is_default === 'boolean' ? r.is_default : i === 0,
+                nyito_egyenleg: typeof r.nyito_egyenleg === 'number' ? r.nyito_egyenleg : Number(r.nyito_egyenleg) || 0,
+                szin: typeof r.szin === 'string' && r.szin ? r.szin : '#206bc4',
+                ikon: typeof r.ikon === 'string' && r.ikon ? r.ikon : 'building-2',
+                _key: `bank-${r.id}`,
+              })),
+            )
+          } else if (d.bank || d.iban) {
+            const seed = newBankSlot(true)
+            seed.bank_neve = d.bank || ''
+            seed.iban = d.iban || ''
+            setBankAccounts([seed])
+          } else {
+            setBankAccounts([])
+          }
+          setRemovedBankIds([])
         }
         setLoading(false)
       })
@@ -270,35 +225,24 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     return () => { cancelled = true }
   }, [open, congregationId])
 
-  function isStepValid(s: WizardStep): boolean {
-    return isStepValidOn(s, form)
+  // ── Bankszámla-műveletek ───────────────────────────────────────────
+  function addBank() {
+    setBankAccounts((prev) => [...prev, newBankSlot(prev.length === 0)])
   }
-
-  async function handleNext() {
-    if (stepSaving) return
-    const idx = STEP_ORDER.indexOf(step)
-    if (idx >= STEP_ORDER.length - 1) return
-
-    // Partial save — a lelkész kilépéskor NEM veszít adatot
-    setStepSaving(true)
-    try {
-      const res = await saveCongregationSetupStep({
-        id: congregationId,
-        ...stepFields(step, form),
-      })
-      if (res.error) {
-        toast.error(`Mentés sikertelen: ${res.error}`)
-        return
-      }
-      setStep(STEP_ORDER[idx + 1])
-    } finally {
-      setStepSaving(false)
-    }
+  function removeBank(idx: number) {
+    setBankAccounts((prev) => {
+      const removed = prev[idx]
+      if (removed.id) setRemovedBankIds((ids) => [...ids, removed.id!])
+      const next = prev.filter((_, i) => i !== idx)
+      if (removed.is_default && next.length > 0) next[0] = { ...next[0], is_default: true }
+      return next
+    })
   }
-
-  function handleBack() {
-    const idx = STEP_ORDER.indexOf(step)
-    if (idx > 0) setStep(STEP_ORDER[idx - 1])
+  function updateBank(idx: number, patch: Partial<BankSlot>) {
+    setBankAccounts((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)))
+  }
+  function setDefaultBank(idx: number) {
+    setBankAccounts((prev) => prev.map((a, i) => ({ ...a, is_default: i === idx })))
   }
 
   async function handleCimerUpload(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -309,20 +253,64 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     fd.append('file', file)
     const res = await uploadCongregationCimer(congregationId, fd)
     setUploading(false)
-    if (res.error) {
-      toast.error(res.error)
-      return
-    }
+    if (res.error) { toast.error(res.error); return }
     if (res.url) {
       setForm({ ...form, cimer_url: res.url })
       toast.success('Címer feltöltve.')
     }
   }
 
+  // A fő (alapértelmezett) számla — a legacy congregations.bank/iban mezőkhöz.
+  const primaryBank = bankAccounts.find((b) => b.is_default) || bankAccounts[0] || null
+
+  // "Mentésre kész" feltétel (a gomb engedélyezéséhez). A szerver továbbra is
+  // szigorúan validál; a hiányzó mezőket fieldErrors-ban jelezzük.
+  const canSave =
+    form.nev_hu.trim().length >= 2 &&
+    form.adoszam.trim().length > 0 &&
+    form.megye.trim().length > 0 &&
+    form.varos.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) &&
+    form.telefon.trim().length > 0 &&
+    !!primaryBank &&
+    primaryBank.bank_neve.trim().length > 0 &&
+    primaryBank.iban.trim().length > 0
+
   function handleSave() {
     setFieldErrors({})
     startTransition(async () => {
-      const res = await saveCongregationSetup({ id: congregationId, ...form })
+      // 1) Bankszámlák mentése (meglévő → update, új → insert; a fő számla
+      //    a congregations.bank/iban-t is szinkronizálja).
+      for (const acc of bankAccounts) {
+        if (!acc.bank_neve.trim()) continue
+        const res = await saveCongregationBankAccount(congregationId, {
+          id: acc.id,
+          bankNeve: acc.bank_neve.trim(),
+          iban: acc.iban.trim() || undefined,
+          valuta: acc.valuta,
+          nyitoEgyenleg: acc.nyito_egyenleg,
+          szin: acc.szin,
+          ikon: acc.ikon,
+          isDefault: acc.is_default,
+          aktiv: true,
+        })
+        if ('error' in res && res.error) {
+          toast.error(`Bankszámla mentése sikertelen: ${res.error}`)
+          return
+        }
+      }
+      // 2) Törlésre jelölt számlák
+      for (const id of removedBankIds) {
+        await deleteCongregationBankAccount(congregationId, id)
+      }
+
+      // 3) Gyülekezeti alapadatok mentése (a fő számla bank/iban-jával)
+      const res = await saveCongregationSetup({
+        id: congregationId,
+        ...form,
+        bank: primaryBank?.bank_neve.trim() || form.bank,
+        iban: primaryBank?.iban.trim() || form.iban,
+      })
       if (res.error) {
         toast.error(res.error)
         if (res.fieldErrors) setFieldErrors(res.fieldErrors)
@@ -334,8 +322,6 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
       router.refresh()
     })
   }
-
-  const progressPercent = ((STEP_ORDER.indexOf(step) + 1) / STEP_ORDER.length) * 100
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -360,38 +346,6 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
               </p>
             </span>
           </DialogTitle>
-
-          {/* Progressz */}
-          <div className="flex items-center gap-2 mt-3 text-xs">
-            {STEP_ORDER.map((s, idx) => {
-              const isActive = s === step
-              const isDone = STEP_ORDER.indexOf(step) > idx
-              return (
-                <div key={s} className="flex items-center gap-2 flex-1">
-                  <div
-                    className={`size-6 rounded-full flex items-center justify-center text-[10px] font-bold transition ${
-                      isActive
-                        ? 'bg-teal-600 text-white ring-4 ring-teal-200'
-                        : isDone
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-slate-200 text-slate-500'
-                    }`}
-                  >
-                    {isDone ? <CheckCircle2 className="size-3" /> : idx + 1}
-                  </div>
-                  {idx < STEP_ORDER.length - 1 && (
-                    <div className={`h-px flex-1 ${isDone ? 'bg-emerald-300' : 'bg-slate-200'}`} />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <div className="mt-2 h-1 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-teal-500 to-emerald-600 transition-all"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -401,94 +355,68 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
               <p>Betöltés…</p>
             </div>
           ) : (
-            <>
-              {step === 'basics' && (
-                <StepBasics
-                  form={form}
-                  setForm={setForm}
-                  onCimerUpload={handleCimerUpload}
-                  uploading={uploading}
-                  fieldErrors={fieldErrors}
-                  dioceseName={context.dioceseName}
-                  districtName={context.districtName}
-                />
-              )}
-              {step === 'address' && <StepAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />}
-              {step === 'contact' && <StepContact form={form} setForm={setForm} fieldErrors={fieldErrors} />}
-              {step === 'bank' && (
-                <StepBank
-                  form={form}
-                  setForm={setForm}
-                  fieldErrors={fieldErrors}
-                  existingBankCount={context.existingBankCount}
-                />
-              )}
-              {step === 'confirm' && <StepConfirm form={form} />}
-            </>
+            <div className="mx-auto max-w-2xl space-y-8">
+              <SectionBasics
+                form={form}
+                setForm={setForm}
+                onCimerUpload={handleCimerUpload}
+                uploading={uploading}
+                fieldErrors={fieldErrors}
+                dioceseName={context.dioceseName}
+                districtName={context.districtName}
+              />
+              <SectionAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />
+              <SectionContact form={form} setForm={setForm} fieldErrors={fieldErrors} />
+              <SectionBanks
+                accounts={bankAccounts}
+                onAdd={addBank}
+                onRemove={removeBank}
+                onUpdate={updateBank}
+                onSetDefault={setDefaultBank}
+                fieldErrors={fieldErrors}
+              />
+
+              <div className="card-raised p-3 bg-amber-50/40 border-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="size-4 text-amber-700 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-900">
+                    <strong>Mentés után:</strong> a gyülekezeti alapadatok elmentődnek, és a
+                    teljes rendszer (pénzügy, tagnyilvántartás, anyakönyv) készen áll a használatra.
+                    Az itteni adatok bármikor módosíthatók.
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Léptető gombok */}
+        {/* Lábléc gombok */}
         <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3 flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="ghost"
-            onClick={step === 'basics' ? () => onOpenChange(false) : handleBack}
-            disabled={isPending || stepSaving}
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
             className="rounded-xl"
-            title={
-              step === 'basics'
-                ? 'Most kihagyom — 24 óra múlva újra emlékeztetjük a hiányzó adatokra'
-                : undefined
-            }
+            title="Most kihagyom — 24 óra múlva újra emlékeztetjük a hiányzó adatokra"
           >
-            {step === 'basics' ? (
-              <>
-                <X className="mr-1 size-4" />
-                Később
-              </>
-            ) : (
-              <>
-                <ArrowLeft className="mr-1 size-4" />
-                Vissza
-              </>
-            )}
+            <X className="mr-1 size-4" />
+            Később
           </Button>
 
-          {step !== 'confirm' ? (
-            <Button
-              type="button"
-              onClick={handleNext}
-              disabled={!isStepValid(step) || isPending || stepSaving}
-              className="rounded-xl bg-teal-600 text-white hover:bg-teal-700"
-            >
-              {stepSaving ? (
-                <>
-                  <Loader2 className="mr-1 size-4 animate-spin" />
-                  Mentés…
-                </>
-              ) : (
-                <>
-                  Tovább
-                  <ArrowRight className="ml-1 size-4" />
-                </>
-              )}
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              onClick={handleSave}
-              disabled={isPending || !isStepValid('confirm')}
-              className="rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700"
-            >
-              {isPending ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
-              ) : (
-                <Save className="mr-1 size-4" />
-              )}
-              Mentés és befejezés
-            </Button>
-          )}
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={isPending || !canSave}
+            className="rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700"
+          >
+            {isPending ? (
+              <Loader2 className="mr-1 size-4 animate-spin" />
+            ) : (
+              <Save className="mr-1 size-4" />
+            )}
+            Mentés és befejezés
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -496,10 +424,10 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Lépések
+// Szakaszok
 // ─────────────────────────────────────────────────────────────────────────
 
-function StepBasics({
+function SectionBasics({
   form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName,
 }: {
   form: SetupFormState
@@ -511,7 +439,7 @@ function StepBasics({
   districtName: string | null
 }) {
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <section className="space-y-4">
       <div className="card-raised p-4 bg-teal-50/30 border-teal-100">
         <div className="flex items-start gap-2">
           <FileText className="size-5 text-teal-600 shrink-0 mt-0.5" />
@@ -538,17 +466,13 @@ function StepBasics({
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházkerület</p>
                 <p className="text-sm font-semibold text-slate-800">
-                  {districtName || (
-                    <span className="italic text-slate-400">nincs beállítva</span>
-                  )}
+                  {districtName || <span className="italic text-slate-400">nincs beállítva</span>}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházmegye</p>
                 <p className="text-sm font-semibold text-slate-800">
-                  {dioceseName || (
-                    <span className="italic text-slate-400">nincs beállítva</span>
-                  )}
+                  {dioceseName || <span className="italic text-slate-400">nincs beállítva</span>}
                 </p>
               </div>
             </div>
@@ -605,15 +529,14 @@ function StepBasics({
         <p className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
           <ImageIcon className="size-4 text-indigo-600" />
           Gyülekezeti címer
-          <span className="text-[10px] font-normal text-slate-400">(opcionális — később is feltöltheted)</span>
         </p>
         <p className="text-xs text-slate-500 mb-3">
           Tölts fel egy képet (JPG, PNG, vagy WEBP, max 2 MB). A címer a hivatalos
-          dokumentumokon (számadás, költségvetés, nyugták) jelenik meg. Ha még nincs
-          kéznél, kihagyhatod — a Gyülekezetünk dialógusban később bármikor feltöltheted.
+          dokumentumokon (számadás, költségvetés, nyugták) jelenik meg.
         </p>
         {form.cimer_url ? (
           <div className="flex items-start gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={form.cimer_url} alt="Gyülekezeti címer" className="size-24 rounded-xl border border-slate-200 object-cover" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-slate-700 truncate">✅ Címer feltöltve</p>
@@ -636,15 +559,15 @@ function StepBasics({
         )}
         {fieldErrors.cimer_url && <p className="text-xs text-rose-600 mt-2">{fieldErrors.cimer_url}</p>}
       </div>
-    </div>
+    </section>
   )
 }
 
-function StepAddress({
+function SectionAddress({
   form, setForm, fieldErrors,
 }: { form: SetupFormState; setForm: SetForm; fieldErrors: Record<string, string> }) {
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <section className="space-y-4">
       <div className="card-raised p-4 bg-sky-50/30 border-sky-100">
         <div className="flex items-start gap-2">
           <MapPin className="size-5 text-sky-600 shrink-0 mt-0.5" />
@@ -669,15 +592,15 @@ function StepAddress({
           street: fieldErrors.cim,
         }}
       />
-    </div>
+    </section>
   )
 }
 
-function StepContact({
+function SectionContact({
   form, setForm, fieldErrors,
 }: { form: SetupFormState; setForm: SetForm; fieldErrors: Record<string, string> }) {
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <section className="space-y-4">
       <div className="card-raised p-4 bg-emerald-50/30 border-emerald-100">
         <div className="flex items-start gap-2">
           <Phone className="size-5 text-emerald-600 shrink-0 mt-0.5" />
@@ -700,119 +623,127 @@ function StepContact({
       <ModalField label="Weboldal (opcionális)">
         <Input value={form.web} onChange={(e) => setForm({ ...form, web: e.target.value })} placeholder="https://..." className={FIELD_INPUT_CLASS} />
       </ModalField>
-    </div>
+    </section>
   )
 }
 
-function StepBank({
-  form, setForm, fieldErrors, existingBankCount,
+function SectionBanks({
+  accounts, onAdd, onRemove, onUpdate, onSetDefault, fieldErrors,
 }: {
-  form: SetupFormState
-  setForm: SetForm
+  accounts: BankSlot[]
+  onAdd: () => void
+  onRemove: (idx: number) => void
+  onUpdate: (idx: number, patch: Partial<BankSlot>) => void
+  onSetDefault: (idx: number) => void
   fieldErrors: Record<string, string>
-  existingBankCount: number
 }) {
-  const alreadyFilled = form.bank.trim().length > 0 && form.iban.trim().length > 0
-
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <section className="space-y-4">
       <div className="card-raised p-4 bg-teal-50/30 border-teal-100">
         <div className="flex items-start gap-2">
-          <Landmark className="size-5 text-teal-600 shrink-0 mt-0.5" />
+          <Banknote className="size-5 text-teal-600 shrink-0 mt-0.5" />
           <div>
-            <h3 className="font-heading text-base text-slate-800">Bankszámla</h3>
+            <h3 className="font-heading text-base text-slate-800">Bankszámlák</h3>
             <p className="text-xs text-slate-600 mt-1">
-              A fő bankszámla adatai. (További bankszámlákat a Pénzügy fülön adhatsz hozzá.)
+              Több bankszámla is rögzíthető — pl. egy fő RON-számla és egy valutás (EUR)
+              számla. A fő számla szerepel a hivatalos bizonylatokon; a többit a Pénzügy
+              menüben is kezelheti később.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Vizuális visszajelzés — már meglévő adat */}
-      {alreadyFilled && (
-        <div className="card-raised p-3 bg-emerald-50/50 border-emerald-200">
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="size-4 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-emerald-900">
-              <p className="font-semibold">A fő bankszámla adatai már be vannak állítva.</p>
-              <p className="mt-0.5 text-emerald-800">
-                Alább ellenőrizheted és szerkesztheted.
-                {existingBankCount > 1 && (
-                  <> A gyülekezetnek {existingBankCount} aktív bankszámlája van — a többi a Pénzügy fülön kezelhető.</>
-                )}
-              </p>
+      {accounts.length === 0 ? (
+        <p className="text-sm text-slate-500 italic px-1">
+          Még nincs bankszámla rögzítve. Adjon hozzá legalább egyet (fő számla).
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {accounts.map((acc, idx) => (
+            <div
+              key={acc._key}
+              className={`rounded-xl border p-4 ${acc.is_default ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white'}`}
+            >
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-700">
+                  {acc.bank_neve || `Bankszámla #${idx + 1}`}
+                  <span className="ml-2 text-xs font-normal text-slate-400">{acc.valuta}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(idx)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-rose-600 hover:bg-rose-50"
+                  title="Bankszámla törlése"
+                >
+                  <Trash2 className="size-3.5" />
+                  Törlés
+                </button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ModalField label="Bank neve *">
+                  <Input
+                    value={acc.bank_neve}
+                    onChange={(e) => onUpdate(idx, { bank_neve: e.target.value })}
+                    placeholder="pl. Banca Transilvania"
+                    className={FIELD_INPUT_CLASS}
+                  />
+                </ModalField>
+                <ModalField label="Valuta *">
+                  <select
+                    value={acc.valuta}
+                    onChange={(e) => onUpdate(idx, { valuta: e.target.value as BankSlot['valuta'] })}
+                    className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/25"
+                  >
+                    <option value="RON">RON — Román lej</option>
+                    <option value="EUR">EUR — Euró</option>
+                    <option value="USD">USD — Amerikai dollár</option>
+                    <option value="HUF">HUF — Magyar forint</option>
+                  </select>
+                </ModalField>
+              </div>
+
+              <ModalField label="IBAN *">
+                <Input
+                  value={acc.iban}
+                  onChange={(e) => onUpdate(idx, { iban: e.target.value })}
+                  placeholder="RO49 AAAA 1B31 0075 9384 0000"
+                  className={`${FIELD_INPUT_CLASS} font-mono text-xs`}
+                />
+              </ModalField>
+
+              <button
+                type="button"
+                onClick={() => onSetDefault(idx)}
+                disabled={acc.is_default}
+                className={`mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                  acc.is_default
+                    ? 'cursor-default border-amber-200 bg-amber-50 text-amber-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50/50 hover:text-amber-700'
+                }`}
+              >
+                <Star className={`size-4 ${acc.is_default ? 'fill-amber-500 text-amber-500' : ''}`} />
+                <span>{acc.is_default ? 'Ez a fő számla' : 'Beállítás fő számlának'}</span>
+              </button>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
-      <ModalField label="Bank neve *">
-        <Input value={form.bank} onChange={(e) => setForm({ ...form, bank: e.target.value })} placeholder="Pl. BCR" className={FIELD_INPUT_CLASS} />
-        {fieldErrors.bank && <p className="text-xs text-rose-600 mt-1">{fieldErrors.bank}</p>}
-      </ModalField>
+      <button
+        type="button"
+        onClick={onAdd}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-teal-300 bg-white/50 p-3 text-sm font-medium text-teal-700 transition hover:bg-teal-50/40"
+      >
+        <Plus className="size-4" />
+        {accounts.length === 0 ? 'Bankszámla hozzáadása' : 'További bankszámla hozzáadása'}
+      </button>
 
-      <ModalField label="IBAN *">
-        <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="RO..." className={`${FIELD_INPUT_CLASS} font-mono text-xs`} />
-        {fieldErrors.iban && <p className="text-xs text-rose-600 mt-1">{fieldErrors.iban}</p>}
-      </ModalField>
-    </div>
-  )
-}
-
-function StepConfirm({ form }: { form: SetupFormState }) {
-  return (
-    <div className="max-w-2xl mx-auto space-y-3">
-      <div className="card-raised p-4 bg-emerald-50/30 border-emerald-200">
-        <div className="flex items-start gap-2">
-          <CheckCircle2 className="size-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-heading text-base text-slate-800">Összefoglaló</h3>
-            <p className="text-xs text-slate-600 mt-1">Ellenőrizd az adatokat, majd kattints a &bdquo;Mentés és befejezés&rdquo; gombra.</p>
-          </div>
-        </div>
-      </div>
-
-      {form.cimer_url && (
-        <div className="flex items-center gap-3 card-raised p-3">
-          <img src={form.cimer_url} alt="Címer" className="size-16 rounded-xl border border-slate-200 object-cover" />
-          <div>
-            <p className="font-heading text-lg text-slate-800">{form.nev_hu}</p>
-            {form.nev_ro && <p className="text-xs text-slate-500 italic">{form.nev_ro}</p>}
-            <p className="text-xs text-slate-500">Adószám: <strong>{form.adoszam}</strong></p>
-          </div>
-        </div>
+      {(fieldErrors.bank || fieldErrors.iban) && (
+        <p className="text-xs text-rose-600">
+          {fieldErrors.bank || fieldErrors.iban}
+        </p>
       )}
-
-      <SummaryRow icon={<MapPin className="size-4 text-sky-600" />} label="Cím">
-        {form.cim}, {form.varos} ({form.megye})
-      </SummaryRow>
-      <SummaryRow icon={<Phone className="size-4 text-emerald-600" />} label="Elérhetőségek">
-        {form.email} · {form.telefon}{form.web && <> · <a href={form.web} target="_blank" rel="noopener" className="underline">{form.web}</a></>}
-      </SummaryRow>
-      <SummaryRow icon={<Landmark className="size-4 text-teal-600" />} label="Bank">
-        {form.bank} · <span className="font-mono text-xs">{form.iban}</span> <Badge className="bg-slate-100 text-slate-700 border-0 ml-1 text-[10px]">RON</Badge>
-      </SummaryRow>
-
-      <div className="card-raised p-3 bg-amber-50/40 border-amber-200">
-        <div className="flex items-start gap-2">
-          <AlertCircle className="size-4 text-amber-700 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-900">
-            <strong>Mi történik a mentés után?</strong> A gyülekezeti alapadatok elmentődnek. A teljes rendszer (pénzügy, tagnyilvántartás, stb.) készen áll a használatra.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SummaryRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
-  return (
-    <div className="card-raised p-3 flex items-start gap-2 text-sm">
-      <div className="shrink-0 mt-0.5">{icon}</div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">{label}</p>
-        <p className="text-slate-700 break-words mt-0.5">{children}</p>
-      </div>
-    </div>
+    </section>
   )
 }
