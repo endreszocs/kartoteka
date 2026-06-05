@@ -308,6 +308,47 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
   }
 }
 
+/**
+ * 2026-06-05 — TESZT hírlevél: a kiválasztott bejegyzésekből generált hírlevelet
+ * CSAK a bejelentkezett admin saját email-címére küldi. NEM ír DB-be, NEM jelöl
+ * semmit elküldöttnek — tisztán előnézet/teszt a beérkező levélről.
+ */
+export async function sendNewsletterTest(args: {
+  changelogKeys: string[]
+  headerTitle?: string
+  introText?: string
+}): Promise<{ success?: boolean; error?: string; email?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+  if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
+  const myEmail = access.user.email
+  if (!myEmail) return { error: 'A fiókodhoz nincs email-cím rendelve.' }
+  if (args.changelogKeys.length === 0) return { error: 'Válassz ki legalább egy frissítést.' }
+
+  const allEntries = await parseChangelog()
+  const selected = allEntries.filter((e) => args.changelogKeys.includes(e.key))
+  if (selected.length === 0) return { error: 'A kiválasztott kulcsokra nem találtunk bejegyzést.' }
+
+  const sorted = [...selected].sort((a, b) => b.date.localeCompare(a.date))
+  const title = args.headerTitle?.trim() || 'Kartotéka — Fejlesztési hírlevél'
+
+  const { buildNewsletterHtml, buildNewsletterPlainText } = await import('@/lib/broadcasts/newsletter-template')
+  const html = buildNewsletterHtml({ entries: sorted, introText: args.introText, headerTitle: title })
+  const text = buildNewsletterPlainText({ entries: sorted, introText: args.introText })
+
+  const emailResult = await sendBroadcastEmail({
+    to: [myEmail],
+    subject: `[TESZT] ${title}`,
+    bodyText: text,
+    tipus: 'release',
+    customHtml: html,
+  })
+  if (!emailResult.success) {
+    return { error: emailResult.error || 'A teszt-email küldése sikertelen.' }
+  }
+  return { success: true, email: myEmail }
+}
+
 function buildSummaryMarkdown(entries: ChangelogEntry[], introText?: string): string {
   const lines: string[] = []
   if (introText && introText.trim()) {

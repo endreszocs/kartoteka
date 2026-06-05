@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Eye, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react'
+import { Eye, FlaskConical, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge'
 
 import {
   sendNewsletter,
+  sendNewsletterTest,
 } from '@/app/(dashboard)/admin/broadcasts-actions'
 import {
   BROADCAST_TARGET_SCOPE_LABELS,
@@ -49,6 +50,7 @@ type Props = {
 
 export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onSent }: Props) {
   const [isPending, startTransition] = useTransition()
+  const [isTestPending, startTestTransition] = useTransition()
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [headerTitle, setHeaderTitle] = useState('')
   const [introText, setIntroText] = useState('')
@@ -140,6 +142,28 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
     toast.success('Hírlevél HTML letöltve.')
+  }
+
+  function handleTestSend() {
+    if (selectedCount === 0) {
+      toast.error('Válassz ki legalább egy frissítést.')
+      return
+    }
+    startTestTransition(async () => {
+      const result = await sendNewsletterTest({
+        changelogKeys: Array.from(selectedKeys),
+        headerTitle: headerTitle.trim() || undefined,
+        introText: introText.trim() || undefined,
+      })
+      if ('error' in result && result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(
+        `Teszt-hírlevél elküldve a saját címedre: ${result.email}. Ez senki másnak nem ment ki.`,
+        { duration: 6000 },
+      )
+    })
   }
 
   function handleSend() {
@@ -434,15 +458,30 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isPending}
+              disabled={isPending || isTestPending}
               className="rounded-xl"
             >
               Mégse
             </Button>
             <Button
               type="button"
+              variant="outline"
+              onClick={handleTestSend}
+              disabled={isPending || isTestPending || selectedCount === 0}
+              className="rounded-xl border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              title="A hírlevelet CSAK a saját email-címedre küldi ki, próbaként. Senki más nem kapja meg."
+            >
+              {isTestPending ? (
+                <Loader2 className="mr-1.5 size-4 animate-spin" />
+              ) : (
+                <FlaskConical className="mr-1 size-4" />
+              )}
+              Teszt magamnak
+            </Button>
+            <Button
+              type="button"
               onClick={handleSend}
-              disabled={isPending || selectedCount === 0}
+              disabled={isPending || isTestPending || selectedCount === 0}
               className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
             >
               {isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
