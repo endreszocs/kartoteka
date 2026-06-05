@@ -16,6 +16,7 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
 import { sendEmail } from '@/lib/email/send'
 import { approvedEmail, rejectedEmail } from '@/lib/email/templates/access-request'
+import { logAuditEvent } from '@/lib/audit/log'
 
 import type {
   AccessRequest,
@@ -340,6 +341,22 @@ export async function approveAccessRequest(
     console.error('[approve-access-request] email hiba:', emailRes.error)
   }
 
+  // Audit: ki, mikor hagyta jóvá, milyen szerepre + gyülekezetre.
+  await logAuditEvent(
+    {
+      action: 'access_request.approve',
+      targetTable: 'access_requests',
+      targetId: input.id,
+      metadata: {
+        email: req.email,
+        role: req.requested_role,
+        congregation_id: req.requested_congregation_id,
+        resulting_user_id: resultingUserId,
+      },
+    },
+    ctx.supabase,
+  )
+
   revalidatePath('/admin')
   return {}
 }
@@ -397,6 +414,17 @@ export async function rejectAccessRequest(
     console.error('[reject-access-request] email hiba:', emailRes.error)
     // Nem bukunk el — a státusz már rögzített. Admin kézzel értesítheti.
   }
+
+  // Audit: ki, mikor utasította el + az indok.
+  await logAuditEvent(
+    {
+      action: 'access_request.reject',
+      targetTable: 'access_requests',
+      targetId: input.id,
+      metadata: { email: emailRow.email, reason },
+    },
+    ctx.supabase,
+  )
 
   revalidatePath('/admin')
   return {}

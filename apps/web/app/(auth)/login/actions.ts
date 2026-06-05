@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { isMasterAdmin } from '@/lib/auth/roles'
+import { logAuditEvent } from '@/lib/audit/log'
 import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
@@ -82,6 +83,11 @@ export async function signIn(data: LoginInput) {
   const cookieStore = await cookies()
   const { mode, options } = buildSessionModeCookieOptions(parsed.data.rememberMe ?? false)
   cookieStore.set(SESSION_MODE_COOKIE, mode, options)
+
+  // Audit + aktivitás: bejelentkezés naplózása és a last_seen frissítése.
+  // (A redirect() alább kivételt dob, ezért ezeket előtte hívjuk.)
+  await logAuditEvent({ action: 'login', metadata: { method: 'password' } }, supabase)
+  await supabase.rpc('touch_last_seen')
 
   // 2026-05-25: ha a felhasználónak több jóváhagyott profile_roles sora van,
   // a /valassz-profilt mutatja a választót. Egyébként automatikusan átküld

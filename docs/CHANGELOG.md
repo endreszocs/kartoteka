@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-05] — Biztonság és átláthatóság: tevékenység-napló (1. lépés)
+<!-- key: 2026-06-05-tevekenyseg-naplo-1 -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+A gyülekezeti adatok védelme érdekében a rendszer mostantól **naplózza a fontos, biztonságot érintő műveleteket** — hogy később visszakövethető legyen, *ki, mikor, mit* tett, és az esetleges visszaélések, illetve a felelősök azonosíthatók legyenek. Ez egy nagyobb fejlesztés első lépése.
+
+### ✨ Új funkciók
+
+- **Belépés-napló**: a rendszer rögzíti a bejelentkezéseket (jelszavas és Google), így látszik, ki és mikor használta a rendszert.
+- **„Utoljára aktív" időpont**: minden fiókhoz rögzül, mikor használta utoljára a rendszert — segít látni, kik az aktív felhasználók egy adott időszakban.
+- **Érzékeny műveletek naplózása**: a rendszergazdai „belépés-mód" (god-mode) be- és kikapcsolása, valamint a hozzáférés-kérelmek jóváhagyása/elutasítása mostantól naplózott (ki hagyta jóvá, milyen szerepre, melyik gyülekezethez).
+
+### 🔒 Mit jelent ez Neked?
+
+A gyülekezeted adataival végzett fontos műveletek **nyomot hagynak** — ez véd a visszaélések ellen, és átláthatóbbá teszi a rendszert. A naplót csak a rendszergazda (és a tervezett bővítés után az egyházmegyei számvevő) láthatja. *(Folytatás következik: a tagsági/pénzügyi adatok módosításainak részletes naplózása, a felhasználó-törlés és a lelkészcsere-átadás funkciók.)*
+
+---
+
 ## [2026-06-05] — Egyszerűbb regisztráció: ha már van fiókod, megmutatjuk hová tartozol
 <!-- key: 2026-06-05-regisztracio-mar-letezo-email -->
 <!-- category: improvement -->

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { isMasterAdmin } from '@/lib/auth/roles'
+import { logAuditEvent } from '@/lib/audit/log'
 import { cookies } from 'next/headers'
 
 const GOD_MODE_PIN = process.env.GOD_MODE_PIN || ''
@@ -31,6 +32,12 @@ export async function activateGodMode(pin: string) {
     maxAge: GOD_MODE_DURATION_MS / 1000,
   })
 
+  // Audit: god-mode aktiválás (biztonságkritikus — eddig nem volt naplózva).
+  await logAuditEvent(
+    { action: 'god_mode.activate', metadata: { expires_at: new Date(expiresAt).toISOString() } },
+    supabase,
+  )
+
   return { success: true, expiresAt }
 }
 
@@ -43,6 +50,8 @@ export async function deactivateGodMode() {
 
   const cookieStore = await cookies()
   cookieStore.delete('god_mode_until')
+
+  await logAuditEvent({ action: 'god_mode.deactivate' }, supabase)
 
   return { success: true }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isMasterAdmin } from '@/lib/auth/roles'
+import { logAuditEvent } from '@/lib/audit/log'
 import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
@@ -82,6 +83,9 @@ export async function GET(request: Request) {
 
         // Aktív (vagy master) → mehet a kezdőoldalra
         if (master || isActive) {
+          // Audit + aktivitás: OAuth-bejelentkezés naplózása + last_seen.
+          await logAuditEvent({ action: 'login', metadata: { method: 'oauth' } }, supabase)
+          await supabase.rpc('touch_last_seen')
           return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
         }
 
