@@ -54,6 +54,19 @@ export function WalkthroughClient({ firstName, shouldStart }: WalkthroughClientP
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null)
   const [targetLost, setTargetLost] = useState(false)
   const savingRef = useRef(false)
+  // 2026-06-05: amikor a walkthrough véget ér (Kész vagy Kihagyom), jelezzük a
+  // többi UI-elemnek (pl. a gyülekezeti setup-banner csak ezután jelenjen meg).
+  const wasActiveRef = useRef(shouldStart)
+  useEffect(() => {
+    if (active) {
+      wasActiveRef.current = true
+      return
+    }
+    if (wasActiveRef.current) {
+      wasActiveRef.current = false
+      window.dispatchEvent(new Event('kartoteka:walkthrough-done'))
+    }
+  }, [active])
 
   const step = WALKTHROUGH_STEPS[stepIndex]
   const isFirst = stepIndex === 0

@@ -236,6 +236,7 @@ export default async function DashboardLayout({
         congregationSetupNeeded={congregationSetupStatus.needsSetup}
         congregationSetupId={congregationSetupStatus.congregationId}
         congregationSetupMissing={congregationSetupStatus.missingFields}
+        deferSetupForWalkthrough={shouldStartWalkthrough}
       >
         {children}
       </DashboardLayoutClient>

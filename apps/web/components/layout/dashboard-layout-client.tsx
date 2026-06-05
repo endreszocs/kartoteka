@@ -168,6 +168,8 @@ interface DashboardLayoutClientProps {
   congregationSetupNeeded?: boolean
   congregationSetupId?: string | null
   congregationSetupMissing?: string[]
+  /** 2026-06-05: ha épp indul a bevezető walkthrough, a setup-banner csak utána. */
+  deferSetupForWalkthrough?: boolean
   children: React.ReactNode
 }
 
@@ -178,6 +180,7 @@ export function DashboardLayoutClient({
   override, profileRoles = [], activeProfileRoleId = null, scopeNames = {}, activeScope = null,
   dioceseSetupNeeded = false, dioceseSetupId = null, dioceseSetupMissing = [],
   congregationSetupNeeded = false, congregationSetupId = null, congregationSetupMissing = [],
+  deferSetupForWalkthrough = false,
   children,
 }: DashboardLayoutClientProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -242,6 +245,7 @@ export function DashboardLayoutClient({
             <CongregationSetupBanner
               congregationId={congregationSetupId}
               missingFields={congregationSetupMissing}
+              deferForWalkthrough={deferSetupForWalkthrough}
             />
           )}
           {children}

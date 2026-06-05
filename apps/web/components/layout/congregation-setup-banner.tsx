@@ -8,7 +8,7 @@
  * Minden oldalon látszik (header alatt), kattintásra megnyitja a wizardot.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle, ArrowRight } from 'lucide-react'
 
 import { CongregationSetupWizard } from '@/components/modals/congregation-setup-wizard'
@@ -16,6 +16,9 @@ import { CongregationSetupWizard } from '@/components/modals/congregation-setup-
 interface Props {
   congregationId: string | null
   missingFields: string[]
+  /** 2026-06-05: ha épp fut a bevezető körbevezetés (walkthrough), a banner csak
+   *  annak befejezése UTÁN jelenjen meg (ne fedjék egymást). */
+  deferForWalkthrough?: boolean
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -31,10 +34,19 @@ const FIELD_LABELS: Record<string, string> = {
   cimer_url: 'Címer',
 }
 
-export function CongregationSetupBanner({ congregationId, missingFields }: Props) {
+export function CongregationSetupBanner({ congregationId, missingFields, deferForWalkthrough = false }: Props) {
   const [wizardOpen, setWizardOpen] = useState(false)
+  // Ha a walkthrough épp indul, várjuk meg a befejezését a banner mutatása előtt.
+  const [waitingForWalkthrough, setWaitingForWalkthrough] = useState(deferForWalkthrough)
 
-  if (!congregationId || missingFields.length === 0) return null
+  useEffect(() => {
+    if (!deferForWalkthrough) return
+    const onDone = () => setWaitingForWalkthrough(false)
+    window.addEventListener('kartoteka:walkthrough-done', onDone)
+    return () => window.removeEventListener('kartoteka:walkthrough-done', onDone)
+  }, [deferForWalkthrough])
+
+  if (!congregationId || missingFields.length === 0 || waitingForWalkthrough) return null
 
   const humanList = missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] || f).join(', ')
   const extra = missingFields.length > 3 ? ` + ${missingFields.length - 3} további` : ''
