@@ -396,8 +396,19 @@ export async function getCongregationContext(): Promise<
 // Ha van sor → visszaadja változatlan
 // ──────────────────────────────────────────────────────────────────
 
+// A gyülekezet/pénzügy alapadatok hiányára utaló reason-kódok. Ha EGYIK sincs
+// jelen, a gyülekezet "konfigurált" (egy korábbi lelkész már beállította).
+const CONGREGATION_SETUP_REASONS = [
+  'congregation-missing',
+  'congregation-row-missing',
+  'congregation-name-missing',
+  'congregation-address-missing',
+  'yearly-fee-missing',
+  'yearly-fee-deadline-missing',
+]
+
 export async function getWizardProgress(): Promise<
-  { data: WizardProgressRow } | { error: string }
+  { data: WizardProgressRow; congregationConfigured: boolean } | { error: string }
 > {
   const supabase = await createClient()
   const {
@@ -418,14 +429,20 @@ export async function getWizardProgress(): Promise<
     return { error: `Hiba az állapot olvasásakor: ${fetchError.message}` }
   }
 
-  if (existing) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('onboarding_completed_at, congregation_id, full_name')
-      .eq('id', user.id)
-      .maybeSingle()
-    const welcomeStatus = await getWelcomeWizardStatus(supabase, profile)
+  // A gyülekezet konfigurált-e (egy korábbi lelkész végigvitte a wizardot)?
+  // Ekkor egy újabb, ugyanahhoz a gyülekezethez csatlakozó lelkésznek csak a
+  // saját (Lelkész) lépést kell kitöltenie — a Gyülekezet + Pénzügy lépést nem.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('onboarding_completed_at, congregation_id, full_name')
+    .eq('id', user.id)
+    .maybeSingle()
+  const welcomeStatus = await getWelcomeWizardStatus(supabase, profile)
+  const congregationConfigured =
+    !!profile?.congregation_id &&
+    !welcomeStatus.reasons.some((r) => CONGREGATION_SETUP_REASONS.includes(r))
 
+  if (existing) {
     if (welcomeStatus.required && (existing.completed_at || existing.current_step > welcomeStatus.firstStep)) {
       const { data: revived, error: reviveError } = await supabase
         .from('wizard_progress')
@@ -441,19 +458,21 @@ export async function getWizardProgress(): Promise<
         return { error: `Hiba a wizard újranyitásakor: ${reviveError.message}` }
       }
 
-      return { data: revived as WizardProgressRow }
+      return { data: revived as WizardProgressRow, congregationConfigured }
     }
 
-    return { data: existing as WizardProgressRow }
+    return { data: existing as WizardProgressRow, congregationConfigured }
   }
 
-  // Nincs még sor — létrehozunk egy üreset a Step 2-vel (Gyülekezet).
+  // Nincs még sor — létrehozunk egy üreset. Ha a gyülekezet már konfigurált, a
+  // Lelkész (3) lépésen indulunk (a Gyülekezet+Pénzügy lépést kihagyjuk),
+  // egyébként a Gyülekezet (2) lépésen.
   // A korábbi Step 1 (portable licensz-aktiválás) M6.3 óta kivezetve (2026-04-22).
   const { data: inserted, error: insertError } = await supabase
     .from('wizard_progress')
     .insert({
       user_id: user.id,
-      current_step: 2,
+      current_step: congregationConfigured ? 3 : 2,
       completed_steps: [],
       data: {},
     })
@@ -464,7 +483,7 @@ export async function getWizardProgress(): Promise<
     return { error: `Hiba az állapot létrehozásakor: ${insertError.message}` }
   }
 
-  return { data: inserted as WizardProgressRow }
+  return { data: inserted as WizardProgressRow, congregationConfigured }
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -632,16 +651,9 @@ export async function completeWizard(): Promise<
   }
   const wd = parsed.data
 
-  const yearlyFee = Number(wd.finance?.eves_jarulek) || 0
-  const yearlyDeadline = wd.finance?.jarulek_hatarid || ''
-  if (yearlyFee <= 0 || !/^\d{2}-\d{2}$/.test(yearlyDeadline)) {
-    return {
-      error:
-        'A pénzügyi alapadatok hiányosak. Kérem, adja meg az éves járulék összegét és a fizetési határidőt a Pénzügy lépésben.',
-    }
-  }
-
-  // 2) Olvassuk be a profil-t (congregation_id-hez)
+  // 2) Olvassuk be a profil-t (congregation_id-hez) — a pénzügyi gate ELŐTT.
+  // Egy újabb lelkésznél (aki egy MÁR beállított gyülekezethez csatlakozik) a
+  // pénzügyi alapadatok a meglévő gyülekezeti sorból jönnek, nem a wizardból.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, congregation_id')
@@ -650,6 +662,32 @@ export async function completeWizard(): Promise<
 
   if (profileError || !profile) {
     return { error: 'A profil nem található.' }
+  }
+
+  // A meglévő gyülekezeti pénzügyi alapadatok (fallback, ha a wizard nem hoz
+  // finance-t — pl. második lelkész, aki kihagyta a Pénzügy lépést).
+  let existingFee = 0
+  let existingDeadline = ''
+  if (profile.congregation_id) {
+    const { data: congFinance } = await supabase
+      .from('congregations')
+      .select('eves_jarulek, jarulek_hatarid')
+      .eq('id', profile.congregation_id)
+      .maybeSingle()
+    const cf = congFinance as { eves_jarulek?: number | null; jarulek_hatarid?: string | null } | null
+    existingFee = Number(cf?.eves_jarulek) || 0
+    existingDeadline = typeof cf?.jarulek_hatarid === 'string' ? cf.jarulek_hatarid : ''
+  }
+
+  const yearlyFee = Number(wd.finance?.eves_jarulek) || existingFee
+  const yearlyDeadline = /^\d{2}-\d{2}$/.test(wd.finance?.jarulek_hatarid || '')
+    ? (wd.finance?.jarulek_hatarid as string)
+    : existingDeadline
+  if (yearlyFee <= 0 || !/^\d{2}-\d{2}$/.test(yearlyDeadline)) {
+    return {
+      error:
+        'A pénzügyi alapadatok hiányosak. Kérem, adja meg az éves járulék összegét és a fizetési határidőt a Pénzügy lépésben.',
+    }
   }
 
   // ─── profiles (név + telefon + születés) ───

@@ -172,6 +172,10 @@ export function WelcomeWizardClient() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
+  // 2026-06-05: ha a gyülekezetet egy korábbi lelkész már beállította, az új
+  // felhasználónak csak a saját (Lelkész) lépését kell kitöltenie — a
+  // Gyülekezet (2) + Pénzügy (4) lépést kihagyjuk.
+  const [congregationConfigured, setCongregationConfigured] = useState(false)
 
   // ─── Init: getWizardProgress — visszatöltés, ha van mentett állapot ───
   useEffect(() => {
@@ -184,6 +188,9 @@ export function WelcomeWizardClient() {
         setLoading(false)
         return
       }
+
+      const congConfigured = result.congregationConfigured === true
+      setCongregationConfigured(congConfigured)
 
       const wp = result.data
       if (wp.completed_at) {
@@ -236,7 +243,13 @@ export function WelcomeWizardClient() {
       // A régi (portable) sorokban `current_step` lehet 1 — azt is FIRST_STEP_ID-re
       // korrigáljuk, hogy a wizard mindig a Gyülekezet lépésen induljon.
       const savedStep = wp.current_step || FIRST_STEP_ID
-      setCurrentStep(savedStep < FIRST_STEP_ID ? FIRST_STEP_ID : savedStep)
+      let initialStep = savedStep < FIRST_STEP_ID ? FIRST_STEP_ID : savedStep
+      // Rövid flow (konfigurált gyülekezet): csak a Lelkész (3) és Kész (5)
+      // lépés érvényes — bármi mást a Lelkész lépésre korrigálunk.
+      if (congConfigured && initialStep !== 3 && initialStep !== LAST_STEP_ID) {
+        initialStep = 3
+      }
+      setCurrentStep(initialStep)
       setLoading(false)
     })()
     return () => {
@@ -262,8 +275,23 @@ export function WelcomeWizardClient() {
     }
   }
 
-  const goNext = () => setCurrentStep(s => Math.min(s + 1, LAST_STEP_ID))
-  const goBack = () => setCurrentStep(s => Math.max(s - 1, FIRST_STEP_ID))
+  // Aktív lépések: rövid flow esetén (konfigurált gyülekezet) csak a Lelkész (3)
+  // és a Kész (5) lépés látszik; egyébként mind a négy.
+  const activeSteps = congregationConfigured
+    ? STEPS.filter(s => s.id === 3 || s.id === LAST_STEP_ID)
+    : STEPS
+  const firstActiveStepId = activeSteps[0].id
+
+  const goNext = () =>
+    setCurrentStep(s => {
+      const i = activeSteps.findIndex(st => st.id === s)
+      return activeSteps[Math.min(i + 1, activeSteps.length - 1)]?.id ?? s
+    })
+  const goBack = () =>
+    setCurrentStep(s => {
+      const i = activeSteps.findIndex(st => st.id === s)
+      return i <= 0 ? s : activeSteps[i - 1].id
+    })
 
   const handleNextFromStep2 = async (
     congregation: WizardData['congregation'],
@@ -341,25 +369,36 @@ export function WelcomeWizardClient() {
         </div>
       </div>
 
-      {/* Üdvözlő szöveg (csak a legelső lépésen) */}
-      {currentStep === FIRST_STEP_ID && (
+      {/* Üdvözlő szöveg (csak a legelső aktív lépésen) */}
+      {currentStep === firstActiveStepId && (
         <div className="text-center">
           <h1 className="font-heading text-2xl text-slate-800 md:text-3xl">
             Üdvözlünk! 🎉
           </h1>
-          <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
-            Egy rövid varázsló vezet végig, amelyben beállítjuk a rendszert a
-            gyülekezeted igényeire. Kb. 5-10 percet vesz igénybe.
-            {' '}
-            <span className="font-medium text-slate-700">
-              Ha most kilépsz, onnan folytathatod, ahol abbahagytad.
-            </span>
-          </p>
+          {congregationConfigured ? (
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
+              A gyülekezet adatait egy korábbi lelkész már beállította, így neked
+              {' '}
+              <span className="font-medium text-slate-700">
+                csak a saját adataidat kell megadnod
+              </span>
+              {' '}— pár perc az egész.
+            </p>
+          ) : (
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
+              Egy rövid varázsló vezet végig, amelyben beállítjuk a rendszert a
+              gyülekezeted igényeire. Kb. 5-10 percet vesz igénybe.
+              {' '}
+              <span className="font-medium text-slate-700">
+                Ha most kilépsz, onnan folytathatod, ahol abbahagytad.
+              </span>
+            </p>
+          )}
         </div>
       )}
 
       {/* Progress bar */}
-      <ProgressBar currentStep={currentStep} />
+      <ProgressBar currentStep={currentStep} steps={activeSteps} />
 
       {/* Step container — animált átmenetekkel */}
       <div className="card-raised overflow-hidden">
@@ -433,10 +472,16 @@ export function WelcomeWizardClient() {
   )
 }
 
-function ProgressBar({ currentStep }: { currentStep: number }) {
+function ProgressBar({
+  currentStep,
+  steps = STEPS,
+}: {
+  currentStep: number
+  steps?: typeof STEPS
+}) {
   return (
     <ol className="flex items-center justify-between gap-2">
-      {STEPS.map((step, idx) => {
+      {steps.map((step, idx) => {
         const isActive = step.id === currentStep
         const isDone = step.id < currentStep
         const Icon = step.icon
@@ -495,7 +540,7 @@ function ProgressBar({ currentStep }: { currentStep: number }) {
                 <p className="text-[10px] text-slate-400">{step.description}</p>
               </div>
             </div>
-            {idx < STEPS.length - 1 && (
+            {idx < steps.length - 1 && (
               <div className="mb-6 relative h-0.5 flex-1 overflow-hidden rounded bg-slate-200">
                 <motion.div
                   initial={false}
