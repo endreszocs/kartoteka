@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -283,14 +284,20 @@ function TooltipCard({
       style={{
         maxWidth: TOOLTIP_MAX_WIDTH,
         width: 'calc(100vw - 32px)',
+        maxHeight: 'calc(100vh - 32px)',
+        overflowY: 'auto',
         ...positionStyle,
       }}
     >
       {/* Fejléc: step ikon + progress + close */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 to-teal-100">
-            <Sparkles className="size-4 text-amber-700" />
+          <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 to-teal-100 text-base leading-none">
+            {step.emoji ? (
+              <span aria-hidden>{step.emoji}</span>
+            ) : (
+              <Sparkles className="size-4 text-amber-700" />
+            )}
           </div>
           <span className="text-xs font-medium text-slate-500">
             {stepIndex + 1} / {totalSteps}
@@ -326,6 +333,20 @@ function TooltipCard({
       <p className="mt-2 text-sm leading-relaxed text-slate-600">
         {description}
       </p>
+
+      {/* Kiemelések — "mit tehet itt" */}
+      {step.highlights && step.highlights.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {step.highlights.map((h, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+              <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-700">
+                <Check className="size-3" />
+              </span>
+              <span>{h.replace(/\{firstName\}/g, firstName)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Action gombok */}
       <div className="mt-5 flex items-center justify-between gap-2">
