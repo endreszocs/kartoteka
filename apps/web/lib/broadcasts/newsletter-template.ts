@@ -16,6 +16,28 @@ import type { ChangelogEntry, ReleaseCategory } from './types'
 // email-kliens letölthesse (ugyanaz a forrás, mint a broadcast emailben).
 const LOGO_URL = 'https://kartoteka.app/kartoteka-logo.png'
 
+// DicsHub — egy másik, szintén lelkészi szolgálatot segítő projekt ajánlója.
+const DICSHUB_LOGO_URL = 'https://kartoteka.app/dicshub-logo.png'
+const DICSHUB_URL = 'https://www.dicshub.com/'
+
+/** A hírlevél végére kerülő, barátságos „kedvcsináló" a DicsHub projekthez. */
+function dicsHubPromoHtml(): string {
+  return `
+    <div style="margin:0 28px 24px;padding:22px 20px;background:linear-gradient(135deg,#f0f9ff 0%,#eef2ff 100%);border:1px solid #bae6fd;border-radius:14px;text-align:center;">
+      <p style="margin:0 0 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#0369a1;">Egy másik eszköz a szolgálatához</p>
+      <img src="${DICSHUB_LOGO_URL}" alt="DicsHub" width="190" style="display:inline-block;width:190px;max-width:72%;height:auto;margin-bottom:10px;" />
+      <p style="margin:0 0 12px;font-size:13px;color:#334155;line-height:1.65;">
+        A <strong>DicsHub</strong> egy modern istentiszteleti prezentáció- és dicsőítés-szervező
+        alkalmazás magyar lelkészeknek és istentisztelet-vezetőknek: énekek, igeversek, imák és
+        liturgia-sablonok, gyönyörű kivetítés, telefonos távvezérlő és PowerPoint-export — minden egy helyen.
+        Ha keresi, mi segíthet az istentiszteletek előkészítésében, érdemes kipróbálni!
+      </p>
+      <a href="${DICSHUB_URL}" style="display:inline-block;margin-top:2px;padding:11px 24px;background:#0c4a6e;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:13px;">Fedezze fel a DicsHub-ot →</a>
+      <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;">www.dicshub.com</p>
+    </div>
+  `
+}
+
 export interface NewsletterInput {
   /** A hírlevélbe kerülő változásnaplók (már szűrt + sorrendezett). */
   entries: ChangelogEntry[]
@@ -342,6 +364,9 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                 ${sections}
               </div>
 
+              <!-- DicsHub ajánló -->
+              ${dicsHubPromoHtml()}
+
               <!-- Lábléc üzenet -->
               <div style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
                 <p style="margin:0 0 6px;font-size:13px;color:#334155;line-height:1.55;">
@@ -467,6 +492,15 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
     }
   }
 
+  lines.push('───────────────────────────────────────────────────')
+  lines.push('  EGY MÁSIK ESZKÖZ A SZOLGÁLATÁHOZ — DICSHUB')
+  lines.push('───────────────────────────────────────────────────')
+  lines.push('A DicsHub egy modern istentiszteleti prezentáció- és')
+  lines.push('dicsőítés-szervező alkalmazás magyar lelkészeknek:')
+  lines.push('énekek, igeversek, imák, liturgia-sablonok, kivetítés,')
+  lines.push('telefonos távvezérlő és PowerPoint-export — egy helyen.')
+  lines.push('Próbálja ki: https://www.dicshub.com/')
+  lines.push('')
   lines.push('═══════════════════════════════════════════════════')
   lines.push('Kérdésed van? Fordulj Szőcs Endréhez: endreszocs@gmail.com')
   lines.push('')
