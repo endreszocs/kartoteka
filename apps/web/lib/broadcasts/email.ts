@@ -32,7 +32,12 @@ export async function sendBroadcastEmail(
   }
 
   const html = args.customHtml ?? buildHtmlBody(args)
-  const text = args.bodyText + (args.hivatkozas ? `\n\nRészletek: ${args.hivatkozas}` : '')
+  // A customHtml (hírlevél) saját megszólítással jön — csak a sztenderd
+  // (per-bejegyzés) broadcastnál tesszük elé a "Kedves Felhasználók!"-at.
+  const text =
+    (args.customHtml ? '' : 'Kedves Felhasználók!\n\n') +
+    args.bodyText +
+    (args.hivatkozas ? `\n\nRészletek: ${args.hivatkozas}` : '')
 
   // 50-es chunkok — mindegy melyik provider
   const chunks = chunkArray(args.to, 50)
@@ -113,6 +118,53 @@ const APP_URL = 'https://kartoteka.app'
 const LOGO_URL = `${APP_URL}/kartoteka-logo.png`
 const ICON_URL = `${APP_URL}/EREK.png`
 
+// ─────────────────────────────────────────────────────────────
+// Markdown → HTML (kis, e-mail-barát renderelő) — hogy a CHANGELOG
+// bejegyzések (félkövér, listák, ### címsorok) szépen, elválasztva jelenjenek meg.
+// ─────────────────────────────────────────────────────────────
+
+function renderInline(s: string): string {
+  let r = escapeHtml(s)
+  r = r.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#0f172a">$1</strong>')
+  r = r.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:2px 5px;border-radius:4px;font-family:monospace;font-size:90%">$1</code>')
+  return r
+}
+
+function renderMarkdownEmail(md: string): string {
+  const lines = md.split('\n')
+  const out: string[] = []
+  let inList = false
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
+
+  for (const raw of lines) {
+    const line = raw.trimEnd()
+
+    // ### / #### címsor — szekció-fejléc (szépen elválasztva)
+    if (/^#{2,4}\s+/.test(line)) {
+      closeList()
+      const text = renderInline(line.replace(/^#{2,4}\s+/, ''))
+      out.push(`<h3 style="margin:20px 0 8px;color:#0f766e;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;padding-top:14px">${text}</h3>`)
+      continue
+    }
+    // üres sor
+    if (line.trim() === '') { closeList(); continue }
+    // vízszintes vonal
+    if (/^-{3,}$/.test(line.trim())) { closeList(); continue }
+    // lista
+    const li = line.match(/^[-*]\s+(.+)$/)
+    if (li) {
+      if (!inList) { out.push('<ul style="margin:8px 0 14px 0;padding-left:20px;color:#334155">'); inList = true }
+      out.push(`<li style="margin:6px 0;line-height:1.6">${renderInline(li[1])}</li>`)
+      continue
+    }
+    // bekezdés
+    closeList()
+    out.push(`<p style="margin:10px 0;color:#334155;line-height:1.65">${renderInline(line)}</p>`)
+  }
+  closeList()
+  return out.join('\n')
+}
+
 function buildHtmlBody(args: SendBroadcastEmailArgs): string {
   const accent = tipusAccent[args.tipus]
   const linkButton = args.hivatkozas
@@ -189,10 +241,13 @@ function buildHtmlBody(args: SendBroadcastEmailArgs): string {
                       <tr><td style="border-top:1px solid #e2e8f0;line-height:0;height:0">&nbsp;</td></tr>
                     </table>
 
-                    <!-- Body -->
+                    <!-- Megszólítás -->
+                    <p style="margin:0 0 14px 0;font-size:15px;color:#0f172a;font-weight:600">Kedves Felhasználók!</p>
+
+                    <!-- Body (markdown → formázott HTML) -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td style="font-size:15px;line-height:1.65;color:#334155;white-space:pre-line">${escapeHtml(args.bodyText)}</td>
+                        <td style="font-size:15px;color:#334155">${renderMarkdownEmail(args.bodyText)}</td>
                       </tr>
                       ${linkButton}
                     </table>

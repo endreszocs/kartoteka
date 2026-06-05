@@ -279,8 +279,8 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
 
               <!-- Üdvözlés + intro -->
               <div style="padding:24px 28px 0;">
-                <p style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.6;">
-                  Kedves Lelkipásztor Testvérem!
+                <p style="margin:0 0 12px;color:#0f172a;font-size:15px;line-height:1.6;font-weight:600;">
+                  Kedves Felhasználók!
                 </p>
                 <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.65;">
                   A Kartotéka rendszerben az elmúlt időszakban több új funkció, finomítás és javítás készült el, hogy a mindennapi munka még gördülékenyebb és biztonságosabb legyen. Az alábbiakban kategóriák szerint részletesen bemutatjuk a változásokat.
@@ -364,7 +364,7 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
     `  ${periodLabel} · ${entries.length} fejlesztés`,
     '═══════════════════════════════════════════════════',
     '',
-    'Kedves Lelkipásztor Testvérem!',
+    'Kedves Felhasználók!',
     '',
     'A Kartotéka rendszerben az elmúlt időszakban több új funkció,',
     'finomítás és javítás készült el. Az alábbiakban részletesen',
