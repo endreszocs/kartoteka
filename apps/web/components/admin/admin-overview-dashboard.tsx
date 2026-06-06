@@ -111,13 +111,6 @@ function ModuleLink({
 
 const MODULES = [
   {
-    href: '/admin/hozzaferes-kerelmek',
-    icon: Inbox,
-    label: 'Hozzáférés-kérelmek',
-    description: 'Új regisztrációk elbírálása, jóváhagyás vagy elutasítás.',
-    gradient: 'from-amber-400 to-orange-500',
-  },
-  {
     href: '/admin/gyulekezetek',
     icon: Church,
     label: 'Gyülekezetek',
@@ -238,7 +231,7 @@ export function AdminOverviewDashboard() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <FocusCard
-            href="/admin/hozzaferes-kerelmek"
+            href="/admin/felhasznalok"
             icon={Inbox}
             label="Elbírálandó kérelem"
             value={loading ? '…' : (pendingRequests ?? 0)}
@@ -247,7 +240,7 @@ export function AdminOverviewDashboard() {
                 ? 'Betöltés…'
                 : pendingRequests === 0
                 ? 'Minden kérelem feldolgozva.'
-                : 'Új hozzáférés-kérelem várja az elbírálást.'
+                : 'Új regisztráció vár jóváhagyásra a Felhasználók oldalon.'
             }
             tone="amber"
             highlight={!!pendingRequests && pendingRequests > 0}

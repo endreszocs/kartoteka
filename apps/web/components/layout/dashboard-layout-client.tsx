@@ -95,7 +95,10 @@ const WEB_TAGNYILVANTARTAS_SUBMENU = [
  */
 const WEB_ADMIN_SUBMENU = [
   { label: 'Áttekintés', href: '/admin', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
-  { label: 'Hozzáférés-kérelmek', href: '/admin/hozzaferes-kerelmek', icon: Inbox, gradient: 'from-amber-400 to-orange-500' },
+  // 2026-06-06: a "Hozzáférés-kérelmek" kivéve a menüből — a regisztrációk
+  // jóváhagyása + aktiválása mostantól EGY helyen, a Felhasználók oldalon
+  // történik (a függőben lévő kérelmek kontextusa ott látszik). Az útvonal
+  // (/admin/hozzaferes-kerelmek) megmarad archívumként/visszafordíthatóságért.
   { label: 'Gyülekezetek', href: '/admin/gyulekezetek', icon: Church, gradient: 'from-emerald-400 to-teal-500' },
   { label: 'Felhasználók', href: '/admin/felhasznalok', icon: UserCog, gradient: 'from-violet-500 to-indigo-600' },
   { label: 'Könyvelők / számvevők', href: '/admin/konyvelok', icon: Calculator, gradient: 'from-teal-400 to-cyan-500' },
