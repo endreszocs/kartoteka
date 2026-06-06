@@ -245,7 +245,9 @@ export function SystemFinanceTab() {
         </div>
         <p className="text-xs text-slate-500">
           <Info className="inline size-3.5 mr-1 text-violet-600" />
-          A számítás az aktív árazási sávok átlagdíjával + aktív költségtételekkel (skálázódási felárral) dolgozik.
+          <strong>Becsült, tájékoztató értékek.</strong> A számítás az aktív árazási sávok
+          átlagdíjával + aktív költségtételekkel (becsült skálázódási felárral) dolgozik —
+          a tényleges összegek a valós előfizetésektől és szolgáltatói díjaktól függően eltérhetnek.
         </p>
         <ForecastTable forecast={forecast} />
       </section>
