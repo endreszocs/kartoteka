@@ -59,6 +59,9 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Költségvetés és számadás a Nyomtatási központban**: a **Költségvetés**, **Költségvetés-módosítás** és **Számadás** mostantól a központi **Nyomtatási központban** is elérhető, a többi nyomtatvány mellett (a részszámadás továbbra is a Költségvetés fülön, időszak-választóval).
 - **Tétel rögzítés — naptár**: a dátum mostantól **naptárból is választható** (a szabadon beírható mező mellett).
 - **Oldalsáv almenük**: az almenüre kattintva a megfelelő fül/nézet **azonnal frissül** akkor is, ha már az adott oldalon vagy (a hash-alapú navigáció javítva).
+- **Monetár nyomtatás — előnézet ablak**: a Monetár „Nyomtatás" gombja mostantól **előnézeti ablakot** nyit (mint a Nyomtatási központ), **Nyomtatás** és **PDF mentés** gombokkal.
+- **Nyomtatás külön ablakban**: a böngészős nyomtatás külön ablakban (window.open) nyílik, így minden környezetben (asztali alkalmazásban is) megbízhatóan megjelenik a nyomtatási párbeszéd.
+- **Nyomtatási központ — letisztult**: a bal oldali nyomtatvány-lista kompaktabb (minden típus elfér), az előnézet pedig pontos **A4** (álló/fekvő a dokumentum szerint), **oldalirányú görgetés nélkül**.
 
 ---
 

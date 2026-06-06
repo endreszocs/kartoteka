@@ -19,6 +19,7 @@ import {
   Printer,
   Save,
   Wallet,
+  X,
 } from 'lucide-react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@kartoteka/ui'
@@ -153,6 +154,7 @@ export function MonetaryTab({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [printOpen, setPrintOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -236,23 +238,28 @@ export function MonetaryTab({
     }
   }
 
-  async function handlePrint(mode: 'pdf' | 'browser') {
+  const printDateIso = new Date().toISOString().slice(0, 10)
+  const printHtml = useMemo(
+    () =>
+      buildMonetarSheetHtml({
+        congregationName,
+        year: currentYear,
+        dateIso: printDateIso,
+        banknotes: grouped.bankjegy,
+        coins: grouped.erme,
+        counts,
+        countedTotal,
+        expected: expectedCashBalance,
+      }),
+    [congregationName, currentYear, printDateIso, grouped, counts, countedTotal, expectedCashBalance],
+  )
+
+  async function doPrint(mode: 'pdf' | 'browser') {
     if (!onPrint) return
-    const dateIso = new Date().toISOString().slice(0, 10)
-    const html = buildMonetarSheetHtml({
-      congregationName,
-      year: currentYear,
-      dateIso,
-      banknotes: grouped.bankjegy,
-      coins: grouped.erme,
-      counts,
-      countedTotal,
-      expected: expectedCashBalance,
-    })
     setPrinting(true)
     try {
-      await onPrint({ mode, html, filename: `Monetar_${currentYear}_${dateIso}.pdf` })
-      onToast?.(mode === 'pdf' ? 'A monetár PDF elkészült.' : 'Megnyílt a nyomtatási előnézet.', 'success')
+      await onPrint({ mode, html: printHtml, filename: `Monetar_${currentYear}_${printDateIso}.pdf` })
+      onToast?.(mode === 'pdf' ? 'A monetár PDF elkészült.' : 'Megnyílt a nyomtatási ablak.', 'success')
     } catch (e) {
       onToast?.(e instanceof Error ? e.message : 'A nyomtatás nem sikerült.', 'error')
     } finally {
@@ -290,11 +297,10 @@ export function MonetaryTab({
                   <Button
                     variant="outline"
                     className="rounded-full px-5"
-                    onClick={() => void handlePrint('browser')}
-                    disabled={printing}
+                    onClick={() => setPrintOpen(true)}
                   >
                     <Printer className="mr-2 size-4" />
-                    {printing ? 'Nyomtatás...' : 'Nyomtatás'}
+                    Nyomtatás
                   </Button>
                 )}
                 <Button
@@ -440,6 +446,66 @@ export function MonetaryTab({
           </Card>
         </div>
       </div>
+
+      {/* Nyomtatási előnézet ablak (mint a Nyomtatási központban) */}
+      {printOpen && onPrint && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-3 sm:p-6"
+          onClick={() => setPrintOpen(false)}
+        >
+          <div
+            className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+              <h3 className="flex items-center gap-2 font-heading text-lg text-slate-800">
+                <Printer className="size-5 text-teal-600" />
+                Monetár nyomtatása — előnézet
+              </h3>
+              <button
+                type="button"
+                aria-label="Bezárás"
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setPrintOpen(false)}
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
+              <div className="mx-auto w-full max-w-[800px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <iframe title="Monetár előnézet" srcDoc={printHtml} className="block h-[68vh] w-full bg-white" />
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setPrintOpen(false)}
+                className="inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Bezárás
+              </button>
+              <button
+                type="button"
+                onClick={() => void doPrint('browser')}
+                disabled={printing}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-white px-4 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Printer className="size-4" /> {printing ? 'Nyomtatás…' : 'Nyomtatás'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void doPrint('pdf')}
+                disabled={printing}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-teal-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+              >
+                <Save className="size-4" /> PDF mentés
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

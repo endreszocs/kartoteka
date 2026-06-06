@@ -29,9 +29,11 @@ import type {
   SavedDocOption,
 } from './types'
 
-// A4 méretek képpontban (96 dpi) — a fit-to-width előnézet skálázásához.
-const A4_LANDSCAPE_W = 1123
-const A4_PORTRAIT_W = 794
+// A4 méretek képpontban (96 dpi) + kis ráhagyás, hogy a mm-alapú lap biztosan
+// elférjen az iframe-ben (különben belül vízszintes görgetősáv jelenne meg).
+// 210mm≈794px, 297mm≈1123px — a ráhagyással a tartalom sosem lóg ki.
+const A4_LANDSCAPE_W = 1140
+const A4_PORTRAIT_W = 812
 const PREVIEW_BOX_H = 820
 
 const MONTHS_RO = [
@@ -276,15 +278,15 @@ export function FinancePrintDialogBody({
     <div className="grid gap-4 pb-2 lg:grid-cols-[340px_minmax(0,1fr)]">
       {/* ── Bal oldal ──────────────────────────── */}
       <div className="space-y-4">
-        {/* Típus választó */}
-        <div className="card-raised space-y-3 p-4">
+        {/* Típus választó — kompakt lista, hogy minden nyomtatvány elférjen */}
+        <div className="card-raised space-y-2 p-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700/70">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700/70">
               Hivatalos nyomtatványok
             </p>
-            <h3 className="font-heading text-xl text-slate-800">Válasszon formátumot</h3>
+            <h3 className="font-heading text-lg text-slate-800">Válasszon formátumot</h3>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {printableTypes.map((type) => {
               const active = type.id === printType
               return (
@@ -292,15 +294,15 @@ export function FinancePrintDialogBody({
                   key={type.id}
                   type="button"
                   onClick={() => setPrintType(type.id)}
-                  className={`w-full rounded-2xl border p-3 text-left transition ${
+                  title={type.description}
+                  className={`flex w-full items-baseline justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
                     active
                       ? 'border-blue-400 bg-blue-50 shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="text-sm font-semibold text-slate-800">{type.title}</div>
-                  <div className="text-xs font-medium text-blue-700">{type.subtitle}</div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{type.description}</p>
+                  <span className="text-[13px] font-semibold text-slate-800">{type.title}</span>
+                  <span className="shrink-0 text-[10px] font-medium text-blue-700">{type.subtitle}</span>
                 </button>
               )
             })}
