@@ -20,9 +20,9 @@ import { OblioEllenorzesTab } from './oblio-ellenorzes-tab'
 import { PenzugyHelp } from './penzugy-help'
 import { PenzugyImportWizard } from './finance-import/penzugy-import-wizard'
 import { slugifyCongregationName } from '@/lib/utils/slugify'
-import { IncomeDialog } from '@/components/modals/income-dialog-v3'
-import { ExpenseDialogV2 } from '@/components/modals/expense-dialog-v2'
+import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
+import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { FinancePrintDialog } from '@/components/finance/finance-print-dialog'
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
@@ -87,9 +87,9 @@ export function FinanceTabs({
   const [receiptHealth, setReceiptHealth] = useState(initialReceiptHealth)
   const [rentalContracts, setRentalContracts] = useState<RentalContractRow[]>([])
   const [rentalDebtRows, setRentalDebtRows] = useState<RentalDebtRow[]>([])
-  const [incomeOpen, setIncomeOpen] = useState(false)
-  const [expenseOpen, setExpenseOpen] = useState(false)
+  const [combinedOpen, setCombinedOpen] = useState(false)
   const [decontOpen, setDecontOpen] = useState(false)
+  const [dispozitieOpen, setDispozitieOpen] = useState(false)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
 
@@ -253,14 +253,14 @@ export function FinanceTabs({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => setIncomeOpen(true)}>
-              + Bevétel
-            </Button>
-            <Button size="sm" className="rounded-xl bg-red-500 text-white hover:bg-red-600" onClick={() => setExpenseOpen(true)}>
-              + Kiadás
+            <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
+              + Tétel rögzítése
             </Button>
             <Button size="sm" variant="outline" className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
               Decont
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
+              Dispoziție
             </Button>
             <Button size="sm" variant="outline" className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
               <Printer className="mr-1 size-3.5" />
@@ -347,10 +347,10 @@ export function FinanceTabs({
               icon={Wallet}
               title="Még nincs pénzügyi tétel"
               description="Kezdd el a gyülekezet pénzügyi nyilvántartását — rögzítsd az első befizetést vagy kiadást. A kassza, bank és számadás innen épül fel."
-              ctaLabel="Rögzítsd az első befizetést"
-              onCta={() => setIncomeOpen(true)}
-              secondaryLabel="Kiadás rögzítése"
-              onSecondary={() => setExpenseOpen(true)}
+              ctaLabel="Rögzítsd az első tételt"
+              onCta={() => setCombinedOpen(true)}
+              secondaryLabel="Bevétel / kiadás rögzítése"
+              onSecondary={() => setCombinedOpen(true)}
             />
           )}
           <FinanceDashboard
@@ -489,31 +489,30 @@ export function FinanceTabs({
         )}
       </Tabs>
 
-      {/* Bevétel modal */}
-      <IncomeDialog
-        open={incomeOpen}
-        onOpenChange={(open) => { setIncomeOpen(open); if (!open) refreshData() }}
-        categories={incomeCategories}
-        bankAccounts={bankAccounts}
+      {/* Összevont bevétel/kiadás rögzítő modal — egy gomb, két fül */}
+      <CombinedEntryDialog
+        open={combinedOpen}
+        onOpenChange={(open) => { setCombinedOpen(open); if (!open) refreshData() }}
+        incomeCategories={incomeCategories}
+        expenseCategories={expenseCategories}
         currentYear={currentYear}
-        yearlyFee={Number(settings.eves_jarulek) || 0}
       />
 
-      {/* Kiadás modal */}
-      <ExpenseDialogV2
-        open={expenseOpen}
-        onOpenChange={(open) => { setExpenseOpen(open); if (!open) refreshData() }}
-        categories={expenseCategories}
-        bankAccounts={bankAccounts}
-      />
-
-      {/* Decont (elszámolás) dialog — a hero „Decont" gombja nyitja.
-          A korábbi „Speciális mozgás" gomb és InternalTransferDialog
-          eltávolítva — más úton oldódik meg (Bank/Kassza fülön belül). */}
+      {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}
       <DecontDialog
         open={decontOpen}
-        onOpenChange={setDecontOpen}
+        onOpenChange={(open) => { setDecontOpen(open); if (!open) refreshData() }}
         congregationName={congregationName}
+        categories={expenseCategories}
+      />
+
+      {/* Dispoziție de plată / încasare dialog */}
+      <DispozitieDialog
+        open={dispozitieOpen}
+        onOpenChange={(open) => { setDispozitieOpen(open); if (!open) refreshData() }}
+        congregationName={congregationName}
+        incomeCategories={incomeCategories}
+        expenseCategories={expenseCategories}
       />
 
       <BudgetPrintDialog

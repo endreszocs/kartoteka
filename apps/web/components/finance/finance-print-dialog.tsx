@@ -23,6 +23,7 @@ import {
 } from '@/lib/finance/reporting'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { getChitantaTombokReport } from '@/app/(dashboard)/penzugy/chitanta-tombok-actions'
+import { SavedDocsReprint } from '@/components/finance/saved-docs-reprint'
 import { toast } from 'sonner'
 import type { BefitetesRow, KiadasRow, BankAccount, SzamadasiCel } from '@/lib/constants/finance'
 
@@ -118,6 +119,8 @@ export function FinancePrintDialog({
           }}
           onClose={() => onOpenChange(false)}
         />
+
+        <SavedDocsReprint open={open} congregationName={congregationName} currentYear={currentYear} />
       </DialogContent>
     </Dialog>
   )
