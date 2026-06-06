@@ -23,45 +23,44 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-06] — Bizonylatok újranyomtatása + pénzügyi finomítások
+## [2026-06-06] — Pénzügyi nyomtatás és kezelés — fejlesztések
 <!-- key: 2026-06-06-bizonylat-ujranyomtatas-finomitasok -->
 <!-- category: improvement -->
 <!-- targets: lelkesz, konyvelo -->
 
-### ✨ Újdonságok és javítások
+Sok hasznos fejlesztés érkezett a Pénzügy modulba — a gyors tételrögzítéstől a hivatalos nyomtatványokig. A lényeg röviden:
 
-- **Korábbi bizonylatok újranyomtatása**: a **Nyomtatási központban** mostantól a korábban mentett **Decont** és **Dispoziție** bizonylatok listából **bármikor újranyomtathatók vagy PDF-be menthetők**.
-- **Kereshető kategóriák**: a kategóriaválasztóknál (tétel rögzítés, decont, dispoziție) mostantól **gépeléssel kereshetsz** a megnevezésre — a zavaró kódszámok eltűntek, egy betű is elég a találatokhoz.
-- **Rugalmas dátum**: a dátumot **bármilyen formátumban** beírhatod (pl. `2026.01.04`, `4 ian 2026`), a rendszer felismeri.
-- **Csak készpénz a gyors rögzítésnél**: a tételrögzítő egyértelműen csak készpénzes tételekre szól (a banki tételek banki kivonatból jönnek). Új **Irattípus** (Factură, Bon fiscal, Chitanță…) és **Megjegyzés** oszlop is van.
-- **Szebb nyomtatási kép**: a Decont és a Dispoziție nyomtatási előnézete most a **teljes lapot** mutatja; a Dispoziție szellősebb, **A5-ös kétpéldányos** elrendezésben; az aláírások fölött megjelenik az **elszámoló és a jóváhagyó neve**.
-- **Pontos román összeg-kiírás**: a Dispoziție az összeget immár helyesen írja ki betűvel románul (pl. „o sută de lei”).
-- **Telefonbarát**: a tételrögzítő kis képernyőn kártyás nézetben jelenik meg — nincs többé oldalirányú görgetés.
-- **Kategória-lista javítás**: a kereshető kategória-választó legördülője már mindenhol teljesen látszik (nem vágja le az ablak).
-- **Készpénzfelvétel / -letétel**: a tételrögzítőnél, ha készpénzfelvételt vagy -letételt választasz, megjelenik a **bankszámla-választó** (melyik számláról / melyik számlára), és a tétel belső mozgásként könyvelődik — a kassza és a bank oldalt is rendezi.
-- **Decont és Dispoziție elrendezés**: széles képernyőn bal oldalon töltöd ki az adatokat, jobb oldalon az élő előnézet; telefonon az előnézet alulra kerül.
-- **Nyomtatási központ**: a bezáró „×” mindig látszik, kevesebb a szürke háttér, és a korábbi bizonylatok újranyomtatása rendezett szekcióban érhető el.
-- **Számadás tábla**: a számadás fülön a csoport-sorok mindig láthatók, így a táblázat szerkezete jól követhető.
-- **Súgó**: új „Tételek és bizonylatok” fejezet lépésről lépésre bemutatja a rögzítést, a Decontot, a Dispozițiét és az újranyomtatást.
-- **Nyomtatási központ – egységes lista**: a korábbi Decont és Dispoziție bizonylatok újranyomtatása mostantól a többi nyomtatvánnyal **azonos listában** szerepel (bal oldalon választható, jobb oldalon előnézet).
-- **Előnézet teljes szélességben**: a nyomtatványok előnézete a teljes lapot mutatja — **nincs többé oldalirányú görgetés**.
-- **Festéktakarékos nyomtatványok**: a kimutatásokról eltűntek a szürke háttér-kitöltések (a fejlécek félkövérrel és kerettel jelölve), így kevesebb festék fogy.
-- **Készpénz ↔ bank mozgás**: a tételrögzítőben a készpénzfelvétel **és** a készpénzletétel (a bankra érkező oldalon is) bankszámla-választót kínál; a bank-bank átutalás csak a Bank fülön érhető el.
-- **Nyugtatömb kimutatás**: javítva a teljesen szürke megjelenés (fehér lapra kerül), és az előnézet körül kis térköz van, hogy ne lógjon a széléig.
-- **Nyugta — fontos jelzés**: a nyugtatömb-rögzítés és nyugta-nyomtatás **tesztidőszakban** van, **hivatalos használata még nem megengedett** — hivatalosan kizárólag az Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb használható.
-- **Számadás — minden tétel látszik**: a Számadás fülön mostantól **minden tétel** megjelenik (a költségvetéshez hasonlóan), nem csak a fő kategóriák.
-- **Költségvetés nyomtatás — letisztult forma**: a költségvetés/számadás nyomtatási képe a hivatalos mintához igazítva, **kétnyelvű (román–magyar) oszlopokkal**, rendezett igazítással, félkövér csoport- és összegsorokkal, festéktakarékos (színkitöltés nélküli) megjelenéssel.
-- **Költségvetés nyomtatás — pontosítások**: a **belső mozgások** (kassza↔bank, bank-bank) már **nem jelennek meg** a költségvetésben (a hivatalos minta szerint nem relevánsak); a kategóriák a helyes sorrendben; **oldalszám-jelölés** (pl. „oldal 2 / 4"); a teljes anyag a **borítóval együtt 4 oldalra** rendezve, hogy **2 lapra, kétoldalasan** kinyomtatható legyen.
-- **Monetár nyomtatás**: a Monetár fülön mostantól **kinyomtatható** a pénztári címletjegyzék (bankjegyek + érmék címletenként, összesítéssel és eltéréssel, aláírás-hellyel).
-- **Költségvetés/számadás — véglegesítéshez kötött adatok**: a **presbitériumi határozat** (mikor, melyik ülésen, milyen szám alatt) és az **egyházközségi iktatószám** csak a **véglegesítés után** kerül a nyomtatványra; a nyomtatási központ figyelmeztet, ha a dokumentum még nincs véglegesítve.
-- **Nyomtatási kép — pixelpontos A4**: a költségvetés, költségvetés-módosítás, számadás és részszámadás mind **pontosan 4 oldalra** (borító + 3 lap) van méretezve, fix lapmérettel és sormagassággal — nincs nagy üres rész, és a számadás sem csúszik át fölösleges oldalra. Az **összegző (csoport-) kategóriák mindig a saját tételeik elé** kerülnek; az oszlopszélességek dokumentumtípusonként pontosan beállítva.
-- **Nyomtatás megbízhatóság**: a böngészős nyomtatás új, megbízható módszerre váltott (0×0 keret + betöltés-bevárás), így a **Monetár** és minden más nyomtatás **ténylegesen megnyílik**; a PDF a CSS oldaltöréseket is tiszteletben tartja (a sorok nem csúsznak ketté).
-- **Költségvetés és számadás a Nyomtatási központban**: a **Költségvetés**, **Költségvetés-módosítás** és **Számadás** mostantól a központi **Nyomtatási központban** is elérhető, a többi nyomtatvány mellett (a részszámadás továbbra is a Költségvetés fülön, időszak-választóval).
-- **Tétel rögzítés — naptár**: a dátum mostantól **naptárból is választható** (a szabadon beírható mező mellett).
-- **Oldalsáv almenük**: az almenüre kattintva a megfelelő fül/nézet **azonnal frissül** akkor is, ha már az adott oldalon vagy (a hash-alapú navigáció javítva).
-- **Monetár nyomtatás — előnézet ablak**: a Monetár „Nyomtatás" gombja mostantól **előnézeti ablakot** nyit (mint a Nyomtatási központ), **Nyomtatás** és **PDF mentés** gombokkal.
-- **Nyomtatás külön ablakban**: a böngészős nyomtatás külön ablakban (window.open) nyílik, így minden környezetben (asztali alkalmazásban is) megbízhatóan megjelenik a nyomtatási párbeszéd.
-- **Nyomtatási központ — letisztult**: a bal oldali nyomtatvány-lista kompaktabb (minden típus elfér), az előnézet pedig pontos **A4** (álló/fekvő a dokumentum szerint), **oldalirányú görgetés nélkül**.
+### 🖨️ Nyomtatás és Nyomtatási központ
+
+- **Minden nyomtatvány egy helyen**: a Nyomtatási központban a kassza-/bankkönyv mellett mostantól a **Költségvetés, Költségvetés-módosítás és Számadás** is kiválasztható, sőt a korábban mentett **Decont** és **Dispoziție** bizonylatok is **újranyomtathatók vagy PDF-be menthetők**.
+- **Pontos A4 előnézet**: a nyomtatási kép a tényleges lapot mutatja — a dokumentum szerint álló vagy fekvő tájolásban —, **oldalirányú görgetés nélkül**; a bal oldali lista letisztult, minden típus elfér.
+- **Megbízható nyomtatás**: a nyomtatás külön ablakban nyílik, így minden eszközön (asztali alkalmazásban is) **ténylegesen megjelenik** a nyomtatási párbeszéd.
+- **Festéktakarékos**: a kimutatásokról eltűntek a szürke hátterek (helyettük félkövér és keret).
+- **Költségvetés / számadás**: a hivatalos minta szerint, **kétnyelvű** (román–magyar) oszlopokkal, az összegző sorok mindig a tételeik előtt, **pontosan 4 oldalra** méretezve (2 lapra, kétoldalasan nyomtatható). A belső mozgások itt nem jelennek meg (a minta szerint nem relevánsak).
+
+### 💵 Tételek rögzítése
+
+- **Egy gomb, két fül**: a „+ Tétel rögzítése" ablakban egyszerre vihetsz fel **több bevételt és kiadást** is; a Mentés dátum szerint rendez és mindent a helyére könyvel.
+- **Kereshető kategória**: gépelve kereshetsz a megnevezésre — a zavaró kódszámok nélkül, egy betű is elég.
+- **Dátum kétféleképp**: szabadon beírhatod (bármilyen formátum), vagy **naptárból** is választhatod.
+- **Csak készpénz, áttekinthetően**: a gyors rögzítő készpénzes tételekre szól (a banki tételek banki kivonatból jönnek); új **Irattípus** és **Megjegyzés** oszloppal. Telefonon kártyás nézet, görgetés nélkül.
+- **Készpénzfelvétel / -letétel**: ilyenkor megjelenik a **bankszámla-választó**, és a rendszer a kassza és a bank oldalt is rendezi.
+
+### 📄 Hivatalos bizonylatok
+
+- **Decont és Dispoziție**: széles képernyőn bal oldalt töltöd ki, jobb oldalt élő előnézet; az aláírások fölött a nevek; a Dispoziție szellős, **A5-ös kétpéldányos**, a **román betűs összeg** pontos.
+- **Monetár (pénztári címletjegyzék)**: mostantól **kinyomtatható**, **kétnyelvű** (román–magyar), előnézeti ablakkal és PDF-mentéssel.
+- **Számadás**: minden tétel látszik (a költségvetéshez hasonlóan).
+- **Véglegesítéshez kötött adatok**: a presbitériumi határozat és az egyházközségi iktatószám csak **véglegesítés után** kerül a nyomtatványra; a rendszer jelzi, ha még nincs véglegesítve.
+
+### 🧭 Navigáció és súgó
+
+- **Oldalsáv almenük**: az almenüre kattintva a megfelelő fül **azonnal frissül**, akkor is, ha már az adott oldalon vagy.
+- **Új súgó-fejezet**: „Tételek és bizonylatok" — lépésről lépésre a rögzítésről, a Decontról, a Dispozițiéről és az újranyomtatásról.
+
+### ⚠️ Fontos — nyugta tesztidőszak
+
+- A **nyugtatömb-rögzítés és a nyugta-nyomtatás** jelenleg **tesztidőszakban** van, **hivatalos használata még NEM megengedett**. Hivatalosan kizárólag az **Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb** használható.
 
 ---
 
