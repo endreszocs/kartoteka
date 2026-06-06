@@ -55,6 +55,10 @@ export function DeleteUserDialog({
               (a névvel) megmarad, lezárva.
             </p>
           </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900">
+            Törlés után az <strong>email-cím felszabadul</strong> — ha hiba miatt
+            kell, az illető <strong>újra regisztrálhat</strong> ugyanazzal a címmel.
+          </div>
           <div className="rounded-xl bg-slate-50 p-3 text-sm">
             <p className="font-semibold text-slate-800">{userName || '(nincs név)'}</p>
             <p className="text-xs text-slate-500 mt-0.5">{userEmail}</p>
