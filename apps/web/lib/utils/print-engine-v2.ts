@@ -73,15 +73,51 @@ export async function printToPdf(
   }
 }
 
+/**
+ * Böngészős nyomtatás.
+ *
+ * ELSŐDLEGES: külön ablak (`window.open`) — ez a legmegbízhatóbb módszer, a
+ * rejtett iframe egyes környezetekben (és Tauri webview-ban) NEM nyitotta meg
+ * a nyomtatási dialogot. A felhasználó gomb-kattintása ad user-activationt,
+ * ezért a popup engedélyezett.
+ *
+ * TARTALÉK: ha a `window.open` null-t ad (popup-blokkoló), rejtett iframe-mel
+ * próbálkozunk.
+ */
 export async function printToBrowser(
   htmlContent: string,
   options?: {
     cleanupDelayMs?: number
   },
 ) {
-  // Megbízható minta (vö. react-to-print): 0×0 méretű, NEM képernyőn kívülre
-  // tolt iframe + document.write + a valódi load bevárása. A korábbi nagy,
-  // -9999px-re tolt iframe egyes böngészőkben nem nyitotta meg a dialogot.
+  const win = window.open('', '_blank', 'width=980,height=1100')
+
+  if (win) {
+    win.document.open()
+    win.document.write(htmlContent)
+    win.document.close()
+
+    const triggerPrint = () => {
+      try {
+        win.focus()
+        win.print()
+      } catch {
+        /* a felhasználó bezárhatta az ablakot */
+      }
+    }
+    // Nyomtatás után zárjuk az ablakot.
+    win.onafterprint = () => { try { win.close() } catch { /* ignore */ } }
+
+    if (win.document.readyState === 'complete') {
+      window.setTimeout(triggerPrint, 300)
+    } else {
+      win.addEventListener('load', () => window.setTimeout(triggerPrint, 300), { once: true })
+      window.setTimeout(triggerPrint, 1200) // tartalék, ha a load nem jönne meg
+    }
+    return
+  }
+
+  // ── Tartalék: rejtett iframe (ha a popup blokkolva van) ──
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.style.position = 'fixed'
@@ -92,24 +128,23 @@ export async function printToBrowser(
   iframe.style.border = '0'
   document.body.appendChild(iframe)
 
-  const win = iframe.contentWindow
-  const doc = iframe.contentDocument || win?.document
-  if (!win || !doc) {
+  const fwin = iframe.contentWindow
+  const doc = iframe.contentDocument || fwin?.document
+  if (!fwin || !doc) {
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-    throw new Error('A böngészős nyomtatás nem indítható el.')
+    throw new Error('A böngészős nyomtatás nem indítható el. Engedélyezd a felugró ablakokat.')
   }
 
   doc.open()
   doc.write(htmlContent)
   doc.close()
 
-  // Megvárjuk a tartalom betöltését (kép/betű), majd nyomtatunk.
   await new Promise<void>((resolve) => {
     let done = false
     const finish = () => { if (!done) { done = true; resolve() } }
     if (doc.readyState === 'complete') window.setTimeout(finish, 150)
     else iframe.addEventListener('load', () => window.setTimeout(finish, 150), { once: true })
-    window.setTimeout(finish, 1200) // biztonsági időkorlát
+    window.setTimeout(finish, 1200)
   })
 
   const cleanup = () => {
@@ -117,15 +152,13 @@ export async function printToBrowser(
       if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     }, options?.cleanupDelayMs ?? 1000)
   }
-  win.addEventListener('afterprint', cleanup, { once: true })
-
+  fwin.addEventListener('afterprint', cleanup, { once: true })
   try {
-    win.focus()
-    win.print()
+    fwin.focus()
+    fwin.print()
   } catch {
     cleanup()
     throw new Error('A nyomtatás indítása nem sikerült.')
   }
-  // Ha az afterprint nem érkezne meg, akkor is takarítunk.
   window.setTimeout(cleanup, 60000)
 }
