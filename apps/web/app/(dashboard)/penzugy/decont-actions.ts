@@ -124,6 +124,49 @@ export async function getDecontForReprint(id: string): Promise<DecontReprintData
   }
 }
 
+export interface DecontReprintOption {
+  id: string
+  label: string
+  data: DecontReprintData
+}
+
+/** Mentett decontok teljes adata + címke a Nyomtatási központ újranyomtatásához. */
+export async function listDecontReprint(year: number): Promise<DecontReprintOption[]> {
+  const ctx = await getFinanceScopeContext()
+  if ('error' in ctx || ctx.scope !== 'congregation') return []
+  const { data } = await ctx.supabase
+    .from('decont')
+    .select('id, sorszam, datum, elszamolo_nev, jovahagyta, jelleg, kapott_eloleg, osszkoltseg, tetelek')
+    .eq('congregation_id', ctx.scopeId)
+    .eq('ev', year)
+    .eq('deleted', false)
+    .order('sorszam', { ascending: true })
+  return ((data || []) as Record<string, unknown>[]).map((r) => {
+    const tetelek = Array.isArray(r.tetelek) ? (r.tetelek as Record<string, unknown>[]) : []
+    const datum = String(r.datum).slice(0, 10)
+    return {
+      id: String(r.id),
+      label: `#${r.sorszam} · ${datum} · ${String(r.elszamolo_nev || '—')}`,
+      data: {
+        sorszam: Number(r.sorszam),
+        date: datum,
+        personName: String(r.elszamolo_nev || ''),
+        jelleg: String(r.jelleg || ''),
+        approvedBy: String(r.jovahagyta || ''),
+        advance: Number(r.kapott_eloleg) || 0,
+        items: tetelek.map((t) => ({
+          actNr: String(t.act_nr || ''),
+          actType: String(t.act_type || ''),
+          actDate: String(t.act_date || ''),
+          issuer: String(t.issuer || ''),
+          explanation: String(t.explanation || ''),
+          amount: Number(t.amount) || 0,
+        })),
+      },
+    }
+  })
+}
+
 export async function saveDecont(input: SaveDecontInput): Promise<
   { success: true; sorszam: number; decontId: string } | { error: string }
 > {

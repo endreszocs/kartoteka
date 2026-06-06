@@ -27,9 +27,21 @@ export type CombinedToastFn = (type: 'success' | 'error', message: string) => vo
 /** Irat (bizonylat) típusok — román megnevezéssel, a könyvelési gyakorlat szerint. */
 const DOC_TYPES = ['Factură', 'Bon fiscal', 'Chitanță', 'Stat de plată', 'Ordin de plată', 'Altele'] as const
 
-/** Belső mozgás kódok kassza↔bank között. */
-const KOD_KESZPENZLETET = '400.01' // kassza → bank (kiadás-oldal)
-const KOD_KESZPENZFELVET = '401.01' // bank → kassza (bevétel-oldal)
+/**
+ * Belső mozgás kódok. A készpénzes Tétel-rögzítőben CSAK a kassza↔bank
+ * mozgások jelennek meg (bankszámla-választóval). A bank-bank átutalás
+ * KI VAN ZÁRVA — az kizárólag a Bank fülön rögzíthető.
+ */
+const DEPOSIT_KODS = new Set(['400.01', '301.01']) // kassza → bank (letétel)
+const WITHDRAW_KODS = new Set(['401.01']) // bank → kassza (felvétel)
+const BANKBANK_KODS = new Set(['401.02', '301.02']) // bank ↔ bank — kizárva
+
+function dirOfKod(kod: string | undefined): 'deposit' | 'withdraw' | null {
+  if (!kod) return null
+  if (DEPOSIT_KODS.has(kod)) return 'deposit'
+  if (WITHDRAW_KODS.has(kod)) return 'withdraw'
+  return null
+}
 
 export interface CombinedBankAccount {
   id: number
@@ -89,31 +101,31 @@ export function CombinedEntryBody({
 
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
-  const cats = tab === 'income' ? incomeCategories : expenseCategories
-  const categoryOptions = useMemo(() => cats.map((c) => ({ id: c.id, label: c.nev })), [cats])
-  const kodById = useMemo(() => {
-    const m = new Map<number, string>()
-    cats.forEach((c) => m.set(c.id, c.kod))
-    return m
-  }, [cats])
   const partnerLabel = tab === 'income' ? 'Befizető / forrás' : 'Kedvezményezett'
 
-  // Belső mozgás iránya egy sorra (a kategória kódja + a fül alapján).
-  function belsoDir(r: EntryRow): 'deposit' | 'withdraw' | null {
+  // Kód-lookup mindkét fülre (a belső mozgás iránya független a fültől).
+  const incomeKod = useMemo(() => new Map<number, string>(incomeCategories.map((c) => [c.id, c.kod] as [number, string])), [incomeCategories])
+  const expenseKod = useMemo(() => new Map<number, string>(expenseCategories.map((c) => [c.id, c.kod] as [number, string])), [expenseCategories])
+  const dirFor = (tabName: 'income' | 'expense', r: EntryRow): 'deposit' | 'withdraw' | null => {
     if (r.categoryId === '') return null
-    const kod = kodById.get(Number(r.categoryId))
-    if (tab === 'expense' && kod === KOD_KESZPENZLETET) return 'deposit' // kassza → bank
-    if (tab === 'income' && kod === KOD_KESZPENZFELVET) return 'withdraw' // bank → kassza
-    return null
+    return dirOfKod((tabName === 'income' ? incomeKod : expenseKod).get(Number(r.categoryId)))
   }
+  const belsoDir = (r: EntryRow) => dirFor(tab, r) // aktuális fül — a megjelenítéshez
 
-  function rowValid(r: EntryRow): boolean {
+  function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
     if (!(Number(r.amount) > 0 && r.categoryId !== '' && parseFlexibleDate(r.datum) != null)) return false
-    if (belsoDir(r) && r.bankId === '') return false // belső mozgáshoz bankszámla kell
+    if (dirFor(tabName, r) && r.bankId === '') return false // belső mozgáshoz bankszámla kell
     return true
   }
-  const incomeValid = incomeRows.filter(rowValid).length
-  const expenseValid = expenseRows.filter(rowValid).length
+  const incomeValid = incomeRows.filter((r) => rowValidIn('income', r)).length
+  const expenseValid = expenseRows.filter((r) => rowValidIn('expense', r)).length
+
+  // A kategória-lista a bank-bank átutalást NEM tartalmazza (csak a Bank fülön).
+  const cats = tab === 'income' ? incomeCategories : expenseCategories
+  const categoryOptions = useMemo(
+    () => cats.filter((c) => !BANKBANK_KODS.has(c.kod)).map((c) => ({ id: c.id, label: c.nev })),
+    [cats],
+  )
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
@@ -139,33 +151,35 @@ export function CombinedEntryBody({
     const incomeBatch: SaveIncomeBatchRow[] = []
     const expenseBatch: SaveExpenseBatchRow[] = []
 
-    for (const r of incomeRows) {
-      if (!rowValid(r)) continue
-      const datum = parseFlexibleDate(r.datum)!
-      const dir = belsoDir(r)
-      if (dir === 'withdraw') {
-        transfers.push({ tipus: 'bank_kassza', datum, forras: String(r.bankId), cel: 'kassza', osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzfelvétel a bankból' })
-      } else {
-        incomeBatch.push({
-          datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
-          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
-          fizetettev: Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
-        })
-      }
-    }
-    for (const r of expenseRows) {
-      if (!rowValid(r)) continue
-      const datum = parseFlexibleDate(r.datum)!
-      const dir = belsoDir(r)
+    function pushTransfer(dir: 'deposit' | 'withdraw', datum: string, r: EntryRow) {
       if (dir === 'deposit') {
         transfers.push({ tipus: 'kassza_bank', datum, forras: 'kassza', cel: String(r.bankId), osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzletétel a bankba' })
       } else {
-        expenseBatch.push({
-          datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
-          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
-          megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
-        })
+        transfers.push({ tipus: 'bank_kassza', datum, forras: String(r.bankId), cel: 'kassza', osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzfelvétel a bankból' })
       }
+    }
+
+    for (const r of incomeRows) {
+      if (!rowValidIn('income', r)) continue
+      const datum = parseFlexibleDate(r.datum)!
+      const dir = dirFor('income', r)
+      if (dir) { pushTransfer(dir, datum, r); continue }
+      incomeBatch.push({
+        datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
+        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+        fizetettev: Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
+      })
+    }
+    for (const r of expenseRows) {
+      if (!rowValidIn('expense', r)) continue
+      const datum = parseFlexibleDate(r.datum)!
+      const dir = dirFor('expense', r)
+      if (dir) { pushTransfer(dir, datum, r); continue }
+      expenseBatch.push({
+        datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
+        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+        megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
+      })
     }
 
     incomeBatch.sort((a, b) => a.datum.localeCompare(b.datum))

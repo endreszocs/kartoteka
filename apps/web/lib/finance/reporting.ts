@@ -29,6 +29,8 @@ export type FinancePrintType =
   | 'registru_jurnal'
   | 'kiadasi_kiseroiv'
   | 'nyugtatomb_kimutatas'
+  | 'decont_reprint'
+  | 'dispozitie_reprint'
 
 export interface FinancePrintResult {
   title: string
@@ -72,6 +74,18 @@ export const FINANCE_PRINT_TYPES: Array<{
     title: 'Nyugtatömb kimutatás',
     subtitle: 'Nyomdai tömbök nyilvántartása',
     description: 'Éves összesítés a kerülettől vett nyugtatömbökről: nyomdai és saját sorszámtartomány, dátumok, felhasznált darabszám.',
+  },
+  {
+    id: 'decont_reprint',
+    title: 'Decont — Elszámolások',
+    subtitle: 'Korábbi elszámolások újranyomtatása',
+    description: 'A korábban mentett elszámolási lapok (Decont) listából kiválaszthatók és újranyomtathatók.',
+  },
+  {
+    id: 'dispozitie_reprint',
+    title: 'Dispoziție de plată / încasare',
+    subtitle: 'Korábbi rendelvények újranyomtatása',
+    description: 'A korábban mentett kifizetési és bevételezési rendelvények listából kiválaszthatók és újranyomtathatók.',
   },
 ]
 
@@ -133,7 +147,7 @@ function styles() {
   return `
     @page { size: A4 landscape; margin: 10mm; }
     * { box-sizing: border-box; }
-    body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #e2e8f0; padding: 18px 0; }
+    body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #eef1f5; padding: 18px 0; }
     .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 10mm; break-after: page; position: relative; }
     .page:last-child { break-after: auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
@@ -144,13 +158,14 @@ function styles() {
     .header-right { text-align: right; font-size: 12px; }
     table { width: 100%; border-collapse: collapse; margin-top: 6px; }
     th, td { border: 1px solid #334155; padding: 4px 5px; font-size: 10px; vertical-align: top; }
-    th { background: #e2e8f0; text-align: center; font-weight: bold; font-size: 9px; }
+    th { background: #fff; text-align: center; font-weight: bold; font-size: 9px; }
     thead { display: table-header-group; }
     tr, td, th { page-break-inside: avoid; }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
-    .totals { font-weight: bold; background: #f1f5f9; }
-    .carry { background: #fef3c7; font-weight: bold; }
+    /* Festéktakarékos: nincs háttér-kitöltés, csak félkövér + dupla felső keret */
+    .totals { font-weight: bold; border-top: 2px solid #334155; }
+    .carry { font-weight: bold; font-style: italic; }
     .footer { display: flex; justify-content: space-between; margin-top: 14px; font-size: 11px; }
     .footer-item { text-align: center; min-width: 120px; }
     .footer-line { border-top: 1px solid #0f172a; margin-top: 28px; padding-top: 4px; }
@@ -312,7 +327,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
       <thead>
         <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
         <tr><th>Fel</th><th>Numar</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px;background:#f1f5f9"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
       </thead>
       <tbody>
         <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
@@ -382,7 +397,7 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
       <thead>
         <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
         <tr><th>Fel</th><th>Numar</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px;background:#f1f5f9"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
       </thead>
       <tbody>
         <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
@@ -498,7 +513,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
       <thead>
         <tr><th rowspan="2">Nr.<br>crt.</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Incasari</th><th colspan="2">Plati</th><th rowspan="2">Simb.<br>cont.</th></tr>
         <tr><th>Fel</th><th>Numar</th><th>Numerar</th><th>Banca</th><th>Numerar</th><th>Banca</th></tr>
-        <tr style="font-size:8px;background:#f1f5f9"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
       </thead>
       <tbody>
         <tr class="carry"><td colspan="5" class="text-right">Report din luna precedenta:</td><td class="text-right">${fmtNum(prevCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(prevBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(prevCE)}</td><td class="text-right">${fmtNum(prevBE)}</td><td></td></tr>
@@ -690,7 +705,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
       .pageinfo { font-size: 10px; color: #64748b; }
       .nt { width: 100%; border-collapse: collapse; font-size: 10px; }
       .nt th, .nt td { border: 1px solid #334155; padding: 4px 6px; }
-      .nt th { background: #e2e8f0; font-weight: bold; font-size: 9px; text-align: left; }
+      .nt th { background: #fff; font-weight: bold; font-size: 9px; text-align: left; border-bottom: 2px solid #334155; }
       .nt .center { text-align: center; }
       .nt .right { text-align: right; }
       .nt .bold { font-weight: 600; }

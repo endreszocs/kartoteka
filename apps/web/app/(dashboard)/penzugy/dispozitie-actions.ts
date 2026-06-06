@@ -163,6 +163,45 @@ export async function getDispozitieForReprint(id: string): Promise<DispozitieRep
   }
 }
 
+export interface DispozitieReprintOption {
+  id: string
+  label: string
+  data: DispozitieReprintData
+}
+
+/** Mentett dispozitiók teljes adata + címke a Nyomtatási központ újranyomtatásához. */
+export async function listDispozitieReprint(year: number): Promise<DispozitieReprintOption[]> {
+  const ctx = await getFinanceScopeContext()
+  if ('error' in ctx || ctx.scope !== 'congregation') return []
+  const { data } = await ctx.supabase
+    .from('dispozitie')
+    .select('id, tipus, sorszam, datum, nev, tisztseg, osszeg, cel, ci_tipus, ci_serie, ci_nr')
+    .eq('congregation_id', ctx.scopeId)
+    .eq('ev', year)
+    .eq('deleted', false)
+    .order('datum', { ascending: true })
+  return ((data || []) as Record<string, unknown>[]).map((r) => {
+    const datum = String(r.datum).slice(0, 10)
+    const tipus = r.tipus as DispozitieTipus
+    return {
+      id: String(r.id),
+      label: `${tipus === 'plata' ? 'Plată' : 'Încasare'} #${r.sorszam} · ${datum} · ${String(r.nev || '—')}`,
+      data: {
+        tipus,
+        sorszam: Number(r.sorszam),
+        date: datum,
+        name: String(r.nev || ''),
+        tisztseg: String(r.tisztseg || ''),
+        amount: Number(r.osszeg) || 0,
+        cel: String(r.cel || ''),
+        ciTipus: String(r.ci_tipus || ''),
+        ciSerie: String(r.ci_serie || ''),
+        ciNr: String(r.ci_nr || ''),
+      },
+    }
+  })
+}
+
 export async function saveDispozitie(input: SaveDispozitieInput): Promise<
   { success: true; sorszam: number; dispozitieId: string } | { error: string }
 > {

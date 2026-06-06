@@ -43,6 +43,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Nyomtatási központ**: a bezáró „×” mindig látszik, kevesebb a szürke háttér, és a korábbi bizonylatok újranyomtatása rendezett szekcióban érhető el.
 - **Számadás tábla**: a számadás fülön a csoport-sorok mindig láthatók, így a táblázat szerkezete jól követhető.
 - **Súgó**: új „Tételek és bizonylatok” fejezet lépésről lépésre bemutatja a rögzítést, a Decontot, a Dispozițiét és az újranyomtatást.
+- **Nyomtatási központ – egységes lista**: a korábbi Decont és Dispoziție bizonylatok újranyomtatása mostantól a többi nyomtatvánnyal **azonos listában** szerepel (bal oldalon választható, jobb oldalon előnézet).
+- **Előnézet teljes szélességben**: a nyomtatványok előnézete a teljes lapot mutatja — **nincs többé oldalirányú görgetés**.
+- **Festéktakarékos nyomtatványok**: a kimutatásokról eltűntek a szürke háttér-kitöltések (a fejlécek félkövérrel és kerettel jelölve), így kevesebb festék fogy.
+- **Készpénz ↔ bank mozgás**: a tételrögzítőben a készpénzfelvétel **és** a készpénzletétel (a bankra érkező oldalon is) bankszámla-választót kínál; a bank-bank átutalás csak a Bank fülön érhető el.
 
 ---
 
