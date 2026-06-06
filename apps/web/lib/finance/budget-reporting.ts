@@ -182,8 +182,9 @@ const totalCols = (mode: BudgetMode) => 4 + valueColCount(mode) // 2 név + sors
 
 export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const coverPage = buildCoverPage(data, 'KÖLTSÉGVETÉS', 'BUGET DE VENITURI ȘI CHELTUIELI', null)
-  const tablePages = buildBudgetTable(data, 'single')
+  const total = 4 // borító + 3 táblázatoldal → 2 lap kétoldalasan
+  const coverPage = buildCoverPage(data, 'KÖLTSÉGVETÉS', 'BUGET DE VENITURI ȘI CHELTUIELI', null, total)
+  const tablePages = buildBudgetTable(data, 'single', { startPage: 2, total, withSignatures: true })
   return {
     title: `Költségvetés ${year}`,
     filename: `Koltsegvetes_${year}.pdf`,
@@ -195,8 +196,9 @@ export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
 export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrintResult {
   const { year, modNumber } = data
   const modLabel = modNumber || 1
-  const coverPage = buildCoverPage(data, `${modLabel}. KÖLTSÉGVETÉS-MÓDOSÍTÁS`, 'MODIFICARE BUGET DE VENITURI ȘI CHELTUIELI', modLabel)
-  const tablePages = buildBudgetTable(data, 'modification')
+  const total = 4
+  const coverPage = buildCoverPage(data, `${modLabel}. KÖLTSÉGVETÉS-MÓDOSÍTÁS`, 'MODIFICARE BUGET DE VENITURI ȘI CHELTUIELI', modLabel, total)
+  const tablePages = buildBudgetTable(data, 'modification', { startPage: 2, total, withSignatures: true })
   return {
     title: `${modLabel}. Költségvetés módosítás ${year}`,
     filename: `Koltsegvetes_modositas_${modLabel}_${year}.pdf`,
@@ -207,11 +209,12 @@ export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrin
 
 export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null)
-  const tablePages = buildBudgetTable(data, 'szamadas')
+  const total = 5 // borító + 3 táblázat + záró/aláírás oldal
+  const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
+  const tablePages = buildBudgetTable(data, 'szamadas', { startPage: 2, total, withSignatures: false })
   const extraSection = buildSzamadasExtraRows(data)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
-  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data)}</div>`
+  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data, total, total)}</div>`
   return {
     title: `Számadás ${year}`,
     filename: `Szamadas_${year}.pdf`,
@@ -231,17 +234,19 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
   const { year, periodFrom, periodTo } = data
   const fromLabel = formatHuDate(periodFrom)
   const toLabel = formatHuDate(periodTo)
+  const total = 5
   const coverPage = buildCoverPage(
     data,
     'RÉSZSZÁMADÁS',
     'EXECUȚIA BUGETARĂ PARȚIALĂ',
     null,
+    total,
     `Időszak / Perioada: ${fromLabel} — ${toLabel}`,
   )
-  const tablePages = buildBudgetTable(data, 'szamadas')
+  const tablePages = buildBudgetTable(data, 'szamadas', { startPage: 2, total, withSignatures: false })
   const extraSection = buildSzamadasExtraRows(data)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a részszámadás adatai a megjelölt időszakra valósak és az egyházi rendelkezések szerint készültek.</div>`
-  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data)}</div>`
+  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data, total, total)}</div>`
   return {
     title: `Részszámadás ${year} (${fromLabel} – ${toLabel})`,
     filename: `Reszszamadas_${year}_${periodFrom || 'kezdet'}_${periodTo || 'veg'}.pdf`,
@@ -254,8 +259,8 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
 // Borító oldal — a minta szerinti tiszta elrendezés
 // ---------------------------------------------------------------------------
 
-function footer(data: BudgetPrintData): string {
-  return `<div class="page-footer"><span>${esc(data.congregationName)}</span><span>v 7.4a</span></div>`
+function footer(data: BudgetPrintData, pageNo: number, total: number): string {
+  return `<div class="page-footer"><span>${esc(data.congregationName)}</span><span>oldal ${pageNo} / ${total}</span></div>`
 }
 
 function buildCoverPage(
@@ -263,6 +268,7 @@ function buildCoverPage(
   titleHu: string,
   titleRo: string,
   modNumber: number | null,
+  total: number,
   periodLine?: string,
 ): string {
   const { congregationName, year, iktatoszam, hatarozatSzam, hatarozatDatum } = data
@@ -300,6 +306,7 @@ function buildCoverPage(
       <div class="cv-note">Se completează în lei</div>
     </div>
     <div style="position:absolute;bottom:14mm;right:12mm;" class="cv-ver">v 7.4a</div>
+    ${footer(data, 1, total)}
   </div>`
 }
 
@@ -331,32 +338,46 @@ function valueCells(data: BudgetPrintData, c: SzamadasiCel, isGroup: boolean, mo
   return `<td class="r">${fmtNum(val)}</td>`
 }
 
-function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode, startNum: number): { html: string; nextNum: number } {
-  let html = ''
+function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: BudgetMode, startNum: number): { rows: string[]; nextNum: number } {
+  const rows: string[] = []
   let n = startNum
   for (const c of cells) {
     const isGroup = !c.id.includes('.')
     if (isGroup) {
-      html += `<tr class="grp">
+      rows.push(`<tr class="grp">
         <td class="name" colspan="2">${esc(roName(c))} / ${esc(c.nev)}</td>
         <td class="c">${n}</td><td class="c">${esc(c.id)}</td>${valueCells(data, c, true, mode)}
-      </tr>`
+      </tr>`)
     } else {
-      html += `<tr>
+      rows.push(`<tr>
         <td class="ro">${esc(roName(c))}</td><td>${esc(c.nev)}</td>
         <td class="c">${n}</td><td class="c">${esc(c.id)}</td>${valueCells(data, c, false, mode)}
-      </tr>`
+      </tr>`)
     }
     n++
   }
-  return { html, nextNum: n }
+  return { rows, nextNum: n }
 }
 
-function buildBudgetTable(data: BudgetPrintData, mode: BudgetMode): string {
-  const { cellek } = data
-  const incomeCells = cellek.filter((c) => c.type === 'B' && c.id !== '100').sort((a, b) => a.sorszam - b.sorszam)
-  const expenseCells = cellek.filter((c) => c.type === 'K').sort((a, b) => a.sorszam - b.sorszam)
+interface TableOpts {
+  startPage: number
+  total: number
+  withSignatures: boolean
+}
 
+function buildBudgetTable(data: BudgetPrintData, mode: BudgetMode, opts: TableOpts): string {
+  const { cellek } = data
+  // CSAK a hivatalos költségvetési kódok: bevétel 1xx (101–107), kiadás 2xx (201–207).
+  // A belső mozgás (3xx/4xx) NEM része a költségvetésnek — kihagyjuk.
+  const incomeCells = cellek
+    .filter((c) => c.type === 'B' && c.id.startsWith('1') && c.id !== '100')
+    .sort((a, b) => a.sorszam - b.sorszam)
+  const expenseCells = cellek
+    .filter((c) => c.type === 'K' && c.id.startsWith('2'))
+    .sort((a, b) => a.sorszam - b.sorszam)
+
+  const cols = totalCols(mode)
+  const labelCols = cols - 1
   const thead = `<tr>
     <th colspan="2">Denumire — Megnevezés</th>
     <th style="width:8%">Nr. rând<br>Sorszám</th>
@@ -364,34 +385,38 @@ function buildBudgetTable(data: BudgetPrintData, mode: BudgetMode): string {
     ${valueHeads(mode)}
   </tr>`
 
-  const cols = totalCols(mode)
-  let rows = ''
-  let num = 1
+  // Minden sor egy tömbben — a végén 3 oldalra osztjuk.
+  const all: string[] = []
+  all.push(`<tr class="sec"><td colspan="${cols}">Bevételek / Venituri</td></tr>`)
+  const inc = buildSectionRows(data, incomeCells, mode, 1)
+  all.push(...inc.rows)
+  all.push(`<tr class="sec"><td colspan="${cols}">Kiadások / Cheltuieli</td></tr>`)
+  const exp = buildSectionRows(data, expenseCells, mode, inc.nextNum)
+  all.push(...exp.rows)
 
-  rows += `<tr class="sec"><td colspan="${cols}">Bevételek / Venituri</td></tr>`
-  const inc = buildSectionRows(data, incomeCells, mode, num)
-  rows += inc.html
-  num = inc.nextNum
-
-  rows += `<tr class="sec"><td colspan="${cols}">Kiadások / Cheltuieli</td></tr>`
-  const exp = buildSectionRows(data, expenseCells, mode, num)
-  rows += exp.html
-
-  // Záró összegek
   const totalIncome = incomeCells.filter((c) => !c.id.includes('.')).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
   const totalExpense = expenseCells.filter((c) => !c.id.includes('.')).reduce((s, c) => s + sumGroup(data, c.id, getVal), 0)
   const balance = totalIncome - totalExpense
-  const labelCols = cols - 1
+  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összbevétel / Total venituri</td><td class="r">${fmtNum(totalIncome)}</td></tr>`)
+  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összkiadás / Total cheltuieli</td><td class="r">${fmtNum(totalExpense)}</td></tr>`)
+  all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">${balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit'}</td><td class="r">${fmtNum(Math.abs(balance))}</td></tr>`)
 
-  rows += `<tr class="tot"><td colspan="${labelCols}" class="r">Összbevétel / Total venituri</td><td class="r">${fmtNum(totalIncome)}</td></tr>`
-  rows += `<tr class="tot"><td colspan="${labelCols}" class="r">Összkiadás / Total cheltuieli</td><td class="r">${fmtNum(totalExpense)}</td></tr>`
-  rows += `<tr class="tot"><td colspan="${labelCols}" class="r">${balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit'}</td><td class="r">${fmtNum(Math.abs(balance))}</td></tr>`
-
-  return `<div class="page">
-    <table class="bt"><thead>${thead}</thead><tbody>${rows}</tbody></table>
-    ${buildSignatureBlock()}
-    ${footer(data)}
-  </div>`
+  // 3 táblázatoldalra osztás (a borítóval együtt összesen 4 → 2 lap kétoldalasan).
+  const PAGES = 3
+  const perPage = Math.ceil(all.length / PAGES)
+  let html = ''
+  for (let p = 0; p < PAGES; p++) {
+    const chunk = all.slice(p * perPage, (p + 1) * perPage)
+    if (chunk.length === 0) continue
+    const isLast = p === PAGES - 1
+    const sig = isLast && opts.withSignatures ? buildSignatureBlock() : ''
+    html += `<div class="page">
+      <table class="bt"><thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
+      ${sig}
+      ${footer(data, opts.startPage + p, opts.total)}
+    </div>`
+  }
+  return html
 }
 
 // ---------------------------------------------------------------------------

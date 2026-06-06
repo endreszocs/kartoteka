@@ -51,6 +51,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Nyugta — fontos jelzés**: a nyugtatömb-rögzítés és nyugta-nyomtatás **tesztidőszakban** van, **hivatalos használata még nem megengedett** — hivatalosan kizárólag az Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb használható.
 - **Számadás — minden tétel látszik**: a Számadás fülön mostantól **minden tétel** megjelenik (a költségvetéshez hasonlóan), nem csak a fő kategóriák.
 - **Költségvetés nyomtatás — letisztult forma**: a költségvetés/számadás nyomtatási képe a hivatalos mintához igazítva, **kétnyelvű (román–magyar) oszlopokkal**, rendezett igazítással, félkövér csoport- és összegsorokkal, festéktakarékos (színkitöltés nélküli) megjelenéssel.
+- **Költségvetés nyomtatás — pontosítások**: a **belső mozgások** (kassza↔bank, bank-bank) már **nem jelennek meg** a költségvetésben (a hivatalos minta szerint nem relevánsak); a kategóriák a helyes sorrendben; **oldalszám-jelölés** (pl. „oldal 2 / 4"); a teljes anyag a **borítóval együtt 4 oldalra** rendezve, hogy **2 lapra, kétoldalasan** kinyomtatható legyen.
 
 ---
 
