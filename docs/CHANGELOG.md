@@ -47,6 +47,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Előnézet teljes szélességben**: a nyomtatványok előnézete a teljes lapot mutatja — **nincs többé oldalirányú görgetés**.
 - **Festéktakarékos nyomtatványok**: a kimutatásokról eltűntek a szürke háttér-kitöltések (a fejlécek félkövérrel és kerettel jelölve), így kevesebb festék fogy.
 - **Készpénz ↔ bank mozgás**: a tételrögzítőben a készpénzfelvétel **és** a készpénzletétel (a bankra érkező oldalon is) bankszámla-választót kínál; a bank-bank átutalás csak a Bank fülön érhető el.
+- **Nyugtatömb kimutatás**: javítva a teljesen szürke megjelenés (fehér lapra kerül), és az előnézet körül kis térköz van, hogy ne lógjon a széléig.
+- **Nyugta — fontos jelzés**: a nyugtatömb-rögzítés és nyugta-nyomtatás **tesztidőszakban** van, **hivatalos használata még nem megengedett** — hivatalosan kizárólag az Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb használható.
 
 ---
 

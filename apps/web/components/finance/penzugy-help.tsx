@@ -277,9 +277,10 @@ function DocumentsContent() {
 
       <CalloutWarning>
         <strong>Tesztidőszak:</strong> a <strong>nyugtatömb-rögzítés</strong> és a{' '}
-        <strong>nyugta-nyomtatás</strong> (chitanță) jelenleg kipróbálás alatt áll. Használd, de a
-        biztonság kedvéért egyelőre vesd össze a hivatalos nyomtatott nyugtatömbbel, és jelezd a
-        tapasztalataidat.
+        <strong>nyugta-nyomtatás</strong> (chitanță) jelenleg fejlesztés/kipróbálás alatt áll, ezért
+        a <strong>hivatalos használata MÉG NEM MEGENGEDETT</strong>. Hivatalosan kizárólag az{' '}
+        <strong>Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb</strong>{' '}
+        használható. Ez a felület egyelőre csak kipróbálásra és visszajelzés gyűjtésére szolgál.
       </CalloutWarning>
     </>
   )

@@ -210,7 +210,10 @@ export function FinancePrintDialogBody({
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
 
   const docW = report.orientation === 'portrait' ? A4_PORTRAIT_W : A4_LANDSCAPE_W
-  const scale = boxW > 0 ? Math.min(1, boxW / docW) : 1
+  // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
+  // legyen levegő a szélén (ne lógjon ki a széléig).
+  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
+  const scale = Math.min(1, targetW / docW)
   const iframeH = Math.round(PREVIEW_BOX_H / scale)
 
   async function handlePdf() {
@@ -424,8 +427,8 @@ export function FinancePrintDialogBody({
       {/* ── Jobb oldal: élő előnézet (teljes szélességre kicsinyítve) ── */}
       <div
         ref={previewRef}
-        className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3"
-        style={{ height: PREVIEW_BOX_H + 24 }}
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+        style={{ height: PREVIEW_BOX_H + 40 }}
       >
         <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: Math.round(docW * scale), height: PREVIEW_BOX_H }}>
           <iframe

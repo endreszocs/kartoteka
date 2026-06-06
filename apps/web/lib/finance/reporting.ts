@@ -721,7 +721,7 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
     </style>
   `
 
-  const content = head + table + totals + signatures
+  const content = `<div class="page">${head}${table}${totals}${signatures}</div>`
 
   return {
     title: `Nyugtatömb kimutatás — ${year}`,
