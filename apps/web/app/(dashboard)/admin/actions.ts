@@ -708,7 +708,23 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
     }
   }
 
-  // shouldSoftDelete = true → az auth.users sor megmarad (anonimizálva), a
+  // 2/a) Az AUTH email ANONIMIZÁLÁSA — hogy az EREDETI email FELSZABADULJON, és az
+  // illető (pl. hibás/befejezetlen regisztráció után) ÚJRA TUDJON regisztrálni
+  // ugyanazzal a címmel. A soft-delete önmagában megtartja az eredeti emailt az
+  // auth.users-ben, ami "User already registered" hibával blokkolná az újraregisztrációt.
+  const anonEmail = `torolt+${userId}@kartoteka.invalid`
+  const { error: updErr } = await adminClient.auth.admin.updateUserById(userId, {
+    email: anonEmail,
+    email_confirm: true,
+  })
+  if (updErr) {
+    // Nem végzetes: a profiles PII már anonimizálva van. Jelezzük, de a soft-delete
+    // még megpróbáljuk (a belépés letiltása fontosabb). Az újraregisztráció ekkor
+    // viszont blokkolt maradhat — a logban látszik a teendő.
+    console.warn(`[deleteUser] auth email anonimizálás sikertelen (${userId}): ${updErr.message}`)
+  }
+
+  // 2/b) shouldSoftDelete = true → az auth.users sor megmarad (anonimizálva), a
   // session-ök/identitások törlődnek, a belépés lehetetlenné válik.
   const { error: delErr } = await adminClient.auth.admin.deleteUser(userId, true)
   if (delErr) {
