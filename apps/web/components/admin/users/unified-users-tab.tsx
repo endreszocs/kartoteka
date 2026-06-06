@@ -630,16 +630,22 @@ export function UnifiedUsersTab() {
           </span>
           {STATUS_FILTERS.map(([key, label]) => {
             const count = counts[key]
+            // A "Várakozó" (teendő) chip pirossal kiemelve, ha van mit elbírálni.
+            const isPendingTodo = key === 'pending' && count > 0
+            const cls =
+              statusFilter === key
+                ? isPendingTodo
+                  ? 'bg-red-600 text-white'
+                  : 'bg-violet-600 text-white'
+                : isPendingTodo
+                  ? 'bg-red-100 text-red-700 ring-1 ring-red-300 hover:bg-red-200'
+                  : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => setStatusFilter(key)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  statusFilter === key
-                    ? 'bg-violet-600 text-white'
-                    : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
-                }`}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${cls}`}
               >
                 {label} ({count})
               </button>
@@ -680,23 +686,33 @@ export function UnifiedUsersTab() {
           ))}
         </div>
       ) : (
-        <div className="space-y-2">
-          {displayed.map((u) => (
-            <UserListRow
-              key={u.id}
-              user={u}
-              roles={rolesByUser.get(u.id) || []}
-              scopeNameMap={scopeNameMap}
-              quickOptions={quickOptions}
-              isPending={isPending}
-              onQuickAssign={(opt) => handleQuickAssign(u, opt)}
-              onAdvanced={() => setAdvancedTarget(u)}
-              onQuickApprove={() => handleQuickApprove(u)}
-              onReject={() => setRejectTarget(u)}
-              onDelete={() => setDeleteTarget(u)}
-              onViewDocument={handleViewDocument}
-            />
-          ))}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {/* Oszlop-fejléc (csak desktopon) — a balra igazított sávokhoz illesztve */}
+          <div className="hidden items-center gap-3 border-b border-l-[3px] border-slate-200 border-l-transparent bg-slate-50/80 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:flex">
+            <span className="size-9 shrink-0" aria-hidden />
+            <span className="flex-1">Felhasználó</span>
+            <span className="w-[15rem] shrink-0">Gyülekezet</span>
+            <span className="hidden w-[5.5rem] shrink-0 lg:block">Szerepkör</span>
+            <span className="shrink-0 pr-1">Műveletek</span>
+          </div>
+          <div className="divide-y divide-slate-100 [&>*:nth-child(even)]:bg-slate-50/50">
+            {displayed.map((u) => (
+              <UserListRow
+                key={u.id}
+                user={u}
+                roles={rolesByUser.get(u.id) || []}
+                scopeNameMap={scopeNameMap}
+                quickOptions={quickOptions}
+                isPending={isPending}
+                onQuickAssign={(opt) => handleQuickAssign(u, opt)}
+                onAdvanced={() => setAdvancedTarget(u)}
+                onQuickApprove={() => handleQuickApprove(u)}
+                onReject={() => setRejectTarget(u)}
+                onDelete={() => setDeleteTarget(u)}
+                onViewDocument={handleViewDocument}
+              />
+            ))}
+          </div>
         </div>
       )}
 

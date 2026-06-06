@@ -93,10 +93,21 @@ export function UserCard({
   const statusChip = isActive
     ? { label: 'Aktív', cls: 'bg-emerald-100 text-emerald-700' }
     : isUserPending
-      ? { label: 'Várakozó', cls: 'bg-amber-100 text-amber-700' }
+      ? { label: 'Jóváhagyásra vár', cls: 'bg-red-600 text-white' }
       : isRejected
         ? { label: 'Elutasítva', cls: 'bg-rose-100 text-rose-700' }
         : { label: user.status || 'Ismeretlen', cls: 'bg-slate-100 text-slate-500' }
+
+  // Bal oldali státusz-akcentus a gyors vizuális skenneléshez. A VÁRAKOZÓ
+  // (teendő) fiókok PIROSSAL, vastagabban + piros háttér-árnyalattal kiemelve.
+  const statusAccent = isActive
+    ? 'border-l-[3px] border-l-emerald-400'
+    : isUserPending
+      ? 'border-l-4 border-l-red-500'
+      : isRejected
+        ? 'border-l-[3px] border-l-rose-400'
+        : 'border-l-[3px] border-l-slate-300'
+  const cardEmphasis = isUserPending ? 'bg-red-50/50 ring-1 ring-red-200' : ''
 
   const activeKeys = new Set<string>(
     roles
@@ -116,7 +127,7 @@ export function UserCard({
 
   return (
     <div
-      className={`card-raised p-4 sm:p-5 ${popoverOpen ? 'relative z-50' : 'relative'}`}
+      className={`card-raised ${statusAccent} ${cardEmphasis} p-4 sm:p-5 transition-shadow hover:shadow-md ${popoverOpen ? 'relative z-50' : 'relative'}`}
     >
       <div className="flex items-start gap-3 flex-wrap">
         <div
@@ -191,21 +202,21 @@ export function UserCard({
           KONTEXTUSA is itt látszik (gyülekezet, szerep, dokumentum), hogy a
           jóváhagyás + aktiválás EGY helyen történjen, és semmi ne felejtődjön el. */}
       {isUserPending && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50/60 p-3 space-y-3">
           {user.pendingRequest && (
-            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
+            <div className="rounded-lg border border-red-200 bg-white/70 p-3">
               <div className="mb-2 flex items-center gap-2">
-                <FileText className="size-4 text-amber-600" />
-                <p className="text-sm font-semibold text-amber-900">Regisztrációs kérelem</p>
+                <FileText className="size-4 text-red-600" />
+                <p className="text-sm font-semibold text-red-900">Regisztrációs kérelem</p>
                 {user.pendingRequest.requestedAt && (
-                  <span className="ml-auto text-[11px] text-amber-700/70">
+                  <span className="ml-auto text-[11px] text-red-700/70">
                     {new Date(user.pendingRequest.requestedAt).toLocaleDateString('hu-HU')}
                   </span>
                 )}
               </div>
               <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
                 <RequestField
-                  icon={<UserCheck className="size-3.5 text-amber-600" />}
+                  icon={<UserCheck className="size-3.5 text-red-600" />}
                   label="Kért szerepkör"
                   value={
                     user.pendingRequest.requestedRole
@@ -231,7 +242,7 @@ export function UserCard({
                 />
               </div>
               {user.pendingRequest.justification && (
-                <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs italic text-amber-900/80">
+                <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs italic text-red-900/80">
                   „{user.pendingRequest.justification}”
                 </p>
               )}
@@ -239,7 +250,7 @@ export function UserCard({
                 <button
                   type="button"
                   onClick={() => onViewDocument(user.pendingRequest!.documentPath!)}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 underline hover:text-amber-900"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-red-800 underline hover:text-red-900"
                 >
                   <FileText className="size-3.5" />
                   Csatolt dokumentum megtekintése
@@ -249,8 +260,8 @@ export function UserCard({
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 text-amber-900 mr-2">
-              <Clock className="size-4 shrink-0 text-amber-600" />
+            <div className="flex items-center gap-2 text-red-900 mr-2">
+              <Clock className="size-4 shrink-0 text-red-600" />
               <p className="text-sm font-semibold">
                 {user.pendingRequest ? 'Jóváhagyás és aktiválás:' : 'Várakozó fiók — aktiválás:'}
               </p>
@@ -261,7 +272,7 @@ export function UserCard({
               onReject={onReject}
             />
           </div>
-          <p className="text-[11px] text-amber-800/80 leading-relaxed">
+          <p className="text-[11px] text-red-800/80 leading-relaxed">
             A jóváhagyás <strong>egy lépésben</strong> aktiválja a fiókot
             {user.pendingRequest ? ' és hozzárendeli a kért gyülekezetet' : ''} — a
             felhasználó utána azonnal beléphet. Külön aktiválásra nincs szükség.
@@ -362,7 +373,7 @@ function RequestField({
     <div className="flex items-start gap-1.5">
       <span className="mt-0.5 shrink-0">{icon}</span>
       <span className="min-w-0">
-        <span className="block text-[10px] uppercase tracking-wide text-amber-700/70">{label}</span>
+        <span className="block text-[10px] uppercase tracking-wide text-red-700/70">{label}</span>
         <span className="block text-xs font-medium text-slate-800">
           {value || <span className="italic text-slate-400">nincs megadva</span>}
         </span>
