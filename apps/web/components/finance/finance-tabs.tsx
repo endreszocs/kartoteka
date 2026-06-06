@@ -495,6 +495,7 @@ export function FinanceTabs({
         onOpenChange={(open) => { setCombinedOpen(open); if (!open) refreshData() }}
         incomeCategories={incomeCategories}
         expenseCategories={expenseCategories}
+        bankAccounts={bankAccounts}
         currentYear={currentYear}
       />
 

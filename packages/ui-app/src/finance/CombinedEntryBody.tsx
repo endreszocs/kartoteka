@@ -5,15 +5,17 @@
  *
  * Csak KÉSZPÉNZES tételekre (a banki tételeket banki kivonatból importáljuk).
  * Egyszerre több bevétel ÉS több kiadás is rögzíthető; a „Mentés" mindkét fül
- * sorait dátum szerint rendezi és a helyére menti (saveIncomeBatch + saveExpenseBatch).
+ * sorait dátum szerint rendezi és a helyére menti.
  *
- * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés),
- * nagy képernyőn táblázat. A kategória kereshető (csak megnevezés), a dátum
- * bármilyen formátumban beírható.
+ * Belső mozgás (készpénzfelvétel a bankból / készpénzletétel a bankba): ha a
+ * sor kategóriája ilyen, megjelenik a BANKSZÁMLA-választó, és a sor belső
+ * mozgásként könyvelődik (a kassza ÉS a bank oldalt is rendezi).
+ *
+ * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
 import { useMemo, useState } from 'react'
-import { Plus, Save, Trash2 } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { SearchableSelect } from './SearchableSelect'
@@ -25,64 +27,93 @@ export type CombinedToastFn = (type: 'success' | 'error', message: string) => vo
 /** Irat (bizonylat) típusok — román megnevezéssel, a könyvelési gyakorlat szerint. */
 const DOC_TYPES = ['Factură', 'Bon fiscal', 'Chitanță', 'Stat de plată', 'Ordin de plată', 'Altele'] as const
 
+/** Belső mozgás kódok kassza↔bank között. */
+const KOD_KESZPENZLETET = '400.01' // kassza → bank (kiadás-oldal)
+const KOD_KESZPENZFELVET = '401.01' // bank → kassza (bevétel-oldal)
+
+export interface CombinedBankAccount {
+  id: number
+  bank_neve: string
+}
+
+export interface CombinedInternalTransferPayload {
+  tipus: 'kassza_bank' | 'bank_kassza'
+  datum: string
+  forras: string
+  cel: string
+  osszeg: number
+  megjegyzes: string
+}
+
 export interface CombinedEntryBodyProps {
   incomeCategories: IncomeCategory[]
   expenseCategories: ExpenseCategory[]
+  bankAccounts: CombinedBankAccount[]
   currentYear: number
   onSaveIncomeBatch: (rows: SaveIncomeBatchRow[]) => Promise<{ error?: string | null }>
   onSaveExpenseBatch: (rows: SaveExpenseBatchRow[]) => Promise<{ error?: string | null }>
+  onSaveInternalTransfer: (payload: CombinedInternalTransferPayload) => Promise<{ error?: string | null }>
   onClose: () => void
   onToast: CombinedToastFn
 }
 
 type EntryRow = {
   id: string
-  datum: string // nyers szöveg, rugalmasan értelmezve
+  datum: string
   categoryId: number | ''
   partner: string
   docType: string
   iratszam: string
   amount: string
   megjegyzes: string
+  bankId: number | ''
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const newRow = (): EntryRow => ({
-  id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', amount: '', megjegyzes: '',
+  id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', amount: '', megjegyzes: '', bankId: '',
 })
 
 const inputClass =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm ' +
   'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
-function rowValid(r: EntryRow): boolean {
-  return Number(r.amount) > 0 && r.categoryId !== '' && parseFlexibleDate(r.datum) != null
-}
-function validCount(rows: EntryRow[]): number {
-  return rows.filter(rowValid).length
-}
-/** Az irat-szám és -típus egy mezőbe (pl. „Factură 123"). */
-function combinedIratszam(r: EntryRow): string | null {
-  const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
-  return parts.length ? parts.join(' ') : null
-}
-
 export function CombinedEntryBody({
-  incomeCategories, expenseCategories, currentYear,
-  onSaveIncomeBatch, onSaveExpenseBatch, onClose, onToast,
+  incomeCategories, expenseCategories, bankAccounts, currentYear,
+  onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>([newRow()])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>([newRow()])
   const [busy, setBusy] = useState(false)
 
-  const incomeValid = validCount(incomeRows)
-  const expenseValid = validCount(expenseRows)
-
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
-  const categoryOptions = (tab === 'income' ? incomeCategories : expenseCategories).map((c) => ({ id: c.id, label: c.nev }))
+  const cats = tab === 'income' ? incomeCategories : expenseCategories
+  const categoryOptions = useMemo(() => cats.map((c) => ({ id: c.id, label: c.nev })), [cats])
+  const kodById = useMemo(() => {
+    const m = new Map<number, string>()
+    cats.forEach((c) => m.set(c.id, c.kod))
+    return m
+  }, [cats])
   const partnerLabel = tab === 'income' ? 'Befizető / forrás' : 'Kedvezményezett'
+
+  // Belső mozgás iránya egy sorra (a kategória kódja + a fül alapján).
+  function belsoDir(r: EntryRow): 'deposit' | 'withdraw' | null {
+    if (r.categoryId === '') return null
+    const kod = kodById.get(Number(r.categoryId))
+    if (tab === 'expense' && kod === KOD_KESZPENZLETET) return 'deposit' // kassza → bank
+    if (tab === 'income' && kod === KOD_KESZPENZFELVET) return 'withdraw' // bank → kassza
+    return null
+  }
+
+  function rowValid(r: EntryRow): boolean {
+    if (!(Number(r.amount) > 0 && r.categoryId !== '' && parseFlexibleDate(r.datum) != null)) return false
+    if (belsoDir(r) && r.bankId === '') return false // belső mozgáshoz bankszámla kell
+    return true
+  }
+  const incomeValid = incomeRows.filter(rowValid).length
+  const expenseValid = expenseRows.filter(rowValid).length
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
@@ -92,60 +123,73 @@ export function CombinedEntryBody({
   function addRow() { setRows((cur) => [...cur, newRow()]) }
   function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? [newRow()] : cur.filter((r) => r.id !== id))) }
 
-  function buildBatch<T>(src: EntryRow[], map: (r: EntryRow, datum: string) => T): { rows: T[]; badRow?: number } {
-    const out: T[] = []
-    for (let i = 0; i < src.length; i += 1) {
-      const r = src[i]
-      if (!(Number(r.amount) > 0 && r.categoryId !== '')) continue
-      const datum = parseFlexibleDate(r.datum)
-      if (!datum) return { rows: [], badRow: i + 1 }
-      out.push(map(r, datum))
-    }
-    out.sort((a, b) => (a as { datum: string }).datum.localeCompare((b as { datum: string }).datum))
-    return { rows: out }
+  function combinedIratszam(r: EntryRow): string | null {
+    const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
+    return parts.length ? parts.join(' ') : null
   }
 
   async function handleSave() {
     if (incomeValid === 0 && expenseValid === 0) {
-      onToast('error', 'Legalább egy bevétel vagy kiadás sor szükséges (összeg + kategória + érvényes dátum).')
+      onToast('error', 'Legalább egy érvényes sor szükséges (összeg + kategória + dátum; belső mozgásnál bankszámla is).')
       return
     }
 
-    const inc = buildBatch<SaveIncomeBatchRow>(incomeRows, (r, datum) => ({
-      datum,
-      id_befizetescel: Number(r.categoryId),
-      forrasa: r.partner.trim() || null,
-      osszeg: Number(r.amount),
-      iratszam: combinedIratszam(r),
-      irattipus: 'Készpénz',
-      fizetettev: Number(datum.slice(0, 4)) || currentYear,
-      megjegyzes: r.megjegyzes.trim() || null,
-    }))
-    if (inc.badRow) { onToast('error', `Bevétel ${inc.badRow}. sor: a dátum nem értelmezhető.`); return }
+    // Belső mozgás sorok kigyűjtése (mindkét fülről)
+    const transfers: CombinedInternalTransferPayload[] = []
+    const incomeBatch: SaveIncomeBatchRow[] = []
+    const expenseBatch: SaveExpenseBatchRow[] = []
 
-    const exp = buildBatch<SaveExpenseBatchRow>(expenseRows, (r, datum) => ({
-      datum,
-      id_kiadascel: Number(r.categoryId),
-      kedvezmenyzett: r.partner.trim() || null,
-      osszeg: Number(r.amount),
-      iratszam: combinedIratszam(r),
-      irattipus: 'Készpénz',
-      megjegyzes: r.megjegyzes.trim() || null,
-      is_inventory: false,
-    }))
-    if (exp.badRow) { onToast('error', `Kiadás ${exp.badRow}. sor: a dátum nem értelmezhető.`); return }
+    for (const r of incomeRows) {
+      if (!rowValid(r)) continue
+      const datum = parseFlexibleDate(r.datum)!
+      const dir = belsoDir(r)
+      if (dir === 'withdraw') {
+        transfers.push({ tipus: 'bank_kassza', datum, forras: String(r.bankId), cel: 'kassza', osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzfelvétel a bankból' })
+      } else {
+        incomeBatch.push({
+          datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
+          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+          fizetettev: Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
+        })
+      }
+    }
+    for (const r of expenseRows) {
+      if (!rowValid(r)) continue
+      const datum = parseFlexibleDate(r.datum)!
+      const dir = belsoDir(r)
+      if (dir === 'deposit') {
+        transfers.push({ tipus: 'kassza_bank', datum, forras: 'kassza', cel: String(r.bankId), osszeg: Number(r.amount), megjegyzes: r.megjegyzes.trim() || 'Készpénzletétel a bankba' })
+      } else {
+        expenseBatch.push({
+          datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
+          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+          megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
+        })
+      }
+    }
+
+    incomeBatch.sort((a, b) => a.datum.localeCompare(b.datum))
+    expenseBatch.sort((a, b) => a.datum.localeCompare(b.datum))
 
     setBusy(true)
     try {
-      if (inc.rows.length > 0) {
-        const res = await onSaveIncomeBatch(inc.rows)
+      if (incomeBatch.length) {
+        const res = await onSaveIncomeBatch(incomeBatch)
         if (res.error) { onToast('error', `Bevétel: ${res.error}`); return }
       }
-      if (exp.rows.length > 0) {
-        const res = await onSaveExpenseBatch(exp.rows)
+      if (expenseBatch.length) {
+        const res = await onSaveExpenseBatch(expenseBatch)
         if (res.error) { onToast('error', `Kiadás: ${res.error}`); return }
       }
-      onToast('success', `Mentve: ${inc.rows.length} bevétel, ${exp.rows.length} kiadás — dátum szerint rendezve, készpénzbe könyvelve.`)
+      for (const t of transfers) {
+        const res = await onSaveInternalTransfer(t)
+        if (res.error) { onToast('error', `Belső mozgás: ${res.error}`); return }
+      }
+      const parts = []
+      if (incomeBatch.length) parts.push(`${incomeBatch.length} bevétel`)
+      if (expenseBatch.length) parts.push(`${expenseBatch.length} kiadás`)
+      if (transfers.length) parts.push(`${transfers.length} belső mozgás`)
+      onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
       onClose()
     } catch (e) {
       onToast('error', e instanceof Error ? e.message : 'A mentés nem sikerült.')
@@ -156,26 +200,35 @@ export function CombinedEntryBody({
 
   const dateInvalid = (r: EntryRow) => r.datum.trim() !== '' && parseFlexibleDate(r.datum) == null
 
+  function renderBankSelect(r: EntryRow) {
+    const dir = belsoDir(r)
+    if (!dir) return null
+    return (
+      <div className="mt-1 flex items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1 text-xs text-sky-800">
+        <ArrowLeftRight className="size-3.5 shrink-0" />
+        <span className="shrink-0">{dir === 'deposit' ? 'Melyik bankszámlára:' : 'Melyik bankszámláról:'}</span>
+        <select className={inputClass + ' h-7'} value={r.bankId} onChange={(e) => updateRow(r.id, { bankId: e.target.value ? Number(e.target.value) : '' })}>
+          <option value="">— Válassz —</option>
+          {bankAccounts.map((b) => (<option key={b.id} value={b.id}>{b.bank_neve}</option>))}
+        </select>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Kiemelt fülek */}
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
-        <button
-          type="button"
-          onClick={() => setTab('income')}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}
-        >
+        <button type="button" onClick={() => setTab('income')}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>
           Bevétel{incomeValid > 0 && <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs">{incomeValid}</span>}
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('expense')}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}
-        >
+        <button type="button" onClick={() => setTab('expense')}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>
           Kiadás{expenseValid > 0 && <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs">{expenseValid}</span>}
         </button>
       </div>
-      <p className="text-xs text-slate-400">Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Mindkét fülre rögzíthetsz; a Mentés egyszerre, dátum szerint rendezve ment.</p>
+      <p className="text-xs text-slate-400">Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Készpénzfelvétel/-letétel esetén válaszd ki a bankszámlát is.</p>
 
       {/* Nagy képernyő: táblázat */}
       <div className="hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
@@ -193,71 +246,92 @@ export function CombinedEntryBody({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-slate-100 align-top">
-                <td className="px-2 py-1.5 w-[120px]">
-                  <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
-                </td>
-                <td className="px-2 py-1.5 min-w-[180px]">
-                  <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
-                </td>
-                <td className="px-2 py-1.5"><input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} /></td>
-                <td className="px-2 py-1.5 w-[130px]">
-                  <select className={inputClass} value={r.docType} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
-                    <option value="">—</option>
-                    {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                  </select>
-                </td>
-                <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
-                <td className="px-2 py-1.5 w-[110px]"><input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
-                <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
-                <td className="px-2 py-1.5 text-right">
-                  <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
-                    <Trash2 className="size-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const dir = belsoDir(r)
+              return (
+                <tr key={r.id} className="border-t border-slate-100 align-top">
+                  <td className="px-2 py-1.5 w-[120px]">
+                    <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
+                  </td>
+                  <td className="px-2 py-1.5 min-w-[180px]">
+                    <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
+                    {renderBankSelect(r)}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {dir ? <span className="text-xs text-slate-400">—</span> : <input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} />}
+                  </td>
+                  <td className="px-2 py-1.5 w-[130px]">
+                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
+                      <option value="">—</option>
+                      {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 w-[110px]"><input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
+                  <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 text-right">
+                    <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
+                      <Trash2 className="size-4" />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Kis/közepes képernyő: kártyák (nincs oldalirányú görgetés) */}
+      {/* Kis/közepes képernyő: kártyák */}
       <div className="space-y-3 lg:hidden">
-        {rows.map((r, i) => (
-          <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">{i + 1}. tétel</span>
-              <button type="button" aria-label="Sor törlése" className="text-slate-400 hover:text-red-500" onClick={() => removeRow(r.id)}><Trash2 className="size-4" /></button>
+        {rows.map((r, i) => {
+          const dir = belsoDir(r)
+          return (
+            <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-400">{i + 1}. tétel</span>
+                <button type="button" aria-label="Sor törlése" className="text-slate-400 hover:text-red-500" onClick={() => removeRow(r.id)}><Trash2 className="size-4" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="col-span-2 text-xs text-slate-500">Kategória
+                  <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
+                </label>
+                {dir && (
+                  <label className="col-span-2 text-xs text-sky-800">{dir === 'deposit' ? 'Melyik bankszámlára' : 'Melyik bankszámláról'}
+                    <select className={inputClass} value={r.bankId} onChange={(e) => updateRow(r.id, { bankId: e.target.value ? Number(e.target.value) : '' })}>
+                      <option value="">— Válassz —</option>
+                      {bankAccounts.map((b) => (<option key={b.id} value={b.id}>{b.bank_neve}</option>))}
+                    </select>
+                  </label>
+                )}
+                <label className="text-xs text-slate-500">Dátum
+                  <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
+                </label>
+                <label className="text-xs text-slate-500">Összeg
+                  <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                </label>
+                {!dir && (
+                  <>
+                    <label className="col-span-2 text-xs text-slate-500">{partnerLabel}
+                      <input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} />
+                    </label>
+                    <label className="text-xs text-slate-500">Irattípus
+                      <select className={inputClass} value={r.docType} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
+                        <option value="">—</option>
+                        {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-500">Irat sz.
+                      <input className={inputClass} value={r.iratszam} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} />
+                    </label>
+                  </>
+                )}
+                <label className="col-span-2 text-xs text-slate-500">Megjegyzés
+                  <input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} />
+                </label>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="col-span-2 text-xs text-slate-500">Kategória
-                <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
-              </label>
-              <label className="text-xs text-slate-500">Dátum
-                <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
-              </label>
-              <label className="text-xs text-slate-500">Összeg
-                <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
-              </label>
-              <label className="col-span-2 text-xs text-slate-500">{partnerLabel}
-                <input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} />
-              </label>
-              <label className="text-xs text-slate-500">Irattípus
-                <select className={inputClass} value={r.docType} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
-                  <option value="">—</option>
-                  {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                </select>
-              </label>
-              <label className="text-xs text-slate-500">Irat sz.
-                <input className={inputClass} value={r.iratszam} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} />
-              </label>
-              <label className="col-span-2 text-xs text-slate-500">Megjegyzés
-                <input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} />
-              </label>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

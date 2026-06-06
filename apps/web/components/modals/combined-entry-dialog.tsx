@@ -12,10 +12,11 @@ import {
   CombinedEntryBody,
   type IncomeCategory,
   type ExpenseCategory,
+  type CombinedBankAccount,
 } from '@kartoteka/ui-app'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ListPlus } from 'lucide-react'
-import { saveIncomeBatch, saveExpenseBatch } from '@/app/(dashboard)/penzugy/actions'
+import { saveIncomeBatch, saveExpenseBatch, saveInternalTransfer } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
 interface Props {
@@ -23,10 +24,11 @@ interface Props {
   onOpenChange: (open: boolean) => void
   incomeCategories: IncomeCategory[]
   expenseCategories: ExpenseCategory[]
+  bankAccounts: CombinedBankAccount[]
   currentYear: number
 }
 
-export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, currentYear }: Props) {
+export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-5xl xl:max-w-[90vw] 2xl:max-w-[84vw]">
@@ -48,6 +50,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
           <CombinedEntryBody
             incomeCategories={incomeCategories}
             expenseCategories={expenseCategories}
+            bankAccounts={bankAccounts}
             currentYear={currentYear}
             onSaveIncomeBatch={async (rows) => {
               const res = await saveIncomeBatch(rows)
@@ -55,6 +58,10 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             }}
             onSaveExpenseBatch={async (rows) => {
               const res = await saveExpenseBatch(rows)
+              return { error: 'error' in res ? res.error ?? null : null }
+            }}
+            onSaveInternalTransfer={async (payload) => {
+              const res = await saveInternalTransfer(payload)
               return { error: 'error' in res ? res.error ?? null : null }
             }}
             onClose={() => onOpenChange(false)}

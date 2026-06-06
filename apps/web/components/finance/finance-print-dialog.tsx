@@ -60,11 +60,12 @@ export function FinancePrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[96vh] overflow-y-auto sm:max-w-7xl">
-        <DialogHeader className="sticky top-0 z-10 bg-background pb-2">
+      <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
+        <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 pr-14">
           <DialogTitle>Pénzügyi nyomtatási központ</DialogTitle>
         </DialogHeader>
 
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
         <FinancePrintDialogBody
           open={open}
           printableTypes={printableTypes}
@@ -120,7 +121,8 @@ export function FinancePrintDialog({
           onClose={() => onOpenChange(false)}
         />
 
-        <SavedDocsReprint open={open} congregationName={congregationName} currentYear={currentYear} />
+          <SavedDocsReprint open={open} congregationName={congregationName} currentYear={currentYear} />
+        </div>
       </DialogContent>
     </Dialog>
   )

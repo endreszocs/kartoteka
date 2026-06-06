@@ -69,7 +69,7 @@ export function SavedDocsReprint({ open, congregationName, currentYear }: Props)
   }
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 font-heading text-base text-slate-800">
           <FileText className="size-4 text-violet-600" /> Korábbi bizonylatok újranyomtatása

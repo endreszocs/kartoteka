@@ -37,6 +37,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Szebb nyomtatási kép**: a Decont és a Dispoziție nyomtatási előnézete most a **teljes lapot** mutatja; a Dispoziție szellősebb, **A5-ös kétpéldányos** elrendezésben; az aláírások fölött megjelenik az **elszámoló és a jóváhagyó neve**.
 - **Pontos román összeg-kiírás**: a Dispoziție az összeget immár helyesen írja ki betűvel románul (pl. „o sută de lei”).
 - **Telefonbarát**: a tételrögzítő kis képernyőn kártyás nézetben jelenik meg — nincs többé oldalirányú görgetés.
+- **Kategória-lista javítás**: a kereshető kategória-választó legördülője már mindenhol teljesen látszik (nem vágja le az ablak).
+- **Készpénzfelvétel / -letétel**: a tételrögzítőnél, ha készpénzfelvételt vagy -letételt választasz, megjelenik a **bankszámla-választó** (melyik számláról / melyik számlára), és a tétel belső mozgásként könyvelődik — a kassza és a bank oldalt is rendezi.
+- **Decont és Dispoziție elrendezés**: széles képernyőn bal oldalon töltöd ki az adatokat, jobb oldalon az élő előnézet; telefonon az előnézet alulra kerül.
+- **Nyomtatási központ**: a bezáró „×” mindig látszik, kevesebb a szürke háttér, és a korábbi bizonylatok újranyomtatása rendezett szekcióban érhető el.
+- **Számadás tábla**: a számadás fülön a csoport-sorok mindig láthatók, így a táblázat szerkezete jól követhető.
+- **Súgó**: új „Tételek és bizonylatok” fejezet lépésről lépésre bemutatja a rögzítést, a Decontot, a Dispozițiét és az újranyomtatást.
 
 ---
 

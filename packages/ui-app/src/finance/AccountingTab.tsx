@@ -479,7 +479,9 @@ function ComparisonTable({
                     )
                     .reduce((s, c) => s + (actualData[c.id] || 0), 0)
                 : actualData[cell.id] || 0
-              if (budget === 0 && actual === 0) return null
+              // A csoport-sorokat (pl. 101, 201) MINDIG mutatjuk, hogy a táblázat
+              // szerkezete látható legyen; a végpont-sorokat csak ha van terv vagy tény.
+              if (!isGroup && budget === 0 && actual === 0) return null
 
               const percent = budget > 0 ? Math.round((actual / budget) * 100) : 0
 

@@ -208,7 +208,7 @@ export function DispozitieDialogBody({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           {fromExisting && (
             <Field label="Kassza-tétel *" hint="Készpénzes tétel, amelyhez még nincs bizonylat">
@@ -283,10 +283,10 @@ export function DispozitieDialogBody({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 xl:sticky xl:top-2">
           <p className="px-1 pb-2 text-xs font-medium text-slate-500">Nyomtatási előnézet — A4 álló, két A5 példány (caserie + cotor)</p>
-          <div className="mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <iframe title="Dispoziție előnézet" srcDoc={previewHtml} className="block h-[1000px] w-full bg-white" />
+          <div className="mx-auto w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <iframe title="Dispoziție előnézet" srcDoc={previewHtml} className="block h-[860px] w-full bg-white" />
           </div>
         </div>
       </div>
