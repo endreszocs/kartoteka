@@ -45,10 +45,12 @@ type Props = {
   onOpenChange: (open: boolean) => void
   /** Az elküldhető (még nem elküldött) CHANGELOG bejegyzések. */
   unsentEntries: ChangelogEntry[]
+  /** Az összes aktív bejegyzés (a már elküldöttekkel együtt) — az újraküldéshez. */
+  allEntries?: ChangelogEntry[]
   onSent?: () => void | Promise<void>
 }
 
-export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onSent }: Props) {
+export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, allEntries, onSent }: Props) {
   const [isPending, startTransition] = useTransition()
   const [isTestPending, startTestTransition] = useTransition()
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
@@ -57,6 +59,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
   const [targetScope, setTargetScope] = useState<BroadcastTargetScope>('all')
   const [targetRole, setTargetRole] = useState<BroadcastTargetRole>('lelkesz')
   const [sendEmail, setSendEmail] = useState(true)
+  const [resendMode, setResendMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -72,9 +75,14 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
     setTargetScope('all')
     setTargetRole('lelkesz')
     setSendEmail(true)
+    setResendMode(false)
     setShowPreview(false)
     setPreviewHtml(null)
   }, [open, unsentEntries])
+
+  // A listában megjelenő bejegyzések: alap módban a még el nem küldöttek,
+  // újraküldés módban az összes aktív bejegyzés (a már kiküldöttek is).
+  const sourceEntries = resendMode && allEntries ? allEntries : unsentEntries
 
   function toggleKey(key: string) {
     setSelectedKeys((prev) => {
@@ -86,7 +94,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
   }
 
   function selectAll() {
-    setSelectedKeys(new Set(unsentEntries.map((e) => e.key)))
+    setSelectedKeys(new Set(sourceEntries.map((e) => e.key)))
   }
 
   function selectNone() {
@@ -96,8 +104,8 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
   const selectedCount = selectedKeys.size
 
   const selectedEntries = useMemo(
-    () => unsentEntries.filter((e) => selectedKeys.has(e.key)),
-    [unsentEntries, selectedKeys],
+    () => sourceEntries.filter((e) => selectedKeys.has(e.key)),
+    [sourceEntries, selectedKeys],
   )
 
   // Előnézet generálás kliens oldalon (a template import-olható kliensre is)
@@ -180,6 +188,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
         targetScope,
         targetRole: targetScope === 'role' ? targetRole : null,
         sendEmail,
+        force: resendMode,
       })
       if ('error' in result && result.error) {
         toast.error(result.error)
@@ -229,7 +238,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
                 <Label className="text-sm font-semibold text-slate-700">
                   Frissítések a hírlevélbe
                   <span className="ml-2 text-xs font-normal text-slate-500">
-                    ({selectedCount} / {unsentEntries.length} kiválasztva)
+                    ({selectedCount} / {sourceEntries.length} kiválasztva)
                   </span>
                 </Label>
                 <div className="flex gap-1">
@@ -250,13 +259,29 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
                   </button>
                 </div>
               </div>
+
+              {/* Újraküldés mód — a már kiküldött frissítések is választhatók */}
+              {allEntries && allEntries.length > unsentEntries.length && (
+                <label className="mb-2 flex items-start gap-2 cursor-pointer select-none rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={resendMode}
+                    onChange={(e) => { setResendMode(e.target.checked); setSelectedKeys(new Set()) }}
+                    className="mt-0.5 size-4 rounded border-slate-300 accent-amber-600"
+                  />
+                  <span className="text-xs text-amber-900">
+                    <span className="font-semibold">Újraküldés mód</span> — a már korábban kiküldött
+                    frissítések is megjelennek és újraküldhetők (pl. ha valami lemaradt a hírlevélről).
+                  </span>
+                </label>
+              )}
               <div className="rounded-xl border border-slate-200 bg-white max-h-80 overflow-y-auto divide-y divide-slate-100">
-                {unsentEntries.length === 0 ? (
+                {sourceEntries.length === 0 ? (
                   <p className="p-6 text-center text-sm text-slate-500 italic">
                     Nincs el nem küldött frissítés. Új CHANGELOG bejegyzés esetén itt megjelenik.
                   </p>
                 ) : (
-                  unsentEntries.map((e) => {
+                  sourceEntries.map((e) => {
                     const checked = selectedKeys.has(e.key)
                     return (
                       <label
@@ -280,6 +305,11 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
                             {e.category && (
                               <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px] py-0">
                                 {RELEASE_CATEGORY_LABELS[e.category]}
+                              </Badge>
+                            )}
+                            {e.alreadySent && (
+                              <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] py-0">
+                                már elküldve
                               </Badge>
                             )}
                           </div>
@@ -520,7 +550,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, onS
             >
               {isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
               <Send className="mr-1 size-4" />
-              Hírlevél elküldése
+              {resendMode ? 'Hírlevél újraküldése' : 'Hírlevél elküldése'}
             </Button>
           </div>
         </div>

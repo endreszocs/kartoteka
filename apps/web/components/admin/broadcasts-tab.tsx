@@ -592,6 +592,7 @@ export function BroadcastsTab() {
         open={newsletterOpen}
         onOpenChange={setNewsletterOpen}
         unsentEntries={unsentEntries}
+        allEntries={activeEntries}
         onSent={reload}
       />
     </div>
