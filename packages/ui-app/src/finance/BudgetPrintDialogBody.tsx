@@ -55,6 +55,9 @@ export interface BudgetPrintDialogBodyProps {
   /** A jelenlegi évi költségvetés véglegesítve van-e — UI infodobozhoz. */
   budgetFinalized: boolean
 
+  /** A jelenlegi évi számadás véglegesítve van-e (számadás/részszámadás típushoz). */
+  accountingFinalized?: boolean
+
   /** Tényleges bevétel/kiadás aggregálás callback-en — a wrapper a webes
    *  income/expense rekordokon számol. */
   computeActuals: (
@@ -96,6 +99,7 @@ export function BudgetPrintDialogBody({
   printableTypes,
   currentYear,
   budgetFinalized,
+  accountingFinalized = false,
   computeActuals,
   onLoadBudgetRows,
   buildReport,
@@ -359,10 +363,18 @@ export function BudgetPrintDialogBody({
             </div>
             <div>
               <span className="font-semibold text-slate-800">Véglegesítve:</span>{' '}
-              {budgetFinalized ? 'Igen' : 'Nem'}
+              {(printType === 'szamadas' || printType === 'reszszamadas' ? accountingFinalized : budgetFinalized) ? 'Igen' : 'Nem'}
             </div>
             {loading && <div className="text-xs text-amber-600">Adatok betöltése...</div>}
           </div>
+
+          {!(printType === 'szamadas' || printType === 'reszszamadas' ? accountingFinalized : budgetFinalized) && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+              Ez a dokumentum <strong>még nincs véglegesítve</strong>. A presbitériumi határozat
+              (mikor, melyik ülésen, milyen szám alatt) és az <strong>egyházközségi iktatószám</strong>
+              {' '}csak a véglegesítés után kerül rá a nyomtatványra.
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button

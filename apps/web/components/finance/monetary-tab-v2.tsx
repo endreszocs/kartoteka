@@ -15,16 +15,24 @@ import {
   getMonetarySnapshot,
   saveMonetarySnapshot,
 } from '@/app/(dashboard)/penzugy/monetary-actions'
+import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 
 type WebMonetaryTabProps = Pick<
   MonetaryTabProps,
-  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers'
+  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers' | 'congregationName'
 >
 
 export function MonetaryTabV2(props: WebMonetaryTabProps) {
   return (
     <MonetaryTab
       {...props}
+      onPrint={async ({ mode, html, filename }) => {
+        if (mode === 'pdf') {
+          await printToPdf(html, filename || 'Monetar.pdf', { format: 'a4', orientation: 'portrait' })
+        } else {
+          await printToBrowser(html)
+        }
+      }}
       loadSnapshot={async (year) => {
         const result = await getMonetarySnapshot(year)
         if ('error' in result) {

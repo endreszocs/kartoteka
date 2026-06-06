@@ -16,6 +16,7 @@ import {
   CircleAlert,
   Coins,
   Landmark,
+  Printer,
   Save,
   Wallet,
 } from 'lucide-react'
@@ -54,10 +55,86 @@ export interface MonetaryTabProps {
     items: Array<{ denominationId: number; count: number }>,
   ) => Promise<MonetarySaveResult>
   onToast?: (message: string, kind: MonetaryToastKind) => void
+  /** Gyülekezet neve a nyomtatott címletjegyzék fejlécéhez. */
+  congregationName?: string
+  /** Nyomtatás callback (web: printToBrowser / printToPdf). Ha hiányzik, nincs gomb. */
+  onPrint?: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
 }
 
 function formatRon(value: number) {
   return `${formatCurrency(value)} RON`
+}
+
+function escHtml(v: string): string {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Nyomtatható monetár (címletjegyzék) — tiszta, festéktakarékos A4 álló lap. */
+function buildMonetarSheetHtml(params: {
+  congregationName: string
+  year: number
+  dateIso: string
+  banknotes: MonetaryDenomination[]
+  coins: MonetaryDenomination[]
+  counts: Record<number, number>
+  countedTotal: number
+  expected: number
+}): string {
+  const { congregationName, year, dateIso, banknotes, coins, counts, countedTotal, expected } = params
+  const diff = countedTotal - expected
+  const rowsFor = (items: MonetaryDenomination[]) =>
+    items
+      .map((it) => {
+        const db = counts[it.id] || 0
+        return `<tr><td>${escHtml(it.displayValue)}</td><td>${escHtml(it.name)}</td><td class="c">${db}</td><td class="r">${formatCurrency(db * it.value)}</td></tr>`
+      })
+      .join('')
+  const sub = (items: MonetaryDenomination[]) => items.reduce((s, it) => s + (counts[it.id] || 0) * it.value, 0)
+  const table = (title: string, items: MonetaryDenomination[]) => `
+    <div class="blk-title">${title}</div>
+    <table class="mt">
+      <thead><tr><th style="width:22%">Címlet</th><th>Megnevezés</th><th style="width:14%">Darab</th><th style="width:22%">Összeg (RON)</th></tr></thead>
+      <tbody>${rowsFor(items) || `<tr><td colspan="4" class="c muted">Nincs címlet</td></tr>`}</tbody>
+      <tfoot><tr class="tot"><td colspan="3" class="r">Összesen</td><td class="r">${formatCurrency(sub(items))}</td></tr></tfoot>
+    </table>`
+  return `<!doctype html><html lang="hu"><head><meta charset="utf-8"/>
+  <style>
+    @page { size: A4 portrait; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Times New Roman', Georgia, serif; color: #111; margin: 0; }
+    @media screen { body { padding: 14mm; } }
+    .title { text-align: center; font-size: 18px; font-weight: bold; }
+    .sub { text-align: center; font-size: 12px; color: #444; margin: 4px 0 16px; }
+    .blk-title { font-weight: bold; font-size: 12px; margin: 14px 0 4px; }
+    table.mt { width: 100%; border-collapse: collapse; }
+    .mt th, .mt td { border: 1px solid #4b5563; padding: 4px 8px; font-size: 11px; }
+    .mt th { text-align: left; font-weight: bold; background: #fff; }
+    .mt .c { text-align: center; } .mt .r { text-align: right; }
+    .mt .muted { color: #777; font-style: italic; }
+    .mt .tot td { font-weight: bold; border-top: 2px solid #111; }
+    .summary { margin-top: 16px; width: 100%; border-collapse: collapse; }
+    .summary td { border: 1px solid #4b5563; padding: 6px 8px; font-size: 12px; }
+    .summary .lbl { font-weight: bold; width: 60%; }
+    .summary .val { text-align: right; font-weight: bold; }
+    .sig { display: flex; justify-content: space-between; gap: 40px; margin-top: 44px; font-size: 12px; }
+    .sig .col { flex: 1; text-align: center; }
+    .sig .line { border-top: 1px solid #111; margin-top: 34px; padding-top: 4px; }
+  </style></head>
+  <body>
+    <div class="title">MONETÁR — Pénztári címletjegyzék</div>
+    <div class="sub">${escHtml(congregationName)} · ${year}. év · Dátum: ${escHtml(dateIso)}</div>
+    ${table('Bankjegyek és 1 RON', banknotes)}
+    ${table('Érmék', coins)}
+    <table class="summary">
+      <tr><td class="lbl">Fizikailag számolt összeg</td><td class="val">${formatCurrency(countedTotal)} RON</td></tr>
+      <tr><td class="lbl">Szoftver szerinti készpénzegyenleg</td><td class="val">${formatCurrency(expected)} RON</td></tr>
+      <tr><td class="lbl">${diff === 0 ? 'Eltérés (egyezik)' : diff > 0 ? 'Eltérés (többlet)' : 'Eltérés (hiány)'}</td><td class="val">${formatCurrency(Math.abs(diff))} RON</td></tr>
+    </table>
+    <div class="sig">
+      <div class="col"><div class="line">Pénztáros — aláírása</div></div>
+      <div class="col"><div class="line">Ellenőrizte — aláírása</div></div>
+    </div>
+  </body></html>`
 }
 
 export function MonetaryTab({
@@ -68,11 +145,14 @@ export function MonetaryTab({
   loadSnapshot,
   saveSnapshot,
   onToast,
+  congregationName = '',
+  onPrint,
 }: MonetaryTabProps) {
   const [denominations, setDenominations] = useState<MonetaryDenomination[]>([])
   const [counts, setCounts] = useState<Record<number, number>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [printing, setPrinting] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -156,6 +236,30 @@ export function MonetaryTab({
     }
   }
 
+  async function handlePrint(mode: 'pdf' | 'browser') {
+    if (!onPrint) return
+    const dateIso = new Date().toISOString().slice(0, 10)
+    const html = buildMonetarSheetHtml({
+      congregationName,
+      year: currentYear,
+      dateIso,
+      banknotes: grouped.bankjegy,
+      coins: grouped.erme,
+      counts,
+      countedTotal,
+      expected: expectedCashBalance,
+    })
+    setPrinting(true)
+    try {
+      await onPrint({ mode, html, filename: `Monetar_${currentYear}_${dateIso}.pdf` })
+      onToast?.(mode === 'pdf' ? 'A monetár PDF elkészült.' : 'Megnyílt a nyomtatási előnézet.', 'success')
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'A nyomtatás nem sikerült.', 'error')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="card-raised py-12 text-center text-sm text-slate-400">
@@ -181,14 +285,27 @@ export function MonetaryTab({
                   hogyan viszonyul a könyvelt készpénzegyenleghez.
                 </p>
               </div>
-              <Button
-                className="rounded-full bg-teal-600 px-5 hover:bg-teal-700"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                <Save className="mr-2 size-4" />
-                {saving ? 'Mentés...' : 'Monetár mentése'}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {onPrint && (
+                  <Button
+                    variant="outline"
+                    className="rounded-full px-5"
+                    onClick={() => void handlePrint('browser')}
+                    disabled={printing}
+                  >
+                    <Printer className="mr-2 size-4" />
+                    {printing ? 'Nyomtatás...' : 'Nyomtatás'}
+                  </Button>
+                )}
+                <Button
+                  className="rounded-full bg-teal-600 px-5 hover:bg-teal-700"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
+                  <Save className="mr-2 size-4" />
+                  {saving ? 'Mentés...' : 'Monetár mentése'}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">

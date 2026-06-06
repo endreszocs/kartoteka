@@ -461,6 +461,7 @@ export function FinanceTabs({
                 currentYear={currentYear}
                 bankAccounts={bankAccounts}
                 internalTransfers={internalTransfers}
+                congregationName={congregationName}
               />
             </TabsContent>
 

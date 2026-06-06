@@ -52,6 +52,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Számadás — minden tétel látszik**: a Számadás fülön mostantól **minden tétel** megjelenik (a költségvetéshez hasonlóan), nem csak a fő kategóriák.
 - **Költségvetés nyomtatás — letisztult forma**: a költségvetés/számadás nyomtatási képe a hivatalos mintához igazítva, **kétnyelvű (román–magyar) oszlopokkal**, rendezett igazítással, félkövér csoport- és összegsorokkal, festéktakarékos (színkitöltés nélküli) megjelenéssel.
 - **Költségvetés nyomtatás — pontosítások**: a **belső mozgások** (kassza↔bank, bank-bank) már **nem jelennek meg** a költségvetésben (a hivatalos minta szerint nem relevánsak); a kategóriák a helyes sorrendben; **oldalszám-jelölés** (pl. „oldal 2 / 4"); a teljes anyag a **borítóval együtt 4 oldalra** rendezve, hogy **2 lapra, kétoldalasan** kinyomtatható legyen.
+- **Monetár nyomtatás**: a Monetár fülön mostantól **kinyomtatható** a pénztári címletjegyzék (bankjegyek + érmék címletenként, összesítéssel és eltéréssel, aláírás-hellyel).
+- **Költségvetés/számadás — véglegesítéshez kötött adatok**: a **presbitériumi határozat** (mikor, melyik ülésen, milyen szám alatt) és az **egyházközségi iktatószám** csak a **véglegesítés után** kerül a nyomtatványra; a nyomtatási központ figyelmeztet, ha a dokumentum még nincs véglegesítve.
+- **Nyomtatási kép — pixelpontos A4**: a költségvetés, költségvetés-módosítás, számadás és részszámadás mind **pontosan 4 oldalra** (borító + 3 lap) van méretezve, fix lapmérettel és sormagassággal — nincs nagy üres rész, és a számadás sem csúszik át fölösleges oldalra. Az **összegző (csoport-) kategóriák mindig a saját tételeik elé** kerülnek; az oszlopszélességek dokumentumtípusonként pontosan beállítva.
+- **Nyomtatás megbízhatóság**: a böngészős nyomtatási előnézet mostantól megvárja a tartalom teljes betöltését, így a Monetár (és minden más) nyomtatás ténylegesen megnyílik; a PDF a CSS oldaltöréseket is tiszteletben tartja (a sorok nem csúsznak ketté).
 
 ---
 

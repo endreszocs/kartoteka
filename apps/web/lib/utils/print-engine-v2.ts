@@ -12,19 +12,25 @@ async function createPrintIframe(htmlContent: string) {
   iframe.style.top = '0'
   iframe.style.width = '210mm'
   iframe.style.height = '297mm'
+
+  // A valódi `load` eseményre várunk (srcdoc), nem fix időzítőre — így a
+  // tartalom biztosan készen van, mielőtt nyomtatunk (megbízható dialog).
+  const loaded = new Promise<void>((resolve) => {
+    iframe.addEventListener('load', () => resolve(), { once: true })
+  })
   document.body.appendChild(iframe)
+  iframe.srcdoc = htmlContent
+
+  // Biztonsági időkorlát, ha a load esemény valamiért nem érkezne meg.
+  await Promise.race([loaded, new Promise((r) => window.setTimeout(r, 1200))])
+  // Egy extra tick a layout/betűk stabilizálódásához.
+  await new Promise((resolve) => window.setTimeout(resolve, 120))
 
   const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
   if (!iframeDoc) {
-    document.body.removeChild(iframe)
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     throw new Error('A nyomtatási előnézet nem hozható létre.')
   }
-
-  iframeDoc.open()
-  iframeDoc.write(htmlContent)
-  iframeDoc.close()
-
-  await new Promise(resolve => window.setTimeout(resolve, 250))
 
   return { iframe, iframeDoc }
 }
@@ -43,7 +49,7 @@ export async function printToPdf(
   const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
 
   const opt = {
-    margin: options?.margin || [10, 10],
+    margin: options?.margin || [0, 0],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true },
@@ -52,6 +58,9 @@ export async function printToPdf(
       format: options?.format || 'a4',
       orientation: options?.orientation || 'portrait',
     },
+    // A CSS oldaltörések (.page / break-after / break-inside:avoid) tiszteletben
+    // tartása — így a sorok nem csúsznak ketté az oldalhatáron.
+    pagebreak: { mode: ['css', 'legacy'] },
   }
 
   try {

@@ -88,12 +88,14 @@ function roName(c: SzamadasiCel): string {
 
 function budgetStyles() {
   return `
-    @page { size: A4 portrait; margin: 12mm 10mm; }
+    /* Pixelpontos A4: margó a lapon belül (padding), a lap mérete fix.
+       A 296mm (nem 297) elkerüli a böngészők „üres extra oldal" hibáját. */
+    @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
-    body { font-family: 'Times New Roman', Georgia, serif; color: #111; margin: 0; background: #eef1f5; }
-    @media screen { body { padding: 16px 0; } }
-    .page { width: 210mm; min-height: 297mm; margin: 0 auto 16px; background: #fff; box-shadow: 0 8px 30px rgba(15,23,42,.10); padding: 14mm 12mm; position: relative; break-after: page; }
-    .page:last-child { break-after: auto; }
+    body { font-family: 'Times New Roman', Georgia, serif; color: #111; margin: 0; }
+    @media screen { body { background: #eef1f5; padding: 14px 0; } .page { box-shadow: 0 8px 30px rgba(15,23,42,.10); margin: 0 auto 14px; } }
+    .page { width: 210mm; height: 296mm; background: #fff; padding: 10mm 9mm; position: relative; overflow: hidden; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
 
     /* Borító */
     .cv-entity { font-weight: bold; font-size: 15px; letter-spacing: .4px; }
@@ -104,10 +106,11 @@ function budgetStyles() {
     .cv-note { font-size: 11px; color: #444; }
     .cv-ver { text-align: right; font-size: 10px; color: #888; }
 
-    /* Táblázat */
-    table.bt { width: 100%; border-collapse: collapse; }
-    .bt th, .bt td { border: 1px solid #4b5563; padding: 4px 6px; font-size: 9.5px; vertical-align: middle; }
-    .bt th { font-weight: bold; font-size: 9px; text-align: center; background: #fff; line-height: 1.25; }
+    /* Táblázat — fix sormagasság, hogy oldalanként pontosan ismert számú sor férjen el */
+    table.bt { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .bt th, .bt td { border: 1px solid #555; padding: 0.5mm 1.4mm; font-size: 8px; line-height: 1.1; vertical-align: middle; word-wrap: break-word; overflow: hidden; }
+    .bt tbody tr { height: 6.4mm; }
+    .bt th { font-weight: bold; font-size: 7.5px; text-align: center; line-height: 1.1; }
     .bt thead { display: table-header-group; }
     .bt tr, .bt td, .bt th { page-break-inside: avoid; }
     .bt .r { text-align: right; }
@@ -153,6 +156,22 @@ export interface BudgetPrintData {
   carryoverBank?: number
   periodFrom?: string
   periodTo?: string
+  /** Véglegesítve van-e (költségvetés/számadás). Csak ekkor jelenik meg a
+   *  presbitériumi határozat + egyházközségi iktatószám a nyomtatványon. */
+  finalized?: boolean
+}
+
+/** Kódok hierarchikus rendezése: 101 < 101.01 < 101.02 < 102 (csoport a része elé). */
+function cmpId(a: string, b: string): number {
+  const pa = a.split('.').map((x) => Number(x))
+  const pb = b.split('.').map((x) => Number(x))
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const x = i < pa.length ? pa[i] : -1
+    const y = i < pb.length ? pb[i] : -1
+    if (x !== y) return x - y
+  }
+  return 0
 }
 
 function getVal(data: BudgetPrintData, celId: string): number {
@@ -182,9 +201,11 @@ const totalCols = (mode: BudgetMode) => 4 + valueColCount(mode) // 2 név + sors
 
 export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const total = 4 // borító + 3 táblázatoldal → 2 lap kétoldalasan
+  const rows = collectBudgetRows(data, 'single')
+  const pages = tablePageCount(rows.length, true, false)
+  const total = 1 + pages
   const coverPage = buildCoverPage(data, 'KÖLTSÉGVETÉS', 'BUGET DE VENITURI ȘI CHELTUIELI', null, total)
-  const tablePages = buildBudgetTable(data, 'single', { startPage: 2, total, withSignatures: true })
+  const tablePages = renderTablePages(data, 'single', rows, { startPage: 2, total, pages, withSignatures: true })
   return {
     title: `Költségvetés ${year}`,
     filename: `Koltsegvetes_${year}.pdf`,
@@ -196,9 +217,11 @@ export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
 export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrintResult {
   const { year, modNumber } = data
   const modLabel = modNumber || 1
-  const total = 4
+  const rows = collectBudgetRows(data, 'modification')
+  const pages = tablePageCount(rows.length, true, false)
+  const total = 1 + pages
   const coverPage = buildCoverPage(data, `${modLabel}. KÖLTSÉGVETÉS-MÓDOSÍTÁS`, 'MODIFICARE BUGET DE VENITURI ȘI CHELTUIELI', modLabel, total)
-  const tablePages = buildBudgetTable(data, 'modification', { startPage: 2, total, withSignatures: true })
+  const tablePages = renderTablePages(data, 'modification', rows, { startPage: 2, total, pages, withSignatures: true })
   return {
     title: `${modLabel}. Költségvetés módosítás ${year}`,
     filename: `Koltsegvetes_modositas_${modLabel}_${year}.pdf`,
@@ -209,17 +232,18 @@ export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrin
 
 export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const total = 5 // borító + 3 táblázat + záró/aláírás oldal
+  const rows = collectBudgetRows(data, 'szamadas')
+  const pages = tablePageCount(rows.length, true, true)
+  const total = 1 + pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
-  const tablePages = buildBudgetTable(data, 'szamadas', { startPage: 2, total, withSignatures: false })
-  const extraSection = buildSzamadasExtraRows(data)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a számadás adatai valósak és az egyházi rendelkezések szerint készült el.</div>`
-  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data, total, total)}</div>`
+  const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
+  const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, pages, withSignatures: true, lastExtraHtml })
   return {
     title: `Számadás ${year}`,
     filename: `Szamadas_${year}.pdf`,
     orientation: 'portrait',
-    html: wrapBudget(`Számadás ${year}`, coverPage + tablePages + lastPage),
+    html: wrapBudget(`Számadás ${year}`, coverPage + tablePages),
   }
 }
 
@@ -234,7 +258,9 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
   const { year, periodFrom, periodTo } = data
   const fromLabel = formatHuDate(periodFrom)
   const toLabel = formatHuDate(periodTo)
-  const total = 5
+  const rows = collectBudgetRows(data, 'szamadas')
+  const pages = tablePageCount(rows.length, true, true)
+  const total = 1 + pages
   const coverPage = buildCoverPage(
     data,
     'RÉSZSZÁMADÁS',
@@ -243,15 +269,14 @@ export function buildReszszamadasReport(data: BudgetPrintData): BudgetPrintResul
     total,
     `Időszak / Perioada: ${fromLabel} — ${toLabel}`,
   )
-  const tablePages = buildBudgetTable(data, 'szamadas', { startPage: 2, total, withSignatures: false })
-  const extraSection = buildSzamadasExtraRows(data)
   const declaration = `<div class="decl">Alulírott lelkipásztor és főgondnok felelősségünk tudatában nyilatkozzuk, hogy a részszámadás adatai a megjelölt időszakra valósak és az egyházi rendelkezések szerint készültek.</div>`
-  const lastPage = `<div class="page">${extraSection}${declaration}${buildSignatureBlock()}${footer(data, total, total)}</div>`
+  const lastExtraHtml = buildSzamadasExtraRows(data) + declaration
+  const tablePages = renderTablePages(data, 'szamadas', rows, { startPage: 2, total, pages, withSignatures: true, lastExtraHtml })
   return {
     title: `Részszámadás ${year} (${fromLabel} – ${toLabel})`,
     filename: `Reszszamadas_${year}_${periodFrom || 'kezdet'}_${periodTo || 'veg'}.pdf`,
     orientation: 'portrait',
-    html: wrapBudget(`Részszámadás ${year}`, coverPage + tablePages + lastPage),
+    html: wrapBudget(`Részszámadás ${year}`, coverPage + tablePages),
   }
 }
 
@@ -272,7 +297,13 @@ function buildCoverPage(
   periodLine?: string,
 ): string {
   const { congregationName, year, iktatoszam, hatarozatSzam, hatarozatDatum } = data
-  return `<div class="page">
+  // A presbitériumi határozat + egyházközségi iktatószám CSAK véglegesítés után
+  // jelenik meg (előtte üres vonal — a minta szerint kézzel/utólag töltik ki).
+  const fin = data.finalized === true
+  const iktato = fin ? esc(iktatoszam || '') : ''
+  const hatDatum = fin ? esc(hatarozatDatum || '') : ''
+  const hatSzam = fin ? esc(hatarozatSzam || '') : ''
+  return `<div class="page cover">
     <div style="margin-top:8mm;">
       <div class="cv-entity">REFORMÁTUS EGYHÁZMEGYE</div>
       <div class="cv-row">
@@ -284,7 +315,7 @@ function buildCoverPage(
     <div style="margin-top:16mm;">
       <div class="cv-entity">REFORMÁTUS EGYHÁZKÖZSÉG &nbsp; ${esc(congregationName)}</div>
       <div class="cv-row">
-        <div>Egyházközségi iktatószám: <span class="cv-line">&nbsp;${esc(iktatoszam || '')}</span></div>
+        <div>Egyházközségi iktatószám: <span class="cv-line">&nbsp;${iktato}</span></div>
       </div>
     </div>
 
@@ -297,9 +328,11 @@ function buildCoverPage(
     ${modNumber ? `<div style="text-align:center;font-size:11px;margin-top:8mm;">A korábbi költségvetést módosító ${modNumber}. számú módosítás.</div>` : ''}
 
     <div style="margin-top:40mm;text-align:center;font-size:12px;">
-      Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${esc(hatarozatDatum || '')}</span> tartott gyűlésén
-      <span class="cv-line" style="min-width:90px;">&nbsp;${esc(hatarozatSzam || '')}</span> szám alatt.
+      Tárgyalta és jóváhagyta a presbitérium a <span class="cv-line">&nbsp;${hatDatum}</span> tartott gyűlésén
+      <span class="cv-line" style="min-width:90px;">&nbsp;${hatSzam}</span> szám alatt.
     </div>
+
+    ${fin ? '' : `<div style="margin-top:8mm;text-align:center;font-size:10px;font-style:italic;color:#9a3412;">Nincs véglegesítve — a presbitériumi határozat és az egyházközségi iktatószám a véglegesítés után kerül a nyomtatványra.</div>`}
 
     <div style="position:absolute;bottom:14mm;left:12mm;">
       <div class="cv-note">Kitöltendő lejben</div>
@@ -316,12 +349,12 @@ function buildCoverPage(
 
 function valueHeads(mode: BudgetMode): string {
   if (mode === 'modification') {
-    return `<th style="width:14%">Prevederi inițial<br>Előző</th><th style="width:14%">Modificare<br>Módosítás</th><th style="width:14%">Prevederi final<br>Végleges</th>`
+    return `<th>Prevederi inițial<br>Előző</th><th>Modificare<br>Módosítás</th><th>Prevederi final<br>Végleges</th>`
   }
   if (mode === 'szamadas') {
-    return `<th style="width:15%">Prevederi<br>Költségvetés</th><th style="width:15%">Execuție<br>Számadás</th>`
+    return `<th>Prevederi<br>Költségvetés</th><th>Execuție<br>Számadás</th>`
   }
-  return `<th style="width:18%">Prevederi<br>Költségvetés</th>`
+  return `<th>Prevederi<br>Költségvetés</th>`
 }
 
 function valueCells(data: BudgetPrintData, c: SzamadasiCel, isGroup: boolean, mode: BudgetMode): string {
@@ -359,33 +392,34 @@ function buildSectionRows(data: BudgetPrintData, cells: SzamadasiCel[], mode: Bu
   return { rows, nextNum: n }
 }
 
-interface TableOpts {
-  startPage: number
-  total: number
-  withSignatures: boolean
+// Egy teljes táblázatoldalra férő sorok száma: 296mm lap − 20mm padding − ~5mm
+// fejléc ≈ 271mm hasznos magasság; 6.4mm/sor → ~42 sor biztonsággal elfér.
+const ROWS_PER_PAGE = 42
+
+/** Lefoglalt sor-egyenérték az utolsó oldal záró elemeinek (aláírás, számadás-extra). */
+function reservedSlots(withSignatures: boolean, hasExtra: boolean): number {
+  return (withSignatures ? 6 : 0) + (hasExtra ? 8 : 0)
 }
 
-function buildBudgetTable(data: BudgetPrintData, mode: BudgetMode, opts: TableOpts): string {
+function tablePageCount(rowCount: number, withSignatures: boolean, hasExtra: boolean): number {
+  return Math.max(1, Math.ceil((rowCount + reservedSlots(withSignatures, hasExtra)) / ROWS_PER_PAGE))
+}
+
+/** Összegyűjti a táblázat összes sorát (szekciók, csoport-/végpont-sorok, záró összegek). */
+function collectBudgetRows(data: BudgetPrintData, mode: BudgetMode): string[] {
   const { cellek } = data
   // CSAK a hivatalos költségvetési kódok: bevétel 1xx (101–107), kiadás 2xx (201–207).
-  // A belső mozgás (3xx/4xx) NEM része a költségvetésnek — kihagyjuk.
+  // A belső mozgás (3xx/4xx) NEM része a költségvetésnek. Hierarchikus rendezés:
+  // a csoport (pl. 101) MINDIG a saját végpont-sorai (101.01…) ELÉ kerül.
   const incomeCells = cellek
     .filter((c) => c.type === 'B' && c.id.startsWith('1') && c.id !== '100')
-    .sort((a, b) => a.sorszam - b.sorszam)
+    .sort((a, b) => cmpId(a.id, b.id))
   const expenseCells = cellek
     .filter((c) => c.type === 'K' && c.id.startsWith('2'))
-    .sort((a, b) => a.sorszam - b.sorszam)
+    .sort((a, b) => cmpId(a.id, b.id))
 
   const cols = totalCols(mode)
   const labelCols = cols - 1
-  const thead = `<tr>
-    <th colspan="2">Denumire — Megnevezés</th>
-    <th style="width:8%">Nr. rând<br>Sorszám</th>
-    <th style="width:12%">Capitol/subcap.<br>Fejezet</th>
-    ${valueHeads(mode)}
-  </tr>`
-
-  // Minden sor egy tömbben — a végén 3 oldalra osztjuk.
   const all: string[] = []
   all.push(`<tr class="sec"><td colspan="${cols}">Bevételek / Venituri</td></tr>`)
   const inc = buildSectionRows(data, incomeCells, mode, 1)
@@ -400,19 +434,48 @@ function buildBudgetTable(data: BudgetPrintData, mode: BudgetMode, opts: TableOp
   all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összbevétel / Total venituri</td><td class="r">${fmtNum(totalIncome)}</td></tr>`)
   all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">Összkiadás / Total cheltuieli</td><td class="r">${fmtNum(totalExpense)}</td></tr>`)
   all.push(`<tr class="tot"><td colspan="${labelCols}" class="r">${balance >= 0 ? 'Bevételi többlet / Excedent' : 'Kiadási többlet / Deficit'}</td><td class="r">${fmtNum(Math.abs(balance))}</td></tr>`)
+  return all
+}
 
-  // 3 táblázatoldalra osztás (a borítóval együtt összesen 4 → 2 lap kétoldalasan).
-  const PAGES = 3
-  const perPage = Math.ceil(all.length / PAGES)
+interface TableOpts {
+  startPage: number
+  total: number
+  pages: number
+  withSignatures: boolean
+  lastExtraHtml?: string
+}
+
+/** A sorokat `opts.pages` oldalra osztja: az első oldalak teltek, az utolsóra
+ *  kerül a maradék + a záró elemek (számadás-extra, aláírás). */
+function colgroupFor(mode: BudgetMode): string {
+  // Pontos oszlopszélességek (table-layout: fixed) — módonként eltér az értékoszlopok száma.
+  let cols: number[]
+  if (mode === 'modification') cols = [23, 25, 6, 10, 12, 12, 12]
+  else if (mode === 'szamadas') cols = [26, 28, 7, 11, 14, 14]
+  else cols = [30, 32, 8, 12, 18]
+  return `<colgroup>${cols.map((w) => `<col style="width:${w}%">`).join('')}</colgroup>`
+}
+
+function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[], opts: TableOpts): string {
+  const colgroup = colgroupFor(mode)
+  const thead = `<tr>
+    <th colspan="2">Denumire — Megnevezés</th>
+    <th>Nr. rând<br>Sorszám</th>
+    <th>Capitol/subcap.<br>Fejezet</th>
+    ${valueHeads(mode)}
+  </tr>`
+
   let html = ''
-  for (let p = 0; p < PAGES; p++) {
-    const chunk = all.slice(p * perPage, (p + 1) * perPage)
-    if (chunk.length === 0) continue
-    const isLast = p === PAGES - 1
-    const sig = isLast && opts.withSignatures ? buildSignatureBlock() : ''
+  let idx = 0
+  for (let p = 0; p < opts.pages; p++) {
+    const isLast = p === opts.pages - 1
+    const take = isLast ? rows.length - idx : Math.min(ROWS_PER_PAGE, rows.length - idx)
+    const chunk = rows.slice(idx, idx + Math.max(0, take))
+    idx += chunk.length
+    const extras = isLast ? `${opts.lastExtraHtml || ''}${opts.withSignatures ? buildSignatureBlock() : ''}` : ''
     html += `<div class="page">
-      <table class="bt"><thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
-      ${sig}
+      <table class="bt">${colgroup}<thead>${thead}</thead><tbody>${chunk.join('')}</tbody></table>
+      ${extras}
       ${footer(data, opts.startPage + p, opts.total)}
     </div>`
   }
