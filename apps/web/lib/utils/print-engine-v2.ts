@@ -79,25 +79,53 @@ export async function printToBrowser(
     cleanupDelayMs?: number
   },
 ) {
-  const { iframe } = await createPrintIframe(htmlContent)
-  const printWindow = iframe.contentWindow
+  // Megbízható minta (vö. react-to-print): 0×0 méretű, NEM képernyőn kívülre
+  // tolt iframe + document.write + a valódi load bevárása. A korábbi nagy,
+  // -9999px-re tolt iframe egyes böngészőkben nem nyitotta meg a dialogot.
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
 
-  if (!printWindow) {
-    if (iframe.parentNode) {
-      iframe.parentNode.removeChild(iframe)
-    }
+  const win = iframe.contentWindow
+  const doc = iframe.contentDocument || win?.document
+  if (!win || !doc) {
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
     throw new Error('A böngészős nyomtatás nem indítható el.')
   }
 
+  doc.open()
+  doc.write(htmlContent)
+  doc.close()
+
+  // Megvárjuk a tartalom betöltését (kép/betű), majd nyomtatunk.
+  await new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    if (doc.readyState === 'complete') window.setTimeout(finish, 150)
+    else iframe.addEventListener('load', () => window.setTimeout(finish, 150), { once: true })
+    window.setTimeout(finish, 1200) // biztonsági időkorlát
+  })
+
   const cleanup = () => {
     window.setTimeout(() => {
-      if (iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe)
-      }
-    }, options?.cleanupDelayMs ?? 800)
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }, options?.cleanupDelayMs ?? 1000)
   }
+  win.addEventListener('afterprint', cleanup, { once: true })
 
-  printWindow.addEventListener('afterprint', cleanup, { once: true })
-  printWindow.focus()
-  printWindow.print()
+  try {
+    win.focus()
+    win.print()
+  } catch {
+    cleanup()
+    throw new Error('A nyomtatás indítása nem sikerült.')
+  }
+  // Ha az afterprint nem érkezne meg, akkor is takarítunk.
+  window.setTimeout(cleanup, 60000)
 }

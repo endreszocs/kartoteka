@@ -396,6 +396,9 @@ export type FinancePrintType =
   | 'kiadasi_kiseroiv'
   | 'decont_reprint'
   | 'dispozitie_reprint'
+  | 'koltsegvetes'
+  | 'koltsegvetes_modositas'
+  | 'szamadas'
 
 /**
  * Egy korábban mentett bizonylat opció a nyomtatási központ újranyomtatás-

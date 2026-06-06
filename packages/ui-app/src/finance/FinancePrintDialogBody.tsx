@@ -59,6 +59,8 @@ export interface FinancePrintFilters {
   nyugtatombok: NyugtatombReportRow[]
   /** Újranyomtatásnál a kiválasztott korábbi bizonylat (Decont / Dispoziție). */
   selectedDoc: SavedDocOption | null
+  /** Költségvetés/számadás típusoknál a betöltött költségvetési sorok (a wrapper értelmezi). */
+  budgetRows: Record<string, unknown> | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -82,6 +84,9 @@ export interface FinancePrintDialogBodyProps {
 
   /** Korábbi bizonylatok (Decont + Dispoziție) betöltése újranyomtatáshoz. */
   onLoadSavedDocs?: (year: number) => Promise<SavedDocOption[]>
+
+  /** Költségvetési sorok betöltése (költségvetés/számadás típusokhoz). */
+  onLoadBudgetRows?: (year: number) => Promise<Record<string, unknown>>
 
   /** Direkt nyomtatás — a wrapper a webes print-engine-v2.printToBrowser-t hívja. */
   onPrintToBrowser?: (html: string) => Promise<void>
@@ -110,6 +115,7 @@ export function FinancePrintDialogBody({
   buildReport,
   onLoadNyugtatombok,
   onLoadSavedDocs,
+  onLoadBudgetRows,
   onPrintToBrowser,
   onPrintToPdf,
   onToast,
@@ -130,7 +136,10 @@ export function FinancePrintDialogBody({
   const [loadingNyugtatombok, setLoadingNyugtatombok] = useState(false)
   const [savedDocs, setSavedDocs] = useState<SavedDocOption[]>([])
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [budgetRows, setBudgetRows] = useState<Record<string, unknown> | null>(null)
 
+  const isBudgetMode =
+    printType === 'koltsegvetes' || printType === 'koltsegvetes_modositas' || printType === 'szamadas'
   const showBankSelector = printType === 'registru_banca'
   const isNyugtatombMode = printType === 'nyugtatomb_kimutatas'
   const reprintKind: 'decont' | 'dispozitie' | null =
@@ -159,6 +168,16 @@ export function FinancePrintDialogBody({
       setSelectedDocId(docList[0]?.id ?? null)
     }
   }, [docList, isReprintMode, selectedDocId])
+
+  // Költségvetési sorok betöltése (költségvetés/számadás típusoknál)
+  useEffect(() => {
+    if (!open || !isBudgetMode || !onLoadBudgetRows) return
+    let cancelled = false
+    void onLoadBudgetRows(selectedYear).then((rows) => {
+      if (!cancelled) setBudgetRows(rows)
+    })
+    return () => { cancelled = true }
+  }, [open, isBudgetMode, selectedYear, onLoadBudgetRows])
 
   // Fit-to-width előnézet: a konténer szélességét mérjük, és a dokumentumot
   // (A4) lekicsinyítjük, hogy NE legyen oldalirányú görgetés.
@@ -203,8 +222,9 @@ export function FinancePrintDialogBody({
       selectedBankId: showBankSelector ? selectedBankId : null,
       nyugtatombok: isNyugtatombMode ? nyugtatombok : [],
       selectedDoc: isReprintMode ? selectedDoc : null,
+      budgetRows: isBudgetMode ? budgetRows : null,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
@@ -312,9 +332,9 @@ export function FinancePrintDialogBody({
                   setSelectedMonth(e.target.value === '' ? null : Number(e.target.value))
                 }
                 className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isNyugtatombMode || isReprintMode}
+                disabled={isNyugtatombMode || isReprintMode || isBudgetMode}
                 title={
-                  isNyugtatombMode || isReprintMode ? 'Ennél a nézetnél nincs hónap-szűrés.' : undefined
+                  isNyugtatombMode || isReprintMode || isBudgetMode ? 'Ennél a nézetnél nincs hónap-szűrés.' : undefined
                 }
               >
                 <option value="">Teljes év</option>
@@ -371,7 +391,7 @@ export function FinancePrintDialogBody({
           <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
             <div>
               <span className="font-semibold text-slate-800">Időszak:</span>{' '}
-              {isNyugtatombMode || isReprintMode
+              {isNyugtatombMode || isReprintMode || isBudgetMode
                 ? `${selectedYear}. év`
                 : selectedMonth
                   ? `${MONTHS_RO[selectedMonth - 1]} ${selectedYear}`

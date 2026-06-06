@@ -214,6 +214,28 @@ export function CombinedEntryBody({
 
   const dateInvalid = (r: EntryRow) => r.datum.trim() !== '' && parseFlexibleDate(r.datum) == null
 
+  // Dátum mező: szabadon beírható szöveg + naptár-választó (natív date input).
+  function renderDateField(r: EntryRow) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`}
+          value={r.datum}
+          placeholder="pl. 2026.01.04"
+          onChange={(e) => updateRow(r.id, { datum: e.target.value })}
+        />
+        <input
+          type="date"
+          aria-label="Dátum választása naptárból"
+          title="Naptár"
+          className="h-9 w-9 shrink-0 rounded-md border border-input bg-transparent px-1 text-transparent"
+          value={parseFlexibleDate(r.datum) || ''}
+          onChange={(e) => { if (e.target.value) updateRow(r.id, { datum: e.target.value }) }}
+        />
+      </div>
+    )
+  }
+
   function renderBankSelect(r: EntryRow) {
     const dir = belsoDir(r)
     if (!dir) return null
@@ -264,8 +286,8 @@ export function CombinedEntryBody({
               const dir = belsoDir(r)
               return (
                 <tr key={r.id} className="border-t border-slate-100 align-top">
-                  <td className="px-2 py-1.5 w-[120px]">
-                    <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
+                  <td className="px-2 py-1.5 w-[160px]">
+                    {renderDateField(r)}
                   </td>
                   <td className="px-2 py-1.5 min-w-[180px]">
                     <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
@@ -318,7 +340,7 @@ export function CombinedEntryBody({
                   </label>
                 )}
                 <label className="text-xs text-slate-500">Dátum
-                  <input className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`} value={r.datum} placeholder="pl. 2026.01.04" onChange={(e) => updateRow(r.id, { datum: e.target.value })} />
+                  {renderDateField(r)}
                 </label>
                 <label className="text-xs text-slate-500">Összeg
                   <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />

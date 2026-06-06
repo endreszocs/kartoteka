@@ -55,7 +55,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Monetár nyomtatás**: a Monetár fülön mostantól **kinyomtatható** a pénztári címletjegyzék (bankjegyek + érmék címletenként, összesítéssel és eltéréssel, aláírás-hellyel).
 - **Költségvetés/számadás — véglegesítéshez kötött adatok**: a **presbitériumi határozat** (mikor, melyik ülésen, milyen szám alatt) és az **egyházközségi iktatószám** csak a **véglegesítés után** kerül a nyomtatványra; a nyomtatási központ figyelmeztet, ha a dokumentum még nincs véglegesítve.
 - **Nyomtatási kép — pixelpontos A4**: a költségvetés, költségvetés-módosítás, számadás és részszámadás mind **pontosan 4 oldalra** (borító + 3 lap) van méretezve, fix lapmérettel és sormagassággal — nincs nagy üres rész, és a számadás sem csúszik át fölösleges oldalra. Az **összegző (csoport-) kategóriák mindig a saját tételeik elé** kerülnek; az oszlopszélességek dokumentumtípusonként pontosan beállítva.
-- **Nyomtatás megbízhatóság**: a böngészős nyomtatási előnézet mostantól megvárja a tartalom teljes betöltését, így a Monetár (és minden más) nyomtatás ténylegesen megnyílik; a PDF a CSS oldaltöréseket is tiszteletben tartja (a sorok nem csúsznak ketté).
+- **Nyomtatás megbízhatóság**: a böngészős nyomtatás új, megbízható módszerre váltott (0×0 keret + betöltés-bevárás), így a **Monetár** és minden más nyomtatás **ténylegesen megnyílik**; a PDF a CSS oldaltöréseket is tiszteletben tartja (a sorok nem csúsznak ketté).
+- **Költségvetés és számadás a Nyomtatási központban**: a **Költségvetés**, **Költségvetés-módosítás** és **Számadás** mostantól a központi **Nyomtatási központban** is elérhető, a többi nyomtatvány mellett (a részszámadás továbbra is a Költségvetés fülön, időszak-választóval).
+- **Tétel rögzítés — naptár**: a dátum mostantól **naptárból is választható** (a szabadon beírható mező mellett).
+- **Oldalsáv almenük**: az almenüre kattintva a megfelelő fül/nézet **azonnal frissül** akkor is, ha már az adott oldalon vagy (a hash-alapú navigáció javítva).
 
 ---
 

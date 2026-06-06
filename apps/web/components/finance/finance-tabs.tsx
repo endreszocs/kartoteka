@@ -545,6 +545,7 @@ export function FinanceTabs({
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}
+        settings={settings}
       />
     </>
   )
