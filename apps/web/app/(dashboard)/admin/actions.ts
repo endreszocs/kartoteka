@@ -537,6 +537,20 @@ export interface UserWithScope {
     approval_status: string
     custom_label: string | null
   }>
+  // 2026-06-06: ha a felhasználó 'pending' ÉS van regisztrációs kérelme, a kérelem
+  // kontextusa — hogy a Felhasználók oldalon EGY helyen látszódjon a jóváhagyás +
+  // aktiválás (a kért gyülekezet, szerep, indoklás, dokumentum), és semmi ne
+  // felejtődjön el egy külön oldalon.
+  pendingRequest: {
+    accessRequestId: string
+    requestedRole: string | null
+    requestedCongregationName: string | null
+    requestedDioceseName: string | null
+    requestedDistrictName: string | null
+    documentPath: string | null
+    justification: string | null
+    requestedAt: string | null
+  } | null
 }
 
 export async function getAllUsersWithScope(): Promise<{
@@ -646,9 +660,57 @@ export async function getAllUsersWithScope(): Promise<{
     rolesByUser.set(r.profile_id, arr)
   }
 
+  // 4/b. Függőben lévő regisztrációs kérelmek a 'pending' userekhez — hogy a
+  //      Felhasználók oldalon egy helyen látszódjon a teljes kontextus.
+  const pendingEmails = Array.from(
+    new Set(profiles.filter((p) => p.status === 'pending' && p.email).map((p) => p.email)),
+  )
+  type ReqLite = {
+    id: string
+    requested_role: string | null
+    document_path: string | null
+    justification: string | null
+    created_at: string | null
+    congName: string | null
+    dioName: string | null
+    distName: string | null
+  }
+  const reqByEmail = new Map<string, ReqLite>()
+  if (pendingEmails.length > 0) {
+    const { data: reqs } = await supabase
+      .from('access_requests')
+      .select(
+        'id, email, requested_role, requested_congregation_id, requested_diocese_id, ' +
+          'requested_district_id, document_path, justification, created_at, status, ' +
+          'congregation:congregations!requested_congregation_id(name, nev_hu), ' +
+          'diocese:dioceses!requested_diocese_id(name), ' +
+          'district:districts!requested_district_id(name)',
+      )
+      .in('email', pendingEmails)
+      .order('created_at', { ascending: false })
+    for (const raw of (reqs || []) as unknown as Array<Record<string, unknown>>) {
+      const email = String(raw.email || '').toLowerCase()
+      if (!email || reqByEmail.has(email)) continue // a legfrissebb marad (order desc)
+      const cong = raw.congregation as { name?: string | null; nev_hu?: string | null } | null
+      const dio = raw.diocese as { name?: string | null } | null
+      const dist = raw.district as { name?: string | null } | null
+      reqByEmail.set(email, {
+        id: String(raw.id),
+        requested_role: (raw.requested_role as string | null) ?? null,
+        document_path: (raw.document_path as string | null) ?? null,
+        justification: (raw.justification as string | null) ?? null,
+        created_at: (raw.created_at as string | null) ?? null,
+        congName: cong?.nev_hu || cong?.name || null,
+        dioName: dio?.name ?? null,
+        distName: dist?.name ?? null,
+      })
+    }
+  }
+
   // 5. Eredmény-objektumok
   const result: UserWithScope[] = profiles.map((p) => {
     const congRel = p.congregations || null
+    const pr = p.status === 'pending' ? reqByEmail.get((p.email || '').toLowerCase()) : undefined
     return {
       id: p.id,
       full_name: p.full_name,
@@ -661,6 +723,18 @@ export async function getAllUsersWithScope(): Promise<{
       primary_diocese_name: congRel?.dioceses?.name ?? null,
       primary_district_name: congRel?.dioceses?.districts?.name ?? null,
       profile_roles: rolesByUser.get(p.id) || [],
+      pendingRequest: pr
+        ? {
+            accessRequestId: pr.id,
+            requestedRole: pr.requested_role,
+            requestedCongregationName: pr.congName,
+            requestedDioceseName: pr.dioName,
+            requestedDistrictName: pr.distName,
+            documentPath: pr.document_path,
+            justification: pr.justification,
+            requestedAt: pr.created_at,
+          }
+        : null,
     }
   })
 

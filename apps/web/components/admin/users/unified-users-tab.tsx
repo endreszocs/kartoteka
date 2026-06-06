@@ -17,6 +17,10 @@ import {
   type UserWithScope,
 } from '@/app/(dashboard)/admin/actions'
 import {
+  approveAccessRequest,
+  getAccessRequestDocumentUrl,
+} from '@/app/(dashboard)/admin/access-requests-actions'
+import {
   createProfileRole,
   listAssignableProfiles,
   listProfileRoles,
@@ -299,20 +303,37 @@ export function UnifiedUsersTab() {
 
   function handleQuickApprove(user: UserWithScope) {
     startTransition(async () => {
-      const res = await quickApproveUser(user.id)
-      if ('error' in res && res.error) {
+      // Ha van regisztrációs kérelme, a TELJES jóváhagyást futtatjuk: ez egy
+      // lépésben aktivál + hozzárendeli a kért gyülekezetet + megerősíti az emailt
+      // (a kérelmet is 'approved'-ra állítja). Egyébként a sima aktiválás.
+      const res: { error?: string; info?: string } = user.pendingRequest
+        ? await approveAccessRequest({ id: user.pendingRequest.accessRequestId })
+        : await quickApproveUser(user.id)
+      if (res.error) {
         toast.error(res.error)
         return
       }
-      // Az action visszaadhat egy 'info' mezőt, ha a fiók már aktív volt
-      // (pl. szerepkör-kiosztáskor automatikusan aktiválódott).
-      const infoMessage = (res as { info?: string }).info
-      if (infoMessage) {
-        toast.info(infoMessage)
+      if (res.info) {
+        toast.info(res.info)
       } else {
-        toast.success(`Felhasználó aktiválva: ${user.full_name || user.email}`)
+        toast.success(`Jóváhagyva és aktiválva: ${user.full_name || user.email}`)
       }
       await reload()
+    })
+  }
+
+  function handleViewDocument(path: string) {
+    // A felugró ablakot SZINKRON nyitjuk (popup-blokkoló elkerülése), majd a
+    // rövid életű signed URL megérkezésekor odanavigáljuk.
+    const win = window.open('about:blank', '_blank')
+    startTransition(async () => {
+      const res = await getAccessRequestDocumentUrl(path)
+      if (res.error || !res.url) {
+        toast.error(res.error || 'A dokumentum nem érhető el.')
+        win?.close()
+        return
+      }
+      if (win) win.location.href = res.url
     })
   }
 
@@ -552,6 +573,7 @@ export function UnifiedUsersTab() {
               onQuickApprove={() => handleQuickApprove(u)}
               onReject={() => setRejectTarget(u)}
               onDelete={() => setDeleteTarget(u)}
+              onViewDocument={handleViewDocument}
             />
           ))}
         </div>

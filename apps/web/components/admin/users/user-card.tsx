@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Castle, Church, Clock, Eye, Trash2 } from 'lucide-react'
+import { Building2, Castle, Church, Clock, Eye, FileText, Trash2, UserCheck } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { ProfileRoleRow } from '@/lib/profile-roles/types'
+import { ROLE_LABELS, type ProfileRoleRow, type ProfileRoleType } from '@/lib/profile-roles/types'
 import type { UserWithScope } from '@/app/(dashboard)/admin/actions'
 
 import { PendingUserActions } from './pending-user-actions'
@@ -60,6 +60,8 @@ interface UserCardProps {
   onQuickApprove: () => void
   onReject: () => void
   onDelete: () => void
+  /** A regisztrációhoz feltöltött dokumentum megnyitása (signed URL). */
+  onViewDocument?: (path: string) => void
 }
 
 export function UserCard({
@@ -74,6 +76,7 @@ export function UserCard({
   onQuickApprove,
   onReject,
   onDelete,
+  onViewDocument,
 }: UserCardProps) {
   // A popover open-állapota — ha nyitva van, a card-ot fel kell emelni
   // `relative z-50`-re, különben a DOM-szerint későbbi testvér-card-ok
@@ -184,14 +187,73 @@ export function UserCard({
         </div>
       </div>
 
-      {/* Várakozó fiók banner — a card közepén kiemelve, hogy ne keveredjen
-          a "+ Új szerepkör" / "Funkciók" gombokkal a jobb oldalon. */}
+      {/* Várakozó fiók banner — a card közepén kiemelve. A regisztrációs kérelem
+          KONTEXTUSA is itt látszik (gyülekezet, szerep, dokumentum), hogy a
+          jóváhagyás + aktiválás EGY helyen történjen, és semmi ne felejtődjön el. */}
       {isUserPending && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+          {user.pendingRequest && (
+            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <FileText className="size-4 text-amber-600" />
+                <p className="text-sm font-semibold text-amber-900">Regisztrációs kérelem</p>
+                {user.pendingRequest.requestedAt && (
+                  <span className="ml-auto text-[11px] text-amber-700/70">
+                    {new Date(user.pendingRequest.requestedAt).toLocaleDateString('hu-HU')}
+                  </span>
+                )}
+              </div>
+              <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+                <RequestField
+                  icon={<UserCheck className="size-3.5 text-amber-600" />}
+                  label="Kért szerepkör"
+                  value={
+                    user.pendingRequest.requestedRole
+                      ? ROLE_LABELS[user.pendingRequest.requestedRole as ProfileRoleType] ||
+                        user.pendingRequest.requestedRole
+                      : null
+                  }
+                />
+                <RequestField
+                  icon={<Church className="size-3.5 text-emerald-600" />}
+                  label="Gyülekezet"
+                  value={user.pendingRequest.requestedCongregationName}
+                />
+                <RequestField
+                  icon={<Building2 className="size-3.5 text-teal-600" />}
+                  label="Egyházmegye"
+                  value={user.pendingRequest.requestedDioceseName}
+                />
+                <RequestField
+                  icon={<Castle className="size-3.5 text-indigo-600" />}
+                  label="Egyházkerület"
+                  value={user.pendingRequest.requestedDistrictName}
+                />
+              </div>
+              {user.pendingRequest.justification && (
+                <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs italic text-amber-900/80">
+                  „{user.pendingRequest.justification}”
+                </p>
+              )}
+              {user.pendingRequest.documentPath && onViewDocument && (
+                <button
+                  type="button"
+                  onClick={() => onViewDocument(user.pendingRequest!.documentPath!)}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 underline hover:text-amber-900"
+                >
+                  <FileText className="size-3.5" />
+                  Csatolt dokumentum megtekintése
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 text-amber-900 mr-2">
               <Clock className="size-4 shrink-0 text-amber-600" />
-              <p className="text-sm font-semibold">Várakozó fiók — aktiválás:</p>
+              <p className="text-sm font-semibold">
+                {user.pendingRequest ? 'Jóváhagyás és aktiválás:' : 'Várakozó fiók — aktiválás:'}
+              </p>
             </div>
             <PendingUserActions
               isPending={isPending}
@@ -199,9 +261,10 @@ export function UserCard({
               onReject={onReject}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-amber-800/80 leading-relaxed">
-            A felhasználó még nem tud belépni. Aktiváld a fiókot — vagy add
-            hozzá az első szerepkörét, ami egyben aktiválja is.
+          <p className="text-[11px] text-amber-800/80 leading-relaxed">
+            A jóváhagyás <strong>egy lépésben</strong> aktiválja a fiókot
+            {user.pendingRequest ? ' és hozzárendeli a kért gyülekezetet' : ''} — a
+            felhasználó utána azonnal beléphet. Külön aktiválásra nincs szükség.
           </p>
         </div>
       )}
@@ -266,7 +329,7 @@ export function UserCard({
           ) : (
             isActive && (
               <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-xs text-slate-500 italic">
-                Még nincs szerepköre — a "+ Új szerepkör" gombbal oszthat ki egyet.
+                Még nincs szerepköre — a „+ Új szerepkör” gombbal oszthat ki egyet.
               </div>
             )
           )}
@@ -281,6 +344,29 @@ export function UserCard({
         roles={roles}
         scopeNameMap={scopeNameMap}
       />
+    </div>
+  )
+}
+
+/** Egy sor a regisztrációs kérelem kontextusából (ikon + címke + érték). */
+function RequestField({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string | null
+}) {
+  return (
+    <div className="flex items-start gap-1.5">
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-[10px] uppercase tracking-wide text-amber-700/70">{label}</span>
+        <span className="block text-xs font-medium text-slate-800">
+          {value || <span className="italic text-slate-400">nincs megadva</span>}
+        </span>
+      </span>
     </div>
   )
 }
