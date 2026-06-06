@@ -230,21 +230,17 @@ export async function getCongregationsByDiocese(): Promise<{
 
   if (pErr) return { error: `Felhasználók hibája: ${pErr.message}` }
 
-  // 5. Tagok száma gyülekezetenként (best-effort)
+  // 5. Tagok száma gyülekezetenként — EGYETLEN GROUP BY RPC.
+  //    2026-06-07 TELJESÍTMÉNY-FIX: a korábbi N+1 (gyülekezetenként külön
+  //    count-lekérdezés) helyett egyetlen RPC (admin_overview_member_counts),
+  //    ami az összes gyülekezet aktív tagszámát egy lekérdezésben adja.
+  //    Lásd: migration-docs/sql/2026-06-05o-admin-overview-stats.sql
   const memberCountMap = new Map<string, number>()
-  try {
-    // Egyetlen lekérdezés count-tal: gyülekezetenként
-    for (const c of congs || []) {
-      const { count } = await supabase
-        .from('szemely')
-        .select('*', { count: 'exact', head: true })
-        .eq('congregation_id', c.id as string)
-        .eq('isvisible', true)
-        .eq('meghalt', false)
-      if (typeof count === 'number') memberCountMap.set(c.id as string, count)
+  const { data: memberCounts } = await supabase.rpc('admin_overview_member_counts')
+  if (Array.isArray(memberCounts)) {
+    for (const row of memberCounts as Array<{ congregation_id: string; member_count: number }>) {
+      if (row.congregation_id) memberCountMap.set(row.congregation_id, Number(row.member_count) || 0)
     }
-  } catch {
-    // best-effort, ha bármelyik counting hibázik, 0-val esnek vissza
   }
 
   // 6. Csoportosítás

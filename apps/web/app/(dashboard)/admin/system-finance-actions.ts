@@ -295,16 +295,15 @@ export async function listCongregationSubscriptions(): Promise<{
     .select('id, name')
   if (cErr) return { error: cErr.message }
 
-  // 2. Tag-számok
+  // 2. Tag-számok — EGYETLEN GROUP BY RPC (a korábbi N+1 helyett).
+  //    2026-06-07: az aktív, ÉLŐ tagokat számolja (isvisible + nem elhunyt),
+  //    konzisztensen a rendszer többi tagszámával. Lásd: 2026-06-05o SQL.
   const tagMap = new Map<string, number>()
-  for (const c of congregations || []) {
-    const cid = (c as { id: string }).id
-    const { count } = await ctx.supabase
-      .from('szemely')
-      .select('*', { count: 'exact', head: true })
-      .eq('congregation_id', cid)
-      .eq('isvisible', true)
-    tagMap.set(cid, count ?? 0)
+  const { data: tagCounts } = await ctx.supabase.rpc('admin_overview_member_counts')
+  if (Array.isArray(tagCounts)) {
+    for (const row of tagCounts as Array<{ congregation_id: string; member_count: number }>) {
+      if (row.congregation_id) tagMap.set(row.congregation_id, Number(row.member_count) || 0)
+    }
   }
 
   // 3. Aktív subscription-ök + pricing tier
@@ -638,16 +637,19 @@ export async function listCongregationsForSubscription(): Promise<{
     .order('name')
   if (error) return { error: error.message }
 
-  const result: Array<{ id: string; name: string; tag_szam: number }> = []
-  for (const c of congs || []) {
-    const row = c as { id: string; name: string }
-    const { count } = await ctx.supabase
-      .from('szemely')
-      .select('*', { count: 'exact', head: true })
-      .eq('congregation_id', row.id)
-      .eq('isvisible', true)
-    result.push({ id: row.id, name: row.name, tag_szam: count ?? 0 })
+  // Tag-számok — EGYETLEN GROUP BY RPC (a korábbi N+1 helyett). 2026-06-07.
+  const tagMap = new Map<string, number>()
+  const { data: tagCounts } = await ctx.supabase.rpc('admin_overview_member_counts')
+  if (Array.isArray(tagCounts)) {
+    for (const r of tagCounts as Array<{ congregation_id: string; member_count: number }>) {
+      if (r.congregation_id) tagMap.set(r.congregation_id, Number(r.member_count) || 0)
+    }
   }
+
+  const result = (congs || []).map((c) => {
+    const row = c as { id: string; name: string }
+    return { id: row.id, name: row.name, tag_szam: tagMap.get(row.id) || 0 }
+  })
 
   return { data: result }
 }
