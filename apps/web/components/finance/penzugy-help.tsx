@@ -31,6 +31,7 @@ interface HelpCategory {
 
 const CATEGORIES: HelpCategory[] = [
   { id: 'general', label: 'Általános', Icon: Info, short: 'Mit szolgál a Pénzügy modul' },
+  { id: 'documents', label: 'Tételek és bizonylatok', Icon: Receipt, short: 'Rögzítés, Decont, Dispoziție, nyomtatás' },
   { id: 'cashbook', label: 'Kasszakönyv', Icon: BookOpen, short: 'Bizonylatok, nyomtatás, rendezés' },
   { id: 'incomes', label: 'Bevételi kódok', Icon: Coins, short: 'Teljes EREK bevételi kódlista (101–105)' },
   { id: 'expenses', label: 'Kiadási kódok', Icon: Receipt, short: 'Teljes EREK kiadási kódlista (201–205)' },
@@ -120,6 +121,7 @@ export function PenzugyHelp() {
 
           <div className="space-y-5 text-sm leading-relaxed text-slate-700">
             {active === 'general' && <GeneralContent />}
+            {active === 'documents' && <DocumentsContent />}
             {active === 'cashbook' && <CashbookContent />}
             {active === 'incomes' && <IncomesContent />}
             {active === 'expenses' && <ExpensesContent />}
@@ -208,6 +210,81 @@ function CodeTable({ rows }: { rows: CodeRow[] }) {
 // ─────────────────────────────────────────────────────────────────────────
 // Tartalmak
 // ─────────────────────────────────────────────────────────────────────────
+
+function StepCard({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-50 text-sm font-semibold text-teal-700">{n}</span>
+      <div>
+        <p className="font-semibold text-slate-800">{title}</p>
+        <div className="mt-0.5 text-sm text-slate-600">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function DocumentsContent() {
+  return (
+    <>
+      <p>
+        Ez a rész a <strong>tételek rögzítését</strong> és a <strong>hivatalos bizonylatok</strong>{' '}
+        (Decont, Dispoziție) elkészítését mutatja be — lépésről lépésre.
+      </p>
+
+      <SectionTitle>1. Tétel rögzítése (bevétel és kiadás egy helyen)</SectionTitle>
+      <p>
+        A Pénzügy fejlécében a <strong>„+ Tétel rögzítése”</strong> gomb egyetlen ablakban
+        kezeli a bevételeket és a kiadásokat. Csak <strong>készpénzes</strong> tételekhez —
+        a banki tételeket banki kivonatból importáljuk.
+      </p>
+      <div className="space-y-2">
+        <StepCard n={1} title="Válassz fület">Fent a <strong>Bevétel</strong> vagy <strong>Kiadás</strong> fül; mindkettőre vihetsz fel sorokat.</StepCard>
+        <StepCard n={2} title="Tölts ki sorokat">Dátum (bármilyen formátum, pl. <Code>2026.01.04</Code>), kategória (gépelve kereshető), partner, irattípus (Factură, Bon fiscal, Chitanță…), iratszám, összeg, megjegyzés. Több sor is hozzáadható.</StepCard>
+        <StepCard n={3} title="Mentés">A <strong>Mentés</strong> a bevételeket és kiadásokat <strong>dátum szerint rendezi</strong>, és mindegyiket a helyére könyveli a kasszába.</StepCard>
+      </div>
+      <p className="text-slate-600">Telefonon a sorok kártyaként jelennek meg — nincs oldalirányú görgetés.</p>
+
+      <SectionTitle>2. Decont — utólag előkerülő számlák</SectionTitle>
+      <p>
+        A könyvelés nem enged korábbi dátumra rögzíteni. A <strong>Decont</strong> ezt oldja meg:
+        az utólag előkerülő számlákat a <strong>mai (elszámolási) dátumra</strong> könyveli, miközben
+        a számla saját, régi dátuma a nyomtatott lapon megjelenik.
+      </p>
+      <div className="space-y-2">
+        <StepCard n={1} title="Fejléc">Elszámoló neve, jóváhagyó, kapott előleg, decont dátum, és egy <strong>kiadás-kategória</strong> (ide könyvelődnek a tételek).</StepCard>
+        <StepCard n={2} title="Tételek">Soronként: irat szám, típus, a számla eredeti dátuma, kiállító, magyarázat, összeg. A tételek <strong>1-től sorszámozódnak</strong>.</StepCard>
+        <StepCard n={3} title="Mentés és nyomtatás">Mentéskor minden tétel <strong>kiadásként könyvelődik</strong>, a lap pedig <strong>évente 1-től</strong> kap sorszámot. Jobb oldalon élő előnézet, majd nyomtatás vagy PDF.</StepCard>
+      </div>
+
+      <SectionTitle>3. Dispoziție de plată / încasare</SectionTitle>
+      <p>
+        Kifizetési (<strong>plată</strong>) és bevételezési (<strong>încasare</strong>) rendelvény a
+        kasszának. Mentéskor automatikusan könyvelődik: a plată <strong>kiadásként</strong>, az
+        încasare <strong>bevételként</strong>. Az összeg a bizonylaton <strong>románul, betűvel</strong> is megjelenik.
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Új tétel</strong>: kitöltöd az adatokat (név, összeg, cél, kategória), és a mentés egyben könyvel is.</li>
+        <li><strong>Meglévő kassza-tételből</strong>: egy már rögzített készpénzes tételhez generálsz számozott bizonylatot (ilyenkor nem könyvel újra).</li>
+        <li>A plată és az încasare <strong>külön sorozatban</strong>, évente 1-től számozódik.</li>
+      </ul>
+
+      <SectionTitle>4. Korábbi bizonylatok újranyomtatása</SectionTitle>
+      <p>
+        A fejléc <strong>„Nyomtatási központ”</strong> gombjában, a kimutatások alatt megtalálod a
+        korábban mentett <strong>Decont</strong> és <strong>Dispoziție</strong> bizonylatokat — bármelyik
+        évre kiválasztható, és egy kattintással <strong>újranyomtatható vagy PDF-be menthető</strong>.
+      </p>
+
+      <CalloutWarning>
+        <strong>Tesztidőszak:</strong> a <strong>nyugtatömb-rögzítés</strong> és a{' '}
+        <strong>nyugta-nyomtatás</strong> (chitanță) jelenleg fejlesztés/kipróbálás alatt áll, ezért
+        a <strong>hivatalos használata MÉG NEM MEGENGEDETT</strong>. Hivatalosan kizárólag az{' '}
+        <strong>Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb</strong>{' '}
+        használható. Ez a felület egyelőre csak kipróbálásra és visszajelzés gyűjtésére szolgál.
+      </CalloutWarning>
+    </>
+  )
+}
 
 function GeneralContent() {
   return (
@@ -767,13 +844,13 @@ function Changes2026Content() {
         2026-tól csak <strong>két változatban</strong> készül a könyvelés segédlet:
       </p>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>„A" — nagy gyülekezetek</strong> részére</li>
-        <li><strong>„B" — kis gyülekezetek</strong> részére</li>
+        <li><strong>„A” — nagy gyülekezetek</strong> részére</li>
+        <li><strong>„B” — kis gyülekezetek</strong> részére</li>
       </ul>
       <p className="mt-3">
-        Megszűnik a könyvelés <strong>„C" és „D" változata</strong>, ezek nem lesznek
-        elérhetőek. Az „A" és „B" változat tartalmaz mindent, ami korábban csak a „C" és
-        „D" tartalmazott.
+        Megszűnik a könyvelés <strong>„C” és „D” változata</strong>, ezek nem lesznek
+        elérhetőek. Az „A” és „B” változat tartalmaz mindent, ami korábban csak a „C” és
+        „D” tartalmazott.
       </p>
       <CalloutWarning>
         A költségvetési tételek <strong>az egyházmegye neve beírása után</strong> lesznek

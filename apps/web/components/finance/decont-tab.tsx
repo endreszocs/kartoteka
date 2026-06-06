@@ -1,28 +1,33 @@
 'use client'
 
 /**
- * Webes DecontTab wrapper — Sprint Q F3.1 (v0.7.10).
+ * Webes DecontTab wrapper — a hivatalos Elszamolas_2026.xlsx sablonnal.
  *
- * A korábbi 323-soros saját implementáció átalakult egy ~30-soros wrapper-ré,
- * ami a `@kartoteka/ui-app/finance/DecontTabBody`-t használja.
- * A nyomtatási logika és a toast kerete itt marad webes oldalon.
+ * A megosztott `DecontTabBody` adja az UI-t és az élő előnézetet; ez a
+ * wrapper köti be a server-action callback-eket (sorszám, mentés+könyvelés)
+ * és a nyomtatást.
  */
 
-import { DecontTabBody } from '@kartoteka/ui-app'
+import { DecontTabBody, type DecontCategoryOption } from '@kartoteka/ui-app'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+import { getNextDecontNumber, saveDecont } from '@/app/(dashboard)/penzugy/decont-actions'
 import { toast } from 'sonner'
 
 interface DecontTabProps {
   congregationName: string
+  categories: DecontCategoryOption[]
 }
 
-export function DecontTab({ congregationName }: DecontTabProps) {
+export function DecontTab({ congregationName, categories }: DecontTabProps) {
   return (
     <DecontTabBody
       congregationName={congregationName}
+      categories={categories}
+      onGetNextNumber={getNextDecontNumber}
+      onSaveDecont={saveDecont}
       onPrint={async ({ mode, html, filename }) => {
         if (mode === 'pdf') {
-          await printToPdf(html, filename || 'Elszamolas.pdf', { format: 'a4', orientation: 'portrait' })
+          await printToPdf(html, filename || 'Decont.pdf', { format: 'a4', orientation: 'portrait' })
         } else {
           await printToBrowser(html)
         }

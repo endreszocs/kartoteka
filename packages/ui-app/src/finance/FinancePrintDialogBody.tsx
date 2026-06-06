@@ -20,13 +20,19 @@
  *   speciális implementációját aktiválják.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   FinancePrintType,
   FinancePrintTypeMeta,
   NyugtatombReportRow,
   PrintReport,
+  SavedDocOption,
 } from './types'
+
+// A4 méretek képpontban (96 dpi) — a fit-to-width előnézet skálázásához.
+const A4_LANDSCAPE_W = 1123
+const A4_PORTRAIT_W = 794
+const PREVIEW_BOX_H = 820
 
 const MONTHS_RO = [
   'Ianuarie',
@@ -51,6 +57,8 @@ export interface FinancePrintFilters {
   selectedMonth: number | null
   selectedBankId: number | null
   nyugtatombok: NyugtatombReportRow[]
+  /** Újranyomtatásnál a kiválasztott korábbi bizonylat (Decont / Dispoziție). */
+  selectedDoc: SavedDocOption | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -71,6 +79,9 @@ export interface FinancePrintDialogBodyProps {
   onLoadNyugtatombok?: (
     year: number,
   ) => Promise<{ data?: NyugtatombReportRow[]; error?: string | null }>
+
+  /** Korábbi bizonylatok (Decont + Dispoziție) betöltése újranyomtatáshoz. */
+  onLoadSavedDocs?: (year: number) => Promise<SavedDocOption[]>
 
   /** Direkt nyomtatás — a wrapper a webes print-engine-v2.printToBrowser-t hívja. */
   onPrintToBrowser?: (html: string) => Promise<void>
@@ -98,6 +109,7 @@ export function FinancePrintDialogBody({
   currentYear,
   buildReport,
   onLoadNyugtatombok,
+  onLoadSavedDocs,
   onPrintToBrowser,
   onPrintToPdf,
   onToast,
@@ -116,9 +128,52 @@ export function FinancePrintDialogBody({
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [nyugtatombok, setNyugtatombok] = useState<NyugtatombReportRow[]>([])
   const [loadingNyugtatombok, setLoadingNyugtatombok] = useState(false)
+  const [savedDocs, setSavedDocs] = useState<SavedDocOption[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
 
   const showBankSelector = printType === 'registru_banca'
   const isNyugtatombMode = printType === 'nyugtatomb_kimutatas'
+  const reprintKind: 'decont' | 'dispozitie' | null =
+    printType === 'decont_reprint' ? 'decont' : printType === 'dispozitie_reprint' ? 'dispozitie' : null
+  const isReprintMode = reprintKind !== null
+  const docList = useMemo(
+    () => (reprintKind ? savedDocs.filter((d) => d.kind === reprintKind) : []),
+    [savedDocs, reprintKind],
+  )
+  const selectedDoc = docList.find((d) => d.id === selectedDocId) ?? null
+
+  // Korábbi bizonylatok betöltése (Decont + Dispoziție)
+  useEffect(() => {
+    if (!open || !isReprintMode || !onLoadSavedDocs) return
+    let cancelled = false
+    void onLoadSavedDocs(selectedYear).then((docs) => {
+      if (!cancelled) setSavedDocs(docs)
+    })
+    return () => { cancelled = true }
+  }, [open, isReprintMode, selectedYear, onLoadSavedDocs])
+
+  // Auto-kiválasztás: az első bizonylat, ha a lista változott és nincs érvényes kiválasztás
+  useEffect(() => {
+    if (!isReprintMode) return
+    if (!docList.some((d) => d.id === selectedDocId)) {
+      setSelectedDocId(docList[0]?.id ?? null)
+    }
+  }, [docList, isReprintMode, selectedDocId])
+
+  // Fit-to-width előnézet: a konténer szélességét mérjük, és a dokumentumot
+  // (A4) lekicsinyítjük, hogy NE legyen oldalirányú görgetés.
+  const previewRef = useRef<HTMLDivElement>(null)
+  const [boxW, setBoxW] = useState(0)
+  useEffect(() => {
+    const el = previewRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (w > 0) setBoxW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Nyugtatömb adatok lazy-load — csak amikor a felhasználó erre a típusra vált
   useEffect(() => {
@@ -147,11 +202,19 @@ export function FinancePrintDialogBody({
       selectedMonth,
       selectedBankId: showBankSelector ? selectedBankId : null,
       nyugtatombok: isNyugtatombMode ? nyugtatombok : [],
+      selectedDoc: isReprintMode ? selectedDoc : null,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
+
+  const docW = report.orientation === 'portrait' ? A4_PORTRAIT_W : A4_LANDSCAPE_W
+  // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
+  // legyen levegő a szélén (ne lógjon ki a széléig).
+  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
+  const scale = Math.min(1, targetW / docW)
+  const iframeH = Math.round(PREVIEW_BOX_H / scale)
 
   async function handlePdf() {
     if (!onPrintToPdf) {
@@ -249,9 +312,9 @@ export function FinancePrintDialogBody({
                   setSelectedMonth(e.target.value === '' ? null : Number(e.target.value))
                 }
                 className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isNyugtatombMode}
+                disabled={isNyugtatombMode || isReprintMode}
                 title={
-                  isNyugtatombMode ? 'A nyugtatömb kimutatás mindig éves nézet.' : undefined
+                  isNyugtatombMode || isReprintMode ? 'Ennél a nézetnél nincs hónap-szűrés.' : undefined
                 }
               >
                 <option value="">Teljes év</option>
@@ -283,17 +346,40 @@ export function FinancePrintDialogBody({
             </label>
           )}
 
-          <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+          {/* Korábbi bizonylat választó (újranyomtatás) */}
+          {isReprintMode && (
+            <label className="block text-sm font-medium text-slate-700">
+              Bizonylat
+              {docList.length === 0 ? (
+                <p className="mt-1 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-400">
+                  Nincs mentett {reprintKind === 'decont' ? 'decont' : 'dispoziție'} ebben az évben.
+                </p>
+              ) : (
+                <select
+                  value={selectedDocId ?? ''}
+                  onChange={(e) => setSelectedDocId(e.target.value || null)}
+                  className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {docList.map((d) => (
+                    <option key={d.id} value={d.id}>{d.label}</option>
+                  ))}
+                </select>
+              )}
+            </label>
+          )}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
             <div>
               <span className="font-semibold text-slate-800">Időszak:</span>{' '}
-              {isNyugtatombMode
+              {isNyugtatombMode || isReprintMode
                 ? `${selectedYear}. év`
                 : selectedMonth
                   ? `${MONTHS_RO[selectedMonth - 1]} ${selectedYear}`
                   : `${selectedYear}. teljes év`}
             </div>
             <div>
-              <span className="font-semibold text-slate-800">Tájolás:</span> A4 fekvő
+              <span className="font-semibold text-slate-800">Tájolás:</span>{' '}
+              {report.orientation === 'portrait' ? 'A4 álló' : 'A4 fekvő'}
             </div>
             {showBankSelector && selectedBankId && (
               <div>
@@ -338,13 +424,24 @@ export function FinancePrintDialogBody({
         </div>
       </div>
 
-      {/* ── Jobb oldal: élő előnézet ──────────────── */}
-      <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
-        <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
+      {/* ── Jobb oldal: élő előnézet (teljes szélességre kicsinyítve) ── */}
+      <div
+        ref={previewRef}
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+        style={{ height: PREVIEW_BOX_H + 40 }}
+      >
+        <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: Math.round(docW * scale), height: PREVIEW_BOX_H }}>
           <iframe
             title={report.title}
             srcDoc={report.html}
-            className="h-[78vh] min-h-[760px] w-full rounded-[22px] bg-white"
+            style={{
+              width: docW,
+              height: iframeH,
+              border: '0',
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+              background: '#fff',
+            }}
           />
         </div>
       </div>

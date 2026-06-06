@@ -17,14 +17,16 @@ import {
 } from '@/components/ui/dialog'
 import { ClipboardList } from 'lucide-react'
 import { DecontTab } from '@/components/finance/decont-tab'
+import type { DecontCategoryOption } from '@kartoteka/ui-app'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName: string
+  categories: DecontCategoryOption[]
 }
 
-export function DecontDialog({ open, onOpenChange, congregationName }: Props) {
+export function DecontDialog({ open, onOpenChange, congregationName, categories }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -51,7 +53,7 @@ export function DecontDialog({ open, onOpenChange, congregationName }: Props) {
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 sm:px-8 sm:py-5">
-          <DecontTab congregationName={congregationName} />
+          <DecontTab congregationName={congregationName} categories={categories} />
         </div>
       </DialogContent>
     </Dialog>

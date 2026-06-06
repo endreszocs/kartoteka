@@ -394,6 +394,20 @@ export type FinancePrintType =
   | 'registru_jurnal'
   | 'nyugtatomb_kimutatas'
   | 'kiadasi_kiseroiv'
+  | 'decont_reprint'
+  | 'dispozitie_reprint'
+
+/**
+ * Egy korábban mentett bizonylat opció a nyomtatási központ újranyomtatás-
+ * listájához (Decont / Dispoziție). A `data` a HTML-építéshez szükséges
+ * teljes pillanatkép — a wrapper értelmezi.
+ */
+export interface SavedDocOption {
+  id: string
+  label: string
+  kind: 'decont' | 'dispozitie'
+  data: unknown
+}
 
 export interface FinancePrintTypeMeta {
   id: FinancePrintType

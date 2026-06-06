@@ -23,6 +23,81 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-06] — Bizonylatok újranyomtatása + pénzügyi finomítások
+<!-- key: 2026-06-06-bizonylat-ujranyomtatas-finomitasok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Újdonságok és javítások
+
+- **Korábbi bizonylatok újranyomtatása**: a **Nyomtatási központban** mostantól a korábban mentett **Decont** és **Dispoziție** bizonylatok listából **bármikor újranyomtathatók vagy PDF-be menthetők**.
+- **Kereshető kategóriák**: a kategóriaválasztóknál (tétel rögzítés, decont, dispoziție) mostantól **gépeléssel kereshetsz** a megnevezésre — a zavaró kódszámok eltűntek, egy betű is elég a találatokhoz.
+- **Rugalmas dátum**: a dátumot **bármilyen formátumban** beírhatod (pl. `2026.01.04`, `4 ian 2026`), a rendszer felismeri.
+- **Csak készpénz a gyors rögzítésnél**: a tételrögzítő egyértelműen csak készpénzes tételekre szól (a banki tételek banki kivonatból jönnek). Új **Irattípus** (Factură, Bon fiscal, Chitanță…) és **Megjegyzés** oszlop is van.
+- **Szebb nyomtatási kép**: a Decont és a Dispoziție nyomtatási előnézete most a **teljes lapot** mutatja; a Dispoziție szellősebb, **A5-ös kétpéldányos** elrendezésben; az aláírások fölött megjelenik az **elszámoló és a jóváhagyó neve**.
+- **Pontos román összeg-kiírás**: a Dispoziție az összeget immár helyesen írja ki betűvel románul (pl. „o sută de lei”).
+- **Telefonbarát**: a tételrögzítő kis képernyőn kártyás nézetben jelenik meg — nincs többé oldalirányú görgetés.
+- **Kategória-lista javítás**: a kereshető kategória-választó legördülője már mindenhol teljesen látszik (nem vágja le az ablak).
+- **Készpénzfelvétel / -letétel**: a tételrögzítőnél, ha készpénzfelvételt vagy -letételt választasz, megjelenik a **bankszámla-választó** (melyik számláról / melyik számlára), és a tétel belső mozgásként könyvelődik — a kassza és a bank oldalt is rendezi.
+- **Decont és Dispoziție elrendezés**: széles képernyőn bal oldalon töltöd ki az adatokat, jobb oldalon az élő előnézet; telefonon az előnézet alulra kerül.
+- **Nyomtatási központ**: a bezáró „×” mindig látszik, kevesebb a szürke háttér, és a korábbi bizonylatok újranyomtatása rendezett szekcióban érhető el.
+- **Számadás tábla**: a számadás fülön a csoport-sorok mindig láthatók, így a táblázat szerkezete jól követhető.
+- **Súgó**: új „Tételek és bizonylatok” fejezet lépésről lépésre bemutatja a rögzítést, a Decontot, a Dispozițiét és az újranyomtatást.
+- **Nyomtatási központ – egységes lista**: a korábbi Decont és Dispoziție bizonylatok újranyomtatása mostantól a többi nyomtatvánnyal **azonos listában** szerepel (bal oldalon választható, jobb oldalon előnézet).
+- **Előnézet teljes szélességben**: a nyomtatványok előnézete a teljes lapot mutatja — **nincs többé oldalirányú görgetés**.
+- **Festéktakarékos nyomtatványok**: a kimutatásokról eltűntek a szürke háttér-kitöltések (a fejlécek félkövérrel és kerettel jelölve), így kevesebb festék fogy.
+- **Készpénz ↔ bank mozgás**: a tételrögzítőben a készpénzfelvétel **és** a készpénzletétel (a bankra érkező oldalon is) bankszámla-választót kínál; a bank-bank átutalás csak a Bank fülön érhető el.
+- **Nyugtatömb kimutatás**: javítva a teljesen szürke megjelenés (fehér lapra kerül), és az előnézet körül kis térköz van, hogy ne lógjon a széléig.
+- **Nyugta — fontos jelzés**: a nyugtatömb-rögzítés és nyugta-nyomtatás **tesztidőszakban** van, **hivatalos használata még nem megengedett** — hivatalosan kizárólag az Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb használható.
+
+---
+
+## [2026-06-06] — Bevétel és kiadás egy helyen, tömegesen
+<!-- key: 2026-06-06-osszevont-bevetel-kiadas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Új funkció
+
+- **Egy gomb mindkettőre**: a Pénzügy oldalon a korábbi külön „+ Bevétel” és „+ Kiadás” gomb helyett mostantól **egyetlen „+ Tétel rögzítése” gomb** van. Az ablakban fent válthatsz a **Bevétel** és a **Kiadás** fül között.
+- **Több tétel egyszerre**: egyszerre **több bevételt és több kiadást is** beírhatsz — annyi sort adsz hozzá, amennyire szükség van.
+- **Egy mentés, minden a helyére**: a **Mentés** gombbal a rendszer **dátum szerint sorba rakja** a tételeket, és mindegyiket a megfelelő helyre (kassza/bank) könyveli.
+- **Telefonon is kényelmes**: kis képernyőn a sorok áttekinthető kártyákként jelennek meg.
+
+---
+
+## [2026-06-06] — Decont: utólag előkerülő számlák hivatalos rögzítése
+<!-- key: 2026-06-06-decont-hivatalos -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+A **Decont (elszámolás)** mostantól a hivatalos `Elszámolás` nyomtatvány szerint készül el, és kitöltés közben **élő előnézetben** látod a nyomtatott lapot.
+
+### ✨ Hogyan segít?
+
+- **A régi számlák gondja megoldva**: a könyvelés nem enged korábbi dátumra rögzíteni. A Decont ezt hidalja át — az utólag előkerülő számlákat a **mai (elszámolási) dátumra** könyveli, miközben a számla **saját, eredeti dátuma** megjelenik a nyomtatott dokumentumon.
+- **Automatikus könyvelés**: a tételek mentéskor **valódi kiadásként** is rögzülnek a kiválasztott kategóriára — nem kell külön bevinni őket.
+- **Hivatalos, kétnyelvű nyomtatvány**: a dokumentum **románul** nyomtatható (a hivatalos elrendezéssel), de **kitöltés közben magyar magyarázat** segít minden mezőnél.
+- **Sorszámozás**: minden elszámolási lap **évente 1-től** kap sorszámot, gyülekezetenként.
+- A lap egyből **kinyomtatható vagy PDF-be menthető**.
+
+---
+
+## [2026-06-06] — Dispoziție de plată / încasare (kifizetési és bevételezési rendelvény)
+<!-- key: 2026-06-06-dispozitie-plata-incasare -->
+<!-- category: feature -->
+<!-- targets: lelkesz, konyvelo -->
+
+### ✨ Új funkció
+
+- **Új bizonylat**: elkészíthető a hivatalos **Dispoziție de plată** (kifizetési) és **Dispoziție de încasare** (bevételezési) rendelvény, a hivatalos kétpéldányos, román nyelvű formában.
+- **Összeg betűvel, románul**: a rendszer az összeget **automatikusan kiírja román betűvel** (pl. „două sute douăzeci și unu lei”).
+- **Automatikus könyvelés**: a **plată** mentéskor **kiadásként**, az **încasare** **bevételként** könyvelődik a kasszában — külön rögzítés nélkül.
+- **Meglévő tételhez is**: egy már rögzített készpénzes kassza-tételhez is **generálható** a számozott bizonylat (ilyenkor nem könyvel újra).
+- **Sorszámozás**: a kifizetési és a bevételezési rendelvények **külön sorozatban, évente 1-től** számozódnak.
+
+---
+
 ## [2026-06-05] — Inaktív gyülekezetek automatikus jelölése
 <!-- key: 2026-06-05-inaktiv-gyulekezetek -->
 <!-- category: improvement -->

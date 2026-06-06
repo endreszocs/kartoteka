@@ -104,6 +104,18 @@ export function ChitantaTombokPanel({ congregationName, refreshKey }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* ─── Tesztidőszak figyelmeztetés ─── */}
+      <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+        <p>
+          <strong>Tesztidőszak:</strong> a nyugtatömb-rögzítés és a nyugta-nyomtatás jelenleg
+          <strong> fejlesztés/kipróbálás alatt</strong> áll, ezért <strong>hivatalos használata
+          MÉG NEM MEGENGEDETT</strong>. Hivatalosan kizárólag az <strong>Egyházkerülettől (EREK
+          iratterjesztő) vásárolt, sorszámozott nyugtatömb</strong> használható. Ez a felület
+          egyelőre csak kipróbálásra és visszajelzés gyűjtésére szolgál.
+        </p>
+      </div>
+
       {/* ─── Fejléc + CTA-k ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
