@@ -306,7 +306,7 @@ function DevicesList({
                     onClick={() => onRevoke(d)}
                     className="rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50 gap-1"
                   >
-                    <XCircle className="size-3" /> Revoke
+                    <XCircle className="size-3" /> Visszavonás
                   </Button>
                 )}
               </td>

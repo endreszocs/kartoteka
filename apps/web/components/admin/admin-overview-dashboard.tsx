@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import {
-  AlertTriangle,
   ArrowRight,
   Bell,
   Calculator,
@@ -333,15 +332,17 @@ export function AdminOverviewDashboard() {
         </div>
       </section>
 
-      {/* Adatminőségi figyelmeztetés (link a "hibák" felé) */}
-      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-900 flex items-start gap-3">
-        <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-600" />
+      {/* Adatminőség — SEMLEGES tájékoztató (nem riasztás): nem állítja, hogy
+          van hiba, csak megmutatja, hol ellenőrizhető. 2026-06-07. */}
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600 flex items-start gap-3">
+        <Eye className="size-5 shrink-0 mt-0.5 text-slate-400" />
         <div>
-          <p className="font-semibold">Tagnyilvántartási adatminőség</p>
+          <p className="font-semibold text-slate-700">Tagnyilvántartási adatminőség</p>
           <p className="mt-0.5">
-            A gyülekezetek tagjai között hibás vagy hiányzó mezők találhatók. A részletekért
-            navigáljon a saját gyülekezet <Link href="/tagnyilvantartas#errors" className="font-semibold underline">Hibák</Link> fülére,
-            vagy bármely másik gyülekezetbe a <Link href="/admin/gyulekezetek" className="font-semibold underline">Gyülekezetek</Link> oldalon át lépve.
+            A tagok esetleges hibás vagy hiányzó mezőit a saját gyülekezet{' '}
+            <Link href="/tagnyilvantartas#errors" className="font-semibold underline">Hibák</Link> fülén
+            ellenőrizheti, vagy bármely másik gyülekezetbe a{' '}
+            <Link href="/admin/gyulekezetek" className="font-semibold underline">Gyülekezetek</Link> oldalon át lépve.
           </p>
         </div>
       </div>

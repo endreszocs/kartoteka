@@ -1156,9 +1156,9 @@ export async function replySupportTicket(ticketId: string, replyContent: string)
   let ticketSubject = ''
   let replyError: string | null = null
 
-  if (!replyContent.trim()) return { error: 'A vĂˇlasz szĂ¶vege kĂ¶telezĹ‘.' }
+  if (!replyContent.trim()) return { error: 'A válasz szövege kötelező.' }
 
-  // Eredeti jegy lekĂ©rdezĂ©s â€” lezĂˇrt jegyre nem lehet vĂˇlaszolni
+  // Eredeti jegy lekérdezés — lezárt jegyre nem lehet válaszolni
   const ticket = await (async () => {
     try {
       const result = await replySupportTicketCompat(supabase, ticketId, replyContent.trim())
@@ -1176,12 +1176,12 @@ export async function replySupportTicket(ticketId: string, replyContent: string)
   })()
 
   if (replyError) return { error: replyError }
-  if (!ticket) return { error: 'A jegy nem talĂˇlhatĂł.' }
-  if (ticket.status === 'closed') return { error: 'LezĂˇrt jegyre nem lehet vĂˇlaszolni.' }
+  if (!ticket) return { error: 'A jegy nem található.' }
+  if (ticket.status === 'closed') return { error: 'Lezárt jegyre nem lehet válaszolni.' }
 
-  // VĂˇlasz mentĂ©s
+  // Válasz mentés
 
-  // Jegy stĂˇtusz frissĂ­tĂ©s
+  // Jegy státusz frissítés
   if (!ticketUserId) {
     revalidatePath('/admin')
     return { success: true }
