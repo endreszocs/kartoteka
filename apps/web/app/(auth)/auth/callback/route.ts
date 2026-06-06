@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { isMasterAdmin } from '@/lib/auth/roles'
 import { logAuditEvent } from '@/lib/audit/log'
+import { resolvePostLoginDestination } from '@/lib/auth/post-login-destination'
 import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
@@ -72,31 +72,23 @@ export async function GET(request: Request) {
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id, status, role, congregation_id, diocese_id')
-          .eq('id', user.id)
-          .single()
-
-        const master = isMasterAdmin(user.email)
-        const isActive = profile?.status === 'active'
+        // Egységes döntés (ugyanaz a logika, mint az email+jelszó login-nál).
+        const dest = await resolvePostLoginDestination(supabase, user)
 
         // Aktív (vagy master) → mehet a kezdőoldalra
-        if (master || isActive) {
+        if (dest === 'home') {
           // Audit + aktivitás: OAuth-bejelentkezés naplózása + last_seen.
           await logAuditEvent({ action: 'login', metadata: { method: 'oauth' } }, supabase)
           await supabase.rpc('touch_last_seen')
           return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
         }
 
-        // Nem aktív. A `handle_new_user` trigger minden OAuth-belépéskor létrehoz
-        // egy 'pending' profilt, ezért NEM a `!profile`-t, hanem a hiányos profilt
-        // figyeljük: ha még nincs egyházmegye kitöltve → kiegészítő űrlap.
-        if (!profile || !profile.diocese_id) {
+        // Nem aktív + még nem adta meg az adatait → profil-kiegészítő űrlap
+        if (dest === 'complete') {
           return applySessionModeCookie(NextResponse.redirect(`${origin}/oauth-complete`))
         }
 
-        // Profil kitöltve, de még jóváhagyásra vár
+        // Nem aktív, de már megadta az adatait → jóváhagyásra vár
         await supabase.auth.signOut()
         return NextResponse.redirect(`${origin}/login?error=pending`)
       }

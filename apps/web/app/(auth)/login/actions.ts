@@ -4,8 +4,8 @@ import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
-import { isMasterAdmin } from '@/lib/auth/roles'
 import { logAuditEvent } from '@/lib/audit/log'
+import { resolvePostLoginDestination } from '@/lib/auth/post-login-destination'
 import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
@@ -59,17 +59,12 @@ export async function signIn(data: LoginInput) {
     }
   }
 
-  // Profil ellenőrzés
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('status, role, congregation_id')
-    .eq('id', authData.user.id)
-    .single()
+  // Egységes belépés-utáni döntés — UGYANAZ a logika, mint a Google (OAuth)
+  // flow-ban (auth/callback), hogy mindkét belépési mód azonosan viselkedjen.
+  const dest = await resolvePostLoginDestination(supabase, authData.user)
 
-  const master = isMasterAdmin(authData.user.email)
-  const isActive = profile?.status === 'active'
-
-  if (!master && !isActive) {
+  // Nem aktív, de már megadta az adatait → jóváhagyásra vár (kijelentkeztetés)
+  if (dest === 'pending') {
     await supabase.auth.signOut()
     return {
       error:
@@ -77,15 +72,22 @@ export async function signIn(data: LoginInput) {
     }
   }
 
-  // Session-mode cookie beállítása ("Maradjak bejelentkezve" alapján).
+  // 'home' vagy 'complete' → a session megmarad, beállítjuk a session-mode
+  // cookie-t ("Maradjak bejelentkezve" alapján).
   // - true  → persistent (1 év, csak a Supabase saját refresh token expiry korlátozza)
   // - false → session (24 óra; a middleware redirectel /login-ra ha lejár)
   const cookieStore = await cookies()
   const { mode, options } = buildSessionModeCookieOptions(parsed.data.rememberMe ?? false)
   cookieStore.set(SESSION_MODE_COOKIE, mode, options)
 
-  // Audit + aktivitás: bejelentkezés naplózása és a last_seen frissítése.
-  // (A redirect() alább kivételt dob, ezért ezeket előtte hívjuk.)
+  // Nem aktív + még nem adta meg az adatait → profil-kiegészítő űrlap
+  // (ugyanaz, ahova a friss Google-belépés is megy).
+  if (dest === 'complete') {
+    redirect('/oauth-complete')
+  }
+
+  // Aktív → audit + aktivitás, majd a profil-választóra.
+  // (A redirect() alább kivételt dob, ezért az audit/last_seen-t előtte hívjuk.)
   await logAuditEvent({ action: 'login', metadata: { method: 'password' } }, supabase)
   await supabase.rpc('touch_last_seen')
 
