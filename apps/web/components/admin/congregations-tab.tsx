@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowDownAZ,
   ArrowUpDown,
@@ -12,6 +12,7 @@ import {
   Crown,
   ExternalLink,
   Loader2,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -59,32 +60,38 @@ const ROLE_LABEL: Record<string, string> = {
 export function CongregationsTab() {
   const [dioceses, setDioceses] = useState<DioceseGroup[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('name')
   const [expandedDioceses, setExpandedDioceses] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    let cancelled = false
+  // 2026-06-07: a hiba most NEM tűnik el csendben (toast után üres lista) —
+  // külön hiba-állapot + "Újrapróbálom" gomb, hogy egyértelmű legyen, ha a
+  // betöltés sikertelen volt (nem összekeverhető a tényleg üres listával).
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
     getCongregationsByDiocese()
       .then((res) => {
-        if (cancelled) return
         if (res.error) {
-          toast.error(`Lista hiba: ${res.error}`)
+          setError(res.error)
           return
         }
         if (res.data) {
           setDioceses(res.data)
-          // Alapból minden egyházmegye nyitva
-          setExpandedDioceses(new Set(res.data.map((d) => d.id)))
+          setExpandedDioceses(new Set(res.data.map((d) => d.id))) // alapból minden nyitva
         }
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+      .catch((e) => setError(e instanceof Error ? e.message : 'Ismeretlen hiba.'))
+      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    // requestAnimationFrame — a setState-t egy frame-re kitoljuk (a synchronous
+    // setState-in-effect lint elkerülésére).
+    const raf = requestAnimationFrame(() => load())
+    return () => cancelAnimationFrame(raf)
+  }, [load])
 
   // Szűrés keresési kifejezésre — gyülekezet név, egyházmegye név, user név/email
   const filteredDioceses = useMemo(() => {
@@ -135,6 +142,19 @@ export function CongregationsTab() {
 
   function collapseAll() {
     setExpandedDioceses(new Set())
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-6 text-center">
+        <p className="font-semibold text-rose-800">A gyülekezetek betöltése nem sikerült</p>
+        <p className="mt-1 text-sm text-rose-700">{error}</p>
+        <Button onClick={load} variant="outline" className="mt-3 gap-2">
+          <RefreshCw className="size-4" />
+          Újrapróbálom
+        </Button>
+      </div>
+    )
   }
 
   if (loading) {

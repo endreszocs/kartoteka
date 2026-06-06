@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { getSupportTickets, replySupportTicket, closeSupportTicket } from '@/app/(dashboard)/admin/actions'
@@ -20,16 +21,32 @@ interface Ticket {
 export function SupportTab() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
 
-  useEffect(() => {
+  // 2026-06-07: a betöltési hiba most NEM tűnik el csendben — külön hiba-állapot
+  // + "Újrapróbálom" gomb (a visszaadott { error }-t is kezeljük, nem csak a dobottat).
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
     getSupportTickets()
-      .then(res => { if ('data' in res) setTickets(res.data as unknown as Ticket[]) })
-      .catch(() => toast.error('Hiba'))
+      .then(res => {
+        if ('error' in res && res.error) {
+          setError(res.error)
+        } else if ('data' in res) {
+          setTickets(res.data as unknown as Ticket[])
+        }
+      })
+      .catch(e => setError(e instanceof Error ? e.message : 'Ismeretlen hiba.'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => load())
+    return () => cancelAnimationFrame(raf)
+  }, [load])
 
   const selected = tickets.find(t => t.id === selectedId)
 
@@ -56,6 +73,19 @@ export function SupportTab() {
       setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'closed' } : t))
       if (selectedId === ticketId) setSelectedId(null)
     }
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-6 text-center">
+        <p className="font-semibold text-rose-800">A támogatási jegyek betöltése nem sikerült</p>
+        <p className="mt-1 text-sm text-rose-700">{error}</p>
+        <Button onClick={load} variant="outline" className="mt-3 gap-2">
+          <RefreshCw className="size-4" />
+          Újrapróbálom
+        </Button>
+      </div>
+    )
   }
 
   if (loading) return <div className="py-12 text-center text-muted-foreground">Betöltés...</div>
