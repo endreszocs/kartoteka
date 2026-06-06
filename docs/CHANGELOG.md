@@ -49,6 +49,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Készpénz ↔ bank mozgás**: a tételrögzítőben a készpénzfelvétel **és** a készpénzletétel (a bankra érkező oldalon is) bankszámla-választót kínál; a bank-bank átutalás csak a Bank fülön érhető el.
 - **Nyugtatömb kimutatás**: javítva a teljesen szürke megjelenés (fehér lapra kerül), és az előnézet körül kis térköz van, hogy ne lógjon a széléig.
 - **Nyugta — fontos jelzés**: a nyugtatömb-rögzítés és nyugta-nyomtatás **tesztidőszakban** van, **hivatalos használata még nem megengedett** — hivatalosan kizárólag az Egyházkerülettől (EREK iratterjesztő) vásárolt, sorszámozott nyugtatömb használható.
+- **Számadás — minden tétel látszik**: a Számadás fülön mostantól **minden tétel** megjelenik (a költségvetéshez hasonlóan), nem csak a fő kategóriák.
+- **Költségvetés nyomtatás — letisztult forma**: a költségvetés/számadás nyomtatási képe a hivatalos mintához igazítva, **kétnyelvű (román–magyar) oszlopokkal**, rendezett igazítással, félkövér csoport- és összegsorokkal, festéktakarékos (színkitöltés nélküli) megjelenéssel.
 
 ---
 
