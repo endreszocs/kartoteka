@@ -124,7 +124,11 @@ const profileItems: MenuItem[] = [
 
 function isActivePath(pathname: string, href: string) {
   if (pathname === href) return true
-  return href !== '/dashboard' && pathname.startsWith(`${href}/`)
+  // A "gyűjtő"/áttekintő útvonalak (/dashboard, /admin) CSAK pontos egyezésnél
+  // aktívak — különben minden alaloldalon kijelölve maradnának. (Pl. az admin
+  // "Áttekintés" almenüpont (/admin) eddig a /admin/* oldalakon is aktív volt.)
+  if (href === '/dashboard' || href === '/admin') return false
+  return pathname.startsWith(`${href}/`)
 }
 
 /**
