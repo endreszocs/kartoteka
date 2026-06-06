@@ -203,40 +203,63 @@ export async function approveAccessRequest(
   let inviteUrl: string | null = null
   let inviteWarning: string | null = null
 
-  try {
-    const adminClient = getSupabaseAdminClient()
+  // Létező user MEGBÍZHATÓ keresése a profiles-ból email alapján.
+  // A `handle_new_user` trigger minden auth.users-t tükröz a profiles-ba, ezért
+  // az emailről közvetlenül megtaláljuk a user id-t.
+  //
+  // FIX 2026-06-06: a korábbi `adminClient.auth.admin.listUsers()` CSAK az első
+  // oldalt (alapból 50 user) adta vissza — nagyobb rendszerben a már létező,
+  // JELSZÓVAL regisztrált felhasználót "újként" kezelte, megpróbálta meghívni,
+  // az "already registered" hibára futott, és a profil 'pending' MARADT → a
+  // jóváhagyott lelkész „jóváhagyásra vár" üzenetet kapott és nem tudott belépni.
+  const { data: profCandidates } = await ctx.supabase
+    .from('profiles')
+    .select('id, email')
+    .ilike('email', req.email)
+  const existingProfile = (
+    (profCandidates as Array<{ id: string; email: string | null }> | null) || []
+  ).find((p) => (p.email || '').toLowerCase() === req.email.toLowerCase())
 
-    // Check 1: már létezik-e user ugyanezzel az emaillel?
-    // (pl. ha a kérelmező már admin, és saját kérelmét hagyja jóvá)
-    const { data: existingUserList } = await adminClient.auth.admin.listUsers()
-    const existingUser = existingUserList?.users.find(
-      (u) => u.email?.toLowerCase() === req.email.toLowerCase(),
-    )
+  if (existingProfile) {
+    // ── A) User MÁR létezik (jelszavas regisztráció / korábbi Google / admin) ──
+    resultingUserId = existingProfile.id
 
-    if (existingUser) {
-      // User már létezik — csak a profiles + access_requests frissítés
-      // 2026-05-02 (v0.9.37): status 'approved' → 'active'. Az auth-flow
-      // (callback, login, setup, oauth-complete, pending) MIND `status==='active'`-ot
-      // követel. Az 'approved' egy korábbi flow-ból maradt szemantika ami sehol nem
-      // konvertálódik tovább 'active'-re. → Az admin elfogadás után azonnal aktív.
-      resultingUserId = existingUser.id
-      await ctx.supabase
-        .from('profiles')
-        .update({
-          status: 'active',
-          district_id: req.requested_district_id,
-          diocese_id: req.requested_diocese_id,
-          congregation_id: req.requested_congregation_id,
-        })
-        .eq('id', resultingUserId)
-      await ctx.supabase
-        .from('access_requests')
-        .update({ resulting_user_id: resultingUserId })
-        .eq('id', input.id)
-      inviteUrl = `${appUrl}/login`
-      inviteWarning = 'A user már létezett (pl. saját admin fiók vagy korábbi Google-bejelentkezés) — csak a státuszt frissítettük active-re.'
-    } else {
-      // Új user — inviteUserByEmail
+    // Aktiválás a SECURITY DEFINER RPC-vel: megkerüli az RLS-t + a profiles
+    // GRANT-okat, ÉS hibát is ad vissza (szemben a korábbi NÉMA update-tel, ami
+    // RLS/grant hiba esetén csendben nem csinált semmit → a fiók pending maradt).
+    const { error: actErr } = await ctx.supabase.rpc('admin_activate_user', {
+      p_user_id: resultingUserId,
+      p_congregation_id: req.requested_congregation_id ?? null,
+      p_diocese_id: req.requested_diocese_id ?? null,
+      p_district_id: req.requested_district_id ?? null,
+    })
+    if (actErr) {
+      return { error: `A fiók aktiválása nem sikerült: ${actErr.message}` }
+    }
+
+    await ctx.supabase
+      .from('access_requests')
+      .update({ resulting_user_id: resultingUserId })
+      .eq('id', input.id)
+    inviteUrl = `${appUrl}/login`
+
+    // Email automatikus megerősítése — hogy a jelszóval regisztrált lelkész
+    // AZONNAL be tudjon lépni (ha korábban nem kattintott a megerősítő linkre).
+    // Az admin jóváhagyása egyben a cím megerősítése is. (service_role kell hozzá)
+    try {
+      const adminClient = getSupabaseAdminClient()
+      await adminClient.auth.admin.updateUserById(resultingUserId, { email_confirm: true })
+    } catch (e) {
+      inviteWarning =
+        'A fiók aktiválva, de az email automatikus megerősítése kimaradt. Ha a ' +
+        'felhasználó nem tud belépni, kérje meg, hogy erősítse meg az email-címét ' +
+        'a regisztrációs linkkel.'
+      console.warn('[approve-access-request] email_confirm:', e instanceof Error ? e.message : e)
+    }
+  } else {
+    // ── B) ÚJ user — meghívás (service_role kell) ──
+    try {
+      const adminClient = getSupabaseAdminClient()
       const { data: inviteData, error: inviteErr } =
         await adminClient.auth.admin.inviteUserByEmail(req.email, {
           redirectTo: `${appUrl}/oauth-complete`,
@@ -254,33 +277,35 @@ export async function approveAccessRequest(
         resultingUserId = inviteData.user.id
         inviteUrl = `${appUrl}/login?invited=1`
 
-        // 2026-05-02 (v0.9.37): status 'active' (lásd fent a magyarázatot)
+        // Aktiválás + scope a SECURITY DEFINER RPC-vel (RLS/grant-biztos, hibát ad).
+        const { error: actErr } = await ctx.supabase.rpc('admin_activate_user', {
+          p_user_id: resultingUserId,
+          p_congregation_id: req.requested_congregation_id ?? null,
+          p_diocese_id: req.requested_diocese_id ?? null,
+          p_district_id: req.requested_district_id ?? null,
+        })
+        if (actErr) {
+          inviteWarning = `A meghívott felhasználó létrejött, de az aktiválás hibázott: ${actErr.message}`
+        }
+        // Név + elsődleges szerep (best-effort)
         await ctx.supabase
           .from('profiles')
-          .update({
-            status: 'active',
-            role: req.requested_role,
-            full_name: req.full_name,
-            district_id: req.requested_district_id,
-            diocese_id: req.requested_diocese_id,
-            congregation_id: req.requested_congregation_id,
-          })
+          .update({ role: req.requested_role, full_name: req.full_name })
           .eq('id', resultingUserId)
         await ctx.supabase
           .from('access_requests')
           .update({ resulting_user_id: resultingUserId })
           .eq('id', input.id)
       }
+    } catch (err: unknown) {
+      // getSupabaseAdminClient() throw (pl. SUPABASE_SERVICE_ROLE_KEY nincs beállítva)
+      const msg = err instanceof Error ? err.message : 'ismeretlen'
+      console.error('[approve-access-request] admin-client hiba:', msg)
+      inviteWarning =
+        'A kérelem elfogadva, de a Supabase admin-kliens nem elérhető: ' +
+        msg +
+        '. A user-létrehozás kimarad — admin kézzel küldje el az invite-et.'
     }
-  } catch (err: unknown) {
-    // getSupabaseAdminClient() throw (pl. SUPABASE_SERVICE_ROLE_KEY nincs beállítva)
-    // vagy bármi más váratlan hiba. A status már approved — loggoljuk, értesítjük az admint.
-    const msg = err instanceof Error ? err.message : 'ismeretlen'
-    console.error('[approve-access-request] admin-client hiba:', msg)
-    inviteWarning =
-      'A kérelem elfogadva, de a Supabase admin-kliens nem elérhető: ' +
-      msg +
-      '. A user-létrehozás kimarad — admin kézzel küldje el az invite-et.'
   }
 
   if (inviteWarning) {
