@@ -135,12 +135,14 @@ export async function listAssignments(options?: {
  * az RPC-ben történnek; a TS oldalon csak a target profile lekérdezés
  * (read-only) marad az értesítés-küldéshez.
  */
+// 2026-06-07: a `warning` mezővel jelezzük, ha a hozzárendelés sikeres volt, de
+// a lelkész értesítése nem ment ki (best-effort) — az admin tudjon róla.
 export async function createAssignment(args: {
   profileId: string
   congregationId: string
   roleScope: AssignmentRoleScope
   reason: string
-}): Promise<{ success?: boolean; error?: string; assignmentId?: string }> {
+}): Promise<{ success?: boolean; error?: string; assignmentId?: string; warning?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   // JS-szintű előzetes check (a végleges védelem az RPC-ben)
@@ -171,6 +173,7 @@ export async function createAssignment(args: {
   }
 
   // Értesítés a lelkésznek (best-effort, read-only target profile)
+  let warning: string | undefined
   try {
     const { data: targetProfile } = await supabase
       .from('profiles')
@@ -178,7 +181,7 @@ export async function createAssignment(args: {
       .eq('id', args.profileId)
       .maybeSingle()
 
-    await sendPastorNotification(supabase, {
+    const notif = await sendPastorNotification(supabase, {
       congregationId: args.congregationId,
       assignmentId: result.assignment_id,
       targetFullName: targetProfile?.full_name ?? null,
@@ -186,12 +189,17 @@ export async function createAssignment(args: {
       roleScope: args.roleScope,
       reason: args.reason.trim(),
     })
+    if (!notif.ok) {
+      warning =
+        'A hozzárendelés létrejött, de a lelkész értesítése nem ment ki — érdemes személyesen szólni neki.'
+    }
   } catch {
-    // best-effort — a hozzárendelés már él
+    warning =
+      'A hozzárendelés létrejött, de a lelkész értesítése nem ment ki — érdemes személyesen szólni neki.'
   }
 
   revalidatePath('/admin')
-  return { success: true, assignmentId: result.assignment_id }
+  return { success: true, assignmentId: result.assignment_id, warning }
 }
 
 /**
@@ -259,12 +267,15 @@ async function sendPastorNotification(
     .eq('status', 'active')
     .maybeSingle()
 
-  if (!pastor?.id) return // nincs lelkész — az értesítés kihagyható
+  if (!pastor?.id) return { ok: true } // nincs lelkész — az értesítés kihagyható (nem hiba)
 
   const targetName = args.targetFullName || args.targetEmail || 'Egy új felhasználó'
   const roleLabel = args.roleScope === 'konyvelo' ? 'könyvelő' : 'egyházmegyei számvevő'
 
-  await supabase.from('ertesitesek').insert({
+  // 2026-06-07: az insert HIBÁJÁT is ellenőrizzük — eddig némán elbukhatott
+  // (a lelkész nem kapott értesítést, és senki nem tudott róla). Most a hívó
+  // figyelmeztetést tud adni az adminnak.
+  const { error: notifErr } = await supabase.from('ertesitesek').insert({
     user_id: pastor.id,
     congregation_id: args.congregationId,
     cim: `Hozzáférési kérés: ${roleLabel}`,
@@ -276,6 +287,11 @@ async function sendPastorNotification(
     tipus: 'info',
     hivatkozas: '/profile/kapcsolatok',
   })
+  if (notifErr) {
+    console.warn('[createAssignment] lelkész-értesítés insert hiba:', notifErr.message)
+    return { ok: false }
+  }
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------

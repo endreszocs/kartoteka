@@ -131,7 +131,12 @@ export function ProfileCongregationsTab() {
       toast.error(res.error)
       return
     }
-    toast.success('Kérés elküldve a gyülekezet lelkészének.')
+    if (res.warning) {
+      // A hozzárendelés sikeres, de az értesítés nem ment ki — jelezzük az adminnak.
+      toast.warning(res.warning, { duration: 7000 })
+    } else {
+      toast.success('Kérés elküldve a gyülekezet lelkészének.')
+    }
     setFormOpen(false)
     setFormUser('')
     setFormCong('')
