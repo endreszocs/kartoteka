@@ -306,9 +306,17 @@ export function UnifiedUsersTab() {
       // Ha van regisztrációs kérelme, a TELJES jóváhagyást futtatjuk: ez egy
       // lépésben aktivál + hozzárendeli a kért gyülekezetet + megerősíti az emailt
       // (a kérelmet is 'approved'-ra állítja). Egyébként a sima aktiválás.
-      const res: { error?: string; info?: string } = user.pendingRequest
-        ? await approveAccessRequest({ id: user.pendingRequest.accessRequestId })
-        : await quickApproveUser(user.id)
+      let res: { error?: string; info?: string }
+      if (user.pendingRequest) {
+        res = await approveAccessRequest({ id: user.pendingRequest.accessRequestId })
+        // Ha a kérelem már 'approved' (korábbi, beragadt eset), essünk vissza a
+        // sima aktiválásra, hogy a fiók mégis aktívvá váljon.
+        if (res.error && /pending/i.test(res.error)) {
+          res = await quickApproveUser(user.id)
+        }
+      } else {
+        res = await quickApproveUser(user.id)
+      }
       if (res.error) {
         toast.error(res.error)
         return
