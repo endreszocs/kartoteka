@@ -94,10 +94,21 @@ function buildMonetarSheetHtml(params: {
   const table = (title: string, items: MonetaryDenomination[]) => `
     <div class="blk-title">${title}</div>
     <table class="mt">
-      <thead><tr><th style="width:22%">Címlet</th><th>Megnevezés</th><th style="width:14%">Darab</th><th style="width:22%">Összeg (RON)</th></tr></thead>
-      <tbody>${rowsFor(items) || `<tr><td colspan="4" class="c muted">Nincs címlet</td></tr>`}</tbody>
-      <tfoot><tr class="tot"><td colspan="3" class="r">Összesen</td><td class="r">${formatCurrency(sub(items))}</td></tr></tfoot>
+      <thead><tr>
+        <th style="width:22%">Valoare<br>Címlet</th>
+        <th>Denumire<br>Megnevezés</th>
+        <th style="width:14%">Buc.<br>Darab</th>
+        <th style="width:24%">Sumă (RON)<br>Összeg (RON)</th>
+      </tr></thead>
+      <tbody>${rowsFor(items) || `<tr><td colspan="4" class="c muted">Fără valori / Nincs címlet</td></tr>`}</tbody>
+      <tfoot><tr class="tot"><td colspan="3" class="r">Total / Összesen</td><td class="r">${formatCurrency(sub(items))}</td></tr></tfoot>
     </table>`
+  const diffLabel =
+    diff === 0
+      ? 'Diferență (corespunde) / Eltérés (egyezik)'
+      : diff > 0
+        ? 'Diferență (plus) / Eltérés (többlet)'
+        : 'Diferență (minus) / Eltérés (hiány)'
   return `<!doctype html><html lang="hu"><head><meta charset="utf-8"/>
   <style>
     @page { size: A4 portrait; margin: 14mm; }
@@ -105,11 +116,12 @@ function buildMonetarSheetHtml(params: {
     body { font-family: 'Times New Roman', Georgia, serif; color: #111; margin: 0; }
     @media screen { body { padding: 14mm; } }
     .title { text-align: center; font-size: 18px; font-weight: bold; }
+    .title-ro { text-align: center; font-size: 13px; font-weight: bold; color: #333; }
     .sub { text-align: center; font-size: 12px; color: #444; margin: 4px 0 16px; }
     .blk-title { font-weight: bold; font-size: 12px; margin: 14px 0 4px; }
     table.mt { width: 100%; border-collapse: collapse; }
     .mt th, .mt td { border: 1px solid #4b5563; padding: 4px 8px; font-size: 11px; }
-    .mt th { text-align: left; font-weight: bold; background: #fff; }
+    .mt th { text-align: left; font-weight: bold; background: #fff; line-height: 1.25; }
     .mt .c { text-align: center; } .mt .r { text-align: right; }
     .mt .muted { color: #777; font-style: italic; }
     .mt .tot td { font-weight: bold; border-top: 2px solid #111; }
@@ -122,18 +134,19 @@ function buildMonetarSheetHtml(params: {
     .sig .line { border-top: 1px solid #111; margin-top: 34px; padding-top: 4px; }
   </style></head>
   <body>
-    <div class="title">MONETÁR — Pénztári címletjegyzék</div>
-    <div class="sub">${escHtml(congregationName)} · ${year}. év · Dátum: ${escHtml(dateIso)}</div>
-    ${table('Bankjegyek és 1 RON', banknotes)}
-    ${table('Érmék', coins)}
+    <div class="title-ro">MONETAR — Borderou de numerar</div>
+    <div class="title">Monetár — Pénztári címletjegyzék</div>
+    <div class="sub">${escHtml(congregationName)} · ${year} · Data / Dátum: ${escHtml(dateIso)}</div>
+    ${table('Bancnote și 1 RON / Bankjegyek és 1 RON', banknotes)}
+    ${table('Monede / Érmék', coins)}
     <table class="summary">
-      <tr><td class="lbl">Fizikailag számolt összeg</td><td class="val">${formatCurrency(countedTotal)} RON</td></tr>
-      <tr><td class="lbl">Szoftver szerinti készpénzegyenleg</td><td class="val">${formatCurrency(expected)} RON</td></tr>
-      <tr><td class="lbl">${diff === 0 ? 'Eltérés (egyezik)' : diff > 0 ? 'Eltérés (többlet)' : 'Eltérés (hiány)'}</td><td class="val">${formatCurrency(Math.abs(diff))} RON</td></tr>
+      <tr><td class="lbl">Suma numărată fizic / Fizikailag számolt összeg</td><td class="val">${formatCurrency(countedTotal)} RON</td></tr>
+      <tr><td class="lbl">Sold de casă conform evidenței / Szoftver szerinti készpénzegyenleg</td><td class="val">${formatCurrency(expected)} RON</td></tr>
+      <tr><td class="lbl">${diffLabel}</td><td class="val">${formatCurrency(Math.abs(diff))} RON</td></tr>
     </table>
     <div class="sig">
-      <div class="col"><div class="line">Pénztáros — aláírása</div></div>
-      <div class="col"><div class="line">Ellenőrizte — aláírása</div></div>
+      <div class="col"><div class="line">Casier / Pénztáros — semnătura / aláírás</div></div>
+      <div class="col"><div class="line">Verificat / Ellenőrizte — semnătura / aláírás</div></div>
     </div>
   </body></html>`
 }
