@@ -152,6 +152,8 @@ export interface NewsletterInput {
   targetDistrictIds?: string[]
   /** Email küldése (Resend) */
   sendEmail: boolean
+  /** Újraküldés: ha true, a már korábban kiküldött bejegyzéseket is újraküldi. */
+  force?: boolean
 }
 
 export async function sendNewsletter(args: NewsletterInput): Promise<{
@@ -184,9 +186,10 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
       .map((s) => s.release_changelog_key)
       .filter((k): k is string => !!k),
   )
-  const toSend = selected.filter((e) => !alreadyKeys.has(e.key))
+  // Újraküldés módban (force) a már kiküldötteket is elküldjük.
+  const toSend = args.force ? selected : selected.filter((e) => !alreadyKeys.has(e.key))
   if (toSend.length === 0) {
-    return { error: 'Minden kiválasztott bejegyzés már ki lett küldve.' }
+    return { error: 'Minden kiválasztott bejegyzés már ki lett küldve. (Az „Újraküldés" kapcsolóval újra elküldhető.)' }
   }
 
   // A "reprezentatív" bejegyzés: a legfrissebb (ez kerül be az első
@@ -220,6 +223,8 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
   const userId = access.user.id
   const others = sorted.slice(1)
   for (const e of others) {
+    // Újraküldésnél a már rögzített marker-eket nem duplikáljuk.
+    if (args.force && alreadyKeys.has(e.key)) continue
     await access.supabase.from('system_broadcasts').insert({
       cim: `(Hírlevél része) ${e.title}`,
       uzenet: e.bodyMarkdown.slice(0, 500),
