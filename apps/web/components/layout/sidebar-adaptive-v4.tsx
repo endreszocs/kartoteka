@@ -335,7 +335,20 @@ function SidebarItem({
                   <Link
                     key={child.href}
                     href={child.href}
-                    onClick={onNavigate}
+                    onClick={(e) => {
+                      onNavigate?.()
+                      // Hash-alapú almenü ugyanazon az oldalon: a Next.js Link
+                      // pushState-et használ, ami NEM vált ki `hashchange` eseményt,
+                      // így a fül-komponensek (finance/registry/member) nem váltanának.
+                      // Ezért azonos útvonalnál kézzel állítjuk a hash-t (ez kivált
+                      // egy valódi `hashchange`-et → a fül frissül).
+                      if (childHash && typeof window !== 'undefined' && window.location.pathname === childPath) {
+                        e.preventDefault()
+                        if (window.location.hash !== `#${childHash}`) {
+                          window.location.hash = childHash
+                        }
+                      }
+                    }}
                     aria-label={child.label}
                     data-walkthrough={childWalkthroughKey}
                     suppressHydrationWarning

@@ -461,6 +461,7 @@ export function FinanceTabs({
                 currentYear={currentYear}
                 bankAccounts={bankAccounts}
                 internalTransfers={internalTransfers}
+                congregationName={congregationName}
               />
             </TabsContent>
 
@@ -544,6 +545,7 @@ export function FinanceTabs({
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}
+        settings={settings}
       />
     </>
   )

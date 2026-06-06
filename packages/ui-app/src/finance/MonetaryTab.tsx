@@ -16,8 +16,10 @@ import {
   CircleAlert,
   Coins,
   Landmark,
+  Printer,
   Save,
   Wallet,
+  X,
 } from 'lucide-react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@kartoteka/ui'
@@ -54,10 +56,99 @@ export interface MonetaryTabProps {
     items: Array<{ denominationId: number; count: number }>,
   ) => Promise<MonetarySaveResult>
   onToast?: (message: string, kind: MonetaryToastKind) => void
+  /** Gyülekezet neve a nyomtatott címletjegyzék fejlécéhez. */
+  congregationName?: string
+  /** Nyomtatás callback (web: printToBrowser / printToPdf). Ha hiányzik, nincs gomb. */
+  onPrint?: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
 }
 
 function formatRon(value: number) {
   return `${formatCurrency(value)} RON`
+}
+
+function escHtml(v: string): string {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Nyomtatható monetár (címletjegyzék) — tiszta, festéktakarékos A4 álló lap. */
+function buildMonetarSheetHtml(params: {
+  congregationName: string
+  year: number
+  dateIso: string
+  banknotes: MonetaryDenomination[]
+  coins: MonetaryDenomination[]
+  counts: Record<number, number>
+  countedTotal: number
+  expected: number
+}): string {
+  const { congregationName, year, dateIso, banknotes, coins, counts, countedTotal, expected } = params
+  const diff = countedTotal - expected
+  const rowsFor = (items: MonetaryDenomination[]) =>
+    items
+      .map((it) => {
+        const db = counts[it.id] || 0
+        return `<tr><td>${escHtml(it.displayValue)}</td><td>${escHtml(it.name)}</td><td class="c">${db}</td><td class="r">${formatCurrency(db * it.value)}</td></tr>`
+      })
+      .join('')
+  const sub = (items: MonetaryDenomination[]) => items.reduce((s, it) => s + (counts[it.id] || 0) * it.value, 0)
+  const table = (title: string, items: MonetaryDenomination[]) => `
+    <div class="blk-title">${title}</div>
+    <table class="mt">
+      <thead><tr>
+        <th style="width:22%">Valoare<br>Címlet</th>
+        <th>Denumire<br>Megnevezés</th>
+        <th style="width:14%">Buc.<br>Darab</th>
+        <th style="width:24%">Sumă (RON)<br>Összeg (RON)</th>
+      </tr></thead>
+      <tbody>${rowsFor(items) || `<tr><td colspan="4" class="c muted">Fără valori / Nincs címlet</td></tr>`}</tbody>
+      <tfoot><tr class="tot"><td colspan="3" class="r">Total / Összesen</td><td class="r">${formatCurrency(sub(items))}</td></tr></tfoot>
+    </table>`
+  const diffLabel =
+    diff === 0
+      ? 'Diferență (corespunde) / Eltérés (egyezik)'
+      : diff > 0
+        ? 'Diferență (plus) / Eltérés (többlet)'
+        : 'Diferență (minus) / Eltérés (hiány)'
+  return `<!doctype html><html lang="hu"><head><meta charset="utf-8"/>
+  <style>
+    @page { size: A4 portrait; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Times New Roman', Georgia, serif; color: #111; margin: 0; }
+    @media screen { body { padding: 14mm; } }
+    .title { text-align: center; font-size: 18px; font-weight: bold; }
+    .title-ro { text-align: center; font-size: 13px; font-weight: bold; color: #333; }
+    .sub { text-align: center; font-size: 12px; color: #444; margin: 4px 0 16px; }
+    .blk-title { font-weight: bold; font-size: 12px; margin: 14px 0 4px; }
+    table.mt { width: 100%; border-collapse: collapse; }
+    .mt th, .mt td { border: 1px solid #4b5563; padding: 4px 8px; font-size: 11px; }
+    .mt th { text-align: left; font-weight: bold; background: #fff; line-height: 1.25; }
+    .mt .c { text-align: center; } .mt .r { text-align: right; }
+    .mt .muted { color: #777; font-style: italic; }
+    .mt .tot td { font-weight: bold; border-top: 2px solid #111; }
+    .summary { margin-top: 16px; width: 100%; border-collapse: collapse; }
+    .summary td { border: 1px solid #4b5563; padding: 6px 8px; font-size: 12px; }
+    .summary .lbl { font-weight: bold; width: 60%; }
+    .summary .val { text-align: right; font-weight: bold; }
+    .sig { display: flex; justify-content: space-between; gap: 40px; margin-top: 44px; font-size: 12px; }
+    .sig .col { flex: 1; text-align: center; }
+    .sig .line { border-top: 1px solid #111; margin-top: 34px; padding-top: 4px; }
+  </style></head>
+  <body>
+    <div class="title-ro">MONETAR — Borderou de numerar</div>
+    <div class="title">Monetár — Pénztári címletjegyzék</div>
+    <div class="sub">${escHtml(congregationName)} · ${year} · Data / Dátum: ${escHtml(dateIso)}</div>
+    ${table('Bancnote și 1 RON / Bankjegyek és 1 RON', banknotes)}
+    ${table('Monede / Érmék', coins)}
+    <table class="summary">
+      <tr><td class="lbl">Suma numărată fizic / Fizikailag számolt összeg</td><td class="val">${formatCurrency(countedTotal)} RON</td></tr>
+      <tr><td class="lbl">Sold de casă conform evidenței / Szoftver szerinti készpénzegyenleg</td><td class="val">${formatCurrency(expected)} RON</td></tr>
+      <tr><td class="lbl">${diffLabel}</td><td class="val">${formatCurrency(Math.abs(diff))} RON</td></tr>
+    </table>
+    <div class="sig">
+      <div class="col"><div class="line">Casier / Pénztáros — semnătura / aláírás</div></div>
+      <div class="col"><div class="line">Verificat / Ellenőrizte — semnătura / aláírás</div></div>
+    </div>
+  </body></html>`
 }
 
 export function MonetaryTab({
@@ -68,11 +159,15 @@ export function MonetaryTab({
   loadSnapshot,
   saveSnapshot,
   onToast,
+  congregationName = '',
+  onPrint,
 }: MonetaryTabProps) {
   const [denominations, setDenominations] = useState<MonetaryDenomination[]>([])
   const [counts, setCounts] = useState<Record<number, number>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [printing, setPrinting] = useState(false)
+  const [printOpen, setPrintOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -156,6 +251,35 @@ export function MonetaryTab({
     }
   }
 
+  const printDateIso = new Date().toISOString().slice(0, 10)
+  const printHtml = useMemo(
+    () =>
+      buildMonetarSheetHtml({
+        congregationName,
+        year: currentYear,
+        dateIso: printDateIso,
+        banknotes: grouped.bankjegy,
+        coins: grouped.erme,
+        counts,
+        countedTotal,
+        expected: expectedCashBalance,
+      }),
+    [congregationName, currentYear, printDateIso, grouped, counts, countedTotal, expectedCashBalance],
+  )
+
+  async function doPrint(mode: 'pdf' | 'browser') {
+    if (!onPrint) return
+    setPrinting(true)
+    try {
+      await onPrint({ mode, html: printHtml, filename: `Monetar_${currentYear}_${printDateIso}.pdf` })
+      onToast?.(mode === 'pdf' ? 'A monetár PDF elkészült.' : 'Megnyílt a nyomtatási ablak.', 'success')
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'A nyomtatás nem sikerült.', 'error')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="card-raised py-12 text-center text-sm text-slate-400">
@@ -181,14 +305,26 @@ export function MonetaryTab({
                   hogyan viszonyul a könyvelt készpénzegyenleghez.
                 </p>
               </div>
-              <Button
-                className="rounded-full bg-teal-600 px-5 hover:bg-teal-700"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                <Save className="mr-2 size-4" />
-                {saving ? 'Mentés...' : 'Monetár mentése'}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {onPrint && (
+                  <Button
+                    variant="outline"
+                    className="rounded-full px-5"
+                    onClick={() => setPrintOpen(true)}
+                  >
+                    <Printer className="mr-2 size-4" />
+                    Nyomtatás
+                  </Button>
+                )}
+                <Button
+                  className="rounded-full bg-teal-600 px-5 hover:bg-teal-700"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
+                  <Save className="mr-2 size-4" />
+                  {saving ? 'Mentés...' : 'Monetár mentése'}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -323,6 +459,66 @@ export function MonetaryTab({
           </Card>
         </div>
       </div>
+
+      {/* Nyomtatási előnézet ablak (mint a Nyomtatási központban) */}
+      {printOpen && onPrint && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-3 sm:p-6"
+          onClick={() => setPrintOpen(false)}
+        >
+          <div
+            className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+              <h3 className="flex items-center gap-2 font-heading text-lg text-slate-800">
+                <Printer className="size-5 text-teal-600" />
+                Monetár nyomtatása — előnézet
+              </h3>
+              <button
+                type="button"
+                aria-label="Bezárás"
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setPrintOpen(false)}
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
+              <div className="mx-auto w-full max-w-[800px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <iframe title="Monetár előnézet" srcDoc={printHtml} className="block h-[68vh] w-full bg-white" />
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setPrintOpen(false)}
+                className="inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Bezárás
+              </button>
+              <button
+                type="button"
+                onClick={() => void doPrint('browser')}
+                disabled={printing}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-white px-4 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Printer className="size-4" /> {printing ? 'Nyomtatás…' : 'Nyomtatás'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void doPrint('pdf')}
+                disabled={printing}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-teal-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+              >
+                <Save className="size-4" /> PDF mentés
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

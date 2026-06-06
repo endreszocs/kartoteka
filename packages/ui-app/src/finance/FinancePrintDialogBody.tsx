@@ -29,9 +29,11 @@ import type {
   SavedDocOption,
 } from './types'
 
-// A4 méretek képpontban (96 dpi) — a fit-to-width előnézet skálázásához.
-const A4_LANDSCAPE_W = 1123
-const A4_PORTRAIT_W = 794
+// A4 méretek képpontban (96 dpi) + kis ráhagyás, hogy a mm-alapú lap biztosan
+// elférjen az iframe-ben (különben belül vízszintes görgetősáv jelenne meg).
+// 210mm≈794px, 297mm≈1123px — a ráhagyással a tartalom sosem lóg ki.
+const A4_LANDSCAPE_W = 1140
+const A4_PORTRAIT_W = 812
 const PREVIEW_BOX_H = 820
 
 const MONTHS_RO = [
@@ -59,6 +61,8 @@ export interface FinancePrintFilters {
   nyugtatombok: NyugtatombReportRow[]
   /** Újranyomtatásnál a kiválasztott korábbi bizonylat (Decont / Dispoziție). */
   selectedDoc: SavedDocOption | null
+  /** Költségvetés/számadás típusoknál a betöltött költségvetési sorok (a wrapper értelmezi). */
+  budgetRows: Record<string, unknown> | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -82,6 +86,9 @@ export interface FinancePrintDialogBodyProps {
 
   /** Korábbi bizonylatok (Decont + Dispoziție) betöltése újranyomtatáshoz. */
   onLoadSavedDocs?: (year: number) => Promise<SavedDocOption[]>
+
+  /** Költségvetési sorok betöltése (költségvetés/számadás típusokhoz). */
+  onLoadBudgetRows?: (year: number) => Promise<Record<string, unknown>>
 
   /** Direkt nyomtatás — a wrapper a webes print-engine-v2.printToBrowser-t hívja. */
   onPrintToBrowser?: (html: string) => Promise<void>
@@ -110,6 +117,7 @@ export function FinancePrintDialogBody({
   buildReport,
   onLoadNyugtatombok,
   onLoadSavedDocs,
+  onLoadBudgetRows,
   onPrintToBrowser,
   onPrintToPdf,
   onToast,
@@ -130,7 +138,10 @@ export function FinancePrintDialogBody({
   const [loadingNyugtatombok, setLoadingNyugtatombok] = useState(false)
   const [savedDocs, setSavedDocs] = useState<SavedDocOption[]>([])
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [budgetRows, setBudgetRows] = useState<Record<string, unknown> | null>(null)
 
+  const isBudgetMode =
+    printType === 'koltsegvetes' || printType === 'koltsegvetes_modositas' || printType === 'szamadas'
   const showBankSelector = printType === 'registru_banca'
   const isNyugtatombMode = printType === 'nyugtatomb_kimutatas'
   const reprintKind: 'decont' | 'dispozitie' | null =
@@ -159,6 +170,16 @@ export function FinancePrintDialogBody({
       setSelectedDocId(docList[0]?.id ?? null)
     }
   }, [docList, isReprintMode, selectedDocId])
+
+  // Költségvetési sorok betöltése (költségvetés/számadás típusoknál)
+  useEffect(() => {
+    if (!open || !isBudgetMode || !onLoadBudgetRows) return
+    let cancelled = false
+    void onLoadBudgetRows(selectedYear).then((rows) => {
+      if (!cancelled) setBudgetRows(rows)
+    })
+    return () => { cancelled = true }
+  }, [open, isBudgetMode, selectedYear, onLoadBudgetRows])
 
   // Fit-to-width előnézet: a konténer szélességét mérjük, és a dokumentumot
   // (A4) lekicsinyítjük, hogy NE legyen oldalirányú görgetés.
@@ -203,8 +224,9 @@ export function FinancePrintDialogBody({
       selectedBankId: showBankSelector ? selectedBankId : null,
       nyugtatombok: isNyugtatombMode ? nyugtatombok : [],
       selectedDoc: isReprintMode ? selectedDoc : null,
+      budgetRows: isBudgetMode ? budgetRows : null,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
@@ -256,15 +278,15 @@ export function FinancePrintDialogBody({
     <div className="grid gap-4 pb-2 lg:grid-cols-[340px_minmax(0,1fr)]">
       {/* ── Bal oldal ──────────────────────────── */}
       <div className="space-y-4">
-        {/* Típus választó */}
-        <div className="card-raised space-y-3 p-4">
+        {/* Típus választó — kompakt lista, hogy minden nyomtatvány elférjen */}
+        <div className="card-raised space-y-2 p-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700/70">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700/70">
               Hivatalos nyomtatványok
             </p>
-            <h3 className="font-heading text-xl text-slate-800">Válasszon formátumot</h3>
+            <h3 className="font-heading text-lg text-slate-800">Válasszon formátumot</h3>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {printableTypes.map((type) => {
               const active = type.id === printType
               return (
@@ -272,15 +294,15 @@ export function FinancePrintDialogBody({
                   key={type.id}
                   type="button"
                   onClick={() => setPrintType(type.id)}
-                  className={`w-full rounded-2xl border p-3 text-left transition ${
+                  title={type.description}
+                  className={`flex w-full items-baseline justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
                     active
                       ? 'border-blue-400 bg-blue-50 shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="text-sm font-semibold text-slate-800">{type.title}</div>
-                  <div className="text-xs font-medium text-blue-700">{type.subtitle}</div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{type.description}</p>
+                  <span className="text-[13px] font-semibold text-slate-800">{type.title}</span>
+                  <span className="shrink-0 text-[10px] font-medium text-blue-700">{type.subtitle}</span>
                 </button>
               )
             })}
@@ -312,9 +334,9 @@ export function FinancePrintDialogBody({
                   setSelectedMonth(e.target.value === '' ? null : Number(e.target.value))
                 }
                 className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isNyugtatombMode || isReprintMode}
+                disabled={isNyugtatombMode || isReprintMode || isBudgetMode}
                 title={
-                  isNyugtatombMode || isReprintMode ? 'Ennél a nézetnél nincs hónap-szűrés.' : undefined
+                  isNyugtatombMode || isReprintMode || isBudgetMode ? 'Ennél a nézetnél nincs hónap-szűrés.' : undefined
                 }
               >
                 <option value="">Teljes év</option>
@@ -371,7 +393,7 @@ export function FinancePrintDialogBody({
           <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
             <div>
               <span className="font-semibold text-slate-800">Időszak:</span>{' '}
-              {isNyugtatombMode || isReprintMode
+              {isNyugtatombMode || isReprintMode || isBudgetMode
                 ? `${selectedYear}. év`
                 : selectedMonth
                   ? `${MONTHS_RO[selectedMonth - 1]} ${selectedYear}`

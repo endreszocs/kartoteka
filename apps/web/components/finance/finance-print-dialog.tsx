@@ -15,6 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   FinancePrintDialogBody,
   type FinancePrintFilters,
+  type FinancePrintType,
+  type FinancePrintTypeMeta,
   type SavedDocOption,
   type PrintReport,
   type DecontDocData,
@@ -27,12 +29,20 @@ import {
   FINANCE_PRINT_TYPES,
   type FinanceReportData,
 } from '@/lib/finance/reporting'
+import {
+  buildBudgetPrintDocument,
+  BUDGET_PRINT_TYPES,
+  type BudgetPrintData,
+  type BudgetPrintType,
+} from '@/lib/finance/budget-reporting'
+import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget-compat'
+import { createClient } from '@/lib/supabase/client'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { getChitantaTombokReport } from '@/app/(dashboard)/penzugy/chitanta-tombok-actions'
 import { listDecontReprint } from '@/app/(dashboard)/penzugy/decont-actions'
 import { listDispozitieReprint } from '@/app/(dashboard)/penzugy/dispozitie-actions'
 import { toast } from 'sonner'
-import type { BefitetesRow, KiadasRow, BankAccount, SzamadasiCel } from '@/lib/constants/finance'
+import type { BefitetesRow, KiadasRow, BankAccount, SzamadasiCel, BealitasRow } from '@/lib/constants/finance'
 
 interface FinancePrintDialogProps {
   open: boolean
@@ -47,6 +57,7 @@ interface FinancePrintDialogProps {
   carryoverCash: number
   carryoverBank: number
   currentYear: number
+  settings: BealitasRow
 }
 
 function emptyPreview(message: string): PrintReport {
@@ -71,8 +82,15 @@ export function FinancePrintDialog({
   carryoverCash,
   carryoverBank,
   currentYear,
+  settings,
 }: FinancePrintDialogProps) {
-  const printableTypes = FINANCE_PRINT_TYPES.filter((t) => t.id !== 'kiadasi_kiseroiv')
+  const budgetTypes: FinancePrintTypeMeta[] = BUDGET_PRINT_TYPES.filter(
+    (t) => t.id !== 'reszszamadas',
+  ).map((t) => ({ id: t.id as FinancePrintType, title: t.title, subtitle: t.subtitle, description: t.description }))
+  const printableTypes: FinancePrintTypeMeta[] = [
+    ...FINANCE_PRINT_TYPES.filter((t) => t.id !== 'kiadasi_kiseroiv'),
+    ...budgetTypes,
+  ]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -116,6 +134,40 @@ export function FinancePrintDialog({
               }
             }
 
+            // Költségvetés / költségvetés-módosítás / számadás
+            if (
+              filters.printType === 'koltsegvetes' ||
+              filters.printType === 'koltsegvetes_modositas' ||
+              filters.printType === 'szamadas'
+            ) {
+              if (!filters.budgetRows) return emptyPreview('Költségvetési adatok betöltése…')
+              const isSzamadas = filters.printType === 'szamadas'
+              const actualIncome: Record<string, number> = {}
+              const actualExpense: Record<string, number> = {}
+              for (const r of income) {
+                if (r.deleted) continue
+                const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
+                if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
+              }
+              for (const r of expense) {
+                if (r.deleted) continue
+                const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
+                if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
+              }
+              const printData: BudgetPrintData = {
+                cellek,
+                budgetRows: filters.budgetRows as Record<string, BudgetCompatRow>,
+                actualIncome,
+                actualExpense,
+                congregationName,
+                year: filters.selectedYear,
+                carryoverCash,
+                carryoverBank,
+                finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
+              }
+              return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
+            }
+
             const reportData: FinanceReportData = {
               income,
               expense,
@@ -153,6 +205,25 @@ export function FinancePrintDialog({
               ...deconts.map((d) => ({ id: d.id, label: d.label, kind: 'decont' as const, data: d.data })),
               ...dispozitiok.map((d) => ({ id: d.id, label: d.label, kind: 'dispozitie' as const, data: d.data })),
             ]
+          }}
+          onLoadBudgetRows={async (year): Promise<Record<string, unknown>> => {
+            try {
+              const supabase = createClient()
+              const rows = await loadBudgetRowsCompat(supabase, year, settings.congregation_id)
+              const map: Record<string, unknown> = {}
+              rows.forEach((r) => {
+                map[r.szamadasicelid] = {
+                  szamadasicelid: r.szamadasicelid,
+                  tervezett: r.tervezett,
+                  modositott: r.modositott,
+                  mod2: r.mod2,
+                  mod3: r.mod3,
+                }
+              })
+              return map
+            } catch {
+              return {}
+            }
           }}
           onPrintToBrowser={(html) => printToBrowser(html)}
           onPrintToPdf={(html, filename, options) =>

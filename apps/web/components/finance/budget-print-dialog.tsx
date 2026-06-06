@@ -133,9 +133,12 @@ export function BudgetPrintDialog({
           printableTypes={BUDGET_PRINT_TYPES}
           currentYear={currentYear}
           budgetFinalized={!!settings.budget_finalized}
+          accountingFinalized={!!settings.accounting_finalized}
           computeActuals={computeActuals}
           onLoadBudgetRows={onLoadBudgetRows}
           buildReport={(filters: BudgetPrintFilters) => {
+            const isSzamadas = filters.printType === 'szamadas' || filters.printType === 'reszszamadas'
+            const finalized = isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized
             const printData: BudgetPrintData = {
               cellek,
               budgetRows: filters.budgetRows,
@@ -147,6 +150,7 @@ export function BudgetPrintDialog({
               carryoverBank,
               periodFrom: filters.periodFrom ?? undefined,
               periodTo: filters.periodTo ?? undefined,
+              finalized,
             }
             return buildBudgetPrintDocument(filters.printType, printData)
           }}
