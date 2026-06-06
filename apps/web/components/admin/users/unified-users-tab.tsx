@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { Download, Search, Sparkles } from 'lucide-react'
+import { ArrowDownUp, Download, LayoutGrid, List, Search, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -42,10 +42,29 @@ import { RejectPendingDialog } from './reject-pending-dialog'
 import { RevokeRoleDialog } from './revoke-role-dialog'
 import { UserCard } from './user-card'
 import { UserCardSkeleton } from './user-card-skeleton'
+import { UserListRow } from './user-list-row'
 import type { QuickOption } from './role-assign-popover'
 
 type StatusFilter = 'all' | 'active' | 'pending' | 'rejected' | 'other'
 type RoleFilter = 'all' | ProfileRoleType | 'no-role'
+type ViewMode = 'grid' | 'list'
+type SortBy = 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'status'
+
+const SORT_OPTIONS: Array<[SortBy, string]> = [
+  ['newest', 'Legújabb regisztráció'],
+  ['oldest', 'Legrégebbi regisztráció'],
+  ['name-asc', 'Név (A→Z)'],
+  ['name-desc', 'Név (Z→A)'],
+  ['status', 'Státusz szerint (teendők elöl)'],
+]
+
+// Státusz-rendezési prioritás: a teendők (várakozó) legelöl.
+const STATUS_SORT_ORDER: Record<string, number> = {
+  pending: 0,
+  active: 1,
+  rejected: 2,
+  deleted: 3,
+}
 
 interface CongLite {
   id: string
@@ -101,6 +120,8 @@ export function UnifiedUsersTab() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [sortBy, setSortBy] = useState<SortBy>('newest')
 
   const [approveTarget, setApproveTarget] = useState<UserWithScope | null>(null)
   const [rejectTarget, setRejectTarget] = useState<UserWithScope | null>(null)
@@ -289,6 +310,35 @@ export function UnifiedUsersTab() {
     return arr
   }, [users, search, statusFilter, roleFilter, rolesByUser, scopeNameMap])
 
+  // Rendezés a szűrt listán (a megjelenítéshez és az exporthoz is ezt használjuk).
+  const displayed = useMemo(() => {
+    const arr = [...filtered]
+    const name = (u: UserWithScope) => (u.full_name || u.email || '').toLowerCase()
+    const ts = (u: UserWithScope) => u.created_at || ''
+    switch (sortBy) {
+      case 'newest':
+        arr.sort((a, b) => ts(b).localeCompare(ts(a)))
+        break
+      case 'oldest':
+        arr.sort((a, b) => ts(a).localeCompare(ts(b)))
+        break
+      case 'name-asc':
+        arr.sort((a, b) => name(a).localeCompare(name(b), 'hu'))
+        break
+      case 'name-desc':
+        arr.sort((a, b) => name(b).localeCompare(name(a), 'hu'))
+        break
+      case 'status':
+        arr.sort(
+          (a, b) =>
+            (STATUS_SORT_ORDER[a.status || ''] ?? 9) - (STATUS_SORT_ORDER[b.status || ''] ?? 9) ||
+            ts(b).localeCompare(ts(a)),
+        )
+        break
+    }
+    return arr
+  }, [filtered, sortBy])
+
   const counts = useMemo(() => {
     return {
       all: users.length,
@@ -429,7 +479,7 @@ export function UnifiedUsersTab() {
     startTransition(async () => {
       try {
         const XLSX = await import('xlsx')
-        const rows = filtered.map((u) => {
+        const rows = displayed.map((u) => {
           const userRoles = rolesByUser.get(u.id) || []
           return {
             ID: u.id,
@@ -466,7 +516,7 @@ export function UnifiedUsersTab() {
         XLSX.utils.book_append_sheet(wb, ws, 'Felhasználók')
         const date = new Date().toISOString().slice(0, 10)
         XLSX.writeFile(wb, `kartoteka-felhasznalok-${date}.xlsx`)
-        toast.success(`Excel exportálva: ${filtered.length} felhasználó.`)
+        toast.success(`Excel exportálva: ${displayed.length} felhasználó.`)
       } catch (err) {
         toast.error(`Export hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`)
       }
@@ -509,8 +559,52 @@ export function UnifiedUsersTab() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-              {filtered.length} / {users.length}
+              {displayed.length} / {users.length}
             </span>
+
+            {/* Rendezés */}
+            <label className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-zinc-50 px-2.5 py-1.5 text-xs">
+              <ArrowDownUp className="size-3.5 text-slate-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortBy)}
+                className="bg-transparent text-xs outline-none"
+                aria-label="Rendezés"
+              >
+                {SORT_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* Nézet-váltó: rács / lista */}
+            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  viewMode === 'grid' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="Kártya-nézet (rács)"
+              >
+                <LayoutGrid className="size-3.5" />
+                <span className="hidden sm:inline">Kártyák</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition ${
+                  viewMode === 'list' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="Lista-nézet"
+              >
+                <List className="size-3.5" />
+                <span className="hidden sm:inline">Lista</span>
+              </button>
+            </div>
+
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
@@ -554,10 +648,10 @@ export function UnifiedUsersTab() {
         </div>
       </div>
 
-      {/* Lista */}
+      {/* Lista / rács */}
       {loading ? (
         <UserCardSkeleton count={5} />
-      ) : filtered.length === 0 ? (
+      ) : displayed.length === 0 ? (
         users.length === 0 ? (
           <EmptyState variant="noUsers" />
         ) : search ? (
@@ -565,9 +659,9 @@ export function UnifiedUsersTab() {
         ) : (
           <EmptyState variant="filteredEmpty" onClearFilters={clearFilters} />
         )
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((u) => (
+      ) : viewMode === 'grid' ? (
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          {displayed.map((u) => (
             <UserCard
               key={u.id}
               user={u}
@@ -578,6 +672,25 @@ export function UnifiedUsersTab() {
               onQuickAssign={(opt) => handleQuickAssign(u, opt)}
               onAdvanced={() => setAdvancedTarget(u)}
               onRevokeRole={(row) => setRevokeTarget({ row, user: u })}
+              onQuickApprove={() => handleQuickApprove(u)}
+              onReject={() => setRejectTarget(u)}
+              onDelete={() => setDeleteTarget(u)}
+              onViewDocument={handleViewDocument}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {displayed.map((u) => (
+            <UserListRow
+              key={u.id}
+              user={u}
+              roles={rolesByUser.get(u.id) || []}
+              scopeNameMap={scopeNameMap}
+              quickOptions={quickOptions}
+              isPending={isPending}
+              onQuickAssign={(opt) => handleQuickAssign(u, opt)}
+              onAdvanced={() => setAdvancedTarget(u)}
               onQuickApprove={() => handleQuickApprove(u)}
               onReject={() => setRejectTarget(u)}
               onDelete={() => setDeleteTarget(u)}
