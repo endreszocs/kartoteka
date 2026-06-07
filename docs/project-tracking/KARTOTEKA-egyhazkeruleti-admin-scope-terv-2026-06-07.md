@@ -118,13 +118,11 @@ adatminőség-ellenőrzés, szerepkör-form legördülői, szerepkör-lista.
    admin, nincs pótolni való. Amikor majd létrejön egy kerületi admin, a
    szerepkör-form kötelezően bekéri a kerületet, így eleve helyesen lesz beállítva.
 
-2. **`wipe_congregation_data` RPC szigetése — ✅ KÉSZ, futtatásra vár.**
-   `migration-docs/sql/2026-06-07b-wipe-rpc-admin-only.sql`. A 2. Role-check most
-   már CSAK `'admin'`-t enged (a kerületi és egyházmegyei admin kizárva). A törzs
-   az élő (2026-04-25 onboarding-reset + 2026-05-17 search_path-pin) verzióból,
-   változatlanul; csak a jogosultság-ellenőrzés szigorodott. **Futtasd le** (egy
-   tranzakció, idempotens). Ez defense-in-depth: a TS-guard már blokkol, ez az
-   utolsó szerveroldali védvonal.
+2. **`wipe_congregation_data` RPC szigetése — ✅ KÉSZ ÉS ALKALMAZVA (2026-06-07).**
+   `migration-docs/sql/2026-06-07b-wipe-rpc-admin-only.sql` lefuttatva, az
+   ellenőrző lekérdezés `admin_only_ok = true`. A 2. Role-check már CSAK `'admin'`-t
+   enged (kerületi/egyházmegyei admin kizárva); a törzs változatlan. Ez az utolsó
+   szerveroldali védvonal a TS-guard mögött.
 
 3. **RLS védőháló — szándékosan ELHALASZTVA (nem élesítjük vakon).**
    Egy átfogó RLS-réteg a core táblákra (`congregations`, `dioceses`, `profiles`,
