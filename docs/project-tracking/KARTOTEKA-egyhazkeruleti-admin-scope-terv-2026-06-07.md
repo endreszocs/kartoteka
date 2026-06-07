@@ -82,3 +82,48 @@ a kritikus — azt műveletenként, apró lépésekben csinálom, hogy biztonsá
 
 **Becslés:** 1–2. fázis együtt egy menet; a 3. fázis több kis menet (műveletenként);
 a 4. fázis (SQL) külön. Nem kapkodom — ez biztonsági rész.
+
+---
+
+## MEGVALÓSÍTÁS ÁLLAPOTA (2026-06-07)
+
+### ✅ Kész és élesben (kód-szint, 4 commit a main-en)
+
+**Fázis 1 — segédeszközök** (`apps/web/lib/auth/admin-scope.ts`):
+`getAdminDistrictScope`, `getScopedDioceseIds`, `getScopedCongregationIds`,
+`getScopedActiveUserIds`, `assertCongregationInScope`, `assertDioceseInScope`,
+`assertUserInScope` (pending usernél az access_request kért kerülete dönt),
+`assertDistrictInScope`, `assertScopeTargetInScope`.
+
+**Fázis 2 — látás (listák szűrése):** admin Áttekintő, Gyülekezetek (lista +
+egyházmegye-bontás), Felhasználók, gyülekezet-részletek, egyházmegye-lista,
+adatminőség-ellenőrzés, szerepkör-form legördülői, szerepkör-lista.
+
+**Fázis 3 — módosítás-védelem:**
+- Felhasználó: jóváhagyás / gyors-jóváhagyás / elutasítás / törlés / szerep-állítás
+  / gyülekezetbe-belépés — mind a hatókörre ellenőriz.
+- Szerepkörök: kiosztás / visszavonás / engedély-módosítás — a cél hatókör a saját
+  kerületben kell (system szint csak teljes adminnak).
+- Könyvelő/számvevő: hozzárendelés / visszavonás / lista — a saját kerületre.
+- Körlevél/hírlevél: bármilyen célzás mellett is csak a saját kerület tagjaihoz;
+  a célzó legördülők is szűrve.
+- **Adattisztítás (wipe): csak fő rendszergazda / teljes admin** (kerületi admin
+  hozzá sem fér — `allowDistrictAdmin: false`).
+
+### ⏳ Hátralévő — Fázis 4 (adatbázis-szintű védőháló, SQL — később)
+
+1. **Diagnosztika (kész, futtatásra vár):**
+   `migration-docs/sql/2026-06-07a-diagnoszt-egyhazkeruleti-admin-scope.sql` —
+   ellenőrzi, hogy a meglévő kerületi adminoknál be van-e állítva a kerület
+   (`profile_roles.scope_id` vagy `profiles.district_id`). Ha valakinél hiányzik,
+   célzott UPDATE-et küldök. **Ezt futtasd le, mielőtt élesben tesztelnéd a
+   kerületi admin nézetét** — enélkül a hiányos beállítású admin „semmit nem lát".
+
+2. **`wipe_congregation_data` RPC szigetése:** a szerveroldali jogosultság-check
+   jelenleg `admin / egyhazkeruleti_admin / egyhazmegyei_admin`-t enged. A TS-guard
+   már blokkolja a kerületi admint az UI-ról, de defense-in-depth-ként az RPC-t is
+   `admin`-only-ra kell szűkíteni. Az élő RPC későbbi FIX-ekkel módosulhatott, ezért
+   a teljes élő forrás ellenőrzésével írom újra (nem vakon).
+
+3. **RLS védőháló (opcionális, legbiztosabb):** policy-k, hogy az adatbázis maga is
+   tiltsa a kerületen kívüli módosítást — még ha a kódból kimaradna egy ellenőrzés.
