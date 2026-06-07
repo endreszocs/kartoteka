@@ -2,6 +2,13 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
+import {
+  assertCongregationInScope,
+  assertUserInScope,
+  getAdminDistrictScope,
+  getScopedCongregationIds,
+  getScopedDioceseIds,
+} from '@/lib/auth/admin-scope'
 import { logAuditEvent } from '@/lib/audit/log'
 import { revalidatePath } from 'next/cache'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
@@ -43,7 +50,9 @@ async function requireMasterAdmin(opts?: { requireMaster?: boolean }) {
     requireMaster: opts?.requireMaster ?? false,
     allowDistrictAdmin: true,
   })
-  return { supabase: access.supabase, user: access.user! }
+  // `access` is továbbadjuk: a kerületi admin hatókör-korlátozásához (#2) kell a
+  // profileRoles + a scope-helperek. Master/teljes adminnál a scope korlátlan.
+  return { supabase: access.supabase, user: access.user!, access }
 }
 
 async function findApprovalTarget(supabase: SupabaseClient, congregationId: string, adminUserId: string) {
@@ -70,7 +79,29 @@ async function findApprovalTarget(supabase: SupabaseClient, congregationId: stri
 // â”€â”€â”€ ĂttekintĂ©s â”€â”€â”€
 
 export async function getAdminOverview() {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+
+  // #2 (2026-06-07): kerületi admin → csak a saját egyházkerülete számai.
+  // null = korlátlan (master / teljes admin) — minden a régi módon.
+  const scopedCongIds = await getScopedCongregationIds(access)
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+
+  // Query-builderek a scope-szűréssel (in([]) → üres eredmény, ami helyes, ha
+  // a kerületi adminnak nincs gyülekezete a hatókörben).
+  const congCountQ = supabase.from('congregations').select('*', { count: 'exact', head: true })
+  const activeUserQ = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'active')
+  const pendingUserQ = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+  const diocesesQ = supabase.from('dioceses').select('id, name')
+  const allCongsQ = supabase.from('congregations').select('id, nev_hu, name, diocese_id')
+  if (scopedCongIds) {
+    congCountQ.in('id', scopedCongIds)
+    activeUserQ.in('congregation_id', scopedCongIds)
+    pendingUserQ.in('congregation_id', scopedCongIds)
+    allCongsQ.in('id', scopedCongIds)
+  }
+  if (scopedDioceseIds) {
+    diocesesQ.in('id', scopedDioceseIds)
+  }
 
   // 2026-06-05 TELJESÍTMÉNY-FIX: a korábbi N+1 (egyházmegyénként 2 query +
   // gyülekezetenként külön tagszám-count, ~130 DB round-trip) helyett MINDEN
@@ -87,13 +118,13 @@ export async function getAdminOverview() {
     { data: allCongs },
     memberCountsRes,
   ] = await Promise.all([
-    supabase.from('congregations').select('*', { count: 'exact', head: true }),
-    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-    countActiveMembers(supabase),
-    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    congCountQ,
+    activeUserQ,
+    countActiveMembers(supabase, scopedCongIds ?? undefined),
+    pendingUserQ,
     getOpenSupportTicketCount(supabase),
-    supabase.from('dioceses').select('id, name'),
-    supabase.from('congregations').select('id, nev_hu, name, diocese_id'),
+    diocesesQ,
+    allCongsQ,
     supabase.rpc('admin_overview_member_counts'),
   ])
 
@@ -145,12 +176,18 @@ export async function getAdminOverview() {
 // â”€â”€â”€ GyĂĽlekezetek â”€â”€â”€
 
 export async function getCongregations() {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
 
-  const { data, error } = await supabase
+  // #2: kerületi admin → csak a saját egyházkerülete gyülekezetei.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+
+  const query = supabase
     .from('congregations')
     .select('id, nev_hu, name, diocese_id, dioceses(name)')
     .order('nev_hu')
+  if (scopedDioceseIds) query.in('diocese_id', scopedDioceseIds)
+
+  const { data, error } = await query
 
   if (error) return { error: error.message }
   return { data: data || [] }
@@ -189,21 +226,28 @@ export async function getCongregationsByDiocese(): Promise<{
   data?: DioceseGroup[]
   error?: string
 }> {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+
+  // #2: kerületi admin → csak a saját egyházkerülete egyházmegyéi/gyülekezetei.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
 
   // 1. Egyházmegyék
-  const { data: dioceses, error: dErr } = await supabase
+  const diocesesQ = supabase
     .from('dioceses')
     .select('id, name, district_id')
     .order('name')
+  if (scopedDioceseIds) diocesesQ.in('id', scopedDioceseIds)
+  const { data: dioceses, error: dErr } = await diocesesQ
 
   if (dErr) return { error: `Egyházmegyék hibája: ${dErr.message}` }
 
   // 2. Gyülekezetek
-  const { data: congs, error: cErr } = await supabase
+  const congsQ = supabase
     .from('congregations')
     .select('id, nev_hu, name, diocese_id')
     .order('nev_hu')
+  if (scopedDioceseIds) congsQ.in('diocese_id', scopedDioceseIds)
+  const { data: congs, error: cErr } = await congsQ
 
   if (cErr) return { error: `Gyülekezetek hibája: ${cErr.message}` }
 
@@ -314,7 +358,9 @@ export async function getCongregationsByDiocese(): Promise<{
 }
 
 export async function getCongregationDetails(congId: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+  // #2: kerületi admin csak a saját kerülete gyülekezetének részleteit nézheti.
+  await assertCongregationInScope(access, congId)
   const yearStart = `${new Date().getFullYear()}-01-01`
 
   const [
@@ -553,7 +599,18 @@ export async function getAllUsersWithScope(): Promise<{
   data?: UserWithScope[]
   error?: string
 }> {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+
+  // #2: kerületi admin → csak a saját egyházkerületébe tartozó (vagy oda
+  // jelentkező) felhasználók. A master/teljes adminnál `scope.unrestricted`.
+  const scope = getAdminDistrictScope(access)
+  const districtIdSet = new Set(scope.districtIds)
+  const scopedDioceseSet = scope.unrestricted
+    ? null
+    : new Set((await getScopedDioceseIds(access)) ?? [])
+  const scopedCongSet = scope.unrestricted
+    ? null
+    : new Set((await getScopedCongregationIds(access)) ?? [])
 
   // 1. Profiles + congregation + diocese + district (3-szintes join)
   type ProfileRow = {
@@ -670,6 +727,7 @@ export async function getAllUsersWithScope(): Promise<{
     congName: string | null
     dioName: string | null
     distName: string | null
+    distId: string | null
   }
   const reqByEmail = new Map<string, ReqLite>()
   if (pendingEmails.length > 0) {
@@ -699,12 +757,32 @@ export async function getAllUsersWithScope(): Promise<{
         congName: cong?.nev_hu || cong?.name || null,
         dioName: dio?.name ?? null,
         distName: dist?.name ?? null,
+        distId: (raw.requested_district_id as string | null) ?? null,
       })
     }
   }
 
+  // 4/c. #2 Hatókör-szűrő: a kerületi admin csak a saját egyházkerületébe tartozó
+  //      (primary gyülekezet → egyházmegye → kerület), oda jelentkező (pending
+  //      access_request), vagy ott szerepkört birtokló felhasználókat lássa.
+  const userInScope = (p: ProfileRow): boolean => {
+    if (scope.unrestricted) return true
+    const primaryDistrictId = p.congregations?.dioceses?.district_id ?? null
+    if (primaryDistrictId && districtIdSet.has(primaryDistrictId)) return true
+    if (p.congregation_id && scopedCongSet?.has(p.congregation_id)) return true
+    for (const r of rolesByUser.get(p.id) || []) {
+      if (!r.scope_id) continue
+      if (r.scope === 'district' && districtIdSet.has(r.scope_id)) return true
+      if (r.scope === 'diocese' && scopedDioceseSet?.has(r.scope_id)) return true
+      if (r.scope === 'congregation' && scopedCongSet?.has(r.scope_id)) return true
+    }
+    const reqLite = p.status === 'pending' ? reqByEmail.get((p.email || '').toLowerCase()) : undefined
+    if (reqLite?.distId && districtIdSet.has(reqLite.distId)) return true
+    return false
+  }
+
   // 5. Eredmény-objektumok
-  const result: UserWithScope[] = profiles.map((p) => {
+  const result: UserWithScope[] = profiles.filter(userInScope).map((p) => {
     const congRel = p.congregations || null
     const pr = p.status === 'pending' ? reqByEmail.get((p.email || '').toLowerCase()) : undefined
     return {
@@ -978,8 +1056,12 @@ export async function rejectPendingUser(userId: string, reason: string) {
 }
 
 export async function getDioceses() {
-  const { supabase } = await requireMasterAdmin()
-  const { data } = await supabase.from('dioceses').select('id, name').order('name')
+  const { supabase, access } = await requireMasterAdmin()
+  // #2: kerületi admin → csak a saját egyházkerülete egyházmegyéi.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+  const query = supabase.from('dioceses').select('id, name').order('name')
+  if (scopedDioceseIds) query.in('id', scopedDioceseIds)
+  const { data } = await query
   return data || []
 }
 
@@ -1216,12 +1298,16 @@ export async function closeSupportTicket(ticketId: string) {
 // â”€â”€â”€ AdatminĹ‘sĂ©g â”€â”€â”€
 
 export async function runQualityCheck() {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
 
-  const { data: congs } = await supabase
+  // #2: kerületi admin → csak a saját egyházkerülete gyülekezeteit ellenőrzi.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+  const congQ = supabase
     .from('congregations')
     .select('id, nev_hu, name')
     .order('nev_hu')
+  if (scopedDioceseIds) congQ.in('diocese_id', scopedDioceseIds)
+  const { data: congs } = await congQ
 
   if (!congs) return { data: [], totals: { missingCnp: 0, missingGender: 0, missingBirthdate: 0 } }
 
