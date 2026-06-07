@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { AdminConfirmDialog } from './admin-confirm-dialog'
 import { Input } from '@/components/ui/input'
 import {
   enterCongregation,
@@ -339,20 +340,18 @@ function CongregationCard({
   congregation: CongregationByDioceseRow
 }) {
   const [enterPending, setEnterPending] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
-  async function handleEnter() {
-    const reason = window.prompt(
-      `Miért szeretnél hozzáférést kérni a(z) "${congregation.name}" gyülekezethez?`,
-      'Rendszerellenőrzés és támogatás',
-    )
-    if (reason === null) return
+  // 2026-06-07: window.prompt helyett szép, indok-mezős dialógus.
+  async function doEnter(reason?: string) {
     setEnterPending(true)
     try {
-      const result = await enterCongregation(congregation.id, reason)
+      const result = await enterCongregation(congregation.id, (reason || '').trim())
       if ('error' in result && result.error) {
         toast.error(result.error)
         return
       }
+      setConfirmOpen(false)
       if (result.mode === 'approved') {
         toast.success(result.message || 'A hozzáférés aktív. Átirányítalak a gyülekezeti nézetbe.')
         window.location.href = '/dashboard'
@@ -395,7 +394,7 @@ function CongregationCard({
         <Button
           size="sm"
           variant="outline"
-          onClick={handleEnter}
+          onClick={() => setConfirmOpen(true)}
           disabled={enterPending}
           className="gap-1.5"
         >
@@ -407,6 +406,25 @@ function CongregationCard({
           Hozzáférés
         </Button>
       </div>
+
+      <AdminConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Hozzáférés kérése a gyülekezethez"
+        description={
+          <>
+            Hozzáférést kérsz a(z) <strong>{congregation.name}</strong> gyülekezet adataihoz.
+            A gyülekezet lelkésze értesítést kap a kérésről. Add meg az okot:
+          </>
+        }
+        reasonLabel="A hozzáférés oka"
+        reasonPlaceholder="Pl. rendszerellenőrzés és támogatás…"
+        reasonDefault="Rendszerellenőrzés és támogatás"
+        reasonRequired
+        confirmLabel="Hozzáférés kérése"
+        loading={enterPending}
+        onConfirm={(reason) => doEnter(reason)}
+      />
 
       {/* Felhasználók */}
       {congregation.users.length > 0 && (

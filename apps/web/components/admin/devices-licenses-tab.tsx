@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { AdminConfirmDialog } from './admin-confirm-dialog'
 
 import {
   listUserDevices,
@@ -85,31 +86,33 @@ export function DevicesLicensesTab() {
     return () => { cancelled = true }
   }, [refresh])
 
-  async function handleRevoke(device: UserDevice) {
-    const reason = prompt(
-      `Biztosan visszavonod a(z) "${device.device_name || device.platform}" eszközt ${device.user_email || device.user_id}-től?\n\nAdj meg egy okot (kötelező):`,
-      '',
-    )
-    if (!reason || !reason.trim()) return
+  // 2026-06-07: natív prompt/confirm helyett szép dialógusok.
+  const [revokeTarget, setRevokeTarget] = useState<UserDevice | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<UserDevice | null>(null)
+  const [actionBusy, setActionBusy] = useState(false)
 
-    const r = await revokeDevice({ id: device.id, reason: reason.trim() })
+  async function doRevoke(reason?: string) {
+    if (!revokeTarget) return
+    setActionBusy(true)
+    const r = await revokeDevice({ id: revokeTarget.id, reason: (reason || '').trim() })
+    setActionBusy(false)
     if (r.error) toast.error(r.error)
     else {
       toast.success('Eszköz visszavonva — a user email-ben értesítve.')
+      setRevokeTarget(null)
       void refresh()
     }
   }
 
-  async function handleRestore(device: UserDevice) {
-    const ok = confirm(
-      `Biztosan feloldod a(z) "${device.device_name || device.platform}" eszköz visszavonását ${device.user_email || device.user_id} számára?\n\nA user email-ben értesítést kap, és ismét bejelentkezhet ezzel az eszközzel.`,
-    )
-    if (!ok) return
-
-    const r = await restoreDevice({ id: device.id })
+  async function doRestore() {
+    if (!restoreTarget) return
+    setActionBusy(true)
+    const r = await restoreDevice({ id: restoreTarget.id })
+    setActionBusy(false)
     if (r.error) toast.error(r.error)
     else {
       toast.success('Eszköz visszaállítva — a user email-ben értesítve.')
+      setRestoreTarget(null)
       void refresh()
     }
   }
@@ -177,11 +180,51 @@ export function DevicesLicensesTab() {
       <div className="card-raised p-5">
         {loading && <div className="py-8 text-center text-sm text-slate-400">Betöltés…</div>}
         {!loading && subTab === 'devices' && (
-          <DevicesList devices={devices} onRevoke={handleRevoke} onRestore={handleRestore} />
+          <DevicesList devices={devices} onRevoke={setRevokeTarget} onRestore={setRestoreTarget} />
         )}
         {!loading && subTab === 'licenses' && <LicensesList licenses={licenses} />}
         {!loading && subTab === 'audit' && <AuditLogList audit={auditLog} />}
       </div>
+
+      <AdminConfirmDialog
+        open={!!revokeTarget}
+        onOpenChange={(o) => !o && setRevokeTarget(null)}
+        title="Eszköz visszavonása"
+        tone="danger"
+        description={
+          revokeTarget ? (
+            <>
+              Visszavonod a(z) <strong>{revokeTarget.device_name || revokeTarget.platform}</strong> eszközt
+              {revokeTarget.user_email ? <> ({revokeTarget.user_email})</> : null} hozzáférését? A felhasználó
+              email-ben értesítést kap, és ezzel az eszközzel nem tud többé belépni.
+            </>
+          ) : null
+        }
+        reasonLabel="A visszavonás oka"
+        reasonPlaceholder="Pl. elveszett eszköz, biztonsági ok…"
+        reasonRequired
+        confirmLabel="Visszavonás"
+        loading={actionBusy}
+        onConfirm={(reason) => doRevoke(reason)}
+      />
+
+      <AdminConfirmDialog
+        open={!!restoreTarget}
+        onOpenChange={(o) => !o && setRestoreTarget(null)}
+        title="Eszköz visszaállítása"
+        description={
+          restoreTarget ? (
+            <>
+              Feloldod a(z) <strong>{restoreTarget.device_name || restoreTarget.platform}</strong> eszköz
+              visszavonását{restoreTarget.user_email ? <> ({restoreTarget.user_email})</> : null} számára? A
+              felhasználó email-ben értesítést kap, és ismét beléphet ezzel az eszközzel.
+            </>
+          ) : null
+        }
+        confirmLabel="Visszaállítás"
+        loading={actionBusy}
+        onConfirm={() => doRestore()}
+      />
     </div>
   )
 }
