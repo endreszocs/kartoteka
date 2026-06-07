@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requireAdminAccess } from '@/lib/auth/admin-access'
 
 /**
  * Admin: gyülekezeti adatok törlése (wipe).
@@ -30,14 +31,21 @@ export async function wipeCongregationDataAction(
   congregationId: string,
   confirmName: string,
 ): Promise<WipeResult> {
-  const supabase = await createClient()
+  // #2 (döntés): az adattisztítás (wipe) CSAK fő rendszergazda / teljes admin.
+  // A kerületi admin (egyhazkeruleti_admin) ezt a visszafordíthatatlan műveletet
+  // nem végezheti. (allowDistrictAdmin: false → kerületi adminra dob.)
+  let access
+  try {
+    access = await requireAdminAccess({ allowDistrictAdmin: false })
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : 'Ehhez a művelethez nincs jogosultsága.',
+    }
+  }
+  const supabase = access.supabase
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { success: false, error: 'Nincs bejelentkezett felhasználó.' }
-
-  // RPC hívás — a jogosultsági check szerver-oldalon
+  // RPC hívás — a jogosultsági check szerver-oldalon is megvan (utolsó védvonal)
   const { data, error } = await supabase.rpc('wipe_congregation_data', {
     target_congregation_id: congregationId,
     confirm_name: confirmName,

@@ -169,7 +169,7 @@ export async function assertUserInScope(
 
   const { data, error } = await access.supabase
     .from('profiles')
-    .select('district_id, congregations:congregation_id(dioceses:diocese_id(district_id))')
+    .select('email, district_id, congregations:congregation_id(dioceses:diocese_id(district_id))')
     .eq('id', userId)
     .maybeSingle()
 
@@ -182,10 +182,25 @@ export async function assertUserInScope(
     const cong = Array.isArray(congRel) ? congRel[0] : congRel
     districtId = pickDistrictId((cong as { dioceses?: unknown } | null)?.dioceses)
   }
+  if (districtId && scope.districtIds.includes(districtId)) return
 
-  if (!districtId || !scope.districtIds.includes(districtId)) {
-    throw new Error('Ehhez a felhasználóhoz nincs jogosultsága (másik egyházkerület).')
+  // Pending (gyülekezet nélküli) felhasználó: a regisztrációs kérelem KÉRT
+  // egyházkerülete dönt — a kerületi admin csak a saját kerületébe jelentkezőt
+  // hagyhatja jóvá / utasíthatja el.
+  const email = ((data as { email?: string | null }).email || '').toLowerCase()
+  if (email) {
+    const { data: req } = await access.supabase
+      .from('access_requests')
+      .select('requested_district_id')
+      .ilike('email', email)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const reqDist = (req as { requested_district_id?: string | null } | null)?.requested_district_id ?? null
+    if (reqDist && scope.districtIds.includes(reqDist)) return
   }
+
+  throw new Error('Ehhez a felhasználóhoz nincs jogosultsága (másik egyházkerület).')
 }
 
 /** Dob, ha a megadott egyházkerület NEM esik az admin hatókörébe. */
@@ -195,4 +210,24 @@ export function assertDistrictInScope(access: ScopeAccess, districtId: string | 
   if (!districtId || !scope.districtIds.includes(districtId)) {
     throw new Error('Ehhez az egyházkerülethez nincs jogosultsága.')
   }
+}
+
+/**
+ * Dob, ha a megadott (scope, scopeId) cél NEM esik az admin hatókörébe.
+ * Szerepkör-kiosztáshoz/visszavonáshoz. A 'system' szint csak korlátlan
+ * (master/teljes) adminnak engedélyezett.
+ */
+export async function assertScopeTargetInScope(
+  access: ScopeAccess,
+  scope: 'system' | 'district' | 'diocese' | 'congregation',
+  scopeId: string | null,
+): Promise<void> {
+  const adminScope = getAdminDistrictScope(access)
+  if (adminScope.unrestricted) return
+  if (scope === 'system') {
+    throw new Error('Rendszerszintű (admin) szerepkört csak a fő rendszergazda kezelhet.')
+  }
+  if (scope === 'district') return assertDistrictInScope(access, scopeId)
+  if (scope === 'diocese') return assertDioceseInScope(access, scopeId ?? '')
+  return assertCongregationInScope(access, scopeId ?? '')
 }

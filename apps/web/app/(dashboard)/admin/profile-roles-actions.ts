@@ -17,6 +17,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
+import {
+  assertScopeTargetInScope,
+  getAdminDistrictScope,
+  getScopedCongregationIds,
+  getScopedDioceseIds,
+} from '@/lib/auth/admin-scope'
 import { logAuditEvent } from '@/lib/audit/log'
 import { ROLE_TEMPLATES } from '@/lib/profile-roles/permissions'
 import type {
@@ -57,7 +63,24 @@ export async function listProfileRoles(): Promise<{ data?: ProfileRoleRow[]; err
     .order('granted_at', { ascending: false })
 
   if (error) return { error: error.message }
-  return { data: (data || []) as ProfileRoleRow[] }
+  const rows = (data || []) as ProfileRoleRow[]
+
+  // #2: kerületi admin → csak a saját egyházkerületébe eső szerepkörök
+  // (system szint sosem; district/diocese/congregation a hatókör szerint).
+  const scope = getAdminDistrictScope(access)
+  if (scope.unrestricted) return { data: rows }
+
+  const districtSet = new Set(scope.districtIds)
+  const dioceseSet = new Set((await getScopedDioceseIds(access)) ?? [])
+  const congSet = new Set((await getScopedCongregationIds(access)) ?? [])
+  const filtered = rows.filter((r) => {
+    if (!r.scope_id) return false
+    if (r.scope === 'district') return districtSet.has(r.scope_id)
+    if (r.scope === 'diocese') return dioceseSet.has(r.scope_id)
+    if (r.scope === 'congregation') return congSet.has(r.scope_id)
+    return false // 'system' — kerületi admin nem látja
+  })
+  return { data: filtered }
 }
 
 export async function listAssignableProfiles(): Promise<{
@@ -104,11 +127,19 @@ export async function listScopeOptions(): Promise<{
     return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
   }
 
-  const [congs, dioceses, districts] = await Promise.all([
-    access.supabase.from('congregations').select('id, name, nev_hu, diocese_id').order('nev_hu'),
-    access.supabase.from('dioceses').select('id, name, district_id').order('name'),
-    access.supabase.from('districts').select('id, name').order('name'),
-  ])
+  // #2: kerületi admin → csak a saját egyházkerülete egységei jelenjenek meg a
+  // szerepkör-form legördülőiben.
+  const adminScope = getAdminDistrictScope(access)
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+
+  const congQ = access.supabase.from('congregations').select('id, name, nev_hu, diocese_id').order('nev_hu')
+  const dioQ = access.supabase.from('dioceses').select('id, name, district_id').order('name')
+  const distQ = access.supabase.from('districts').select('id, name').order('name')
+  if (scopedDioceseIds) congQ.in('diocese_id', scopedDioceseIds)
+  if (scopedDioceseIds) dioQ.in('id', scopedDioceseIds)
+  if (!adminScope.unrestricted) distQ.in('id', adminScope.districtIds.length ? adminScope.districtIds : ['00000000-0000-0000-0000-000000000000'])
+
+  const [congs, dioceses, districts] = await Promise.all([congQ, dioQ, distQ])
 
   return {
     data: {
@@ -167,6 +198,14 @@ export async function createProfileRole(
   }
   if (input.scope === 'congregation' && !['lelkesz', 'konyvelo', 'custom'].includes(input.role)) {
     return { error: 'Gyülekezeti scope-hoz csak lelkész, könyvelő vagy egyedi szerep rendelhető.' }
+  }
+
+  // #2: kerületi admin csak a saját egyházkerületébe eső hatókörre oszthat
+  // szerepkört (system szintet egyáltalán nem).
+  try {
+    await assertScopeTargetInScope(access, input.scope, input.scopeId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a hatókörhöz.' }
   }
 
   // Engedélyek — ha nincs megadva, a sablon használása
@@ -324,6 +363,19 @@ export async function revokeProfileRole(args: {
     .eq('id', args.profileRoleId)
     .maybeSingle()
 
+  if (!rowSnapshot) return { error: 'A szerepkör nem található.' }
+
+  // #2: kerületi admin csak a saját egyházkerületébe eső szerepkört vonhat vissza.
+  try {
+    await assertScopeTargetInScope(
+      access,
+      rowSnapshot.scope as ProfileRoleScope,
+      (rowSnapshot.scope_id as string | null) ?? null,
+    )
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a szerepkörhöz.' }
+  }
+
   const { error } = await access.supabase
     .from('profile_roles')
     .update({
@@ -378,6 +430,24 @@ export async function updateProfileRolePermissions(args: {
     access = await requireAdminAccess()
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Nincs jogosultsága.' }
+  }
+
+  // #2: kerületi admin csak a saját egyházkerületébe eső szerepkör engedélyeit
+  // módosíthatja.
+  const { data: roleSnapshot } = await access.supabase
+    .from('profile_roles')
+    .select('scope, scope_id')
+    .eq('id', args.profileRoleId)
+    .maybeSingle()
+  if (!roleSnapshot) return { error: 'A szerepkör nem található.' }
+  try {
+    await assertScopeTargetInScope(
+      access,
+      roleSnapshot.scope as ProfileRoleScope,
+      (roleSnapshot.scope_id as string | null) ?? null,
+    )
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a szerepkörhöz.' }
   }
 
   const { error } = await access.supabase

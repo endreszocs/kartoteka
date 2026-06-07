@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireAdminAccess } from '@/lib/auth/admin-access'
 import {
   assertCongregationInScope,
+  assertDioceseInScope,
   assertUserInScope,
   getAdminDistrictScope,
   getScopedCongregationIds,
@@ -409,7 +410,13 @@ export async function getCongregationDetails(congId: string) {
 }
 
 export async function enterCongregation(congId: string, reason?: string) {
-  const { supabase, user } = await requireMasterAdmin()
+  const { supabase, user, access } = await requireMasterAdmin()
+  // #2: kerületi admin csak a saját kerülete gyülekezetébe léphet be.
+  try {
+    await assertCongregationInScope(access, congId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
+  }
   const godMode = await getGodModeStatus()
   const cleanedReason = reason?.trim() || 'Rendszergazdai hozzáférési ellenőrzés'
 
@@ -830,9 +837,15 @@ export async function getAllUsersWithScope(): Promise<{
 //
 // FONTOS: a master admin önmagát NEM törölheti (védelem).
 export async function deleteUser(userId: string): Promise<{ success?: boolean; error?: string }> {
-  const { supabase, user } = await requireMasterAdmin()
+  const { supabase, user, access } = await requireMasterAdmin()
   if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
   if (user?.id === userId) return { error: 'Nem törölheted a saját fiókodat.' }
+  // #2: kerületi admin csak a saját kerülete felhasználóját törölheti.
+  try {
+    await assertUserInScope(access, userId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
+  }
 
   // 1) DB-oldali anonimizálás (a profil-sor megmarad, csak a PII tűnik el)
   const { data: eraseRes, error: eraseErr } = await supabase.rpc('admin_erase_user', {
@@ -911,7 +924,13 @@ export async function deleteUser(userId: string): Promise<{ success?: boolean; e
 //   - NEM kér gyülekezetet — a user később onboard-ol
 //   - Megnyitja a wizard-utat (next login)
 export async function quickApproveUser(userId: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+  // #2: kerületi admin csak a saját kerületébe jelentkezőt hagyhatja jóvá.
+  try {
+    await assertUserInScope(access, userId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
+  }
 
   // 2026-06-04 (P3): ha a usernek van regisztrációs access_request-je a listából
   // választott gyülekezettel, a Gyors jóváhagyás IS rendelje hozzá a gyülekezetet
@@ -1009,8 +1028,14 @@ export async function quickApproveUser(userId: string) {
 // A user `status` 'rejected'-re vált, értesítést kap a kapott indoklással
 // (pasztorális hangnem). A regisztráció törlésére külön deleteUser hívható.
 export async function rejectPendingUser(userId: string, reason: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
   if (!userId) return { error: 'A felhasználó azonosítója kötelező.' }
+  // #2: kerületi admin csak a saját kerületébe jelentkezőt utasíthatja el.
+  try {
+    await assertUserInScope(access, userId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
+  }
   if (!reason || reason.trim().length < 5) {
     return { error: 'Az elutasítás indoklása legalább 5 karakter legyen.' }
   }
@@ -1066,10 +1091,18 @@ export async function getDioceses() {
 }
 
 export async function approveUser(userId: string, dioceseId: string, congregationName: string) {
-  const { supabase, user: adminUser } = await requireMasterAdmin()
+  const { supabase, user: adminUser, access } = await requireMasterAdmin()
 
   if (!dioceseId || !congregationName.trim()) {
     return { error: 'Egyházmegye és gyülekezet megadása kötelező.' }
+  }
+  // #2: kerületi admin csak a saját kerületébe jelentkezőt, és csak a saját
+  // kerülete egyházmegyéjébe hagyhatja jóvá.
+  try {
+    await assertUserInScope(access, userId)
+    await assertDioceseInScope(access, dioceseId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
   }
 
   // Gyülekezet keresés vagy létrehozás
@@ -1189,7 +1222,13 @@ export async function approveUser(userId: string, dioceseId: string, congregatio
  * compat-célból megmarad, de a UI nem hívja.
  */
 export async function updateUserRole(userId: string, role: string) {
-  const { supabase } = await requireMasterAdmin()
+  const { supabase, access } = await requireMasterAdmin()
+  // #2: kerületi admin csak a saját kerülete felhasználójának szerepét állíthatja.
+  try {
+    await assertUserInScope(access, userId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága.' }
+  }
 
   // Sprint U.5: kibővített validRoles — az összes ismert role (a memory feedback szerint).
   const validRoles = [

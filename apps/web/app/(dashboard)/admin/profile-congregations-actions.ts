@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { assertCongregationInScope, getScopedCongregationIds } from '@/lib/auth/admin-scope'
 
 /**
  * profile_congregations hozzárendelések kezelése — admin / kerületi admin oldali actions.
@@ -74,6 +75,13 @@ export async function listAssignments(options?: {
   if (options?.congregationId) query = query.eq('congregation_id', options.congregationId)
   if (options?.profileId) query = query.eq('profile_id', options.profileId)
   if (options?.status) query = query.eq('approval_status', options.status)
+
+  // #2: a KERÜLETI admin (de nem a teljes admin / nem az esperes-szintű) csak a
+  // saját egyházkerülete gyülekezeteinek hozzárendeléseit lássa.
+  if (access.egyhazkeruletiAdmin && !access.admin) {
+    const scopedCongIds = await getScopedCongregationIds(access)
+    if (scopedCongIds) query = query.in('congregation_id', scopedCongIds)
+  }
 
   const { data, error } = await query
   if (error) return { error: error.message }
@@ -149,6 +157,12 @@ export async function createAssignment(args: {
   if (!access.admin && !access.egyhazkeruletiAdmin) {
     return { error: 'Szerepkör kiosztása csak rendszergazdai vagy egyházkerületi admin jogosultsággal lehetséges.' }
   }
+  // #2: kerületi admin csak a saját kerülete gyülekezetéhez rendelhet könyvelőt/számvevőt.
+  try {
+    await assertCongregationInScope(access, args.congregationId)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a gyülekezethez.' }
+  }
 
   const supabase = access.supabase
 
@@ -221,6 +235,20 @@ export async function revokeAssignment(args: {
   }
 
   const supabase = access.supabase
+
+  // #2: kerületi admin csak a saját kerülete gyülekezetéből vonhat vissza
+  // hozzárendelést — előbb feloldjuk az assignment gyülekezetét.
+  try {
+    const { data: assignmentRow } = await supabase
+      .from('profile_congregations')
+      .select('congregation_id')
+      .eq('id', args.assignmentId)
+      .maybeSingle()
+    if (!assignmentRow?.congregation_id) return { error: 'A hozzárendelés nem található.' }
+    await assertCongregationInScope(access, assignmentRow.congregation_id as string)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Nincs jogosultsága ehhez a hozzárendeléshez.' }
+  }
 
   const { data: rpcRes, error: rpcErr } = await supabase
     .rpc('admin_revoke_assignment', {
