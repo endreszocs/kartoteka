@@ -110,20 +110,31 @@ adatminőség-ellenőrzés, szerepkör-form legördülői, szerepkör-lista.
 - **Adattisztítás (wipe): csak fő rendszergazda / teljes admin** (kerületi admin
   hozzá sem fér — `allowDistrictAdmin: false`).
 
-### ⏳ Hátralévő — Fázis 4 (adatbázis-szintű védőháló, SQL — később)
+### Fázis 4 (adatbázis-szintű védőháló, SQL)
 
-1. **Diagnosztika (kész, futtatásra vár):**
-   `migration-docs/sql/2026-06-07a-diagnoszt-egyhazkeruleti-admin-scope.sql` —
-   ellenőrzi, hogy a meglévő kerületi adminoknál be van-e állítva a kerület
-   (`profile_roles.scope_id` vagy `profiles.district_id`). Ha valakinél hiányzik,
-   célzott UPDATE-et küldök. **Ezt futtasd le, mielőtt élesben tesztelnéd a
-   kerületi admin nézetét** — enélkül a hiányos beállítású admin „semmit nem lát".
+1. **Diagnosztika — ✅ KÉSZ, lefuttatva (2026-06-07).**
+   `migration-docs/sql/2026-06-07a-diagnoszt-egyhazkeruleti-admin-scope.sql`.
+   Eredmény: **0 egyházkerületi admin** a rendszerben → nincs félrekonfigurált
+   admin, nincs pótolni való. Amikor majd létrejön egy kerületi admin, a
+   szerepkör-form kötelezően bekéri a kerületet, így eleve helyesen lesz beállítva.
 
-2. **`wipe_congregation_data` RPC szigetése:** a szerveroldali jogosultság-check
-   jelenleg `admin / egyhazkeruleti_admin / egyhazmegyei_admin`-t enged. A TS-guard
-   már blokkolja a kerületi admint az UI-ról, de defense-in-depth-ként az RPC-t is
-   `admin`-only-ra kell szűkíteni. Az élő RPC későbbi FIX-ekkel módosulhatott, ezért
-   a teljes élő forrás ellenőrzésével írom újra (nem vakon).
+2. **`wipe_congregation_data` RPC szigetése — ✅ KÉSZ, futtatásra vár.**
+   `migration-docs/sql/2026-06-07b-wipe-rpc-admin-only.sql`. A 2. Role-check most
+   már CSAK `'admin'`-t enged (a kerületi és egyházmegyei admin kizárva). A törzs
+   az élő (2026-04-25 onboarding-reset + 2026-05-17 search_path-pin) verzióból,
+   változatlanul; csak a jogosultság-ellenőrzés szigorodott. **Futtasd le** (egy
+   tranzakció, idempotens). Ez defense-in-depth: a TS-guard már blokkol, ez az
+   utolsó szerveroldali védvonal.
 
-3. **RLS védőháló (opcionális, legbiztosabb):** policy-k, hogy az adatbázis maga is
-   tiltsa a kerületen kívüli módosítást — még ha a kódból kimaradna egy ellenőrzés.
+3. **RLS védőháló — szándékosan ELHALASZTVA (nem élesítjük vakon).**
+   Egy átfogó RLS-réteg a core táblákra (`congregations`, `dioceses`, `profiles`,
+   `profile_roles`) **tesztelés nélkül kockázatos**: egy rosszul megírt policy a
+   *jogos* felhasználókat is kizárhatja, és ezeket a táblákat minden oldal olvassa.
+   A scope-olást a **kódréteg (Fázis 1–3) már teljesen kikényszeríti**, ezért az RLS
+   tisztán plusz biztonsági háló. Akkor érdemes megcsinálni, amikor van mód
+   **gondos, lépésenkénti tesztelésre** (master / teljes admin / kerületi admin /
+   sima lelkész nézet) egy nem-éles környezetben. Addig NEM élesítjük.
+
+   *(Ugyanez vonatkozik a többi SECURITY DEFINER admin-RPC-re, pl.
+   `admin_create_or_reinit_assignment`, `admin_revoke_assignment` — a kerület-check
+   szerveroldali beépítése külön, tesztelt lépés legyen; jelenleg a TS-réteg védi.)*
