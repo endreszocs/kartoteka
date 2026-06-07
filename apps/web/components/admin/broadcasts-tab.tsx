@@ -9,7 +9,7 @@
  *  3. Korábbi broadcastok archív listája
  */
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from 'react'
 import {
   Bell,
   ChevronDown,
@@ -45,6 +45,7 @@ import {
 } from '@/app/(dashboard)/admin/broadcasts-actions'
 
 import { NewsletterComposeDialog } from './newsletter-compose-dialog'
+import { AdminConfirmDialog } from './admin-confirm-dialog'
 
 import {
   BROADCAST_TARGET_SCOPE_LABELS,
@@ -108,6 +109,13 @@ export function BroadcastsTab() {
   const [newsletterOpen, setNewsletterOpen] = useState(false)
   const [expandedEntryKeys, setExpandedEntryKeys] = useState<Set<string>>(new Set())
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  // 2026-06-07: natív window.confirm helyett közös megerősítő dialógus.
+  const [confirmState, setConfirmState] = useState<{
+    title: string
+    description: ReactNode
+    confirmLabel: string
+    onYes: () => void
+  } | null>(null)
 
   async function fetchAll() {
     const [e, b, c, d, di] = await Promise.all([
@@ -186,20 +194,29 @@ export function BroadcastsTab() {
     setSelectedKeys(new Set())
   }
 
-  async function handleBulkSend() {
+  function handleBulkSend() {
     if (selectedKeys.size === 0) return
-    const ok = window.confirm(
-      `${selectedKeys.size} kiválasztott frissítés kiküldése a következő címzetteknek: ${describeScope(
-        scope,
-        targetRole,
-        {
-          congs: selectedCongIds.length,
-          dioceses: selectedDioceseIds.length,
-          districts: selectedDistrictIds.length,
-        },
-      )}${sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}. Folytatja?`,
-    )
-    if (!ok) return
+    const scopeLabel = describeScope(scope, targetRole, {
+      congs: selectedCongIds.length,
+      dioceses: selectedDioceseIds.length,
+      districts: selectedDistrictIds.length,
+    })
+    setConfirmState({
+      title: 'Kijelölt frissítések kiküldése',
+      description: (
+        <>
+          <strong>{selectedKeys.size}</strong> kiválasztott frissítés kiküldése a következő
+          címzetteknek: <strong>{scopeLabel}</strong>
+          {sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}.
+        </>
+      ),
+      confirmLabel: 'Kiküldés',
+      onYes: runBulkSend,
+    })
+  }
+
+  function runBulkSend() {
+    if (selectedKeys.size === 0) return
     startTransition(async () => {
       let totalRecipients = 0
       let succeeded = 0
@@ -280,13 +297,23 @@ export function BroadcastsTab() {
   function handleChangelogSend(entry: ChangelogEntry, options?: { force?: boolean }) {
     const force = options?.force ?? false
     if (force) {
-      const ok = window.confirm(
-        `Az "${entry.title}" frissítést újra kiküldjük minden kiválasztott címzettnek` +
-          (sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)') +
-          '. Folytatja?',
-      )
-      if (!ok) return
+      setConfirmState({
+        title: 'Frissítés újraküldése',
+        description: (
+          <>
+            Az „<strong>{entry.title}</strong>” frissítést újra kiküldjük minden kiválasztott
+            címzettnek{sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}.
+          </>
+        ),
+        confirmLabel: 'Újraküldés',
+        onYes: () => runChangelogSend(entry, true),
+      })
+      return
     }
+    runChangelogSend(entry, false)
+  }
+
+  function runChangelogSend(entry: ChangelogEntry, force: boolean) {
     startTransition(async () => {
       const result = await sendChangelogBroadcast({
         changelogKey: entry.key,
@@ -594,6 +621,20 @@ export function BroadcastsTab() {
         unsentEntries={unsentEntries}
         allEntries={activeEntries}
         onSent={reload}
+      />
+
+      {/* Közös megerősítő dialógus (kiküldés / újraküldés) */}
+      <AdminConfirmDialog
+        open={!!confirmState}
+        onOpenChange={(o) => !o && setConfirmState(null)}
+        title={confirmState?.title || ''}
+        description={confirmState?.description}
+        confirmLabel={confirmState?.confirmLabel || 'Megerősítés'}
+        loading={isPending}
+        onConfirm={() => {
+          confirmState?.onYes()
+          setConfirmState(null)
+        }}
       />
     </div>
   )
