@@ -17,6 +17,11 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import {
+  getScopedActiveUserIds,
+  getScopedDioceseIds,
+  getAdminDistrictScope,
+} from '@/lib/auth/admin-scope'
 import { resolveBroadcastRecipients } from '@/lib/broadcasts/recipients'
 import { sendBroadcastEmail } from '@/lib/broadcasts/email'
 import { parseChangelog } from '@/lib/broadcasts/changelog-parser'
@@ -51,7 +56,11 @@ export async function sendBroadcast(
   if (!uzenet) return { error: 'Adja meg az üzenet szövegét.' }
 
   // 1. Címzettek feloldása
-  const recipients = await resolveBroadcastRecipients(input)
+  let recipients = await resolveBroadcastRecipients(input)
+  // #2: a kerületi admin bármilyen célzás mellett is CSAK a saját egyházkerülete
+  // tagjait érheti el — a feloldott címzetteket a hatókörre metsszük.
+  const allowedIds = await getScopedActiveUserIds(access)
+  if (allowedIds) recipients = recipients.filter((r) => allowedIds.has(r.id))
   if (recipients.length === 0) {
     return { error: 'A célzás alapján nincs egy címzett sem. Ellenőrizze a kiválasztott gyülekezeteket / szerepet.' }
   }
@@ -261,7 +270,7 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
         introText: args.introText,
       })
       // Címzettek lekérdezése a `BroadcastComposeInput` signature-rel
-      const recipients = await resolveBroadcastRecipients({
+      let recipients = await resolveBroadcastRecipients({
         cim: title,
         uzenet: text,
         tipus: 'release',
@@ -272,6 +281,9 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
         targetDistrictIds: args.targetDistrictIds,
         sendEmail: true,
       })
+      // #2: a kerületi admin email-hírlevele is csak a saját kerületére megy.
+      const allowedIds = await getScopedActiveUserIds(access)
+      if (allowedIds) recipients = recipients.filter((r) => allowedIds.has(r.id))
       const emails = recipients
         .map((r) => r.email)
         .filter((e): e is string => !!e)
@@ -531,10 +543,14 @@ export async function listCongregationsForBroadcast(): Promise<{
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
 
-  const { data, error } = await access.supabase
+  // #2: kerületi admin → csak a saját kerülete gyülekezetei a célzó legördülőben.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+  const congQ = access.supabase
     .from('congregations')
     .select('id, name, nev_hu, diocese_id')
     .order('nev_hu')
+  if (scopedDioceseIds) congQ.in('diocese_id', scopedDioceseIds)
+  const { data, error } = await congQ
 
   if (error) return { error: error.message }
   return {
@@ -554,10 +570,14 @@ export async function listDiocesesForBroadcast(): Promise<{
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
 
-  const { data, error } = await access.supabase
+  // #2: kerületi admin → csak a saját kerülete egyházmegyéi.
+  const scopedDioceseIds = await getScopedDioceseIds(access)
+  const dioQ = access.supabase
     .from('dioceses')
     .select('id, name, district_id')
     .order('name')
+  if (scopedDioceseIds) dioQ.in('id', scopedDioceseIds)
+  const { data, error } = await dioQ
 
   if (error) return { error: error.message }
   return { data: (data || []) as Array<{ id: string; name: string; district_id: string | null }> }
@@ -571,10 +591,13 @@ export async function listDistrictsForBroadcast(): Promise<{
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága.' }
 
-  const { data, error } = await access.supabase
-    .from('districts')
-    .select('id, name')
-    .order('name')
+  // #2: kerületi admin → csak a saját egyházkerülete(i).
+  const adminScope = getAdminDistrictScope(access)
+  const distQ = access.supabase.from('districts').select('id, name').order('name')
+  if (!adminScope.unrestricted) {
+    distQ.in('id', adminScope.districtIds.length ? adminScope.districtIds : ['00000000-0000-0000-0000-000000000000'])
+  }
+  const { data, error } = await distQ
 
   if (error) return { error: error.message }
   return { data: (data || []) as Array<{ id: string; name: string }> }

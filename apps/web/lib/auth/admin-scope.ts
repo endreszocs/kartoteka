@@ -87,6 +87,51 @@ export async function getScopedCongregationIds(access: ScopeAccess): Promise<str
   return (data ?? []).map((c) => (c as { id: string }).id)
 }
 
+/**
+ * A hatókörbe eső AKTÍV felhasználók azonosító-halmaza. `null` = korlátlan.
+ * Broadcast-célzás utószűréséhez: a kerületi admin bármilyen célzás mellett is
+ * csak a saját egyházkerülete tagjait érheti el. A tagság forrásai: közvetlen
+ * district_id, közvetlen diocese_id, vagy a kerület gyülekezeteinek tagsága.
+ */
+export async function getScopedActiveUserIds(access: ScopeAccess): Promise<Set<string> | null> {
+  const scope = getAdminDistrictScope(access)
+  if (scope.unrestricted) return null
+  const ids = new Set<string>()
+  if (scope.districtIds.length === 0) return ids
+
+  const [scopedDioceseIds, scopedCongIds] = await Promise.all([
+    getScopedDioceseIds(access),
+    getScopedCongregationIds(access),
+  ])
+
+  const { data: byDistrict } = await access.supabase
+    .from('profiles')
+    .select('id')
+    .eq('status', 'active')
+    .in('district_id', scope.districtIds)
+  for (const r of byDistrict ?? []) ids.add((r as { id: string }).id)
+
+  if (scopedDioceseIds && scopedDioceseIds.length > 0) {
+    const { data: byDiocese } = await access.supabase
+      .from('profiles')
+      .select('id')
+      .eq('status', 'active')
+      .in('diocese_id', scopedDioceseIds)
+    for (const r of byDiocese ?? []) ids.add((r as { id: string }).id)
+  }
+
+  if (scopedCongIds && scopedCongIds.length > 0) {
+    const { data: byCong } = await access.supabase
+      .from('profiles')
+      .select('id')
+      .eq('status', 'active')
+      .in('congregation_id', scopedCongIds)
+    for (const r of byCong ?? []) ids.add((r as { id: string }).id)
+  }
+
+  return ids
+}
+
 function pickDistrictId(diocesesRel: unknown): string | null {
   if (!diocesesRel) return null
   if (Array.isArray(diocesesRel)) {
