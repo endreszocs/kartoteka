@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-07] — Adminisztráció: szigorúbb jogosultságok és letisztult felület
+<!-- key: 2026-06-07-admin-jogosultsag-es-felulet -->
+<!-- category: security -->
+<!-- targets: admin, egyhazkeruleti_admin -->
+
+A rendszergazdai (adminisztrációs) felület biztonságosabb és átláthatóbb lett. A legfontosabb: mostantól minden adminisztrátor csak a rá tartozó kör adatait kezelheti.
+
+### 🔒 Szigorúbb, kör szerinti jogosultságok
+
+- **Egyházkerületi adminisztrátor csak a saját egyházkerületét kezeli**: aki egy egyházkerület adminisztrátora, mostantól kizárólag a saját egyházkerülete egyházmegyéit, gyülekezeteit és felhasználóit látja és módosíthatja — más egyházkerület adatai meg sem jelennek neki. Ez védi az adatokat, és megfelel az adatvédelmi elvárásoknak.
+- **Körlevél a megfelelő körnek**: az egyházkerületi adminisztrátor körlevele és hírlevele kizárólag a saját egyházkerülete tagjaihoz jut el.
+- **Visszafordíthatatlan adattörlés csak a fő rendszergazdának**: a gyülekezeti adatok teljes törlése (adattisztítás) ezentúl kizárólag a fő rendszergazda joga.
+
+### 🎨 Letisztultabb, megbízhatóbb kezelőfelület
+
+- **Felhasználók egy helyen**: a jóváhagyásra váró regisztrációk és a meglévő felhasználók egy közös, kereshető nézetben — a várakozók pirossal kiemelve, kártya- és listanézettel, rendezéssel és szűréssel. A jóváhagyás és az aktiválás egyetlen lépésben történik, így egyik sem maradhat el.
+- **Gyorsabb betöltés**: az admin oldalak (áttekintő, gyülekezetek, pénzügyi kimutatás) érezhetően gyorsabban töltenek be.
+- **Barátságosabb megerősítő ablakok**: a böngésző régi felugró ablakai helyett egységes, mobilon is jól működő párbeszédablakok.
+- **Pontosabb visszajelzések**: ha egy értesítés vagy művelet nem sikerül, a rendszer jelzi (nem nyeli el csendben), és „Újrapróbálom" gombbal újraindítható.
+
+---
+
 ## [2026-06-06] — Pénzügyi nyomtatás és kezelés — fejlesztések
 <!-- key: 2026-06-06-bizonylat-ujranyomtatas-finomitasok -->
 <!-- category: improvement -->

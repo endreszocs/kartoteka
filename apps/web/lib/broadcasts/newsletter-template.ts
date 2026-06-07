@@ -367,7 +367,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                   Kedves Felhasználók!
                 </p>
                 <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.65;">
-                  A Kartotéka rendszerben az elmúlt időszakban több új funkció, finomítás és javítás készült el, hogy a mindennapi munka még gördülékenyebb és biztonságosabb legyen. Az alábbiakban kategóriák szerint részletesen bemutatjuk a változásokat.
+                  A Kartotéka rendszerben az elmúlt időszakban több új funkció, finomítás és javítás készült el, hogy a mindennapi munka még gördülékenyebb és biztonságosabb legyen. Az alábbiakban kategóriák szerint részletesen bemutatásra kerülnek a változások.
                 </p>
                 ${introSection}
               </div>
@@ -455,7 +455,7 @@ export function buildNewsletterPlainText(input: NewsletterInput): string {
     '',
     'A Kartotéka rendszerben az elmúlt időszakban több új funkció,',
     'finomítás és javítás készült el. Az alábbiakban részletesen',
-    'bemutatjuk a változásokat.',
+    'bemutatásra kerülnek a változások.',
     '',
   ]
   if (introText) {
