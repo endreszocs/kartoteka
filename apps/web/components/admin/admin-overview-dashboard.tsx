@@ -228,7 +228,7 @@ export function AdminOverviewDashboard() {
           <h2 className="font-heading text-xl text-slate-800">Mi vár ma?</h2>
           <p className="text-xs text-muted-foreground">Az aktuális elbírálások és üzenetek egy pillantásra</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           <FocusCard
             href="/admin/felhasznalok"
             icon={Inbox}
@@ -257,22 +257,6 @@ export function AdminOverviewDashboard() {
                 : 'A legfrissebb broadcast üzenetek.'
             }
             tone="sky"
-          />
-          <FocusCard
-            href="/admin/penzugy"
-            icon={PiggyBank}
-            label="Rendszer pénzügyei"
-            value="—"
-            description="Platform-szintű forgalom és határidők."
-            tone="emerald"
-          />
-          <FocusCard
-            href="/admin/tamogatas"
-            icon={LifeBuoy}
-            label="Támogatási jegyek"
-            value="—"
-            description="Nyitott támogatási kérdések."
-            tone="rose"
           />
         </div>
       </section>
