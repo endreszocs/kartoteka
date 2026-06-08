@@ -146,6 +146,47 @@ export function buildConclusions(data: PresentationData): Insight[] {
     }
   }
 
+  // Lélekszám (Pillér 1) — előző évhez képest + természetes változás
+  const yoy = data.members.yearOverYear
+  if (yoy.length >= 2) {
+    const curCount = yoy[yoy.length - 1].count
+    const prevCount = yoy[yoy.length - 2].count
+    const diff = curCount - prevCount
+    const totalNatural = data.members.flowByYear.reduce((s, f) => s + f.natural, 0)
+    insights.push({
+      category: 'demographics',
+      direction: diff > 0 ? 'up' : diff < 0 ? 'down' : 'stable',
+      headline: diff > 0 ? `Növekvő lélekszám (+${diff})` : diff < 0 ? `Csökkenő lélekszám (${diff})` : 'Stabil lélekszám',
+      detail: diff > 0
+        ? `A gyülekezet lélekszáma az előző évhez képest ${diff} fővel nőtt. Az elmúlt 5 év természetes változása (keresztelés − temetés) ${totalNatural >= 0 ? '+' : ''}${totalNatural} fő.${data.members.estimated ? ' (A korábbi évek becsült értékek.)' : ''}`
+        : diff < 0
+          ? `A lélekszám ${Math.abs(diff)} fővel csökkent. Az 5 éves természetes változás ${totalNatural >= 0 ? '+' : ''}${totalNatural} fő — érdemes a missziói és pásztori jelenlétre figyelni.${data.members.estimated ? ' (A korábbi évek becsült értékek.)' : ''}`
+          : `A lélekszám stabil maradt. Az 5 éves természetes változás ${totalNatural >= 0 ? '+' : ''}${totalNatural} fő.`,
+      metricLabel: 'Jelenlegi lélekszám',
+      metricValue: `${curCount} fő`,
+    })
+  }
+
+  // Istentiszteleti látogatottság (Pillér 2) — a munkanapló valós jelenlétéből
+  if (data.attendance.hasData) {
+    const by = data.attendance.byYear
+    const curAvg = data.attendance.worshipAvg
+    const prevAvg = by.length >= 2 ? by[by.length - 2].worshipAvg : 0
+    const ch = prevAvg > 0 ? ((curAvg - prevAvg) / prevAvg) * 100 : 0
+    insights.push({
+      category: 'programs',
+      direction: ch > 3 ? 'up' : ch < -3 ? 'down' : 'stable',
+      headline: ch > 3
+        ? `Növekvő látogatottság (+${ch.toFixed(0)}%)`
+        : ch < -3
+          ? `Csökkenő látogatottság (${ch.toFixed(0)}%)`
+          : 'Stabil látogatottság',
+      detail: `Az átlagos istentiszteleti jelenlét ${curAvg} fő/alkalom volt ${data.attendance.worshipOccasions} alkalmon. ${ch > 3 ? 'Hálát adhatunk a növekvő részvételért.' : ch < -3 ? 'A csökkenés okait érdemes közösen átgondolni.' : 'A részvétel kiegyensúlyozott.'} Gyermek-jelenlét összesen: ${data.attendance.childrenTotal} fő.`,
+      metricLabel: 'Átlagos jelenlét',
+      metricValue: `${curAvg} fő/alkalom`,
+    })
+  }
+
   // Egyházfenntartás
   const rate = data.finance.egyhazfenntartas.paymentRate
   insights.push({

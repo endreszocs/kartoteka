@@ -37,6 +37,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Adományok aránya**: a „Bevételek részletesen" dián mostantól látszik, hogy a bevétel **hány százaléka adomány** (adomány, persely, céladomány, gyűjtés).
 - **Reálisabb egyházfenntartás-mutató**: a teljesítési arány nevezője már a **felnőtt (18+) tagok** száma (a gyerekek nem fizetnek egyházfenntartást), így a százalék a valóságot tükrözi.
 
+### 🔎 Teljesebb automatikus következtetések
+
+- A „Következtetések" dia mostantól **mindhárom pillért** lefedi: a pénzügy és anyakönyv mellett **lélekszám-változás** (és 5 éves természetes változás) valamint **istentiszteleti látogatottság** (előző évhez viszonyított) következtetés is megjelenik.
+
 ---
 
 ## [2026-06-08] — Éves beszámoló: kivetítés Wi-Fin és telefonos vezérlés
