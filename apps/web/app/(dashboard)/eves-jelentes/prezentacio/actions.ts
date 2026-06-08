@@ -12,6 +12,7 @@
  */
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import type { GoalRow } from './goals-actions'
 
 export interface PresentationData {
   year: number
@@ -112,6 +113,8 @@ export interface PresentationData {
     completionRate: number
     byType: { type: string; count: number }[]
   }
+  /** Jövőbeli célok (gyulekezeti_celok tábla) — üres, ha a tábla még nincs. */
+  goals: GoalRow[]
 }
 
 export async function getPresentationData(year: number): Promise<{
@@ -166,6 +169,7 @@ export async function getPresentationData(year: number): Promise<{
     attertResult,
     elkoltozottResult,
     kitertResult,
+    celokResult,
   ] = await Promise.all([
     supabase
       .from('szemely')
@@ -269,6 +273,8 @@ export async function getPresentationData(year: number): Promise<{
     supabase.from('attert').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
     supabase.from('elkoltozott').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
     supabase.from('kitert').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
+    // Jövőbeli célok (ha a tábla még nincs, error → üres lista)
+    supabase.from('gyulekezeti_celok').select('id, piller, metrika, celertek, szoveg').eq('congregation_id', effectiveCongregationId).eq('ev', year),
   ])
 
   // ─── Tagok ───
@@ -666,6 +672,7 @@ export async function getPresentationData(year: number): Promise<{
           .map(([type, count]) => ({ type, count }))
           .sort((a, b) => b.count - a.count),
       },
+      goals: (celokResult.error ? [] : (celokResult.data || [])) as GoalRow[],
     },
   }
 }

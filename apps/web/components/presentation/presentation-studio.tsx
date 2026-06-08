@@ -19,8 +19,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, Maximize2, Printer, Sparkles, TrendingUp,
   X, Eye, EyeOff, Plus, Trash2, Pencil, Info, MonitorPlay, Smartphone,
-  ExternalLink, Wifi, MonitorX,
+  ExternalLink, Wifi, MonitorX, Target,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -29,7 +30,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { PresentationData } from '@/app/(dashboard)/eves-jelentes/prezentacio/actions'
+import { saveGoals, type GoalRow } from '@/app/(dashboard)/eves-jelentes/prezentacio/goals-actions'
 import { SLIDES, slideMissingInfo, PILLAR_LABELS, type PillarId } from './slides'
+import { GOAL_METRICS, metricsForPillar, formatGoalValue } from './goal-metrics'
 import {
   buildDeck, sectionOf, DeckRenderer, loadOptions, saveOptions, loadOverrides, saveOverrides,
   DEFAULT_OPTIONS, type DeckItem, type PresentationOptions, type TextOverrides, type CustomSlide,
@@ -46,7 +49,7 @@ interface PresentationStudioProps {
 
 export function PresentationStudio({ initialData }: PresentationStudioProps) {
   const router = useRouter()
-  const [data] = useState(initialData)
+  const [data, setData] = useState(initialData)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
   const [blackout, setBlackout] = useState(false)
@@ -54,6 +57,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
   const [options, setOptions] = useState<PresentationOptions>(DEFAULT_OPTIONS)
   const [optionsDialogOpen, setOptionsDialogOpen] = useState(false)
   const [castDialogOpen, setCastDialogOpen] = useState(false)
+  const [goalsDialogOpen, setGoalsDialogOpen] = useState(false)
   const [editKey, setEditKey] = useState<string | null>(null)
   const [addPillar, setAddPillar] = useState<PillarId | null>(null)
   const [mounted, setMounted] = useState(false)
@@ -111,7 +115,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
     if (!mounted || !session) return
     if (deckTimer.current) clearTimeout(deckTimer.current)
     deckTimer.current = setTimeout(() => publishDeck(), 350)
-  }, [overrides, options, session, mounted])
+  }, [overrides, options, data, session, mounted])
 
   // Index / elsötétítés → állapot küldése
   useEffect(() => {
@@ -149,6 +153,14 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
     const next = { ...overrides, [slideKey]: { ...(overrides[slideKey] || {}), [field]: value } }
     setOverrides(next)
     saveOverrides(next)
+  }
+
+  async function handleSaveGoals(rows: GoalRow[]) {
+    const result = await saveGoals(data.year, rows)
+    if (result.error) { toast.error(result.error); return }
+    setData((d) => ({ ...d, goals: rows }))
+    setGoalsDialogOpen(false)
+    toast.success('Célok elmentve.')
   }
 
   // ── Fullscreen + blackout ──
@@ -323,6 +335,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
             <Button variant="outline" size="sm" onClick={goNext} disabled={currentIndex === deckCount - 1}><ChevronRight className="size-4" /></Button>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setGoalsDialogOpen(true)}><Target className="mr-2 size-4" />Célok</Button>
             <Button variant="outline" size="sm" onClick={() => setOptionsDialogOpen(true)}><Sparkles className="mr-2 size-4" />Beállítások</Button>
             <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 size-4" />Nyomtatás</Button>
             <Button variant="outline" size="sm" onClick={() => setCastDialogOpen(true)}><MonitorPlay className="mr-2 size-4" />Kivetítő</Button>
@@ -385,6 +398,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
       <AddCustomDialog key={addPillar ?? 'none'} pillar={addPillar} onClose={() => setAddPillar(null)} onAdd={(p, t, s, b) => { addCustomSlide(p, t, s, b); setAddPillar(null) }} />
       <CastDialog open={castDialogOpen} onClose={() => setCastDialogOpen(false)} session={session} remoteUrl={remoteUrl}
         onSecondWindow={openSecondWindow} onCast={castViaWifi} onLocal={() => { setCastDialogOpen(false); void enterFullscreen() }} />
+      <GoalsDialog key={goalsDialogOpen ? 'goals-open' : 'goals-closed'} open={goalsDialogOpen} onClose={() => setGoalsDialogOpen(false)} data={data} onSave={handleSaveGoals} />
 
       {/* Opciók dialog */}
       <Dialog open={optionsDialogOpen} onOpenChange={setOptionsDialogOpen}>
@@ -589,4 +603,82 @@ function AddCustomDialog({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1"><Label>{label}</Label>{children}</div>
+}
+
+// ──────────────────────────────────────────────────────────────
+// Jövőbeli célok szerkesztő (számszerű cél vs. tény, szerver-perzisztált)
+// ──────────────────────────────────────────────────────────────
+
+function GoalsDialog({
+  open, onClose, data, onSave,
+}: {
+  open: boolean
+  onClose: () => void
+  data: PresentationData
+  onSave: (rows: GoalRow[]) => Promise<void>
+}) {
+  const [targets, setTargets] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    ;(data.goals || []).forEach((g) => { if (g.metrika && g.celertek != null) m[g.metrika] = String(g.celertek) })
+    return m
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    const rows: GoalRow[] = GOAL_METRICS
+      .map((m) => ({ m, raw: targets[m.key] }))
+      .filter(({ raw }) => raw != null && raw.trim() !== '' && !isNaN(Number(raw)))
+      .map(({ m, raw }) => ({ piller: m.pillar, metrika: m.key, celertek: Number(raw), szoveg: null }))
+    setSaving(true)
+    await onSave(rows)
+    setSaving(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-sm"><Target className="size-5" /></span>
+            Jövőbeli célok — {data.year}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Adj meg <strong>számszerű célokat</strong> a következő évre. A rendszer a pillér-bevezető diákon a <strong>cél melletti tényadatot</strong> is megjeleníti. (A szöveges célokat a pillér diáján a „Szerkesztés” gombbal írhatod.)
+          </p>
+          {([1, 2, 3] as const).map((p) => (
+            <div key={p} className="rounded-2xl border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">{PILLAR_LABELS[p]}</p>
+              <div className="space-y-2">
+                {metricsForPillar(p).map((m) => (
+                  <div key={m.key} className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-700">{m.label}</p>
+                      <p className="text-[11px] text-slate-400">jelenleg: {formatGoalValue(m.actual(data), m.unit)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        className="w-28"
+                        placeholder="cél"
+                        value={targets[m.key] ?? ''}
+                        onChange={(e) => setTargets((t) => ({ ...t, [m.key]: e.target.value }))}
+                      />
+                      {m.unit && <span className="text-xs text-slate-400">{m.unit}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 border-t pt-3">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Mégse</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving ? 'Mentés…' : 'Mentés'}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }

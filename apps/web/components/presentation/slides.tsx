@@ -43,6 +43,7 @@ import {
 
 import type { PresentationData } from '@/app/(dashboard)/eves-jelentes/prezentacio/actions'
 import { buildConclusions, buildForecast } from './analytics'
+import { metricByKey, formatGoalValue } from './goal-metrics'
 import { cn } from '@/lib/utils'
 import {
   AnimatedBar,
@@ -886,7 +887,17 @@ interface PillarIntroSlideProps extends SlideProps {
   color: 'teal' | 'violet' | 'amber'
 }
 
-function PillarIntroSlide({ title, subtitle, commentary, projection, pillarNumber, pillarName, question, color }: PillarIntroSlideProps) {
+function PillarIntroSlide({ data, title, subtitle, commentary, projection, pillarNumber, pillarName, question, color }: PillarIntroSlideProps) {
+  const numericGoals = (data.goals || [])
+    .filter((g) => g.piller === pillarNumber && g.metrika && g.celertek != null)
+    .map((g) => {
+      const m = metricByKey(g.metrika)
+      if (!m) return null
+      const actual = m.actual(data)
+      const target = Number(g.celertek)
+      return { label: m.label, unit: m.unit, target, actual, met: actual >= target }
+    })
+    .filter(Boolean) as { label: string; unit: string; target: number; actual: number; met: boolean }[]
   const colorMap = {
     teal: { bg: 'from-teal-100/80 via-white to-emerald-100/80', text: 'text-teal-800', number: 'from-teal-500 to-emerald-600', accent: 'text-emerald-700', orb: 'teal' as OrbVariant },
     violet: { bg: 'from-violet-100/80 via-white to-purple-100/80', text: 'text-violet-800', number: 'from-violet-500 to-purple-600', accent: 'text-violet-700', orb: 'violet' as OrbVariant },
@@ -951,6 +962,23 @@ function PillarIntroSlide({ title, subtitle, commentary, projection, pillarNumbe
             <p className={cn('mt-1.5 whitespace-pre-wrap leading-relaxed text-slate-700', projection ? 'text-2xl' : 'text-base')}>
               {commentary}
             </p>
+          </div>
+        </MotionItem>
+      )}
+      {numericGoals.length > 0 && (
+        <MotionItem variants={fadeUp}>
+          <div className={cn('mx-auto mt-4 w-full max-w-2xl space-y-1.5', projection ? 'mt-6' : '')}>
+            {numericGoals.map((g) => (
+              <div key={g.label} className="flex items-center justify-between gap-3 rounded-xl bg-white/60 px-4 py-2 ring-1 ring-slate-200/60 backdrop-blur">
+                <span className={cn('font-medium text-slate-700', projection ? 'text-xl' : 'text-sm')}>{g.label}</span>
+                <span className={cn('flex items-center gap-2 tabular-nums', projection ? 'text-xl' : 'text-sm')}>
+                  <span className="text-slate-500">cél: <strong className="text-slate-700">{formatGoalValue(g.target, g.unit)}</strong></span>
+                  <span className={cn('font-semibold', g.met ? 'text-emerald-600' : 'text-amber-600')}>
+                    tény: {formatGoalValue(g.actual, g.unit)} {g.met ? '✓' : ''}
+                  </span>
+                </span>
+              </div>
+            ))}
           </div>
         </MotionItem>
       )}

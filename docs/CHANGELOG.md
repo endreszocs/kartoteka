@@ -41,6 +41,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 - A „Következtetések" dia mostantól **mindhárom pillért** lefedi: a pénzügy és anyakönyv mellett **lélekszám-változás** (és 5 éves természetes változás) valamint **istentiszteleti látogatottság** (előző évhez viszonyított) következtetés is megjelenik.
 
+### 🎯 Számszerű célok — cél vs. tény (mentett)
+
+- A prezentáció „Célok" gombjával **számszerű célok** állíthatók be a következő évre pillérenként (pl. lélekszám, átlagos jelenlét, éves bevétel, adományarány, egyházfenntartás). A célok a **gyülekezethez mentődnek** (nem csak a böngészőbe), és a pillér-bevezető diákon a rendszer a **cél melletti tényadatot** is kiírja (✓ ha teljesült).
+- *Megjegyzés a rendszergazdának:* a funkció a `gyulekezeti_celok` táblát használja — futtasd a `migration-docs/sql/2026-06-08-gyulekezeti-celok.sql` migrációt. Addig a prezentáció hibátlanul működik, csak a számszerű célok mentése nem aktív.
+
 ---
 
 ## [2026-06-08] — Éves beszámoló: kivetítés Wi-Fin és telefonos vezérlés
