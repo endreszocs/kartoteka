@@ -1,10 +1,16 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
-import { HU_MONTHS, progEmoji, PROG_TIPUS_EMOJI, PROG_TIPUS_LABELS, PROG_TIPUS_COLOR } from '@/lib/constants/dashboard'
-import { formatHuDate } from '@/lib/utils/date'
-import { getReformedHolidaysForYear } from '@/lib/utils/reformed-holidays'
-import type { Program } from '@/lib/constants/dashboard'
+// ── Éves programterv — Claude Design „eves-terv.html" pixelhű átültetése (2026-06-08) ──
+// Alkalmazáson belüli, reszponzív ablak (modál + iframe). A lap a design
+// `.ep-*` elrendezése: fejléc-sáv (logó + vezérige), 12 hónap 6×2 rácsban,
+// kiemelt alkalmak, jelmagyarázat, KARTOTÉKA-lábléc. Valós adatokkal.
+import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { Printer, Download, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { PROG_TIPUS_COLOR } from '@/lib/constants/dashboard'
+import type { Program, ProgramTipus } from '@/lib/constants/dashboard'
+import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
+import { getProgramsForYear } from '@/app/(dashboard)/programs/actions'
 
 interface AnnualPlanPrintProps {
   allPrograms: Program[]
@@ -13,841 +19,428 @@ interface AnnualPlanPrintProps {
   congregationLogo?: string | null
 }
 
-/**
- * Éves programterv nyomtatása — 12 mini-naptár rácsban (2026-04-21o redesign).
- *
- * Az előző verzió egy hibás függőleges ismétlődő táblázatot rajzolt; most
- * klasszikus év-áttekintő formátum: 12 hónap, mindegyik egy saját 7×6-os
- * napi rácsba rendezve, 4×3-as elrendezésben a lapon.
- *
- * A3 landscape — kifüggeszthető fal-naptár-stílus.
- */
-export function AnnualPlanPrint({
-  allPrograms,
-  year,
-  congregationName: rawCongName,
-  congregationLogo,
-}: AnnualPlanPrintProps) {
-  function handlePrint() {
-    const congregationName = rawCongName || 'Gyülekezet'
-    const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
+// ── Az év vezérigéi (a gyülekezet a sajátját is beírhatja — szerkeszthető) ──
+const VEZERIGE: Record<number, { text: string; ref: string }> = {
+  2024: { text: 'Minden dolgotok szeretetben menjen végbe!', ref: '1Korinthus 16,14' },
+  2025: { text: 'Maradjatok meg az én szeretetemben.', ref: 'János 15,9' },
+  2026: { text: 'Az Úr az én világosságom és üdvösségem: kitől féljek?', ref: 'Zsoltárok 27,1' },
+  2027: { text: 'Hálát adok az én Istenemnek mindenkor ti felőletek.', ref: '1Korinthus 1,4' },
+  2028: { text: 'Az Úr megőrzi a te ki- és bemeneteledet, mostantól fogva mindörökké.', ref: 'Zsoltárok 121,8' },
+  2029: { text: 'Legyetek erősek az Úrban és az ő hatalmas erejében.', ref: 'Efézus 6,10' },
+  2030: { text: 'Az Úr közel! Semmi felől ne aggódjatok.', ref: 'Filippi 4,5–6' },
+}
+const VEZERIGE_DEFAULT = { text: 'Mindennek rendelt ideje van, és ideje van az ég alatt minden akaratnak.', ref: 'Prédikátor 3,1' }
 
-    // ═══════════════════════════════════════════════════════════════
-    // 1. Események dátum szerint csoportosítva
-    // ═══════════════════════════════════════════════════════════════
-    const eventsByDate: Record<string, Program[]> = {}
-    allPrograms.forEach((e) => {
-      const sd = new Date(e.datum + 'T00:00:00')
-      const ed = e.datum_vege ? new Date(e.datum_vege + 'T00:00:00') : sd
-      for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
-        const key = d.toISOString().slice(0, 10)
-        if (!eventsByDate[key]) eventsByDate[key] = []
-        if (!eventsByDate[key].find((x) => x.id === e.id)) eventsByDate[key].push(e)
-      }
-    })
+const HU_MO = ['Január', 'Február', 'Március', 'Április', 'Május', 'Június', 'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December']
+const HU_MO_SHORT = ['jan', 'feb', 'márc', 'ápr', 'máj', 'jún', 'júl', 'aug', 'szept', 'okt', 'nov', 'dec']
+const CAL_DOW = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V']
 
-    // ═══════════════════════════════════════════════════════════════
-    // 2. Református ünnepek az adott évre (2026-04-21u — 3 szintű rang)
-    // ═══════════════════════════════════════════════════════════════
-    const holidays = getReformedHolidaysForYear(year)
+// Programtípus → lucide-stílusú SVG belső path-ek (a design icons.jsx-éből)
+const ICON_PATH_BY_TIPUS: Record<ProgramTipus, string> = {
+  istentisztelet: '<path d="M12 2v6"/><path d="M9 5h6"/><path d="M5 22V12l7-4 7 4v10"/><path d="M5 22h14"/><path d="M9 22v-4a3 3 0 0 1 6 0v4"/>',
+  bibliaora: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  imaora: '<path d="M11 14h2a2 2 0 0 0 2-2 2 2 0 0 0-2-2H9.5L7 12.5"/><path d="m20 9-5.5 5.5a2.83 2.83 0 0 1-4 0L8 12.5"/><path d="M4 14 2 16v4a1 1 0 0 0 1 1h3"/><path d="M16.5 5.5a2.12 2.12 0 0 0-3 0l-.5.5-.5-.5a2.12 2.12 0 1 0-3 3l3.5 3.5 3.5-3.5a2.12 2.12 0 0 0 0-3z"/>',
+  ifjusagi: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/>',
+  gyerekprogram: '<path d="M9 12h.01"/><path d="M15 12h.01"/><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5S14.5 8 13 8"/>',
+  konferencia: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>',
+  hangverseny: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  kozossegi: '<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.9-3.9a2 2 0 0 0-2.8 0l-1.5 1.5a1 1 0 1 1-3-3l2.6-2.6a4 4 0 0 1 5 0l3.2 2.7"/><path d="m21 3-3 3"/><path d="M3 3l5.4 5.4"/><path d="m9 11-3.7 3.7a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0L12 16"/>',
+  presbiteri: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 11h.01"/><path d="M13 11h3"/><path d="M9 15h.01"/><path d="M13 15h3"/>',
+  latogatas: '<path d="M3 10.2 12 3l9 7.2"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/><path d="M9 21v-6h6v6"/>',
+  unnep: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="M22 2 11 13"/><path d="M11 13c1.5 1.5 1.5 4 0 6"/><path d="M15 6c1.5 1.5 3.5 1.5 5 0"/><path d="M19 13c-1.5-1.5-1.5-3.5 0-5"/>',
+  tabor: '<path d="M3.5 21 14 3"/><path d="M20.5 21 10 3"/><path d="M15.5 21 12 15l-3.5 6"/><path d="M2 21h20"/>',
+  evangelizacio: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  diakoniai: '<path d="M19 14c1.49-1.46 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M12 5 9.04 7.96a2.17 2.17 0 0 0 0 3.08 2.17 2.17 0 0 0 3.08 0l.92-.92a2 2 0 0 1 2.78 0l2.6 2.6"/><path d="m18 15-2-2"/><path d="m15 18-2-2"/>',
+  noszovetseg: '<circle cx="12" cy="12" r="2.5"/><path d="M12 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/><path d="M12 14.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/><path d="M9.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M14.5 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0z"/>',
+  egyeb: '<path d="M12 17v5"/><path d="M9 10.8V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5.8c0 .7.3 1.3.8 1.7L18 14H6l1.2-1.5c.5-.4.8-1 .8-1.7z"/>',
+}
 
-    /** Ünnep-rang: nagy (Húsvét, Pünkösd, Karácsony) / közép (passió+reformáció) / kis (Újév) */
-    function holidayRank(name: string): 'major' | 'mid' | 'minor' {
-      const majorNames = ['Húsvét', 'Pünkösd', 'Karácsony']
-      const midNames = ['Virágvasárnap', 'Nagypéntek', 'Áldozócsütörtök (Mennybemenetel)', 'Szenteste', 'Reformáció napja']
-      if (majorNames.some((n) => name.includes(n))) return 'major'
-      if (midNames.includes(name)) return 'mid'
-      return 'minor'
+type Rank = 'major' | 'mid' | 'minor'
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+function easterSunday(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31)
+  const day = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(year, month - 1, day)
+}
+function addDays(date: Date, n: number): Date { const d = new Date(date); d.setDate(d.getDate() + n); return d }
+function ymdE(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+
+function reformedHolidays(year: number): Record<string, { name: string; rank: Rank }> {
+  const easter = easterSunday(year)
+  const list: { date: Date; name: string; rank: Rank }[] = [
+    { date: new Date(year, 0, 1), name: 'Újév', rank: 'minor' },
+    { date: addDays(easter, -2), name: 'Nagypéntek', rank: 'mid' },
+    { date: easter, name: 'Húsvét', rank: 'major' },
+    { date: addDays(easter, 1), name: 'Húsvéthétfő', rank: 'major' },
+    { date: addDays(easter, 39), name: 'Áldozócsütörtök', rank: 'mid' },
+    { date: addDays(easter, 49), name: 'Pünkösd', rank: 'major' },
+    { date: addDays(easter, 50), name: 'Pünkösdhétfő', rank: 'major' },
+    { date: new Date(year, 9, 31), name: 'Reformáció ünnepe', rank: 'mid' },
+    { date: new Date(year, 11, 24), name: 'Szenteste', rank: 'mid' },
+    { date: new Date(year, 11, 25), name: 'Karácsony', rank: 'major' },
+    { date: new Date(year, 11, 26), name: 'Karácsony 2. napja', rank: 'major' },
+  ]
+  const map: Record<string, { name: string; rank: Rank }> = {}
+  list.forEach((h) => { map[ymdE(h.date)] = { name: h.name, rank: h.rank } })
+  return map
+}
+
+function fmtRange(p: Program): string {
+  const d1 = new Date(p.datum + 'T00:00:00')
+  if (p.datum_vege && p.datum_vege !== p.datum) {
+    const d2 = new Date(p.datum_vege + 'T00:00:00')
+    if (d1.getMonth() === d2.getMonth()) return `${HU_MO_SHORT[d1.getMonth()]} ${d1.getDate()}–${d2.getDate()}.`
+    return `${HU_MO_SHORT[d1.getMonth()]} ${d1.getDate()}. – ${HU_MO_SHORT[d2.getMonth()]} ${d2.getDate()}.`
+  }
+  return `${HU_MO_SHORT[d1.getMonth()]} ${d1.getDate()}.`
+}
+
+function buildMiniMonth(
+  year: number, month: number,
+  eventsByDate: Record<string, Program[]>,
+  holidayMap: Record<string, { name: string; rank: Rank }>,
+  todayStr: string,
+): string {
+  const dim = new Date(year, month + 1, 0).getDate()
+  let startDow = new Date(year, month, 1).getDay() - 1
+  if (startDow < 0) startDow = 6
+  let cells = ''
+  for (let i = 0; i < startDow; i++) cells += '<div class="ep-mc ep-empty"></div>'
+  for (let d = 1; d <= dim; d++) {
+    const ds = ymdE(new Date(year, month, d))
+    const isSun = new Date(year, month, d).getDay() === 0
+    const evts = eventsByDate[ds] || []
+    const hol = holidayMap[ds]
+    const isToday = ds === todayStr
+    const dotColors: string[] = []
+    for (const e of evts) {
+      const c = PROG_TIPUS_COLOR[e.tipus] || '#94a3b8'
+      if (!dotColors.includes(c) && dotColors.length < 3) dotColors.push(c)
     }
-
-    /** Az összes ünnep-nap (duration-t figyelve) + rang kiterjesztve YYYY-MM-DD → info */
-    interface HolidayCellInfo {
-      name: string
-      rank: 'major' | 'mid' | 'minor'
+    let cls = 'ep-mc'
+    if (isSun) cls += ' ep-sun'
+    if (hol) cls += ' ep-hol ep-hol-' + hol.rank
+    if (isToday) cls += ' ep-today'
+    const title = hol ? hol.name : (evts.length ? evts.map((e) => e.cim).join(', ') : '')
+    let inner = `<span class="ep-dn">${d}</span>`
+    if (hol) inner += '<span class="ep-cross">✝</span>'
+    else if (dotColors.length > 0) {
+      inner += '<span class="ep-dots">' + dotColors.map((c) => `<span class="ep-dot" style="background:${c}"></span>`).join('') + '</span>'
     }
-    const holidayByDate = new Map<string, HolidayCellInfo>()
-    holidays.forEach((h) => {
-      const rank = holidayRank(h.name)
-      const startDate = new Date(h.date + 'T00:00:00')
-      const duration = h.durationDays ?? 1
-      for (let d = 0; d < duration; d++) {
-        const dt = new Date(startDate)
-        dt.setDate(startDate.getDate() + d)
-        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-        holidayByDate.set(key, { name: h.name, rank })
-      }
-    })
+    cells += `<div class="${cls}" title="${esc(title)}">${inner}</div>`
+  }
+  const heads = CAL_DOW.map((dn, i) => `<div class="ep-dow${i === 6 ? ' ep-dow-sun' : ''}">${dn}</div>`).join('')
+  return `<div class="ep-month"><div class="ep-month-name">${HU_MO[month]}</div><div class="ep-cal">${heads}${cells}</div></div>`
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // 3. Használt program-típusok (jelmagyarázat-hoz)
-    // ═══════════════════════════════════════════════════════════════
-    const usedTypes = new Set(allPrograms.map((e) => e.tipus))
+export function AnnualPlanPrint({ allPrograms, year, congregationName: rawCongName, congregationLogo }: AnnualPlanPrintProps) {
+  const [open, setOpen] = useState(false)
+  const [vYear, setVYear] = useState(year)
+  const [vPrograms, setVPrograms] = useState<Program[]>(allPrograms)
+  const [loadingYear, setLoadingYear] = useState(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
-    // ═══════════════════════════════════════════════════════════════
-    // 4. HTML escape helper + egy hónap-naptár generálása
-    // ═══════════════════════════════════════════════════════════════
-    function esc(s: string) {
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    }
+  // Megnyitáskor a widget aktuális évéről indulunk
+  useEffect(() => {
+    if (open) { setVYear(year); setVPrograms(allPrograms) }
+  }, [open, year, allPrograms])
 
-    /**
-     * Egy hónap 6×7-es napi mátrixát építjük fel.
-     * A hét hétfővel kezdődik (európai / magyar konvenció).
-     */
-    function buildMonthCells(yr: number, m: number): Array<{
-      day: number | null
-      dateStr: string | null
-      isSunday: boolean
-      isSaturday: boolean
-      isToday: boolean
-      eventShort: string | null
-      eventFull: string | null
-      holiday: string | null
-      holidayRank: 'major' | 'mid' | 'minor' | null
-    }> {
-      const firstDay = new Date(yr, m, 1)
-      const daysInMonth = new Date(yr, m + 1, 0).getDate()
-      // Hétfővel kezdődő hét: hétfő = 0, kedd = 1, ..., vasárnap = 6
-      const firstDow = (firstDay.getDay() + 6) % 7
-      const cells: ReturnType<typeof buildMonthCells> = []
-      // Üres cellák a hónap eleje előtt
-      for (let i = 0; i < firstDow; i++) {
-        cells.push({
-          day: null, dateStr: null, isSunday: false, isSaturday: false,
-          isToday: false, eventShort: null, eventFull: null, holiday: null, holidayRank: null,
-        })
-      }
-      // A hónap napjai
-      for (let d = 1; d <= daysInMonth; d++) {
-        const date = new Date(yr, m, d)
-        const dow = (date.getDay() + 6) % 7 // hétfő = 0
-        const ds = `${yr}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-        const evts = eventsByDate[ds] || []
-        const holiday = holidayByDate.get(ds)
-        const eventShort = evts.length > 0
-          ? progEmoji(evts[0]) + (evts.length > 1 ? `+${evts.length - 1}` : '')
-          : null
-        const eventFull = evts.length > 0
-          ? evts.map((e) => `${progEmoji(e)} ${e.cim}`).join(' · ')
-          : null
-        cells.push({
-          day: d,
-          dateStr: ds,
-          isSunday: dow === 6,
-          isSaturday: dow === 5,
-          isToday: ds === todayStr,
-          eventShort,
-          eventFull,
-          holiday: holiday?.name || null,
-          holidayRank: holiday?.rank || null,
-        })
-      }
-      // Feltöltjük 42 cellára (6 hét × 7 nap)
-      while (cells.length < 42) {
-        cells.push({
-          day: null, dateStr: null, isSunday: false, isSaturday: false,
-          isToday: false, eventShort: null, eventFull: null, holiday: null, holidayRank: null,
-        })
-      }
-      return cells
-    }
+  // ESC + görgetés-zár
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
+  }, [open])
 
-    // ═══════════════════════════════════════════════════════════════
-    // 5. HTML-generálás — 12 mini-naptár CSS Grid-alapon
-    //    (2026-04-21s — HTML table helyett CSS Grid: egyenlő cella-méret,
-    //     egységes rács-vonalak gap + háttérszín trükkel)
-    // ═══════════════════════════════════════════════════════════════
-    const DOW_NAMES = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V']
-
-    const monthBlocks = Array.from({ length: 12 }, (_, m) => {
-      const cells = buildMonthCells(year, m)
-
-      // Fejléc (napok rövidítése) — 7 div
-      const headersHtml = DOW_NAMES
-        .map((d, i) => {
-          const cls = i === 6 ? 'dow-hdr sun' : i === 5 ? 'dow-hdr sat' : 'dow-hdr'
-          return `<div class="${cls}">${d}</div>`
-        })
-        .join('')
-
-      // Nap-cellák (42 db) — grid sorokba rendezve, ünnep-rang szerinti kiemeléssel
-      const cellsHtml = cells
-        .map((c) => {
-          if (c.day === null) return '<div class="mc empty"></div>'
-          const classes = ['mc']
-          if (c.isSunday) classes.push('sun')
-          else if (c.isSaturday) classes.push('sat')
-          if (c.holidayRank) classes.push(`holiday-${c.holidayRank}`)
-          if (c.eventShort) classes.push('has-event')
-          if (c.isToday) classes.push('today')
-          const tooltipParts: string[] = []
-          if (c.holiday) tooltipParts.push(`✝ ${c.holiday}`)
-          if (c.eventFull) tooltipParts.push(c.eventFull)
-          const title = tooltipParts.length > 0 ? ` title="${esc(tooltipParts.join(' — '))}"` : ''
-          // Marker prioritás: program-marker > ünnep-marker
-          let marker = ''
-          if (c.eventShort) {
-            marker = `<span class="marker">${c.eventShort}</span>`
-          } else if (c.holidayRank === 'major') {
-            marker = '<span class="marker holiday-marker-major">✝</span>'
-          } else if (c.holidayRank === 'mid') {
-            marker = '<span class="marker holiday-marker-mid">✝</span>'
-          } else if (c.holidayRank === 'minor') {
-            marker = '<span class="marker holiday-marker-minor">✝</span>'
-          }
-          return `<div class="${classes.join(' ')}"${title}><span class="dn">${c.day}</span>${marker}</div>`
-        })
-        .join('')
-
-      return `
-        <div class="month-block">
-          <div class="month-title">${HU_MONTHS[m]}</div>
-          <div class="mini-cal">${headersHtml}${cellsHtml}</div>
-        </div>
-      `
-    }).join('')
-
-    // ═══════════════════════════════════════════════════════════════
-    // 6. Oldalsáv tartalma — ünnepek + programok, dátum szerint rendezve
-    // ═══════════════════════════════════════════════════════════════
-
-    /** Magyar rövid dátumformázó: "10 jan", "14-16 jún" (tartomány esetén) */
-    function formatDateRange(startDate: Date, endDate?: Date): string {
-      const sd = startDate.getDate()
-      const sm = HU_MONTHS[startDate.getMonth()].slice(0, 3).toLowerCase()
-      if (!endDate) return `${String(sd).padStart(2, '0')} ${sm}`
-      const ed = endDate.getDate()
-      const em = HU_MONTHS[endDate.getMonth()].slice(0, 3).toLowerCase()
-      // Ugyanaz a hónap → "14-16 jún"
-      if (sm === em) return `${String(sd).padStart(2, '0')}-${String(ed).padStart(2, '0')} ${sm}`
-      // Különböző hónap → "28 márc - 02 ápr"
-      return `${String(sd).padStart(2, '0')} ${sm} - ${String(ed).padStart(2, '0')} ${em}`
-    }
-
-    /** Két szekcióra bontott sidebar: felül ÜNNEPEK (aranyszínű), alatta PROGRAMOK */
-    interface ProgramItem {
-      startDate: Date
-      endDate?: Date
-      label: string
-      color: string
-    }
-    interface HolidayItem {
-      startDate: Date
-      endDate?: Date
-      name: string
-      rank: 'major' | 'mid' | 'minor'
-    }
-
-    const programItems: ProgramItem[] = allPrograms
-      .map((e): ProgramItem => {
-        const sd = new Date(e.datum + 'T00:00:00')
-        const ed = e.datum_vege ? new Date(e.datum_vege + 'T00:00:00') : undefined
-        return {
-          startDate: sd,
-          endDate: ed && ed.getTime() !== sd.getTime() ? ed : undefined,
-          label: `${progEmoji(e)} ${e.cim}`,
-          color: PROG_TIPUS_COLOR[e.tipus] || '#64748b',
-        }
-      })
-      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
-
-    const holidayItems: HolidayItem[] = holidays
-      .map((h): HolidayItem => {
-        const sd = new Date(h.date + 'T00:00:00')
-        const duration = h.durationDays ?? 1
-        const ed = duration > 1 ? new Date(sd.getTime() + (duration - 1) * 86400000) : undefined
-        return {
-          startDate: sd,
-          endDate: ed,
-          name: h.name,
-          rank: holidayRank(h.name),
-        }
-      })
-      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
-
-    const holidayListHtml = holidayItems.length === 0
-      ? '<p class="event-list-empty">Nincsenek az évre eső ünnepek.</p>'
-      : holidayItems
-          .map((item) => {
-            const dateStr = formatDateRange(item.startDate, item.endDate)
-            return `<div class="holiday-item holiday-item-${item.rank}">
-          <span class="hl-mark">✝</span>
-          <div class="hl-body">
-            <span class="hl-date">${dateStr}</span>
-            <span class="hl-name">${esc(item.name)}</span>
-          </div>
-        </div>`
-          })
-          .join('')
-
-    const programListHtml = programItems.length === 0
-      ? '<p class="event-list-empty">Még nincs rögzített gyülekezeti program.</p>'
-      : programItems
-          .map((item) => {
-            const dateStr = formatDateRange(item.startDate, item.endDate)
-            return `<div class="event-item" style="border-left-color: ${item.color}">
-          <span class="event-date">${dateStr}</span>
-          <span class="event-title">${esc(item.label)}</span>
-        </div>`
-          })
-          .join('')
-
-    const pdfFilename = `${congregationName} - Eves programterv ${year}.pdf`
-
-    // ═══════════════════════════════════════════════════════════════
-    // 7. A teljes HTML
-    // ═══════════════════════════════════════════════════════════════
-    const html = `<!DOCTYPE html><html lang="hu"><head><meta charset="UTF-8">
-      <title>${esc(congregationName)} — Éves programterv ${year}</title>
-      <style>
-        /* A4 landscape keskeny margóval — minden pixel a tartalomé */
-        @page { size: A4 landscape; margin: 5mm; }
-        @media print { .toolbar { display: none !important; } }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          font-family: 'Georgia', 'Cambria', 'Times New Roman', serif;
-          color: #1e2c3a;
-          background: linear-gradient(135deg, #f8fafc 0%, #f0fdfa 100%);
-        }
-
-        /* ─── Toolbar (csak képernyőn) ─── */
-        .toolbar {
-          position: sticky; top: 0; z-index: 100;
-          background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
-          padding: 10px 24px;
-          display: flex; align-items: center; justify-content: space-between;
-          box-shadow: 0 4px 16px rgba(13, 148, 136, 0.2);
-          font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        .toolbar .title { color: #fff; font-size: 15px; font-weight: 700; }
-        .toolbar .sub { color: rgba(255,255,255,0.75); font-size: 11px; margin-left: 10px; }
-        .tb-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px;
-          border-radius: 10px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
-        .tb-btn-print { background: #fff; color: #0f766e; }
-        .tb-btn-pdf { background: #f59e0b; color: #fff; }
-        .tb-btn-close { background: rgba(255,255,255,0.15); color: #fff; }
-
-        /* ─── Oldal-keret — tölti a teljes magasságot ─── */
-        html, body { height: 100%; }
-        .page-wrap {
-          background: #fff;
-          max-width: 100%;
-          min-height: calc(100vh - 16px);
-          margin: 8px auto;
-          padding: 8px 12px 8px;
-          border-radius: 10px;
-          box-shadow: 0 6px 24px rgba(15, 118, 110, 0.1);
-          border: 1px solid #ccfbf1;
-          display: flex;
-          flex-direction: column;
-        }
-        @media print {
-          body { background: #fff; }
-          .page-wrap {
-            margin: 0;
-            padding: 2mm 0;
-            border-radius: 0;
-            box-shadow: none;
-            max-width: 100%;
-            border: none;
-            min-height: 100vh;
-            height: 100vh;
-          }
-        }
-
-        /* ─── Fejléc (redesign 2026-04-21u — ornamentális, évszakos) ─── */
-        .hdr {
-          display: grid;
-          grid-template-columns: auto 1fr auto;
-          gap: 14px;
-          align-items: center;
-          padding: 4px 4px 8px;
-          border-bottom: 3px solid #0f766e;
-          margin-bottom: 8px;
-          position: relative;
-        }
-        /* Decorative felső sáv — arany + teal közötti ékkő */
-        .hdr::after {
-          content: '';
-          position: absolute;
-          bottom: -3px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 40px;
-          height: 3px;
-          background: linear-gradient(90deg, #f59e0b, #d97706);
-          border-radius: 2px;
-        }
-        .hdr-logo {
-          width: 64px; height: 64px;
-          border-radius: 10px; overflow: hidden;
-          background: linear-gradient(135deg, #f0fdfa, #ccfbf1);
-          display: flex; align-items: center; justify-content: center;
-          border: 2px solid #0f766e;
-          box-shadow: 0 2px 8px rgba(15, 118, 110, 0.18);
-        }
-        .hdr-logo img { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
-        .hdr-logo-fallback { font-size: 36px; color: #0f766e; }
-
-        .hdr-text { text-align: center; padding: 0 8px; }
-        .hdr-church {
-          font-size: 18px; font-weight: 800; color: #0f766e;
-          text-transform: uppercase; letter-spacing: 0.1em;
-          font-family: 'Georgia', serif;
-        }
-        .hdr-title {
-          font-size: 10px; color: #475569; font-weight: 600;
-          margin-top: 2px; letter-spacing: 0.18em; text-transform: uppercase;
-        }
-        .hdr-motto {
-          margin-top: 4px; font-style: italic;
-          color: #475569; font-size: 9px;
-          max-width: 440px; margin-left: auto; margin-right: auto;
-          line-height: 1.35;
-        }
-        .hdr-counters {
-          display: flex; justify-content: center; gap: 8px; margin-top: 5px;
-        }
-        .hdr-counter {
-          display: inline-flex; align-items: center; gap: 4px;
-          padding: 2px 7px; border-radius: 10px;
-          font-size: 8.5px; font-weight: 700;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-          letter-spacing: 0.03em;
-        }
-        .hdr-counter.c-programs { background: #ccfbf1; color: #115e59; border: 1px solid #5eead4; }
-        .hdr-counter.c-holidays { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
-        .hdr-counter-num { font-weight: 900; font-size: 9.5px; }
-
-        .hdr-year-badge {
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          width: 88px; height: 76px;
-          background: linear-gradient(135deg, #f59e0b 0%, #d97706 60%, #b45309 100%);
-          border-radius: 11px;
-          color: #fff;
-          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-          border: 1.5px solid #fcd34d;
-          position: relative;
-          overflow: hidden;
-        }
-        .hdr-year-badge::before {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0;
-          height: 20px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent);
-        }
-        .hdr-year-badge .year-label { font-size: 8.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.95; z-index: 1; }
-        .hdr-year-badge .year-num { font-size: 32px; font-weight: 900; line-height: 1; z-index: 1; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
-
-        /* ─── Fő grid: 4×3 mini-naptár + esemény-lista oldalsávon ─── */
-        /* A4 landscape keskeny margóval: ~287mm × 200mm tartalomhely */
-        /* flex: 1 → kitölti a page-wrap fennmaradó részét, nincs üres tér */
-        .main-grid {
-          display: grid;
-          grid-template-columns: 1fr 165px;
-          gap: 8px;
-          flex: 1;
-          min-height: 0;
-        }
-        .calendars {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          grid-template-rows: repeat(3, 1fr);
-          gap: 5px;
-          min-height: 0;
-        }
-        /* ─── Egy hónap-blokk (kompakt, flex-colum a mini-cal nyúláshoz) ─── */
-        .month-block {
-          background: #fff;
-          border: 1.3px solid #0f766e;
-          border-radius: 7px;
-          padding: 4px 5px 5px;
-          box-shadow: 0 1px 4px rgba(15, 118, 110, 0.08);
-          display: flex;
-          flex-direction: column;
-          min-height: 0;
-        }
-        .month-title {
-          text-align: center;
-          font-size: 11px;
-          font-weight: 800;
-          color: #0f766e;
-          font-family: 'Georgia', serif;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          padding: 1px 0 3px;
-          margin-bottom: 3px;
-          border-bottom: 1.3px solid #0f766e;
-          flex-shrink: 0;
-        }
-
-        /* ─── Mini-naptár CSS Grid alapon (2026-04-21s) ───
-           7 oszlop × 7 sor (1 fejléc + 6 hét).
-           A "gap: 1px" + "background: #cbd5e1" trükk: a grid közti
-           résekben a háttérszín látszódik — egységes rács-vonalak.
-           A cellák "minmax(0, 1fr)" → mindegyik egyenlő méretű. */
-        .mini-cal {
-          display: grid;
-          grid-template-columns: repeat(7, minmax(0, 1fr));
-          grid-template-rows: auto repeat(6, minmax(0, 1fr));
-          gap: 1px;
-          background: #cbd5e1;
-          padding: 1px;
-          border: 1px solid #cbd5e1;
-          border-radius: 4px;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-          font-size: 9px;
-          flex: 1;
-          min-height: 0;
-          width: 100%;
-        }
-
-        .dow-hdr {
-          font-size: 7.5px;
-          font-weight: 700;
-          color: #0f766e;
-          text-align: center;
-          padding: 2px 0;
-          background: #f0fdfa;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .dow-hdr.sun { color: #dc2626; background: #fef2f2; }
-        .dow-hdr.sat { color: #b45309; background: #fffbeb; }
-
-        .mc {
-          padding: 1px 2px;
-          position: relative;
-          background: #fff;
-          color: #334155;
-          display: flex;
-          flex-direction: column;
-          align-items: stretch;
-          justify-content: flex-start;
-          min-width: 0;
-          min-height: 0;
-          overflow: hidden;
-        }
-        .mc.empty { background: #f8fafc; }
-        .mc.sun { background: #fff1f2; }
-        .mc.sun .dn { color: #dc2626; font-weight: 600; }
-        .mc.sat { background: #fffbeb; }
-        .mc.sat .dn { color: #b45309; font-weight: 600; }
-
-        /* ─── Ünnep-rang szerinti kiemelés (2026-04-21u) ───
-           Major: Húsvét, Pünkösd, Karácsony — vörös/arany, vastag keret
-           Mid:   Virágvasárnap, Nagypéntek, Áldozócsütörtök, Szenteste, Reformáció — arany
-           Minor: Újév — halvány arany */
-        .mc.holiday-major:not(.has-event) {
-          background: linear-gradient(135deg, #fecaca 0%, #fef3c7 100%);
-          box-shadow: inset 0 0 0 2px #dc2626;
-        }
-        .mc.holiday-major:not(.has-event) .dn { color: #991b1b; font-weight: 900; font-size: 10px; }
-        .mc.holiday-mid:not(.has-event) {
-          background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
-          box-shadow: inset 0 0 0 1.5px #d97706;
-        }
-        .mc.holiday-mid:not(.has-event) .dn { color: #92400e; font-weight: 800; }
-        .mc.holiday-minor:not(.has-event) {
-          background: #fffbeb;
-          box-shadow: inset 0 0 0 1px #f59e0b;
-        }
-        .mc.holiday-minor:not(.has-event) .dn { color: #b45309; font-weight: 700; }
-
-        .mc.has-event { background: #ecfdf5; box-shadow: inset 0 0 0 1.3px #10b981; }
-        .mc.has-event .dn { color: #047857; font-weight: 700; }
-        /* Ha egyszerre ünnep is + program is → mindkettő tükröződjön */
-        .mc.has-event.holiday-major { background: linear-gradient(135deg, #ecfdf5 0%, #fef3c7 50%, #fecaca 100%) !important; box-shadow: inset 0 0 0 1.8px #dc2626; }
-        .mc.has-event.holiday-mid { background: linear-gradient(135deg, #ecfdf5 0%, #fef3c7 100%) !important; box-shadow: inset 0 0 0 1.5px #d97706; }
-        .mc.today { background: #d1fae5 !important; box-shadow: inset 0 0 0 1.8px #059669; z-index: 2; }
-        .mc.today .dn { color: #064e3b; font-weight: 800; }
-
-        .mc .dn {
-          display: block;
-          font-size: 9px;
-          font-weight: 500;
-          line-height: 1;
-          text-align: right;
-          padding-right: 2px;
-        }
-        .mc .marker {
-          display: block;
-          font-size: 7px;
-          line-height: 1.1;
-          margin-top: 1px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 100%;
-          text-align: left;
-          padding-left: 2px;
-        }
-        .mc .marker.holiday-marker-major { color: #dc2626; font-weight: 900; text-align: center; font-size: 9px; }
-        .mc .marker.holiday-marker-mid { color: #d97706; font-weight: 800; text-align: center; font-size: 8.5px; }
-        .mc .marker.holiday-marker-minor { color: #b45309; font-weight: 700; text-align: center; font-size: 8px; }
-
-        /* ─── Sidebar: két szekció (ÜNNEPEK felül, PROGRAMOK alul) ─── */
-        .event-sidebar {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          overflow: hidden;
-          min-height: 0;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-
-        /* ── Ünnepek szekció — aranyló, dombornyomott érzés ── */
-        .holiday-section {
-          background: linear-gradient(135deg, #fef3c7 0%, #fef9e7 50%, #fff 100%);
-          border: 1.5px solid #f59e0b;
-          border-radius: 7px;
-          padding: 6px 7px 8px;
-          box-shadow: 0 2px 6px rgba(245, 158, 11, 0.15);
-          flex-shrink: 0;
-        }
-        .holiday-section h3 {
-          font-size: 9.5px;
-          font-weight: 800;
-          color: #92400e;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-          padding-bottom: 3px;
-          border-bottom: 1.5px solid #f59e0b;
-          margin-bottom: 4px;
-          font-family: 'Georgia', serif;
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .holiday-section h3::before { content: '✝'; font-size: 12px; color: #dc2626; }
-
-        .holiday-item {
-          display: flex;
-          align-items: flex-start;
-          gap: 5px;
-          padding: 3px 4px;
-          font-size: 7.8px;
-          line-height: 1.25;
-          margin-bottom: 2px;
-          border-radius: 4px;
-        }
-        .holiday-item.holiday-item-major {
-          background: linear-gradient(90deg, rgba(254, 202, 202, 0.8) 0%, rgba(254, 243, 199, 0.4) 100%);
-          border-left: 3px solid #dc2626;
-          padding-left: 6px;
-        }
-        .holiday-item.holiday-item-major .hl-name { color: #991b1b; font-weight: 800; font-size: 8.2px; }
-        .holiday-item.holiday-item-mid {
-          background: rgba(254, 243, 199, 0.6);
-          border-left: 2.5px solid #d97706;
-          padding-left: 5px;
-        }
-        .holiday-item.holiday-item-mid .hl-name { color: #92400e; font-weight: 700; }
-        .holiday-item.holiday-item-minor {
-          background: rgba(255, 251, 235, 0.8);
-          border-left: 2px solid #f59e0b;
-          padding-left: 4px;
-        }
-        .holiday-item.holiday-item-minor .hl-name { color: #b45309; font-weight: 600; }
-
-        .hl-mark { color: #dc2626; font-weight: 900; flex-shrink: 0; font-size: 9px; line-height: 1; padding-top: 1px; }
-        .holiday-item.holiday-item-mid .hl-mark { color: #d97706; }
-        .holiday-item.holiday-item-minor .hl-mark { color: #f59e0b; }
-        .hl-body { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 0.5px; }
-        .hl-date { font-family: 'Consolas', monospace; font-size: 6.8px; color: #78350f; font-weight: 600; letter-spacing: 0.03em; }
-        .hl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-        /* ── Programok szekció — teal-es, folytatja a fő témát ── */
-        .programs-section {
-          background: linear-gradient(135deg, #f0fdfa, #fff);
-          border: 1px solid #ccfbf1;
-          border-radius: 7px;
-          padding: 6px 7px 8px;
-          flex: 1;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          min-height: 0;
-        }
-        .programs-section h3 {
-          font-size: 9.5px;
-          font-weight: 700;
-          color: #0f766e;
-          text-transform: uppercase;
-          letter-spacing: 0.07em;
-          padding-bottom: 3px;
-          border-bottom: 1.3px solid #0f766e;
-          margin-bottom: 4px;
-          font-family: 'Georgia', serif;
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .programs-section h3::before { content: '📅'; font-size: 10px; }
-        .programs-list {
-          overflow: hidden;
-          min-height: 0;
-        }
-        .event-item {
-          padding: 2px 5px 2px 6px;
-          font-size: 7.5px;
-          line-height: 1.25;
-          border-left: 2.2px solid #64748b;
-          margin-bottom: 2px;
-          background: rgba(255, 255, 255, 0.7);
-          border-radius: 0 3px 3px 0;
-          display: flex;
-          gap: 4px;
-          align-items: baseline;
-        }
-        .event-date { font-family: 'Consolas', monospace; color: #0f766e; font-weight: 600; font-size: 7px; flex-shrink: 0; min-width: 48px; }
-        .event-title { color: #334155; overflow: hidden; text-overflow: ellipsis; }
-        .event-list-empty { font-size: 9px; color: #94a3b8; font-style: italic; text-align: center; padding: 10px 0; }
-
-        /* ─── Jelmagyarázat (kompakt) ─── */
-        .legend {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 2px 10px;
-          justify-content: center;
-          margin-top: 5px;
-          padding: 4px 10px;
-          background: linear-gradient(135deg, #f0fdfa, #ffffff);
-          border-radius: 6px;
-          border: 1px solid #ccfbf1;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        .legend-item { display: inline-flex; align-items: center; gap: 3px; font-size: 7.5px; color: #475569; }
-        .legend-title { font-weight: 700; color: #0f766e; font-size: 8px; text-transform: uppercase; letter-spacing: 0.07em; }
-        .legend-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
-        .legend-sep { width: 1px; height: 12px; background: #cbd5e1; margin: 0 4px; }
-        /* Ünnep-rang swatch-ek — visszhangozzák a mini-naptár cellák színét */
-        .legend-swatch.legend-sw-major { background: linear-gradient(135deg, #fecaca, #fef3c7); border: 2px solid #dc2626; }
-        .legend-swatch.legend-sw-mid { background: linear-gradient(135deg, #fef3c7, #fffbeb); border: 1.5px solid #d97706; }
-        .legend-swatch.legend-sw-minor { background: #fffbeb; border: 1px solid #f59e0b; }
-
-        /* ─── Lábléc ─── */
-        .footer {
-          text-align: center;
-          margin-top: 4px;
-          font-size: 7.5px;
-          color: #64748b;
-          border-top: 1.3px solid #0f766e;
-          padding-top: 4px;
-          display: flex;
-          justify-content: space-between;
-          font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        .footer .mid { font-weight: 600; color: #0f766e; font-style: italic; }
-      </style>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/script>
-      <script>
-        function savePDF() {
-          var el = document.getElementById('print-content');
-          var tb = document.querySelector('.toolbar');
-          if (tb) tb.style.display = 'none';
-          html2pdf().set({
-            margin: 3,
-            filename: '${pdfFilename.replace(/'/g, "\\'")}',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
-          }).from(el).save().then(function() {
-            if (tb) tb.style.display = '';
-          });
-        }
-      <\/script>
-      </head><body>
-        <div class="toolbar">
-          <div>
-            <span class="title">Éves Programterv — ${year}</span>
-            <span class="sub">${esc(congregationName)} · ${allPrograms.length} program · ${holidays.length} ünnep</span>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button class="tb-btn tb-btn-print" onclick="window.print()">🖨 Nyomtatás</button>
-            <button class="tb-btn tb-btn-pdf" onclick="savePDF()">⬇ PDF mentés</button>
-            <button class="tb-btn tb-btn-close" onclick="window.close()">Bezárás</button>
-          </div>
-        </div>
-
-        <div class="page-wrap" id="print-content">
-          <div class="hdr">
-            <div class="hdr-logo">
-              ${congregationLogo
-                ? `<img src="${esc(congregationLogo)}" alt="Címer" crossorigin="anonymous"/>`
-                : `<span class="hdr-logo-fallback">✝</span>`
-              }
-            </div>
-            <div class="hdr-text">
-              <div class="hdr-church">${esc(congregationName)}</div>
-              <div class="hdr-title">Éves programterv · gyülekezeti kalendárium</div>
-              <div class="hdr-motto">&bdquo;Mindenkinek rendelt ideje van, és ideje van az ég alatt minden akaratnak." &mdash; Préd. 3:1</div>
-              <div class="hdr-counters">
-                <span class="hdr-counter c-programs">📅 <span class="hdr-counter-num">${allPrograms.length}</span> gyülekezeti program</span>
-                <span class="hdr-counter c-holidays">✝ <span class="hdr-counter-num">${holidays.length}</span> református ünnep</span>
-              </div>
-            </div>
-            <div class="hdr-year-badge">
-              <span class="year-label">Év</span>
-              <span class="year-num">${year}</span>
-            </div>
-          </div>
-
-          <div class="main-grid">
-            <div class="calendars">${monthBlocks}</div>
-            <aside class="event-sidebar">
-              <div class="holiday-section">
-                <h3>Református ünnepek</h3>
-                <div>${holidayListHtml}</div>
-              </div>
-              <div class="programs-section">
-                <h3>Gyülekezeti programok</h3>
-                <div class="programs-list">${programListHtml}</div>
-              </div>
-            </aside>
-          </div>
-
-          <div class="legend">
-            <span class="legend-item legend-title">Jelmagyarázat:</span>
-            ${Array.from(usedTypes)
-              .map(
-                (t) =>
-                  `<span class="legend-item"><span class="legend-swatch" style="background:${PROG_TIPUS_COLOR[t]}"></span>${PROG_TIPUS_EMOJI[t]} ${PROG_TIPUS_LABELS[t]}</span>`,
-              )
-              .join('')}
-            <span class="legend-sep"></span>
-            <span class="legend-item"><span class="legend-swatch legend-sw-major"></span>✝ Nagy ünnep (Húsvét, Pünkösd, Karácsony)</span>
-            <span class="legend-item"><span class="legend-swatch legend-sw-mid"></span>✝ Közép ünnep (passió, reformáció)</span>
-            <span class="legend-item"><span class="legend-swatch legend-sw-minor"></span>✝ Kis ünnep (Újév)</span>
-            <span class="legend-sep"></span>
-            <span class="legend-item"><span class="legend-swatch" style="background:#ecfdf5;border:1.5px solid #10b981;"></span>Program-nap</span>
-            <span class="legend-item"><span class="legend-swatch" style="background:#d1fae5;border:2px solid #059669;"></span>Ma</span>
-            <span class="legend-item"><span class="legend-swatch" style="background:#fff1f2;"></span>Vasárnap</span>
-          </div>
-
-          <div class="footer">
-            <span>Készült: ${formatHuDate(today)}</span>
-            <span class="mid">✝ ${esc(congregationName)} — ${year}. évi programterv</span>
-            <span>Kartotéka rendszer</span>
-          </div>
-        </div>
-      </body></html>`
-
-    const win = window.open('', '_blank')
-    if (win) {
-      win.document.write(html)
-      win.document.close()
+  async function changeYear(delta: number) {
+    const ny = vYear + delta
+    setVYear(ny)
+    setLoadingYear(true)
+    try {
+      const data = await getProgramsForYear(ny)
+      setVPrograms(data)
+    } catch {
+      setVPrograms([])
+    } finally {
+      setLoadingYear(false)
     }
   }
 
+  function buildHtml(yr: number, progs: Program[]): string {
+    const congregationName = rawCongName || 'Gyülekezet'
+    const verse = VEZERIGE[yr] || VEZERIGE_DEFAULT
+    const today = new Date()
+    const todayStr = ymdE(today)
+    const printDate = `${today.getFullYear()}. ${HU_MO[today.getMonth()].toLowerCase()} ${today.getDate()}.`
+
+    // Naptári pontok: ismétlődés feloldva, többnapos kezeléssel
+    const occurrences = expandProgramOccurrences(progs)
+    const eventsByDate: Record<string, Program[]> = {}
+    occurrences.forEach((e) => {
+      const sd = new Date(e.datum + 'T00:00:00')
+      const ed = e.datum_vege ? new Date(e.datum_vege + 'T00:00:00') : sd
+      for (let d = new Date(sd); d <= ed; d = addDays(d, 1)) {
+        const k = ymdE(d)
+        if (!eventsByDate[k]) eventsByDate[k] = []
+        if (!eventsByDate[k].some((x) => x.id === e.id)) eventsByDate[k].push(e)
+      }
+    })
+    const holidayMap = reformedHolidays(yr)
+
+    // Kiemelt alkalmak — a sorozatot egyszer (nyers programok), istentisztelet nélkül
+    const highlights = progs
+      .filter((p) => (p.prioritas === 'kiemelt' || p.prioritas === 'fontos') && p.tipus !== 'istentisztelet')
+      .sort((a, b) => (a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0))
+
+    const calendarsHtml = Array.from({ length: 12 }, (_, m) => buildMiniMonth(yr, m, eventsByDate, holidayMap, todayStr)).join('')
+
+    const highlightsHtml = highlights.length === 0
+      ? '<div class="ep-hl-item" style="border:0;color:var(--muted-foreground)">Ebben az évben még nincs kiemelt alkalom rögzítve.</div>'
+      : highlights.map((p) => {
+          const color = PROG_TIPUS_COLOR[p.tipus] || '#64748b'
+          const path = ICON_PATH_BY_TIPUS[p.tipus] || ICON_PATH_BY_TIPUS.egyeb
+          const star = p.prioritas === 'kiemelt' ? '<span class="ep-hl-star">★</span>' : ''
+          return `<div class="ep-hl-item">
+            <span class="ep-hl-ico" style="color:${color};background:color-mix(in oklab, ${color} 14%, #fff)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg></span>
+            <span class="ep-hl-date">${esc(fmtRange(p))}</span>
+            <span class="ep-hl-title">${esc(p.cim)}${star}</span>
+          </div>`
+        }).join('')
+
+    const logoHtml = congregationLogo
+      ? `<img class="ep-logo" src="${esc(congregationLogo)}" alt="Gyülekezet logója" crossorigin="anonymous"/>`
+      : `<div class="ep-logo" style="display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f0fdfa,#ccfbf1);color:var(--primary);font-size:34px;line-height:1;">✝</div>`
+
+    const pdfFilename = `${congregationName} - Eves programterv ${yr}.pdf`
+
+    return `<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${esc(congregationName)} — Éves programterv ${yr}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap"/>
+<style>
+  :root {
+    --background: #eef4ef; --paper: #fffdf8; --foreground: #294853;
+    --primary: #217c72; --primary-deep: #1a5f57; --accent: #f3c061; --accent-deep: #c79233;
+    --gold-ink: #8a6420; --muted: #edf6f1; --muted-foreground: #66848c; --border: #dbece4; --sun: #c0584a;
+    --font-serif: "Cormorant Garamond", "Palatino Linotype", Georgia, serif;
+    --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); color: var(--foreground); background: var(--background); -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 16px 12px 28px; }
+  .screen-scaler { transform-origin: top center; display: block; }
+
+  .ep-paper { width: 297mm; min-height: 210mm; margin: 0 auto; position: relative; background: var(--paper); padding: 8mm 12mm 6mm; box-shadow: 0 20px 60px -22px rgba(26, 95, 87, 0.4); border-radius: 3px; display: flex; flex-direction: column; }
+  .ep-topborder { position: absolute; top: 0; left: 0; right: 0; height: 7px; background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 50%, var(--primary) 100%); }
+
+  .ep-band { display: flex; align-items: stretch; gap: 16px; padding-top: 2mm; }
+  .ep-head { flex: 0 0 37%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .ep-logo { width: 74px; height: 74px; display: block; margin-bottom: 10px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px var(--border), 0 0 0 5px var(--paper), 0 0 0 6px color-mix(in oklab, var(--accent) 60%, transparent), 0 8px 18px -10px rgba(26,95,87,0.5); }
+  .ep-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--primary); }
+  .ep-church { font-family: var(--font-serif); font-weight: 600; font-size: 28px; line-height: 1.05; color: var(--foreground); margin-top: 5px; letter-spacing: 0.01em; }
+  .ep-ornament { display: flex; align-items: center; justify-content: center; gap: 11px; margin: 11px 0 9px; color: var(--accent-deep); }
+  .ep-orn-line { height: 1px; width: 72px; background: linear-gradient(90deg, transparent, var(--accent-deep)); }
+  .ep-orn-line:last-child { background: linear-gradient(90deg, var(--accent-deep), transparent); }
+  .ep-orn-diamond { width: 8px; height: 8px; background: var(--accent); transform: rotate(45deg); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent); }
+  .ep-year { font-family: var(--font-serif); font-size: 18px; color: var(--muted-foreground); }
+  .ep-year strong { color: var(--primary); font-weight: 700; font-size: 22px; }
+
+  .ep-verse { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 10px 22px; border-radius: 12px; background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 14%, var(--paper)), var(--paper)); border: 1px solid color-mix(in oklab, var(--accent) 50%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); position: relative; }
+  .ep-verse-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.26em; text-transform: uppercase; color: var(--accent-deep); margin-bottom: 7px; }
+  .ep-verse-text { display: block; font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: 21px; line-height: 1.35; color: var(--foreground); outline: none; margin: 0 0 7px; }
+  .ep-verse-ref { display: block; font-family: var(--font-serif); font-size: 14px; font-weight: 600; color: var(--primary); outline: none; }
+  [contenteditable]:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); border-radius: 4px; }
+  [contenteditable]:focus { box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); border-radius: 4px; }
+
+  .ep-calendars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px 10px; margin: 6px 0 2px; }
+  .ep-month { display: flex; flex-direction: column; }
+  .ep-month-name { font-family: var(--font-serif); font-weight: 600; font-size: 13px; color: var(--primary); text-align: center; padding-bottom: 3px; margin-bottom: 3px; border-bottom: 1.5px solid color-mix(in oklab, var(--primary) 30%, transparent); }
+  .ep-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+  .ep-dow { font-size: 7.5px; font-weight: 700; color: var(--muted-foreground); text-align: center; padding-bottom: 2px; text-transform: uppercase; }
+  .ep-dow-sun { color: var(--sun); }
+  .ep-mc { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5px; border-radius: 4px; min-height: 14px; padding: 1px 0; }
+  .ep-empty { background: transparent; }
+  .ep-dn { font-size: 9px; font-weight: 500; line-height: 1; color: var(--foreground); }
+  .ep-sun .ep-dn { color: var(--sun); font-weight: 600; }
+  .ep-dots { display: flex; gap: 1.5px; }
+  .ep-dot { width: 3px; height: 3px; border-radius: 50%; }
+  .ep-cross { font-size: 7px; color: var(--accent-deep); line-height: 1; }
+  .ep-hol { background: color-mix(in oklab, var(--accent) 22%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent); }
+  .ep-hol .ep-dn { color: var(--gold-ink); font-weight: 700; }
+  .ep-hol-major { background: color-mix(in oklab, var(--accent) 40%, var(--paper)); box-shadow: inset 0 0 0 1.3px var(--accent-deep); }
+  .ep-hol-major .ep-cross { color: var(--sun); font-weight: 700; }
+  .ep-today { box-shadow: inset 0 0 0 1.5px var(--primary); background: color-mix(in oklab, var(--primary) 12%, var(--paper)); }
+  .ep-today .ep-dn { color: var(--primary-deep); font-weight: 800; }
+
+  .ep-highlights { margin-top: 6px; }
+  .ep-h2 { display: flex; align-items: center; justify-content: center; gap: 14px; font-family: var(--font-serif); font-weight: 600; font-size: 16px; color: var(--primary); letter-spacing: 0.02em; margin-bottom: 8px; }
+  .ep-h2-rule { height: 1px; flex: 0 0 60px; background: color-mix(in oklab, var(--accent-deep) 60%, transparent); }
+  .ep-hl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px 26px; }
+  .ep-hl-item { display: flex; align-items: center; gap: 9px; padding: 2px 0; border-bottom: 1px dotted color-mix(in oklab, var(--border) 80%, var(--muted-foreground)); }
+  .ep-hl-ico { width: 25px; height: 25px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ep-hl-date { font-size: 11px; font-weight: 700; color: var(--primary); min-width: 62px; font-variant-numeric: tabular-nums; }
+  .ep-hl-title { font-size: 12.5px; color: var(--foreground); font-weight: 500; }
+  .ep-hl-star { color: var(--accent-deep); margin-left: 5px; font-size: 11px; }
+
+  .ep-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; margin-top: 6px; padding: 7px 14px; border-radius: 9px; background: var(--muted); border: 1px solid var(--border); }
+  .ep-leg-item { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted-foreground); }
+  .ep-leg-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .ep-leg-cross { color: var(--accent-deep); font-weight: 700; font-size: 12px; }
+  .ep-leg-sun { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; font-size: 9px; font-weight: 700; color: var(--sun); }
+  .ep-leg-star { color: var(--accent-deep); }
+
+  .ep-foot { margin-top: auto; padding-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1.5px solid color-mix(in oklab, var(--primary) 28%, transparent); font-size: 9px; color: var(--muted-foreground); }
+  .ep-foot-mid { font-family: var(--font-serif); font-style: italic; font-size: 11px; color: var(--primary); font-weight: 600; }
+  .ep-foot-brand { text-align: right; }
+  .ep-foot-brand strong { color: var(--primary); letter-spacing: 0.05em; }
+
+  @page { size: A4 landscape; margin: 0; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .screen-scaler { transform: none !important; height: auto !important; }
+    .ep-paper { width: 100%; min-height: 100vh; margin: 0; box-shadow: none; border-radius: 0; padding: 9mm 11mm 7mm; }
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/script>
+</head>
+<body>
+  <div class="screen-scaler">
+    <div class="ep-paper" id="print-content">
+      <div class="ep-topborder"></div>
+      <div class="ep-band">
+        <header class="ep-head">
+          ${logoHtml}
+          <div class="ep-head-text">
+            <div class="ep-eyebrow">Gyülekezeti programterv</div>
+            <h1 class="ep-church">${esc(congregationName)}</h1>
+            <div class="ep-ornament"><span class="ep-orn-line"></span><span class="ep-orn-diamond"></span><span class="ep-orn-line"></span></div>
+            <div class="ep-year">Az Úr <strong>${yr}.</strong> esztendeje</div>
+          </div>
+        </header>
+        <section class="ep-verse">
+          <div class="ep-verse-label">Az év vezérigéje</div>
+          <blockquote class="ep-verse-text" contenteditable spellcheck="false">&bdquo;${esc(verse.text)}&rdquo;</blockquote>
+          <div class="ep-verse-ref" contenteditable spellcheck="false">${esc(verse.ref)}</div>
+        </section>
+      </div>
+
+      <section class="ep-calendars">${calendarsHtml}</section>
+
+      <section class="ep-highlights">
+        <h2 class="ep-h2"><span class="ep-h2-rule"></span>Az év kiemelt alkalmai<span class="ep-h2-rule"></span></h2>
+        <div class="ep-hl-grid">${highlightsHtml}</div>
+      </section>
+
+      <section class="ep-legend">
+        <span class="ep-leg-item"><span class="ep-leg-dot" style="background:var(--primary)"></span> Gyülekezeti alkalom</span>
+        <span class="ep-leg-item"><span class="ep-leg-cross">✝</span> Egyházi ünnep</span>
+        <span class="ep-leg-item"><span class="ep-leg-sun">7</span> Vasárnap — istentisztelet</span>
+        <span class="ep-leg-item"><span class="ep-leg-star">★</span> Kiemelt alkalom</span>
+      </section>
+
+      <footer class="ep-foot">
+        <span>Készült: ${esc(printDate)}</span>
+        <span class="ep-foot-mid">✝ ${esc(congregationName)} · ${yr}. évi programterv</span>
+        <span class="ep-foot-side ep-foot-brand">Készült a <strong>KARTOTÉKA</strong> egyházi nyilvántartó rendszerrel</span>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      function fit(){
+        try {
+          if (window.matchMedia && window.matchMedia('print').matches) return;
+          var page = document.getElementById('print-content');
+          var scaler = document.querySelector('.screen-scaler');
+          if (!page || !scaler) return;
+          scaler.style.transform = 'none'; scaler.style.height = 'auto';
+          var avail = document.documentElement.clientWidth - 16;
+          var natural = page.offsetWidth;
+          if (!natural) return;
+          var scale = Math.min(1, avail / natural);
+          scaler.style.transform = 'scale(' + scale + ')';
+          scaler.style.height = Math.ceil(page.offsetHeight * scale) + 'px';
+        } catch (e) {}
+      }
+      window.ktFitPreview = fit;
+      window.addEventListener('resize', fit);
+      window.addEventListener('load', fit);
+      window.addEventListener('beforeprint', function(){ var s=document.querySelector('.screen-scaler'); if(s){ s.style.transform='none'; s.style.height='auto'; } });
+      window.addEventListener('afterprint', fit);
+      setTimeout(fit, 50); setTimeout(fit, 350);
+    })();
+    function savePDF(){
+      var el = document.getElementById('print-content');
+      var sc = document.querySelector('.screen-scaler');
+      if (sc) { sc.style.transform = 'none'; sc.style.height = 'auto'; }
+      html2pdf().set({
+        margin: 0,
+        filename: '${pdfFilename.replace(/'/g, "\\'")}',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+      }).from(el).save().then(function(){ if (window.ktFitPreview) window.ktFitPreview(); });
+    }
+    window.savePDF = savePDF;
+  <\/script>
+</body></html>`
+  }
+
+  function doPrint() { iframeRef.current?.contentWindow?.print() }
+  function doPdf() {
+    const w = iframeRef.current?.contentWindow as (Window & { savePDF?: () => void }) | null | undefined
+    if (w?.savePDF) w.savePDF()
+    else w?.print()
+  }
+
+  const html = open ? buildHtml(vYear, vPrograms) : ''
+
   return (
-    <Button variant="outline" size="sm" onClick={handlePrint}>
-      Éves terv nyomtatás
-    </Button>
+    <>
+      <button type="button" className="kt-btn kt-btn-outline" onClick={() => setOpen(true)}>
+        <Printer size={16} /> Éves terv
+      </button>
+
+      {open && typeof document !== 'undefined' && createPortal(
+        <div className="kt-modal-overlay kt-eves-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false) }}>
+          <div className="kt-eves-modal" role="dialog" aria-modal="true" aria-label={`Éves programterv ${vYear}`}>
+            <div className="kt-eves-head">
+              <div className="kt-modal-title">
+                <span className="kt-modal-ico"><Printer size={18} /></span>
+                <div>
+                  <h3>Éves programterv</h3>
+                  <div className="kt-modal-sub">{rawCongName || 'Gyülekezet'}</div>
+                </div>
+              </div>
+              <div className="kt-eves-actions">
+                <div className="kt-eves-yearnav">
+                  <button type="button" onClick={() => changeYear(-1)} disabled={loadingYear} aria-label="Előző év"><ChevronLeft size={16} /></button>
+                  <span>{vYear}</span>
+                  <button type="button" onClick={() => changeYear(1)} disabled={loadingYear} aria-label="Következő év"><ChevronRight size={16} /></button>
+                </div>
+                <button type="button" className="kt-btn kt-btn-outline" onClick={doPrint}><Printer size={16} /> Nyomtatás</button>
+                <button type="button" className="kt-btn kt-btn-outline" onClick={doPdf}><Download size={16} /> PDF mentés</button>
+                <button type="button" className="kt-modal-close" onClick={() => setOpen(false)} aria-label="Bezárás"><X size={18} /></button>
+              </div>
+            </div>
+            <div className="kt-eves-body">
+              <iframe ref={iframeRef} className="kt-eves-frame" title="Éves programterv előnézet" srcDoc={html} />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }

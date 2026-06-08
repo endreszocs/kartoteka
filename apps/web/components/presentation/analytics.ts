@@ -162,7 +162,7 @@ export function buildConclusions(data: PresentationData): Insight[] {
         ? 'A befizetők aránya alacsony. A következő év tervezésénél érdemes a pásztori látogatásokra nagyobb hangsúlyt fektetni.'
         : 'A befizetések közepes szinten érkeztek — van tér a növekedésnek.',
     metricLabel: 'Fizetők aránya',
-    metricValue: `${data.finance.egyhazfenntartas.paidMembers} / ${data.finance.egyhazfenntartas.activeMembers}`,
+    metricValue: `${data.finance.egyhazfenntartas.paidMembers} / ${data.finance.egyhazfenntartas.activeAdults}`,
   })
 
   return insights

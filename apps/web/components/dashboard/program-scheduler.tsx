@@ -1,16 +1,24 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+// ── Gyülekezeti programok widget (Claude Design átültetés, 2026-06-07) ──
+// Naptár (navigátor) + Agenda (részletes lista) szűk oszlopban, valós
+// adatokkal és szerver-action-ökkel. A napra kattintás SZŰRI az agendát.
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import {
+  CalendarDays, ChevronLeft, ChevronRight, ChevronDown, Sparkles,
+  Calendar as CalendarIcon, List as ListIcon, Plus, Rows3, Smile, Inbox,
+} from 'lucide-react'
 import { getProgramsForYear, deleteProgram, toggleProgramDone } from '@/app/(dashboard)/programs/actions'
 import { ProgramDialog } from '@/components/modals/program-dialog'
 import { BatchProgramDialog } from '@/components/modals/batch-program-dialog'
+import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
 import { ProgramCalendar } from './program-calendar'
-import { ProgramList } from './program-list'
+import { AgendaCard } from './program-agenda-card'
 import { AnnualPlanPrint } from './annual-plan-print'
-import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
+import { HU_MONTHS, HU_MONTHS_SHORT, HU_DAYS } from '@/lib/constants/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
+import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
+import { ymd, eventsForDay } from '@/lib/utils/program-day'
 import { toast } from 'sonner'
 
 interface ProgramSchedulerProps {
@@ -19,271 +27,336 @@ interface ProgramSchedulerProps {
   congregationLogo?: string | null
 }
 
+// ── Hónap-választó popover ──
+function MonthPicker({
+  year, month, today, onPick, onClose,
+}: {
+  year: number; month: number; today: Date
+  onPick: (y: number, m: number) => void; onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [vy, setVy] = useState(year)
+  useEffect(() => {
+    function out(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', out)
+    return () => document.removeEventListener('mousedown', out)
+  }, [onClose])
+  return (
+    <div className="kt-mp" ref={ref} role="dialog" aria-label="Hónap kiválasztása">
+      <div className="kt-mp-yearrow">
+        <button type="button" className="kt-mp-ybtn" onClick={() => setVy(vy - 1)} aria-label="Előző év">
+          <ChevronLeft size={18} />
+        </button>
+        <span className="kt-mp-year">{vy}</span>
+        <button type="button" className="kt-mp-ybtn" onClick={() => setVy(vy + 1)} aria-label="Következő év">
+          <ChevronRight size={18} />
+        </button>
+      </div>
+      <div className="kt-mp-grid">
+        {HU_MONTHS_SHORT.map((mn, i) => {
+          const active = vy === year && i === month
+          const isThis = vy === today.getFullYear() && i === today.getMonth()
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`kt-mp-month${active ? ' is-active' : ''}${isThis ? ' is-this' : ''}`}
+              onClick={() => onPick(vy, i)}
+            >
+              {mn}
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" className="kt-mp-today" onClick={() => onPick(today.getFullYear(), today.getMonth())}>
+        <CalendarDays size={14} /> Ugrás a mai hónapra
+      </button>
+    </div>
+  )
+}
+
 export function ProgramScheduler({ initialYear, congregationName, congregationLogo }: ProgramSchedulerProps) {
-  const [year, setYear] = useState(initialYear)
-  const [month, setMonth] = useState(new Date().getMonth())
+  const today = useMemo(() => { const t = new Date(); t.setHours(0, 0, 0, 0); return t }, [])
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
+  const [year, setYear] = useState(initialYear)
+  const [month, setMonth] = useState(today.getMonth())
+  const [selectedDay, setSelectedDay] = useState<number | null>(
+    initialYear === today.getFullYear() ? today.getDate() : null
+  )
+  const [view, setView] = useState<'honap' | 'lista'>('honap')
+  const [pickerOpen, setPickerOpen] = useState(false)
+
   const [programDialogOpen, setProgramDialogOpen] = useState(false)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
   const [editingProgram, setEditingProgram] = useState<Program | null>(null)
   const [defaultDate, setDefaultDate] = useState<string | null>(null)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
-  const today = new Date()
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth()
 
+  // ── Adatbetöltés ──
   const loadPrograms = useCallback(async (y: number) => {
-    const data = await getProgramsForYear(y)
-    setPrograms(data)
-    setLoading(false)
-  }, [])
-
-  const refreshPrograms = useCallback((targetYear = year) => {
     setLoading(true)
-    void loadPrograms(targetYear)
-  }, [year, loadPrograms])
+    try {
+      const data = await getProgramsForYear(y)
+      setPrograms(data)
+    } catch {
+      toast.error('A programok betöltése nem sikerült. Próbáld újra.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled) {
-        void loadPrograms(year)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
+    queueMicrotask(() => { if (!cancelled) void loadPrograms(year) })
+    return () => { cancelled = true }
   }, [year, loadPrograms])
 
-  // Hónapok szerinti csoportosítás
-  const programsByMonth: Record<number, Program[]> = {}
-  for (let i = 0; i < 12; i++) programsByMonth[i] = []
-  programs.forEach(p => {
-    const m = new Date(p.datum).getMonth()
-    if (programsByMonth[m]) programsByMonth[m].push(p)
-  })
+  const refreshPrograms = useCallback(() => { void loadPrograms(year) }, [year, loadPrograms])
 
-  const monthPrograms = programsByMonth[month] || []
+  // Ismétlődő programok feloldása a tényleges alkalmakra
+  const occurrences = useMemo(() => expandProgramOccurrences(programs), [programs])
 
-  // Hónapváltás
-  function navMonth(dir: number) {
-    let m = month + dir
-    let y = year
+  // Hó eseményei (a hónapot bármely napon érintők)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const monthPrograms = useMemo(() => {
+    const mStart = ymd(year, month, 1)
+    const mEnd = ymd(year, month, daysInMonth)
+    return occurrences.filter((p) => {
+      const s = p.datum
+      const e = p.datum_vege && p.datum_vege > p.datum ? p.datum_vege : p.datum
+      return s <= mEnd && e >= mStart
+    })
+  }, [occurrences, year, month, daysInMonth])
+  const doneCount = monthPrograms.filter((p) => p.teljesitett).length
+
+  // Lista nézet: a hónap minden napja eseményekkel csoportosítva
+  const listGroups = useMemo(() => {
+    const groups: { day: number; date: Date; events: Program[] }[] = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const evts = eventsForDay(occurrences, year, month, d)
+      if (evts.length) groups.push({ day: d, date: new Date(year, month, d), events: evts })
+    }
+    return groups
+  }, [occurrences, year, month, daysInMonth])
+
+  const selectedDate = selectedDay ? new Date(year, month, selectedDay) : null
+  const selectedEvents = selectedDay ? eventsForDay(occurrences, year, month, selectedDay) : []
+  const selectedIsToday = !!selectedDay && isCurrentMonth && selectedDay === today.getDate()
+
+  // ── Navigáció ──
+  function goMonth(delta: number) {
+    let m = month + delta, y = year
     if (m < 0) { m = 11; y-- }
     if (m > 11) { m = 0; y++ }
-    if (y !== year) {
-      setLoading(true)
-      setYear(y)
-    }
-    setMonth(m)
+    setYear(y); setMonth(m)
+    setSelectedDay(y === today.getFullYear() && m === today.getMonth() ? today.getDate() : 1)
+  }
+  function jumpTo(y: number, m: number) {
+    setYear(y); setMonth(m); setPickerOpen(false)
+    setSelectedDay(y === today.getFullYear() && m === today.getMonth() ? today.getDate() : 1)
+    setView('honap')
+  }
+  function goToday() {
+    setYear(today.getFullYear()); setMonth(today.getMonth())
+    setSelectedDay(today.getDate()); setView('honap')
   }
 
-  // Év-választó
-  // Év-választék: a jelenlegi évtől +5-re előre, -10 évig visszamenőleg —
-  // a lelkész előre is tervezhet, visszamenőleg is nyomtathat (2026-04-21q)
-  const yearOptions: number[] = []
-  for (let y = initialYear + 5; y >= initialYear - 10; y--) yearOptions.push(y)
-
-  // Naptár-nap kattintás → új program
-  function onDayClick(day: number) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    setEditingProgram(null)
-    setDefaultDate(dateStr)
-    setProgramDialogOpen(true)
+  // ── Műveletek (valós action-ök) ──
+  async function onToggleDone(p: Program) {
+    const result = await toggleProgramDone(p.id, !p.teljesitett)
+    if (result.error) toast.error(result.error)
+    else refreshPrograms()
   }
-
-  // Program szerkesztés
-  function onEdit(id: string) {
-    const prog = programs.find(p => p.id === id)
-    if (prog) {
-      setEditingProgram(prog)
-      setDefaultDate(null)
-      setProgramDialogOpen(true)
-    }
-  }
-
-  // Program törlés
-  async function onDelete(id: string) {
-    if (!confirm('Biztosan törlöd ezt a programot?')) return
-    const result = await deleteProgram(id)
+  async function confirmDelete() {
+    if (!deleteTargetId) return
+    setDeleting(true)
+    const result = await deleteProgram(deleteTargetId)
+    setDeleting(false)
     if (result.error) {
       toast.error(result.error)
     } else {
       toast.success('Program törölve.')
+      setDeleteTargetId(null)
       refreshPrograms()
     }
   }
-
-  // Teljesítve toggle
-  async function onToggleDone(id: string, done: boolean) {
-    const result = await toggleProgramDone(id, done)
-    if (result.error) {
-      toast.error(result.error)
-    } else {
-      refreshPrograms()
-    }
+  function openNew(dateStr: string | null) {
+    setEditingProgram(null); setDefaultDate(dateStr); setProgramDialogOpen(true)
   }
-
-  // Modal bezárás → újratöltés
+  function openEdit(p: Program) {
+    // Az alkalom a sorozat valódi adatbázis-sorát hordozza (id) — azt szerkesztjük
+    const real = programs.find((x) => x.id === p.id) || p
+    setEditingProgram(real); setDefaultDate(null); setProgramDialogOpen(true)
+  }
   function onDialogClose() {
-    setProgramDialogOpen(false)
-    setEditingProgram(null)
-    setDefaultDate(null)
-    refreshPrograms()
+    setProgramDialogOpen(false); setEditingProgram(null); setDefaultDate(null); refreshPrograms()
   }
-
   function onBatchClose() {
-    setBatchDialogOpen(false)
-    refreshPrograms()
-  }
-
-  function changeYear(delta: number) {
-    const newYear = year + delta
-    setLoading(true)
-    setYear(newYear)
-    setMonth(newYear === today.getFullYear() ? today.getMonth() : 0)
-  }
-
-  function jumpToYear(newYear: number) {
-    if (newYear === year) return
-    setLoading(true)
-    setYear(newYear)
-    setMonth(newYear === today.getFullYear() ? today.getMonth() : 0)
+    setBatchDialogOpen(false); refreshPrograms()
   }
 
   return (
-    <div className="card-raised relative flex h-full flex-col overflow-hidden">
-      <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-teal-100/55 blur-3xl" />
-      <div className="shrink-0 px-5 pb-3 pt-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-semibold text-slate-800">Gyülekezeti programok</h3>
-          {/* Év-léptetés — 2026-04-21u: a natív <select> nem volt egyértelmű,
-              ezért explicit gomb-pár + nagy év-badge + dropdown a gyors
-              ugráshoz (pl. 2028 → 2019). A gomb-pár rögtön látható, a
-              dropdown kompakt fallback régi évekhez. */}
-          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur">
-            <button
-              type="button"
-              onClick={() => changeYear(-1)}
-              aria-label="Előző év"
-              title="Előző év"
-              className="flex size-7 items-center justify-center rounded-md text-slate-600 transition hover:bg-teal-50 hover:text-teal-700"
-            >
-              ◄
-            </button>
-            <div className="relative">
-              <select
-                value={year}
-                onChange={(e) => jumpToYear(Number(e.target.value))}
-                aria-label="Év kiválasztása"
-                className="cursor-pointer appearance-none bg-transparent px-2 py-1 text-sm font-bold text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-200 rounded-md"
-              >
-                {yearOptions.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => changeYear(1)}
-              aria-label="Következő év"
-              title="Következő év"
-              className="flex size-7 items-center justify-center rounded-md text-slate-600 transition hover:bg-teal-50 hover:text-teal-700"
-            >
-              ►
-            </button>
-            {year !== today.getFullYear() && (
-              <button
-                type="button"
-                onClick={() => jumpToYear(today.getFullYear())}
-                aria-label="Vissza a jelenlegi évhez"
-                title="Jelenlegi évre"
-                className="ml-0.5 rounded-md border-l border-slate-200 bg-teal-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-teal-700 transition hover:bg-teal-100"
-              >
-                Ma
-              </button>
-            )}
-          </div>
+    <div className="card-raised kt-widget">
+      <div className="kt-glow" />
+
+      {/* Fejléc */}
+      <header className="kt-head">
+        <div className="kt-head-title">
+          <span className="kt-head-ico"><CalendarDays size={18} /></span>
+          <h3>Gyülekezeti programok</h3>
+        </div>
+        <button
+          type="button"
+          className="kt-today-btn"
+          onClick={goToday}
+          disabled={isCurrentMonth && selectedIsToday}
+        >
+          <Sparkles size={13} /> Ma
+        </button>
+      </header>
+
+      {/* Egységes navigáció */}
+      <div className="kt-nav">
+        <button type="button" className="kt-nav-arrow" onClick={() => goMonth(-1)} aria-label="Előző hónap">
+          <ChevronLeft size={20} />
+        </button>
+        <div className="kt-nav-center">
+          <button type="button" className="kt-nav-label" onClick={() => setPickerOpen((v) => !v)} aria-expanded={pickerOpen}>
+            <span className="kt-nav-month">{HU_MONTHS[month]}</span>
+            <span className="kt-nav-year">{year}</span>
+            <ChevronDown size={15} className="kt-nav-caret" />
+          </button>
+          {pickerOpen && (
+            <MonthPicker year={year} month={month} today={today} onPick={jumpTo} onClose={() => setPickerOpen(false)} />
+          )}
+        </div>
+        <button type="button" className="kt-nav-arrow" onClick={() => goMonth(1)} aria-label="Következő hónap">
+          <ChevronRight size={20} />
+        </button>
+      </div>
+
+      {/* Hó-összegzés + nézetváltó */}
+      <div className="kt-subbar">
+        <span className="kt-month-summary">
+          {monthPrograms.length === 0
+            ? 'Nincs program'
+            : <><strong>{monthPrograms.length}</strong> program · <strong>{doneCount}</strong> kész</>}
+        </span>
+        <div className="kt-viewtoggle" role="tablist" aria-label="Nézet">
+          <button type="button" role="tab" aria-selected={view === 'honap'} className={view === 'honap' ? 'is-active' : ''} onClick={() => setView('honap')}>
+            <CalendarIcon size={14} /> Hónap
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'lista'} className={view === 'lista' ? 'is-active' : ''} onClick={() => setView('lista')}>
+            <ListIcon size={14} /> Lista
+          </button>
         </div>
       </div>
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-5">
-        {/* Hónap-fülek */}
-        <div className="flex flex-wrap gap-1">
-          {HU_MONTHS_SHORT.map((name, i) => {
-            const count = programsByMonth[i]?.length || 0
-            const doneCount = (programsByMonth[i] || []).filter(p => p.teljesitett).length
-            const isActive = i === month
-            const isToday = year === today.getFullYear() && i === today.getMonth()
-            return (
-              <button
-                key={i}
-                onClick={() => setMonth(i)}
-                className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                  isActive ? 'bg-blue-600 text-white' : isToday ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100 text-slate-600'
-                }`}
-              >
-                {name}
-                {count > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className={`ml-1 text-[10px] px-1 py-0 ${
-                      doneCount === count ? 'bg-green-100 text-green-700' : 'bg-teal-100 text-teal-700'
-                    }`}
-                  >
-                    {doneCount}/{count}
-                  </Badge>
-                )}
-              </button>
-            )
-          })}
-        </div>
 
-        {/* Hónap navigáció */}
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={() => navMonth(-1)}>◄</Button>
-          <span className="text-sm font-semibold text-slate-700">
-            {HU_MONTHS_SHORT[month]} {year}
-          </span>
-          <Button variant="ghost" size="sm" onClick={() => navMonth(1)}>►</Button>
-        </div>
-
-        {/* Mini naptár */}
+      <div className="kt-scroll">
         {loading ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
-        ) : (
+          <div className="kt-empty"><p className="kt-empty-sub">Betöltés…</p></div>
+        ) : view === 'honap' ? (
           <>
-            {/* H3: Motiváló üzenet ha az egész évben nincs program */}
-            {programs.length === 0 && (
-              <div className="py-4 text-center bg-blue-50 rounded-lg">
-                <p className="text-blue-700 font-medium">Kezdd el a tervezést!</p>
-                <p className="text-blue-500 text-xs mt-1">Adj hozzá programokat az &bdquo;Új program&rdquo; vagy a &bdquo;Gyors bevitel&rdquo; gombbal.</p>
-              </div>
-            )}
             <ProgramCalendar
-              events={monthPrograms}
-              month={month}
-              year={year}
-              today={today}
-              onDayClick={onDayClick}
+              programs={occurrences} year={year} month={month} today={today}
+              selectedDay={selectedDay} onSelectDay={setSelectedDay}
             />
-            <ProgramList
-              events={monthPrograms}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onToggleDone={onToggleDone}
-            />
+            {/* Kiválasztott nap agendája */}
+            <section className="kt-dayagenda">
+              <div className="kt-dayagenda-head">
+                <div className="kt-dayagenda-date">
+                  {selectedDate ? (
+                    <>
+                      <span className={`kt-dayagenda-num${selectedIsToday ? ' is-today' : ''}`}>{selectedDay}</span>
+                      <span className="kt-dayagenda-dow">
+                        {selectedIsToday && <em>Ma · </em>}
+                        {HU_DAYS[selectedDate.getDay()]}
+                      </span>
+                    </>
+                  ) : <span className="kt-dayagenda-dow">Válassz egy napot</span>}
+                </div>
+                {selectedDate && (
+                  <button type="button" className="kt-day-add" onClick={() => openNew(ymd(year, month, selectedDay!))} title="Program erre a napra">
+                    <Plus size={16} />
+                  </button>
+                )}
+              </div>
+              {selectedEvents.length === 0 ? (
+                <div className="kt-empty kt-empty-day">
+                  <span className="kt-empty-ico sm"><Smile size={22} /></span>
+                  <p className="kt-empty-sub">Nincs program ezen a napon.</p>
+                  {selectedDate && (
+                    <button type="button" className="kt-empty-cta" onClick={() => openNew(ymd(year, month, selectedDay!))}>
+                      <Plus size={14} /> Program hozzáadása
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="kt-agenda-list">
+                  {selectedEvents.map((p) => (
+                    <AgendaCard
+                      key={`${p.id}-${p.datum}`} p={p} isToday={selectedIsToday}
+                      onEdit={openEdit} onToggleDone={onToggleDone} onDelete={(x) => setDeleteTargetId(x.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
           </>
+        ) : (
+          /* Lista (agenda) nézet — egész hónap, nap szerint csoportosítva */
+          <section className="kt-listview">
+            {listGroups.length === 0 ? (
+              <div className="kt-empty kt-empty-day">
+                <span className="kt-empty-ico"><Inbox size={26} /></span>
+                <p className="kt-empty-title sm">Üres hónap</p>
+                <p className="kt-empty-sub">Ebben a hónapban nincs tervezett program.</p>
+                <button type="button" className="kt-empty-cta" onClick={() => openNew(null)}>
+                  <Plus size={14} /> Új program
+                </button>
+              </div>
+            ) : (
+              listGroups.map((g) => {
+                const gToday = isCurrentMonth && g.day === today.getDate()
+                return (
+                  <div key={g.day} className={`kt-listgroup${gToday ? ' is-today' : ''}`}>
+                    <div className="kt-listgroup-head">
+                      <span className="kt-listgroup-num">{g.day}</span>
+                      <span className="kt-listgroup-dow">{HU_MONTHS_SHORT[month]}</span>
+                      {gToday && <span className="kt-listgroup-today">Ma</span>}
+                      <span className="kt-listgroup-line" />
+                    </div>
+                    <div className="kt-agenda-list">
+                      {g.events.map((p) => (
+                        <AgendaCard
+                          key={`${p.id}-${g.day}`} p={p} isToday={gToday}
+                          onEdit={openEdit} onToggleDone={onToggleDone} onDelete={(x) => setDeleteTargetId(x.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </section>
         )}
+      </div>
 
-        {/* Akciógombok */}
-        <div className="flex flex-wrap gap-2 pt-2 border-t">
-          <Button size="sm" onClick={() => { setEditingProgram(null); setDefaultDate(null); setProgramDialogOpen(true) }}>
-            + Új program
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setBatchDialogOpen(true)}>
-            Gyors bevitel
-          </Button>
+      {/* Akciógombok */}
+      <footer className="kt-actions">
+        <button type="button" className="kt-btn kt-btn-primary" onClick={() => openNew(null)}>
+          <Plus size={17} /> Új program
+        </button>
+        <div className="kt-actions-row">
+          <button type="button" className="kt-btn kt-btn-outline" onClick={() => setBatchDialogOpen(true)}>
+            <Rows3 size={16} /> Tömeges bevitel
+          </button>
           <AnnualPlanPrint
             allPrograms={programs}
             year={year}
@@ -291,20 +364,30 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
             congregationName={congregationName}
           />
         </div>
+      </footer>
 
-        {/* Modal-ok */}
-        <ProgramDialog
-          open={programDialogOpen}
-          onOpenChange={onDialogClose}
-          editProgram={editingProgram}
-          defaultDate={defaultDate}
-        />
-        <BatchProgramDialog
-          open={batchDialogOpen}
-          onOpenChange={onBatchClose}
-          year={year}
-        />
-      </div>
+      {/* Modálok */}
+      <ProgramDialog
+        open={programDialogOpen}
+        onOpenChange={onDialogClose}
+        editProgram={editingProgram}
+        defaultDate={defaultDate}
+      />
+      <BatchProgramDialog
+        open={batchDialogOpen}
+        onOpenChange={onBatchClose}
+        year={year}
+      />
+      <AdminConfirmDialog
+        open={!!deleteTargetId}
+        onOpenChange={(o) => { if (!o) setDeleteTargetId(null) }}
+        title="Program törlése"
+        description="Biztosan törlöd ezt a programot? Ismétlődő program esetén az összes alkalom törlődik. A művelet nem vonható vissza."
+        confirmLabel="Törlés"
+        tone="danger"
+        loading={deleting}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

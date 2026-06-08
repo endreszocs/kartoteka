@@ -43,6 +43,13 @@ function isPublicCongregationRoute(pathname: string): boolean {
   return pathname.startsWith('/gy/') || pathname === '/gy'
 }
 
+// Éves beszámoló kivetítő/prezenter oldalak — más eszközről (telefon/tablet/
+// okos-TV) is elérhetők, a tartalmat a valós idejű csatornán kapják, ezért
+// auth nélkül átengedjük (2026-06-08).
+function isEloadasRoute(pathname: string): boolean {
+  return pathname.startsWith('/eloadas/')
+}
+
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   let supabaseResponse = NextResponse.next({ request })
@@ -80,6 +87,11 @@ export async function updateSession(request: NextRequest) {
 
   // Publikus gyülekezeti oldalak → mindig átengedünk
   if (isPublicCongregationRoute(pathname)) {
+    return supabaseResponse
+  }
+
+  // Éves beszámoló kivetítő/prezenter (cross-device) → mindig átengedünk
+  if (isEloadasRoute(pathname)) {
     return supabaseResponse
   }
 

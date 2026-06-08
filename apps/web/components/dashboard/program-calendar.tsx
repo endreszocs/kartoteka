@@ -1,97 +1,78 @@
 'use client'
 
-import { CAL_DAYS_HU, HU_MONTHS, progColor, progEmoji } from '@/lib/constants/dashboard'
+// ── Hónap-naptár (navigátor) — Claude Design widget, 2026-06-07 ──
+// A napra kattintás SZŰRI az agendát arra a napra (nem nyit azonnal új programot).
+import { CAL_DAYS_HU, HU_MONTHS, progColor } from '@/lib/constants/dashboard'
 import type { Program } from '@/lib/constants/dashboard'
+import { ymd, eventsForDay } from '@/lib/utils/program-day'
 
 interface ProgramCalendarProps {
-  events: Program[]
+  /** A betöltött év (ismétlődés-feloldott) programjai. */
+  programs: Program[]
   month: number
   year: number
   today: Date
-  onDayClick: (day: number) => void
+  selectedDay: number | null
+  onSelectDay: (day: number) => void
 }
 
-export function ProgramCalendar({ events, month, year, today, onDayClick }: ProgramCalendarProps) {
-  const todayStr = today.toISOString().slice(0, 10)
+export function ProgramCalendar({ programs, month, year, today, selectedDay, onSelectDay }: ProgramCalendarProps) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
-  let startDow = new Date(year, month, 1).getDay() - 1
+  let startDow = new Date(year, month, 1).getDay() - 1 // hétfő-kezdés
   if (startDow < 0) startDow = 6
-
-  // Események napokra bontva (többnapos programok kezelése)
-  const dayEvents: Record<number, Program[]> = {}
-  for (let d = 1; d <= daysInMonth; d++) dayEvents[d] = []
-  events.forEach(e => {
-    const sd = new Date(e.datum + 'T00:00:00')
-    const ed = e.datum_vege ? new Date(e.datum_vege + 'T00:00:00') : sd
-    for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
-      if (d.getMonth() === month && d.getFullYear() === year) {
-        dayEvents[d.getDate()]?.push(e)
-      }
-    }
-  })
+  const todayStr = ymd(today.getFullYear(), today.getMonth(), today.getDate())
 
   const cells: React.ReactNode[] = []
 
-  // Fejléc
-  CAL_DAYS_HU.forEach(day => {
+  CAL_DAYS_HU.forEach((d, i) => {
     cells.push(
-      <div key={`h-${day}`} className="text-center text-[10px] font-bold text-slate-500 py-1">
-        {day}
-      </div>
+      <div key={`h${i}`} className={`kt-cal-head${i >= 5 ? ' is-weekend' : ''}`}>{d}</div>
     )
   })
+  for (let i = 0; i < startDow; i++) cells.push(<div key={`e${i}`} className="kt-cal-empty" />)
 
-  // Üres cellák a hónap elején
-  for (let i = 0; i < startDow; i++) {
-    cells.push(<div key={`e-${i}`} />)
-  }
-
-  // Napok
   for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    const dateStr = ymd(year, month, d)
     const isToday = dateStr === todayStr
     const isPast = dateStr < todayStr
-    const isSunday = new Date(dateStr + 'T00:00:00').getDay() === 0
-    const evts = dayEvents[d] || []
-    const hasEvents = evts.length > 0
+    const isSunday = new Date(year, month, d).getDay() === 0
+    const evts = eventsForDay(programs, year, month, d)
+    const has = evts.length > 0
+    const selected = selectedDay === d
 
-    const tooltip = hasEvents
-      ? `${HU_MONTHS[month]} ${d}. — ${evts.map(e => progEmoji(e) + ' ' + e.cim).join(', ')}`
-      : `${HU_MONTHS[month]} ${d}.`
+    const colors: string[] = []
+    for (const e of evts) { if (colors.length < 3) colors.push(progColor(e)) }
+    const extra = evts.length - colors.length
 
-    // Színkódolt pontok (max 3)
-    const uniqueColors = [...new Set(evts.map(e => progColor(e)))].slice(0, 3)
+    let cls = 'kt-cal-day'
+    if (selected) cls += ' is-selected'
+    if (isToday) cls += ' is-today'
+    if (isSunday) cls += ' is-sunday'
+    if (isPast && !isToday) cls += ' is-past'
+    if (has) cls += ' has-events'
 
     cells.push(
-      <div
+      <button
         key={d}
-        title={tooltip}
-        onClick={() => onDayClick(d)}
-        className={`relative flex flex-col items-center justify-center rounded-md cursor-pointer h-9 text-xs transition-colors ${
-          isToday
-            ? 'bg-green-100 ring-2 ring-green-500 font-bold'
-            : isPast
-              ? 'text-slate-400'
-              : isSunday
-                ? 'bg-red-50 text-red-600 font-semibold'
-                : 'hover:bg-slate-100'
-        } ${hasEvents ? 'font-semibold' : ''}`}
+        type="button"
+        className={cls}
+        onClick={() => onSelectDay(d)}
+        title={has ? `${HU_MONTHS[month]} ${d}. — ${evts.length} program` : `${HU_MONTHS[month]} ${d}.`}
+        aria-pressed={selected}
+        aria-label={`${HU_MONTHS[month]} ${d}.${has ? `, ${evts.length} program` : ''}`}
       >
-        <span>{d}</span>
-        {uniqueColors.length > 0 && (
-          <div className="flex gap-0.5 mt-0.5">
-            {uniqueColors.map((c, i) => (
-              <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />
+        <span className="kt-cal-num">{d}</span>
+        {has && (
+          <span className="kt-cal-dots">
+            {colors.map((c, i) => (
+              <span key={i} className="kt-cal-dot" style={{ background: c }} />
             ))}
-          </div>
+            {extra > 0 && <span className="kt-cal-more">+{extra}</span>}
+          </span>
         )}
-      </div>
+      </button>
     )
   }
 
-  return (
-    <div className="grid grid-cols-7 gap-0.5">
-      {cells}
-    </div>
-  )
+  return <div className="kt-cal-grid">{cells}</div>
 }

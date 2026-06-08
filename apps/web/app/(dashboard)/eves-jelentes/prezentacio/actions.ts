@@ -26,7 +26,21 @@ export interface PresentationData {
     male: number
     female: number
     ageGroups: { label: string; count: number }[]
+    /** Évenkénti lélekszám — a tagság-mozgás esemény-tábláiból visszamenőleg
+     *  rekonstruálva (becsült, ha hiányos az esemény-történet). */
     yearOverYear: { year: number; count: number }[]
+    /** A yearOverYear becslés-e (hiányos esemény-történet esetén). */
+    estimated: boolean
+    /** Természetes + vándorlási változás évenként (megmaradás pillére). */
+    flowByYear: {
+      year: number
+      births: number
+      deaths: number
+      movedIn: number
+      movedOut: number
+      natural: number // births - deaths
+      net: number // összes változás (be - ki)
+    }[]
   }
   anyakonyv: {
     keresztelo: number
@@ -53,6 +67,27 @@ export interface PresentationData {
     totalServices: number
     byType: Record<string, number>
   }
+  /** Istentiszteleti / katekétikai látogatottság a MUNKANAPLÓ valós jelenléti
+   *  adataiból (Pillér 2 — lelki élet). */
+  attendance: {
+    hasData: boolean
+    /** Istentiszteleti alkalmak (szolgálat kategória). */
+    worshipOccasions: number
+    worshipTotal: number
+    worshipAvg: number
+    /** Katekétikai/közösségi alkalmak (vallásóra, ifjúsági, gyermek, nőszövetségi bibliaóra). */
+    catechesisOccasions: number
+    catechesisTotal: number
+    /** Gyermek-jelenlét összesen (ifjúság/gyerekmunka mérőszáma). */
+    childrenTotal: number
+    /** Perselypénz összesen a munkanaplóból. */
+    persely: number
+    /** Bontás alkalom-jelleg szerint (istentisztelet, vallásóra, ifjúsági óra,
+     *  gyermek foglalkozás, nőszövetségi bibliaóra…). */
+    byType: { jellege: string; occasions: number; total: number; avg: number }[]
+    /** 5 éves istentiszteleti átlag-látogatottság trend. */
+    byYear: { year: number; worshipAvg: number; worshipTotal: number; worshipOccasions: number }[]
+  }
   finance: {
     totalIncome: number
     totalExpense: number
@@ -60,10 +95,15 @@ export interface PresentationData {
     byYear: { year: number; income: number; expense: number }[]
     incomeByCategory: { name: string; amount: number }[]
     expenseByCategory: { name: string; amount: number }[]
+    /** Adományjellegű bevétel összege és aránya (adomány, persely, céladomány, gyűjtés). */
+    donationTotal: number
+    donationRatio: number // 0..100
     egyhazfenntartas: {
       activeMembers: number
+      /** Felnőtt (18+) aktív tagok — az egyházfenntartás reálisabb nevezője. */
+      activeAdults: number
       paidMembers: number
-      paymentRate: number // 0..100
+      paymentRate: number // 0..100, a felnőttekhez viszonyítva
     }
   }
   programs: {
@@ -121,6 +161,11 @@ export async function getPresentationData(year: number): Promise<{
     konfirmaciokResult,
     esketesekResult,
     temetesekResult,
+    munkanaploResult,
+    bekoltozottResult,
+    attertResult,
+    elkoltozottResult,
+    kitertResult,
   ] = await Promise.all([
     supabase
       .from('szemely')
@@ -211,6 +256,19 @@ export async function getPresentationData(year: number): Promise<{
       .gte('tdatum', yearStart)
       .lte('tdatum', yearEnd)
       .order('tdatum'),
+    // ── Munkanapló (valós jelenlét, 5 év) — Pillér 2 látogatottság ──
+    supabase
+      .from('munkanaplo')
+      .select('idopont, jellege, kategoria, jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, persely')
+      .eq('congregation_id', effectiveCongregationId)
+      .eq('deleted', false)
+      .gte('idopont', `${years[0]}-01-01`)
+      .lte('idopont', `${year}-12-31`),
+    // ── Tagság-mozgás esemény-táblák (5 év) — valós lélekszám-rekonstrukcióhoz ──
+    supabase.from('bekoltozott').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
+    supabase.from('attert').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
+    supabase.from('elkoltozott').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
+    supabase.from('kitert').select('mikor').eq('congregation_id', effectiveCongregationId).gte('mikor', `${years[0]}-01-01`).lte('mikor', `${year}-12-31`),
   ])
 
   // ─── Tagok ───
@@ -244,12 +302,44 @@ export async function getPresentationData(year: number): Promise<{
     else ageGroups[3].count++
   })
 
-  // Évenkénti tagszám (becsült: jelenlegi aktív tagok száma, az előző évek pontos
-  // számát nem tudjuk megbízhatóan rekonstruálni; az MVP ugyanazt mutatja)
-  const yearOverYear = years.map((y) => ({
-    year: y,
-    count: y === currentYear ? activeMembers.length : activeMembers.length, // MVP
-  }))
+  // ── Évenkénti lélekszám — visszamenőleges rekonstrukció (2026-06-08) ──
+  // A jelenlegi aktív létszámból indulunk, és évről évre visszafelé korrigálunk a
+  // tagság-mozgás esemény-táblái alapján: count(Y-1) = count(Y) − nettó-változás(Y).
+  // Becsült: a régi importok nem feltétlenül tartalmazzák a teljes esemény-történetet.
+  const yearNum = (s: string | null | undefined): number | null => {
+    if (!s) return null
+    const m = /^(\d{4})/.exec(s)
+    return m ? Number(m[1]) : null
+  }
+  const countByMikorYear = (rows: Array<{ mikor: string }>, y: number): number =>
+    rows.filter((r) => yearNum(r.mikor) === y).length
+
+  const birthsRows = (keresztelesekTrendResult.data || []) as Array<{ datum: string }>
+  const deathRows = (temetesekTrendResult.data || []) as Array<{ tdatum: string }>
+  const bekoltRows = (bekoltozottResult.data || []) as Array<{ mikor: string }>
+  const attertRows = (attertResult.data || []) as Array<{ mikor: string }>
+  const elkoltRows = (elkoltozottResult.data || []) as Array<{ mikor: string }>
+  const kitertRows = (kitertResult.data || []) as Array<{ mikor: string }>
+
+  const flowByYear = years.map((y) => {
+    const births = birthsRows.filter((r) => yearNum(r.datum) === y).length
+    const deaths = deathRows.filter((r) => yearNum(r.tdatum) === y).length
+    const movedIn = countByMikorYear(bekoltRows, y) + countByMikorYear(attertRows, y)
+    const movedOut = countByMikorYear(elkoltRows, y) + countByMikorYear(kitertRows, y)
+    return { year: y, births, deaths, movedIn, movedOut, natural: births - deaths, net: births + movedIn - deaths - movedOut }
+  })
+
+  // Visszafelé az utolsó évtől (= a kiválasztott `year`, ez a jelenlegi aktív létszám)
+  const counts: number[] = new Array(years.length).fill(0)
+  counts[years.length - 1] = activeMembers.length
+  for (let i = years.length - 2; i >= 0; i--) {
+    counts[i] = Math.max(0, counts[i + 1] - flowByYear[i + 1].net)
+  }
+  const yearOverYear = years.map((y, i) => ({ year: y, count: counts[i] }))
+  // Akkor tekintjük "valósnak" (nem becsültnek), ha van értelmes esemény-történet
+  const membersEstimated = flowByYear.reduce((s, f) => s + f.movedIn + f.movedOut + f.births + f.deaths, 0) === 0
+    ? true
+    : flowByYear.slice(0, -1).every((f) => f.net === 0)
 
   // Családok
   const families = (familiesResult.data || []).length
@@ -300,14 +390,31 @@ export async function getPresentationData(year: number): Promise<{
   })
 
   // Egyházfenntartás (aki fizetett erre az évre)
+  // 2026-06-08: a nevező a FELNŐTT (18+) aktív tagok — a gyerekek nem fizetnek
+  // egyházfenntartást, így a korábbi „összes aktív" nevező torzított (alacsony rátát adott).
+  const activeAdults = activeMembers.filter((m) => {
+    if (!m.sz_datum) return true // ismeretlen kor → felnőttnek vesszük (konzervatív)
+    const bd = new Date(m.sz_datum)
+    if (isNaN(bd.getTime())) return true
+    return (currentYear - bd.getFullYear()) >= 18
+  }).length
   const paidMemberIds = new Set(
     befizetesek.filter((b) => b.fizetettev === year).map((b) => b.id_szemely),
   )
   const egyhazfenntartas = {
     activeMembers: activeMembers.length,
+    activeAdults,
     paidMembers: paidMemberIds.size,
-    paymentRate: activeMembers.length > 0 ? (paidMemberIds.size / activeMembers.length) * 100 : 0,
+    paymentRate: activeAdults > 0 ? (paidMemberIds.size / activeAdults) * 100 : 0,
   }
+
+  // Adományjellegű bevételek aránya (a kategórianevek alapján)
+  const DONATION_RE = /adom|persely|c[ée]ladom|offert|gy[űu]jt|h[áa]laad/i
+  let donationTotal = 0
+  Object.entries(incomeByCategory).forEach(([name, amt]) => {
+    if (DONATION_RE.test(name)) donationTotal += Number(amt)
+  })
+  const donationRatio = totalIncome > 0 ? (donationTotal / totalIncome) * 100 : 0
 
   // ─── Anyakönyvi események (4 valódi táblából, 5 év trend) ───
   // 2026-04-21t: az `anyakonyv` tábla NEM létezik — a trend-adatokat
@@ -429,6 +536,59 @@ export async function getPresentationData(year: number): Promise<{
   const worshipByType: Record<string, number> = { ...byType }
   const totalServices = worshipByType['istentisztelet'] || 0
 
+  // ─── Munkanapló-alapú látogatottság (Pillér 2 — valós jelenlét) ───
+  const worklog = (munkanaploResult.data || []) as Array<{
+    idopont: string | null
+    jellege: string | null
+    kategoria: string | null
+    jelenlet_ferfi: number | null
+    jelenlet_no: number | null
+    jelenlet_gyermek: number | null
+    persely: number | null
+  }>
+  const wlAtt = (e: typeof worklog[number]) =>
+    Number(e.jelenlet_ferfi || 0) + Number(e.jelenlet_no || 0) + Number(e.jelenlet_gyermek || 0)
+  // Istentisztelet-jellegű alkalmak (a fő „istentiszteleti látogatottság"-hoz)
+  const WORSHIP_JELLEGE = new Set(['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Esti áhítat', 'Alkalmi istentisztelet'])
+  const isWorship = (e: typeof worklog[number]) =>
+    WORSHIP_JELLEGE.has(e.jellege || '') || e.kategoria === 'szolgalat'
+  const isCatechesis = (e: typeof worklog[number]) =>
+    !isWorship(e) && (e.kategoria === 'katekezis' || !!e.jellege)
+
+  const yearWorklog = worklog.filter((e) => yearNum(e.idopont) === year)
+  const yearWorship = yearWorklog.filter(isWorship)
+  const yearCatech = yearWorklog.filter(isCatechesis)
+  const worshipTotal = yearWorship.reduce((s, e) => s + wlAtt(e), 0)
+  const worshipOccasions = yearWorship.length
+  const catechesisTotal = yearCatech.reduce((s, e) => s + wlAtt(e), 0)
+  const childrenTotal = yearWorklog.reduce((s, e) => s + Number(e.jelenlet_gyermek || 0), 0)
+  const perselyTotal = yearWorklog.reduce((s, e) => s + Number(e.persely || 0), 0)
+
+  // Bontás alkalom-jelleg szerint (istentisztelet, vallásóra, ifjúsági óra,
+  // gyermek foglalkozás, nőszövetségi bibliaóra… — amit a munkanapló tartalmaz)
+  const attByTypeMap: Record<string, { occasions: number; total: number }> = {}
+  yearWorklog.forEach((e) => {
+    const key = (e.jellege && e.jellege.trim()) || 'Egyéb alkalom'
+    if (!attByTypeMap[key]) attByTypeMap[key] = { occasions: 0, total: 0 }
+    attByTypeMap[key].occasions++
+    attByTypeMap[key].total += wlAtt(e)
+  })
+  const attendanceByType = Object.entries(attByTypeMap)
+    .map(([jellege, v]) => ({
+      jellege,
+      occasions: v.occasions,
+      total: v.total,
+      avg: v.occasions > 0 ? Math.round(v.total / v.occasions) : 0,
+    }))
+    .sort((a, b) => b.total - a.total)
+
+  const attendanceByYear = years.map((y) => {
+    const w = worklog.filter((e) => yearNum(e.idopont) === y && isWorship(e))
+    const total = w.reduce((s, e) => s + wlAtt(e), 0)
+    const occ = w.length
+    return { year: y, worshipTotal: total, worshipOccasions: occ, worshipAvg: occ > 0 ? Math.round(total / occ) : 0 }
+  })
+
   return {
     data: {
       year,
@@ -444,6 +604,8 @@ export async function getPresentationData(year: number): Promise<{
         female,
         ageGroups,
         yearOverYear,
+        estimated: membersEstimated,
+        flowByYear,
       },
       anyakonyv: {
         // A név-listák elsődleges forrás, de a meglévő anyakonyv tábla is backup
@@ -463,6 +625,18 @@ export async function getPresentationData(year: number): Promise<{
         totalServices,
         byType: worshipByType,
       },
+      attendance: {
+        hasData: worklog.length > 0,
+        worshipOccasions,
+        worshipTotal,
+        worshipAvg: worshipOccasions > 0 ? Math.round(worshipTotal / worshipOccasions) : 0,
+        catechesisOccasions: yearCatech.length,
+        catechesisTotal,
+        childrenTotal,
+        persely: perselyTotal,
+        byType: attendanceByType,
+        byYear: attendanceByYear,
+      },
       finance: {
         totalIncome,
         totalExpense,
@@ -478,6 +652,8 @@ export async function getPresentationData(year: number): Promise<{
           .map(([name, amount]) => ({ name, amount }))
           .filter((item) => item.amount > 0)
           .sort((a, b) => b.amount - a.amount),
+        donationTotal,
+        donationRatio,
         egyhazfenntartas,
       },
       programs: {

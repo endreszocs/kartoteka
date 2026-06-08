@@ -8,7 +8,7 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 export async function getProgramsForYear(year: number): Promise<Program[]> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return []
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('gyulekezeti_programok')
     .select('*')
     .eq('congregation_id', congregationId)
@@ -16,7 +16,33 @@ export async function getProgramsForYear(year: number): Promise<Program[]> {
     .lte('datum', `${year}-12-31`)
     .order('datum')
     .order('ido_kezdes')
+  // 2026-06-07: a hibát nem nyeljük el csendben — feldobjuk, hogy a kliens
+  // egyértelmű üzenetet adhasson és a „Betöltés…" ne ragadjon be.
+  if (error) throw new Error(error.message)
   return (data || []) as Program[]
+}
+
+/**
+ * Egy program-bemenetből a `gyulekezeti_programok` táblába írható mező-objektum.
+ * A `saveProgram` és a `saveBatchPrograms` is ezt használja (korábban a két
+ * helyen duplikálva volt — 2026-06-07).
+ */
+function buildProgramRecord(d: ProgramInput): Record<string, unknown> {
+  return {
+    cim: d.cim,
+    datum: d.datum,
+    datum_vege: d.datum_vege || null,
+    ido_kezdes: d.ido_kezdes || null,
+    ido_befejezes: d.ido_befejezes || null,
+    helyszin: d.helyszin || null,
+    tipus: d.tipus,
+    prioritas: d.prioritas,
+    ismetlodes_tipus: d.ismetlodes_tipus || null,
+    'ismétlődő': !!d.ismetlodes_tipus,
+    egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
+    egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
+    megjegyzes: d.megjegyzes || null,
+  }
 }
 
 export async function saveProgram(data: ProgramInput) {
@@ -32,19 +58,7 @@ export async function saveProgram(data: ProgramInput) {
 
   const d = parsed.data
   const record: Record<string, unknown> = {
-    cim: d.cim,
-    datum: d.datum,
-    datum_vege: d.datum_vege || null,
-    ido_kezdes: d.ido_kezdes || null,
-    ido_befejezes: d.ido_befejezes || null,
-    helyszin: d.helyszin || null,
-    tipus: d.tipus,
-    prioritas: d.prioritas,
-    ismetlodes_tipus: d.ismetlodes_tipus || null,
-    'ismétlődő': !!d.ismetlodes_tipus,
-    egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
-    egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
-    megjegyzes: d.megjegyzes || null,
+    ...buildProgramRecord(d),
     updated_at: new Date().toISOString(),
   }
 
@@ -69,6 +83,7 @@ export async function saveProgram(data: ProgramInput) {
 export async function deleteProgram(id: string) {
   const { supabase, user, congregationId } = await getEffectiveCongregationContext()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
 
   const { error } = await supabase.from('gyulekezeti_programok').delete().eq('id', id).eq('congregation_id', congregationId)
   if (error) return { error: `Hiba: ${error.message}` }
@@ -80,6 +95,7 @@ export async function deleteProgram(id: string) {
 export async function toggleProgramDone(id: string, done: boolean) {
   const { supabase, user, congregationId } = await getEffectiveCongregationContext()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
 
   const { error } = await supabase.from('gyulekezeti_programok').update({
     teljesitett: done,
@@ -115,22 +131,10 @@ export async function saveBatchPrograms(records: ProgramInput[]) {
 
   const { supabase, user, congregationId, fullName } = await getEffectiveCongregationContext()
   if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
-
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
 
   const dbRecords = nonEmpty.map(d => ({
-    cim: d.cim,
-    datum: d.datum,
-    datum_vege: d.datum_vege || null,
-    ido_kezdes: d.ido_kezdes || null,
-    ido_befejezes: d.ido_befejezes || null,
-    helyszin: d.helyszin || null,
-    tipus: d.tipus,
-    prioritas: d.prioritas,
-    ismetlodes_tipus: d.ismetlodes_tipus || null,
-    'ismétlődő': !!d.ismetlodes_tipus,
-    egyedi_tipus_nev: d.tipus === 'egyeb' ? (d.egyedi_tipus_nev || null) : null,
-    egyedi_emoji: d.tipus === 'egyeb' ? (d.egyedi_emoji || null) : null,
-    megjegyzes: d.megjegyzes || null,
+    ...buildProgramRecord(d),
     letrehozta_id: user.id,
     letrehozta_nev: fullName || '',
     congregation_id: congregationId,

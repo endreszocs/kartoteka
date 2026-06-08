@@ -23,6 +23,137 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-08] — Éves beszámoló: jövőbeli célok és pontosabb pénzügyi mutatók
+<!-- key: 2026-06-08-eves-beszamolo-celok-penzugy -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎯 Jövőbeli célok
+
+- Mindhárom pillér bevezető diáján (**Lélekszámbeli · Lelki · Anyagi**) megadhatók a **jövőbeli célok** — a dia „Szerkesztés" gombjával beírva megjelennek a vetítésen is (és a telefonos vezérlőn jegyzetként).
+
+### 💰 Pontosabb pénzügyi mutatók
+
+- **Adományok aránya**: a „Bevételek részletesen" dián mostantól látszik, hogy a bevétel **hány százaléka adomány** (adomány, persely, céladomány, gyűjtés).
+- **Reálisabb egyházfenntartás-mutató**: a teljesítési arány nevezője már a **felnőtt (18+) tagok** száma (a gyerekek nem fizetnek egyházfenntartást), így a százalék a valóságot tükrözi.
+
+---
+
+## [2026-06-08] — Éves beszámoló: kivetítés Wi-Fin és telefonos vezérlés
+<!-- key: 2026-06-08-eves-beszamolo-kivetites-prezenter -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+Az **Éves beszámoló** prezentációt mostantól **kivetítőre lehet küldeni** és **telefonról/tabletről vezérelni** — mint egy igazi diavetítő.
+
+### 📽️ Kivetítés
+
+- **„Kivetítő" gomb** a prezentációban, három móddal:
+  - **Ezen a gépen** — teljes képernyős vetítés (mint eddig).
+  - **Második ablak** — külön ablakban nyílik, amit a kivetítő (második) képernyőre húzhatsz.
+  - **Wi-Fi kivetítő** — Chromecastra / okos-TV-re küldhető (ahol a böngésző támogatja); egyébként automatikusan a második ablak nyílik.
+- A vetített kép **mindig szinkronban** marad a vezérlővel — amelyik diát kiválasztod, az jelenik meg a kivetítőn.
+- **Nem alszik el a kijelző** vetítés közben, és **elsötétítés** is van (a `B` billentyűvel vagy a telefonos gombbal).
+
+### 📱 Telefonos / tabletes vezérlés (prezenter)
+
+- A „Kivetítő" ablakban megjelenik egy **QR-kód** és egy **6 jegyű kód** — a telefonoddal beolvasva (vagy a linket megnyitva) **a kezedből lapozhatod** a diákat.
+- A prezenter nézet mutatja az **aktuális** és a **következő** diát, valamint a **lelkészi jegyzetet** (amit a dia kommentárjához írtál) — nagy, könnyen nyomható gombokkal.
+- Egyszerre több eszköz is csatlakozhat (vezérlő gép + kivetítő + telefon), mind szinkronban.
+
+---
+
+## [2026-06-08] — Éves beszámoló: valós adatok és rugalmasabb diák
+<!-- key: 2026-06-08-eves-beszamolo-adatok-es-diak -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+Az **Éves beszámoló** (prezentáció) most pontosabb adatokból dolgozik, és a diák sokkal rugalmasabban kezelhetők.
+
+### ✨ Pontosabb adatok
+
+- **Valós lélekszám-alakulás**: a korábbi évek létszáma már nem „lapos" becslés — a rendszer a tagság-mozgás eseményeiből (be- és elköltözés, áttérés, kitérés, keresztelés, temetés) **visszaszámolja** az évenkénti lélekszámot. Új **„Lélekszám alakulása"** dia mutatja a megmaradást: a létszám-vonalat és a keresztelések–temetések (természetes változás) oszlopait.
+- **Istentiszteleti látogatottság a munkanaplóból**: új **„Istentiszteleti látogatottság"** dia a **valós jelenléti adatokból** (férfi/nő/gyermek) — átlagos jelenlét, összes fő, alkalmak száma, az előző évhez viszonyított változás, és **alkalom-típusonkénti bontás** (istentisztelet, **vallásóra, ifjúsági óra, gyermek foglalkozás, nőszövetségi bibliaóra** stb.).
+
+### 🎛️ Rugalmas diakezelés
+
+- **Pillérek szerinti, áttekinthető lista**: a bal oldali dialista mostantól **csoportosítva** jelenik meg (Nyitó · 1. Lélekszámbeli · 2. Lelki · 3. Anyagi · Kiegészítők · Lezárás).
+- **Diák elrejtése / megjelenítése**: bármelyik dia egy kattintással elrejthető (és bármikor visszahozható).
+- **Saját dia hozzáadása**: a lelkész **saját diát** írhat (cím + szöveg) bármelyik pillérhez — pl. köszönetnyilvánítás, jövőképet bemutató gondolatok.
+- **Szerkesztés a diára kattintva**: a dián megjelenő „Szerkesztés" gombbal cím, alcím és lelkészi gondolat módosítható.
+- **Hiányzó adat bekérése**: ha egy diához nincs adat a rendszerben (pl. nincs munkanapló-bejegyzés), a dia **jelzi**, és egy ablakban felkínálja a **kézi kiegészítést**.
+
+---
+
+## [2026-06-08] — Gyülekezeti programok: szebb ablakok és finomítások
+<!-- key: 2026-06-08-gyulekezeti-programok-ablakok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+A **Gyülekezeti programok** doboz beviteli ablakai megújultak, és néhány kérésre érkezett finomítás is bekerült.
+
+### ✨ Mi változott
+
+- **Teljesen új „Új program” ablak**: letisztult, áttekinthető felület. A típust egy **ikonos rácsból** választod (16 típus, mindegyik saját színnel), a **prioritás** és az **ismétlődés** jól látható, egy érintéssel váltható gombsor. Külön **„Többnapos”** és **„Egész napos”** kapcsoló, így csak a tényleg szükséges mezők látszanak.
+- **A havi naptár mindig látszik** — akkor is, ha az adott hónapban (vagy épp az egész évben) még nincs program. Így bármelyik napra rákattintva azonnal rögzíthetsz.
+- **„Gyors bevitel” → „Tömeges bevitel”**: a gomb új nevet és **újragondolt, kártyás ablakot** kapott. **5 sorral indul**, és egy gombbal **továbbiak adhatók hozzá** (+5 / +10); az Enter billentyű a következő sorra ugrik, az utolsónál újat nyit.
+- **Éves terv — alkalmazáson belüli, reszponzív ablak**: az „Éves terv” mostantól egy **az alkalmazáson belül megnyíló ablakban** jelenik meg (nem külön böngészőfülön, amit a böngésző gyakran blokkolt), benne **évlapozó** (előző/következő év), **Nyomtatás**, **PDF mentés** és **Bezárás** gombbal. Az előnézet **minden képernyőméreten** a laphoz méretezve látszik (telefonon, táblagépen is), miközben a kinyomtatott lap továbbra is pontos A4 fekvő marad.
+- **Megújult éves terv-elrendezés**: a lap fejléc-sávja a **gyülekezet logója + neve** mellett az **év vezérigéjét** mutatja (helyben szerkeszthető nyomtatás előtt), alatta **12 hónap** elegáns mini-naptára (egyházi ünnepek arany kereszttel, vasárnapok pirosan, a programnapok színes ponttal), majd **„Az év kiemelt alkalmai”** lista és a kicsi **KARTOTÉKA**-lábléc.
+
+---
+
+## [2026-06-07] — Gyülekezeti programok: megújult, áttekinthetőbb felület
+<!-- key: 2026-06-07-gyulekezeti-programok-uj-design -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+A kezdőoldali **Gyülekezeti programok** doboz teljesen megújult — nyugodtabb, áttekinthetőbb és könnyebben kezelhető lett, miközben minden korábbi funkció megmaradt. Az elrendezés mostantól egy **naptár + napi lista** párosra épül (mint a telefonos naptáraknál).
+
+### ✨ Mi változott
+
+- **Naptár + napi lista egy helyen**: fent a havi naptár, alatta a **kiválasztott nap** részletes programlistája. Egy napra kattintva mostantól **arra a napra szűr** a lista (nem nyit azonnal új programot) — a programhoz hozzáadás a nap melletti **+** gombbal vagy az „Új program” gombbal történik.
+- **Egyszerűbb időnavigáció**: a korábbi háromféle léptető helyett egyetlen, világos vezérlő — `‹ Hónap Év ›`. A hónap/év feliratra kattintva **gyorsan ugorhatsz** bármelyik hónapra/évre, és van „**Ma**” gomb is.
+- **Hónap / Lista nézet**: a naptár mellett egy gombbal **listás (agenda) nézetre** válthatsz, ahol az egész hónap programjai napokra bontva, egymás alatt láthatók.
+- **Letisztult ikonok, jól látható jelölések**: minden programtípushoz egységes, könnyen felismerhető ikon tartozik (a típus saját színével) — az „Egyéb” típusnál továbbra is **választható egyedi emoji**. A **prioritás** (Kiemelt ⭐ / Fontos 🚩) és az **ismétlődés** (pl. „Heti” ↻) mostantól jól látható címkeként jelenik meg.
+- **Finom „mai nap” kiemelés** és külön „kiválasztott nap” jelölés — négy jól elkülönülő nap-állapot (ma / kiválasztott / van program / üres).
+- **Nagyobb, kényelmesebb kattintási felületek** és tisztább betűk — kifejezetten az idősebb használóknak is.
+- **Témakövető megjelenés**: a doboz mostantól a választott felülettémát és a sötét módot is követi (a programtípusok színe változatlan marad).
+
+### 🖨️ Szebb éves programterv (kiadható a gyülekezetnek)
+
+- **Az év vezérigéje**: a nyomtatott éves terv fejlécében mostantól megjelenik **az évhez tartozó vezérige** (aranyozott panelban) — így a terv valódi, gyülekezeti tagoknak is odaadható kiadvány.
+- **KARTOTÉKA-jelölés a láblécen**: a lap alján kicsiben feltüntetjük, hogy „Készült a **KARTOTÉKA** egyházi nyilvántartó rendszerrel”.
+
+---
+
+## [2026-06-07] — Gyülekezeti programok: működő ismétlődés és pontosabb naptár
+<!-- key: 2026-06-07-gyulekezeti-programok-ismetlodes -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+A kezdőoldali **Gyülekezeti programok** doboz több ponton megbízhatóbb és kényelmesebb lett. A legfontosabb: az ismétlődő alkalmak (heti bibliaóra, vasárnapi istentisztelet stb.) mostantól tényleg végigfutnak a naptáron.
+
+### ✨ Az ismétlődő programok végre tényleg ismétlődnek
+
+- **Heti / kétheti / havi ismétlődés**: ha egy programnál ismétlődést állítasz be, az mostantól **minden alkalommal megjelenik** — a havi nézetben, a hónaplistában és a nyomtatott éves tervben is. Korábban az ismétlődés beállítható volt ugyan, de a program csak a kezdőnapon látszott.
+- **Egyszer szerkeszted, mindenhol frissül**: az ismétlődő alkalmak ugyanahhoz a programhoz tartoznak — ha szerkeszted, törlöd vagy „teljesítettre" állítod, az a **sorozat egészére** vonatkozik. Törléskor a rendszer külön figyelmeztet erre.
+- **Az éves tervben átlátható**: a nyomtatott terv naptárrácsában minden alkalom kis jelölőt kap, az oldalsó felsorolásban viszont a sorozat **egy sorként**, az ismétlődés jelölésével szerepel (pl. „Bibliaóra (Heti)").
+- *Megjegyzés:* az ismétlődés mindig az **adott naptári évre** szól (ahogy a programokat is évenként kezeli a rendszer).
+
+### 🐛 Pontosabb naptár
+
+- **Mindig a jó hónapba kerül**: a programok hónaphoz rendelése pontosabb lett — kizárt, hogy egy program a dátum kiszámítása miatt rossz hónapban jelenjen meg.
+- **A több napon átnyúló alkalmak nem tűnnek el**: egy hónapfordulón átnyúló program (pl. január 30. – február 2.) **mindkét hónapban** látszik, nemcsak a kezdő hónapban.
+
+### 🎨 Kényelmesebb, megbízhatóbb kezelés
+
+- **Barátságosabb törlés**: a böngésző régi felugró kérdése helyett egységes, mobilon is jól működő megerősítő ablak jelenik meg törléskor.
+- **Nem ragad be a „Betöltés…"**: ha a programok betöltése valamiért nem sikerül, a rendszer most **egyértelműen jelzi** (nem marad némán üres a doboz).
+- **Gyors bevitel évjelöléssel**: a „Gyors bevitel" ablak fejlécében mostantól látszik, **melyik évhez** rögzítesz programokat.
+- **Billentyűzettel és képernyőolvasóval is használható**: a mini-naptár napjai és a programlista sorai billentyűzetről is elérhetők és kiválaszthatók.
+
+---
+
 ## [2026-06-07] — Adminisztráció: szigorúbb jogosultságok és letisztult felület
 <!-- key: 2026-06-07-admin-jogosultsag-es-felulet -->
 <!-- category: security -->

@@ -1838,5 +1838,474 @@
   0%, 50%       { opacity: 1; }
   50.01%, 100%  { opacity: 0; }
 }
-</content>
-</invoke>
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Gyülekezeti programok widget (2026-06-07 — Claude Design átültetés)
+   Naptár (navigátor) + Agenda (részletes lista) szűk oszlopban.
+   A design-rendszer tokenjeire épül (var(--primary/--accent/--card…)), így
+   mind a 3 témát + sötét módot követi. A 16 programtípus színe FIX HEX
+   (a komponensből inline). A 3 hiányzó token (card-2, border-strong,
+   shadow-pop) a meglévőkből származtatva, hogy téma-aware maradjon.
+   ══════════════════════════════════════════════════════════════════════════ */
+.kt-widget {
+  --kt-card-2: color-mix(in oklab, var(--card) 82%, var(--muted));
+  --kt-border-strong: color-mix(in oklab, var(--border) 62%, var(--muted-foreground));
+  --kt-shadow-pop: 0 18px 48px -16px color-mix(in oklab, var(--foreground) 32%, transparent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 760px;
+  padding: 0;
+}
+.kt-glow {
+  position: absolute; right: -30px; top: -30px; width: 130px; height: 130px;
+  border-radius: 50%; pointer-events: none;
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
+  filter: blur(40px); opacity: 0.6;
+}
+
+/* Fejléc */
+.kt-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 17px 18px 10px; position: relative;
+}
+.kt-head-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.kt-head-ico {
+  width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--primary-foreground);
+  background: linear-gradient(150deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--accent)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 6px 14px -8px color-mix(in oklab, var(--primary) 80%, transparent);
+}
+.kt-head h3 {
+  font-family: var(--font-serif); font-weight: 600; margin: 0;
+  font-size: 18.5px; letter-spacing: -0.01em; color: var(--foreground);
+  white-space: nowrap;
+}
+.kt-today-btn {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 600;
+  color: var(--primary); background: color-mix(in oklab, var(--primary) 8%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent);
+  padding: 6px 12px; border-radius: 999px; transition: all 0.16s ease;
+}
+.kt-today-btn:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 15%, var(--card)); }
+.kt-today-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Egységes navigáció */
+.kt-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 14px 8px;
+}
+.kt-nav-arrow {
+  width: 40px; height: 40px; border-radius: 11px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--foreground); background: var(--kt-card-2); border: 1px solid var(--border);
+  transition: all 0.16s ease;
+}
+.kt-nav-arrow:hover { background: var(--muted); color: var(--primary); border-color: var(--kt-border-strong); }
+.kt-nav-center { position: relative; flex: 1; display: flex; justify-content: center; }
+.kt-nav-label {
+  display: inline-flex; align-items: baseline; gap: 9px; cursor: pointer;
+  background: transparent; border: 0; padding: 6px 12px; border-radius: 10px;
+  transition: background 0.16s ease;
+}
+.kt-nav-label:hover { background: var(--muted); }
+.kt-nav-month { font-family: var(--font-serif); font-weight: 600; font-size: 20px; color: var(--foreground); letter-spacing: -0.01em; }
+.kt-nav-year { font-family: var(--font-serif); font-weight: 500; font-size: 16px; color: var(--muted-foreground); }
+.kt-nav-caret { color: var(--muted-foreground); align-self: center; }
+
+/* Hónap-választó popover */
+.kt-mp {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 40; width: 268px; padding: 12px;
+  background: var(--card); border: 1px solid var(--kt-border-strong); border-radius: 14px;
+  box-shadow: var(--kt-shadow-pop);
+}
+.kt-mp-yearrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.kt-mp-ybtn { width: 32px; height: 32px; border-radius: 9px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; background: var(--kt-card-2); border: 1px solid var(--border); color: var(--foreground); }
+.kt-mp-ybtn:hover { background: var(--muted); color: var(--primary); }
+.kt-mp-year { font-family: var(--font-serif); font-weight: 600; font-size: 19px; }
+.kt-mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.kt-mp-month {
+  padding: 9px 4px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 500;
+  background: var(--kt-card-2); border: 1px solid transparent; color: var(--foreground); transition: all 0.14s ease;
+}
+.kt-mp-month:hover { background: var(--muted); }
+.kt-mp-month.is-this { border-color: color-mix(in oklab, var(--accent) 55%, transparent); }
+.kt-mp-month.is-active { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.kt-mp-today {
+  margin-top: 10px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  background: color-mix(in oklab, var(--primary) 8%, var(--card)); color: var(--primary);
+  border: 1px solid color-mix(in oklab, var(--primary) 22%, transparent);
+}
+.kt-mp-today:hover { background: color-mix(in oklab, var(--primary) 15%, var(--card)); }
+
+/* Hó-összegzés + nézetváltó */
+.kt-subbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 4px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.kt-month-summary { font-size: 12.5px; color: var(--muted-foreground); }
+.kt-month-summary strong { color: var(--foreground); font-weight: 600; }
+.kt-viewtoggle { display: inline-flex; background: var(--muted); border-radius: 9px; padding: 3px; gap: 2px; }
+.kt-viewtoggle button {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; color: var(--muted-foreground);
+  background: transparent; border: 0; padding: 6px 11px; border-radius: 7px; transition: all 0.15s ease;
+}
+.kt-viewtoggle button.is-active { background: var(--card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+.kt-scroll { overflow-y: auto; padding: 14px 16px 4px; flex: 1; min-height: 0; }
+
+/* ── Naptár ── */
+.kt-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.kt-cal-head {
+  text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--muted-foreground); padding: 2px 0 6px; text-transform: uppercase;
+}
+.kt-cal-head.is-weekend { color: color-mix(in oklab, var(--destructive) 55%, var(--muted-foreground)); }
+.kt-cal-empty { aspect-ratio: 1 / 0.92; }
+.kt-cal-day {
+  position: relative; aspect-ratio: 1 / 0.92; min-height: 40px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border-radius: 11px; border: 1px solid transparent; background: transparent;
+  font-family: var(--font-sans); transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease;
+}
+.kt-cal-num { font-size: 13.5px; color: var(--foreground); font-weight: 500; line-height: 1; }
+.kt-cal-day:hover { background: var(--muted); }
+.kt-cal-day:active { transform: scale(0.94); }
+.kt-cal-day:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.kt-cal-day.has-events .kt-cal-num { font-weight: 700; }
+.kt-cal-day.has-events { background: color-mix(in oklab, var(--primary) 5%, var(--kt-card-2)); }
+.kt-cal-day.is-sunday .kt-cal-num { color: color-mix(in oklab, var(--destructive) 70%, var(--foreground)); }
+.kt-cal-day.is-past { opacity: 0.5; }
+.kt-cal-day.is-past .kt-cal-num { font-weight: 500; }
+.kt-cal-day.is-today {
+  background: color-mix(in oklab, var(--accent) 22%, var(--card));
+  border-color: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.kt-cal-day.is-today .kt-cal-num { color: color-mix(in oklab, var(--accent-foreground) 80%, var(--foreground)); font-weight: 700; }
+.kt-cal-day.is-selected {
+  background: var(--primary); border-color: var(--primary);
+  box-shadow: 0 6px 16px -8px color-mix(in oklab, var(--primary) 80%, transparent);
+}
+.kt-cal-day.is-selected .kt-cal-num { color: var(--primary-foreground); font-weight: 700; }
+.kt-cal-day.is-selected.is-today { box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 75%, transparent), 0 6px 16px -8px color-mix(in oklab, var(--primary) 80%, transparent); }
+.kt-cal-day.is-selected.is-sunday .kt-cal-num { color: var(--primary-foreground); }
+.kt-cal-dots { display: flex; align-items: center; gap: 2px; height: 6px; }
+.kt-cal-dot { width: 5px; height: 5px; border-radius: 50%; }
+.kt-cal-day.is-selected .kt-cal-dot { box-shadow: 0 0 0 1px color-mix(in oklab, white 60%, transparent); }
+.kt-cal-more { font-size: 8.5px; font-weight: 700; color: var(--muted-foreground); margin-left: 1px; }
+.kt-cal-day.is-selected .kt-cal-more { color: color-mix(in oklab, var(--primary-foreground) 85%, transparent); }
+
+/* ── Kiválasztott nap agendája ── */
+.kt-dayagenda { margin-top: 16px; }
+.kt-dayagenda-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.kt-dayagenda-date { display: flex; align-items: center; gap: 10px; }
+.kt-dayagenda-num {
+  font-family: var(--font-serif); font-weight: 600; font-size: 24px; line-height: 1;
+  color: var(--foreground); min-width: 30px; text-align: center;
+}
+.kt-dayagenda-num.is-today {
+  background: var(--accent); border-radius: 10px;
+  padding: 4px 8px; box-shadow: 0 4px 12px -6px color-mix(in oklab, var(--accent) 80%, transparent);
+  color: var(--accent-foreground);
+}
+.kt-dayagenda-dow { font-size: 13.5px; color: var(--muted-foreground); text-transform: capitalize; }
+.kt-dayagenda-dow em { color: var(--primary); font-style: normal; font-weight: 700; }
+.kt-day-add {
+  width: 36px; height: 36px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--primary); background: color-mix(in oklab, var(--primary) 9%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent); transition: all 0.15s ease;
+}
+.kt-day-add:hover { background: var(--primary); color: var(--primary-foreground); }
+
+.kt-agenda-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Agenda esemény-kártya ── */
+.kt-agenda-card {
+  position: relative; display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 11px 11px 16px; border-radius: 13px; cursor: pointer;
+  background: var(--kt-card-2); border: 1px solid var(--border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.kt-agenda-card:hover { border-color: var(--kt-border-strong); box-shadow: 0 6px 16px -12px rgba(0,0,0,0.4); }
+.kt-agenda-card:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.kt-agenda-bar { position: absolute; left: 0; top: 9px; bottom: 9px; width: 4px; border-radius: 0 4px 4px 0; }
+.kt-agenda-card.is-today { background: color-mix(in oklab, var(--accent) 11%, var(--card)); border-color: color-mix(in oklab, var(--accent) 38%, transparent); }
+.kt-agenda-card.is-kiemelt .kt-agenda-bar { width: 5px; box-shadow: 0 0 8px -1px color-mix(in oklab, var(--type-color) 60%, transparent); }
+.kt-agenda-card.is-done { opacity: 0.62; }
+.kt-glyph-tile { flex-shrink: 0; }
+.kt-agenda-body { flex: 1; min-width: 0; }
+.kt-agenda-titlerow { display: flex; align-items: center; gap: 6px; }
+.kt-agenda-title {
+  font-size: 14.5px; font-weight: 600; color: var(--foreground);
+  line-height: 1.3; word-break: break-word;
+}
+.kt-agenda-card.is-done .kt-agenda-title { text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent); color: var(--muted-foreground); }
+.kt-agenda-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 11px; margin-top: 5px; }
+.kt-meta-item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted-foreground); }
+.kt-meta-item svg { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); }
+.kt-meta-strong { color: var(--foreground); font-weight: 600; }
+.kt-meta-multi { color: var(--primary); font-weight: 600; }
+.kt-meta-multi svg { color: var(--primary); }
+.kt-agenda-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.kt-type-chip { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; line-height: 1.3; }
+.kt-recur-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1.3;
+  padding: 3px 8px; border-radius: 999px; color: var(--muted-foreground); background: var(--muted);
+}
+.kt-prio { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.3; }
+.kt-prio-kiemelt { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 60%, var(--card)); }
+.kt-prio-fontos { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); background: color-mix(in oklab, var(--destructive) 14%, var(--card)); }
+
+.kt-agenda-actions { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
+.kt-done-toggle {
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground); background: var(--card); border: 1.5px solid var(--kt-border-strong);
+  transition: all 0.15s ease;
+}
+.kt-done-toggle svg { opacity: 0.4; transition: opacity 0.15s ease; }
+.kt-done-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.kt-done-toggle:hover svg { opacity: 1; }
+.kt-done-toggle.is-on { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.kt-done-toggle.is-on svg { opacity: 1; }
+.kt-row-btn {
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer; opacity: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; color: var(--muted-foreground); transition: all 0.15s ease;
+}
+.kt-agenda-card:hover .kt-row-btn, .kt-agenda-card:focus-within .kt-row-btn { opacity: 1; }
+.kt-row-del:hover { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 12%, transparent); }
+
+/* ── Lista (agenda) nézet ── */
+.kt-listview { display: flex; flex-direction: column; gap: 16px; }
+.kt-listgroup { display: flex; flex-direction: column; gap: 8px; }
+.kt-listgroup-head { display: flex; align-items: center; gap: 9px; }
+.kt-listgroup-num { font-family: var(--font-serif); font-weight: 600; font-size: 19px; color: var(--foreground); min-width: 24px; text-align: center; }
+.kt-listgroup-dow { font-size: 12px; color: var(--muted-foreground); text-transform: capitalize; }
+.kt-listgroup.is-today .kt-listgroup-num { color: var(--accent-foreground); background: var(--accent); border-radius: 8px; padding: 2px 7px; min-width: 0; }
+.kt-listgroup-today { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, var(--card)); padding: 2px 8px; border-radius: 999px; }
+.kt-listgroup-line { flex: 1; height: 1px; background: var(--border); }
+
+/* ── Üres állapotok ── */
+.kt-empty { text-align: center; padding: 22px 16px; }
+.kt-empty-year { padding: 40px 20px; }
+.kt-empty-day { padding: 18px 16px; background: var(--kt-card-2); border: 1px dashed var(--kt-border-strong); border-radius: 13px; }
+.kt-empty-ico {
+  width: 58px; height: 58px; border-radius: 16px; margin: 0 auto 12px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--primary); background: color-mix(in oklab, var(--primary) 10%, var(--card)); border: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
+}
+.kt-empty-ico.sm { width: 46px; height: 46px; border-radius: 13px; margin-bottom: 10px; }
+.kt-empty-title { font-family: var(--font-serif); font-weight: 600; font-size: 18px; margin: 0; color: var(--foreground); }
+.kt-empty-title.sm { font-size: 15px; }
+.kt-empty-sub { font-size: 13px; color: var(--muted-foreground); margin: 6px auto 0; line-height: 1.5; max-width: 280px; }
+.kt-empty-cta {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 9%, var(--card)); border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent);
+  padding: 8px 15px; border-radius: 10px; transition: all 0.15s ease;
+}
+.kt-empty-cta:hover { background: var(--primary); color: var(--primary-foreground); }
+
+/* ── Akciógombok ── */
+.kt-actions {
+  display: flex; flex-direction: column; gap: 8px; padding: 13px 16px;
+  border-top: 1px solid var(--border); background: color-mix(in oklab, var(--kt-card-2) 60%, var(--card));
+}
+.kt-actions-row { display: flex; gap: 8px; }
+.kt-actions-row .kt-btn { flex: 1; }
+.kt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer;
+  font-family: var(--font-sans); font-size: 13.5px; font-weight: 600;
+  padding: 10px 15px; border-radius: 11px; border: 1px solid transparent; transition: all 0.16s ease; min-height: 42px;
+}
+.kt-btn-primary {
+  flex: 1; color: var(--primary-foreground);
+  background: linear-gradient(165deg, color-mix(in oklab, var(--primary) 92%, white), var(--primary));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 18px -10px color-mix(in oklab, var(--primary) 85%, transparent);
+}
+.kt-btn-primary:hover { filter: brightness(1.06); }
+.kt-btn-primary:active { transform: translateY(1px); }
+.kt-btn-outline { color: var(--foreground); background: var(--card); border-color: var(--kt-border-strong); }
+.kt-btn-outline:hover { background: var(--muted); border-color: var(--primary); color: var(--primary); }
+
+/* A widget ne emelkedjen hoverre (a card-raised default lift itt zavaró a nagy kártyán) */
+.card-raised.kt-widget:hover { transform: none; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Program-modálok (Claude Design — 2026-06-08): új/szerkesztő program ablak
+   és a tömeges bevitel. Portálolva a <body>-ba, ezért a 3 származtatott
+   tokent a modál-gyökéren is definiáljuk (téma-aware marad).
+   ══════════════════════════════════════════════════════════════════════════ */
+.kt-modal-overlay {
+  --kt-card-2: color-mix(in oklab, var(--card) 82%, var(--muted));
+  --kt-border-strong: color-mix(in oklab, var(--border) 62%, var(--muted-foreground));
+  --kt-shadow-pop: 0 18px 48px -16px color-mix(in oklab, var(--foreground) 32%, transparent);
+  position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-start; justify-content: center;
+  padding: 5vh 16px; overflow-y: auto;
+  background: color-mix(in oklab, var(--foreground) 45%, transparent); backdrop-filter: blur(3px);
+  animation: kt-fade 0.16s ease;
+  font-family: var(--font-sans); color: var(--foreground);
+}
+@keyframes kt-fade { from { opacity: 0; } to { opacity: 1; } }
+.kt-modal {
+  width: 100%; max-width: 480px; overflow: visible; animation: kt-modal-in 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card, 16px);
+  box-shadow: var(--kt-shadow-pop); margin-bottom: 5vh;
+}
+.kt-modal-wide { max-width: 940px; }
+@keyframes kt-modal-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+.kt-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 17px 18px; border-bottom: 1px solid var(--border);
+}
+.kt-modal-title { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.kt-modal-ico {
+  width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  color: var(--primary-foreground); background: linear-gradient(150deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--accent)));
+}
+.kt-modal-title h3 { font-family: var(--font-serif); font-weight: 600; font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+.kt-modal-sub { font-size: 12.5px; color: var(--muted-foreground); }
+.kt-modal-close { width: 34px; height: 34px; border-radius: 9px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; background: var(--kt-card-2); border: 1px solid var(--border); color: var(--muted-foreground); flex-shrink: 0; }
+.kt-modal-close:hover { background: var(--muted); color: var(--foreground); }
+.kt-modal-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.kt-field { display: flex; flex-direction: column; gap: 7px; position: relative; }
+.kt-field-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kt-label { font-size: 13px; font-weight: 600; color: var(--foreground); }
+.kt-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kt-req { color: var(--destructive); }
+.kt-input {
+  width: 100%; border: 1px solid var(--kt-border-strong); border-radius: var(--radius-input, 10px);
+  background: var(--card); padding: 10px 13px; font-size: 14px; color: var(--foreground);
+  font-family: var(--font-sans); transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.kt-input::placeholder { color: var(--muted-foreground); }
+.kt-input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 18%, transparent); }
+.kt-input.is-err { border-color: var(--destructive); box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 14%, transparent); }
+.kt-textarea { resize: vertical; min-height: 56px; line-height: 1.5; }
+.kt-err { font-size: 12px; color: var(--destructive); }
+
+/* Típus-választó */
+.kt-typeselect {
+  display: flex; align-items: center; gap: 11px; cursor: pointer; width: 100%; text-align: left;
+  padding: 8px 12px; border-radius: var(--radius-input, 10px); background: var(--card); border: 1px solid var(--kt-border-strong);
+  transition: border-color 0.15s ease;
+}
+.kt-typeselect:hover { border-color: var(--primary); }
+.kt-typeselect-label { font-size: 14px; font-weight: 600; color: var(--foreground); flex: 1; }
+.kt-typeselect-caret { color: var(--muted-foreground); transition: transform 0.18s ease; }
+.kt-typeselect[aria-expanded="true"] .kt-typeselect-caret { transform: rotate(180deg); }
+.kt-typegrid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 4px;
+  padding: 8px; background: var(--kt-card-2); border: 1px solid var(--border); border-radius: 12px;
+}
+.kt-typecell {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left;
+  padding: 9px 10px; border-radius: 9px; background: var(--card); border: 1px solid var(--border); transition: all 0.13s ease;
+}
+.kt-typecell:hover { border-color: var(--type-color); background: color-mix(in oklab, var(--type-color) 7%, var(--card)); }
+.kt-typecell.is-active { border-color: var(--type-color); background: color-mix(in oklab, var(--type-color) 13%, var(--card)); box-shadow: inset 0 0 0 1px var(--type-color); }
+.kt-typecell-ico { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--type-color); }
+.kt-typecell-label { font-size: 12.5px; font-weight: 500; color: var(--foreground); }
+
+/* Egyéb típus blokk */
+.kt-egyeb { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px; background: var(--muted); border-radius: 12px; align-items: end; }
+.kt-emoji-row { display: flex; align-items: center; gap: 8px; }
+.kt-emoji-preview { font-size: 24px; width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--kt-border-strong); border-radius: 10px; }
+.kt-btn-sm { cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 8px 12px; border-radius: 9px; background: var(--card); border: 1px solid var(--kt-border-strong); color: var(--foreground); }
+.kt-btn-sm:hover { border-color: var(--primary); color: var(--primary); }
+.kt-emoji-grid { position: absolute; right: 0; top: 100%; z-index: 20; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 8px; margin-top: 4px; background: var(--card); border: 1px solid var(--kt-border-strong); border-radius: 12px; box-shadow: var(--kt-shadow-pop); max-height: 180px; overflow-y: auto; width: 290px; }
+.kt-emoji-cell { font-size: 18px; cursor: pointer; padding: 5px; border-radius: 7px; background: transparent; border: 0; }
+.kt-emoji-cell:hover { background: var(--muted); }
+
+/* Dátum / idő sorok + kapcsolók */
+.kt-toggle-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.kt-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--foreground); user-select: none; }
+.kt-switch input { display: none; }
+.kt-switch-track { width: 38px; height: 22px; border-radius: 999px; background: var(--kt-border-strong); position: relative; transition: background 0.18s ease; flex-shrink: 0; }
+.kt-switch-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.18s ease; }
+.kt-switch input:checked + .kt-switch-track { background: var(--primary); }
+.kt-switch input:checked + .kt-switch-track .kt-switch-thumb { transform: translateX(16px); }
+
+/* Szegmentált vezérlő (prioritás, ismétlődés) */
+.kt-segmented { display: flex; gap: 4px; background: var(--muted); padding: 4px; border-radius: 11px; }
+.kt-seg {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; color: var(--muted-foreground);
+  padding: 8px 6px; border-radius: 8px; background: transparent; border: 1px solid transparent; transition: all 0.14s ease; min-height: 38px;
+}
+.kt-seg:hover { color: var(--foreground); }
+.kt-seg.is-active { background: var(--card); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.kt-seg-fontos.is-active { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--destructive) 40%, transparent), 0 1px 3px rgba(0,0,0,0.1); }
+.kt-seg-kiemelt.is-active { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 55%, var(--card)); }
+
+.kt-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--border); }
+.kt-modal-foot .kt-btn-primary { flex: 0 0 auto; padding: 10px 22px; }
+.kt-modal-foot .kt-btn-ghost { color: var(--muted-foreground); background: transparent; border-color: transparent; }
+.kt-modal-foot .kt-btn-ghost:hover { background: var(--muted); color: var(--foreground); }
+.kt-btn:disabled { opacity: 0.55; cursor: default; }
+
+/* ── Tömeges bevitel ── */
+.kt-batch-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.kt-batch-count { font-size: 12.5px; color: var(--muted-foreground); }
+.kt-batch-count strong { color: var(--primary); font-weight: 700; }
+.kt-batch-list { display: flex; flex-direction: column; gap: 10px; max-height: 56vh; overflow-y: auto; padding: 2px; }
+.kt-batch-row {
+  border: 1px solid var(--border); border-radius: 13px; background: var(--kt-card-2);
+  padding: 11px 12px; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.kt-batch-row:hover { border-color: var(--kt-border-strong); }
+.kt-batch-row-top { display: flex; align-items: center; gap: 9px; }
+.kt-batch-num {
+  width: 28px; height: 28px; border-radius: 999px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary);
+  font-weight: 700; font-size: 12.5px;
+}
+.kt-batch-row-top .kt-input { flex: 1; font-weight: 600; }
+.kt-batch-rm {
+  width: 34px; height: 34px; border-radius: 9px; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; color: var(--muted-foreground); transition: all 0.15s ease;
+}
+.kt-batch-rm:hover { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 12%, transparent); }
+.kt-batch-grid { margin-top: 9px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 10px; }
+.kt-batch-field { display: flex; flex-direction: column; gap: 4px; }
+.kt-batch-cap { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); }
+.kt-batch-field .kt-input, .kt-batch-field select.kt-input { padding: 8px 10px; font-size: 13px; }
+.kt-batch-add { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (min-width: 640px) {
+  .kt-batch-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (max-width: 520px) {
+  .kt-field-2 { grid-template-columns: 1fr; }
+}
+
+/* ── Éves terv előnézet — alkalmazáson belüli reszponzív ablak (2026-06-08) ── */
+.kt-eves-overlay { align-items: center; padding: 2.5vh 2vw; }
+.kt-eves-modal {
+  width: min(1180px, 96vw); height: min(92vh, 920px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-card, 16px); box-shadow: var(--kt-shadow-pop);
+  animation: kt-modal-in 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.kt-eves-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.kt-eves-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kt-eves-actions .kt-btn { min-height: 38px; padding: 8px 14px; }
+.kt-eves-yearnav { display: inline-flex; align-items: center; gap: 4px; background: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
+.kt-eves-yearnav span { font-weight: 700; font-size: 14px; min-width: 48px; text-align: center; color: var(--foreground); }
+.kt-eves-yearnav button { width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer; background: var(--card); color: var(--primary); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s ease; }
+.kt-eves-yearnav button:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 14%, var(--card)); }
+.kt-eves-yearnav button:disabled { opacity: 0.5; cursor: default; }
+.kt-eves-body { flex: 1; min-height: 0; background: var(--muted); }
+.kt-eves-frame { width: 100%; height: 100%; border: 0; display: block; background: #fff; }

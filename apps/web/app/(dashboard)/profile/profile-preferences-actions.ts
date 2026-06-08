@@ -134,8 +134,8 @@ export async function saveLastUsedScope(
  *   1. Ha a felhasználó explicit beállította (nem 'auto') → oda irányítjuk
  *      (feltéve, hogy van megfelelő szerepköre; ha nincs, fallback)
  *   2. Ha 'auto' (default), akkor a legmagasabb aktív szerepkör szerint:
- *        - admin/master → /admin
- *        - egyházkerületi admin → /egyhazkeruleti-dashboard (ha van)
+ *        - admin/master → /dashboard-kerulet
+ *        - egyházkerületi admin → /dashboard-kerulet
  *        - esperes / egyházmegyei admin → /dashboard-egyhazmegye
  *        - lelkipásztor / gyülekezeti könyvelő/számvevő → /dashboard
  */

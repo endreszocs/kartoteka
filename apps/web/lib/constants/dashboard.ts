@@ -14,6 +14,10 @@ export const HU_DAYS = [
   'vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat',
 ] as const
 
+export const HU_DAYS_SHORT = [
+  'vas', 'hét', 'kedd', 'szer', 'csüt', 'pén', 'szom',
+] as const
+
 export const CAL_DAYS_HU = ['H', 'K', 'Sz', 'Cs', 'P', 'Szo', 'V'] as const
 
 // ── Program típusok (16 db) ──────────────────────────────────
