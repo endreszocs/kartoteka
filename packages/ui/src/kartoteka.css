@@ -2287,6 +2287,60 @@
   .kt-field-2 { grid-template-columns: 1fr; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Prezenter — sötét „színpadi" felület (Claude Design, 2026-06-08)
+   Near-black fix háttér; az accentek a márka-tokenekből sötétre világosítva
+   (teal ← --primary, arany = --accent, piros ← --destructive). A `.kt-stage`
+   scope-on belül definiáljuk a tokeneket, hogy ne szivárogjanak az appba.
+   ══════════════════════════════════════════════════════════════════════════ */
+.kt-stage {
+  --stage-0: #080d17;
+  --stage-1: #0b1220;
+  --stage-2: #111a2b;
+  --stage-3: #18243a;
+  --stage-4: #21314c;
+  --line: rgba(233, 240, 255, 0.08);
+  --line-strong: rgba(233, 240, 255, 0.16);
+  --ink: #eef3f6;
+  --ink-dim: #a8b6be;
+  --ink-faint: #6f818c;
+  --teal: #2fb6a4;
+  --teal-soft: rgba(47, 182, 164, 0.16);
+  --teal-line: rgba(47, 182, 164, 0.42);
+  --gold: #f3c061;
+  --gold-soft: rgba(243, 192, 97, 0.16);
+  --gold-line: rgba(243, 192, 97, 0.5);
+  --danger: #e8694f;
+  --danger-soft: rgba(232, 105, 79, 0.16);
+  --r-sm: 10px; --r-md: 14px; --r-lg: 20px; --r-xl: 26px;
+  --shadow-panel: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 30px rgba(0,0,0,0.45);
+  --hit: 56px;
+
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 700px at 50% -10%, #11203a 0%, transparent 60%),
+    radial-gradient(900px 600px at 100% 110%, #0e1a2e 0%, transparent 55%),
+    var(--stage-1);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.kt-stage .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.kt-panel {
+  background: var(--stage-2); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-panel);
+}
+.kt-stage .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.kt-stage .scroll-thin::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
+.kt-stage .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+@keyframes kt-livePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47,182,164,0.55); }
+  70%      { box-shadow: 0 0 0 7px rgba(47,182,164,0); }
+}
+.kt-live-dot { animation: kt-livePulse 2.4s ease-out infinite; }
+@keyframes kt-spin { to { transform: rotate(360deg); } }
+.kt-spin { animation: kt-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .kt-live-dot, .kt-spin { animation: none; } }
+
 /* ── Éves terv előnézet — alkalmazáson belüli reszponzív ablak (2026-06-08) ── */
 .kt-eves-overlay { align-items: center; padding: 2.5vh 2vw; }
 .kt-eves-modal {

@@ -87,7 +87,7 @@ function SlideFrame({
   children,
   className,
   projection,
-  orbVariant = 'violet',
+  orbVariant = 'teal',
   backgroundClass,
 }: {
   children: ReactNode
@@ -104,11 +104,14 @@ function SlideFrame({
       animate="visible"
       className={cn(
         'relative h-full w-full overflow-hidden p-6 md:p-8',
-        backgroundClass ?? 'bg-gradient-to-br from-slate-50 via-white to-violet-50/50',
+        // Meleg, „templomi" ivory alap finom teal-árnyalattal (márka-konzisztens)
+        backgroundClass ?? 'bg-gradient-to-br from-[#fbfdfb] via-white to-[#edf7f1]',
         projection && 'p-10 md:p-14',
         className,
       )}
     >
+      {/* Felső accent-hajszálvonal — teal→arany→teal, a márka aláírása minden dián */}
+      <div aria-hidden className="absolute inset-x-0 top-0 z-20 h-[3px] bg-gradient-to-r from-teal-500/70 via-amber-300/80 to-teal-500/70" />
       <GradientOrbs variant={orbVariant} />
       <div className="relative z-10 flex h-full w-full flex-col">{children}</div>
     </motion.div>
@@ -120,7 +123,7 @@ function SlideHeader({
   subtitle,
   icon,
   projection,
-  accentClass = 'from-violet-500 to-purple-600',
+  accentClass = 'from-teal-500 to-emerald-600',
 }: {
   title: string
   subtitle?: string
@@ -134,27 +137,30 @@ function SlideHeader({
         <motion.div
           variants={popIn}
           className={cn(
-            'flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg',
+            'flex shrink-0 items-center justify-center rounded-[1.1rem] bg-gradient-to-br text-white shadow-lg ring-1 ring-white/60',
             accentClass,
-            projection ? 'size-14' : 'size-10',
+            projection ? 'size-14' : 'size-11',
           )}
+          style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px -10px rgba(15,72,64,0.45)' }}
         >
           {icon}
         </motion.div>
       )}
-      <div>
+      <div className="min-w-0">
         <h2
           className={cn(
-            'font-heading font-bold text-slate-800',
+            'font-heading font-bold tracking-tight text-slate-800',
             projection ? 'text-5xl leading-tight' : 'text-2xl md:text-3xl',
           )}
         >
           {title}
         </h2>
+        {/* Elegáns accent-vonal a cím alatt */}
+        <div className={cn('mt-2 h-1 rounded-full bg-gradient-to-r', accentClass, projection ? 'w-16' : 'w-12')} />
         {subtitle && (
           <p
             className={cn(
-              'mt-1 text-slate-500',
+              'mt-2 text-slate-500',
               projection ? 'text-xl' : 'text-sm md:text-base',
             )}
           >
@@ -174,11 +180,11 @@ function SlideCommentary({ commentary, projection }: { commentary?: string; proj
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.6, duration: 0.5 }}
       className={cn(
-        'mt-auto border-l-4 border-violet-400 bg-violet-50/70 pl-4 py-3 italic text-violet-900 backdrop-blur-sm rounded-r-lg',
-        projection ? 'text-xl leading-relaxed' : 'text-sm',
+        'mt-auto rounded-r-xl border-l-[3px] border-amber-400/80 bg-gradient-to-r from-amber-50/80 via-amber-50/40 to-transparent pl-5 pr-4 py-3 font-heading italic text-slate-700 backdrop-blur-sm',
+        projection ? 'text-2xl leading-relaxed' : 'text-base',
       )}
     >
-      {commentary}
+      <span className="mr-1 font-heading text-amber-400/80">„</span>{commentary}
     </motion.div>
   )
 }
@@ -192,8 +198,8 @@ function TitleSlide({ data, title, subtitle, commentary, projection }: SlideProp
     <SlideFrame
       projection={projection}
       className="flex flex-col items-center justify-center text-center"
-      backgroundClass="bg-gradient-to-br from-violet-50 via-white to-amber-50/60"
-      orbVariant="violet"
+      backgroundClass="bg-gradient-to-br from-[#f1faf5] via-white to-[#fdf6e6]"
+      orbVariant="teal"
     >
       <motion.div variants={popIn}>
         {data.congregation.cimer_url ? (
@@ -201,40 +207,45 @@ function TitleSlide({ data, title, subtitle, commentary, projection }: SlideProp
           <img
             src={data.congregation.cimer_url}
             alt="Címer"
-            className={cn('mb-6 rounded-2xl object-contain shadow-2xl ring-1 ring-white', projection ? 'size-40' : 'size-24')}
+            className={cn('mb-6 rounded-2xl object-contain shadow-2xl ring-2 ring-white', projection ? 'size-40' : 'size-24')}
+            style={{ boxShadow: '0 0 0 6px rgba(243,192,97,0.22), 0 24px 50px -18px rgba(15,72,64,0.5)' }}
           />
         ) : (
-          <div className={cn('mb-6 flex items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-2xl', projection ? 'size-40 text-6xl' : 'size-24 text-4xl')}>
+          <div className={cn('mb-6 flex items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-2xl ring-2 ring-white/70', projection ? 'size-40 text-6xl' : 'size-24 text-4xl')}>
             ✝
           </div>
         )}
       </motion.div>
       <MotionItem variants={fadeUp}>
-        <p className={cn('font-semibold uppercase tracking-[0.28em] text-violet-600', projection ? 'text-base' : 'text-xs')}>
+        <p className={cn('font-semibold uppercase tracking-[0.3em] text-amber-600', projection ? 'text-base' : 'text-xs')}>
           Éves beszámoló
         </p>
       </MotionItem>
       <MotionItem variants={fadeUp}>
-        <h1 className={cn('mt-3 font-heading font-bold text-slate-900 drop-shadow-sm', projection ? 'text-7xl' : 'text-4xl md:text-5xl')}>
+        <h1 className={cn('mt-3 font-heading font-bold tracking-tight text-slate-900 drop-shadow-sm', projection ? 'text-7xl' : 'text-4xl md:text-5xl')}>
           {title}
         </h1>
       </MotionItem>
       {subtitle && (
         <MotionItem variants={fadeUp}>
-          <p className={cn('mt-4 text-slate-600', projection ? 'text-3xl' : 'text-lg')}>{subtitle}</p>
+          <p className={cn('mt-4 text-teal-800/80', projection ? 'text-3xl' : 'text-lg')}>{subtitle}</p>
         </MotionItem>
       )}
       <MotionItem variants={fadeUp}>
         <motion.div
-          className={cn('mx-auto mt-6 h-0.5 rounded-full bg-gradient-to-r from-transparent via-violet-400 to-transparent', projection ? 'w-64' : 'w-40')}
-          initial={{ scaleX: 0 }}
-          animate={{ scaleX: 1 }}
-          transition={{ delay: 0.8, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        />
+          className={cn('mx-auto mt-6 flex items-center justify-center gap-3 text-amber-500', projection ? 'w-80' : 'w-56')}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8, duration: 0.8 }}
+        >
+          <span className="h-px flex-1 bg-gradient-to-r from-transparent to-amber-400/70" />
+          <span className="text-base">✦</span>
+          <span className="h-px flex-1 bg-gradient-to-l from-transparent to-amber-400/70" />
+        </motion.div>
       </MotionItem>
       {commentary && (
         <MotionItem variants={fadeUp}>
-          <p className={cn('mt-8 italic text-violet-800', projection ? 'text-2xl' : 'text-base')}>
+          <p className={cn('mt-8 font-heading italic text-slate-600', projection ? 'text-2xl' : 'text-base')}>
             &bdquo;{commentary}&rdquo;
           </p>
         </MotionItem>
@@ -262,7 +273,7 @@ function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideP
     { label: `${data.year}. évi kiadás`, value: data.finance.totalExpense, suffix: ' RON', icon: <TrendingDown className="size-5" />, color: 'from-rose-500 to-pink-600', orb: 'rose' },
   ]
   return (
-    <SlideFrame projection={projection} orbVariant="violet">
+    <SlideFrame projection={projection} orbVariant="teal">
       <SlideHeader title={title} subtitle={subtitle} icon={<Heart className="size-5" />} projection={projection} />
       <motion.div
         variants={slideStagger}
@@ -386,7 +397,7 @@ function AgeDistributionSlide({ data, title, subtitle, commentary, projection }:
             <XAxis dataKey="label" stroke="#64748b" />
             <YAxis stroke="#64748b" />
             <Tooltip />
-            <Bar dataKey="count" fill="#8b5cf6" radius={[8, 8, 0, 0]} animationDuration={1200} animationBegin={300} />
+            <Bar dataKey="count" fill="#217c72" radius={[8, 8, 0, 0]} animationDuration={1200} animationBegin={300} />
           </BarChart>
         </ResponsiveContainer>
       </MotionItem>
@@ -1457,13 +1468,13 @@ function MembershipTrendSlide({ data, title, subtitle, commentary, projection }:
 function ConclusionsSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
   const insights = buildConclusions(data)
   return (
-    <SlideFrame projection={projection} orbVariant="violet">
+    <SlideFrame projection={projection} orbVariant="teal">
       <SlideHeader
         title={title}
         subtitle={subtitle || 'Mit tanultunk ebből az évből?'}
         icon={<Sparkles className="size-5" />}
         projection={projection}
-        accentClass="from-violet-500 to-fuchsia-600"
+        accentClass="from-teal-500 to-emerald-600"
       />
       <MotionItem variants={scaleIn} className="flex-1 overflow-y-auto rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
         <motion.div variants={slideStaggerFast} className={cn('grid gap-3', insights.length > 4 ? 'md:grid-cols-2' : 'grid-cols-1')}>
@@ -1518,8 +1529,8 @@ function ForecastSlide({ data, title, subtitle, commentary, projection }: SlideP
     expense: series[1].data[i]?.predicted || 0,
   }))
   return (
-    <SlideFrame projection={projection} orbVariant="violet">
-      <SlideHeader title={title} subtitle={subtitle} icon={<Sparkles className="size-5" />} projection={projection} accentClass="from-violet-500 to-fuchsia-600" />
+    <SlideFrame projection={projection} orbVariant="amber">
+      <SlideHeader title={title} subtitle={subtitle} icon={<Sparkles className="size-5" />} projection={projection} accentClass="from-amber-500 to-orange-500" />
       <motion.div variants={slideStagger} className="flex flex-1 flex-col gap-3">
         <MotionItem variants={scaleIn} className="flex-1 rounded-2xl bg-white/90 p-4 shadow-lg ring-1 ring-slate-200/60 backdrop-blur">
           <ResponsiveContainer width="100%" height={projection ? 400 : 260}>
@@ -1565,31 +1576,31 @@ function ClosingSlide({ title, subtitle, commentary, projection }: SlideProps) {
     <SlideFrame
       projection={projection}
       className="items-center justify-center text-center"
-      backgroundClass="bg-gradient-to-br from-violet-100/80 via-white to-amber-50/80"
-      orbVariant="violet"
+      backgroundClass="bg-gradient-to-br from-[#eef8f2] via-white to-[#fdf3e0]"
+      orbVariant="amber"
     >
       <motion.div
         variants={popIn}
         animate={{ y: [0, -6, 0] }}
         transition={{ y: { duration: 4, repeat: Infinity, ease: 'easeInOut' }, delay: 0.5 }}
         className={cn(
-          'mb-6 flex items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-2xl ring-4 ring-white/70',
+          'mb-6 flex items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-2xl ring-4 ring-white/70',
           projection ? 'size-32 text-6xl' : 'size-20 text-4xl',
         )}
       >
         ✝
       </motion.div>
       <MotionItem variants={fadeUp}>
-        <h1 className={cn('font-heading font-bold text-slate-900', projection ? 'text-7xl' : 'text-4xl')}>{title}</h1>
+        <h1 className={cn('font-heading font-bold tracking-tight text-slate-900', projection ? 'text-7xl' : 'text-4xl')}>{title}</h1>
       </MotionItem>
       {subtitle && (
         <MotionItem variants={fadeUp}>
-          <p className={cn('mt-4 italic text-violet-800', projection ? 'text-3xl' : 'text-xl')}>{subtitle}</p>
+          <p className={cn('mt-4 font-heading italic text-amber-700', projection ? 'text-3xl' : 'text-xl')}>{subtitle}</p>
         </MotionItem>
       )}
       <MotionItem variants={fadeUp}>
         <motion.div
-          className={cn('mx-auto mt-8 h-0.5 rounded-full bg-gradient-to-r from-transparent via-violet-400 to-transparent', projection ? 'w-80' : 'w-48')}
+          className={cn('mx-auto mt-8 h-0.5 rounded-full bg-gradient-to-r from-transparent via-amber-400 to-transparent', projection ? 'w-80' : 'w-48')}
           initial={{ scaleX: 0 }}
           animate={{ scaleX: 1 }}
           transition={{ delay: 1, duration: 1, ease: [0.16, 1, 0.3, 1] }}

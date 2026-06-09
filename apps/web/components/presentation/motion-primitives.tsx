@@ -240,13 +240,14 @@ export function GradientOrbs({
 }: {
   variant?: 'violet' | 'teal' | 'amber' | 'emerald' | 'rose' | 'sky'
 }) {
+  // Lágyabb, márka-harmonizált blobok (kisebb áttetszőség → elegáns, nem tolakodó)
   const orbColors: Record<string, { a: string; b: string }> = {
-    violet: { a: 'bg-violet-300/30', b: 'bg-fuchsia-300/25' },
-    teal: { a: 'bg-teal-300/30', b: 'bg-cyan-300/25' },
-    amber: { a: 'bg-amber-300/30', b: 'bg-orange-300/25' },
-    emerald: { a: 'bg-emerald-300/30', b: 'bg-teal-300/25' },
-    rose: { a: 'bg-rose-300/30', b: 'bg-pink-300/25' },
-    sky: { a: 'bg-sky-300/30', b: 'bg-indigo-300/25' },
+    violet: { a: 'bg-indigo-300/18', b: 'bg-violet-200/14' },
+    teal: { a: 'bg-teal-300/20', b: 'bg-emerald-200/15' },
+    amber: { a: 'bg-amber-300/20', b: 'bg-orange-200/14' },
+    emerald: { a: 'bg-emerald-300/20', b: 'bg-teal-200/15' },
+    rose: { a: 'bg-rose-300/18', b: 'bg-pink-200/14' },
+    sky: { a: 'bg-sky-300/18', b: 'bg-indigo-200/14' },
   }
   const c = orbColors[variant]
   const reducedMotion = useReducedMotion()
@@ -262,6 +263,12 @@ export function GradientOrbs({
         className={cn('absolute -bottom-32 -right-24 size-[32rem] rounded-full blur-3xl', c.b)}
         animate={reducedMotion ? {} : { x: [0, -30, 0], y: [0, -20, 0] }}
         transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      {/* Egységes arany „lélegzés" — minden diát a márkához köt */}
+      <motion.div
+        className="absolute -right-10 -top-24 size-[20rem] rounded-full bg-amber-200/12 blur-3xl"
+        animate={reducedMotion ? {} : { x: [0, -24, 0], y: [0, 24, 0] }}
+        transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut' }}
       />
     </div>
   )
