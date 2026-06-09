@@ -15,6 +15,7 @@
  */
 
 import * as XLSX from 'xlsx'
+import { dateToLocalIso, excelSerialToLocalIso, toLocalIsoDate } from './date-utils'
 
 export interface ParsedSheet {
   /** A sheet eredeti neve (pl. "Bevételek", "Tagok", "Sheet1") */
@@ -76,7 +77,7 @@ function normalizeCell(value: unknown): string | number | null {
     return trimmed === '' ? null : trimmed
   }
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10) // YYYY-MM-DD
+    return dateToLocalIso(value) // YYYY-MM-DD, HELYI komponensből (nincs UTC-csúszás)
   }
   // bool → string
   return String(value)
@@ -87,13 +88,8 @@ function normalizeCell(value: unknown): string | number | null {
  * Epoch: 1900-01-01 (Excel quirk: 1900-02-29 létezőnek hitt hibával).
  */
 export function excelSerialToIsoDate(serial: number): string | null {
-  if (!Number.isFinite(serial) || serial < 1) return null
-  // Excel 1900-based epoch (minus 2 for Excel's 1900-02-29 bug)
-  const epochMs = Date.UTC(1900, 0, 1) - 2 * 24 * 60 * 60 * 1000
-  const ms = epochMs + serial * 24 * 60 * 60 * 1000
-  const date = new Date(ms)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toISOString().slice(0, 10)
+  // Időzóna-biztos megvalósítás a megosztott helperben (UTC-epoch matek).
+  return excelSerialToLocalIso(serial)
 }
 
 /**
@@ -356,42 +352,8 @@ export function parseCsvString(content: string, fileName: string): ParsedWorkboo
  *  - Date objektum (ha cellDates: true)
  */
 export function coerceToIsoDate(value: string | number | null | undefined): string | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'number') {
-    return excelSerialToIsoDate(value)
-  }
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-
-  // ISO formátum: 2026-04-15
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (isoMatch) {
-    const [, y, m, d] = isoMatch
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-  }
-
-  // Magyar: 2026.04.15 / 2026.04.15. / 2026/04/15
-  const huMatch = trimmed.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})/)
-  if (huMatch) {
-    const [, y, m, d] = huMatch
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-  }
-
-  // Magyar fordított: 15.04.2026 / 15/04/2026
-  const huRevMatch = trimmed.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/)
-  if (huRevMatch) {
-    const [, d, m, y] = huRevMatch
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-  }
-
-  // Date constructor próbálkozás
-  const parsed = new Date(trimmed)
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10)
-  }
-
-  return null
+  // Időzóna-biztos, többformátumú normalizálás a megosztott helperben.
+  return toLocalIsoDate(value)
 }
 
 /**

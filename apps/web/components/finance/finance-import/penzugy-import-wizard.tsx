@@ -37,7 +37,9 @@ import { WelcomeStep } from './steps/welcome-step'
 import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
+import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
 import { buildFinanceImportItems } from './helpers/item-builder'
+import { distributeAmbiguousDonors } from './helpers/donor-distribution'
 import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
 
 type WizardStage = 'welcome' | 'review' | 'importing' | 'result'
@@ -59,6 +61,8 @@ export function PenzugyImportWizard() {
   const [manualPersonSelections, setManualPersonSelections] = useState<
     Record<string, string>
   >({})
+  // B1 (1×/év): mely ambiguous befizetők lettek automatikusan elosztva (UI jelzi).
+  const [autoDistributedDonors, setAutoDistributedDonors] = useState<Set<string>>(new Set())
 
   // Eredmény
   const [importResult, setImportResult] = useState<FinanceImportResult | null>(null)
@@ -78,6 +82,7 @@ export function PenzugyImportWizard() {
     setMonetarDiagnostic(null)
     setSkippedCodes(new Set())
     setManualPersonSelections({})
+    setAutoDistributedDonors(new Set())
     setImportResult(null)
   }, [])
 
@@ -89,6 +94,7 @@ export function PenzugyImportWizard() {
     setMonetarDiagnostic(null)
     setSkippedCodes(new Set())
     setManualPersonSelections({})
+    setAutoDistributedDonors(new Set())
     setImportResult(null)
   }, [])
 
@@ -147,7 +153,28 @@ export function PenzugyImportWizard() {
 
         setKasszaAnalysis(analysisRes)
         setBudgetCodeResolutions(budgetRes.resolutions || [])
-        setDonorResolutions(donorRes.resolutions || [])
+        const donorResolutions = donorRes.resolutions || []
+        setDonorResolutions(donorResolutions)
+
+        // B1 — „1×/év" kizárásos auto-elosztás (bipartite matching elv): egy tag legfeljebb
+        // EGY egyházfenntartáshoz rendelhető. Kizárjuk a már egyértelműen feloldott (resolved)
+        // egyházfenntartás-befizetők személyeit is, hogy ne keletkezzen ütközés.
+        const EGYHF = '101.01'
+        const egyhfRaws = new Set<string>()
+        for (const r of analysisRes.rows || []) {
+          if (r.budgetCode === EGYHF && r.donorString) egyhfRaws.add(r.donorString)
+        }
+        const preTakenPersonIds = new Set<string>()
+        for (const d of donorResolutions) {
+          if (d.status === 'resolved' && d.szemelyId && egyhfRaws.has(d.raw)) {
+            preTakenPersonIds.add(d.szemelyId)
+          }
+        }
+        const dist = distributeAmbiguousDonors(donorResolutions, { egyhfRaws, preTakenPersonIds })
+        if (Object.keys(dist.selections).length > 0) {
+          setManualPersonSelections((prev) => ({ ...dist.selections, ...prev }))
+          setAutoDistributedDonors(dist.autoSet)
+        }
 
         // Monetar diagnosztika — szekvenciálisan, mert a totalIncome/Expense kell
         const totalIncome = (analysisRes.rows || [])
@@ -216,6 +243,25 @@ export function PenzugyImportWizard() {
     skippedCodes,
   ])
 
+  // ─── Végösszegek a fájlból (a Kassza-egyenleggel való összevetéshez) ──
+  // A banki tételeket a Bank fülön kell importálni (hivatalos kivonatból), ezért itt
+  // CSAK a Kassza (készpénz) várható összegeit mutatjuk.
+  const importTotals = useMemo(() => {
+    const sumRows = (rows: Array<{ kind: string; amount?: number }>) => {
+      let bev = 0
+      let kia = 0
+      for (const r of rows) {
+        if (typeof r.amount !== 'number') continue
+        if (r.kind === 'income' || r.kind === 'internal-transfer-in') bev += r.amount
+        else if (r.kind === 'expense' || r.kind === 'internal-transfer-out') kia += r.amount
+      }
+      return { bev, kia }
+    }
+    const kassza = kasszaAnalysis?.rows ? sumRows(kasszaAnalysis.rows) : { bev: 0, kia: 0 }
+    const rows: SheetTotals[] = [{ label: 'Kassza (készpénz)', ...kassza }]
+    return { rows, grand: kassza }
+  }, [kasszaAnalysis])
+
   // ─── Lépés 2 → 3: import végrehajtása ─────────────────────────────────
   const handleConfirmImport = useCallback(() => {
     if (builtItems.items.length === 0) {
@@ -248,6 +294,10 @@ export function PenzugyImportWizard() {
         />
       )}
 
+      {stage === 'review' && !isLoadingReview && kasszaAnalysis && (
+        <ImportTotalsPanel totals={importTotals.rows} grand={importTotals.grand} />
+      )}
+
       {stage === 'review' && (
         <ReviewStep
           fileName={file?.name || 'Ismeretlen fájl'}
@@ -262,6 +312,7 @@ export function PenzugyImportWizard() {
           onSkipCodeToggle={handleSkipCodeToggle}
           manualPersonSelections={manualPersonSelections}
           onManualPersonSelectionChange={handleManualPersonSelectionChange}
+          autoDistributedDonors={autoDistributedDonors}
           isImporting={isImporting}
           onBack={() => {
             setStage('welcome')

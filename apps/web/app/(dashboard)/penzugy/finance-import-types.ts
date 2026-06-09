@@ -198,6 +198,8 @@ export interface FinanceImportItem {
    *  mezőbe kerül, így a meglévő nyugta-egészség és párosítás logika
    *  (bank-import) helyesen kihagyja / megtalálja. */
   belsoMozgasXkey?: string
+  /** Banki tétel esetén a cél bankszámla (bankszamlak.id). Kassza-oldali tételnél null. */
+  bankszamlaId?: number | null
 }
 
 export interface FinanceImportResult {
@@ -205,5 +207,8 @@ export interface FinanceImportResult {
   error?: string
   inserted?: number
   skipped?: number
+  /** Duplikáció miatt kihagyott tételek (újraimportnál a már létező sorok). */
+  skippedDuplicates?: number
   errors?: Array<{ rowIndex: number; reason: string }>
 }
+

@@ -54,6 +54,7 @@ export function EgyhfenntartasImportWizard() {
       const formData = new FormData()
       formData.append('xlsxFile', xlsxFile)
       formData.append('xmlFile', xmlFile)
+      formData.append('selectedYear', String(selectedYear))
 
       const res = await parseAndPreviewEgyhf(formData)
       if ('error' in res) {
@@ -61,6 +62,14 @@ export function EgyhfenntartasImportWizard() {
         return
       }
       setPreview(res.data)
+      // B1: a szerver által javasolt „1×/év" auto-elosztást előre kiválasztjuk
+      const seeded: Record<string, number> = {}
+      for (const m of res.data.matched) {
+        if (m.szemely.autoDistributed && m.szemely.suggestedSzemelyId) {
+          seeded[m.clientKey] = m.szemely.suggestedSzemelyId
+        }
+      }
+      if (Object.keys(seeded).length > 0) setManualSelections((prev) => ({ ...seeded, ...prev }))
       setStage('match')
       // Ha a fájl-detektált év eltér a felhasználó által megadottól, jelezzünk
       if (

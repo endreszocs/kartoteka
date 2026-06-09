@@ -18,7 +18,7 @@ import { MonetaryTabV2 } from './monetary-tab-v2'
 import { RentalTab } from './rental-tab'
 import { OblioEllenorzesTab } from './oblio-ellenorzes-tab'
 import { PenzugyHelp } from './penzugy-help'
-import { PenzugyImportWizard } from './finance-import/penzugy-import-wizard'
+import { FinanceImportTabs } from './finance-import/finance-import-tabs'
 import { slugifyCongregationName } from '@/lib/utils/slugify'
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
@@ -26,6 +26,7 @@ import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { FinancePrintDialog } from '@/components/finance/finance-print-dialog'
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
+import { computeInternalMovementHealth } from '@/lib/finance/internal-movement-health'
 import type {
   BealitasRow,
   SzamadasiCel,
@@ -213,6 +214,12 @@ export function FinanceTabs({
   const debtModeLabel = debtCalcMode === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás'
   const hasReceiptWarnings = receiptHealth.missingNumbers.length > 0 || receiptHealth.duplicateNumbers.length > 0 || receiptHealth.chronologyIssues.length > 0
 
+  // Belső mozgás párosítás-egészség — párosítatlan kassza↔bank letétel/felvét (red flag).
+  const internalMovementHealth = useMemo(
+    () => computeInternalMovementHealth(incomeRecords, expenseRecords),
+    [incomeRecords, expenseRecords],
+  )
+
   return (
     <>
       <div className="card-raised relative mb-4 overflow-hidden p-5 sm:p-6">
@@ -306,6 +313,43 @@ export function FinanceTabs({
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {internalMovementHealth.unpairedCount > 0 && (
+        <div className="card-raised mb-4 border border-red-200 bg-red-50/80 p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-red-500 text-white shadow-sm">
+              <AlertTriangle className="size-5" />
+            </div>
+            <div className="space-y-2">
+              <div>
+                <h3 className="text-sm font-semibold text-red-700">
+                  Párosítatlan belső mozgás ({internalMovementHealth.unpairedCount})
+                </h3>
+                <p className="text-sm text-red-600/90">
+                  Olyan kassza ↔ bank (vagy bank ↔ bank) mozgás van, aminek csak az egyik
+                  oldala szerepel. A párja a banki kivonat importja és egyeztetése után
+                  automatikusan létrejön, és ez a jelzés magától eltűnik.
+                </p>
+              </div>
+              <div className="space-y-1">
+                {internalMovementHealth.items.slice(0, 5).map((m, i) => (
+                  <p key={`${m.datum}-${m.osszeg}-${i}`} className="text-xs text-slate-700">
+                    <strong>{m.datum}</strong> · {m.osszeg.toLocaleString('hu-HU')} RON —{' '}
+                    {m.side === 'expense'
+                      ? 'kiadás-oldal rögzítve, a fogadó (banki) oldal hiányzik'
+                      : 'befizetés-oldal rögzítve, a küldő oldal hiányzik'}
+                  </p>
+                ))}
+                {internalMovementHealth.items.length > 5 && (
+                  <p className="text-xs text-slate-500">
+                    … és további {internalMovementHealth.items.length - 5} tétel.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -485,7 +529,11 @@ export function FinanceTabs({
             így a böngésző nem dolgozik feleslegesen. */}
         {showAdminImport && (
           <TabsContent value="admin_import" className="mt-4">
-            <PenzugyImportWizard />
+            <FinanceImportTabs
+              congregationId={congregationId}
+              congregationName={congregationName}
+              showDanger={isGodMode}
+            />
           </TabsContent>
         )}
       </Tabs>

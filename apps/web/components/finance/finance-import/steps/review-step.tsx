@@ -61,6 +61,8 @@ interface ReviewStepProps {
   /** Manuális ambiguous döntés */
   manualPersonSelections: Record<string, string>
   onManualPersonSelectionChange: (raw: string, szemelyId: string) => void
+  /** B1: mely ambiguous befizetők lettek automatikusan elosztva (1×/év szabály). */
+  autoDistributedDonors?: Set<string>
   isImporting: boolean
   onBack: () => void
   onConfirmImport: () => void
@@ -79,11 +81,13 @@ export function ReviewStep({
   onSkipCodeToggle,
   manualPersonSelections,
   onManualPersonSelectionChange,
+  autoDistributedDonors,
   isImporting,
   onBack,
   onConfirmImport,
 }: ReviewStepProps) {
   const [showMore, setShowMore] = useState(false)
+  const [showAutoAssigned, setShowAutoAssigned] = useState(false)
 
   // Loading state
   if (isLoading || !analysis) {
@@ -109,6 +113,48 @@ export function ReviewStep({
     .reduce((s, i) => s + i.osszeg, 0)
 
   const ambiguous = (donorResolutions || []).filter((d) => d.status === 'ambiguous')
+  // B1: az „1×/év" szabály alapján AUTOMATIKUSAN hozzárendelt befizetők külön kezelve —
+  // ezek nem terhelik a „kézi egyeztetésre váró" listát, csak ellenőrizni kell őket.
+  const autoAmbiguous = ambiguous.filter((d) => autoDistributedDonors?.has(d.raw))
+  const manualAmbiguous = ambiguous.filter((d) => !autoDistributedDonors?.has(d.raw))
+
+  // A befizető-stringhez tartozó tényleges befizetés-sorok (nyugta/dátum/összeg) — a táblázathoz.
+  const paymentsByDonor = new Map<string, ClassifiedKasszaRow[]>()
+  for (const r of analysis?.rows || []) {
+    if (!r.donorString) continue
+    const arr = paymentsByDonor.get(r.donorString) || []
+    arr.push(r)
+    paymentsByDonor.set(r.donorString, arr)
+  }
+
+  // ── DUPLIKÁCIÓ-ŐR: egy tag évente EGYSZER fizet egyházfenntartást (101.01) ──
+  // Ha a hozzárendelések alapján ugyanaz a tag 2+ egyházfenntartási befizetést kapna,
+  // azt piros figyelmeztetéssel jelezzük (a lelkész véletlenül kétszer rendelte ugyanahhoz).
+  const EGYHF_KOD = '101.01'
+  const selectedPersonOf = (d: DonorResolution): string | null => {
+    if (d.status === 'resolved') return d.szemelyId ?? null
+    if (d.status === 'ambiguous') return manualPersonSelections[d.raw] || null
+    return null
+  }
+  // FONTOS: egy donor-string (pl. „Földes Ödön - Főút 65") TÖBB egyházfenntartást is
+  // tartalmazhat — ez a CSALÁDTAGOK járuléka egy háztartásfő nevén, NEM egy ember kétszeri
+  // fizetése. Ezért nem a befizetés-számot nézzük, hanem azt, hogy KÜLÖNBÖZŐ befizető-stringek
+  // (más-más nevek) kerülnek-e UGYANAHHOZ a taghoz — az a valódi téves dupla-hozzárendelés.
+  const isEgyhfDonor = (raw: string): boolean =>
+    (paymentsByDonor.get(raw) || []).some((p) => p.budgetCode === EGYHF_KOD)
+  const egyhfDonorsByPerson = new Map<string, Set<string>>()
+  for (const d of donorResolutions || []) {
+    if (!isEgyhfDonor(d.raw)) continue
+    const pid = selectedPersonOf(d)
+    if (!pid) continue
+    const set = egyhfDonorsByPerson.get(pid) ?? new Set<string>()
+    set.add(d.raw)
+    egyhfDonorsByPerson.set(pid, set)
+  }
+  // Duplikáció: 2+ KÜLÖNBÖZŐ befizető-string ugyanahhoz a taghoz, egyházfenntartással.
+  const duplicateEgyhfPersonIds = new Set(
+    [...egyhfDonorsByPerson.entries()].filter(([, s]) => s.size >= 2).map(([id]) => id),
+  )
   const companies = (donorResolutions || [])
     .filter((d) => d.status === 'company')
     .sort((a, b) => b.occurrenceCount - a.occurrenceCount)
@@ -234,45 +280,165 @@ export function ReviewStep({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* AMBIGUOUS BEFIZETŐK — csak ha vannak                               */}
+      {/* AMBIGUOUS BEFIZETŐK — KÉZI döntést igénylők (prominens)            */}
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {ambiguous.length > 0 && (
+      {manualAmbiguous.length > 0 && (
         <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50/40 p-6">
           <div className="flex items-start gap-3">
             <HelpCircle className="mt-0.5 size-5 shrink-0 text-amber-600" />
             <div className="flex-1">
               <p className="font-serif text-lg text-amber-900">
-                Erre a {ambiguous.length} befizetőre több jelölt is illik
+                Erre a {manualAmbiguous.length} befizetőre kézi döntés kell
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                Válaszd ki, melyik tagnyilvántartási rekordhoz tartoznak.
-                Minden jelöltnél most már látszik a 📍 cím is, ami a
-                döntés alapja. A többi befizetőt automatikusan azonosítottuk.
-              </p>
-              <p className="mt-2 text-xs text-amber-700">
-                💡 <strong>Tipp</strong>: ha a Kassza-fájlban a befizető-név mellett
-                hiányzik vagy nem stimmel a cím, és az ambiguous-ot nem tudod
-                eldönteni, nyisd meg külön ablakban a <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-[11px]">bevételek_2025.xml</code>
-                fájlt — annak az &quot;Iratszám&quot; és pontosabb &quot;Forrása&quot;
-                mezői segítenek a beazonosításban. Az XML-import teljes
-                automatizálása a következő iterációban (v2) érkezik.
+                Ezeket az „1×/év" automatikus elosztás nem tudta egyértelműen feloldani (minden
+                lehetséges tagjuk már más befizetéshez került, vagy nincs megkülönböztető adat).
+                Válaszd ki a megfelelő tagnyilvántartási rekordot — a 📍 cím és a befizetés
+                részletei segítenek.
               </p>
             </div>
-            {allAmbiguousResolved && (
+            {manualAmbiguous.every((a) => manualPersonSelections[a.raw]) && (
               <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
             )}
           </div>
 
           <div className="mt-4 space-y-3">
-            {ambiguous.map((d) => (
+            {manualAmbiguous.map((d) => (
               <AmbiguousCard
                 key={d.raw}
                 resolution={d}
                 selected={manualPersonSelections[d.raw] || null}
                 onSelect={(id) => onManualPersonSelectionChange(d.raw, id)}
+                autoDistributed={false}
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* AUTOMATIKUSAN ELOSZTOTT BEFIZETŐK — összecsukva, ellenőrizhető     */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {autoAmbiguous.length > 0 && (
+        <div className="rounded-[1.75rem] border border-teal-200 bg-teal-50/40 p-5">
+          <button
+            type="button"
+            onClick={() => setShowAutoAssigned((v) => !v)}
+            className="flex w-full items-start gap-3 text-left"
+          >
+            <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-teal-600" />
+            <div className="flex-1">
+              <p className="font-serif text-lg text-teal-900">
+                {autoAmbiguous.length} befizetőt automatikusan hozzárendeltünk (1×/év szabály)
+              </p>
+              <p className="mt-1 text-sm text-teal-800">
+                Ahol egy címen/néven több tag is illett, a befizetéseket a „egy személy évente
+                egyszer fizet" szabály + cím-egyezés alapján KÜLÖN-KÜLÖN taghoz rendeltük, így
+                senkinek nem látszik elmaradása. Ezekkel nem kell egyesével foglalkoznod —
+                {showAutoAssigned ? ' csukd be, ha rendben.' : ' kattints az ellenőrzéshez.'}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700">
+              {showAutoAssigned ? 'Bezár' : 'Ellenőrzés'}
+            </span>
+          </button>
+
+          {duplicateEgyhfPersonIds.size > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <strong>Figyelem:</strong> {duplicateEgyhfPersonIds.size} tag a hozzárendelés
+                szerint <strong>kétszer fizetne</strong> egyházfenntartást ugyanarra az évre
+                (egy személy évente egyszer fizet egyházfenntartást). Az érintett sorok pirossal
+                jelölve — válassz másik tagot az egyiknél.
+              </span>
+            </div>
+          )}
+
+          {showAutoAssigned && (
+            <div className="mt-4 overflow-x-auto rounded-xl ring-1 ring-teal-100">
+              <table className="min-w-full text-xs">
+                <thead className="bg-teal-50/70 text-left text-teal-800">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Befizető (fájl)</th>
+                    <th className="px-3 py-2 font-semibold">Befizetés(ek)</th>
+                    <th className="px-3 py-2 font-semibold">Hozzárendelt tag — módosítható</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-teal-50">
+                  {autoAmbiguous.map((d) => {
+                    const selectedId = manualPersonSelections[d.raw] || ''
+                    const payments = paymentsByDonor.get(d.raw) || []
+                    const isDup = !!selectedId && duplicateEgyhfPersonIds.has(selectedId)
+                    return (
+                      <tr key={d.raw} className={isDup ? 'bg-red-50/70' : 'bg-white'}>
+                        <td className="px-3 py-2 align-top font-medium text-slate-700">
+                          {d.raw}
+                        </td>
+                        <td className="px-3 py-2 align-top text-slate-600">
+                          {payments.length === 0 ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <ul className="space-y-1">
+                              {payments.map((p, i) => {
+                                const isEgyhf = p.budgetCode === EGYHF_KOD
+                                return (
+                                  <li key={i} className="flex flex-wrap items-center gap-1">
+                                    <span className="font-mono">{p.iratszam || '—'}</span>
+                                    <span>· {p.datum ?? '—'} ·</span>
+                                    <span className="font-medium">
+                                      {typeof p.amount === 'number'
+                                        ? `${p.amount.toLocaleString('hu-HU')} RON`
+                                        : '—'}
+                                    </span>
+                                    {p.celNev && (
+                                      <span
+                                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                          isEgyhf
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : 'bg-slate-100 text-slate-600'
+                                        }`}
+                                      >
+                                        {isEgyhf ? '⛪ ' : ''}
+                                        {p.celNev}
+                                      </span>
+                                    )}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <select
+                            className={`w-full rounded-md border bg-white p-1.5 text-xs ${
+                              isDup ? 'border-red-300 ring-1 ring-red-200' : 'border-slate-300'
+                            }`}
+                            value={selectedId}
+                            onChange={(e) => onManualPersonSelectionChange(d.raw, e.target.value)}
+                          >
+                            <option value="">— Válassz —</option>
+                            {d.candidates?.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.csaladnev || '?'} {c.k_nev || '?'}
+                                {c.szcs_nev ? ` (sz: ${c.szcs_nev})` : ''}
+                                {c.cim ? ` — 📍 ${c.cim}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {isDup && (
+                            <p className="mt-1 text-[11px] font-semibold text-red-600">
+                              ⚠ Ez a tag már fizetett egyházfenntartást erre az évre — válassz másikat!
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -487,9 +653,11 @@ interface AmbiguousCardProps {
   resolution: DonorResolution
   selected: string | null
   onSelect: (id: string) => void
+  /** B1: igaz, ha a kiválasztott jelölt az „1×/év" auto-elosztásból származik. */
+  autoDistributed?: boolean
 }
 
-function AmbiguousCard({ resolution, selected, onSelect }: AmbiguousCardProps) {
+function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: AmbiguousCardProps) {
   // A Kassza-fájlból kinyert utca + házszám — ezt vetjük össze a jelöltek
   // 📍 címével, hogy a felhasználó vizuálisan tudjon dönteni
   const parsedCim =
@@ -513,9 +681,15 @@ function AmbiguousCard({ resolution, selected, onSelect }: AmbiguousCardProps) {
           </p>
         </div>
         {selected && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+              autoDistributed
+                ? 'bg-teal-50 text-teal-700'
+                : 'bg-emerald-50 text-emerald-700'
+            }`}
+          >
             <CheckCircle2 className="size-3" />
-            Kiválasztva
+            {autoDistributed ? '🔄 Auto-elosztva (ellenőrizd)' : 'Kiválasztva'}
           </span>
         )}
       </div>

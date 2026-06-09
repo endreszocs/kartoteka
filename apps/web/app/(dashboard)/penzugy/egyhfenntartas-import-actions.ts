@@ -32,6 +32,17 @@ import {
   matchSources,
   type MatchedRow,
 } from '@/components/finance/finance-import/egyhfenntartas/helpers/cross-source-matcher'
+import {
+  buildAllPersonsLookupMap,
+  lookupPersonByQuadAttempt,
+  type PersonLookupMaps,
+} from '@/lib/import/lookup-resolver'
+import {
+  reconcileWithBooks,
+  type ReconcileResult,
+  type ReconcileFileRow,
+  type ReconcileBookRow,
+} from '@/components/finance/finance-import/egyhfenntartas/helpers/books-reconciler'
 
 const EGYHF_SZAMADASI_KOD = '101.01'
 
@@ -106,6 +117,10 @@ export interface SzemelyMatchInfo {
   }>
   /** Egy debug/UI tooltip — milyen módon talált rá */
   matchMode: 'exact' | 'fuzzy-name' | 'multiple' | 'not-found' | 'company'
+  /** B1 (1×/év szabály): a több-jelöltes esetben javasolt, automatikusan elosztott tag. */
+  suggestedSzemelyId?: number | null
+  /** True, ha a `suggestedSzemelyId`-t az „1×/év" elosztás állította be (UI jelzi). */
+  autoDistributed?: boolean
 }
 
 export interface PreviewMatchedRow {
@@ -147,6 +162,8 @@ export interface ParsePreviewResult {
   }
   detectedYear: number | null
   warnings: string[]
+  /** #2: egyeztetés a DB-ben már könyvelt befizetésekkel (kétirányú hibakeresés). */
+  reconcile: ReconcileResult | null
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -219,13 +236,22 @@ export async function parseAndPreviewEgyhf(
     return { error: 'Nincs hozzád rendelt gyülekezet — kérlek lépj kapcsolatba a rendszergazdával.' }
   }
 
-  // 4) Tag-egyezés minden sorra
+  // 4) Tag-egyezés minden sorra — a megosztott, pontosabb lookup-infrastruktúrával.
+  //    A teljes tagság-térképet EGYSZER építjük fel (nincs per-soros N+1 query),
+  //    majd memóriában oldjuk fel a `lookupPersonByQuadAttempt` 6-szintű fallback-jével
+  //    (quad → triple → maiden → keresztnév) + utca/házszám-szűréssel.
+  const personMaps = await buildAllPersonsLookupMap(supabase, profile.congregation_id)
+
   const previewRows: PreviewMatchedRow[] = []
   let szemelyExactCount = 0
   let szemelyFuzzyCount = 0
   let szemelyMultipleCount = 0
   let szemelyNotFoundCount = 0
   let szemelyCompanyCount = 0
+
+  // A pontosan feloldott szemely-id-khez a végén batch-ben kérjük le a csalad-id-t.
+  const resolvedSzemelyIds = new Set<number>()
+  const pendingCsaladAssign: Array<{ rowIdx: number; szemelyId: number }> = []
 
   for (let i = 0; i < crossMatch.matched.length; i++) {
     const row = crossMatch.matched[i]
@@ -236,19 +262,10 @@ export async function parseAndPreviewEgyhf(
 
     let szemelyMatch: SzemelyMatchInfo
     if (parsedDonor.isCompany) {
-      szemelyMatch = {
-        szemelyId: null,
-        csaladId: null,
-        candidates: [],
-        matchMode: 'company',
-      }
+      szemelyMatch = { szemelyId: null, csaladId: null, candidates: [], matchMode: 'company' }
       szemelyCompanyCount++
     } else {
-      szemelyMatch = await lookupSzemely(
-        supabase,
-        profile.congregation_id,
-        parsedDonor,
-      )
+      szemelyMatch = resolveSzemelyViaMaps(parsedDonor, personMaps)
       switch (szemelyMatch.matchMode) {
         case 'exact':
           szemelyExactCount++
@@ -264,6 +281,10 @@ export async function parseAndPreviewEgyhf(
           szemelyNotFoundCount++
           break
       }
+      if (szemelyMatch.szemelyId !== null) {
+        resolvedSzemelyIds.add(szemelyMatch.szemelyId)
+        pendingCsaladAssign.push({ rowIdx: previewRows.length, szemelyId: szemelyMatch.szemelyId })
+      }
     }
 
     previewRows.push({
@@ -272,6 +293,40 @@ export async function parseAndPreviewEgyhf(
       szemely: szemelyMatch,
       finalRow,
     })
+  }
+
+  // 4b) Csalad-id batch-feloldás (egyetlen query az összes feloldott személyre)
+  if (resolvedSzemelyIds.size > 0) {
+    const csaladBySzemely = await batchLookupCsaladIds(supabase, Array.from(resolvedSzemelyIds))
+    for (const { rowIdx, szemelyId } of pendingCsaladAssign) {
+      const csaladId = csaladBySzemely.get(szemelyId) ?? null
+      if (csaladId !== null) previewRows[rowIdx].szemely.csaladId = csaladId
+    }
+  }
+
+  // 4c) B1 — „1×/év" auto-elosztás a több-jelöltes (multiple) soroknál.
+  //     Az egyházfenntartói járulékot egy személy ÉVENTE EGYSZER fizeti. Ha egy címen/néven
+  //     több jelölt van (pl. egy háztartás több felnőtt tagja), és ugyanannyi (vagy kevesebb)
+  //     befizetés tartozik a jelölt-csoporthoz, akkor minden befizetést EGY-EGY KÜLÖN jelölthöz
+  //     rendelünk (round-robin). Így senkinek nem látszik elmaradása. Importnál ennyire lehetünk
+  //     pontosak — a UI jelzi, hogy ez auto-elosztás (ellenőrizendő).
+  distributeEgyhfCandidates(previewRows)
+
+  // 5) #2 EGYEZTETÉS A KÖNYVELÉSSEL — a fájl sorait a DB-ben már könyvelt
+  //    egyházfenntartási (101.01) befizetésekkel vetjük össze, kétirányú hibakereséssel.
+  const selectedYearRaw = formData.get('selectedYear')
+  const reconcileYear =
+    typeof selectedYearRaw === 'string' && /^\d{4}$/.test(selectedYearRaw)
+      ? parseInt(selectedYearRaw, 10)
+      : xlsxResult.detectedYear || xmlResult.detectedYear
+  let reconcile: ReconcileResult | null = null
+  if (reconcileYear) {
+    reconcile = await reconcileAgainstBooks(
+      supabase,
+      profile.congregation_id,
+      reconcileYear,
+      previewRows,
+    )
   }
 
   return {
@@ -287,8 +342,58 @@ export async function parseAndPreviewEgyhf(
       },
       detectedYear: xlsxResult.detectedYear || xmlResult.detectedYear,
       warnings,
+      reconcile,
     },
   }
+}
+
+/**
+ * #2: a fájl egyházfenntartás-sorait egyezteti a DB-ben már könyvelt 101.01
+ * befizetésekkel. A `befizetescel.id_szamadasicel = '101.01'` cél-id alapján
+ * lekéri az adott évre könyvelt, nem törölt/nem sztornózott befizetéseket.
+ */
+async function reconcileAgainstBooks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  year: number,
+  previewRows: PreviewMatchedRow[],
+): Promise<ReconcileResult | null> {
+  const { data: bcData } = await supabase
+    .from('befizetescel')
+    .select('id')
+    .eq('id_szamadasicel', EGYHF_SZAMADASI_KOD)
+    .eq('aktiv', true)
+    .maybeSingle()
+  if (!bcData) return null
+
+  const { data: booked } = await supabase
+    .from('befizetes')
+    .select('id, forrasa, osszeg, datum, iratszam, nyugta')
+    .eq('congregation_id', congregationId)
+    .eq('fizetettev', year)
+    .eq('id_befizetescel', bcData.id)
+    .eq('deleted', false)
+    .eq('stornozott', false)
+
+  const bookRows: ReconcileBookRow[] = (booked ?? []).map((b) => ({
+    id: b.id as number,
+    forrasa: (b.forrasa as string | null) ?? null,
+    osszeg: Number(b.osszeg) || 0,
+    datum: (b.datum as string | null) ?? null,
+    iratszam: (b.iratszam as string | null) ?? null,
+    nyugta: (b.nyugta as string | null) ?? null,
+  }))
+
+  const fileRows: ReconcileFileRow[] = previewRows.map((r) => ({
+    clientKey: r.clientKey,
+    forrasa: r.finalRow.forrasa,
+    osszeg: r.finalRow.osszeg,
+    datum: r.finalRow.datum,
+    iratszam: r.finalRow.iratszam,
+    nyugta: r.finalRow.nyugta,
+  }))
+
+  return reconcileWithBooks(fileRows, bookRows)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -565,204 +670,121 @@ function buildFinalRow(
 }
 
 /**
- * Quad-lookup a `szemely` táblában.
- *
- * Algoritmus:
- *   1. Strict match: csaladnev + k_nev + utca + házszám
- *   2. Loose: csak családnév + utca (ha a k_nev nem egyértelmű)
- *   3. Husbandszerű: ha női férjes-név, husbandFamilyName + utca + házszám
+ * B1 — „1×/év" auto-elosztás: a több-jelöltes (multiple) sorokat a jelölt-csoport szerint
+ * csoportosítja, és minden befizetést egy-egy KÜLÖN jelölthöz rendel (round-robin), ha a
+ * befizetések száma ≤ a jelöltek száma. A `suggestedSzemelyId` + `autoDistributed` mezőket
+ * állítja be (a UI ezt pre-selecteli és jelzi).
  */
-async function lookupSzemely(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  congregationId: string,
+function distributeEgyhfCandidates(rows: PreviewMatchedRow[]): void {
+  // Csoportosítás a jelölt-halmaz szerint (azonos jelölt-id-k = azonos név/cím csoport).
+  const groups = new Map<string, PreviewMatchedRow[]>()
+  for (const row of rows) {
+    if (row.szemely.matchMode !== 'multiple') continue
+    if (row.szemely.candidates.length === 0) continue
+    const sig = row.szemely.candidates
+      .map((c) => c.szemelyId)
+      .sort((a, b) => a - b)
+      .join(',')
+    const arr = groups.get(sig) ?? []
+    arr.push(row)
+    groups.set(sig, arr)
+  }
+
+  for (const groupRows of groups.values()) {
+    const candidates = groupRows[0].szemely.candidates
+    // Csak akkor osztunk el, ha minden befizetésnek jut KÜLÖN jelölt.
+    if (groupRows.length > candidates.length) continue
+    groupRows.forEach((row, i) => {
+      row.szemely.suggestedSzemelyId = candidates[i].szemelyId
+      row.szemely.autoDistributed = true
+    })
+  }
+}
+
+/**
+ * Tag-egyeztetés a megosztott, memóriában futó lookup-infrastruktúrával.
+ *
+ * A korábbi inline `lookupSzemely` per-soros DB-query-kkel dolgozott (N+1) és csak
+ * a férjes-családnévre + utca-ilike-ra épült. Ehelyett most a `lookupPersonByQuadAttempt`
+ * 6-szintű fallback-láncát használjuk (quad → triple → maiden → keresztnév) + utca/házszám
+ * pontos szűréssel — UGYANAZ, amit a Kassza-import wizard használ.
+ */
+function resolveSzemelyViaMaps(
   donor: ReturnType<typeof parseDonorString>,
-): Promise<SzemelyMatchInfo> {
+  maps: PersonLookupMaps,
+): SzemelyMatchInfo {
   if (donor.isCompany) {
+    return { szemelyId: null, csaladId: null, candidates: [], matchMode: 'company' }
+  }
+
+  // A férjes asszonynak a Kasszában nincs saját családneve — a férj családnevét
+  // (husbandFamilyName) használjuk fő kulcsként, a lánykorit (szcs_nev) maiden-fallbackre.
+  const familyName = donor.csaladnev ?? donor.husbandFamilyName
+  const ferfiFlag: 'M' | 'F' | '?' = donor.husbandName ? 'F' : '?'
+
+  const lookup = lookupPersonByQuadAttempt(
+    familyName,
+    donor.k_nev,
+    donor.szcs_nev,
+    null,
+    ferfiFlag,
+    maps,
+    donor.street,
+    donor.houseNumber,
+  )
+
+  if (!lookup) {
+    return { szemelyId: null, csaladId: null, candidates: [], matchMode: 'not-found' }
+  }
+
+  if ('id' in lookup) {
+    return { szemelyId: Number(lookup.id), csaladId: null, candidates: [], matchMode: 'exact' }
+  }
+
+  // Több jelölt — a UI manuális választást kér
+  const candidates = lookup.candidates.map((idStr) => {
+    const rec = maps.byId.get(idStr)
+    const addr = maps.addressById.get(idStr)
+    const cim = addr
+      ? [addr.streetName, addr.houseNumber].filter(Boolean).join(' ').trim() || null
+      : null
     return {
-      szemelyId: null,
+      szemelyId: Number(idStr),
       csaladId: null,
-      candidates: [],
-      matchMode: 'company',
+      csaladnev: rec?.csaladnev ?? null,
+      k_nev: rec?.k_nev ?? null,
+      cim,
     }
-  }
+  })
 
-  // 1) Utca-id resolúció (ha van utca-szöveg)
-  let utcaId: number | null = null
-  if (donor.street) {
-    const { data: streetData } = await supabase
-      .from('adrstreet')
-      .select('id')
-      .ilike('name', `%${donor.street}%`)
-      .limit(1)
-      .maybeSingle()
-    if (streetData) utcaId = streetData.id as number
-  }
-
-  // 2) Strict match
-  // Próbáljuk meg a csaladnev + k_nev + utca + szam kombinációval
-  const familyName = donor.husbandFamilyName ?? donor.csaladnev
-  if (familyName && utcaId && donor.houseNumber) {
-    const baseQuery = supabase
-      .from('szemely')
-      .select('id, csaladnev, k_nev, c_szam, c_utcaid, ferjk_nev, szcs_nev')
-      .eq('c_utcaid', utcaId)
-      .eq('c_szam', donor.houseNumber)
-      .eq('meghalt', false)
-
-    // Családnév-feltétel (vagy a férj családneve, vagy a saját)
-    const { data: candidates } = await baseQuery
-    if (candidates && candidates.length > 0) {
-      // Szűrjük családnévre + keresztnévre / lánykori névre / férjes-névre
-      const filtered = candidates.filter(c => matchesSzemely(c, donor, familyName))
-      if (filtered.length === 1) {
-        const csaladId = await lookupCsaladId(supabase, filtered[0].id)
-        return {
-          szemelyId: filtered[0].id,
-          csaladId,
-          candidates: [],
-          matchMode: 'exact',
-        }
-      }
-      if (filtered.length > 1) {
-        return {
-          szemelyId: null,
-          csaladId: null,
-          candidates: filtered.map(c => ({
-            szemelyId: c.id,
-            csaladId: null,
-            csaladnev: c.csaladnev,
-            k_nev: c.k_nev,
-            cim: `${c.c_szam}`,
-          })),
-          matchMode: 'multiple',
-        }
-      }
-    }
-  }
-
-  // 3) Fuzzy-name fallback: csak a családnév alapján a gyülekezetben
-  if (familyName) {
-    const { data: byName } = await supabase
-      .from('szemely')
-      .select('id, csaladnev, k_nev, c_szam, c_utcaid, ferjk_nev, szcs_nev')
-      .ilike('csaladnev', `%${familyName}%`)
-      .eq('meghalt', false)
-      .limit(8)
-
-    if (byName && byName.length > 0) {
-      const exactByGivenName = byName.filter(
-        c =>
-          donor.k_nev &&
-          c.k_nev &&
-          c.k_nev.toLowerCase() === donor.k_nev.toLowerCase(),
-      )
-      if (exactByGivenName.length === 1) {
-        const csaladId = await lookupCsaladId(supabase, exactByGivenName[0].id)
-        return {
-          szemelyId: exactByGivenName[0].id,
-          csaladId,
-          candidates: [],
-          matchMode: 'fuzzy-name',
-        }
-      }
-      if (byName.length > 1) {
-        return {
-          szemelyId: null,
-          csaladId: null,
-          candidates: byName.slice(0, 5).map(c => ({
-            szemelyId: c.id,
-            csaladId: null,
-            csaladnev: c.csaladnev,
-            k_nev: c.k_nev,
-            cim: c.c_szam ?? null,
-          })),
-          matchMode: 'multiple',
-        }
-      }
-    }
-  }
-
-  return {
-    szemelyId: null,
-    csaladId: null,
-    candidates: [],
-    matchMode: 'not-found',
-  }
+  return { szemelyId: null, csaladId: null, candidates, matchMode: 'multiple' }
 }
 
-interface SzemelyRow {
-  id: number
-  csaladnev: string | null
-  k_nev: string | null
-  c_szam: string | null
-  c_utcaid: number | null
-  ferjk_nev: string | null
-  szcs_nev: string | null
-}
-
-function matchesSzemely(
-  c: SzemelyRow,
-  donor: ReturnType<typeof parseDonorString>,
-  familyName: string,
-): boolean {
-  // Családnév-egyezés (saját családnév VAGY férjes-családnév első tokene)
-  const cFamily = (c.csaladnev || '').toLowerCase()
-  const cFerjk = (c.ferjk_nev || '').toLowerCase()
-  const familyLower = familyName.toLowerCase()
-
-  const familyMatches =
-    cFamily === familyLower ||
-    cFerjk.startsWith(familyLower) ||
-    cFamily.includes(familyLower)
-
-  if (!familyMatches) return false
-
-  // Keresztnév-egyezés
-  if (donor.k_nev) {
-    const cKnev = (c.k_nev || '').toLowerCase()
-    if (cKnev === donor.k_nev.toLowerCase()) return true
-  }
-
-  // Lánykori családnév (szcs_nev) — ha az XML-ben jelölve van
-  if (donor.szcs_nev) {
-    const cSzcsNev = (c.szcs_nev || '').toLowerCase()
-    if (cSzcsNev === donor.szcs_nev.toLowerCase()) return true
-  }
-
-  // Férjes-név teljes (pl. "Beder Győzőné")
-  if (donor.husbandName) {
-    const cFerjk2 = (c.ferjk_nev || '').toLowerCase()
-    if (cFerjk2.includes(donor.husbandName.toLowerCase())) return true
-  }
-
-  return false
-}
-
-async function lookupCsaladId(
+/**
+ * Csalad-id batch-feloldás a hibrid család-modellből (haztartas_tag → haztartas.legacy_csalad_id),
+ * egyetlen query-vel az összes feloldott személyre — a per-soros `lookupCsaladId` N+1-jét kerüli.
+ */
+async function batchLookupCsaladIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  szemelyId: number,
-): Promise<number | null> {
-  // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas_tag-ból kérdezzük,
-  // bármely szerepben (családfő/házastárs/gyermek). A legacy_csalad_id-t
-  // adjuk vissza visszafelé-kompatibilitás miatt.
+  szemelyIds: number[],
+): Promise<Map<number, number>> {
+  const result = new Map<number, number>()
+  if (szemelyIds.length === 0) return result
+
   const { data: tagRows } = await supabase
     .from('haztartas_tag')
-    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
-    .eq('id_szemely', szemelyId)
+    .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
+    .in('id_szemely', szemelyIds)
     .is('ervenyes_ig', null)
-    .limit(5)
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (tagRows || []) as any[]) {
+    const szId = row.id_szemely as number
+    if (result.has(szId)) continue
     const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
     if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) {
-      return h.legacy_csalad_id as number
+      result.set(szId, h.legacy_csalad_id as number)
     }
   }
-  // Fallback a régi modellre
-  const { data: cs } = await supabase
-    .from('csalad')
-    .select('id')
-    .or(`id_ferfi.eq.${szemelyId},id_no.eq.${szemelyId}`)
-    .maybeSingle()
-  return cs?.id ?? null
+  return result
 }

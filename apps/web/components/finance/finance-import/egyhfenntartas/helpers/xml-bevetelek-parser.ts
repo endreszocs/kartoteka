@@ -25,6 +25,7 @@
  */
 
 import * as XLSX from 'xlsx'
+import { toLocalIsoDate } from '@/lib/import/date-utils'
 
 export interface XmlBevetelekRow {
   /** Sor a fájlban (1-indexelt, debugging-hoz; az adat 1-től indul a header-en kívül) */
@@ -201,27 +202,9 @@ function parseInteger(value: unknown): number | null {
 }
 
 function parseDateToISO(value: unknown): string | null {
-  if (value === null || value === undefined) return null
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null
-    return value.toISOString().slice(0, 10)
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return null
-    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
-    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
-  }
-  if (typeof value === 'number') {
-    const d = XLSX.SSF.parse_date_code(value)
-    if (d) {
-      const yyyy = String(d.y).padStart(4, '0')
-      const mm = String(d.m).padStart(2, '0')
-      const dd = String(d.d).padStart(2, '0')
-      return `${yyyy}-${mm}-${dd}`
-    }
-  }
-  return null
+  // Időzóna-biztos, többformátumú normalizálás a megosztott helperben
+  // (Date helyi-komponens, Excel-serial UTC-epoch, ISO/magyar string).
+  return toLocalIsoDate(value)
 }
 
 function normalizeIrattipus(value: string): string {

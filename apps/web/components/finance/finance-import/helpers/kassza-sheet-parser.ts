@@ -18,6 +18,7 @@
 import * as XLSX from 'xlsx'
 
 import type { ParsedSheet, ParsedWorkbook } from '@/lib/import/excel-parser'
+import { dateToLocalIso } from '@/lib/import/date-utils'
 
 const KASSZA_HEADER_KEYWORDS = [
   'dátum',
@@ -62,7 +63,7 @@ function normalizeCell(value: unknown): string | number | null {
     return trimmed === '' ? null : trimmed
   }
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10)
+    return dateToLocalIso(value) // HELYI komponens (nincs UTC-csúszás)
   }
   return String(value)
 }

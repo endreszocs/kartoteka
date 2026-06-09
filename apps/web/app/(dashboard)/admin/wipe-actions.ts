@@ -80,6 +80,54 @@ export async function wipeCongregationDataAction(
 }
 
 /**
+ * Admin: PÉNZÜGY-ONLY végleges törlés (teszt-reset).
+ *
+ * Meghívja a `public.wipe_finance_data(uuid, text)` RPC-t, amely CSAK a tranzakciós
+ * pénzügyi táblákat üríti (befizetes, kiadas, belsomozgas, oblio_szamlak, chitanta_tombok,
+ * monetar, decont, dispozitie). A tagnyilvántartás, kategóriák, bankszámla-konfig és az
+ * éves költségvetés ÉRINTETLEN marad — így az import újra-tesztelhető.
+ *
+ * Jogosultság: CSAK fő rendszergazda (admin) — `allowDistrictAdmin: false`.
+ */
+export async function wipeFinanceDataAction(
+  congregationId: string,
+  confirmName: string,
+): Promise<WipeResult> {
+  let access
+  try {
+    access = await requireAdminAccess({ allowDistrictAdmin: false })
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : 'Ehhez a művelethez nincs jogosultsága.',
+    }
+  }
+  const supabase = access.supabase
+
+  const { data, error } = await supabase.rpc('wipe_finance_data', {
+    target_congregation_id: congregationId,
+    confirm_name: confirmName,
+  })
+
+  if (error) {
+    return { success: false, error: translateRpcError(error.message) }
+  }
+
+  const deletedTables = Array.isArray(data)
+    ? (data as Array<{ deleted_table: string; rows_deleted: number | string }>).map((r) => ({
+        table: String(r.deleted_table),
+        rows: Number(r.rows_deleted) || 0,
+      }))
+    : []
+
+  const rowsTotal = deletedTables.reduce((acc, r) => acc + r.rows, 0)
+
+  revalidatePath('/penzugy')
+
+  return { success: true, rowsTotal, deletedTables }
+}
+
+/**
  * A szerver-oldali hibaüzenetek barátságosítása a lelkésznek.
  */
 function translateRpcError(msg: string): string {
@@ -88,6 +136,9 @@ function translateRpcError(msg: string): string {
   }
   if (msg.includes('admin / master / egyházkerületi')) {
     return 'Csak admin, master vagy egyházkerületi admin felhasználó végezheti el ezt a műveletet.'
+  }
+  if (msg.includes('Csak fő rendszergazda')) {
+    return 'Csak fő rendszergazda (admin) végezheti el a pénzügyi adatok végleges törlését.'
   }
   if (msg.includes('nem létezik')) {
     return 'A megadott gyülekezet nem található.'

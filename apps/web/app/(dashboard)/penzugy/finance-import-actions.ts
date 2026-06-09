@@ -751,11 +751,10 @@ export async function executeFinanceImport(
       atvevoid: targetKind === 'expense' ? item.szemelyId ?? null : undefined,
       csalad: false,
       // A belső mozgás várakozó tételeinél a `belso_mozgas_xkey` UUID
-      // jelzi a rendszer többi részének, hogy ez egy belső mozgás párja
-      // (még nincs kapcsolva, várja a Bank A/B import-ot).
+      // jelzi a rendszer többi részének, hogy ez egy belső mozgás párja.
       belso_mozgas_xkey: item.belsoMozgasXkey ?? null,
-      // A bankszamla_id NULL marad, mert ezek a kassza-oldali rekordok
-      bankszamla_id: null,
+      // Banki tételnél a bankszámla, kassza-oldalon null.
+      bankszamla_id: item.bankszamlaId ?? null,
     }
   })
 
@@ -778,9 +777,10 @@ export async function executeFinanceImport(
   type RpcResult = {
     inserted: number
     skipped: number
+    skippedDuplicates?: number
     errors: Array<{ rowIndex?: number; reason?: string }>
   }
-  const result = (data as RpcResult) || { inserted: 0, skipped: 0, errors: [] }
+  const result = (data as RpcResult) || { inserted: 0, skipped: 0, skippedDuplicates: 0, errors: [] }
 
   // Import-log audit-rekord
   try {
@@ -821,9 +821,11 @@ export async function executeFinanceImport(
     success: true,
     inserted: result.inserted,
     skipped: result.skipped,
+    skippedDuplicates: result.skippedDuplicates ?? 0,
     errors: (result.errors || []).map((e) => ({
       rowIndex: e.rowIndex ?? 0,
       reason: e.reason ?? 'Ismeretlen hiba',
     })),
   }
 }
+

@@ -26,6 +26,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toLocalIsoDate } from './date-utils'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -104,12 +105,8 @@ function normalizeDateForQuad(value: string | number | boolean | null | undefine
   if (huMatch) {
     return `${huMatch[1]}-${huMatch[2].padStart(2, '0')}-${huMatch[3].padStart(2, '0')}`
   }
-  // Próba Date-tel
-  const d = new Date(str)
-  if (!Number.isNaN(d.getTime())) {
-    return d.toISOString().slice(0, 10)
-  }
-  return ''
+  // Időzóna-biztos végső próba (helyi komponens, nem UTC)
+  return toLocalIsoDate(str) ?? ''
 }
 
 /**

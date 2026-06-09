@@ -79,6 +79,114 @@ async function hasExistingBankTransaction(
   return !!(data && data.length > 0)
 }
 
+/** ISO dátum (YYYY-MM-DD) ± N nap, időzóna-biztosan (UTC). */
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Két ISO-dátum napban mért távolsága (abszolút). */
+function dateProximityDays(a: string, b: string): number {
+  const ta = new Date(`${a.slice(0, 10)}T00:00:00Z`).getTime()
+  const tb = new Date(`${b.slice(0, 10)}T00:00:00Z`).getTime()
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return Infinity
+  return Math.abs((ta - tb) / 86_400_000)
+}
+
+type BankSupabase = Awaited<ReturnType<typeof getEffectiveAccessContext>>['supabase']
+
+/**
+ * Egy `belso_mozgas_xkey` PÁROSÍTOTT-e már a bank-oldalon? (Van-e olyan befizetés/kiadás
+ * ugyanazzal az xkey-vel, aminek `bankszamla_id` ki van töltve.) Ha igen, a mozgás teljes.
+ */
+async function isXkeyPairedOnBankSide(
+  supabase: BankSupabase,
+  congregationId: string,
+  xkey: string,
+): Promise<boolean> {
+  for (const table of ['befizetes', 'kiadas'] as const) {
+    const { data } = await supabase
+      .from(table)
+      .select('id')
+      .eq('congregation_id', congregationId)
+      .eq('belso_mozgas_xkey', xkey)
+      .not('bankszamla_id', 'is', null)
+      .eq('deleted', false)
+      .limit(1)
+    if (data && data.length > 0) return true
+  }
+  return false
+}
+
+/**
+ * AKTÍV PÁROSÍTÁS: keres egy MEGLÉVŐ, párosítatlan KASSZA-oldali belső mozgást, amihez a most
+ * importált banki tétel a pár. (A Kassza-import a 400.01/300.01 sorokat kassza-oldalon, banki
+ * párja nélkül hozta létre — ezeket kötjük most össze a banki kivonat tételeivel.)
+ *
+ * Kritériumok: kassza-oldal (`bankszamla_id IS NULL`), van `belso_mozgas_xkey`, az adott
+ * irány (befizetés/kiadás), azonos összeg (±0.01), a dátum ±3 napon belül, NEM törölt, és az
+ * xkey-je még NINCS bank-oldalon párosítva.
+ *
+ * @returns A megtalált kassza-oldali sor id-je + xkey-je (ezt használjuk a banki sorhoz), vagy null.
+ */
+async function findUnpairedCashCounterpart(
+  supabase: BankSupabase,
+  congregationId: string,
+  params: { side: 'income' | 'expense'; amount: number; date: string },
+): Promise<{ id: number; xkey: string } | null> {
+  const table = params.side === 'income' ? 'befizetes' : 'kiadas'
+  const { data: candidates } = await supabase
+    .from(table)
+    .select('id, belso_mozgas_xkey, datum')
+    .eq('congregation_id', congregationId)
+    .is('bankszamla_id', null)
+    .not('belso_mozgas_xkey', 'is', null)
+    .gte('osszeg', params.amount - 0.01)
+    .lte('osszeg', params.amount + 0.01)
+    .eq('deleted', false)
+    .gte('datum', addDaysIso(params.date, -3))
+    .lte('datum', addDaysIso(params.date, 3))
+
+  if (!candidates || candidates.length === 0) return null
+
+  // Dátum-közelség szerint (legközelebbi elöl)
+  const sorted = [...candidates].sort(
+    (a, b) =>
+      dateProximityDays(String(a.datum), params.date) -
+      dateProximityDays(String(b.datum), params.date),
+  )
+
+  for (const c of sorted) {
+    const xkey = c.belso_mozgas_xkey as string | null
+    if (!xkey) continue
+    const paired = await isXkeyPairedOnBankSide(supabase, congregationId, xkey)
+    if (!paired) return { id: c.id as number, xkey }
+  }
+  return null
+}
+
+/**
+ * Kiadás-sor beszúrása a legacy séma kétlépcsős (reference → canonical) fallback-jával.
+ */
+async function insertKiadasWithFallback(
+  supabase: BankSupabase,
+  canonical: Record<string, unknown>,
+  userId: string,
+): Promise<{ error: { message: string } | null }> {
+  const reference: Record<string, unknown> = {
+    ...canonical,
+    nyugta: canonical.iratszam,
+    xkey: randomUUID(),
+    atvevo: canonical.kedvezmenyzett ?? null,
+    atvevoid: null,
+    userid: userId,
+  }
+  let ins = await supabase.from('kiadas').insert([reference])
+  if (ins.error) ins = await supabase.from('kiadas').insert([canonical])
+  return { error: ins.error }
+}
+
 /**
  * A legutolsó banki tranzakció dátuma egy adott bankszámlán.
  * A wizard ezt használja default szűrőként: csak az ennél későbbi
@@ -329,146 +437,138 @@ export async function importBcrTransactions(
           result.imported++
         }
       } else if (item.action === 'internal-transfer') {
-        // BELSŐ MOZGÁS: kassza ↔ bank, vagy bank ↔ bank
-        const xkey = randomUUID()
+        // BELSŐ MOZGÁS: kassza ↔ bank, vagy bank ↔ bank — AKTÍV PÁROSÍTÁSSAL.
         const isKasszaTarget = item.transferTo === 'kassza'
         // Az amount előjele határozza meg az irányt:
-        //   amount < 0 (terhelés): a bankból KIMENT → kassza bejövetel
-        //   amount > 0 (jóváírás): a bankba BEMENT → kassza kimenetel
+        //   amount < 0 (terhelés): a bankból KIMENT → bank-oldal KIADÁS
+        //   amount > 0 (jóváírás): a bankba BEMENT → bank-oldal BEVÉTEL
         const isBankToKassza = item.amount < 0
         const absAmount = Math.abs(item.amount)
+        const bmTipus = isKasszaTarget ? (isBankToKassza ? 'bank_kassza' : 'kassza_bank') : 'bank_bank'
 
-        // BM típus string — a belsomozgas.tipus oszlopba
-        const bmTipus = isKasszaTarget
-          ? isBankToKassza
-            ? 'bank_kassza'
-            : 'kassza_bank'
-          : 'bank_bank'
+        // A bank-oldal iránya az item.bankszamlaId számlán, és a counterpart (másik oldal) iránya.
+        const bankSide: 'income' | 'expense' = isBankToKassza ? 'expense' : 'income'
+        const counterpartSide: 'income' | 'expense' = bankSide === 'income' ? 'expense' : 'income'
+        // Counterpart számla: kassza-célnál NULL (kassza), bank-banknál a transferTo számla.
+        const counterpartBankId: number | null =
+          isKasszaTarget ? null : (typeof item.transferTo === 'number' ? item.transferTo : null)
 
-        // 1. Bank oldali sor (kiadas VAGY befizetes)
-        if (isBankToKassza) {
-          // Bankból kivétel → kiadas sor
-          const canonical: Record<string, unknown> = {
-            osszeg: absAmount,
-            datum: item.date,
-            id_kiadascel: item.categoryId ?? null,
-            kedvezmenyzett: 'Belső mozgás — kasszába',
-            iratszam: docNumber,
-            irattipus: 'banki',
-            bankszamla_id: item.bankszamlaId,
-            belso_mozgas_xkey: xkey,
-            megjegyzes: item.megjegyzes || item.description,
-            deleted: false,
-            congregation_id: congregationId,
+        // ── AKTÍV PÁROSÍTÁS ──
+        // Kassza-célnál megnézzük: van-e MÁR egy párosítatlan kassza-oldali mozgás (a Kassza-import
+        // hozta létre a 400.01/300.01 sort). Ha igen, annak az xkey-jét ÚJRAHASZNÁLJUK a banki sorhoz,
+        // és NEM hozunk létre második kassza-oldalt → a pár teljes lesz, a piros jelzés eltűnik.
+        let xkey: string = randomUUID()
+        let counterpartAlreadyExists = false
+        if (isKasszaTarget) {
+          const existing = await findUnpairedCashCounterpart(access.supabase, congregationId, {
+            side: counterpartSide,
+            amount: absAmount,
+            date: item.date,
+          })
+          if (existing) {
+            xkey = existing.xkey
+            counterpartAlreadyExists = true
+            const cpTable = counterpartSide === 'income' ? 'befizetes' : 'kiadas'
+            await access.supabase
+              .from(cpTable)
+              .update({ megjegyzes: `✓ Banki párja egyeztetve (${item.date})` })
+              .eq('id', existing.id)
+              .eq('congregation_id', congregationId)
           }
-          const reference: Record<string, unknown> = {
-            ...canonical,
-            nyugta: docNumber,
-            xkey: randomUUID(),
-            atvevo: 'Belső mozgás — kasszába',
-            atvevoid: null,
-            userid: userId,
-          }
-          let ins = await access.supabase.from('kiadas').insert([reference])
-          if (ins.error) ins = await access.supabase.from('kiadas').insert([canonical])
-          if (ins.error) {
-            result.errors.push({ rowIndex: item.rowIndex, error: `Bank oldal: ${ins.error.message}` })
-            continue
-          }
+        }
 
-          // 2. Kassza oldal (befizetes sor)
-          // NOT NULL: xkey, nyugta (legacy séma)
+        // ── 1. Bank-oldali sor (az item.bankszamlaId számlán) ──
+        if (bankSide === 'income') {
           const befPayload = {
-            osszeg: absAmount,
-            datum: item.date,
+            osszeg: absAmount, datum: item.date,
             id_befizetescel: item.categoryId ?? null,
-            id_szemely: null,
-            id_csalad: null,
-            forrasa: 'Belső mozgás — bankból',
-            iratszam: docNumber,
-            nyugta: docNumber,
-            irattipus: 'készpénz',
-            bankszamla_id: null,
+            id_szemely: null, id_csalad: null,
+            forrasa: 'Belső mozgás — bankba',
+            iratszam: docNumber, nyugta: docNumber,
+            irattipus: 'banki', bankszamla_id: item.bankszamlaId,
             belso_mozgas_xkey: xkey,
             megjegyzes: item.megjegyzes || item.description,
-            deleted: false,
-            congregation_id: congregationId,
-            fizetettev: Number(item.date.slice(0, 4)),
-            is_potlas: false,
+            deleted: false, congregation_id: congregationId,
+            fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
             xkey: randomUUID(),
           }
-          const { error: befErr } = await access.supabase.from('befizetes').insert([befPayload])
-          if (befErr) {
-            result.errors.push({ rowIndex: item.rowIndex, error: `Kassza oldal: ${befErr.message}` })
+          const { error } = await access.supabase.from('befizetes').insert([befPayload])
+          if (error) {
+            result.errors.push({ rowIndex: item.rowIndex, error: `Bank oldal: ${error.message}` })
             continue
           }
         } else {
-          // Kasszából bankba letétel → befizetes sor a bankban + kiadas sor a kasszából
-          // NOT NULL: xkey, nyugta (legacy séma)
-          const befPayload = {
-            osszeg: absAmount,
-            datum: item.date,
-            id_befizetescel: item.categoryId ?? null,
-            id_szemely: null,
-            id_csalad: null,
-            forrasa: 'Belső mozgás — kasszából',
-            iratszam: docNumber,
-            nyugta: docNumber,
-            irattipus: 'banki',
-            bankszamla_id: item.bankszamlaId,
-            belso_mozgas_xkey: xkey,
-            megjegyzes: item.megjegyzes || item.description,
-            deleted: false,
-            congregation_id: congregationId,
-            fizetettev: Number(item.date.slice(0, 4)),
-            is_potlas: false,
-            xkey: randomUUID(),
-          }
-          const { error: befErr } = await access.supabase.from('befizetes').insert([befPayload])
-          if (befErr) {
-            result.errors.push({ rowIndex: item.rowIndex, error: `Bank oldal: ${befErr.message}` })
-            continue
-          }
-
-          // Kassza oldal (kiadas)
           const canonical: Record<string, unknown> = {
-            osszeg: absAmount,
-            datum: item.date,
+            osszeg: absAmount, datum: item.date,
             id_kiadascel: item.categoryId ?? null,
-            kedvezmenyzett: 'Belső mozgás — bankba',
-            iratszam: docNumber,
-            irattipus: 'készpénz',
-            bankszamla_id: null,
-            belso_mozgas_xkey: xkey,
+            kedvezmenyzett: 'Belső mozgás — kasszába',
+            iratszam: docNumber, irattipus: 'banki',
+            bankszamla_id: item.bankszamlaId, belso_mozgas_xkey: xkey,
             megjegyzes: item.megjegyzes || item.description,
-            deleted: false,
-            congregation_id: congregationId,
+            deleted: false, congregation_id: congregationId,
           }
-          const reference: Record<string, unknown> = {
-            ...canonical,
-            nyugta: docNumber,
-            xkey: randomUUID(),
-            atvevo: 'Belső mozgás — bankba',
-            atvevoid: null,
-            userid: userId,
-          }
-          let ins = await access.supabase.from('kiadas').insert([reference])
-          if (ins.error) ins = await access.supabase.from('kiadas').insert([canonical])
-          if (ins.error) {
-            result.errors.push({ rowIndex: item.rowIndex, error: `Kassza oldal: ${ins.error.message}` })
+          const { error } = await insertKiadasWithFallback(access.supabase, canonical, userId)
+          if (error) {
+            result.errors.push({ rowIndex: item.rowIndex, error: `Bank oldal: ${error.message}` })
             continue
           }
         }
 
-        // BM audit rekord (belsomozgas tábla)
+        // ── 2. Counterpart-oldal — CSAK ha még nem létezik (aktív párosításnál kihagyjuk) ──
+        if (!counterpartAlreadyExists) {
+          const cpIrattipus = counterpartBankId === null ? 'készpénz' : 'banki'
+          if (counterpartSide === 'income') {
+            const befPayload = {
+              osszeg: absAmount, datum: item.date,
+              id_befizetescel: item.categoryId ?? null,
+              id_szemely: null, id_csalad: null,
+              forrasa: isKasszaTarget ? 'Belső mozgás — bankból' : 'Belső mozgás — másik számláról',
+              iratszam: docNumber, nyugta: docNumber,
+              irattipus: cpIrattipus, bankszamla_id: counterpartBankId,
+              belso_mozgas_xkey: xkey,
+              megjegyzes: item.megjegyzes || item.description,
+              deleted: false, congregation_id: congregationId,
+              fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
+              xkey: randomUUID(),
+            }
+            const { error } = await access.supabase.from('befizetes').insert([befPayload])
+            if (error) {
+              result.errors.push({ rowIndex: item.rowIndex, error: `Másik oldal: ${error.message}` })
+              continue
+            }
+          } else {
+            const canonical: Record<string, unknown> = {
+              osszeg: absAmount, datum: item.date,
+              id_kiadascel: item.categoryId ?? null,
+              kedvezmenyzett: isKasszaTarget ? 'Belső mozgás — bankba' : 'Belső mozgás — másik számlára',
+              iratszam: docNumber, irattipus: cpIrattipus,
+              bankszamla_id: counterpartBankId, belso_mozgas_xkey: xkey,
+              megjegyzes: item.megjegyzes || item.description,
+              deleted: false, congregation_id: congregationId,
+            }
+            const { error } = await insertKiadasWithFallback(access.supabase, canonical, userId)
+            if (error) {
+              result.errors.push({ rowIndex: item.rowIndex, error: `Másik oldal: ${error.message}` })
+              continue
+            }
+          }
+        }
+
+        // ── BM audit rekord (belsomozgas tábla) ──
         await access.supabase.from('belsomozgas').insert({
           congregation_id: congregationId,
           datum: item.date,
           tipus: bmTipus,
           osszeg: absAmount,
-          forras: isBankToKassza ? String(item.bankszamlaId) : 'kassza',
-          cel: isBankToKassza ? 'kassza' : String(item.bankszamlaId),
-          megjegyzes: item.megjegyzes || item.description,
+          forras: isBankToKassza
+            ? String(item.bankszamlaId)
+            : (isKasszaTarget ? 'kassza' : String(counterpartBankId ?? '')),
+          cel: isBankToKassza
+            ? (isKasszaTarget ? 'kassza' : String(counterpartBankId ?? ''))
+            : String(item.bankszamlaId),
+          megjegyzes: counterpartAlreadyExists
+            ? `Párosítva a kassza-import tételével — ${item.megjegyzes || item.description}`
+            : (item.megjegyzes || item.description),
           created_by: userId,
           deleted: false,
         })

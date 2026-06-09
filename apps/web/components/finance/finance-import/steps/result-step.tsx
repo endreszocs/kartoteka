@@ -79,6 +79,9 @@ export function ResultStep({
           <p className="mt-2 leading-relaxed">
             {result.inserted} tételt mentettünk el a Kartotéka pénzügyi
             rendszerébe. {result.skipped ? `${result.skipped} sor kimaradt — ` : ''}
+            {result.skippedDuplicates
+              ? `${result.skippedDuplicates} már létező tételt kihagytunk (duplikáció-védelem) — `
+              : ''}
             a részleteket lentebb találod.
           </p>
         </div>
@@ -86,22 +89,29 @@ export function ResultStep({
         <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50/80 p-6 text-amber-900">
           <p className="flex items-start gap-2 text-base font-semibold">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            Az import lefutott, de 0 tétel került be
+            Az import lefutott, de 0 új tétel került be
           </p>
           <p className="mt-2 leading-relaxed">
-            Lehet, hogy minden sort kihagyott a wizard. Nézd meg a hiba-
-            részleteket lentebb, és ha szükséges, indíts új importot.
+            {result.skippedDuplicates
+              ? `Mind a ${result.skippedDuplicates} tétel már létezett a könyvelésben — a duplikáció-védelem kihagyta őket. Ez normális, ha ugyanazt a fájlt újra importáltad.`
+              : 'Lehet, hogy minden sort kihagyott a wizard. Nézd meg a hiba-részleteket lentebb, és ha szükséges, indíts új importot.'}
           </p>
         </div>
       )}
 
       {/* KPI-k */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <ResultKpi
           label="Sikeresen mentve"
           value={result.inserted || 0}
           tone="emerald"
           icon={<CheckCircle2 className="size-4" />}
+        />
+        <ResultKpi
+          label="Duplikátum kihagyva"
+          value={result.skippedDuplicates || 0}
+          tone={result.skippedDuplicates ? 'violet' : 'slate'}
+          icon={<RotateCw className="size-4" />}
         />
         <ResultKpi
           label="Kihagyva / hibás"
