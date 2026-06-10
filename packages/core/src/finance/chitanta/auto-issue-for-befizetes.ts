@@ -1,0 +1,241 @@
+/**
+ * autoIssueChitantaForBefizetesUseCase + getChitantakForBefizetesekUseCase — C1c (2026-06-10).
+ *
+ * A web `autoIssueChitantaForBefizetes` / `getChitantakForBefizetesek`
+ * (apps/web/app/(dashboard)/penzugy/chitanta-actions.ts) PONTOS tükre — hogy az
+ * asztali Kassza-fül nyugta-kiállítása azonos hivatalos rekordot adjon, mint a web.
+ *
+ * Auto-issue lépések (a webbel egyezően):
+ *   1. Befizetés lekérdezése (datum, osszeg, forrasa, id_szemely/csalad/befizetescel)
+ *   2. Befizető név + cím feloldás: szemely (FK adrlocality/adrstreet) → haztartas
+ *      (legacy_csalad_id, FK cím) → forrasa szöveg → „Gyülekezeti tag" fallback
+ *   3. Reprezentand (jogcím neve hu+ro) a befizetescel-ből
+ *   4. ATOMIKUS `next_chitanta_full(p_congregation_id, p_szamla_datum)` RPC →
+ *      { tomb_id, nyomdai_szam, gyulekezeti_szam, sorozat, maradek };
+ *      ha nincs aktív tömb → 'no_active_block' → errorCode 'NO_ACTIVE_BLOCK'
+ *   5. INSERT az oblio_szamlak-ba (tipus='chitanta_papir', 15 oszlop)
+ *
+ * ONLINE művelet — az atomikus RPC szerver-oldali; offline nem rögzítünk nyugtát
+ * a Kassza-fülről (a Nyugta oldalon van offline-tárcás kiállítás).
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+export interface AutoIssueChitantaForBefizetesInput {
+  congregationId: string
+  befizetesId: number
+}
+
+export interface AutoIssueChitantaCtx {
+  supabase: SupabaseClient
+  runtime: 'web' | 'desktop'
+  /** A kiállító user UUID — az `issued_by` oszlopba megy. */
+  userId: string
+}
+
+/** A web flat válasz-alakjával egyező (a hívó könnyen leképezi). */
+export interface AutoIssueChitantaForBefizetesResult {
+  chitantaId?: string
+  sorozat?: string
+  nyomdaiSzam?: number
+  gyulekezetiSzam?: number
+  maradek?: number
+  error?: string
+  errorCode?: 'NO_ACTIVE_BLOCK' | string
+}
+
+export async function autoIssueChitantaForBefizetesUseCase(
+  input: AutoIssueChitantaForBefizetesInput,
+  ctx: AutoIssueChitantaCtx,
+): Promise<AutoIssueChitantaForBefizetesResult> {
+  if (!input.congregationId || typeof input.congregationId !== 'string') {
+    return { error: 'Hiányzó gyülekezet-azonosító.' }
+  }
+  if (!Number.isInteger(input.befizetesId) || input.befizetesId <= 0) {
+    return { error: 'Érvénytelen befizetés-azonosító.' }
+  }
+
+  // 1. Befizetés adatai
+  const { data: befizetes, error: bErr } = await ctx.supabase
+    .from('befizetes')
+    .select('id, datum, osszeg, forrasa, fizetettev, id_szemely, id_csalad, id_befizetescel')
+    .eq('id', input.befizetesId)
+    .eq('congregation_id', input.congregationId)
+    .maybeSingle()
+
+  if (bErr || !befizetes) return { error: 'A befizetés nem található.' }
+
+  // 2. Befizető név + cím feloldás (szemely → haztartas → forrasa → fallback)
+  let befizetoNev: string | null = null
+  let befizetoCim: string | null = null
+
+  if (befizetes.id_szemely) {
+    const { data: sz } = await ctx.supabase
+      .from('szemely')
+      .select('csaladnev, k_nev, c_szam, adrlocality:c_helysegid(name), adrstreet:c_utcaid(name)')
+      .eq('id', befizetes.id_szemely)
+      .maybeSingle()
+    if (sz) {
+      befizetoNev = `${sz.csaladnev || ''} ${sz.k_nev || ''}`.trim()
+      const loc = sz.adrlocality as { name?: string | null } | null
+      const str = sz.adrstreet as { name?: string | null } | null
+      const cimParts = [loc?.name ?? null, str?.name ?? null, sz.c_szam ?? null].filter(Boolean)
+      if (cimParts.length > 0) befizetoCim = cimParts.join(', ')
+    }
+  }
+  if (!befizetoNev && befizetes.id_csalad) {
+    const { data: haztartas } = await ctx.supabase
+      .from('haztartas')
+      .select(
+        `megnevezes, cim:cim!id_cim(szam, tombhaz, lepcsohaz, emelet, ajto, utca:adrstreet!id_utca(name))`,
+      )
+      .eq('legacy_csalad_id', befizetes.id_csalad)
+      .is('ervenyes_ig', null)
+      .limit(1)
+      .maybeSingle()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const h = haztartas as any
+    if (h?.megnevezes) befizetoNev = String(h.megnevezes)
+    if (h?.cim) {
+      const cim = Array.isArray(h.cim) ? h.cim[0] : h.cim
+      const utcaRaw = cim?.utca
+      const utca = Array.isArray(utcaRaw) ? utcaRaw[0] : utcaRaw
+      const cimParts = [utca?.name, cim?.szam].filter(Boolean)
+      if (cimParts.length > 0) befizetoCim = cimParts.join(' ')
+    }
+  }
+  if (!befizetoNev && typeof befizetes.forrasa === 'string') {
+    befizetoNev = befizetes.forrasa.trim()
+  }
+  if (!befizetoNev) befizetoNev = 'Gyülekezeti tag'
+
+  // 3. Reprezentand (jogcím neve hu + ro)
+  let reprezentand: string | undefined
+  let reprezentandRo: string | undefined
+  if (befizetes.id_befizetescel) {
+    const { data: bc } = await ctx.supabase
+      .from('befizetescel')
+      .select('nev, nevro')
+      .eq('id', befizetes.id_befizetescel)
+      .maybeSingle()
+    if (bc?.nev) reprezentand = String(bc.nev)
+    if (bc?.nevro) reprezentandRo = String(bc.nevro)
+  }
+
+  // 4. Atomikus szám-lefoglalás az aktív tömbből
+  const szamlaDatum =
+    (befizetes.datum as string)?.split('T')[0] || new Date().toISOString().slice(0, 10)
+
+  const { data: szamokRaw, error: rpcErr } = await ctx.supabase.rpc('next_chitanta_full', {
+    p_congregation_id: input.congregationId,
+    p_szamla_datum: szamlaDatum,
+  })
+
+  if (rpcErr) {
+    if (rpcErr.message?.includes('no_active_block')) {
+      return {
+        error: 'Még nincs aktív nyugtatömb. Kérlek rögzíts egy új tömböt a Nyugtatömbök panelen.',
+        errorCode: 'NO_ACTIVE_BLOCK',
+      }
+    }
+    return { error: `Szám-lefoglalási hiba: ${rpcErr.message}` }
+  }
+
+  const szamok = Array.isArray(szamokRaw) ? szamokRaw[0] : szamokRaw
+  if (!szamok) {
+    return { error: 'Nem sikerült lefoglalni a következő nyugtaszámot.', errorCode: 'NO_ACTIVE_BLOCK' }
+  }
+
+  const tombId: string = szamok.tomb_id
+  const nyomdaiSzam: number = szamok.nyomdai_szam
+  const gyulekezetiSzam: number = szamok.gyulekezeti_szam
+  const sorozat: string = szamok.sorozat
+  const maradek: number = szamok.maradek
+
+  // 5. INSERT az oblio_szamlak-ba
+  const osszeg = Number(befizetes.osszeg) || 0
+  const { data: inserted, error: insErr } = await ctx.supabase
+    .from('oblio_szamlak')
+    .insert({
+      congregation_id: input.congregationId,
+      tipus: 'chitanta_papir',
+      sorozat,
+      szam: nyomdaiSzam, // backward-compat: a régi `szam` mező is a nyomdai számot tárolja
+      nyomdai_szam: nyomdaiSzam,
+      gyulekezeti_szam: gyulekezetiSzam,
+      tomb_id: tombId,
+      szamla_datum: szamlaDatum,
+      klienesseg_nev: befizetoNev,
+      klienesseg_cim: befizetoCim,
+      osszeg_net: osszeg,
+      osszeg_brut: osszeg,
+      osszeg_tva: 0,
+      reprezentand: reprezentand || null,
+      reprezentand_ro: reprezentandRo || null,
+      befizetes_id: input.befizetesId,
+      issued_by: ctx.userId,
+    })
+    .select('id')
+    .single()
+
+  if (insErr || !inserted) {
+    return { error: `Hiba a nyugta mentésekor: ${insErr?.message || 'ismeretlen'}` }
+  }
+
+  return {
+    chitantaId: inserted.id as string,
+    sorozat,
+    nyomdaiSzam,
+    gyulekezetiSzam,
+    maradek,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// getChitantakForBefizetesekUseCase — batch lookup (mely befizetéshez van nyugta)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface GetChitantakForBefizetesekInput {
+  congregationId: string
+  befizetesIds: number[]
+}
+
+export interface GetChitantakForBefizetesekCtx {
+  supabase: SupabaseClient
+  runtime: 'web' | 'desktop'
+}
+
+export type GetChitantakForBefizetesekResult = {
+  data?: Record<number, { id: string; sorozat: string; szam: number }>
+  error?: string
+}
+
+export async function getChitantakForBefizetesekUseCase(
+  input: GetChitantakForBefizetesekInput,
+  ctx: GetChitantakForBefizetesekCtx,
+): Promise<GetChitantakForBefizetesekResult> {
+  if (!input.congregationId) return { error: 'Hiányzó gyülekezet-azonosító.' }
+  if (!input.befizetesIds || input.befizetesIds.length === 0) return { data: {} }
+
+  const { data, error } = await ctx.supabase
+    .from('oblio_szamlak')
+    .select('id, sorozat, szam, befizetes_id')
+    .eq('congregation_id', input.congregationId)
+    .eq('tipus', 'chitanta_papir')
+    .eq('stornozott', false)
+    .in('befizetes_id', input.befizetesIds)
+
+  if (error) return { error: error.message }
+
+  const map: Record<number, { id: string; sorozat: string; szam: number }> = {}
+  for (const row of data || []) {
+    if (row.befizetes_id !== null && row.befizetes_id !== undefined) {
+      map[row.befizetes_id as number] = {
+        id: row.id as string,
+        sorozat: row.sorozat as string,
+        szam: row.szam as number,
+      }
+    }
+  }
+  return { data: map }
+}

@@ -91,6 +91,18 @@ export {
   type GetChitantaForPrintResult,
 } from './finance/chitanta/print'
 
+// Nyugta auto-kiállítás befizetésből + batch lookup (Kassza fül) — C1c
+export {
+  autoIssueChitantaForBefizetesUseCase,
+  getChitantakForBefizetesekUseCase,
+  type AutoIssueChitantaForBefizetesInput,
+  type AutoIssueChitantaForBefizetesResult,
+  type AutoIssueChitantaCtx,
+  type GetChitantakForBefizetesekInput,
+  type GetChitantakForBefizetesekResult,
+  type GetChitantakForBefizetesekCtx,
+} from './finance/chitanta/auto-issue-for-befizetes'
+
 export {
   refillChitantaWalletUseCase,
   type RefillChitantaWalletCtx,

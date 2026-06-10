@@ -35,7 +35,11 @@ import {
   type ExpenseCategory,
 } from '@kartoteka/ui-app'
 
-import { undoStornoUseCase } from '@kartoteka/core'
+import {
+  undoStornoUseCase,
+  autoIssueChitantaForBefizetesUseCase,
+  getChitantakForBefizetesekUseCase,
+} from '@kartoteka/core'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -60,6 +64,8 @@ import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
+import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
+import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 
 const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
@@ -338,9 +344,8 @@ export function PenzugyPage() {
                 )
                 return { success: result.success, error: result.success ? null : result.error }
               }}
-              // C1b/C1c: sztornó + sztornó-visszavonás + szerkesztés bekötve (létező/új
-              // use-case-ek). A nyugta-kiállítás desktop use-case-e még hiányzik → azt a
-              // CashbookTab elrejti (canChitanta=false). Nincs inert gomb.
+              // C1b/C1c: a Kassza-fül mind a 4 akciója bekötve — sztornó, sztornó-
+              // visszavonás, szerkesztés, nyugta-kiállítás (mind online művelet).
               stornoConfirmDialogSlot={({ open, onOpenChange, type, id, summary, isInternalTransfer, onStornoed }) => (
                 <DesktopStornoConfirmDialog
                   open={open}
@@ -367,6 +372,49 @@ export function PenzugyPage() {
                   onSaved={onSaved}
                   congregationId={congregationId}
                   userId={userId}
+                />
+              )}
+              // C1c: nyugta (chitanță) auto-kiállítás befizetésből (a web
+              // autoIssueChitantaForBefizetes tükre, atomikus next_chitanta_full RPC).
+              onAutoIssueChitanta={async (befizetesId) => {
+                const r = await autoIssueChitantaForBefizetesUseCase(
+                  { congregationId, befizetesId },
+                  { supabase: getDesktopSupabase(), runtime: 'desktop', userId },
+                )
+                return {
+                  chitantaId: r.chitantaId ?? null,
+                  sorozat: r.sorozat ?? null,
+                  nyomdaiSzam: r.nyomdaiSzam ?? null,
+                  errorCode: r.errorCode ?? null,
+                  error: r.error ?? null,
+                  maradek: r.maradek ?? null,
+                }
+              }}
+              // A már kiállított nyugták lekérése — így a kiállított sorok az
+              // „újranyomtatás" gombot mutatják (NEM a kiállítás gombot) → nincs dupla nyugta.
+              loadChitantakForBefizetesek={async (ids) => {
+                const r = await getChitantakForBefizetesekUseCase(
+                  { congregationId, befizetesIds: ids },
+                  { supabase: getDesktopSupabase(), runtime: 'desktop' },
+                )
+                return { data: r.data, error: r.error ?? null }
+              }}
+              // Nyomtatás/újranyomtatás: a meglévő desktop ChitantaPrintDialog (online).
+              chitantaSilentPrintSlot={({ chitantaId, onDone }) =>
+                chitantaId ? (
+                  <ChitantaPrintDialog
+                    chitantaId={chitantaId}
+                    congregationId={congregationId}
+                    onClose={onDone}
+                  />
+                ) : null
+              }
+              // Nincs aktív tömb → a Nyugtatömbök oldalra irányító dialógus.
+              chitantaTombRequiredDialogSlot={({ open, onOpenChange, onTombCreated }) => (
+                <DesktopChitantaTombRequiredDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  onTombCreated={onTombCreated}
                 />
               )}
             />

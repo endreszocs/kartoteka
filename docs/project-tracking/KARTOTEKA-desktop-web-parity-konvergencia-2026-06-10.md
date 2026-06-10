@@ -170,3 +170,15 @@ Desktop `DesktopTransactionEditDialog` (`apps/desktop/src/components/transaction
 **Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
 
 **A Kassza-fülön bekötve:** sztornó ✅ · visszavonás ✅ · szerkesztés ✅. **Hátra:** nyugta auto-kiállítás a kasszából (chitanta — `issueChitantaUseCase` + tömb/print slot). **Decont/Dispozíció** hero-gombok: külön.
+
+### 2026-06-10 (folyt.) — C-hullám C1c-chitanta: nyugta-kiállítás a Kassza fülön ✅ (core+web+desktop verifikált)
+
+Új core use-case-ek (`packages/core/src/finance/chitanta/auto-issue-for-befizetes.ts`) — a web `autoIssueChitantaForBefizetes` / `getChitantakForBefizetesek` PONTOS tükre:
+- **`autoIssueChitantaForBefizetesUseCase`** — befizetés → befizető név/cím feloldás (szemely FK / haztartas FK / forrasa / fallback), reprezentand a befizetescel-ből, **atomikus `next_chitanta_full` RPC** (tomb_id/nyomdai_szam/gyulekezeti_szam/sorozat/maradek), INSERT `oblio_szamlak` (15 oszlop), NO_ACTIVE_BLOCK kezelés. **Online** művelet.
+- **`getChitantakForBefizetesekUseCase`** — batch lookup (mely befizetéshez van már nyugta → dupla-kiállítás megelőzése).
+
+Desktop slotok bekötve a Kassza fülön: `onAutoIssueChitanta`, `loadChitantakForBefizetesek`, `chitantaSilentPrintSlot` (meglévő `ChitantaPrintDialog`), `chitantaTombRequiredDialogSlot` (új `DesktopChitantaTombRequiredDialog` → Nyugtatömbök oldal). `canChitanta=true` → a 🧾 gomb megjelenik. (A `chitantaTombokPanelSlot` — aktív tömb panel a lista felett — egyelőre kihagyva; a tömb-státusz a Nyugtatömbök oldalon látszik.)
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fül mind a 4 akciója KÉSZ:** sztornó ✅ · visszavonás ✅ · szerkesztés ✅ · nyugta ✅. **Hátra:** aktív-tömb panel a Kassza felett (opcionális); **Decont/Dispozíció** hero-gombok (külön write-logika).

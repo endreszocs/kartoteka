@@ -151,14 +151,14 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
       },
       {
         key: 'storno-asztali',
-        label: 'Sztornó, visszavonás és szerkesztés (Kassza fül)',
+        label: 'Kassza-fül műveletei (sztornó, szerkesztés, nyugta)',
         icon: Ban,
         color: 'rose',
-        shortDescription: 'Téves tétel érvénytelenítése, visszavonása vagy gyors javítása',
+        shortDescription: 'Sztornó, visszavonás, szerkesztés és nyugta-kiállítás a listából',
         intro:
-          'A Kassza fülön egy téves tétel sztornózható (érvényteleníthető), a sztornó vissza is vonható, és a tétel gyorsan szerkeszthető is — pontosan úgy, mint a webfelületen.',
+          'A Kassza fülön a tételek listájából közvetlenül sztornózhatsz, visszavonhatod a sztornót, szerkesztheted a tételt, és nyugtát (chitanță) állíthatsz ki — pontosan úgy, mint a webfelületen.',
         whatItDoes:
-          'A sztornózott tétel NEM törlődik: áthúzva, indoklással marad a nyilvántartásban, és kimarad a számításokból. A visszavonás ismét beszámítja. A szerkesztés a dátumot, összeget, jogcímet, iratszámot és megjegyzést javítja.',
+          'A sztornózott tétel NEM törlődik: áthúzva, indoklással marad, és kimarad a számításokból. A visszavonás ismét beszámítja. A szerkesztés a dátumot, összeget, jogcímet, iratszámot és megjegyzést javítja. A nyugta-kiállítás az aktív nyugtatömbből veszi a következő sorszámot.',
         howItWorks: [
           {
             text: 'A Kassza fülön a sor mellett a ⊘ (sztornó) ikon → kötelező indoklás (legalább 5 karakter).',
@@ -173,11 +173,15 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
             text: 'A ✎ (ceruza) ikonnal szerkesztheted a tételt: dátum, összeg, jogcím, iratszám, megjegyzés.',
             hint: 'A DÁTUM csak az éven belüli UTOLSÓ tételnél módosítható (kronológia-védelem) — egyébként stornózz és rögzíts újra a helyes dátummal. A partner (személy/család) itt nem módosítható.',
           },
+          {
+            text: 'A 🧾 ikonnal egy befizetéshez nyugta (chitanță) állítható ki: a sorszám az aktív nyugtatömbből jön, a befizető neve/címe és a jogcím automatikusan kitöltődik, majd nyomtatható.',
+            hint: 'Amelyik sorhoz már van nyugta, ott újranyomtatás jelenik meg (nincs dupla kiállítás). Ha nincs aktív tömb, a rendszer a Nyugtatömbök oldalra irányít, ahol rögzítheted a kerülettől kapott tömböt.',
+          },
         ],
         tips: [
           {
             kind: 'warning',
-            text: 'A sztornó, a visszavonás és a szerkesztés ONLINE művelet (közvetlenül a felhőbe ír) — internet nélkül nem megy.',
+            text: 'A sztornó, a visszavonás, a szerkesztés és a nyugta-kiállítás ONLINE művelet (közvetlenül a felhővel dolgozik) — internet nélkül nem megy.',
           },
           {
             kind: 'warning',
