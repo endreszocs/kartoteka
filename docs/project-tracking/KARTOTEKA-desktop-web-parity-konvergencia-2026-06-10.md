@@ -116,3 +116,17 @@ A desktop `/penzugy` mostantól EGY oldal (mint a web `FinanceTabs`): közös `F
 **Verifikáció:** WEB tsc + DESKTOP tsc + lint (79) + production vite build = mind zöld. Deploy: PR #9.
 
 **Pénzügy paritás állapot:** A-hullám ✅ · B-hullám ✅ (váz kész). **Hátra: C-hullám (írási út)** — tesztelés után, egyesével. **D-hullám (nem-pénzügy)** — külön.
+
+### 2026-06-10 (folyt.) — C-hullám C1: írási út a Pénzügy oldalon ✅ (web+desktop verifikált)
+
+A desktop egységes `/penzugy` oldal fejlécében megjelent a web-azonos **„+ Tétel rögzítése"** gomb (`FinanceHero.onAddEntry`), és megnyitja a megosztott **`CombinedEntryBody`** modált (`DesktopCombinedEntryDialog`). Ugyanaz a komponens = azonos pixel; a callbackek a desktop SAJÁT, bevált írási útjára kötnek:
+
+- **Bevétel-batch** → `saveIncomeUseCase` soronként (online Supabase / offline iratszám-tárca + `befizetes_pending_local` + outbox), pontosan mint a `befizetes-page`. Web-azonos „első hibánál megáll" szemantika.
+- **Kiadás-batch** → `saveExpenseUseCase` soronként. *Szándékos, biztonságos eltérés:* a desktop kötelezővé teszi az átvevőt (`atvevoid || atvevo`) — teljesebb kiadás-nyilvántartás.
+- **Belső mozgás** → a dedikált Pénzügy → Belső mozgás oldalra irányít (a `CombinedEntryBody` a forrás/cél-t bank-**ID**-vel tölti, a desktop use-case szöveges nevet vár; a névfeloldás = C2 BankTab). Soha nem rögzít hibás forrás/cél nevet.
+
+`bankAccounts={[]}` (nincs még lokális banklista-szinkron) → belső-mozgás sorok amúgy sem validálhatók a modálban; a készpénzes bevétel/kiadás teljes körű.
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**Hátra:** **C1b** — a Kassza-fül (`CashbookTab`) soron belüli kezelése (sztornó/szerkesztés/nyugta-kiállítás desktop-bekötéssel) + Decont/Dispozíció hero-gombok. **C2** — BankTab + belső mozgás bank-névfeloldással. **C3–C5** a terv szerint.

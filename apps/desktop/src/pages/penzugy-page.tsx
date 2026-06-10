@@ -12,7 +12,7 @@
  * szinkron miatt egyelőre a bal oldali Pénzügy-almenüben érhető el (C-hullám).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   FinanceHero,
@@ -29,6 +29,8 @@ import {
   type FinanceBalances,
   type DebtRow,
   type JarulekPaymentLike,
+  type IncomeCategory,
+  type ExpenseCategory,
 } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
@@ -51,6 +53,7 @@ import {
 import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/finance-debt-sync'
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
+import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 
 const READY_TABS = ['dashboard', 'transactions', 'accounting', 'debt']
 
@@ -92,6 +95,12 @@ export function PenzugyPage() {
   const [yearlyFees, setYearlyFees] = useState<Record<number, number>>({})
   const [congregationName, setCongregationName] = useState('')
 
+  // C-hullám C1 — írási út: a „+ Tétel rögzítése" összevont bevitelhez kell a
+  // gyülekezet-uuid + user-id (a saveIncome/saveExpense use-case ctx-éhez).
+  const [userId, setUserId] = useState('')
+  const [congregationId, setCongregationId] = useState('')
+  const [combinedOpen, setCombinedOpen] = useState(false)
+
   // Hash ⇄ activeTab szinkron (mint a web)
   useEffect(() => {
     const onHash = () => setActiveTab(readHashTab())
@@ -122,6 +131,8 @@ export function PenzugyPage() {
         setLoading(false)
         return
       }
+      setUserId(user.id)
+      setCongregationId(congId)
 
       await Promise.allSettled([
         pullBefizetesek(congId, year),
@@ -201,12 +212,44 @@ export function PenzugyPage() {
     void load()
   }, [load])
 
+  // Kategória-opciók a „+ Tétel rögzítése" összevont bevitelhez — PONTOSAN a web
+  // `finance-tabs.tsx` képlete (bevCelMap/kiaCelMap → {id, kod, nev}, kod szerint
+  // rendezve). Így a desktop és a web ugyanazokat a kategóriákat kínálja.
+  const incomeCategories = useMemo<IncomeCategory[]>(
+    () =>
+      Object.entries(bevCelMap)
+        .map(([id, kod]) => {
+          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const nev = (cel?.nev || '').trim()
+          return { id: Number(id), kod, nev: nev || kod }
+        })
+        .sort((a, b) => a.kod.localeCompare(b.kod)),
+    [bevCelMap, szamadasiCellek],
+  )
+
+  const expenseCategories = useMemo<ExpenseCategory[]>(
+    () =>
+      Object.entries(kiaCelMap)
+        .map(([id, kod]) => {
+          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const nev = (cel?.nev || '').trim()
+          return { id: Number(id), kod, nev: nev || kod }
+        })
+        .sort((a, b) => a.kod.localeCompare(b.kod)),
+    [kiaCelMap, szamadasiCellek],
+  )
+
   const debtModeLabel = 'akkori évi járulék'
 
   return (
     <DesktopShell>
       <div>
-        <FinanceHero congregationName={congregationName} currentYear={year} debtModeLabel={debtModeLabel} />
+        <FinanceHero
+          congregationName={congregationName}
+          currentYear={year}
+          debtModeLabel={debtModeLabel}
+          onAddEntry={congregationId && userId ? () => setCombinedOpen(true) : undefined}
+        />
 
         <ColorTabs tabs={TAB_DEFS} active={activeTab} onChange={setActiveTab} />
 
@@ -256,6 +299,24 @@ export function PenzugyPage() {
           ) : null}
         </div>
       </div>
+
+      {/* C-hullám C1 — összevont bevétel/kiadás rögzítő (web-azonos CombinedEntryBody).
+          A bezárás után újratöltjük az adatokat, hogy az új tételek azonnal lássanak. */}
+      {congregationId && userId && (
+        <DesktopCombinedEntryDialog
+          open={combinedOpen}
+          onOpenChange={(open) => {
+            setCombinedOpen(open)
+            if (!open) void load()
+          }}
+          incomeCategories={incomeCategories}
+          expenseCategories={expenseCategories}
+          bankAccounts={[]}
+          currentYear={year}
+          congregationId={congregationId}
+          userId={userId}
+        />
+      )}
     </DesktopShell>
   )
 }

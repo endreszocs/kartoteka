@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Asztali app: a Pénzügy oldalon mostantól rögzíteni is lehet (web-azonos „Tétel rögzítése")
+<!-- key: 2026-06-10-desktop-penzugy-tetel-rogzites -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+Az asztali Kartotéka **Pénzügy** oldalán mostantól nem csak nézni, hanem **rögzíteni** is lehet — pontosan ugyanazzal a „**+ Tétel rögzítése**" gombbal és ablakkal, mint a webfelületen.
+
+### 💰 Bevétel és kiadás egy helyen, tömegesen
+
+- A Pénzügy fejlécében megjelent a **„+ Tétel rögzítése"** gomb (mint a weben). Egy ablakban, **Bevétel/Kiadás füleken** egyszerre több tételt is felvihetsz; a Mentés **dátum szerint rendezi** és a helyére írja őket.
+- Minden tétel a saját **iratszámát** és ellenőrzését kapja — ugyanúgy, ahogy a Befizetés/Kiadás oldalon megszoktad.
+- **Internet nélkül is**: a készpénzes tételek az **iratszám-tárcából** kapnak sorszámot, és a hálózatra csatlakozáskor **automatikusan felmennek** (mint eddig a Befizetés oldalon).
+
+### 🛟 Biztonságos korlátok (a pénzügy pontossága miatt)
+
+- **Banki átutalás internet nélkül** nem rögzíthető — csak készpénz; online minden megy.
+- A **kiadáshoz kötelező az átvevő** megadása (teljesebb, ellenőrizhető nyilvántartás).
+- A **belső mozgást** (kassza ↔ bank) továbbra is a **Pénzügy → Belső mozgás** oldalon rögzítsd, ahol a banki forrás és cél pontosan megadható.
+
+> *Megjegyzés a rendszergazdának:* a rögzítés a desktop **bevált** írási útját használja (ugyanazt, amit a Befizetés/Kiadás oldal), így a tételek **azonos pénzügyi rekordot** adnak, mint a weben. A Kassza-lista soron belüli kezelése (sztornó / szerkesztés / nyugta a fülön belül) a következő, külön lépésben jön. A változás a desktop **0.8.8** kiadással érkezik.
+
+---
+
 ## [2026-06-10] — Asztali app: a Pénzügy ugyanúgy néz ki, mint a webfelületen
 <!-- key: 2026-06-10-desktop-penzugy-parity -->
 <!-- category: improvement -->
