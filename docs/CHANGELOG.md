@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Tagsági igazolás nyomtatás, családok exportja, névnapok
+<!-- key: 2026-06-10-tagnyilvantartas-igazolas-export-nevnap -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### 📜 Tagsági igazolás egy kattintással
+
+- A személyi kartonon új **„Igazolás" gomb**: hivatalos, A4-es **tagsági igazolás** készül a tag adataival (név, születési hely és idő, anyja neve, lakcím), opcionálisan a **keresztelés és konfirmáció** dátumával. Megadható az **igazolás célja** (pl. keresztszülői tisztség) — a lapon kelt, aláírás-vonal és pecsét helye (P. H.) szerepel. Nyomtatás előtt **élő előnézet** mutatja a végeredményt.
+- Az igazolás készítése **auditnaplóba kerül** (személyes adat kiadása — elszámoltathatóság).
+
+### 📊 Családok exportja Excelbe
+
+- A **Családok** fülön is megjelent az **Export** gomb — a szűrt lista (családfő, házastárs, cím, körzet, státusz) egy kattintással Excel-fájlba menthető, például körlevélhez vagy látogatási tervhez.
+
+### 📅 E heti névnapok az Áttekintésen
+
+- A születésnaposok mellett mostantól az **e heti névnapok** is látszanak — és a rendszer ki is gyűjti, **mely élő tagok érintettek** (keresztnév-egyezés alapján), így a köszöntés nem marad el.
+
+### ℹ️ Jó hír: két korábbi észrevétel okafogyottnak bizonyult
+
+- Az import-varázsló **Vissza gombjai** minden lépésnél működnek, és a hibaellenőrzés újrafuttatás-gombja futás közben már eddig is le volt tiltva — ellenőriztük, javítás nem kellett.
+
+---
+
 ## [2026-06-10] — Tagnyilvántartás 2–3. fázis: auditnapló, megbízhatóbb mentések, összekapcsolt modulok
 <!-- key: 2026-06-10-tagnyilvantartas-fazis2-3 -->
 <!-- category: improvement -->

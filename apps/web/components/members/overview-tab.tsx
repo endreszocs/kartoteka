@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AGE_GROUPS } from '@/lib/constants/members'
 import { ageFromDate } from '@/lib/utils/date'
+import { getUpcomingNameDays } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { Users, Heart, TrendingUp, MapPin, Crown, Baby, UserCheck, GraduationCap, Calendar } from 'lucide-react'
 
@@ -28,6 +29,29 @@ export function OverviewTab({ members }: OverviewTabProps) {
       })
       .sort((a, b) => a.day - b.day)
   }, [members])
+
+  // 2026-06-10 (Fázis 5, P3-1b): e heti névnapok + köszöntendő tagok
+  const [nameDays, setNameDays] = useState<Awaited<ReturnType<typeof getUpcomingNameDays>> | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      getUpcomingNameDays().then(d => {
+        if (!cancelled) setNameDays(d)
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const nameDayMembers = useMemo(() => {
+    if (!nameDays) return []
+    const nameSet = new Set(nameDays.flatMap(d => d.nevek).map(n => n.toLowerCase()))
+    if (nameSet.size === 0) return []
+    return members
+      .filter(m => !m.meghalt && m.k_nev && nameSet.has(m.k_nev.trim().split(/\s+/)[0].toLowerCase()))
+      .map(m => `${m.csaladnev || ''} ${m.k_nev || ''}`.trim())
+  }, [nameDays, members])
 
   const stats = useMemo(() => {
     const curYear = new Date().getFullYear()
@@ -357,9 +381,43 @@ export function OverviewTab({ members }: OverviewTabProps) {
           </ul>
         )}
       </div>
+
+      {/* ── E heti névnapok (2026-06-10, Fázis 5 / P3-1b) ───────── */}
+      <div className="card-raised p-5">
+        <div className="mb-3 flex items-center gap-3">
+          <div className="icon-raised w-10 h-10 bg-gradient-to-br from-violet-400 to-purple-500">
+            <Calendar className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">E heti névnapok</h3>
+            <p className="text-xs text-slate-400">A következő 7 nap névnapjai — és az érintett, köszöntendő tagok.</p>
+          </div>
+        </div>
+        {nameDays === null ? (
+          <p className="text-xs text-slate-400 animate-pulse">Névnapok betöltése…</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {nameDays.map(d => (
+                <span key={`${d.honap}-${d.nap}`} className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                  {HONAPOK[d.honap - 1]} {d.nap}. — {d.nevek.length > 0 ? d.nevek.join(', ') : 'nincs adat'}
+                </span>
+              ))}
+            </div>
+            {nameDayMembers.length > 0 && (
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Köszöntendő tagok ({nameDayMembers.length})</p>
+                <p className="text-sm leading-6 text-slate-700">{nameDayMembers.join(' · ')}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
+const HONAPOK = ['jan.', 'febr.', 'márc.', 'ápr.', 'máj.', 'jún.', 'júl.', 'aug.', 'szept.', 'okt.', 'nov.', 'dec.']
 
 // ─── Alkomponensek ──────────────────────────────────────────
 

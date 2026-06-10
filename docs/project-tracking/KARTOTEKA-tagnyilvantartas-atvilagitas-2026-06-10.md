@@ -165,6 +165,10 @@ page.tsx (SSR)
 | P3-1 (születésnap) | „E havi születésnaposok" lista az Áttekintés fülön |
 | P2-7 | ✓ Okafogyott — a gomb már korábban is `disabled={running}`-gal futott |
 | P3-2 korfa | ✓ Okafogyott — a „Korcsoportok" sávdiagram már létezett az Áttekintésen |
+| P3-3 tagsági igazolás | „Igazolás" gomb a személyi kartonon → A4 hivatalos igazolás (cél megadható, anyakönyvi adatok opcionálisan, P.H. + aláírás, élő előnézet); auditnaplózva |
+| P2-5 (családok export) | Excel-export gomb a Családok fülön (családfő/házastárs/cím/körzet/státusz) |
+| P3-1 (névnap-lista) | „E heti névnapok" kártya az Áttekintésen + köszöntendő tagok keresztnév-egyezéssel |
+| P2-6a (vissza-gomb) | ✓ Okafogyott — minden wizard-lépésnek van onBack-je (ellenőrizve) |
 
 ### ⏳ Tudatosan elhalasztva (külön menetet igényel)
 
@@ -173,11 +177,8 @@ page.tsx (SSR)
 | P1-2 teljes (virtualizáció / szerveroldali lapozás) | getMembers API-átalakítás — külön sprint |
 | P2-2 revalidatePath granularizálás | a tab-state-kezelés átfogó átalakításával együtt érdemes |
 | P2-4 hash-routing csere | URL-séma változás, több modult érint |
-| P2-5 (családok export) | a FamilyRow-mezők normalizálásával együtt |
-| P2-6 import-wizard (vissza-gomb, duplikátum-jelzés) | a wizard állapotgép + import-RPC átvizsgálását igényli |
+| P2-6b import-wizard duplikátum-jelzés | az import-RPC átvizsgálását igényli |
 | P2-9 csoport↔districts kettősség | migrációs döntés (az admin-átvilágítás Fázis 4-gyel együtt) |
-| P3-1 (névnap-lista) | nevnap-tábla bekötése + név-egyeztetési szabály döntése |
-| P3-3 tagsági igazolás nyomtatás | sablon-tervezés az emléklap-rendszerrel közösen |
 | P3-5 GDPR-mezők | a 2026-06-05-ös törlés/átadás/audit terv döntéseire vár |
 | P3-7 voter_eligible automatika | egyházjogi definíciót igényel (ki minősül választónak) |
 | P3-8 offline/desktop | termékdöntés szükséges (web-only marad-e a modul) |

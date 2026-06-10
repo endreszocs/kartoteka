@@ -9,6 +9,7 @@ import {
   GitBranch,
   MapPin,
   Phone,
+  Printer,
   ShieldCheck,
   User,
   Users,
@@ -22,6 +23,7 @@ import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
+import { MemberCertificateDialog } from '@/components/members/member-certificate-dialog'
 
 interface MemberDetailsDialogProps {
   open: boolean
@@ -118,6 +120,8 @@ export function MemberDetailsDialogV2({
   const [details, setDetails] = useState<MemberDetailsData | null>(null)
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState<Tab>('personal')
+  // 2026-06-10 (Fázis 5, P3-3): tagsági igazolás nyomtatása
+  const [certOpen, setCertOpen] = useState(false)
 
   useEffect(() => {
     if (!open || !member) return
@@ -590,6 +594,10 @@ export function MemberDetailsDialogV2({
               <Button variant="outline" size="sm" className="rounded-xl border-slate-200 bg-white/85" onClick={() => onOpenChange(false)}>
                 Bezárás
               </Button>
+              <Button variant="outline" size="sm" className="rounded-xl border-teal-200 bg-white/85 text-teal-700 hover:bg-teal-50" onClick={() => setCertOpen(true)}>
+                <Printer className="mr-1.5 size-3.5" />
+                Igazolás
+              </Button>
               <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={onEdit}>
                 Szerkesztés
               </Button>
@@ -597,6 +605,8 @@ export function MemberDetailsDialogV2({
           </div>
         </div>
       </DialogContent>
+      {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
+      <MemberCertificateDialog open={certOpen} onOpenChange={setCertOpen} szemelyId={member.id} />
     </Dialog>
   )
 }

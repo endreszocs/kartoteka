@@ -844,3 +844,85 @@ export async function updateRegistryEventNote(kind: NoteEventKind, recordId: num
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
+
+// ── Tagsági igazolás adatai (2026-06-10, Fázis 5 / P3-3) ─────
+// A nyomtatható igazoláshoz egy menetben: gyülekezet, személyes adatok,
+// keresztelés/konfirmáció. A lekérést auditnaplózzuk (személyes adat nyomtatása).
+
+export async function getMemberCertificateData(szemelyId: number) {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return null
+
+  const [memberRes, keresztRes, konfirmRes, congRes] = await Promise.all([
+    supabase.from('szemely')
+      .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, apjaneve, anyjaneve, c_szam, meghalt, lakhely:adrlocality!c_helysegid(name), utca:adrstreet!c_utcaid(name), szulhely:adrlocality!sz_helyid(name)')
+      .eq('id', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
+    supabase.from('keresztseg').select('datum, hely:adrlocality!helyid(name)').eq('id_szemely', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
+    supabase.from('konfirmalas').select('datum, hely:adrlocality!helyid(name)').eq('id_szemely', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
+    supabase.from('congregations').select('name, nev_hu, cim').eq('id', congregationId).maybeSingle(),
+  ])
+
+  type NameRel = { name: string | null } | { name: string | null }[] | null
+  const one = (v: NameRel): string | null => {
+    const row = Array.isArray(v) ? v[0] || null : v
+    return row?.name || null
+  }
+  type MemberRow = {
+    id: number; csaladnev: string | null; k_nev: string | null; szcs_nev: string | null
+    ferfi: boolean | null; sz_datum: string | null; apjaneve: string | null; anyjaneve: string | null
+    c_szam: string | null; meghalt: boolean | null; lakhely: NameRel; utca: NameRel; szulhely: NameRel
+  }
+  const m = memberRes.data as MemberRow | null
+  if (!m) return null
+
+  const cong = congRes.data as { name: string | null; nev_hu: string | null; cim: string | null } | null
+  const kereszt = keresztRes.data as { datum: string | null; hely: NameRel } | null
+  const konfirm = konfirmRes.data as { datum: string | null; hely: NameRel } | null
+
+  await logAuditEvent({ action: 'member.certificate_print', targetTable: 'szemely', targetId: String(szemelyId) }, supabase)
+
+  return {
+    congregation: { name: cong?.nev_hu || cong?.name || '', cim: cong?.cim || null },
+    member: {
+      nev: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim(),
+      szcs_nev: m.szcs_nev,
+      ferfi: !!m.ferfi,
+      sz_datum: m.sz_datum,
+      szulhely: one(m.szulhely),
+      apjaneve: m.apjaneve,
+      anyjaneve: m.anyjaneve,
+      meghalt: !!m.meghalt,
+      lakcim: [one(m.lakhely), one(m.utca), m.c_szam].filter(Boolean).join(', ') || null,
+    },
+    keresztseg: kereszt ? { datum: kereszt.datum, hely: one(kereszt.hely) } : null,
+    konfirmacio: konfirm ? { datum: konfirm.datum, hely: one(konfirm.hely) } : null,
+  }
+}
+
+// ── E heti névnapok (2026-06-10, Fázis 5 / P3-1b) ────────────
+// A nevnap referencia-tábla (honap, nap, nev1..nev3) a következő 7 napra.
+
+export async function getUpcomingNameDays() {
+  const supabase = await createClient()
+  const pairs = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    return { honap: d.getMonth() + 1, nap: d.getDate() }
+  })
+  const months = [...new Set(pairs.map(p => p.honap))]
+  const { data } = await supabase
+    .from('nevnap')
+    .select('honap, nap, nev1, nev2, nev3')
+    .in('honap', months)
+
+  type NevnapRow = { honap: number; nap: number; nev1: string | null; nev2: string | null; nev3: string | null }
+  const rows = (data || []) as NevnapRow[]
+  return pairs.map(p => {
+    const row = rows.find(r => r.honap === p.honap && r.nap === p.nap)
+    return {
+      honap: p.honap,
+      nap: p.nap,
+      nevek: row ? [row.nev1, row.nev2, row.nev3].filter(Boolean) as string[] : [],
+    }
+  })
+}
