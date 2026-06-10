@@ -89,3 +89,10 @@ A letöltött desktop appba becsomagolt hivatalos EREK könyvelés-mappa, amelyb
 
 ## Javasolt sorrend
 E0 → E1 (használható mappa+beállítás, még pénzügyi írás nélkül) → E2 (szótárak, elemző) → **E3 (a fő érték: write-through)** → E4 (Hibak) → E5 (visszairány). Minden fázis külön PR + verifikáció, az E3 előtt az E2 kód-egyezés kötelező kapu.
+
+---
+
+## Haladás
+
+- **E0 — Tauri-alapok ✅ KÉSZ (2026-06-11).** `Cargo.toml`: umya-spreadsheet + zip. `src/excel.rs`: `KasszaRow`/`AppendReport`, `excel_append_rows` (backup → első üres sor a 7. sortól → D–L append → atomikus mentés → `fullCalcOnLoad` zip-patch) + `excel_list_sheets`; regisztrálva a `lib.rs`-ben. TS-bridge: `apps/desktop/src/lib/excel.ts`. Verifikálva: frontend tsc/lint zöld + **`cargo check` zöld** (PowerShell/Strawberry Perl — lásd a `desktop_cargo_check_powershell` memóriát; Git-bash MSYS-perl-lel az openssl-sys bukik). Még NINCS pénzügyi írás-bekötés. Commit: `aaaf6c5b`.
+- **Következő: E1** — bundling (`bundle.resources`) + Könyvelés-mappa első indításkor + Beállítás-UI (útvonal + „Mappa megnyitása") + évi-mappa; fs/path/dialog plugin + capability.
