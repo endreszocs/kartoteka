@@ -130,3 +130,17 @@ A desktop egységes `/penzugy` oldal fejlécében megjelent a web-azonos **„+ 
 **Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
 
 **Hátra:** **C1b** — a Kassza-fül (`CashbookTab`) soron belüli kezelése (sztornó/szerkesztés/nyugta-kiállítás desktop-bekötéssel) + Decont/Dispozíció hero-gombok. **C2** — BankTab + belső mozgás bank-névfeloldással. **C3–C5** a terv szerint.
+
+### 2026-06-10 (folyt.) — C-hullám C1b: Kassza fül + sztornó ✅ (web+desktop verifikált)
+
+A megosztott **`CashbookTab`** mostantól megjelenik a desktop egységes `/penzugy` oldal **Kassza** fülén (web-azonos kasszanapló). A soron belüli **sztornó** bekötve a desktop bevált `stornoIncomeUseCase`/`stornoExpenseUseCase` útjára (új `DesktopStornoConfirmDialog`, a `befizetes-page` inline sztornó-paneljének mintájára; kaszkád chitanta + belső mozgás pár).
+
+**Megosztott komponens-fejlesztés (visszafelé kompatibilis):** a `CashbookTab`/`CashRow` mostantól minden akció-gombot (Szerkesztés / Sztornó / Sztornó-vissza / Nyugta) CSAK akkor renderel, ha a hozzá tartozó callback/slot át van adva (`canEdit`/`canStorno`/`canUndoStorno`/`canChitanta`). A web mindet átadja → változatlan; a desktop csak a sztornót → **nincs inert gomb**. Verifikálva: WEB tsc=0 (a web `cashbook-tab.tsx` minden callbacket átad).
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fülön hátra (desktop use-case hiányzik, ezért rejtve):**
+- **Szerkesztés** — nincs `updateIncome/updateExpense` core use-case (új fejlesztés).
+- **Sztornó-visszavonás** — nincs `undoStorno` core use-case (a storno tükre, megépíthető).
+- **Nyugta auto-kiállítás a kasszából** — `issueChitantaUseCase` van, de az „auto-issue befizetésből" + tömb/print slot-bekötés hátravan.
+- **Decont / Dispozíció hero-gombok** — nincs core use-case (web szerver-akció); új write-logika.

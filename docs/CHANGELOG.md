@@ -37,13 +37,19 @@ Az asztali Kartotéka **Pénzügy** oldalán mostantól nem csak nézni, hanem *
 - Minden tétel a saját **iratszámát** és ellenőrzését kapja — ugyanúgy, ahogy a Befizetés/Kiadás oldalon megszoktad.
 - **Internet nélkül is**: a készpénzes tételek az **iratszám-tárcából** kapnak sorszámot, és a hálózatra csatlakozáskor **automatikusan felmennek** (mint eddig a Befizetés oldalon).
 
+### 📒 Kassza fül — a tételek listája és sztornó
+
+- A **Kassza** fül mostantól az asztali Pénzügy oldalon is megjelenik, a **webbel azonos** kasszanapló-nézetben (havi bontás, nyitó/záró egyenleg, bevétel/kiadás egy listában).
+- A listából egy téves tétel **sztornózható** (kötelező indoklással) — pontosan úgy, mint a Befizetés/Kiadás oldalon: a tétel nem törlődik, hanem áthúzva, indoklással marad, és a kapcsolt nyugták / belső mozgás párja automatikusan vele sztornózódik.
+
 ### 🛟 Biztonságos korlátok (a pénzügy pontossága miatt)
 
 - **Banki átutalás internet nélkül** nem rögzíthető — csak készpénz; online minden megy.
 - A **kiadáshoz kötelező az átvevő** megadása (teljesebb, ellenőrizhető nyilvántartás).
 - A **belső mozgást** (kassza ↔ bank) továbbra is a **Pénzügy → Belső mozgás** oldalon rögzítsd, ahol a banki forrás és cél pontosan megadható.
+- A Kassza-fülön a **sztornó** már elérhető; a **szerkesztés / nyugta-kiállítás / sztornó-visszavonás** a következő frissítésben jön (ezek a webfelületen már megvannak).
 
-> *Megjegyzés a rendszergazdának:* a rögzítés a desktop **bevált** írási útját használja (ugyanazt, amit a Befizetés/Kiadás oldal), így a tételek **azonos pénzügyi rekordot** adnak, mint a weben. A Kassza-lista soron belüli kezelése (sztornó / szerkesztés / nyugta a fülön belül) a következő, külön lépésben jön. A változás a desktop **0.8.8** kiadással érkezik.
+> *Megjegyzés a rendszergazdának:* a rögzítés és a sztornó a desktop **bevált** írási/sztornó-útját használja (ugyanazt, amit a Befizetés/Kiadás oldal), így a tételek **azonos pénzügyi rekordot** adnak, mint a weben. A változás a desktop **0.8.8** kiadással érkezik.
 
 ---
 

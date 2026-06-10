@@ -21,6 +21,7 @@ import {
   TransactionsTab,
   AccountingTab,
   DebtTab,
+  CashbookTab,
   calculateBalances,
   type BefitetesRow,
   type KiadasRow,
@@ -54,8 +55,9 @@ import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/fina
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
+import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 
-const READY_TABS = ['dashboard', 'transactions', 'accounting', 'debt']
+const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
 
 const TAB_DEFS = [
   { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
@@ -89,6 +91,8 @@ export function PenzugyPage() {
   const [kiaCelMap, setKiaCelMap] = useState<Record<number, string>>({})
   const [szamadasiCellek, setSzamadasiCellek] = useState<SzamadasiCel[]>([])
   const [balances, setBalances] = useState<FinanceBalances>(EMPTY_BALANCES)
+  // Előző évi záró kassza-egyenleg (a Kassza-fül nyitó egyenlege).
+  const [carryoverCash, setCarryoverCash] = useState(0)
   const [settings, setSettings] = useState<BealitasRow | null>(null)
   const [budgetData, setBudgetData] = useState<Record<string, number>>({})
   const [debtRows, setDebtRows] = useState<DebtRow[]>([])
@@ -191,6 +195,7 @@ export function PenzugyPage() {
       setKiaCelMap(kiaMap)
       setSzamadasiCellek(cells)
       setBalances(yearBalances)
+      setCarryoverCash(prevBalances.cashBalance)
       setBudgetData(budget)
       setDebtRows(computedDebt)
       setYearlyFees(fees)
@@ -271,6 +276,36 @@ export function PenzugyPage() {
               bevCelMap={bevCelMap}
               kiaCelMap={kiaCelMap}
               settings={settings}
+            />
+          ) : activeTab === 'cashbook' ? (
+            <CashbookTab
+              incomeRecords={income}
+              expenseRecords={expense}
+              carryoverCash={carryoverCash}
+              bevCelMap={bevCelMap}
+              kiaCelMap={kiaCelMap}
+              szamadasiCellek={szamadasiCellek}
+              congregationName={congregationName}
+              incomeCategories={incomeCategories}
+              expenseCategories={expenseCategories}
+              onTransactionChanged={() => void load()}
+              onToast={() => undefined}
+              // C1b: csak a sztornó van bekötve (létező use-case) → a CashbookTab
+              // a többi akció-gombot (szerkesztés, undo, nyugta) elrejti, amíg azok
+              // desktop use-case-ei el nem készülnek. Nincs inert gomb.
+              stornoConfirmDialogSlot={({ open, onOpenChange, type, id, summary, isInternalTransfer, onStornoed }) => (
+                <DesktopStornoConfirmDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  type={type}
+                  id={id}
+                  summary={summary}
+                  isInternalTransfer={isInternalTransfer}
+                  onStornoed={onStornoed}
+                  congregationId={congregationId}
+                  userId={userId}
+                />
+              )}
             />
           ) : activeTab === 'transactions' ? (
             <TransactionsTab
