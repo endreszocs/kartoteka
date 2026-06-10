@@ -75,7 +75,8 @@ export type DeckItem =
   | { kind: 'custom'; key: string; slide: CustomSlide; pillar: PillarId }
 
 export function sectionOf(key: string, pillar: PillarId): { id: string; label: string } {
-  if (key === 'title' || key === 'overview') return { id: 'nyito', label: 'Nyitó' }
+  if (key === 'title') return { id: 'nyito', label: 'Nyitó' }
+  if (key === 'overview') return { id: 'osszegzes', label: 'Összegzés' }
   if (key === 'conclusions' || key === 'forecast') return { id: 'kieg', label: 'Kiegészítők' }
   if (key === 'closing') return { id: 'zaro', label: 'Lezárás' }
   return { id: `p${pillar}`, label: PILLAR_LABELS[pillar] }
