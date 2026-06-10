@@ -59,6 +59,7 @@ import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
+import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 
 const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
@@ -337,9 +338,9 @@ export function PenzugyPage() {
                 )
                 return { success: result.success, error: result.success ? null : result.error }
               }}
-              // C1b/C1c: a sztornó + sztornó-visszavonás van bekötve (létező use-case-ek).
-              // A szerkesztés / nyugta-kiállítás desktop use-case-ei még hiányoznak →
-              // azokat a CashbookTab elrejti (canEdit/canChitanta=false). Nincs inert gomb.
+              // C1b/C1c: sztornó + sztornó-visszavonás + szerkesztés bekötve (létező/új
+              // use-case-ek). A nyugta-kiállítás desktop use-case-e még hiányzik → azt a
+              // CashbookTab elrejti (canChitanta=false). Nincs inert gomb.
               stornoConfirmDialogSlot={({ open, onOpenChange, type, id, summary, isInternalTransfer, onStornoed }) => (
                 <DesktopStornoConfirmDialog
                   open={open}
@@ -349,6 +350,21 @@ export function PenzugyPage() {
                   summary={summary}
                   isInternalTransfer={isInternalTransfer}
                   onStornoed={onStornoed}
+                  congregationId={congregationId}
+                  userId={userId}
+                />
+              )}
+              // C1c: tétel-szerkesztés a core updateTransactionUseCase-en (a web
+              // updateTransactionBasic tükre) — dátum-utolsó védelemmel.
+              transactionEditDialogSlot={({ open, onOpenChange, type, id, initial, categories, onSaved }) => (
+                <DesktopTransactionEditDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  type={type}
+                  id={id}
+                  initial={initial}
+                  categories={categories}
+                  onSaved={onSaved}
                   congregationId={congregationId}
                   userId={userId}
                 />

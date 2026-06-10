@@ -228,6 +228,19 @@ export {
   type UndoStornoType,
 } from './finance/undo-storno'
 
+// Tétel-szerkesztés (befizetes + kiadas alapmezők) + dátum-utolsó check — C1c
+export {
+  updateTransactionUseCase,
+  isLastTransactionOfTypeUseCase,
+  type UpdateTransactionCtx,
+  type UpdateTransactionInput,
+  type UpdateTransactionResult,
+  type UpdateTransactionType,
+  type IsLastTransactionCtx,
+  type IsLastTransactionInput,
+  type IsLastTransactionResult,
+} from './finance/update-transaction'
+
 export {
   listInternalTransfersUseCase,
   type ListInternalTransfersCtx,

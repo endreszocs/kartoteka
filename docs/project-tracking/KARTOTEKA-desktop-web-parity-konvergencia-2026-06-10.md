@@ -158,3 +158,15 @@ A megosztott **`CashbookTab`** mostantól megjelenik a desktop egységes `/penzu
 A desktop egységes `/penzugy` oldal **Súgó** füle mostantól a megosztott **`FinanceSugoTab`**-ot rendereli (a betöltési kapu ELŐTT — statikus tartalom, nem vár pénzügyi adatra). A `FinanceSugoTab` kapott egy opcionális **`extraSections`** prop-ot (visszafelé kompatibilis: a web nem ad át semmit → változatlan). A desktop egy **„Asztali (offline) verzió"** szekciót injektál (`apps/desktop/src/lib/desktop-help-sections.ts`): offline mód, szinkronizáció, iratszám-tárca, asztali tétel-rögzítés, sztornó/visszavonás, ütközés-feloldás, offline-vs-online összefoglaló, frissítés.
 
 **Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (A `Section`/`Topic`/`ColorKey` típusok mostantól exportáltak a `FinanceSugoTab`-ból.)
+
+### 2026-06-10 (folyt.) — C-hullám C1c-edit: tétel-szerkesztés a Kassza fülön ✅ (core+web+desktop verifikált)
+
+Új core use-case-ek (`packages/core/src/finance/update-transaction.ts`) — a web `updateTransactionBasic` + `isLastTransactionOfType` tükre gyülekezet-scope-ra:
+- **`updateTransactionUseCase`** — dátum / összeg / jogcím (id_cel → id_befizetescel|id_kiadascel) / iratszám / megjegyzés módosítása; év-véglegesítés blokk; „nincs változás" eset.
+- **`isLastTransactionOfTypeUseCase`** — a dátum csak az éven belüli utolsó tételnél szerkeszthető (kronológia-védelem).
+
+Desktop `DesktopTransactionEditDialog` (`apps/desktop/src/components/transaction-edit-dialog.tsx`) — a web `transaction-edit-dialog.tsx` UX-ének tükre (dátum-utolsó zárolás, kategória-select). Bekötve a Kassza fül `transactionEditDialogSlot`-jára → `canEdit=true`, a ✎ ceruza gomb megjelenik a `!isBm` sorokon (belső mozgás nem szerkeszthető).
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fülön bekötve:** sztornó ✅ · visszavonás ✅ · szerkesztés ✅. **Hátra:** nyugta auto-kiállítás a kasszából (chitanta — `issueChitantaUseCase` + tömb/print slot). **Decont/Dispozíció** hero-gombok: külön.

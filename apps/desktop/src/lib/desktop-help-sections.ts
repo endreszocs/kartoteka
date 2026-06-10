@@ -151,14 +151,14 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
       },
       {
         key: 'storno-asztali',
-        label: 'Sztornó és sztornó-visszavonás (Kassza fül)',
+        label: 'Sztornó, visszavonás és szerkesztés (Kassza fül)',
         icon: Ban,
         color: 'rose',
-        shortDescription: 'Téves tétel érvénytelenítése — és a sztornó visszavonása',
+        shortDescription: 'Téves tétel érvénytelenítése, visszavonása vagy gyors javítása',
         intro:
-          'A Kassza fülön egy téves tétel sztornózható (érvényteleníthető), és a sztornó vissza is vonható — pontosan úgy, mint a webfelületen.',
+          'A Kassza fülön egy téves tétel sztornózható (érvényteleníthető), a sztornó vissza is vonható, és a tétel gyorsan szerkeszthető is — pontosan úgy, mint a webfelületen.',
         whatItDoes:
-          'A sztornózott tétel NEM törlődik: áthúzva, indoklással marad a nyilvántartásban, és kimarad a számításokból. A visszavonás ismét beszámítja.',
+          'A sztornózott tétel NEM törlődik: áthúzva, indoklással marad a nyilvántartásban, és kimarad a számításokból. A visszavonás ismét beszámítja. A szerkesztés a dátumot, összeget, jogcímet, iratszámot és megjegyzést javítja.',
         howItWorks: [
           {
             text: 'A Kassza fülön a sor mellett a ⊘ (sztornó) ikon → kötelező indoklás (legalább 5 karakter).',
@@ -169,15 +169,19 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
           {
             text: 'Sztornózott soron a ↺ (visszavonás) ikon a sztornót visszavonja, és a tétel ismét bekerül a számításokba.',
           },
+          {
+            text: 'A ✎ (ceruza) ikonnal szerkesztheted a tételt: dátum, összeg, jogcím, iratszám, megjegyzés.',
+            hint: 'A DÁTUM csak az éven belüli UTOLSÓ tételnél módosítható (kronológia-védelem) — egyébként stornózz és rögzíts újra a helyes dátummal. A partner (személy/család) itt nem módosítható.',
+          },
         ],
         tips: [
           {
             kind: 'warning',
-            text: 'A sztornó és a visszavonás ONLINE művelet (közvetlenül a felhőbe ír) — internet nélkül nem megy.',
+            text: 'A sztornó, a visszavonás és a szerkesztés ONLINE művelet (közvetlenül a felhőbe ír) — internet nélkül nem megy.',
           },
           {
             kind: 'warning',
-            text: 'Lezárt (véglegesített) évnél a sztornó és a visszavonás védve van — előbb javítási engedély kell az egyházmegyétől.',
+            text: 'Lezárt (véglegesített) évnél a sztornó, a visszavonás és a szerkesztés védve van — előbb javítási engedély kell az egyházmegyétől.',
           },
         ],
       },
@@ -221,7 +225,7 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
             text: '✅ OFFLINE megy: minden szinkronizált adat MEGTEKINTÉSE (tagok, pénzügy, anyakönyv, leltár…) és a KÉSZPÉNZES bevétel/kiadás rögzítése (az iratszám-tárcából).',
           },
           {
-            text: '🌐 CSAK ONLINE: banki tételek rögzítése, sztornó és sztornó-visszavonás, belső mozgás, nyugta-kiállítás, banki Excel-import, Oblio e-Factura.',
+            text: '🌐 CSAK ONLINE: banki tételek rögzítése, sztornó / visszavonás / szerkesztés, belső mozgás, nyugta-kiállítás, banki Excel-import, Oblio e-Factura.',
           },
         ],
         tips: [

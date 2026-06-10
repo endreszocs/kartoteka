@@ -60,18 +60,19 @@ Az asztali Kartotéka **Pénzügy** oldalán mostantól nem csak nézni, hanem *
 - Minden tétel a saját **iratszámát** és ellenőrzését kapja — ugyanúgy, ahogy a Befizetés/Kiadás oldalon megszoktad.
 - **Internet nélkül is**: a készpénzes tételek az **iratszám-tárcából** kapnak sorszámot, és a hálózatra csatlakozáskor **automatikusan felmennek** (mint eddig a Befizetés oldalon).
 
-### 📒 Kassza fül — a tételek listája, sztornó és sztornó-visszavonás
+### 📒 Kassza fül — lista, sztornó, visszavonás és szerkesztés
 
 - A **Kassza** fül mostantól az asztali Pénzügy oldalon is megjelenik, a **webbel azonos** kasszanapló-nézetben (havi bontás, nyitó/záró egyenleg, bevétel/kiadás egy listában).
 - A listából egy téves tétel **sztornózható** (kötelező indoklással) — pontosan úgy, mint a Befizetés/Kiadás oldalon: a tétel nem törlődik, hanem áthúzva, indoklással marad, és a kapcsolt nyugták / belső mozgás párja automatikusan vele sztornózódik.
 - A **sztornó vissza is vonható** egy kattintással (a tétel ismét bekerül a számításokba) — a belső mozgás párjával együtt. Lezárt (véglegesített) évnél a visszavonás védve van.
+- Egy tétel **szerkeszthető** is (ceruza ikon): dátum, összeg, jogcím, iratszám, megjegyzés gyors javítása. A **dátum csak az éven belüli utolsó tételnél** módosítható (kronológia-védelem) — egyébként stornózz és rögzíts újra. Lezárt évnél a szerkesztés védve van.
 
 ### 🛟 Biztonságos korlátok (a pénzügy pontossága miatt)
 
 - **Banki átutalás internet nélkül** nem rögzíthető — csak készpénz; online minden megy.
 - A **kiadáshoz kötelező az átvevő** megadása (teljesebb, ellenőrizhető nyilvántartás).
 - A **belső mozgást** (kassza ↔ bank) továbbra is a **Pénzügy → Belső mozgás** oldalon rögzítsd, ahol a banki forrás és cél pontosan megadható.
-- A Kassza-fülön a **sztornó** és a **sztornó-visszavonás** már elérhető; a **szerkesztés / nyugta-kiállítás** a következő frissítésben jön (ezek a webfelületen már megvannak).
+- A Kassza-fülön a **sztornó**, a **sztornó-visszavonás** és a **tétel-szerkesztés** már elérhető; a **nyugta-kiállítás** a következő frissítésben jön (ez a webfelületen már megvan).
 
 > *Megjegyzés a rendszergazdának:* a rögzítés és a sztornó a desktop **bevált** írási/sztornó-útját használja (ugyanazt, amit a Befizetés/Kiadás oldal), így a tételek **azonos pénzügyi rekordot** adnak, mint a weben. A változás a desktop **0.8.8** kiadással érkezik.
 
