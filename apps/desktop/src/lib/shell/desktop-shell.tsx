@@ -21,6 +21,7 @@ import {
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
+  ClipboardCheck,
   Eye,
   FileSpreadsheet,
   ListOrdered,
@@ -46,6 +47,7 @@ const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
   { label: 'Belső mozgás', href: '/penzugy/belsomozgas', icon: ArrowLeftRight, gradient: 'from-violet-400 to-purple-500' },
   { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
+  { label: 'Számadás', href: '/penzugy/szamadas', icon: ClipboardCheck, gradient: 'from-blue-400 to-indigo-500' },
   { label: 'Bank import', href: '/penzugy/bank-import', icon: FileSpreadsheet, gradient: 'from-violet-400 to-purple-500' },
 ]
 

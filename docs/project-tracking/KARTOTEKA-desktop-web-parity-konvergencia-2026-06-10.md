@@ -75,3 +75,15 @@ a `szamadasicel` + `befizetescel` + `kiadascel` referencia-táblák tükrözése
 **Verifikáció (itt):** `tsc --noEmit` ✅ (a teljes desktop csomag típushelyes), `lint:imports` ✅ (0 tiltott import). **Hátravan (Te oldaladon):** a desktop build futtatása és vizuális ellenőrzés, hogy a Tranzakciók tab a webbel azonosan jelenik meg, és a kategória-nevek/összegek helyesek.
 
 **Következő A-hullám lépések:** A2 Áttekintés → `FinanceDashboard` (a `BealitasRow` beállítás-szinkron hozzáadásával), majd A4 Tartozások → `DebtTab`, A5 Számadás → `AccountingTab`.
+
+### 2026-06-10 (folyt.) — A2 (Áttekintés) + A5 (Számadás) ✅ (TS + frontend-build verifikált)
+
+**A2 — Áttekintés → `FinanceDashboard`** (`penzugy-dashboard-page.tsx` átírva): a `/penzugy/attekintes` oldal mostantól a MEGOSZTOTT `FinanceDashboard`-ot renderli (a desktop korábbi custom dashboardja helyett). Egyenleg a megosztott `calculateBalances` helperrel, carryover az előző évi lokális rekordokból. A `settings` prop a komponensben nincs használva → minimál `BealitasRow` stub a gyülekezet-cache-ből. (A web TVA-plafon widget `tvaPlafonSlot`-ja egyelőre elhagyva — B-hullám.)
+
+**A5 — Számadás → `AccountingTab`** (új `penzugy-szamadas-page.tsx`, `/penzugy/szamadas` route + almenü): a MEGOSZTOTT `AccountingTab` read-only nézetként (a véglegesítő/feloldó callbackek nélkül → a gombok rejtve). Adat: `finance-settings-sync.ts` (ÚJ) tükrözi a `bealitas` (settings) + `koltsegvetes` (budgetData = szamadasicelid→tervezett) táblákat a lokális SQLite-ba (TS-oldali `CREATE TABLE`, nincs Rust).
+
+**Verifikáció (itt):** `tsc` ✅ · `lint:imports` ✅ (75 fájl) · **production `vite build`** ✅. **Te oldaladon:** desktop build + vizuális ellenőrzés (Áttekintés + Számadás a webbel azonos-e; az összegek/kategóriák helyesek-e).
+
+**Elhalasztva (indokkal):** **A4 Tartozások (DebtTab)** — `needs-engine`, MAGAS kockázat: a `computeJarulekForMemberYear` (~550 sor) + `calculateRentalDebts` determinisztikus portolása kell lokálisra, hogy a web == desktop tartozás-számítás garantált legyen. Ezt NEM batch-elem tesztelés nélkül — külön, gondos lépés (javaslat: a számító logikát `@kartoteka/core`-ba kiemelni, hogy web és desktop ugyanazt hívja). A **C-hullám (írási út: befizetés/kiadás bevitel)** és a **D-hullám (nem-pénzügyi modulok)** szintén tudatosan staged marad.
+
+**A-hullám állapot:** A2 ✅ · A3 ✅ · A5 ✅ · A1 (Súgó — a web bespoke, külön döntés) és A4 (DebtTab — motor-port) hátra.

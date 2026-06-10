@@ -25,6 +25,7 @@ import { MunkanaploPage } from './pages/munkanaplo-page'
 import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
 import { PenzugyLandingPage } from './pages/penzugy-landing-page'
 import { PenzugyTranzakciokPage } from './pages/penzugy-tranzakciok-page'
+import { PenzugySzamadasPage } from './pages/penzugy-szamadas-page'
 import { PinEntryPage } from './pages/pin-entry-page'
 import { PinSetupPage } from './pages/pin-setup-page'
 import { PlaceholderPage } from './pages/placeholder-page'
@@ -60,6 +61,7 @@ function App() {
           <Route path="/penzugy/befizetes" element={<BefizetesPage />} />
           <Route path="/penzugy/kiadas" element={<KiadasPage />} />
           <Route path="/penzugy/tranzakciok" element={<PenzugyTranzakciokPage />} />
+          <Route path="/penzugy/szamadas" element={<PenzugySzamadasPage />} />
           <Route path="/penzugy/belsomozgas" element={<BelsomozgasPage />} />
           <Route path="/penzugy/chitanta" element={<ChitantaPage />} />
           <Route path="/penzugy/chitanta-tombok" element={<ChitantaTombokPage />} />
