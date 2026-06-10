@@ -108,3 +108,11 @@ A megosztott `DebtTab` bekötve (`/penzugy/tartozasok` + almenü). A tagok hátr
 **Verifikáció (itt):** tsc + lint (78 fájl) + production vite build = mind zöld. **⚠️ Te oldaladon:** a hátralék-számokat hitelesítsd a web számaihoz (ugyanaz a gyülekezet → ugyanaz a hátralék).
 
 **A-hullám teljes ✅:** A2 Áttekintés · A3 Tranzakciók · A4 Tartozások · A5 Számadás — mind a megosztott komponensekkel. (A1 Súgó: a web bespoke — külön döntés.) Következő: B-hullám (egységes tab-oldal) vagy C-hullám (írási út).
+
+### 2026-06-10 (folyt.) — B-hullám: egységes Pénzügy tab-oldal ✅ (web+desktop verifikált)
+
+A desktop `/penzugy` mostantól EGY oldal (mint a web `FinanceTabs`): közös `FinanceHero` + közös `ColorTabs` tab-bar + tab-tartalom. A `ColorTabs` és `FinanceHero` kiemelve `@kartoteka/ui-app`-ba (a web `color-tabs.tsx` re-export shim) → web és desktop **azonos** hero+tab-bar. A 4 kész tab (Áttekintés/Tranzakciók/Számadás/Tartozások) inline renderel a közös adatbetöltésből; a többi tab „Hamarosan" + a sidebar-almenüben elérhető. Címer: EREK → Kartotéka-logó (shell/splash/installer).
+
+**Verifikáció:** WEB tsc + DESKTOP tsc + lint (79) + production vite build = mind zöld. Deploy: PR #9.
+
+**Pénzügy paritás állapot:** A-hullám ✅ · B-hullám ✅ (váz kész). **Hátra: C-hullám (írási út)** — tesztelés után, egyesével. **D-hullám (nem-pénzügy)** — külön.
