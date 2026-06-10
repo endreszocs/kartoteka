@@ -89,6 +89,29 @@ export async function excelListSheets(filePath: string): Promise<string[]> {
   return invoke<string[]>('excel_list_sheets', { filePath })
 }
 
+/** Egy lap metaadata — a bank-mapping deviza-alapú javaslatához. */
+export interface SheetMeta {
+  name: string
+  /** Bankszámla-lap? (egyetlen nagybetűs név: A, B, C…) */
+  isBank: boolean
+  /** A bankszámla devizája (a betű-lap C3 cellájából) — null, ha üres. */
+  currency: string | null
+  /** A következő üres adatsor (1-alapú). */
+  nextEmptyRow: number
+}
+
+export interface WorkbookMeta {
+  sheets: SheetMeta[]
+}
+
+/**
+ * A munkafüzet lapjainak metaadata: melyik bank-lap, milyen devizával, hol a
+ * következő üres sor. A Kartotéka bankszámla ↔ Excel betű-lap auto-párosításához.
+ */
+export async function excelReadMeta(filePath: string): Promise<WorkbookMeta> {
+  return invoke<WorkbookMeta>('excel_read_meta', { filePath })
+}
+
 /**
  * Sorok hozzáfűzése a megadott lap (Kassza / A / B …) D–L oszlopaihoz.
  * Backup → első üres sor → beírás → atomikus mentés → fullCalcOnLoad patch.

@@ -219,6 +219,62 @@ pub fn excel_list_sheets(file_path: String) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Egy lap metaadata — a bank-mapping (deviza-alapú) automatikus javaslatához.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetMeta {
+    pub name: String,
+    /// Bankszámla-lap? (egyetlen nagybetűs név: A, B, C…)
+    pub is_bank: bool,
+    /// A bankszámla devizája (a betű-lap C3 cellájából, pl. „RON"/„EUR") — None, ha üres.
+    pub currency: Option<String>,
+    /// A következő üres adatsor (1-alapú) — append-céloláshoz.
+    pub next_empty_row: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbookMeta {
+    pub sheets: Vec<SheetMeta>,
+}
+
+/// A munkafüzet lapjainak metaadata: melyik bank-lap, milyen devizával, hol a
+/// következő üres sor. A bank-mapping (Kartotéka bankszámla ↔ betű-lap)
+/// automatikus, deviza-alapú javaslatához. CSAK OLVAS.
+#[tauri::command]
+pub fn excel_read_meta(file_path: String) -> Result<WorkbookMeta, String> {
+    let book = reader::xlsx::read(Path::new(&file_path))
+        .map_err(|e| format!("Excel olvasási hiba: {e}"))?;
+    let mut sheets = Vec::new();
+    for ws in book.get_sheet_collection() {
+        let name = ws.get_name().to_string();
+        let is_bank = name.chars().count() == 1
+            && name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false);
+        let currency = if is_bank {
+            let c = cell_str(ws, "C3").trim().to_string();
+            if c.is_empty() {
+                None
+            } else {
+                Some(c)
+            }
+        } else {
+            None
+        };
+        let next_empty_row = find_next_empty_row(ws, 7);
+        sheets.push(SheetMeta {
+            name,
+            is_bank,
+            currency,
+            next_empty_row,
+        });
+    }
+    Ok(WorkbookMeta { sheets })
+}
+
 /// Sorok hozzáfűzése a megadott lap (Kassza / A / B …) D–L oszlopaihoz.
 ///
 /// Folyamat: backup → betöltés → első üres sor keresése (a 7. sortól) → sorok
