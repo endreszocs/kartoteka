@@ -31,19 +31,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 A letölthető Windows-alkalmazás (asztali Kartotéka) **Pénzügy** része mostantól a **webfelülettel azonos megjelenést** kap — ugyanazokat a táblázatokat és összesítőket látod, akár a böngészőben, akár az asztali appban dolgozol. Így nem kell kétféle felülethez szokni.
 
-### 💰 A Pénzügy az Áttekintéssel fogad
+### 💰 Egységes Pénzügy oldal — pont mint a weben
 
-- A bal oldali menüben a **Pénzügy**-re kattintva mostantól rögtön az **Áttekintés** nyílik meg (bevételek, kiadások, egyenleg), ahogy a webfelületen is — nem egy köztes választóoldal.
+- A **Pénzügy** mostantól **egyetlen oldal, fülekkel a tetején** (Áttekintés · Kassza · Bank · Tranzakciók · Költségvetés · Számadás · Tartozások …) — ugyanaz a fejléc és fülsor, mint a webfelületen. A Pénzügy-re kattintva rögtön az **Áttekintés** fogad.
 
-### 📊 Új, a webbel azonos nézetek az asztali appban
+### 📊 A webbel azonos nézetek (internet nélkül is)
 
-- **Áttekintés** — éves bevétel, kiadás és egyenleg, hónapokra és kategóriákra bontva.
-- **Tranzakciók** — az összes bevétel és kiadás egy kereshető listában, kategóriánként.
-- **Számadás** — az éves számadás a költségvetési terv tükrében (bevételek/kiadások tervhez mérve).
+- **Áttekintés** — éves bevétel, kiadás és egyenleg, kategóriánként.
+- **Tranzakciók** — az összes bevétel és kiadás egy kereshető listában.
+- **Számadás** — az éves számadás a költségvetési terv tükrében.
+- **Tartozások** — a tagok egyházfenntartói járulék-hátraléka, **pontosan ugyanazzal a számítással, mint a weben** (a számító motor mostantól közös a két felület között).
 
-Ezek a nézetek **internet nélkül is** működnek: a legutóbb szinkronizált adatokat mutatják, és amint újra online vagy, frissülnek. *(Ha egy lista üres: előbb legyen egyszer hálózat, hogy az adatok letöltődjenek.)*
+Ezek **internet nélkül is** működnek: a legutóbb szinkronizált adatokat mutatják, és online frissülnek. *(Ha egy lista üres: előbb legyen egyszer hálózat, hogy letöltődjenek az adatok.)*
 
-> *Megjegyzés a rendszergazdának:* a fenti nézetek csak **megjelenítenek** (read-only) — a rögzítés/véglegesítés továbbra is a meglévő felületeken történik. A változás a desktop **0.8.8** kiadással érkezik. A Tartozások és a bevétel/kiadás rögzítés web-azonossá tétele külön, gondos lépésekben jön (az offline pénztárca-rögzítés érintettsége miatt).
+### ⛪ A rendszer saját címere
+
+- Az asztali app fejlécén és indítóképernyőjén mostantól a **Kartotéka-logó** szerepel az egyházkerületi címer helyett — egységes, felekezet-független arculat.
+
+> *Megjegyzés a rendszergazdának:* a fenti nézetek **megjelenítenek** (read-only); a rögzítés/véglegesítés a meglévő felületeken történik (a bevétel/kiadás web-azonos **bevitele** külön, gondos lépésben jön az offline pénztárca érintettsége miatt). A változás a desktop **0.8.8** kiadással érkezik. A Tartozások hátralék-számait érdemes egy gyülekezeten összevetni a webfelülettel.
 
 ---
 
