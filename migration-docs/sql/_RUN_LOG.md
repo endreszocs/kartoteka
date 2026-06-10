@@ -51,8 +51,10 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 - [ ] **`2026-04-30l-backfill-csalad-text-szulokbol.sql`** — DRY-RUN előnézet (1-3. blokk) + élő backfill (4-7. blokk, kommentelt). Az élő UPDATE/INSERT a `/* ... */` blokkban — uncomment szükséges.
 
-- [ ] **`2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql`** — PENDING (még nem futott)
-       Indok: Tagnyilvántartás Fázis 5 — GDPR-hozzájárulások (P3-5) + választói automatika (P3-7).
+- [x] 2026-06-10 — **`2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql`** ✅ LEFUTOTT
+       Verifikáció (Endre): `recompute_voter_eligibility` RPC létezik. A GDPR-mezők +
+       választói automatika élesben.
+       Tartalom: Tagnyilvántartás Fázis 5 — GDPR-hozzájárulások (P3-5) + választói automatika (P3-7).
        Hatás: (1) `szemely` új oszlopok: `gdpr_consent_at`, `photo_consent`, `mailing_consent`,
        `voter_manual_override` (+ CHECK 0/1); (2) `recompute_voter_eligibility(uuid)` RPC —
        szabály-alapú választói névjegyzék (18+, konfirmált, élő aktív tag), a kézi felülbírálást

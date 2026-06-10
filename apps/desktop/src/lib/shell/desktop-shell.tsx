@@ -217,7 +217,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
       <KartotekaShell
         Link={DesktopLink}
         currentPath={location.pathname}
-        logoSrc="/EREK.png"
+        logoSrc="/kartoteka-logo.png"
         profile={effectiveProfile}
         congregationId={profile?.congregation_id ?? null}
         congregationName={congregation?.nev_hu ?? congregation?.name ?? null}
