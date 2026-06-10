@@ -22,7 +22,10 @@ use db::{
     iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
 };
 use device::device_info;
-use excel::{excel_append_rows, excel_list_sheets};
+use excel::{
+    excel_append_rows, excel_default_folder, excel_folder_info, excel_list_sheets,
+    excel_open_folder, excel_setup_folder,
+};
 use tauri::Manager;
 
 /// Tauri alkalmazás belépési pont.
@@ -81,7 +84,11 @@ pub fn run() {
             iratszam_wallet_claim_next,
             iratszam_wallet_release,
             excel_list_sheets,
-            excel_append_rows
+            excel_append_rows,
+            excel_default_folder,
+            excel_folder_info,
+            excel_setup_folder,
+            excel_open_folder
         ])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");

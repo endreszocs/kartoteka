@@ -46,6 +46,44 @@ export interface AppendReport {
   backupPath: string
 }
 
+/** Egy Könyvelés-mappa állapota. */
+export interface ExcelFolderInfo {
+  /** A Könyvelés-mappa teljes útvonala. */
+  folderPath: string
+  /** Az Adatok_<év>.xlsx teljes útvonala (ha megvan). */
+  adatokPath: string | null
+  /** Létezik-e a mappa (és benne az Adatok-fájl). */
+  exists: boolean
+  /** Most hoztuk-e létre (a becsomagolt sablonból). */
+  created: boolean
+}
+
+/** Az adott évhez tartozó alapértelmezett Könyvelés-mappa útvonala. */
+export async function excelDefaultFolder(year: number): Promise<string> {
+  return invoke<string>('excel_default_folder', { year })
+}
+
+/** Egy Könyvelés-mappa állapota (létezik-e + hol az Adatok-fájl) — másolás nélkül. */
+export async function excelFolderInfo(folderPath: string): Promise<ExcelFolderInfo> {
+  return invoke<ExcelFolderInfo>('excel_folder_info', { folderPath })
+}
+
+/**
+ * A Könyvelés-mappa előkészítése: ha még nincs, a becsomagolt sablon-csomag
+ * teljes tartalmát átmásolja a cél (alapértelmezett vagy megadott) mappába.
+ */
+export async function excelSetupFolder(
+  year: number,
+  dest?: string | null,
+): Promise<ExcelFolderInfo> {
+  return invoke<ExcelFolderInfo>('excel_setup_folder', { year, dest: dest ?? null })
+}
+
+/** A mappa megnyitása az operációs rendszer fájlkezelőjében. */
+export async function excelOpenFolder(path: string): Promise<void> {
+  await invoke('excel_open_folder', { path })
+}
+
 /** A munkafüzet lapjainak nevei (a Kassza + A/B/C… bank-lapok felismeréséhez). */
 export async function excelListSheets(filePath: string): Promise<string[]> {
   return invoke<string[]>('excel_list_sheets', { filePath })

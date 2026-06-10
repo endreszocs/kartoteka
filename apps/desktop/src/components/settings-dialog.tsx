@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   Bell,
   Download,
+  FolderSync,
   Globe,
   HardDrive,
   Languages,
@@ -45,6 +46,7 @@ import { ThemePicker, useThemeStyle } from '@kartoteka/ui-app'
 
 import { AdatBiztonsagPanel } from './settings/adat-biztonsag-panel'
 import { FrissitesPanel } from './settings/frissites-panel'
+import { KonyvelesPanel } from './settings/konyveles-panel'
 
 // ──────────────────────────────────────────────────────────────
 // localStorage helperek — megegyezik a web-es verzióval (`kartoteka-user-prefs-v1`)
@@ -224,6 +226,10 @@ export function SettingsDialog({
               <TabsTrigger value="frissites" className="w-full justify-start px-3 py-2">
                 <Download className="mr-2 size-4" />
                 <span className="flex-1 text-left">Frissítés</span>
+              </TabsTrigger>
+              <TabsTrigger value="konyveles" className="w-full justify-start px-3 py-2">
+                <FolderSync className="mr-2 size-4" />
+                <span className="flex-1 text-left">Könyvelés</span>
               </TabsTrigger>
               <TabsTrigger value="adatbiztonsag" className="w-full justify-start px-3 py-2">
                 <Shield className="mr-2 size-4" />
@@ -456,6 +462,11 @@ export function SettingsDialog({
             {/* ── FRISSÍTÉS ── (Sprint N, 2026-04-25) */}
             <TabsContent value="frissites" className="space-y-4">
               <FrissitesPanel />
+            </TabsContent>
+
+            {/* ── KÖNYVELÉS (hivatalos EREK Excel) ── (E1, 2026-06-11) */}
+            <TabsContent value="konyveles" className="space-y-4">
+              <KonyvelesPanel />
             </TabsContent>
 
             {/* ── ADAT & BIZTONSÁG ── (desktop: sync / DB / device) */}

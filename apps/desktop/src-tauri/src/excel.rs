@@ -18,10 +18,11 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use umya_spreadsheet::*;
 
 /// Egy Kassza/bank-lap adatsor — a D–L oszlopok. A TS-oldal küldi.
@@ -273,4 +274,156 @@ pub fn excel_append_rows(
         first_row,
         backup_path,
     })
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// E1 — Könyvelés-mappa kezelése (bundling → másolás → megnyitás)
+// ───────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcelFolderInfo {
+    /// A Könyvelés-mappa teljes útvonala.
+    pub folder_path: String,
+    /// Az `Adatok_<év>.xlsx` teljes útvonala a mappában (ha megvan).
+    pub adatok_path: Option<String>,
+    /// Létezik-e a mappa (és benne az Adatok-fájl).
+    pub exists: bool,
+    /// Most hoztuk-e létre (a becsomagolt sablonból másolva).
+    pub created: bool,
+}
+
+/// Tartalmaz-e a mappa egy `Adatok_*.xlsx` fájlt?
+fn find_adatok_file(folder: &Path) -> Option<PathBuf> {
+    let rd = std::fs::read_dir(folder).ok()?;
+    for e in rd.flatten() {
+        if let Some(name) = e.file_name().to_str() {
+            if name.starts_with("Adatok_") && name.ends_with(".xlsx") {
+                return Some(e.path());
+            }
+        }
+    }
+    None
+}
+
+/// A becsomagolt sablon-mappa megkeresése a resource dir-ben (az a mappa, amely
+/// `Adatok_*.xlsx`-et tartalmaz). Robusztus a `bundle.resources` pontos
+/// útvonal-leképezésére (a fát járjuk be, nem feltételezünk fix mélységet).
+fn find_template_dir(root: &Path, depth: usize) -> Option<PathBuf> {
+    if depth > 8 {
+        return None;
+    }
+    if find_adatok_file(root).is_some() {
+        return Some(root.to_path_buf());
+    }
+    let rd = std::fs::read_dir(root).ok()?;
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(found) = find_template_dir(&p, depth + 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Rekurzív mappa-másolás (a teljes könyvelés-csomag a sablonból a célmappába).
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dest = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), &dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Az adott évhez tartozó alapértelmezett Könyvelés-mappa:
+/// `…\Documents\Kartoteka\Konyveles_<év>_a`.
+fn default_folder(app: &tauri::AppHandle, year: u32) -> Result<PathBuf, String> {
+    let docs = app
+        .path()
+        .document_dir()
+        .map_err(|e| format!("A Dokumentumok mappa nem található: {e}"))?;
+    Ok(docs
+        .join("Kartoteka")
+        .join(format!("Konyveles_{year}_a")))
+}
+
+/// Az alapértelmezett Könyvelés-mappa útvonala (az adott évre).
+#[tauri::command]
+pub fn excel_default_folder(app: tauri::AppHandle, year: u32) -> Result<String, String> {
+    Ok(default_folder(&app, year)?.to_string_lossy().to_string())
+}
+
+/// Egy Könyvelés-mappa állapota (létezik-e + hol az Adatok-fájl) — másolás nélkül.
+#[tauri::command]
+pub fn excel_folder_info(folder_path: String) -> ExcelFolderInfo {
+    let folder = PathBuf::from(&folder_path);
+    let adatok = find_adatok_file(&folder);
+    ExcelFolderInfo {
+        folder_path,
+        exists: folder.is_dir() && adatok.is_some(),
+        adatok_path: adatok.map(|p| p.to_string_lossy().to_string()),
+        created: false,
+    }
+}
+
+/// A Könyvelés-mappa előkészítése: ha még nincs (vagy üres), a BECSOMAGOLT
+/// sablon-csomag teljes tartalmát átmásolja a cél (alapértelmezett vagy megadott)
+/// mappába. Idempotens — meglévő mappát nem ír felül.
+#[tauri::command]
+pub fn excel_setup_folder(
+    app: tauri::AppHandle,
+    year: u32,
+    dest: Option<String>,
+) -> Result<ExcelFolderInfo, String> {
+    let folder = match dest {
+        Some(d) if !d.trim().is_empty() => PathBuf::from(d),
+        _ => default_folder(&app, year)?,
+    };
+
+    let mut created = false;
+    if !folder.is_dir() || find_adatok_file(&folder).is_none() {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("A telepítés resource mappája nem található: {e}"))?;
+        let template = find_template_dir(&resource_dir, 0).ok_or_else(|| {
+            "A becsomagolt könyvelés-sablon nem található a telepítésben.".to_string()
+        })?;
+        copy_dir_all(&template, &folder).map_err(|e| format!("Sablon másolási hiba: {e}"))?;
+        created = true;
+    }
+
+    let adatok = find_adatok_file(&folder);
+    Ok(ExcelFolderInfo {
+        folder_path: folder.to_string_lossy().to_string(),
+        exists: adatok.is_some(),
+        adatok_path: adatok.map(|p| p.to_string_lossy().to_string()),
+        created,
+    })
+}
+
+/// A mappa megnyitása az operációs rendszer fájlkezelőjében.
+#[tauri::command]
+pub fn excel_open_folder(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(format!("Az útvonal nem létezik: {path}"));
+    }
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer").arg(&path).spawn();
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&path).spawn();
+    #[cfg(target_os = "linux")]
+    let spawned = std::process::Command::new("xdg-open").arg(&path).spawn();
+    spawned
+        .map(|_| ())
+        .map_err(|e| format!("A mappa megnyitása nem sikerült: {e}"))
 }
