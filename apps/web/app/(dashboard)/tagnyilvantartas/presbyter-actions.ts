@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { logAuditEvent } from '@/lib/audit/log'
 import { revalidatePath } from 'next/cache'
 import { districtSchema, presbyterSchema, type DistrictInput, type PresbyterInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -76,7 +77,9 @@ export async function saveDistrict(data: DistrictInput) {
   const { supabase, congregationId } = await getScopedContext()
   if (!congregationId) return { error: 'Nincs aktiv gyulekezet kivalasztva.' }
 
-  const payload = { nev: parsed.data.nev, isaktiv: parsed.data.isaktiv, iskorzet: true }
+  // 2026-06-10 (Fázis 1): a csoport mostantól congregation_id-scoped — insertnél
+  // kötelező, update-nél a legacy NULL-os sorokat fokozatosan begyógyítja.
+  const payload = { nev: parsed.data.nev, isaktiv: parsed.data.isaktiv, iskorzet: true, congregation_id: congregationId }
 
   if (parsed.data.id) {
     const { visibleIds, usage } = await getVisibleDistrictState(supabase, congregationId)
@@ -93,6 +96,12 @@ export async function saveDistrict(data: DistrictInput) {
     const { error } = await supabase.from('csoport').insert(payload)
     if (error) return { error: `Hiba: ${error.message}` }
   }
+  await logAuditEvent({
+    action: 'district.save',
+    targetTable: 'csoport',
+    targetId: parsed.data.id ? String(parsed.data.id) : null,
+    metadata: { mode: parsed.data.id ? 'update' : 'create' },
+  }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -137,6 +146,7 @@ export async function deleteDistrict(id: number) {
 
   const { error } = await supabase.from('csoport').delete().eq('id', id)
   if (error) return { error: `Hiba: ${error.message}` }
+  await logAuditEvent({ action: 'district.delete', targetTable: 'csoport', targetId: String(id) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -161,6 +171,7 @@ export async function assignFamilyToDistrict(familyId: number, districtId: numbe
   if (error) return { error: `Hiba: ${error.message}` }
   await supabase.from('haztartas').update({ id_csoport: districtId })
     .eq('legacy_csalad_id', familyId).eq('congregation_id', congregationId).is('ervenyes_ig', null)
+  await logAuditEvent({ action: 'district.assign_family', targetTable: 'csalad', targetId: String(familyId), metadata: { districtId } }, supabase)
   return { success: true }
 }
 
@@ -171,6 +182,7 @@ export async function removeFamilyFromDistrict(familyId: number) {
   if (error) return { error: `Hiba: ${error.message}` }
   await supabase.from('haztartas').update({ id_csoport: null })
     .eq('legacy_csalad_id', familyId).eq('congregation_id', congregationId).is('ervenyes_ig', null)
+  await logAuditEvent({ action: 'district.remove_family', targetTable: 'csalad', targetId: String(familyId) }, supabase)
   return { success: true }
 }
 
@@ -284,10 +296,12 @@ export async function savePresbyter(data: PresbyterInput) {
 
   const { error } = await supabase.from('presbiter').insert({
     id_szemely: parsed.data.id_szemely,
+    congregation_id: congregationId,
     tisztseg: parsed.data.tisztseg || 'Presbiter',
     id_csoport: parsed.data.id_csoport || null,
   })
   if (error) return { error: `Hiba: ${error.message}` }
+  await logAuditEvent({ action: 'presbyter.save', targetTable: 'presbiter', targetId: String(parsed.data.id_szemely) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -302,6 +316,7 @@ export async function deletePresbyter(szemelId: number) {
   const supabase = await createClient()
   const { error } = await supabase.from('presbiter').delete().eq('id_szemely', szemelId)
   if (error) return { error: `Hiba: ${error.message}` }
+  await logAuditEvent({ action: 'presbyter.delete', targetTable: 'presbiter', targetId: String(szemelId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }

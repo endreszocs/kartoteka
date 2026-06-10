@@ -63,12 +63,12 @@ export function DashboardIntroOverlay() {
         <div className="relative">
           <div className="absolute inset-[-12px] rounded-[1.8rem] bg-gradient-to-br from-amber-200/35 via-white/10 to-teal-200/35 blur-md" />
           <div className="relative flex size-20 items-center justify-center rounded-[1.6rem] bg-white shadow-[0_24px_40px_-24px_rgba(16,70,63,0.42)]">
-            <Image src="/EREK.png" alt="EREK" width={54} height={54} className="object-contain" />
+            <Image src="/kartoteka-logo.png" alt="Kartotéka" width={54} height={54} className="object-contain" />
           </div>
         </div>
 
         <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/72">
-          Erdélyi Református Egyházkerület
+          Református gyülekezeti nyilvántartás
         </p>
         <h2 className="mt-2 font-heading text-4xl text-slate-800">
           Kartotéka

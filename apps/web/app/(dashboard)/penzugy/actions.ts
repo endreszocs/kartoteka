@@ -651,7 +651,7 @@ export async function initFinance(year: number) {
       .eq('congregation_id', congregationId)
       .eq('fizetettev', year)
       .or('deleted.eq.false,deleted.is.null'),
-    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
+    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas_tag-ból mapping
     supabase.from('haztartas_tag')
       .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')

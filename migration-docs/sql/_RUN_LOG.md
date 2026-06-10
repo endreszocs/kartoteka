@@ -51,6 +51,36 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 - [ ] **`2026-04-30l-backfill-csalad-text-szulokbol.sql`** — DRY-RUN előnézet (1-3. blokk) + élő backfill (4-7. blokk, kommentelt). Az élő UPDATE/INSERT a `/* ... */` blokkban — uncomment szükséges.
 
+- [x] 2026-06-10 — **`2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql`** ✅ LEFUTOTT
+       Tagnyilvántartás Fázis 1 biztonsági hotfix (átvilágítás P0-1…P0-4, P1-3, P1-4 —
+       lásd `docs/project-tracking/KARTOTEKA-tagnyilvantartas-atvilagitas-2026-06-10.md`).
+       Hatás: (1) `felmentes`/`presbiter`/`csoport` táblákra `congregation_id` oszlop + backfill
+       + BEFORE INSERT trigger (felmentes, presbiter); (2) a `USING (true)` policyk
+       (felmentes_all/felmentes_access, presbiter_all/presbiter_read, csoport_read) cseréje
+       gyülekezet-szűrt policykra; (3) új `tagnyilvantartas_tag_torles(integer)` RPC — atomikus,
+       jogosultság-ellenőrzött végleges törlés pénzügyi + anyakönyvi védelemmel; (4) új
+       `app_get_or_create_locality(text)` / `app_get_or_create_street(text, integer)` RPC-k
+       (guardolt címtörzs-bővítés a korábbi csendes 1-es fallback helyett).
+       **Verifikáció (Endre, 2026-06-10):** felmentes NULL=0 ✅ · presbiter NULL=0 ✅ ·
+       csoport NULL=1 → az árva „1. körzet" sor (id=1; 0 presbiter/csalad/haztartas
+       hivatkozás, a kód sem használja defaultként) még aznap TÖRÖLVE —
+       utóellenőrzés: 0 árva sor ✅. A backfill így 100%-os mindhárom táblán.
+       A 2026-06-10-es webapp-kód (tag-törlés RPC, címtörzs-RPC-k) mostantól deployolható.
+
+- [ ] **`2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql`** — PENDING (még nem futott)
+       Indok: Tagnyilvántartás Fázis 2-3 (átvilágítás P1-5, P1-6, P1-7c).
+       Hatás: (1) `befizetes.id_csalad` FK a csalad-ra (árva hivatkozások NULL-ozása után);
+       (2) `uidx_szemely_cnp_per_congregation` partial unique — CNP-egyediség gyülekezeten
+       belül (duplikátumnál NEM bukik el: NOTICE + a fájl végi diagnosztika listázza);
+       (3) `sirhelyelhunyt.id_szemely` oszlop + backfill a temetes-hivatkozáson át + trigger;
+       (4) `tagnyilvantartas_csalad_mentes(...)` RPC — atomikus család+gyerek mentés,
+       tag-szintű gyülekezet-ellenőrzéssel.
+       ⚠️ SORREND: a Fázis 2-3 webapp-kód deployja ELŐTT futtatandó (a saveFamily már az
+       RPC-t hívja; nélküle a család-mentés érthető hibaüzenettel leáll, adatvesztés nélkül).
+       Verifikáció: fájl végi diagnosztika — árva befizetes=0, CNP-duplikátum lista üres
+       (vagy rendezendő), sirhelyelhunyt-linkek feltöltve, index létrejött.
+       BEGIN/COMMIT csomagolva (P2-12 betartva).
+
 - [x] 2026-05-17 — **`2026-05-17-iktato-sequence-pointer-rpc.sql`** ✅ LEFUTOTT
        Új `iktato_sequence_pointers` tábla + `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC + backfill + partial UNIQUE INDEX (P3-5 race-fix).
        Verifikáció: `next_iktato_sequence` ✅ OK, `search_path=public, pg_temp`, partial UNIQUE INDEX létrejött, pointer-tábla 0 sor (productionben még nincs iktato-bejegyzés). A frontend `saveFilingEntry` mostantól az RPC-t hívja az atomic sorszámért.

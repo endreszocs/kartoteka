@@ -1,13 +1,14 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Grid3x3, Home, List, MapPin, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Grid3x3, Home, List, MapPin, Printer, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteFamily, getFamilies, type FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
 import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
+import { FamilyCardPrintDialog } from '@/components/members/family-card-print-dialog'
 import {
   FamilyCardPreview,
   familyRowToCardData,
@@ -33,6 +34,9 @@ export function FamiliesTab() {
   const [detailsId, setDetailsId] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editFamily, setEditFamily] = useState<FamilyRow | null>(null)
+  // 2026-06-10: nyomtatható, lefűzhető családi karton
+  const [printOpen, setPrintOpen] = useState(false)
+  const [printFamilyId, setPrintFamilyId] = useState<number | null>(null)
   // 2026-04-19: alapértelmezetten a statisztikai kártyák rejtve,
   // csak a lista látszik. A „Kartonok/statisztikák" gomb mutatja meg.
   const [showCards, setShowCards] = useState(false)
@@ -545,6 +549,18 @@ export function FamiliesTab() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-8 rounded-full px-3 text-slate-500 hover:text-teal-700"
+                            onClick={() => {
+                              setPrintFamilyId(family.id)
+                              setPrintOpen(true)
+                            }}
+                          >
+                            <Printer className="mr-1 size-3.5" />
+                            Karton
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="h-8 rounded-full px-3 text-slate-500 hover:text-violet-700"
                             onClick={() => {
                               setEditFamily(family)
@@ -576,6 +592,7 @@ export function FamiliesTab() {
 
       <FamilyDetailsDialogRefined open={detailsOpen} onOpenChange={setDetailsOpen} familyId={detailsId} />
       <FamilyFormDialog open={formOpen} onOpenChange={handleFormClose} editFamily={editFamily} />
+      <FamilyCardPrintDialog open={printOpen} onOpenChange={setPrintOpen} familyId={printFamilyId} />
     </div>
   )
 }

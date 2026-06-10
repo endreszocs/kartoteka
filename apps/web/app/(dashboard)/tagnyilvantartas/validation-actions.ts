@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { logAuditEvent } from '@/lib/audit/log'
 import type { MemberRow } from '@/lib/constants/members'
 import {
   validateAll,
@@ -182,6 +183,7 @@ export async function runValidation(): Promise<{
   }
 
   revalidatePath('/tagnyilvantartas')
+  await logAuditEvent({ action: 'validation.run', targetTable: 'member_validation_errors', metadata: { total_errors: newErrors.length, inserted, updated, resolved } })
   return { ok: true, total_errors: newErrors.length, inserted, updated, resolved }
 }
 
@@ -391,6 +393,7 @@ export async function resolveError(errorId: number): Promise<{ ok: boolean; erro
     .eq('congregation_id', congregationId)
   if (error) return { ok: false, error: error.message }
 
+  await logAuditEvent({ action: 'validation.resolve', targetTable: 'member_validation_errors', targetId: String(errorId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { ok: true }
 }
@@ -414,6 +417,7 @@ export async function ignoreError(errorId: number, reason: string): Promise<{ ok
     .eq('congregation_id', congregationId)
   if (error) return { ok: false, error: error.message }
 
+  await logAuditEvent({ action: 'validation.ignore', targetTable: 'member_validation_errors', targetId: String(errorId), metadata: { reason: reason.trim() } }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { ok: true }
 }
@@ -438,6 +442,7 @@ export async function reopenError(errorId: number): Promise<{ ok: boolean; error
     .eq('congregation_id', congregationId)
   if (error) return { ok: false, error: error.message }
 
+  await logAuditEvent({ action: 'validation.reopen', targetTable: 'member_validation_errors', targetId: String(errorId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { ok: true }
 }

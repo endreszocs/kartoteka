@@ -6,6 +6,7 @@ import { familySchema, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
+import { logAuditEvent } from '@/lib/audit/log'
 
 export interface FamilyRow {
   id: number
@@ -426,53 +427,60 @@ export async function saveFamily(data: FamilyInput) {
     }
   }
 
-  const familyData: Record<string, unknown> = {
-    id_ferfi: d.id_ferfi,
-    id_no: d.id_no,
-    c_utcaid: d.c_utcaid || null,
-    c_szam: d.c_szam || null,
-    id_csoport: d.id_csoport || null,
-    isaktiv: true,
-  }
-
-  let familyId = d.id
-
+  // 2026-06-10 (Fázis 2, P1-5): a csalad-mentés és a gyerek-rekordok cseréje
+  // EGY tranzakcióban, RPC-ben fut (tagnyilvantartas_csalad_mentes) — korábban
+  // a delete+insert között elhasaló hiba a család gyermek-listáját elveszíthette.
   if (d.id) {
     const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
     if (!allowedFamilyIds.has(d.id)) {
       return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
     }
-    const { error } = await supabase.from('csalad').update(familyData).eq('id', d.id)
-    if (error) return { error: `Hiba: ${error.message}` }
-    // Gyerekek frissítés: régi törlés + új insert
-    await supabase.from('gyerek').delete().eq('id_csalad', d.id)
-  } else {
-    const { data: ins, error } = await supabase.from('csalad').insert([familyData]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
-    if (!ins?.[0]) return { error: 'Nem kaptunk vissza azonosítót.' }
-    familyId = ins[0].id
   }
 
-  // Gyerekek hozzárendelés
-  if (familyId && d.gyerekIds.length > 0) {
-    const gyerekRows = d.gyerekIds.map(szemId => ({ id_csalad: familyId!, id_szemely: szemId }))
-    await supabase.from('gyerek').insert(gyerekRows)
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+    p_id: d.id ?? null,
+    p_id_ferfi: d.id_ferfi,
+    p_id_no: d.id_no,
+    p_gyerek_ids: d.gyerekIds,
+    p_c_utcaid: d.c_utcaid || null,
+    p_c_szam: d.c_szam || null,
+    p_id_csoport: d.id_csoport || null,
+  })
+  if (rpcErr) {
+    return { error: `Hiba: ${rpcErr.message} (Lefutott már a 2026-06-10-es Fázis 2-3 adatbázis-migráció?)` }
   }
+  const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+  if (rpcRes?.status === 'forbidden') {
+    return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
+  }
+  if (rpcRes?.status !== 'ok' || !rpcRes.family_id) {
+    return { error: rpcRes?.message || 'A család mentése nem sikerült.' }
+  }
+  const familyId = rpcRes.family_id
 
   // 2026-06-01 (hibrid család-modell Fázis 2): az új modellt is naprakésszé
   // tesszük (haztartas + cim + haztartas_tag). Ha a saveFamily új csalad-ot
   // hozott létre vagy a meglévőt változtatta, a háztartás-szinkron lefut.
-  if (familyId) {
-    try {
-      await syncHouseholdFromCsalad(supabase, familyId, congregationId)
-    } catch (e) {
-      console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen (nem blokkoló):',
-        e instanceof Error ? e.message : e)
-    }
+  // 2026-06-10 (Fázis 2): a hibrid-sync hibája többé nem néma — figyelmeztetés
+  // formájában visszajut a felületre (P2-10 részleges).
+  let syncWarning: string | undefined
+  try {
+    await syncHouseholdFromCsalad(supabase, familyId, congregationId)
+  } catch (e) {
+    console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen:',
+      e instanceof Error ? e.message : e)
+    syncWarning = 'A család mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.'
   }
 
+  await logAuditEvent({
+    action: 'family.save',
+    targetTable: 'csalad',
+    targetId: String(familyId),
+    metadata: { mode: d.id ? 'update' : 'create', gyerekek: d.gyerekIds.length, sync_ok: !syncWarning },
+  }, supabase)
+
   revalidatePath('/tagnyilvantartas')
-  return { success: true }
+  return { success: true, warning: syncWarning }
 }
 
 // ── Szabad személy keresés (házasok kiszűrve) ────────────────
@@ -558,7 +566,7 @@ export async function wipeFamilyStructure(confirmation: string) {
   const szemIds = ((szemely || []) as any[]).map((s) => s.id as number)
 
   // 2. Új modell törlés (congregation_id-vel direkt)
-  let stats = { haztartas_tag: 0, szemely_kapcsolat: 0, haztartas: 0, cim: 0, csalad: 0, gyerek: 0 }
+  const stats = { haztartas_tag: 0, szemely_kapcsolat: 0, haztartas: 0, cim: 0, csalad: 0, gyerek: 0 }
 
   const t1 = await supabase.from('haztartas_tag').delete({ count: 'exact' }).eq('congregation_id', congregationId)
   stats.haztartas_tag = t1.count ?? 0
@@ -588,6 +596,7 @@ export async function wipeFamilyStructure(confirmation: string) {
     stats.csalad = t6.count ?? 0
   }
 
+  await logAuditEvent({ action: 'family.wipe_structure', targetTable: 'csalad', metadata: { ...stats } }, supabase)
   revalidatePath('/tagnyilvantartas')
   return {
     success: true,
@@ -636,6 +645,7 @@ export async function deleteFamily(id: number) {
       e instanceof Error ? e.message : e)
   }
 
+  await logAuditEvent({ action: 'family.delete', targetTable: 'csalad', targetId: String(id) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -690,6 +700,7 @@ export async function saveFamilyVisit(data: { familyId: number; datum: string; l
     } catch { /* munkanapló hiba nem blokkolja a mentést */ }
   }
 
+  await logAuditEvent({ action: 'family.visit_save', targetTable: 'csaladlatogatas', targetId: String(data.familyId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -719,5 +730,134 @@ export async function getEnrichedMemberById(id: number, familyId: number | null)
     familyId,
     pendingTransfer: null,
     hasEverPaid: false,
+  }
+}
+
+// ── Családi karton nyomtatási adatok (2026-06-10) ────────────
+// A nyomtatható (lefűzhető) családi kartonhoz egy menetben összegyűjti:
+// szülők + gyermekek, anyakönyvi dátumaik, megjegyzéseik, a házasság,
+// az utolsó évek egyházfenntartói befizetései és a családlátogatások.
+
+export type FamilyCardPrintPerson = {
+  szerep: string
+  nev: string
+  szuletes: string | null
+  keresztseg: string | null
+  konfirmacio: string | null
+  megjegyzes: string | null
+  meghalt: boolean
+}
+
+export async function getFamilyCardPrintData(familyId: number) {
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return null
+  const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
+  if (!allowedFamilyIds.has(familyId)) return null
+
+  const { data: family } = await supabase
+    .from('csalad')
+    .select('id, id_ferfi, id_no, c_szam, id_csoport, adrstreet!c_utcaid(name, adrlocality!localityid(name)), csoport!id_csoport(nev)')
+    .eq('id', familyId)
+    .maybeSingle()
+  if (!family) return null
+
+  type FamilyRow2 = {
+    id: number
+    id_ferfi: number | null
+    id_no: number | null
+    c_szam: string | null
+    adrstreet: { name: string | null; adrlocality: { name: string | null } | { name: string | null }[] | null } | { name: string | null; adrlocality: { name: string | null } | null }[] | null
+    csoport: { nev: string | null } | { nev: string | null }[] | null
+  }
+  const fam = family as unknown as FamilyRow2
+  const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? v[0] || null : v)
+
+  const { data: childRows } = await supabase
+    .from('gyerek')
+    .select('id_szemely')
+    .eq('id_csalad', familyId)
+  const childIds = ((childRows || []) as { id_szemely: number }[]).map((r) => r.id_szemely)
+  const adultIds = [fam.id_ferfi, fam.id_no].filter(Boolean) as number[]
+  const allIds = [...adultIds, ...childIds]
+  if (allIds.length === 0) return null
+
+  const currentYear = new Date().getFullYear()
+  const [personsRes, keresztRes, konfirmRes, hazassagRes, paymentsRes, visitsRes, congRes] = await Promise.all([
+    supabase.from('szemely')
+      .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, foglalkozas, telefon, megjegyzes, meghalt')
+      .in('id', allIds).eq('congregation_id', congregationId),
+    supabase.from('keresztseg').select('id_szemely, datum').in('id_szemely', allIds).eq('congregation_id', congregationId),
+    supabase.from('konfirmalas').select('id_szemely, datum').in('id_szemely', allIds).eq('congregation_id', congregationId),
+    fam.id_ferfi && fam.id_no
+      ? supabase.from('hazassag').select('datum, lelkeszneve')
+          .eq('id_ferfi', fam.id_ferfi).eq('id_no', fam.id_no)
+          .eq('congregation_id', congregationId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from('befizetes')
+      .select('datum, osszeg, fizetettev, id_szemely, id_csalad, befizetescel(nev)')
+      .eq('congregation_id', congregationId)
+      .or(`id_csalad.eq.${familyId},id_szemely.in.(${allIds.join(',')})`)
+      .or('deleted.eq.false,deleted.is.null')
+      .gte('fizetettev', currentYear - 4)
+      .order('datum', { ascending: false })
+      .limit(60),
+    supabase.from('csaladlatogatas')
+      .select('datum, lelkesz, megjegyzes')
+      .eq('id_csalad', familyId).eq('congregation_id', congregationId)
+      .order('datum', { ascending: false }).limit(6),
+    supabase.from('congregations').select('name, nev_hu').eq('id', congregationId).maybeSingle(),
+  ])
+
+  type PersonRow = { id: number; csaladnev: string | null; k_nev: string | null; szcs_nev: string | null; ferfi: boolean | null; sz_datum: string | null; foglalkozas: string | null; telefon: string | null; megjegyzes: string | null; meghalt: boolean | null }
+  const persons = (personsRes.data || []) as PersonRow[]
+  const keresztMap = new Map(((keresztRes.data || []) as { id_szemely: number; datum: string | null }[]).map((r) => [r.id_szemely, r.datum]))
+  const konfirmMap = new Map(((konfirmRes.data || []) as { id_szemely: number; datum: string | null }[]).map((r) => [r.id_szemely, r.datum]))
+
+  const personName = (p: PersonRow) => `${p.csaladnev || ''} ${p.k_nev || ''}`.trim() + (p.szcs_nev ? ` (szül. ${p.szcs_nev})` : '')
+  const toPrint = (p: PersonRow, szerep: string): FamilyCardPrintPerson => ({
+    szerep,
+    nev: personName(p),
+    szuletes: p.sz_datum,
+    keresztseg: keresztMap.get(p.id) || null,
+    konfirmacio: konfirmMap.get(p.id) || null,
+    megjegyzes: p.megjegyzes,
+    meghalt: !!p.meghalt,
+  })
+
+  const husband = persons.find((p) => p.id === fam.id_ferfi)
+  const wife = persons.find((p) => p.id === fam.id_no)
+  const children = childIds
+    .map((id) => persons.find((p) => p.id === id))
+    .filter(Boolean) as PersonRow[]
+  children.sort((a, b) => (a.sz_datum || '9999').localeCompare(b.sz_datum || '9999'))
+
+  const street = one(fam.adrstreet)
+  const locality = street ? one((street as { adrlocality?: unknown }).adrlocality as { name: string | null } | { name: string | null }[] | null) : null
+  const congregation = congRes.data as { name: string | null; nev_hu: string | null } | null
+  const marriage = hazassagRes.data as { datum: string | null; lelkeszneve: string | null } | null
+
+  return {
+    familyId,
+    familyName: [husband ? personName(husband) : null, wife ? personName(wife) : null].filter(Boolean).join(' és ') || 'Család',
+    address: [locality?.name, street?.name, fam.c_szam].filter(Boolean).join(', ') || null,
+    district: one(fam.csoport)?.nev || null,
+    congregation: congregation?.nev_hu || congregation?.name || '',
+    marriage: marriage ? { datum: marriage.datum, lelkesz: marriage.lelkeszneve } : null,
+    adults: [
+      ...(husband ? [toPrint(husband, 'Családfő')] : []),
+      ...(wife ? [toPrint(wife, 'Házastárs')] : []),
+    ],
+    children: children.map((c) => toPrint(c, c.ferfi ? 'Fiú' : 'Lány')),
+    payments: ((paymentsRes.data || []) as { datum: string | null; osszeg: number | string | null; fizetettev: number | null; befizetescel: { nev: string | null } | { nev: string | null }[] | null }[]).map((r) => ({
+      datum: r.datum,
+      ev: r.fizetettev,
+      osszeg: Number(r.osszeg || 0),
+      cel: one(r.befizetescel)?.nev || null,
+    })),
+    visits: ((visitsRes.data || []) as { datum: string | null; lelkesz: string | null; megjegyzes: string | null }[]).map((v) => ({
+      datum: v.datum,
+      lelkesz: v.lelkesz,
+      megjegyzes: v.megjegyzes,
+    })),
   }
 }

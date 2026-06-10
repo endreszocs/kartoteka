@@ -1,7 +1,7 @@
 {
   "name": "KARTOTEKA — Egyházi Nyilvántartás",
   "short_name": "KARTOTEKA",
-  "description": "Erdélyi Református Egyházkerület offline-first digitális nyilvántartási rendszere",
+  "description": "Református gyülekezetek offline-first digitális nyilvántartási rendszere",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

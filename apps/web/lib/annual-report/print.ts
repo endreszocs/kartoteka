@@ -135,6 +135,7 @@ function buildPage1(s: AnnualReportSnapshot, name: string): string {
     g.telefon ? ['Telefon:', g.telefon] : null,
     g.email ? ['E-mail:', g.email] : null,
     ['Egyházmegye:', g.diocese_name || g.egyhazmegye || '—'],
+    ['Gyülekezeti lélekszám:', g.lelekszam != null ? `${g.lelekszam} fő` : '—'],
     ['Lelkipásztor:', g.lelkipasztor || '—'],
     ['Esperes:', g.esperes || '—'],
   ].filter(Boolean) as Array<[string, string]>

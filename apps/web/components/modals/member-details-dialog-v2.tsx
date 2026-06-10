@@ -17,10 +17,11 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { getMemberDetails } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { getMemberDetails, updateMemberNote, updateRegistryEventNote } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
+import { toast } from 'sonner'
 
 interface MemberDetailsDialogProps {
   open: boolean
@@ -347,11 +348,14 @@ export function MemberDetailsDialogV2({
                       </SoftPanel>
                     </div>
 
-                    {member.megjegyzes && (
-                      <SoftPanel eyebrow="Lelkipásztori emlékeztető" title="Megjegyzés" icon={<BookOpen className="size-4" />}>
-                        <p className="text-sm leading-6 text-slate-600">{member.megjegyzes}</p>
-                      </SoftPanel>
-                    )}
+                    {/* 2026-06-10: szerkeszthető megjegyzés-mező (a családi kartonon is megjelenik) */}
+                    <SoftPanel eyebrow="Lelkipásztori emlékeztető" title="Megjegyzés" icon={<BookOpen className="size-4" />}>
+                      <EditableNote
+                        initial={member.megjegyzes}
+                        placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
+                        onSave={(note) => updateMemberNote(member.id, note)}
+                      />
+                    </SoftPanel>
                   </div>
                 )}
 
@@ -366,6 +370,8 @@ export function MemberDetailsDialogV2({
                           details?.kereszteles?.lelkeszneve ? `Lelkész: ${details.kereszteles.lelkeszneve}` : null,
                         ].filter(Boolean) as string[]}
                         tone="sky"
+                        note={details?.kereszteles?.megjegyzes}
+                        onSaveNote={details?.kereszteles ? (n) => updateRegistryEventNote('keresztseg', details.kereszteles.id, n) : undefined}
                       />
                       <RegistryEventCard
                         eyebrow="Konfirmáció"
@@ -375,6 +381,8 @@ export function MemberDetailsDialogV2({
                           details?.konfirmacio?.lelkeszneve ? `Lelkész: ${details.konfirmacio.lelkeszneve}` : null,
                         ].filter(Boolean) as string[]}
                         tone="violet"
+                        note={details?.konfirmacio?.megjegyzes}
+                        onSaveNote={details?.konfirmacio ? (n) => updateRegistryEventNote('konfirmalas', details.konfirmacio.id, n) : undefined}
                       />
                       <RegistryEventCard
                         eyebrow="Esküvő"
@@ -384,6 +392,8 @@ export function MemberDetailsDialogV2({
                           details?.hazassag?.lelkeszneve ? `Lelkész: ${details.hazassag.lelkeszneve}` : null,
                         ].filter(Boolean) as string[]}
                         tone="amber"
+                        note={details?.hazassag?.megjegyzes}
+                        onSaveNote={details?.hazassag?.id ? (n) => updateRegistryEventNote('hazassag', details.hazassag!.id, n) : undefined}
                       />
                       <RegistryEventCard
                         eyebrow="Beköltözött"
@@ -392,6 +402,8 @@ export function MemberDetailsDialogV2({
                           details?.bekoltozott?.adrlocality?.name ? `Honnan: ${details.bekoltozott.adrlocality.name}` : null,
                         ].filter(Boolean) as string[]}
                         tone="teal"
+                        note={details?.bekoltozott?.megjegyzes}
+                        onSaveNote={details?.bekoltozott ? (n) => updateRegistryEventNote('bekoltozott', details.bekoltozott.id, n) : undefined}
                       />
                       <RegistryEventCard
                         eyebrow="Áttért"
@@ -400,6 +412,8 @@ export function MemberDetailsDialogV2({
                           details?.attert?.adrlocality?.name ? `Honnan: ${details.attert.adrlocality.name}` : null,
                         ].filter(Boolean) as string[]}
                         tone="amber"
+                        note={details?.attert?.megjegyzes}
+                        onSaveNote={details?.attert ? (n) => updateRegistryEventNote('attert', details.attert.id, n) : undefined}
                       />
                       <RegistryEventCard
                         eyebrow="Temetés"
@@ -410,6 +424,8 @@ export function MemberDetailsDialogV2({
                           details?.temetes?.hoka ? `Halál oka: ${details.temetes.hoka}` : null,
                         ].filter(Boolean) as string[]}
                         tone="rose"
+                        note={details?.temetes?.megjegyzes}
+                        onSaveNote={details?.temetes ? (n) => updateRegistryEventNote('temetes', details.temetes.id, n) : undefined}
                       />
                     </div>
 
@@ -480,6 +496,15 @@ export function MemberDetailsDialogV2({
                         description="A személyhez kapcsolódó befizetések a Pénzügy modulból jelennek meg itt."
                       />
                     )}
+
+                    {/* 2026-06-10: megjegyzés-mező ezen az almenün is (személy-szintű jegyzet) */}
+                    <SoftPanel eyebrow="Lelkipásztori emlékeztető" title="Megjegyzés" icon={<BookOpen className="size-4" />}>
+                      <EditableNote
+                        initial={member.megjegyzes}
+                        placeholder="Pl. fizetési megállapodás, részletfizetés, egyeztetés…"
+                        onSave={(note) => updateMemberNote(member.id, note)}
+                      />
+                    </SoftPanel>
                   </div>
                 )}
 
@@ -650,11 +675,17 @@ function RegistryEventCard({
   title,
   description,
   tone,
+  note,
+  onSaveNote,
 }: {
   eyebrow: string
   title: string
   description: string[]
   tone: 'sky' | 'violet' | 'teal' | 'amber' | 'rose'
+  /** 2026-06-10: az eseményhez tartozó megjegyzés (megjegyzes oszlop) */
+  note?: string | null
+  /** Ha megadva, a kártya alján szerkeszthető megjegyzés-mező jelenik meg. */
+  onSaveNote?: (note: string) => Promise<{ error?: string } | { success?: boolean }>
 }) {
   const toneClasses = {
     sky: 'from-sky-50 to-cyan-50 text-sky-700 ring-sky-100',
@@ -678,6 +709,76 @@ function RegistryEventCard({
         ) : (
           <p className="text-sm text-slate-500">Nincs további részlet.</p>
         )}
+      </div>
+      {onSaveNote && (
+        <div className="mt-3 border-t border-white/60 pt-3">
+          <EditableNote initial={note} placeholder="Megjegyzés ehhez az eseményhez…" onSave={onSaveNote} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 2026-06-10: kis szerkeszthető megjegyzés-mező — a személyi karton minden
+// almenüjében ezt használjuk (személy- és esemény-szintű jegyzetekhez).
+function EditableNote({
+  initial,
+  placeholder,
+  onSave,
+}: {
+  initial?: string | null
+  placeholder?: string
+  onSave: (note: string) => Promise<{ error?: string } | { success?: boolean }>
+}) {
+  const [value, setValue] = useState(initial || '')
+  const [baseline, setBaseline] = useState(initial || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setValue(initial || '')
+      setBaseline(initial || '')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [initial])
+
+  const dirty = value !== baseline
+
+  async function handleSave() {
+    setSaving(true)
+    const res = await onSave(value)
+    setSaving(false)
+    if (res && 'error' in res && res.error) {
+      toast.error(res.error)
+    } else {
+      setBaseline(value)
+      toast.success('Megjegyzés mentve.')
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder || 'Megjegyzés…'}
+        rows={2}
+        className="w-full resize-y rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50"
+      />
+      <div className="flex items-center justify-end gap-2">
+        {!dirty && baseline && <span className="text-[11px] font-medium text-emerald-600">Mentve ✓</span>}
+        <button
+          type="button"
+          disabled={saving || !dirty}
+          onClick={handleSave}
+          className="rounded-full bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-40"
+        >
+          {saving ? 'Mentés…' : 'Megjegyzés mentése'}
+        </button>
       </div>
     </div>
   )

@@ -111,13 +111,13 @@ export function HeaderRefinedV3({
     if (activeScope === 'district') {
       return {
         primary: 'Egyházkerületi felület',
-        secondary: activeScopeName || 'Erdélyi Református Egyházkerület',
+        secondary: activeScopeName || 'Református Egyházkerület',
       }
     }
     if (activeScope === 'diocese') {
       return {
         primary: activeScopeName || 'Egyházmegyei felület',
-        secondary: 'Erdélyi Református Egyházkerület',
+        secondary: 'Református Egyházkerület',
       }
     }
     // congregation (vagy null) — gyülekezet neve / egyházmegye neve
@@ -125,7 +125,7 @@ export function HeaderRefinedV3({
     // szerepeljen másodlagosként, mert lelkészi nézetben ez a releváns.)
     return {
       primary: congregationName || 'Várakozás a jóváhagyásra',
-      secondary: congregationDioceseName || 'Erdélyi Református Egyházkerület',
+      secondary: congregationDioceseName || 'Református Egyházmegye',
     }
   })()
 

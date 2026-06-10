@@ -14,7 +14,7 @@ import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers
 import { ageFromDate } from '@/lib/utils/date'
 import { MEMBER_STATUS_FILTERS } from '@/lib/constants/members'
 import type { EnrichedMember, MemberStatusFilter, SortColumn } from '@/lib/constants/members'
-import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles } from 'lucide-react'
+import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles, X, Download } from 'lucide-react'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
 
 interface PersonsTabProps {
@@ -46,6 +46,12 @@ function isBirthdayThisMonth(m: EnrichedMember): boolean {
 export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefresh }: PersonsTabProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('aktív')
+  // 2026-06-10: életkor szerinti szűrés (pl. 0–14, 25–50)
+  const [ageMin, setAgeMin] = useState('')
+  const [ageMax, setAgeMax] = useState('')
+  // 2026-06-10 (Fázis 4, P1-2 első lépés): nagy listáknál csak az első 150
+  // sor kerül a DOM-ba — gombbal bővíthető (virtualizáció-pótló megoldás).
+  const [visibleCount, setVisibleCount] = useState(150)
   const [sortCol, setSortCol] = useState<SortColumn>('id')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -101,6 +107,12 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
         const addrMatch = `${m.adrlocality?.name || ''} ${m.adrstreet?.name || ''} ${m.c_szam || ''}`.toLowerCase().includes(query)
         if (!nameMatch && !addrMatch) return false
       }
+      if (ageMin !== '' || ageMax !== '') {
+        const age = ageFromDate(m.sz_datum)
+        if (age === null) return false
+        if (ageMin !== '' && age < Number(ageMin)) return false
+        if (ageMax !== '' && age > Number(ageMax)) return false
+      }
       if (statusFilter === 'aktív') return isActiveMember(m, paidSet, everPaidSet)
       if (statusFilter === 'meghalt') return m.meghalt
       if (statusFilter === 'elkoltozott') return m.member_status === 'elkoltozott' || m.elkoltozott
@@ -124,7 +136,7 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
       return 0
     })
     return result
-  }, [members, searchQuery, statusFilter, sortCol, sortDir, paidSet])
+  }, [members, searchQuery, statusFilter, ageMin, ageMax, sortCol, sortDir, paidSet, everPaidSet])
 
   function toggleSort(col: SortColumn) { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('asc') } }
   function sortIcon(col: SortColumn) { if (sortCol !== col) return '↕'; return sortDir === 'asc' ? '↑' : '↓' }
@@ -133,6 +145,30 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
   function openRemove(m: EnrichedMember) { setRemovingMember({ id: m.id, name: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() }); setRemoveOpen(true) }
   async function handleFormClose() { setFormOpen(false); setEditingMember(null); const { getMembers } = await import('@/app/(dashboard)/tagnyilvantartas/actions'); onRefresh((await getMembers()).members) }
   async function handleRemoveClose() { setRemoveOpen(false); setRemovingMember(null); const { getMembers } = await import('@/app/(dashboard)/tagnyilvantartas/actions'); onRefresh((await getMembers()).members) }
+
+  // 2026-06-10 (Fázis 4, P2-5): a szűrt lista exportja Excelbe
+  async function handleExport() {
+    const XLSX = await import('xlsx')
+    const rows = filtered.map(m => ({
+      'Családnév': m.csaladnev || '',
+      'Keresztnév': m.k_nev || '',
+      'Nem': m.ferfi ? 'Férfi' : 'Nő',
+      'Született': m.sz_datum || '',
+      'Életkor': ageFromDate(m.sz_datum) ?? '',
+      'Település': m.adrlocality?.name || '',
+      'Utca': m.adrstreet?.name || '',
+      'Házszám': m.c_szam || '',
+      'Telefon': m.telefon || '',
+      'E-mail': m.email || '',
+      'Vallás': m.vallas || '',
+      'Státusz': m.member_status || (m.meghalt ? 'elhunyt' : 'aktív'),
+      'Foglalkozás': m.foglalkozas || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Tagok')
+    XLSX.writeFile(wb, `tagnyilvantartas-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
 
   return (
     <div className="space-y-4">
@@ -175,11 +211,28 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as MemberStatusFilter)} className="rounded-xl border border-white/70 bg-white/80 px-4 py-2.5 text-sm shadow-sm">
             {MEMBER_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
+          {/* 2026-06-10: életkor-szűrő (pl. 0–14 vagy 25–50 év között) */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-zinc-400">Kor:</span>
+            <Input type="number" min={0} max={120} value={ageMin} onChange={e => setAgeMin(e.target.value)} placeholder="tól" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
+            <span className="text-zinc-300">–</span>
+            <Input type="number" min={0} max={120} value={ageMax} onChange={e => setAgeMax(e.target.value)} placeholder="ig" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
+            {(ageMin !== '' || ageMax !== '') && (
+              <button type="button" onClick={() => { setAgeMin(''); setAgeMax('') }} className="text-zinc-400 transition hover:text-zinc-600" aria-label="Korszűrő törlése">
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
           <span className="text-sm text-zinc-400">{filtered.length} / {members.length} fő</span>
         </div>
-        <Button className="h-10 shrink-0 gap-2 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700" onClick={() => openEdit(null)}>
-          <UserPlus className="w-4 h-4" /> Új tag
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" className="h-10 gap-2 rounded-xl" onClick={handleExport} disabled={filtered.length === 0} title="A szűrt lista exportja Excelbe">
+            <Download className="w-4 h-4" /> Export
+          </Button>
+          <Button className="h-10 gap-2 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700" onClick={() => openEdit(null)}>
+            <UserPlus className="w-4 h-4" /> Új tag
+          </Button>
+        </div>
       </div>
 
       {/* ═══ Táblázat ═══ */}
@@ -215,7 +268,7 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/60">
-                {filtered.map(m => {
+                {filtered.slice(0, visibleCount).map(m => {
                   const age = ageFromDate(m.sz_datum)
                   const name = formatNameWithPrefix(m)
                   const initials = getInitials(m)
@@ -301,7 +354,8 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
 
                       {/* Műveletek */}
                       <td className="p-3" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Tag kivezetése" onClick={() => openRemove(m)}>
+                        {/* 2026-06-10 (Fázis 4, P2-8): mobilon nincs hover — ott mindig látszik */}
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-zinc-300 hover:text-red-500 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity" title="Tag kivezetése" onClick={() => openRemove(m)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </td>
@@ -310,6 +364,14 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                 })}
               </tbody>
             </table>
+            {filtered.length > visibleCount && (
+              <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-3">
+                <span className="text-xs text-zinc-400">{visibleCount} / {filtered.length} sor megjelenítve</span>
+                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setVisibleCount(c => c + 150)}>
+                  További 150 megjelenítése
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}

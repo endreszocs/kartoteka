@@ -1,14 +1,29 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getRegistryStats } from '@/app/(dashboard)/anyakonyv/actions'
-import { Droplet, Cross, Heart, BookOpen, ArrowRightLeft, TrendingUp } from 'lucide-react'
+import { getRegistryStats, getRegistryJubilees } from '@/app/(dashboard)/anyakonyv/actions'
+import { Droplet, Cross, Heart, BookOpen, ArrowRightLeft, TrendingUp, CalendarClock } from 'lucide-react'
 
 type Stats = Awaited<ReturnType<typeof getRegistryStats>>
+type Jubilees = Awaited<ReturnType<typeof getRegistryJubilees>>
+
+// 2026-06-10: jubileumi évforduló-szűrő opciók (N éve történt események)
+const JUBILEE_OPTIONS = [10, 20, 25, 50, 75]
 
 export function RegistryOverview() {
   const [stats, setStats] = useState<Stats>(null)
   const [loading, setLoading] = useState(true)
+  const [jubileeYears, setJubileeYears] = useState<number | null>(null)
+  const [jubilee, setJubilee] = useState<Jubilees>(null)
+  const [jubileeLoading, setJubileeLoading] = useState(false)
+
+  async function loadJubilee(n: number) {
+    setJubileeYears(n)
+    setJubileeLoading(true)
+    const data = await getRegistryJubilees(n)
+    setJubilee(data)
+    setJubileeLoading(false)
+  }
 
   useEffect(() => {
     getRegistryStats().then(s => { setStats(s); setLoading(false) })
@@ -90,6 +105,93 @@ export function RegistryOverview() {
             <div><p className="text-sm font-semibold text-slate-700">Kitértek</p><p className="text-lg font-bold text-red-500">{stats.totals.kitert}</p></div>
           </div>
         </div>
+      )}
+
+      {/* ── Jubileumi évfordulók (2026-06-10) ───────────────────── */}
+      <div className="card-raised p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="icon-raised w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500">
+              <CalendarClock className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Jubileumi évfordulók</p>
+              <p className="text-xs text-slate-400">Kik kereszteltek, konfirmáltak vagy esküdtek ennyi évvel ezelőtt?</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {JUBILEE_OPTIONS.map(n => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => loadJubilee(n)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                  jubileeYears === n ? 'bg-amber-500 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                }`}
+              >
+                {n} éve
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {jubileeLoading && (
+          <p className="py-6 text-center text-sm text-slate-400 animate-pulse">Évfordulók betöltése…</p>
+        )}
+
+        {!jubileeLoading && jubileeYears !== null && jubilee && (
+          <div className="space-y-1">
+            <p className="text-xs text-slate-400">
+              A(z) <strong className="text-slate-600">{jubilee.targetYear}.</strong> év bejegyzései ({jubilee.yearsAgo} éve):
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+              <JubileeList
+                title="Keresztelés"
+                tone="text-blue-700 bg-blue-50"
+                items={jubilee.keresztelesek.map(k => ({ id: k.id, fo: k.nev + (k.meghalt ? ' †' : ''), datum: k.datum }))}
+              />
+              <JubileeList
+                title="Konfirmáció"
+                tone="text-violet-700 bg-violet-50"
+                items={jubilee.konfirmaciok.map(k => ({ id: k.id, fo: k.nev + (k.meghalt ? ' †' : ''), datum: k.datum }))}
+              />
+              <JubileeList
+                title="Esketés"
+                tone="text-rose-700 bg-rose-50"
+                items={jubilee.hazassagok.map(h => ({ id: h.id, fo: `${h.ferj} – ${h.feleseg}`, datum: h.datum }))}
+              />
+            </div>
+          </div>
+        )}
+
+        {!jubileeLoading && jubileeYears === null && (
+          <p className="text-xs text-slate-400">Válassz évfordulót a fenti gombokkal — a lista köszöntésekhez, jubileumi istentiszteletekhez használható.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function JubileeList({ title, tone, items }: { title: string; tone: string; items: { id: number; fo: string; datum: string | null }[] }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white/70 p-3">
+      <div className="flex items-center justify-between">
+        <p className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}>{title}</p>
+        <span className="text-xs font-semibold text-slate-400">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="mt-3 text-xs text-slate-400">Nincs bejegyzés ebből az évből.</p>
+      ) : (
+        <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1">
+          {items.map(it => (
+            <li key={it.id} className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="font-medium text-slate-700">{it.fo}</span>
+              <span className="shrink-0 text-[11px] text-slate-400">
+                {it.datum ? new Date(it.datum).toLocaleDateString('hu-HU') : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

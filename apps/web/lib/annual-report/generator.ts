@@ -46,6 +46,8 @@ export interface AnnualReportSnapshot {
     diocese_name: string | null
     lelkipasztor: string | null
     esperes: string | null
+    /** 2026-06-10 (átvilágítás P2-1): aktív nyilvántartott tagok száma a tagnyilvántartásból */
+    lelekszam: number | null
   }
 
   // II. Istentiszteleti élet
@@ -188,6 +190,7 @@ export async function buildAnnualReportData(
     leltarRes,
     financialData,
     vitalStats,
+    szemelyRes,
   ] = await Promise.all([
     // Gyülekezet
     supabase
@@ -221,6 +224,12 @@ export async function buildAnnualReportData(
     getScopeFinancialData(supabase, [congregationId], year),
     // Kazuáliák (a B4.5-ös aggregátorral)
     getScopeVitalStats(supabase, [congregationId], year),
+    // Lélekszám (2026-06-10, átvilágítás P2-1): aktív nyilvántartott tagok
+    supabase
+      .from('szemely')
+      .select('meghalt, elkoltozott, member_status')
+      .eq('congregation_id', congregationId)
+      .eq('isvisible', true),
   ])
 
   // 2) Diocese név (ha van diocese_id)
@@ -245,6 +254,15 @@ export async function buildAnnualReportData(
     p => p.role === 'esperes' && p.diocese_id === congregation?.diocese_id,
   )
 
+  // Lélekszám (2026-06-10, átvilágítás P2-1): élő, el nem költözött, ki nem
+  // tért, nem törölt látható tagok száma — az I. szekció hivatalos rubrikája.
+  type SzemelyLite = { meghalt: boolean | null; elkoltozott: boolean | null; member_status: string | null }
+  const lelekszam = ((szemelyRes.data || []) as SzemelyLite[]).filter(s =>
+    !s.meghalt
+    && !s.elkoltozott
+    && !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
+  ).length
+
   const szekcio1: AnnualReportSnapshot['szekcio1_gyulekezet'] = {
     name: congregation?.name || 'Ismeretlen gyülekezet',
     nev_hu: congregation?.nev_hu || null,
@@ -256,6 +274,7 @@ export async function buildAnnualReportData(
     diocese_name: dioceseName,
     lelkipasztor: lelkipasztor?.full_name || null,
     esperes: esperes?.full_name || null,
+    lelekszam,
   }
 
   // II + V. Munkanapló bontás
