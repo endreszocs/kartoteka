@@ -43,9 +43,16 @@ ORDER BY s.id, kc.nev;
 
 -- 3) Belső-mozgás nevek külön (ezeknek BYTE-AZONOSAN kell egyezniük az Excellel:
 --    „Készpénzfelvétel a(z) A számláról" / „Készpénzletétel a(z) A számlára")
-SELECT 'BELSO_MOZGAS' AS tipus, nev FROM public.befizetescel WHERE belsotetel = true AND aktiv = true
+-- MEGJEGYZÉS: a `belsotetel` oszlop character varying (nem boolean), ezért a
+-- belső-mozgást a NÉV-MINTÁBÓL azonosítjuk — ez amúgy is pont az Excellel
+-- egyeztetendő string.
+SELECT 'BELSO_MOZGAS' AS tipus, nev
+FROM public.befizetescel
+WHERE aktiv = true AND nev ILIKE 'Készpénz%száml%'
 UNION ALL
-SELECT 'BELSO_MOZGAS' AS tipus, nev FROM public.kiadascel WHERE belsotetel = true AND aktiv = true
+SELECT 'BELSO_MOZGAS' AS tipus, nev
+FROM public.kiadascel
+WHERE aktiv = true AND nev ILIKE 'Készpénz%száml%'
 ORDER BY nev;
 
 -- 4) Darabszám-összesítő (gyors kép)
