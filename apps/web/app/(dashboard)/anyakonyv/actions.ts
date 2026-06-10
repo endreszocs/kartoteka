@@ -137,6 +137,54 @@ export async function getNextEgyhaziSzam(profileKey: EgyhaziProfileKey, year?: n
   return String(data)
 }
 
+// ── Jubileumi évfordulók (2026-06-10) ────────────────────────
+// Az Áttekintő tabon: kik kereszteltek / konfirmáltak / esküdtek pontosan
+// N évvel ezelőtt (10/20/25/50/75) — köszöntésekhez, jubileumi alkalmakhoz.
+export async function getRegistryJubilees(yearsAgo: number) {
+  const { supabase, congId } = await getCongregation()
+  if (!congId) return null
+
+  const safeYears = Math.max(1, Math.min(150, Math.floor(yearsAgo) || 0))
+  const targetYear = new Date().getFullYear() - safeYears
+  const from = `${targetYear}-01-01`
+  const to = `${targetYear}-12-31T23:59:59`
+
+  const [keresztRes, konfirmRes, hazassagRes] = await Promise.all([
+    supabase.from('keresztseg')
+      .select('id, datum, szemely:szemely!id_szemely(csaladnev, k_nev, meghalt)')
+      .eq('congregation_id', congId).gte('datum', from).lte('datum', to).order('datum'),
+    supabase.from('konfirmalas')
+      .select('id, datum, szemely:szemely!id_szemely(csaladnev, k_nev, meghalt)')
+      .eq('congregation_id', congId).gte('datum', from).lte('datum', to).order('datum'),
+    supabase.from('hazassag')
+      .select('id, datum, ferj:szemely!id_ferfi(csaladnev, k_nev), feleseg:szemely!id_no(csaladnev, k_nev)')
+      .eq('congregation_id', congId).gte('datum', from).lte('datum', to).order('datum'),
+  ])
+
+  type PersonLite = { csaladnev: string | null; k_nev: string | null; meghalt?: boolean | null }
+  const one = (v: unknown): PersonLite | null => (Array.isArray(v) ? (v[0] as PersonLite) || null : (v as PersonLite | null))
+  const name = (p: PersonLite | null) => (p ? `${p.csaladnev || ''} ${p.k_nev || ''}`.trim() || 'Ismeretlen' : 'Ismeretlen')
+
+  return {
+    targetYear,
+    yearsAgo: safeYears,
+    keresztelesek: ((keresztRes.data || []) as { id: number; datum: string | null; szemely: unknown }[]).map((r) => {
+      const p = one(r.szemely)
+      return { id: r.id, datum: r.datum, nev: name(p), meghalt: !!p?.meghalt }
+    }),
+    konfirmaciok: ((konfirmRes.data || []) as { id: number; datum: string | null; szemely: unknown }[]).map((r) => {
+      const p = one(r.szemely)
+      return { id: r.id, datum: r.datum, nev: name(p), meghalt: !!p?.meghalt }
+    }),
+    hazassagok: ((hazassagRes.data || []) as { id: number; datum: string | null; ferj: unknown; feleseg: unknown }[]).map((r) => ({
+      id: r.id,
+      datum: r.datum,
+      ferj: name(one(r.ferj)),
+      feleseg: name(one(r.feleseg)),
+    })),
+  }
+}
+
 // ── Áttekintő statisztikák ───────────────────────────────────
 
 export async function getRegistryStats() {

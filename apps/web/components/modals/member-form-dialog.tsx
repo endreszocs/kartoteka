@@ -1,18 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { memberSchema, type MemberInput } from '@/lib/validations/members'
-import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { saveMember, searchParent, quickCreateParentMember } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
-import { Check, ChevronLeft, ChevronRight, User, BookOpen, CreditCard } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, User, BookOpen, CreditCard, UserPlus, X } from 'lucide-react'
 
 interface MemberFormDialogProps {
   open: boolean
@@ -33,6 +33,12 @@ const WIZARD_STEPS: { id: WizardStep; label: string; icon: typeof User }[] = [
   { id: 3, label: 'Pénzügyi', icon: CreditCard },
 ]
 
+// 2026-06-10: melyik mező melyik wizard-lépésen van — validációs hibánál
+// erre a lépésre ugrunk vissza, különben a hibajelzés láthatatlan maradna
+// (a „nem történik semmi a mentésre" bug oka).
+const STEP1_FIELDS: readonly string[] = ['csaladnev', 'k_nev', 'szcs_nev', 'ferfi', 'sz_datum', 'foglalkozas', 'vallas', 'c_helyseg_text', 'c_utca_text', 'c_szam', 'c_tombhaz', 'c_lepcsohaz', 'c_emelet', 'c_ajto', 'telefon', 'email', 'megjegyzes', 'apjaneve', 'anyjaneve', 'id_apja_cnp', 'id_anyja_cnp', 'bek_datum', 'bek_honnan', 'bek_igazolas', 'att_datum', 'att_felekezet', 'att_honnan', 'belepes_oka']
+const STEP2_FIELDS: readonly string[] = ['kereszteles_datum', 'kereszteles_hely', 'kereszteles_lelkesz', 'konfirmacio_datum', 'konfirmacio_hely', 'konfirmacio_lelkesz', 'esketes_datum', 'esketes_hely', 'esketes_lelkesz', 'esketes_hazastars_nev']
+
 export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormDialogProps) {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<'choose' | 'form'>('choose')
@@ -44,12 +50,18 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   const [parentResults, setParentResults] = useState<{ apa: ParentResult[]; anya: ParentResult[] }>({ apa: [], anya: [] })
   const [parentSearchVisible, setParentSearchVisible] = useState<{ apa: boolean; anya: boolean }>({ apa: false, anya: false })
 
-  const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm({
+  const { register, handleSubmit, reset, setValue, getValues, control, formState: { errors } } = useForm({
     resolver: zodResolver(memberSchema),
     defaultValues: { belepes_oka: 'alap' as const, vallas: 'Református', ferfi: true, c_szam: '1', csaladnev: '', k_nev: '', c_helyseg_text: '', c_utca_text: '' },
   })
 
   const belepesOka = useWatch({ control, name: 'belepes_oka' })
+  // 2026-06-10: szülő-összekötés állapota (chip + gyors-rögzítés gomb)
+  const apjaCnpWatch = useWatch({ control, name: 'id_apja_cnp' })
+  const anyjaCnpWatch = useWatch({ control, name: 'id_anyja_cnp' })
+  const apjaneveWatch = useWatch({ control, name: 'apjaneve' })
+  const anyjaneveWatch = useWatch({ control, name: 'anyjaneve' })
+  const [parentCreating, setParentCreating] = useState<'apa' | 'anya' | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -114,6 +126,45 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
     setLoading(false)
   }
 
+  // 2026-06-10: ha a zod-validáció elbukik, ugorjunk a hibás mező lépésére és
+  // toast-oljuk az első hibát — eddig a hiba a nem látható lépésen „ragadt".
+  function onInvalid(errs: FieldErrors<MemberInput>) {
+    const keys = Object.keys(errs)
+    if (keys.length === 0) return
+    const targetStep: WizardStep = keys.some(k => STEP1_FIELDS.includes(k)) ? 1
+      : keys.some(k => STEP2_FIELDS.includes(k)) ? 2
+      : 3
+    setWizardStep(targetStep)
+    const firstKey = keys.find(k => STEP1_FIELDS.includes(k)) || keys[0]
+    const rawMsg = (errs as Record<string, { message?: string }>)[firstKey]?.message
+    const msg = rawMsg && rawMsg !== 'Invalid' ? rawMsg : 'Hiányzó vagy hibás adat — ellenőrizd a pirossal jelölt mezőket.'
+    toast.error(msg)
+  }
+
+  // 2026-06-10: a beírt szülő-névből minimális tagrekord + összekötés
+  async function handleQuickCreateParent(type: 'apa' | 'anya') {
+    const name = (getValues(type === 'apa' ? 'apjaneve' : 'anyjaneve') || '').trim()
+    if (name.split(/\s+/).length < 2) {
+      toast.error('A szülő teljes nevét add meg (családnév és keresztnév).')
+      return
+    }
+    setParentCreating(type)
+    const res = await quickCreateParentMember({
+      name,
+      isMale: type === 'apa',
+      c_helyseg_text: getValues('c_helyseg_text'),
+      c_utca_text: getValues('c_utca_text'),
+      c_szam: getValues('c_szam'),
+    })
+    setParentCreating(null)
+    if (res.error) {
+      toast.error(res.error)
+      return
+    }
+    setValue(type === 'apa' ? 'id_apja_cnp' : 'id_anyja_cnp', res.cnp || '')
+    toast.success('A szülő tagként rögzítve és összekötve.')
+  }
+
   async function handleParentSearch(val: string, type: 'apa' | 'anya') {
     if (val.length < 3) {
       setParentSearchVisible(p => ({ ...p, [type]: false }))
@@ -176,7 +227,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
 
         {/* Form — WIZARD MÓD (2026-06-02) */}
         {step === 'form' && (
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+          <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-3">
             <input type="hidden" {...register('id')} />
 
             {/* Wizard-stepper indicator (kötelező lépés-sor) */}
@@ -276,7 +327,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
                     <Label>Foglalkozás</Label>
                     <Input {...register('foglalkozas')} className={FIELD_CLASS} />
@@ -284,6 +335,13 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                   <div className="space-y-1.5">
                     <Label>Telefon</Label>
                     <Input {...register('telefon')} type="tel" className={FIELD_CLASS} />
+                  </div>
+                  {/* 2026-06-10: az e-mail eddig hiányzott az űrlapról, pedig a séma
+                      validálja — importált hibás címnél láthatatlanul akadt el a mentés. */}
+                  <div className="space-y-1.5">
+                    <Label>E-mail</Label>
+                    <Input {...register('email')} type="email" className={FIELD_CLASS} placeholder="pelda@email.hu" />
+                    {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
                   </div>
                 </div>
 
@@ -314,6 +372,31 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                           ))}
                         </div>
                       )}
+                      {/* 2026-06-10: összekötés-státusz — szabad szöveg is elég, de a
+                          családfához érdemes a szülőt tagként rögzíteni és összekötni. */}
+                      {(type === 'apa' ? apjaCnpWatch : anyjaCnpWatch) ? (
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+                          <Check className="size-3.5" /> Összekötve tagrekorddal
+                          <button
+                            type="button"
+                            className="ml-0.5 text-slate-400 transition hover:text-slate-600"
+                            onClick={() => setValue(type === 'apa' ? 'id_apja_cnp' : 'id_anyja_cnp', '')}
+                            aria-label="Összekötés törlése"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      ) : ((type === 'apa' ? apjaneveWatch : anyjaneveWatch) || '').trim().split(/\s+/).length >= 2 ? (
+                        <button
+                          type="button"
+                          disabled={parentCreating === type}
+                          onClick={() => handleQuickCreateParent(type)}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 transition hover:underline disabled:opacity-50"
+                        >
+                          <UserPlus className="size-3" />
+                          {parentCreating === type ? 'Rögzítés…' : 'Nincs a tagok között? Rögzítés tagként + összekötés'}
+                        </button>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -412,7 +495,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                 </div>
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900">
                   <strong>Utolsó lépés!</strong> Ellenőrizd a megadott adatokat, majd kattints
-                  a „Tag mentése" gombra. Az alapadatok mellett a megadott anyakönyvi események
+                  a „Tag mentése” gombra. Az alapadatok mellett a megadott anyakönyvi események
                   rögzítődnek a megfelelő modulokban.
                 </div>
               </div>

@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Tagnyilvántartás: családi karton nyomtatás, korszűrő, megjegyzések + anyakönyvi évfordulók
+<!-- key: 2026-06-10-tagnyilvantartas-funkciok -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### 🐛 Javítás: a tag mentése nem akadhat el némán
+
+- **„Nem történik semmi a mentésre"** — javítva: ha a tag felvételénél vagy szerkesztésénél hiányzik egy kötelező adat (pl. családnév, település, utca), a rendszer mostantól **visszaugrik arra a lépésre**, ahol a hiba van, és piros üzenetben megmutatja, mit kell pótolni.
+- **E-mail mező** — a tag űrlapjáról eddig hiányzott az e-mail mező, pedig a rendszer a háttérben ellenőrizte az értékét (ez is okozhatott néma elakadást). Mostantól megadható, és hibás formátumnál pontos jelzést kapsz.
+
+### 👨‍👩‍👧 Családi karton nyomtatása (lefűzhető!)
+
+- A **Tagnyilvántartás → Családok** listában minden családnál új **„Karton" gomb**: A4-es, nyomtatható családi karton készül — rajta a **család tagjai relációkkal** (családfő, házastárs, gyermekek), a **születési, keresztelési és konfirmációi dátumokkal**, a **házasságkötéssel** és a tagokhoz írt **megjegyzésekkel**.
+- Bepipálható, hogy a kartonra kerüljenek-e a **befizetések** (utolsó 5 év) és a **családlátogatások** is. Nyomtatás előtt **élő előnézet** mutatja a végeredményt — így pontosan azt fűzöd le, amit látsz.
+
+### 📝 Megjegyzés-mezők a személyi kartonon
+
+- A személyi karton **minden fülén** (Személyes adatok, Anyakönyvi események, Befizetések) szerkeszthető **megjegyzés-mező** található — az anyakönyvi eseményekhez külön-külön is írhatsz emlékeztetőt (pl. a keresztelőhöz, temetéshez).
+- A tagokhoz írt megjegyzések a **családi kartonra nyomtatva is megjelennek**, ha vannak.
+
+### 🎂 Életkor szerinti szűrés a Személyek fülön
+
+- Mostantól **kor szerint** is szűrhető a taglista (pl. 0–14 évesek a vallásórához, 25–50 évesek egy rétegalkalomhoz): a kereső mellett két kis mezőben adod meg a **kortól–korig** értéket.
+
+### ⛪ Anyakönyv: jubileumi évfordulók
+
+- Az **Anyakönyv → Áttekintő** tabon új **„Jubileumi évfordulók"** rész: egy gombnyomásra kilistázza, **kik kereszteltek, konfirmáltak vagy esküdtek 10 / 20 / 25 / 50 / 75 évvel ezelőtt** — köszöntésekhez, jubileumi istentiszteletekhez, aranykonfirmációhoz.
+
+### 🌳 Szülők összekötése a családfához
+
+- A tag felvételénél a szülő neve továbbra is elég **szabad szövegként** — de ha a szülő nincs a tagok között, egy kattintással **tagként is rögzíthető és összeköthető** („Rögzítés tagként" gomb a név alatt). Így a **családfa** pontosan felépül. Az összekötött szülőt zöld pipa jelzi, és bármikor leválasztható.
+
+### 🤝 Befogadóbb megjelenés
+
+- A betöltő képernyőkön és a rendszer feliratain a konkrét egyházkerület neve helyett **semleges felirat** szerepel — a Kartotéka minden református egyházkerület gyülekezeteit egyformán szolgálja, bárhonnan is csatlakoznak.
+
+---
+
+## [2026-06-10] — Biztonsági megerősítés a tagnyilvántartásban
+<!-- key: 2026-06-10-tagnyilvantartas-biztonsag -->
+<!-- category: security -->
+<!-- targets: lelkesz -->
+
+### 🔒 Mit jelent ez a gyakorlatban?
+
+- **A tag végleges törlése mostantól védett művelet**: akinek **anyakönyvi bejegyzése** (keresztelő, konfirmáció, esketés, temetés) **vagy befizetése** van, az nem törölhető véglegesen — a rendszer ilyenkor csak **elrejti** a névsorból, az anyakönyvi adatok érintetlenül megmaradnak. Az anyakönyv történeti dokumentum: nem veszhet el egy kattintástól.
+- A törlés és a kivezetés (elhunyt, elköltözött, kitért) **kizárólag a saját gyülekezet tagjaira** futtatható — más gyülekezet adatait technikailag sem lehet módosítani.
+- A **felmentések, a presbiteri adatok és a körzetek** az adatbázis szintjén is gyülekezethez kötöttek lettek — minden gyülekezet csak a sajátját látja és kezeli.
+- **Cím-rögzítési hiba javítva**: ha egy új település vagy utca rögzítése nem sikerült, a rendszer eddig észrevétlenül egy rossz (1-es számú) településre kötötte a tagot. Mostantól világos hibaüzenet jelenik meg, és hibás adat nem keletkezik.
+
+> *Megjegyzés a rendszergazdának:* a fenti védelmek a `migration-docs/sql/2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql` migrációt igénylik — **a deploy ELŐTT** futtatandó a Supabase Studio-ban (részletek: `migration-docs/sql/_RUN_LOG.md`). A teljes átvilágítási jelentés: `docs/project-tracking/KARTOTEKA-tagnyilvantartas-atvilagitas-2026-06-10.md`.
+
+---
+
 ## [2026-06-10] — Pénzügyi importáló: korábbi évek beolvasása, egyeztetés, okos tag-párosítás
 <!-- key: 2026-06-10-penzugy-importalo-fejlesztes -->
 <!-- category: feature -->

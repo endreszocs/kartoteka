@@ -38,23 +38,42 @@ function isChurchMaintenanceCode(code?: string | null) {
 }
 
 // ── Település / utca getOrCreate ─────────────────────────────
+// 2026-06-10 (Fázis 1 biztonsági hotfix): korábban guard nélküli exportált
+// server actionök voltak, és mivel az adrlocality/adrstreet táblára az
+// authenticated szerepnek nincs INSERT-grantja, a létrehozás csendben
+// elbukott és 1-es id-ra esett vissza (rossz településre kötött tagok).
+// Mostantól belső helperek: a létrehozás guardolt SECURITY DEFINER RPC-n fut
+// (2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql), hiba esetén null.
 
-export async function getOrCreateLocality(name: string): Promise<number> {
-  if (!name?.trim()) return 1
+async function getOrCreateLocality(name: string): Promise<number | null> {
+  const trimmed = name?.trim()
+  if (!trimmed) return null
   const supabase = await createClient()
-  const { data } = await supabase.from('adrlocality').select('id').ilike('name', name.trim()).limit(1).single()
-  if (data) return data.id
-  const { data: ins } = await supabase.from('adrlocality').insert([{ name: name.trim(), countyid: 1 }]).select('id').single()
-  return ins?.id ?? 1
+  // 1) Meglévő település keresése — SELECT-grant mindig van, így ez a
+  //    leggyakoribb eset a migráció lefutása előtt is működik.
+  const { data: existing } = await supabase.from('adrlocality').select('id').ilike('name', trimmed).limit(1).maybeSingle()
+  if (existing?.id) return existing.id
+  // 2) Létrehozás guardolt RPC-n
+  const { data, error } = await supabase.rpc('app_get_or_create_locality', { p_name: trimmed })
+  if (error || typeof data !== 'number') {
+    console.error('[getOrCreateLocality] sikertelen:', error?.message)
+    return null
+  }
+  return data
 }
 
-export async function getOrCreateStreet(name: string, localityId: number): Promise<number> {
-  if (!name?.trim()) return 1
+async function getOrCreateStreet(name: string, localityId: number): Promise<number | null> {
+  const trimmed = name?.trim()
+  if (!trimmed) return null
   const supabase = await createClient()
-  const { data } = await supabase.from('adrstreet').select('id').ilike('name', name.trim()).eq('localityid', localityId).limit(1).single()
-  if (data) return data.id
-  const { data: ins } = await supabase.from('adrstreet').insert([{ name: name.trim(), localityid: localityId }]).select('id').single()
-  return ins?.id ?? 1
+  const { data: existing } = await supabase.from('adrstreet').select('id').ilike('name', trimmed).eq('localityid', localityId).limit(1).maybeSingle()
+  if (existing?.id) return existing.id
+  const { data, error } = await supabase.rpc('app_get_or_create_street', { p_name: trimmed, p_locality_id: localityId })
+  if (error || typeof data !== 'number') {
+    console.error('[getOrCreateStreet] sikertelen:', error?.message)
+    return null
+  }
+  return data
 }
 
 // ── Tag lista lekérdezés (enriched) ──────────────────────────
@@ -79,7 +98,7 @@ export async function getMembers(): Promise<{
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
     supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null'),
-    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege'),
+    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
     // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
     // visszafelé kompatibilis a régi `csalad.id`-vel.
@@ -257,7 +276,7 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
       : Promise.resolve({ data: null }),
     supabase.from('keresztseg').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
     supabase.from('konfirmalas').select('*, adrlocality!helyid(name)').eq('id_szemely', id).maybeSingle(),
-    supabase.from('hazassag').select('datum, lelkeszneve, adrlocality!helyid(name), id_ferfi, id_no').or(`id_ferfi.eq.${id},id_no.eq.${id}`).maybeSingle(),
+    supabase.from('hazassag').select('id, datum, lelkeszneve, megjegyzes, adrlocality!helyid(name), id_ferfi, id_no').or(`id_ferfi.eq.${id},id_no.eq.${id}`).maybeSingle(),
     supabase.from('temetes').select('*, adrlocality!thelyid(name)').eq('id_szemely', id).maybeSingle(),
     supabase.from('bekoltozott').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).maybeSingle(),
     supabase.from('attert').select('*, adrlocality!honnanid(name)').eq('id_szemely', id).maybeSingle(),
@@ -268,8 +287,8 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
       : Promise.resolve({ data: [] }),
     congregationId
       ? familyId
-        ? supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').or(`id_szemely.eq.${id},id_csalad.eq.${familyId}`)
-        : supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('id_szemely', id)
+        ? supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId).or(`id_szemely.eq.${id},id_csalad.eq.${familyId}`)
+        : supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId).eq('id_szemely', id)
       : Promise.resolve({ data: [] }),
     congregationId
       ? supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true)
@@ -383,7 +402,10 @@ export async function saveMember(data: MemberInput) {
 
   const d = parsed.data
   const helysegId = await getOrCreateLocality(d.c_helyseg_text)
-  const utcaId = await getOrCreateStreet(d.c_utca_text, helysegId)
+  const utcaId = helysegId ? await getOrCreateStreet(d.c_utca_text, helysegId) : null
+  if (!helysegId || !utcaId) {
+    return { error: 'A település/utca rögzítése nem sikerült — próbáld újra. (Lefutott már a 2026-06-10-es adatbázis-migráció?)' }
+  }
   const szHelyId = d.sz_hely_text ? await getOrCreateLocality(d.sz_hely_text) : null
 
   const memberData: Record<string, unknown> = {
@@ -435,7 +457,7 @@ export async function saveMember(data: MemberInput) {
     // Felmentés
     if (d.fizeto_status === 'felmentett' && savedId) {
       await supabase.from('felmentes').insert([{
-        id_szemely: savedId, felmento: 'Rendszer', datum: new Date().toISOString(),
+        id_szemely: savedId, congregation_id: congregationId, felmento: 'Rendszer', datum: new Date().toISOString(),
         oka: 'Új tag felvétele', kezdete: new Date().getFullYear(), vege: 2099,
       }])
     }
@@ -601,6 +623,18 @@ export async function removeMember(data: RemoveInput) {
 
   const { id, reason } = parsed.data
 
+  // 2026-06-10 (Fázis 1): tulajdonjog-ellenőrzés — a kivezetés CSAK az aktív
+  // gyülekezet saját tagjára futhat (IDOR-védelem, P0-1/P0-2). Enélkül a
+  // 'meghalt'/'elkoltozott'/'kitert' ágak más gyülekezet tagjára is szúrtak
+  // be temetési/elköltözési rekordot.
+  const { data: ownedPerson } = await supabase
+    .from('szemely')
+    .select('id')
+    .eq('id', id)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (!ownedPerson) return { error: 'A megadott tag nem található az aktív gyülekezetben.' }
+
   if (reason === 'meghalt') {
     const hHelyId = parsed.data.hhely ? await getOrCreateLocality(parsed.data.hhely) : null
     const tHelyId = parsed.data.thely ? await getOrCreateLocality(parsed.data.thely) : null
@@ -642,71 +676,38 @@ export async function removeMember(data: RemoveInput) {
   }
 
   if (reason === 'torles') {
-    // Pénzügyi tranzakció ellenőrzés
-    const { data: payments } = await supabase.from('befizetes').select('id').eq('id_szemely', id).eq('congregation_id', congregationId).neq('deleted', true).limit(1)
-    if (payments?.length) {
-      // Van tranzakció → elrejtés
-      await supabase.from('szemely').update({ isvisible: false, member_status: 'törölt', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
-      revalidatePath('/tagnyilvantartas')
-      return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).' }
-    }
-
-    // Munkanapló törlés (ha kérte)
-    if (parsed.data.delete_worklogs) {
-      const [kData, fData, tData] = await Promise.all([
-        supabase.from('keresztseg').select('munkanaplo_id').eq('id_szemely', id).not('munkanaplo_id', 'is', null),
-        supabase.from('konfirmalas').select('munkanaplo_id').eq('id_szemely', id).not('munkanaplo_id', 'is', null),
-        supabase.from('temetes').select('munkanaplo_id').eq('id_szemely', id).not('munkanaplo_id', 'is', null),
-      ])
-      const munkanaploIds = [...(kData.data || []), ...(fData.data || []), ...(tData.data || [])]
-        .map(x => (x as { munkanaplo_id: number }).munkanaplo_id).filter(Boolean)
-      if (munkanaploIds.length > 0) {
-        await supabase.from('munkanaplo').delete().in('id', munkanaploIds).eq('congregation_id', congregationId)
-      }
-    }
-
-    // Csatolt adatok törlése
-    await Promise.all([
-      supabase.from('keresztseg').delete().eq('id_szemely', id),
-      supabase.from('konfirmalas').delete().eq('id_szemely', id),
-      supabase.from('bekoltozott').delete().eq('id_szemely', id),
-      supabase.from('attert').delete().eq('id_szemely', id),
-      supabase.from('felmentes').delete().eq('id_szemely', id),
-      supabase.from('gyerek').delete().eq('id_szemely', id),
-      supabase.from('presbiter').delete().eq('id_szemely', id),
-    ])
-
-    // 2026-06-01 (hibrid család-modell Fázis 2): az új modellben a tag
-    // háztartás-tagságát és kapcsolatait LEZÁRJUK (nem töröljük). Ezzel a
-    // történet megmarad — pl. az anyakönyvi rekordok továbbra is hivatkoznak
-    // a személyre, de a jelenlegi háztartásokban már nem tűnik aktív tagnak.
-    try {
-      const today = new Date().toISOString().slice(0, 10)
-      await supabase
-        .from('haztartas_tag')
-        .update({ ervenyes_ig: today })
-        .eq('id_szemely', id)
-        .is('ervenyes_ig', null)
-      await supabase
-        .from('szemely_kapcsolat')
-        .update({ ervenyes_ig: today })
-        .or(`id_szemely_1.eq.${id},id_szemely_2.eq.${id}`)
-        .is('ervenyes_ig', null)
-    } catch (e) {
-      console.warn('[removeMember] hibrid-modell lezárás sikertelen (nem blokkoló):',
-        e instanceof Error ? e.message : e)
-    }
-
-    // Fizikai törlés (RLS fallback: elrejtés)
-    const { data: delData, error: delErr } = await supabase.from('szemely').delete().eq('id', id).eq('congregation_id', congregationId).select('id')
-    if (delErr || !delData?.length) {
-      await supabase.from('szemely').update({ isvisible: false, member_status: 'törölt', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
-      revalidatePath('/tagnyilvantartas')
-      return { success: true, message: 'A tag elrejtve (az adatbázis biztonsági szabályai miatt fizikai törlés nem lehetséges).' }
+    // 2026-06-10 (Fázis 1): a végleges törlés egyetlen atomikus, jogosultság-
+    // ellenőrzött RPC-ben fut (tagnyilvantartas_tag_torles):
+    //  • pénzügyi VAGY anyakönyvi rekorddal rendelkező tag nem törölhető
+    //    fizikailag → elrejtés (P0-3 — anyakönyvi bejegyzés nem semmisül meg),
+    //  • a kapcsolt mozgás-/tagsági rekordok egy tranzakcióban törlődnek (P0-1),
+    //  • váratlan FK-ütközés (pl. családfő) → automatikus elrejtés-fallback.
+    // A korábbi munkanapló-törlés opció okafogyott: csak anyakönyvi rekordhoz
+    // tartozott munkanapló-link, az ilyen tag pedig már nem törölhető, csak
+    // elrejthető.
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_tag_torles', { p_szemely_id: id })
+    if (rpcErr) {
+      return { error: `A törlés nem sikerült: ${rpcErr.message} (Lefutott már a 2026-06-10-es adatbázis-migráció?)` }
     }
 
     revalidatePath('/tagnyilvantartas')
-    return { success: true, message: 'A tag véglegesen törölve.' }
+    const status = (rpcData as { status?: string } | null)?.status
+    switch (status) {
+      case 'deleted':
+        return { success: true, message: 'A tag véglegesen törölve.' }
+      case 'hidden_payments':
+        return { success: true, message: 'A tag elrejtve a névsorból (pénzügyi tranzakció miatt nem törölhető véglegesen).' }
+      case 'hidden_registry':
+        return { success: true, message: 'A tag elrejtve a névsorból (anyakönyvi bejegyzései miatt nem törölhető véglegesen).' }
+      case 'hidden_fk':
+        return { success: true, message: 'A tag elrejtve a névsorból (kapcsolódó rekordok miatt nem törölhető véglegesen).' }
+      case 'forbidden':
+        return { error: 'Nincs jogosultság a tag törléséhez.' }
+      case 'not_found':
+        return { error: 'A megadott tag nem található.' }
+      default:
+        return { error: 'Ismeretlen válasz a törlési művelettől.' }
+    }
   }
 
   return { error: 'Ismeretlen művelet.' }
@@ -733,4 +734,73 @@ export async function searchParent(query: string, isMale: boolean | null = null)
 
   const { data } = await q.limit(5)
   return data || []
+}
+
+// ── Szülő gyors-rögzítés tagként (2026-06-10) ────────────────
+// A tag-űrlapon a szülő szabad szövegként is megadható, de a családfához
+// érdemes tagrekordként is léteznie. Ez az akció a beírt névből minimális
+// szemely-rekordot készít (a gyermek címét örökli), és visszaadja a CNP-t,
+// amivel az űrlap beállítja az id_apja/id_anyja linket.
+export async function quickCreateParentMember(input: {
+  name: string
+  isMale: boolean
+  c_helyseg_text?: string
+  c_utca_text?: string
+  c_szam?: string
+}): Promise<{ id?: number; cnp?: string; error?: string }> {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const parts = (input.name || '').trim().split(/\s+/)
+  if (parts.length < 2) return { error: 'A szülő teljes nevét add meg (családnév és keresztnév).' }
+  const csaladnev = parts[0]
+  const kNev = parts.slice(1).join(' ')
+
+  const helysegId = input.c_helyseg_text ? await getOrCreateLocality(input.c_helyseg_text) : null
+  const utcaId = helysegId && input.c_utca_text ? await getOrCreateStreet(input.c_utca_text, helysegId) : null
+  if (!helysegId || !utcaId) {
+    return { error: 'A szülő rögzítéséhez előbb töltsd ki a tag címét (település + utca) — a szülő ezt örökli.' }
+  }
+
+  const cnp = generateCnp()
+  const { data: ins, error } = await supabase.from('szemely').insert([{
+    csaladnev, k_nev: kNev, ferfi: input.isMale, vallas: 'Református',
+    c_helysegid: helysegId, c_utcaid: utcaId, c_szam: input.c_szam || '1',
+    cnp, congregation_id: congregationId, isvisible: true, type: 'E',
+    befizetoev: new Date().getFullYear(), csaladfo: false, meghalt: false,
+  }]).select('id').single()
+  if (error || !ins) return { error: `Hiba: ${error?.message || 'a szülő rögzítése nem sikerült'}` }
+
+  revalidatePath('/tagnyilvantartas')
+  return { id: ins.id, cnp }
+}
+
+// ── Megjegyzés-mezők a személyi kartonon (2026-06-10) ────────
+
+export async function updateMemberNote(szemelyId: number, note: string) {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { error } = await supabase.from('szemely')
+    .update({ megjegyzes: note.trim() || null })
+    .eq('id', szemelyId)
+    .eq('congregation_id', congregationId)
+  if (error) return { error: `Hiba: ${error.message}` }
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
+}
+
+const NOTE_EVENT_KINDS = ['keresztseg', 'konfirmalas', 'hazassag', 'temetes', 'bekoltozott', 'attert'] as const
+export type NoteEventKind = (typeof NOTE_EVENT_KINDS)[number]
+
+export async function updateRegistryEventNote(kind: NoteEventKind, recordId: number, note: string) {
+  if (!NOTE_EVENT_KINDS.includes(kind)) return { error: 'Ismeretlen eseménytípus.' }
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { error } = await supabase.from(kind)
+    .update({ megjegyzes: note.trim() || null })
+    .eq('id', recordId)
+    .eq('congregation_id', congregationId)
+  if (error) return { error: `Hiba: ${error.message}` }
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
 }

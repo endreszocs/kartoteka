@@ -76,7 +76,9 @@ export async function saveDistrict(data: DistrictInput) {
   const { supabase, congregationId } = await getScopedContext()
   if (!congregationId) return { error: 'Nincs aktiv gyulekezet kivalasztva.' }
 
-  const payload = { nev: parsed.data.nev, isaktiv: parsed.data.isaktiv, iskorzet: true }
+  // 2026-06-10 (Fázis 1): a csoport mostantól congregation_id-scoped — insertnél
+  // kötelező, update-nél a legacy NULL-os sorokat fokozatosan begyógyítja.
+  const payload = { nev: parsed.data.nev, isaktiv: parsed.data.isaktiv, iskorzet: true, congregation_id: congregationId }
 
   if (parsed.data.id) {
     const { visibleIds, usage } = await getVisibleDistrictState(supabase, congregationId)
@@ -284,6 +286,7 @@ export async function savePresbyter(data: PresbyterInput) {
 
   const { error } = await supabase.from('presbiter').insert({
     id_szemely: parsed.data.id_szemely,
+    congregation_id: congregationId,
     tisztseg: parsed.data.tisztseg || 'Presbiter',
     id_csoport: parsed.data.id_csoport || null,
   })

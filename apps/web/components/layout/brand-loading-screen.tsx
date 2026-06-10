@@ -11,7 +11,8 @@ interface BrandLoadingScreenProps {
 
 export function BrandLoadingScreen({
   title = 'Kartotéka',
-  subtitle = 'Erdélyi Református Egyházkerület',
+  // 2026-06-10: semleges felirat — a rendszer nem csak az erdélyi kerületé
+  subtitle = 'Református gyülekezeti nyilvántartás',
   message = 'A szolgálati tér előkészítése folyamatban van...',
   compact = false,
 }: BrandLoadingScreenProps) {
@@ -25,7 +26,7 @@ export function BrandLoadingScreen({
         <div className="relative">
           <div className="absolute inset-[-10px] animate-pulse rounded-[1.8rem] bg-gradient-to-br from-amber-300/25 via-white/10 to-teal-300/20 blur-md" />
           <div className="relative flex size-20 items-center justify-center rounded-[1.7rem] border border-white/75 bg-white/92 shadow-[0_24px_40px_-24px_rgba(16,70,63,0.4)]">
-            <Image src="/EREK.png" alt="EREK" width={compact ? 40 : 54} height={compact ? 40 : 54} className="object-contain" />
+            <Image src="/kartoteka-logo.png" alt="Kartotéka" width={compact ? 40 : 54} height={compact ? 40 : 54} className="object-contain" />
           </div>
         </div>
 

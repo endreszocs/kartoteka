@@ -14,7 +14,7 @@ import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers
 import { ageFromDate } from '@/lib/utils/date'
 import { MEMBER_STATUS_FILTERS } from '@/lib/constants/members'
 import type { EnrichedMember, MemberStatusFilter, SortColumn } from '@/lib/constants/members'
-import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles } from 'lucide-react'
+import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles, X } from 'lucide-react'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
 
 interface PersonsTabProps {
@@ -46,6 +46,9 @@ function isBirthdayThisMonth(m: EnrichedMember): boolean {
 export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefresh }: PersonsTabProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('aktív')
+  // 2026-06-10: életkor szerinti szűrés (pl. 0–14, 25–50)
+  const [ageMin, setAgeMin] = useState('')
+  const [ageMax, setAgeMax] = useState('')
   const [sortCol, setSortCol] = useState<SortColumn>('id')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -101,6 +104,12 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
         const addrMatch = `${m.adrlocality?.name || ''} ${m.adrstreet?.name || ''} ${m.c_szam || ''}`.toLowerCase().includes(query)
         if (!nameMatch && !addrMatch) return false
       }
+      if (ageMin !== '' || ageMax !== '') {
+        const age = ageFromDate(m.sz_datum)
+        if (age === null) return false
+        if (ageMin !== '' && age < Number(ageMin)) return false
+        if (ageMax !== '' && age > Number(ageMax)) return false
+      }
       if (statusFilter === 'aktív') return isActiveMember(m, paidSet, everPaidSet)
       if (statusFilter === 'meghalt') return m.meghalt
       if (statusFilter === 'elkoltozott') return m.member_status === 'elkoltozott' || m.elkoltozott
@@ -124,7 +133,7 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
       return 0
     })
     return result
-  }, [members, searchQuery, statusFilter, sortCol, sortDir, paidSet])
+  }, [members, searchQuery, statusFilter, ageMin, ageMax, sortCol, sortDir, paidSet, everPaidSet])
 
   function toggleSort(col: SortColumn) { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('asc') } }
   function sortIcon(col: SortColumn) { if (sortCol !== col) return '↕'; return sortDir === 'asc' ? '↑' : '↓' }
@@ -175,6 +184,18 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as MemberStatusFilter)} className="rounded-xl border border-white/70 bg-white/80 px-4 py-2.5 text-sm shadow-sm">
             {MEMBER_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
+          {/* 2026-06-10: életkor-szűrő (pl. 0–14 vagy 25–50 év között) */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-zinc-400">Kor:</span>
+            <Input type="number" min={0} max={120} value={ageMin} onChange={e => setAgeMin(e.target.value)} placeholder="tól" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
+            <span className="text-zinc-300">–</span>
+            <Input type="number" min={0} max={120} value={ageMax} onChange={e => setAgeMax(e.target.value)} placeholder="ig" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
+            {(ageMin !== '' || ageMax !== '') && (
+              <button type="button" onClick={() => { setAgeMin(''); setAgeMax('') }} className="text-zinc-400 transition hover:text-zinc-600" aria-label="Korszűrő törlése">
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
           <span className="text-sm text-zinc-400">{filtered.length} / {members.length} fő</span>
         </div>
         <Button className="h-10 shrink-0 gap-2 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700" onClick={() => openEdit(null)}>
