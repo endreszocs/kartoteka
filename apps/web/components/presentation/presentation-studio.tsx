@@ -261,7 +261,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           <h2 className="text-sm font-semibold text-slate-700">Diák</h2>
           <span className="text-[10px] font-medium text-slate-400">{deckCount} látható</span>
         </div>
-        <div className="max-h-[calc(100vh-14rem)] space-y-0.5 overflow-y-auto pr-1">
+        <div className="space-y-px pr-0.5">
           {deck.map((item, i) => {
             const headerLabel = sectionHeaders[i]
             const title = item.kind === 'builtin'
@@ -270,24 +270,24 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
             const itemMissing = slideMissingInfo(item.key, data)
             return (
               <div key={item.key}>
-                {headerLabel && <p className="mt-2 px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">{headerLabel}</p>}
-                <div className={cn('group flex items-center gap-1.5 rounded-lg pl-3 pr-1.5 py-1.5 text-left text-xs transition',
+                {headerLabel && <p className="mt-1.5 px-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">{headerLabel}</p>}
+                <div className={cn('group flex items-center gap-1.5 rounded-md pl-1.5 pr-1 py-[3px] text-left text-[11px] transition',
                   i === currentIndex ? 'bg-violet-50 font-semibold text-violet-800' : 'text-slate-600 hover:bg-slate-50')}>
-                  <button type="button" onClick={() => setCurrentIndex(i)} className="flex flex-1 items-center gap-2 truncate text-left">
-                    <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                  <button type="button" onClick={() => setCurrentIndex(i)} className="flex flex-1 items-center gap-1.5 truncate text-left">
+                    <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold',
                       i === currentIndex ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500')}>{i + 1}</span>
-                    {item.kind === 'custom' && <Sparkles className="size-3 shrink-0 text-violet-400" />}
+                    {item.kind === 'custom' && <Sparkles className="size-2.5 shrink-0 text-violet-400" />}
                     <span className="truncate">{title}</span>
-                    {itemMissing && <Info className="size-3 shrink-0 text-amber-500" aria-label="Hiányzó adat" />}
+                    {itemMissing && <Info className="size-2.5 shrink-0 text-amber-500" aria-label="Hiányzó adat" />}
                   </button>
                   <button type="button" onClick={() => toggleHidden(item.key)} title="Elrejtés"
-                    className="shrink-0 rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200/60 hover:text-slate-700 group-hover:opacity-100">
-                    <Eye className="size-3.5" />
+                    className="shrink-0 rounded p-0.5 text-slate-400 opacity-0 hover:bg-slate-200/60 hover:text-slate-700 group-hover:opacity-100">
+                    <Eye className="size-3" />
                   </button>
                   {item.kind === 'custom' && (
                     <button type="button" onClick={() => deleteCustomSlide(item.key)} title="Törlés"
-                      className="shrink-0 rounded p-1 text-rose-300 opacity-0 hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100">
-                      <Trash2 className="size-3.5" />
+                      className="shrink-0 rounded p-0.5 text-rose-300 opacity-0 hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100">
+                      <Trash2 className="size-3" />
                     </button>
                   )}
                 </div>
@@ -296,16 +296,16 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           })}
 
           {options.hidden.length > 0 && (
-            <div className="mt-3 border-t border-slate-100 pt-2">
-              <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Elrejtett ({options.hidden.length})</p>
+            <div className="mt-2 border-t border-slate-100 pt-1.5">
+              <p className="px-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">Elrejtett ({options.hidden.length})</p>
               {options.hidden.map((key) => {
                 const def = SLIDES.find((s) => s.key === key)
                 const custom = options.customSlides.find((c) => c.key === key)
                 const label = def?.defaultTitle || custom?.title || key
                 return (
-                  <div key={key} className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-slate-400">
+                  <div key={key} className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-slate-400">
                     <span className="flex-1 truncate line-through">{label}</span>
-                    <button type="button" onClick={() => toggleHidden(key)} title="Megjelenítés" className="rounded p-1 hover:bg-slate-100 hover:text-slate-700"><EyeOff className="size-3.5" /></button>
+                    <button type="button" onClick={() => toggleHidden(key)} title="Megjelenítés" className="rounded p-0.5 hover:bg-slate-100 hover:text-slate-700"><EyeOff className="size-3" /></button>
                   </div>
                 )
               })}
@@ -313,13 +313,13 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           )}
         </div>
 
-        <div className="mt-3 border-t border-slate-100 pt-2">
-          <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Saját dia</p>
+        <div className="mt-2 border-t border-slate-100 pt-1.5">
+          <p className="px-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">Saját dia hozzáadása</p>
           <div className="grid grid-cols-3 gap-1">
             {([1, 2, 3] as PillarId[]).map((p) => (
               <button key={p} type="button" onClick={() => setAddPillar(p)}
-                className="flex items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 px-1 py-1.5 text-[10px] font-medium text-slate-500 hover:border-violet-300 hover:text-violet-700">
-                <Plus className="size-3" /> {p}.
+                className="flex items-center justify-center gap-1 rounded-md border border-dashed border-slate-200 px-1 py-1 text-[10px] font-medium text-slate-500 hover:border-violet-300 hover:text-violet-700">
+                <Plus className="size-2.5" /> {p}.
               </button>
             ))}
           </div>
@@ -343,7 +343,11 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           </div>
         </div>
 
-        <div className="group relative aspect-[16/9] w-full overflow-hidden rounded-[1.4rem] shadow-lg">
+        <div
+          className="group relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-[1.4rem] shadow-lg"
+          onClick={() => current && setEditKey(current.key)}
+          title="Kattints a dia szerkesztéséhez"
+        >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={current?.key} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -14 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }} className="h-full w-full">
@@ -352,10 +356,10 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           </AnimatePresence>
 
           {current && (
-            <button type="button" onClick={() => setEditKey(current.key)}
-              className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 opacity-0 shadow ring-1 ring-slate-200 transition hover:bg-white group-hover:opacity-100">
+            <span
+              className="pointer-events-none absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100">
               <Pencil className="size-3.5" /> Szerkesztés
-            </button>
+            </span>
           )}
           {missing && (
             <button type="button" onClick={() => setEditKey(current!.key)}
@@ -394,7 +398,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
         </div>
       </aside>
 
-      <SlideEditDialog editKey={editKey} data={data} deck={deck} overrides={overrides} onClose={() => setEditKey(null)} onOverride={updateOverride} onCustomUpdate={updateCustomSlide} />
+      <SlideEditDialog key={editKey ?? 'closed'} editKey={editKey} data={data} deck={deck} overrides={overrides} onClose={() => setEditKey(null)} onOverride={updateOverride} onCustomUpdate={updateCustomSlide} />
       <AddCustomDialog key={addPillar ?? 'none'} pillar={addPillar} onClose={() => setAddPillar(null)} onAdd={(p, t, s, b) => { addCustomSlide(p, t, s, b); setAddPillar(null) }} />
       <CastDialog open={castDialogOpen} onClose={() => setCastDialogOpen(false)} session={session} remoteUrl={remoteUrl}
         onSecondWindow={openSecondWindow} onCast={castViaWifi} onLocal={() => { setCastDialogOpen(false); void enterFullscreen() }} />
@@ -528,6 +532,37 @@ function SlideEditDialog({
 }) {
   const item = deck.find((d) => d.key === editKey) || null
   const missing = item ? slideMissingInfo(item.key, data) : null
+  const isCustom = item?.kind === 'custom'
+  const isPillarIntro = !!item && item.key.startsWith('pillar-') && item.key.endsWith('-intro')
+
+  // Helyi állapot (a komponens editKey-re kulcsolt → minden megnyitáskor friss) —
+  // így a gépelés nem veszti el a fókuszt a szülő re-renderjei közben.
+  const [title, setTitle] = useState(() =>
+    item ? (item.kind === 'custom' ? item.slide.title : (overrides[item.key]?.title ?? '')) : '')
+  const [subtitle, setSubtitle] = useState(() =>
+    item ? (item.kind === 'custom' ? (item.slide.subtitle ?? '') : (overrides[item.key]?.subtitle ?? '')) : '')
+  const [longText, setLongText] = useState(() =>
+    item ? (item.kind === 'custom' ? item.slide.body : (overrides[item.key]?.commentary ?? '')) : '')
+
+  function changeTitle(v: string) {
+    setTitle(v)
+    if (!item) return
+    if (item.kind === 'custom') onCustomUpdate(item.key, { title: v })
+    else onOverride(item.key, 'title', v)
+  }
+  function changeSubtitle(v: string) {
+    setSubtitle(v)
+    if (!item) return
+    if (item.kind === 'custom') onCustomUpdate(item.key, { subtitle: v })
+    else onOverride(item.key, 'subtitle', v)
+  }
+  function changeLong(v: string) {
+    setLongText(v)
+    if (!item) return
+    if (item.kind === 'custom') onCustomUpdate(item.key, { body: v })
+    else onOverride(item.key, 'commentary', v)
+  }
+
   return (
     <Dialog open={!!editKey} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-lg">
@@ -542,27 +577,26 @@ function SlideEditDialog({
                 <span><strong>Hiányzó adat:</strong> {missing} Töltsd ki kézzel a kommentárt vagy egy saját diát.</span>
               </div>
             )}
-            {item.kind === 'custom' ? (
-              <>
-                <Field label="Cím"><Input value={item.slide.title} onChange={(e) => onCustomUpdate(item.key, { title: e.target.value })} /></Field>
-                <Field label="Alcím"><Input value={item.slide.subtitle ?? ''} onChange={(e) => onCustomUpdate(item.key, { subtitle: e.target.value })} /></Field>
-                <Field label="Tartalom (szabad szöveg)"><Textarea rows={6} value={item.slide.body} onChange={(e) => onCustomUpdate(item.key, { body: e.target.value })} placeholder="A dia tartalma…" /></Field>
-              </>
+            <Field label="Cím">
+              <Input placeholder={isCustom ? 'A dia címe' : item.def.defaultTitle} value={title} onChange={(e) => changeTitle(e.target.value)} autoFocus />
+            </Field>
+            <Field label="Alcím">
+              <Input placeholder={isCustom ? 'Opcionális' : (item.kind === 'builtin' ? item.def.defaultSubtitle || '' : '')} value={subtitle} onChange={(e) => changeSubtitle(e.target.value)} />
+            </Field>
+            {isCustom ? (
+              <Field label="Tartalom (szabad szöveg)">
+                <Textarea rows={6} value={longText} onChange={(e) => changeLong(e.target.value)} placeholder="A dia tartalma…" />
+              </Field>
+            ) : isPillarIntro ? (
+              <Field label="🎯 Jövőbeli célok és tervek">
+                <Textarea rows={4} value={longText} onChange={(e) => changeLong(e.target.value)} placeholder="Mit szeretnétek elérni ezen a területen a következő évben?" />
+              </Field>
             ) : (
-              <>
-                <Field label="Cím"><Input placeholder={item.def.defaultTitle} value={overrides[item.key]?.title ?? ''} onChange={(e) => onOverride(item.key, 'title', e.target.value)} /></Field>
-                <Field label="Alcím"><Input placeholder={item.def.defaultSubtitle || ''} value={overrides[item.key]?.subtitle ?? ''} onChange={(e) => onOverride(item.key, 'subtitle', e.target.value)} /></Field>
-                {item.key.startsWith('pillar-') && item.key.endsWith('-intro') ? (
-                  <Field label="🎯 Jövőbeli célok és tervek">
-                    <Textarea rows={4} placeholder="Mit szeretnétek elérni ezen a területen a következő évben?" value={overrides[item.key]?.commentary ?? ''} onChange={(e) => onOverride(item.key, 'commentary', e.target.value)} />
-                  </Field>
-                ) : (
-                  <Field label="Lelkészi gondolat / kommentár">
-                    <Textarea rows={4} placeholder="Amit a vetítéskor mondasz, vagy a hiányzó adat kézi kiegészítése…" value={overrides[item.key]?.commentary ?? ''} onChange={(e) => onOverride(item.key, 'commentary', e.target.value)} />
-                  </Field>
-                )}
-              </>
+              <Field label="Lelkészi gondolat / kommentár">
+                <Textarea rows={4} value={longText} onChange={(e) => changeLong(e.target.value)} placeholder="Amit a vetítéskor mondasz, vagy a hiányzó adat kézi kiegészítése…" />
+              </Field>
             )}
+            <p className="text-[11px] text-slate-400">A módosítások automatikusan mentődnek és élőben frissülnek a dián.</p>
           </div>
         )}
         <div className="flex justify-end gap-2 border-t pt-3"><Button onClick={onClose}>Kész</Button></div>

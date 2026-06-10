@@ -30,7 +30,6 @@ import {
 } from 'recharts'
 import {
   BookOpen,
-  Building2,
   Cake,
   Coins,
   Heart,
@@ -255,56 +254,84 @@ function TitleSlide({ data, title, subtitle, commentary, projection }: SlideProp
 }
 
 // ──────────────────────────────────────────────────────────────
-// 2. ÁTTEKINTÉS — KPI-kártyák
+// ÖSSZEGZÉS — „Az év számokban": a 3 pillér egy lapon (záró áttekintés)
 // ──────────────────────────────────────────────────────────────
 
 function OverviewSlide({ data, title, subtitle, commentary, projection }: SlideProps) {
-  const kpis: Array<{
-    label: string
-    value: number
-    suffix?: string
-    icon: ReactNode
-    color: string
-    orb: OrbVariant
-  }> = [
-    { label: 'Aktív tagok', value: data.members.totalActive, icon: <Users className="size-5" />, color: 'from-teal-500 to-cyan-600', orb: 'teal' },
-    { label: 'Családok', value: data.members.families, icon: <Building2 className="size-5" />, color: 'from-emerald-500 to-teal-600', orb: 'emerald' },
-    { label: `${data.year}. évi bevétel`, value: data.finance.totalIncome, suffix: ' RON', icon: <TrendingUp className="size-5" />, color: 'from-amber-500 to-orange-500', orb: 'amber' },
-    { label: `${data.year}. évi kiadás`, value: data.finance.totalExpense, suffix: ' RON', icon: <TrendingDown className="size-5" />, color: 'from-rose-500 to-pink-600', orb: 'rose' },
+  const ron = (n: number) => n.toLocaleString('hu', { maximumFractionDigits: 0 })
+  const naturalSum = data.members.flowByYear.reduce((s, f) => s + f.natural, 0)
+  const surplus = data.finance.surplus
+  const attendanceMain = data.attendance.hasData ? data.attendance.worshipAvg : data.programs.total
+  const attendanceUnit = data.attendance.hasData ? 'fő/alkalom' : 'program'
+  const attendanceSub = data.attendance.hasData
+    ? `${data.attendance.worshipOccasions} istentisztelet`
+    : `${data.programs.total} alkalom`
+
+  const pillars = [
+    {
+      n: 1, name: 'Lélekszámbeli', q: 'Hányan vagyunk?',
+      value: data.members.totalActive, unit: 'fő', valueColor: 'text-teal-900',
+      sub: `természetes változás: ${naturalSum >= 0 ? '+' : ''}${naturalSum} fő`,
+      grad: 'from-teal-500 to-emerald-600', tint: 'from-teal-50 to-emerald-50/40', ring: 'ring-teal-200/70', accent: 'text-teal-700',
+      icon: <Users className="size-5" />,
+    },
+    {
+      n: 2, name: 'Lelki', q: 'Hogyan vagyunk jelen?',
+      value: attendanceMain, unit: attendanceUnit, valueColor: 'text-indigo-900',
+      sub: attendanceSub,
+      grad: 'from-indigo-500 to-violet-600', tint: 'from-indigo-50 to-violet-50/40', ring: 'ring-indigo-200/70', accent: 'text-indigo-700',
+      icon: <Sparkles className="size-5" />,
+    },
+    {
+      n: 3, name: 'Anyagi', q: 'Miből gazdálkodunk?',
+      value: surplus, unit: 'RON', valueColor: surplus >= 0 ? 'text-emerald-800' : 'text-rose-800', showPlus: true,
+      sub: `bevétel: ${ron(data.finance.totalIncome)} RON`,
+      grad: 'from-amber-500 to-orange-500', tint: 'from-amber-50 to-orange-50/40', ring: 'ring-amber-200/70', accent: 'text-amber-700',
+      icon: <Coins className="size-5" />,
+    },
   ]
+
+  const footer = [
+    { label: 'Családok', value: ron(data.members.families) },
+    { label: 'Egyházfenntartás', value: `${Math.round(data.finance.egyhazfenntartas.paymentRate)}%` },
+    { label: 'Anyakönyvi események', value: ron(data.anyakonyv.keresztelo + data.anyakonyv.konfirmacio + data.anyakonyv.esketes + data.anyakonyv.temetes) },
+  ]
+
   return (
-    <SlideFrame projection={projection} orbVariant="teal">
-      <SlideHeader title={title} subtitle={subtitle} icon={<Heart className="size-5" />} projection={projection} />
-      <motion.div
-        variants={slideStagger}
-        className="grid flex-1 grid-cols-2 gap-4"
-      >
-        {kpis.map((k) => (
-          <MotionItem
-            key={k.label}
-            variants={scaleIn}
-            className="group flex flex-col justify-between overflow-hidden rounded-2xl bg-white/90 p-5 shadow-lg ring-1 ring-slate-200/60 backdrop-blur transition-shadow hover:shadow-xl"
-          >
-            <motion.div
-              variants={popIn}
-              className={cn(
-                'flex items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md transition-transform group-hover:scale-105',
-                k.color,
-                projection ? 'size-14' : 'size-11',
-              )}
-            >
-              {k.icon}
-            </motion.div>
-            <div className="mt-3">
-              <p className={cn('text-slate-500 font-medium uppercase tracking-wider', projection ? 'text-base' : 'text-xs')}>{k.label}</p>
-              <p className={cn('mt-1 font-bold text-slate-900 tabular-nums', projection ? 'text-5xl' : 'text-2xl md:text-3xl')}>
-                <AnimatedNumber value={k.value} />
-                {k.suffix && <span className="ml-1 text-slate-500">{k.suffix}</span>}
+    <SlideFrame projection={projection} orbVariant="amber">
+      <SlideHeader title={title} subtitle={subtitle} icon={<Sparkles className="size-5" />} projection={projection} accentClass="from-amber-500 to-orange-500" />
+      <motion.div variants={slideStagger} className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+        {pillars.map((p) => (
+          <MotionItem key={p.n} variants={scaleIn}
+            className={cn('relative flex flex-col overflow-hidden rounded-3xl bg-gradient-to-br p-6 shadow-lg ring-1 backdrop-blur', p.tint, p.ring)}>
+            <div className="flex items-center gap-3">
+              <motion.div variants={popIn} className={cn('flex items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md ring-1 ring-white/60', p.grad, projection ? 'size-14' : 'size-11')}>
+                {p.icon}
+              </motion.div>
+              <div>
+                <p className={cn('font-bold uppercase tracking-[0.14em]', p.accent, projection ? 'text-sm' : 'text-[11px]')}>{p.n}. pillér · {p.name}</p>
+                <p className={cn('text-slate-500', projection ? 'text-base' : 'text-xs')}>{p.q}</p>
+              </div>
+            </div>
+            <div className="mt-auto pt-6">
+              <p className={cn('font-heading font-bold tabular-nums leading-none', p.valueColor, projection ? 'text-7xl' : 'text-5xl')}>
+                <AnimatedNumber value={p.value} formatter={p.unit === 'RON' ? ron : undefined} showPlus={p.showPlus} />
+                <span className={cn('ml-2 font-sans font-semibold text-slate-400', projection ? 'text-2xl' : 'text-lg')}>{p.unit}</span>
               </p>
+              <p className={cn('mt-2 font-medium text-slate-500', projection ? 'text-lg' : 'text-sm')}>{p.sub}</p>
             </div>
           </MotionItem>
         ))}
       </motion.div>
+      {/* Alsó másodlagos mutatók */}
+      <MotionItem variants={fadeUp} className="mt-4 grid grid-cols-3 gap-3">
+        {footer.map((f) => (
+          <div key={f.label} className="flex items-center justify-center gap-2 rounded-2xl bg-white/70 px-4 py-2.5 ring-1 ring-slate-200/60 backdrop-blur">
+            <span className={cn('font-bold tabular-nums text-slate-800', projection ? 'text-2xl' : 'text-lg')}>{f.value}</span>
+            <span className={cn('text-slate-500', projection ? 'text-base' : 'text-xs')}>{f.label}</span>
+          </div>
+        ))}
+      </MotionItem>
       <SlideCommentary commentary={commentary} projection={projection} />
     </SlideFrame>
   )
@@ -1666,12 +1693,6 @@ export const SLIDES: SlideDefinition[] = [
     resolveSubtitle: (d) => `${d.year}. évi beszámoló`,
     component: TitleSlide,
   },
-  {
-    key: 'overview',
-    defaultTitle: 'Éves áttekintés',
-    defaultSubtitle: 'A három pillér és három kérdés',
-    component: OverviewSlide,
-  },
 
   // ─── 1. PILLÉR — LÉLEKSZÁMBELI ───
   {
@@ -1798,6 +1819,14 @@ export const SLIDES: SlideDefinition[] = [
     defaultTitle: 'Pénzügyi trend — 5 év',
     defaultSubtitle: 'Bevétel és kiadás összehasonlítása',
     component: FinanceTrendSlide,
+  },
+
+  // ─── ÖSSZEGZÉS — a három pillér egy lapon (a végén, áttekintésként) ───
+  {
+    key: 'overview',
+    defaultTitle: 'Az év számokban',
+    defaultSubtitle: 'A három pillér összegzése egy lapon',
+    component: OverviewSlide,
   },
 
   // ─── KIEGÉSZÍTŐK (opcionálisak — a Studio toggle-olható) ───
