@@ -65,3 +65,18 @@ A 2025 valós F-eloszlás: Chit. 488 · Bon fiscal 19 · Fact.+Bon. 14 · OP 11 
 - **Irattíp:** a 3. pont szótára. ✅
 
 **Következő: E3** — a write-through (DB → Excel) a fenti szótárakkal, az `excel_outbox`/`excel_row_map` idempotencia-réteggel.
+
+---
+
+## 5. KRITIKUS spot-check eredmény (2026-06-11) — a nevek NEM egyeznek
+
+A Kartotéka kategória-export (54 bevétel + 61 kiadás, kóddal) összevetése az Excel `bev`/`kiad` legördülővel:
+- **Az Excel NÉV szerint aggregál** (a Hibak Z/AZ oszlop a pontos név; nincs kód a motorban — csak sorszám).
+- **A Kartotéka nevei RÖVIDÍTETTEK + a 2026-os chart** (pl. 101.02 „Bevételek egyházi szolgálatokért" vs Excel „Bevételek **a különböző** egyházi szolgálatokért"; 101.06 „Sírhelyek bevételei" vs „Sírhelyek **eladásából, bérleti díjából…**"; új kódok: 101.07 Kongrua, 201.15–19 CAS/CASS/nettó).
+- **A vizsgált 2025-ös Excel a RÉGI chart** → ezért a nagy eltérés.
+
+**Következmény (finance-kritikus):** a Kartotéka nevét NEM szabad közvetlenül az Excel I/K-ba írni — a Számadás nem ismerné fel (Hibak ≠ 0). Kell egy **`szamadasicel.id` (kód) → Excel-pontos-2026-név** mapping, és az E3 az **Excel nevét** írja.
+
+**Endre döntése (2026-06-11):** a becsomagolt **2026-os sablont konfigurálja** (egyházmegye név → `Koltsegvetes!V3`), hogy a 2026-os hivatalos névlista populálódjon; abból építem a kód→név mappinget. A shippelt sablon BLANK marad (a lelkész a saját egyházmegyéjét írja be első használatkor).
+
+**E3 BLOKKOLVA**, amíg a kód→Excel-2026-név mapping el nem készül (a konfigurált 2026 névlistából).
