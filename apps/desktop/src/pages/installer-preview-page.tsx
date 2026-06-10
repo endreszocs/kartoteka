@@ -46,7 +46,7 @@ export function InstallerPreviewPage() {
             kerül, akkor a `release-build.ps1` pipeline-nal együtt. Most CSAK a UI réteg.
           </div>
           <InstallerWizard
-            logoSrc="/EREK.png"
+            logoSrc="/kartoteka-logo.png"
             version="v0.8.5"
             onCancel={() => navigate('/dev')}
             onFinish={() => navigate('/dev')}

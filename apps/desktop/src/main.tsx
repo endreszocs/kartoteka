@@ -22,7 +22,7 @@ function AppWithSplash() {
   return (
     <>
       <App />
-      {showSplash && <SplashScreen logoSrc="/EREK.png" version="v0.8.3 — Sprint R" />}
+      {showSplash && <SplashScreen logoSrc="/kartoteka-logo.png" version="v0.8.8" />}
     </>
   )
 }
