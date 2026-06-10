@@ -136,25 +136,68 @@ export function ReviewStep({
     if (d.status === 'ambiguous') return manualPersonSelections[d.raw] || null
     return null
   }
-  // FONTOS: egy donor-string (pl. „Földes Ödön - Főút 65") TÖBB egyházfenntartást is
-  // tartalmazhat — ez a CSALÁDTAGOK járuléka egy háztartásfő nevén, NEM egy ember kétszeri
-  // fizetése. Ezért nem a befizetés-számot nézzük, hanem azt, hogy KÜLÖNBÖZŐ befizető-stringek
-  // (más-más nevek) kerülnek-e UGYANAHHOZ a taghoz — az a valódi téves dupla-hozzárendelés.
-  const isEgyhfDonor = (raw: string): boolean =>
-    (paymentsByDonor.get(raw) || []).some((p) => p.budgetCode === EGYHF_KOD)
-  const egyhfDonorsByPerson = new Map<string, Set<string>>()
+  // A duplikáció-szabály FINOMÍTVA (felhasználói meglátás alapján):
+  //  - Egy donor-string TÖBB egyházfenntartása (családtagok egy néven, RÉSZLETFIZETÉS,
+  //    vagy ELŐZŐ ÉVI hátralék) NEM duplikáció — ugyanaz a befizető.
+  //  - Az egyházfenntartást FIZETÉSI ÉVENKÉNT (fizetettev) követjük: ha valaki a tavalyi és
+  //    az idei járulékot is fizeti, az KÉT KÜLÖN év → legitim.
+  //  - Csak az a duplikáció, ha UGYANARRA AZ ÉVRE 2+ KÜLÖNBÖZŐ befizető-string kerül
+  //    UGYANAHHOZ a taghoz (valódi téves dupla-hozzárendelés, pl. „Józsa Béla" + „Ifj. Józsa Béla").
+  const egyhfPaymentsOf = (raw: string) =>
+    (paymentsByDonor.get(raw) || []).filter((p) => p.budgetCode === EGYHF_KOD)
+  // kulcs: `${szemelyId}|${fizetettev}` → a hozzá tartozó KÜLÖNBÖZŐ befizető-stringek
+  const egyhfDonorsByPersonYear = new Map<string, Set<string>>()
   for (const d of donorResolutions || []) {
-    if (!isEgyhfDonor(d.raw)) continue
     const pid = selectedPersonOf(d)
     if (!pid) continue
-    const set = egyhfDonorsByPerson.get(pid) ?? new Set<string>()
-    set.add(d.raw)
-    egyhfDonorsByPerson.set(pid, set)
+    const years = new Set(
+      egyhfPaymentsOf(d.raw)
+        .map((p) => (p.datum || '').slice(0, 4))
+        .filter(Boolean),
+    )
+    for (const y of years) {
+      const key = `${pid}|${y}`
+      const set = egyhfDonorsByPersonYear.get(key) ?? new Set<string>()
+      set.add(d.raw)
+      egyhfDonorsByPersonYear.set(key, set)
+    }
   }
-  // Duplikáció: 2+ KÜLÖNBÖZŐ befizető-string ugyanahhoz a taghoz, egyházfenntartással.
-  const duplicateEgyhfPersonIds = new Set(
-    [...egyhfDonorsByPerson.entries()].filter(([, s]) => s.size >= 2).map(([id]) => id),
-  )
+  // Az ütköző (person, év) párok + a hozzájuk tartozó befizető-nevek a figyelmeztetéshez.
+  const duplicateConflicts = [...egyhfDonorsByPersonYear.entries()]
+    .filter(([, s]) => s.size >= 2)
+    .map(([key, s]) => {
+      const pid = key.split('|')[0]
+      const year = key.split('|')[1]
+      const raws = [...s]
+      // A tag neve a jelöltekből (a megjelenítéshez)
+      let personName = pid
+      for (const raw of raws) {
+        const d = (donorResolutions || []).find((x) => x.raw === raw)
+        const cand = d?.candidates?.find((cc) => cc.id === pid)
+        if (cand) {
+          personName = `${cand.csaladnev ?? ''} ${cand.k_nev ?? ''}`.trim() || pid
+          break
+        }
+      }
+      return { pid, year, raws, personName }
+    })
+  const duplicateEgyhfPersonIds = new Set(duplicateConflicts.map((c) => c.pid))
+
+  // ── ÉV-ELTÉRÉS ŐR ──
+  // A könyvelés szabálya: az adott könyvelési évben nem könyvelhetsz MÁS évi (pl. előző évi)
+  // nyugtát. Megkeressük a túlnyomó évet (a tételek többségének éve), és jelezzük azokat a
+  // sorokat, amelyek dátuma ettől eltér (pl. 2024-12-31 · iratszám 19 a 2025-ös Kasszában).
+  const bookableRows = (analysis?.rows || []).filter((r) => r.kind !== 'skip' && r.datum)
+  const yearCounts = new Map<string, number>()
+  for (const r of bookableRows) {
+    const y = r.datum!.slice(0, 4)
+    yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
+  }
+  const predominantYear =
+    [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const yearMismatchRows = predominantYear
+    ? bookableRows.filter((r) => r.datum!.slice(0, 4) !== predominantYear)
+    : []
   const companies = (donorResolutions || [])
     .filter((d) => d.status === 'company')
     .sort((a, b) => b.occurrenceCount - a.occurrenceCount)
@@ -280,6 +323,75 @@ export function ReviewStep({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* ÉV-ELTÉRÉS — más évi nyugta az aktuális könyvelési évben            */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {yearMismatchRows.length > 0 && predominantYear && (
+        <div className="rounded-[1.75rem] border border-orange-300 bg-orange-50/70 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-orange-600" />
+            <div className="flex-1">
+              <p className="font-serif text-lg text-orange-900">
+                {yearMismatchRows.length} tétel NEM a(z) {predominantYear}. évre esik
+              </p>
+              <p className="mt-1 text-sm text-orange-800">
+                A könyvelési szabályok szerint az adott évben <strong>nem könyvelhetsz előző
+                (vagy más) évi nyugtát</strong>. Az alábbi tételek dátuma eltér a fájl
+                túlnyomó évétől ({predominantYear}) — ellenőrizd a forrásdokumentumban, és ha kell,
+                hagyd ki őket az importból (vagy a megfelelő évi Kasszába rögzítsd).
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-orange-900">
+                {yearMismatchRows.slice(0, 12).map((r, i) => (
+                  <li key={i}>
+                    <strong>{r.datum}</strong> · iratszám {r.iratszam || '—'} ·{' '}
+                    {typeof r.amount === 'number' ? `${r.amount.toLocaleString('hu-HU')} RON` : '—'}
+                    {r.donorString ? ` · ${r.donorString}` : ''}
+                  </li>
+                ))}
+                {yearMismatchRows.length > 12 && (
+                  <li className="text-orange-700">… és további {yearMismatchRows.length - 12} tétel.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* DUPLIKÁCIÓ-FIGYELMEZTETÉS — ugyanaz a tag, ugyanaz az év, 2+ név   */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {duplicateConflicts.length > 0 && (
+        <div className="rounded-[1.75rem] border border-red-300 bg-red-50/70 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-600" />
+            <div className="flex-1">
+              <p className="font-serif text-lg text-red-800">
+                {duplicateConflicts.length} esetben ugyanaz a tag kétszer fizetne
+                egyházfenntartást ugyanarra az évre
+              </p>
+              <p className="mt-1 text-sm text-red-700">
+                Egy személy évente egyszer fizet egyházfenntartást. Az alábbi befizetők
+                <strong> ugyanahhoz a taghoz</strong> lettek rendelve. <strong>Nézd meg a
+                neveknél a CÍMET:</strong> ha a két befizető máshol lakik (pl. „… - Asztalos 160"
+                és „… - Templom 235"), akkor szinte biztosan KÉT KÜLÖN személyről van szó — ilyenkor
+                az egyiket rendeld másik (a saját címén lakó) taghoz, vagy hagyd tag nélkül, ha még
+                nincs a nyilvántartásban. Ugyanazon a címen+néven (pl. „Józsa Béla" / „Ifj. Józsa
+                Béla") lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
+                ugyanazon a néven NEM számít duplikációnak.</em>
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-red-800">
+                {duplicateConflicts.slice(0, 10).map((c) => (
+                  <li key={`${c.pid}-${c.year}`}>
+                    <strong>{c.personName}</strong> ({c.year}) ←{' '}
+                    {c.raws.join('  +  ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
       {/* AMBIGUOUS BEFIZETŐK — KÉZI döntést igénylők (prominens)            */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       {manualAmbiguous.length > 0 && (
@@ -342,18 +454,6 @@ export function ReviewStep({
               {showAutoAssigned ? 'Bezár' : 'Ellenőrzés'}
             </span>
           </button>
-
-          {duplicateEgyhfPersonIds.size > 0 && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                <strong>Figyelem:</strong> {duplicateEgyhfPersonIds.size} tag a hozzárendelés
-                szerint <strong>kétszer fizetne</strong> egyházfenntartást ugyanarra az évre
-                (egy személy évente egyszer fizet egyházfenntartást). Az érintett sorok pirossal
-                jelölve — válassz másik tagot az egyiknél.
-              </span>
-            </div>
-          )}
 
           {showAutoAssigned && (
             <div className="mt-4 overflow-x-auto rounded-xl ring-1 ring-teal-100">

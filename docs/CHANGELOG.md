@@ -23,6 +23,45 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Pénzügyi importáló: korábbi évek beolvasása, egyeztetés, okos tag-párosítás
+<!-- key: 2026-06-10-penzugy-importalo-fejlesztes -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+A **Rendszergazda → Pénzügyi importáló** felület megújult, hogy a korábbi évek könyvelését gyorsan és pontosan be lehessen olvasni a Kartotékába. A felület mostantól **Apple-beállítások stílusú oldalsávval** működik: bal oldalon választod ki, mit szeretnél importálni, jobbra nyílik a felület.
+
+### ✨ Új import-felületek
+
+- **Hivatalos Kassza-import** — a hivatalos éves Kassza-Excel (bevétel + kiadás) beolvasása. A rendszer felismeri a befizetőket, párosítja a tagnyilvántartással, és a könyvelési kódokat (pl. egyházfenntartás, adomány) automatikusan a megfelelő kategóriába sorolja.
+- **Bevétel-import (egyesített)** — saját Excel/CSV/XML fájlhoz, tetszőleges oszlopokkal: kézzel megmondod, melyik oszlop a név, összeg, dátum, kategória, és a rendszer **soronként felismeri**, hogy egyházfenntartás vagy más bevétel. (A korábbi „egyházfenntartás" + „általános bevétel" külön fülek **egy** felületbe kerültek.)
+
+### 🔁 Nincs többé dupla-rögzítés
+
+- **Duplikáció-védelem:** ha kétszer futtatod ugyanazt az importot, a rendszer **nem rögzíti újra** a már meglévő tételeket — így nem keletkezik fölösleges, kétszeres bevétel. Az eredménynél külön látszik, hány tételt hagytunk ki duplikáció miatt.
+
+### ✅ Egyeztetés a könyveléssel + végösszeg-ellenőrzés
+
+- **Egyeztetés:** a beolvasott fájlt a rendszer összeveti a Kartotékában **már könyvelt** tételekkel, és megmutatja, **mi maradt ki** a könyvelésből, illetve **mi van a könyvelésben, de hiányzik a fájlból**. Erről **letölthető riport** is készül.
+- **Végösszeg-ellenőrzés:** import előtt látod a fájl szerinti várható bevétel/kiadás összeget, hogy a Pénzügy oldal egyenlegeivel össze tudd vetni.
+
+### 👥 Okos egyházfenntartás-párosítás (1×/év szabály)
+
+- Ahol egy címen vagy néven **több tag** is illik a befizetőre, a rendszer az **„egy személy évente egyszer fizet egyházfenntartást"** szabály alapján **automatikusan, külön-külön taghoz** rendeli a befizetéseket — így senkinek nem látszik téves elmaradása.
+- Az automatikusan elosztott befizetők **áttekintő táblázatban** jelennek meg: ki, melyik nyugtához/befizetéshez került, és **melyik kifizetés egyházfenntartás vagy adomány** (kategória-címkével). A hozzárendelés bármikor **átállítható** egy másik tagra.
+- **Figyelmeztetés:** ha két KÜLÖNBÖZŐ befizető tévedésből ugyanahhoz a taghoz kerülne (pl. „Józsa Béla" és „Ifj. Józsa Béla"), a rendszer **pirossal jelzi**. A részletfizetés és az előző évi (hátralék) befizetés ugyanazon a néven **nem** számít duplikációnak.
+
+### 🏦 Bank ↔ kassza belső mozgások
+
+- A **kasszában rögzített letétel/felvét**, amíg a banki oldalon nincs egyeztetve, a Pénzügy oldalon **piros felkiáltójellel** jelez. Amint a **banki kivonatot** beimportálod a Bank fülön és a rendszer **összepárosítja** a kassza-oldallal, a jelzés **magától eltűnik** (és nem keletkezik dupla tétel).
+
+### 🧹 Teszt-időszaki adattörlés
+
+- **Rendszergazda → Veszélyzóna:** a pénzügyi tételek (befizetés, kiadás, belső mozgás, nyugták) **véglegesen törölhetők** a teszteléshez — a **tagnyilvántartás, a kategóriák és a bankszámlák megmaradnak**. (A gyülekezet nevét meg kell erősíteni.)
+
+> *Megjegyzés a rendszergazdának:* az importáló az alábbi SQL-migrációkat igényli (Supabase Studio-ban lefuttatva): `migration-docs/sql/2026-06-09-finance-import-rpc-v3-dedup.sql`, `2026-06-09-wipe-finance-data.sql`, `2026-06-10-belso-mozgas-kodok-INSTALL.sql`.
+
+---
+
 ## [2026-06-08] — Éves beszámoló: jövőbeli célok és pontosabb pénzügyi mutatók
 <!-- key: 2026-06-08-eves-beszamolo-celok-penzugy -->
 <!-- category: improvement -->

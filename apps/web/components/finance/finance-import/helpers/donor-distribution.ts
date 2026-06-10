@@ -78,6 +78,24 @@ function scoreCandidate(
   return score
 }
 
+/**
+ * Igaz, ha a befizetőnek van EGYÉRTELMŰ címe (utca + valós házszám), és a jelölt ismert
+ * címében ez az utca CLEARLY nem szerepel → valószínűleg MÁS személyről van szó (más cím).
+ * Csak akkor jelez, ha mindkét oldalon van cím-adat (ha a jelölt címe ismeretlen, nem dönt).
+ */
+function clearAddressMismatch(
+  donor: DonorResolution,
+  candidate: NonNullable<DonorResolution['candidates']>[number],
+): boolean {
+  const street = norm(donor.street)
+  const house = (donor.houseNumber || '').trim()
+  const cim = norm(candidate.cim)
+  if (!street || !cim) return false // valamelyik cím hiányzik → nem döntünk
+  if (!house || house === '?' || house === '0') return false // bizonytalan házszám
+  // Ha az utca-token NINCS benne a jelölt címében → más utca → más személy
+  return !cim.includes(street)
+}
+
 function pickBest(
   donor: DonorResolution,
   candidates: NonNullable<DonorResolution['candidates']>,
@@ -130,6 +148,9 @@ export function distributeAmbiguousDonors(
       const avail = donor.candidates!.filter((c) => !used.has(c.id))
       if (avail.length === 0) continue // minden jelöltje elfogyott → genuin ütközés, marad kézi
       const best = pickBest(donor, avail)
+      // CÍM-ŐR: ha a legjobb szabad jelölt utcája CLEARLY más, mint a befizetőé, NEM rendeljük
+      // hozzá automatikusan (valószínűleg másik személy, más cím) — kézire hagyjuk.
+      if (clearAddressMismatch(donor, best)) continue
       selections[donor.raw] = String(best.id)
       autoSet.add(donor.raw)
       used.add(best.id)
@@ -137,6 +158,7 @@ export function distributeAmbiguousDonors(
     } else {
       // Adomány/egyéb: egy tag évente többször is adhat — NINCS kizárás.
       const best = pickBest(donor, donor.candidates!)
+      if (clearAddressMismatch(donor, best)) continue // más cím → kézire hagyjuk
       selections[donor.raw] = String(best.id)
       autoSet.add(donor.raw)
     }
