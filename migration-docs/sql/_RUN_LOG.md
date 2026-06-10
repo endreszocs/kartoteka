@@ -51,6 +51,18 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 - [ ] **`2026-04-30l-backfill-csalad-text-szulokbol.sql`** — DRY-RUN előnézet (1-3. blokk) + élő backfill (4-7. blokk, kommentelt). Az élő UPDATE/INSERT a `/* ... */` blokkban — uncomment szükséges.
 
+- [ ] **`2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql`** — PENDING (még nem futott)
+       Indok: Tagnyilvántartás Fázis 5 — GDPR-hozzájárulások (P3-5) + választói automatika (P3-7).
+       Hatás: (1) `szemely` új oszlopok: `gdpr_consent_at`, `photo_consent`, `mailing_consent`,
+       `voter_manual_override` (+ CHECK 0/1); (2) `recompute_voter_eligibility(uuid)` RPC —
+       szabály-alapú választói névjegyzék (18+, konfirmált, élő aktív tag), a kézi felülbírálást
+       tiszteletben tartva; beállítja a `szemely.voter_eligible` flag-et, visszaad { eligible,
+       total, added, removed }.
+       ⚠️ A webapp-kód (GDPR-panel a személyi kartonon, „Jogosultság frissítése" gomb a Választók
+       fülön) hivatkozik ezekre — a migráció nélkül a mezők nem jelennek meg / az újraszámítás
+       hibát ad, de adatvesztés nincs. Verifikáció: fájl végi diagnosztika (4 oszlop + RPC).
+       BEGIN/COMMIT csomagolva.
+
 - [x] 2026-06-10 — **`2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql`** ✅ LEFUTOTT
        Tagnyilvántartás Fázis 1 biztonsági hotfix (átvilágítás P0-1…P0-4, P1-3, P1-4 —
        lásd `docs/project-tracking/KARTOTEKA-tagnyilvantartas-atvilagitas-2026-06-10.md`).

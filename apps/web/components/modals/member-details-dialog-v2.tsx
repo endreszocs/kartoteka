@@ -18,7 +18,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { getMemberDetails, updateMemberNote, updateRegistryEventNote } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { getMemberDetails, updateMemberNote, updateRegistryEventNote, updateMemberConsents } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
 import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
@@ -358,6 +358,16 @@ export function MemberDetailsDialogV2({
                         initial={member.megjegyzes}
                         placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
                         onSave={(note) => updateMemberNote(member.id, note)}
+                      />
+                    </SoftPanel>
+
+                    {/* 2026-06-10 (Fázis 5, P3-5): GDPR-hozzájárulások */}
+                    <SoftPanel eyebrow="Adatvédelem" title="GDPR-hozzájárulások" icon={<ShieldCheck className="size-4" />}>
+                      <ConsentEditor
+                        memberId={member.id}
+                        gdprConsentAt={member.gdpr_consent_at}
+                        photoConsent={member.photo_consent}
+                        mailingConsent={member.mailing_consent}
                       />
                     </SoftPanel>
                   </div>
@@ -725,6 +735,83 @@ function RegistryEventCard({
           <EditableNote initial={note} placeholder="Megjegyzés ehhez az eseményhez…" onSave={onSaveNote} />
         </div>
       )}
+    </div>
+  )
+}
+
+// 2026-06-10 (Fázis 5, P3-5): GDPR-hozzájárulások szerkesztője.
+// Három kapcsoló: adatkezelés / fotó / levelezés. Az adatkezelési hozzájárulás
+// dátumát a szerver állítja (első bejelölésnél a mai nap).
+function ConsentEditor({
+  memberId,
+  gdprConsentAt,
+  photoConsent,
+  mailingConsent,
+}: {
+  memberId: number
+  gdprConsentAt: string | null
+  photoConsent: boolean | null
+  mailingConsent: boolean | null
+}) {
+  const [gdpr, setGdpr] = useState(!!gdprConsentAt)
+  const [photo, setPhoto] = useState(!!photoConsent)
+  const [mailing, setMailing] = useState(!!mailingConsent)
+  const [consentDate, setConsentDate] = useState<string | null>(gdprConsentAt)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setGdpr(!!gdprConsentAt); setPhoto(!!photoConsent); setMailing(!!mailingConsent); setConsentDate(gdprConsentAt)
+    })
+    return () => { cancelled = true }
+  }, [gdprConsentAt, photoConsent, mailingConsent])
+
+  const dirty = gdpr !== !!gdprConsentAt || photo !== !!photoConsent || mailing !== !!mailingConsent
+
+  async function handleSave() {
+    setSaving(true)
+    const res = await updateMemberConsents(memberId, { gdpr_consent: gdpr, photo_consent: photo, mailing_consent: mailing })
+    setSaving(false)
+    if (res?.error) { toast.error(res.error); return }
+    if (gdpr && !consentDate) setConsentDate(new Date().toISOString())
+    if (!gdpr) setConsentDate(null)
+    toast.success('Hozzájárulások mentve.')
+  }
+
+  const toggles: { checked: boolean; set: (v: boolean) => void; label: string; hint: string }[] = [
+    { checked: gdpr, set: setGdpr, label: 'Adatkezelés', hint: 'Általános adatkezelési hozzájárulás' },
+    { checked: photo, set: setPhoto, label: 'Fotó / megjelenés', hint: 'Kép, felvétel közzététele' },
+    { checked: mailing, set: setMailing, label: 'Levelezés', hint: 'Hírlevél, körlevél küldése' },
+  ]
+
+  return (
+    <div className="space-y-2.5">
+      <div className="grid gap-2 sm:grid-cols-3">
+        {toggles.map((t) => (
+          <label key={t.label} className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70">
+            <input type="checkbox" checked={t.checked} onChange={(e) => t.set(e.target.checked)} className="mt-0.5 accent-teal-600" />
+            <span className="min-w-0">
+              <span className="text-sm font-medium text-slate-700">{t.label}</span>
+              <span className="block text-[11px] text-slate-400">{t.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-slate-400">
+          {consentDate ? `Adatkezelési hozzájárulás kelte: ${new Date(consentDate).toLocaleDateString('hu-HU')}` : 'Nincs rögzített adatkezelési hozzájárulás.'}
+        </span>
+        <button
+          type="button"
+          disabled={saving || !dirty}
+          onClick={handleSave}
+          className="rounded-full bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-40"
+        >
+          {saving ? 'Mentés…' : 'Hozzájárulások mentése'}
+        </button>
+      </div>
     </div>
   )
 }

@@ -828,6 +828,46 @@ export async function updateMemberNote(szemelyId: number, note: string) {
   return { success: true }
 }
 
+// ── GDPR-hozzájárulások frissítése (2026-06-10, Fázis 5 / P3-5) ─────
+export async function updateMemberConsents(
+  szemelyId: number,
+  consents: { gdpr_consent: boolean; photo_consent: boolean; mailing_consent: boolean },
+) {
+  const { supabase, user, congregationId } = await getProfileCongregation()
+  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  // A GDPR-hozzájárulás dátuma: ha most adták meg és eddig nem volt → mai dátum;
+  // ha visszavonták → null.
+  const { data: existing } = await supabase
+    .from('szemely')
+    .select('gdpr_consent_at')
+    .eq('id', szemelyId)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  const hadConsent = !!(existing as { gdpr_consent_at: string | null } | null)?.gdpr_consent_at
+
+  const gdpr_consent_at = consents.gdpr_consent
+    ? (hadConsent ? undefined : new Date().toISOString())
+    : null
+
+  const payload: Record<string, unknown> = {
+    photo_consent: consents.photo_consent,
+    mailing_consent: consents.mailing_consent,
+  }
+  if (gdpr_consent_at !== undefined) payload.gdpr_consent_at = gdpr_consent_at
+
+  const { error } = await supabase
+    .from('szemely')
+    .update(payload)
+    .eq('id', szemelyId)
+    .eq('congregation_id', congregationId)
+  if (error) return { error: `Hiba: ${error.message}` }
+
+  await logAuditEvent({ action: 'member.consent_update', targetTable: 'szemely', targetId: String(szemelyId), metadata: { ...consents } }, supabase)
+  revalidatePath('/tagnyilvantartas')
+  return { success: true }
+}
+
 const NOTE_EVENT_KINDS = ['keresztseg', 'konfirmalas', 'hazassag', 'temetes', 'bekoltozott', 'attert'] as const
 export type NoteEventKind = (typeof NOTE_EVENT_KINDS)[number]
 

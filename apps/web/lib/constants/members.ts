@@ -97,6 +97,13 @@ export interface MemberRow {
   elkoltozott: boolean
   member_status: string | null
   isvisible: boolean
+  // 2026-06-10 (Fázis 5): GDPR-hozzájárulások + választói jogosultság
+  photo_url: string | null
+  gdpr_consent_at: string | null
+  photo_consent: boolean | null
+  mailing_consent: boolean | null
+  voter_eligible: boolean | null
+  voter_manual_override: number | null
   type: string | null
   befizetoev: number | null
   allapot: string | null

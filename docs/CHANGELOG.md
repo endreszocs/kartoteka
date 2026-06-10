@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Választói névjegyzék automatika + GDPR-hozzájárulások
+<!-- key: 2026-06-10-tagnyilvantartas-valasztoi-gdpr -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### 🗳️ Választói névjegyzék egy gombnyomásra
+
+- A **Tagnyilvántartás → Választók** fülön új **„Jogosultság frissítése" gomb**: a rendszer a szabály alapján — **18 év feletti, konfirmált, élő aktív tag** — automatikusan összeállítja a választói névjegyzéket, és megmutatja, hányan jogosultak, kik kerültek be újonnan és kik estek ki.
+- **Kézi felülbírálás bárkire:** egy-egy tag a sor végén **mindig jogosulttá tehető** vagy **kizárható** (pl. fegyelmi helyzet vagy külön engedély miatt) — a felülbírálást a frissítés tiszteletben tartja, nem írja felül. Új **„Jogosult" oszlop, szűrő és KPI** segíti az áttekintést.
+- Minden frissítés és felülbírálás **auditnaplóba kerül**.
+
+### 🔐 GDPR-hozzájárulások a személyi kartonon
+
+- A személyi karton **Személyes adatok** fülén új **„GDPR-hozzájárulások"** szakasz három kapcsolóval: **adatkezelés**, **fotó / megjelenés**, **levelezés**. Az adatkezelési hozzájárulás **kelte** automatikusan rögzül az első bejelöléskor.
+- Így dokumentálható és elszámoltatható, kinek mihez van érvényes hozzájárulása (a vallási hovatartozás a GDPR szerint különleges adat). A módosítás **auditnaplóba kerül**.
+
+> *Megjegyzés a rendszergazdának:* a funkció a `migration-docs/sql/2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql` migrációt igényli (Supabase Studio-ban lefuttatva). Addig a felület hibátlanul működik, csak az új mezők/újraszámítás nem aktívak.
+
+---
+
 ## [2026-06-10] — Tagsági igazolás nyomtatás, családok exportja, névnapok
 <!-- key: 2026-06-10-tagnyilvantartas-igazolas-export-nevnap -->
 <!-- category: feature -->
