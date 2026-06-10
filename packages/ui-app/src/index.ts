@@ -25,6 +25,8 @@
  */
 
 export * from './layout/PageHero'
+// 2026-06-10 (B-hullám): közös színes tab-sor (web ⇄ desktop azonos tab-bar)
+export * from './layout/ColorTabs'
 export * from './form/ModalField'
 // Sprint R · Vizuális megújulás (v0.8.1) — téma-választó réteg
 export * from './theme'

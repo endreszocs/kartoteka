@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route } from 'react-router-dom'
 
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
@@ -26,6 +26,7 @@ import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
 import { PenzugyTranzakciokPage } from './pages/penzugy-tranzakciok-page'
 import { PenzugySzamadasPage } from './pages/penzugy-szamadas-page'
 import { PenzugyTartozasokPage } from './pages/penzugy-tartozasok-page'
+import { PenzugyPage } from './pages/penzugy-page'
 import { PinEntryPage } from './pages/pin-entry-page'
 import { PinSetupPage } from './pages/pin-setup-page'
 import { PlaceholderPage } from './pages/placeholder-page'
@@ -56,9 +57,10 @@ function App() {
           <Route index element={<HomePage />} />
           <Route path="/dashboard" element={<HomePage />} />
           <Route path="/munkanaplo" element={<MunkanaploPage />} />
-          {/* 2026-06-10: a Pénzügy az Áttekintésen landol (mint a web), nem a
-              kártyás landing oldalon. A korábbi PenzugyLandingPage kivezetve. */}
-          <Route path="/penzugy" element={<Navigate to="/penzugy/attekintes" replace />} />
+          {/* 2026-06-10 (B-hullám): a Pénzügy EGYSÉGES tab-oldal (mint a web
+              FinanceTabs) — hero + ColorTabs + tab-tartalom. A különálló
+              /penzugy/* oldalak megmaradnak (sidebar-almenü, deep-link). */}
+          <Route path="/penzugy" element={<PenzugyPage />} />
           <Route path="/penzugy/attekintes" element={<PenzugyDashboardPage />} />
           <Route path="/penzugy/befizetes" element={<BefizetesPage />} />
           <Route path="/penzugy/kiadas" element={<KiadasPage />} />
