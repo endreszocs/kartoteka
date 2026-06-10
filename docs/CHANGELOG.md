@@ -23,6 +23,29 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Asztali app: Pénzügy Súgó, külön „Asztali (offline) verzió" résszel
+<!-- key: 2026-06-10-desktop-penzugy-sugo -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+Az asztali Kartotéka Pénzügy oldalán mostantól elérhető a **Súgó** fül — a webbel azonos, lelkészbarát magyarázat minden pénzügyi funkcióról, kategóriákba rendezve, lépésről lépésre, tippekkel és példákkal.
+
+### 🖥️ Külön rész az asztali (offline) működésről
+
+A súgó végén egy **„Asztali (offline) verzió"** kategória pontosan azt magyarázza el, ami kimondottan a letölthető appra vonatkozik:
+
+- **Offline mód** — hogyan dolgozik a gép a helyi, titkosított másolattal internet nélkül.
+- **Szinkronizáció** — mi tölt le a felhőből, és hogyan mennek fel a rögzítéseid.
+- **Iratszám-tárca** — miért kell, és hogyan töltsd fel az offline sorszámokat.
+- **Tétel rögzítése**, valamint **sztornó és visszavonás** — az asztali viselkedés (online vs. offline).
+- **Ütközések feloldása**, és **mi megy offline, mi csak online** — gyors összefoglaló.
+- **Frissítés** — hogy az asztali app külön frissül a webfelülettől.
+
+> *Megjegyzés a rendszergazdának:* a közös pénzügyi súgó egy forrásból származik (a webbel azonos), a desktop csak az „Asztali (offline) verzió" szekciót adja hozzá — a web súgója változatlan. A változás a desktop **0.8.8** kiadással érkezik.
+
+---
+
 ## [2026-06-10] — Asztali app: a Pénzügy oldalon mostantól rögzíteni is lehet (web-azonos „Tétel rögzítése")
 <!-- key: 2026-06-10-desktop-penzugy-tetel-rogzites -->
 <!-- category: feature -->

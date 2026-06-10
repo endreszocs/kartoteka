@@ -22,6 +22,7 @@ import {
   AccountingTab,
   DebtTab,
   CashbookTab,
+  FinanceSugoTab,
   calculateBalances,
   type BefitetesRow,
   type KiadasRow,
@@ -58,6 +59,7 @@ import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
+import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 
 const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
 
@@ -287,7 +289,14 @@ export function PenzugyPage() {
         <ColorTabs tabs={TAB_DEFS} active={activeTab} onChange={setActiveTab} />
 
         <div className="mt-4">
-          {loading || !settings ? (
+          {activeTab === 'sugo' ? (
+            // A Súgó statikus tartalom — a pénzügyi adatok betöltésétől függetlenül
+            // azonnal megjelenik. A desktop-specifikus szekciót extraSections-ön adjuk át.
+            <FinanceSugoTab
+              extraSections={DESKTOP_HELP_SECTIONS}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
+          ) : loading || !settings ? (
             <div className="py-12 text-center text-sm text-slate-400">Pénzügyi adatok betöltése…</div>
           ) : !READY_TABS.includes(activeTab) ? (
             <div className="card-raised p-8 text-center">

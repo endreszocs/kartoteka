@@ -152,3 +152,9 @@ A megosztott **`CashbookTab`** mostantól megjelenik a desktop egységes `/penzu
 **Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (Az új core-export nem érinti a web meglévő `undoStornoTransaction`-jét.)
 
 **A Kassza-fülön bekötve:** sztornó ✅ · sztornó-visszavonás ✅. **Hátra (desktop use-case hiányzik):** szerkesztés (`updateIncome/Expense`), nyugta auto-kiállítás a kasszából. **Decont/Dispozíció** hero-gombok: külön.
+
+### 2026-06-10 (folyt.) — Pénzügy Súgó fül + desktop-specifikus szekció ✅ (web+desktop verifikált)
+
+A desktop egységes `/penzugy` oldal **Súgó** füle mostantól a megosztott **`FinanceSugoTab`**-ot rendereli (a betöltési kapu ELŐTT — statikus tartalom, nem vár pénzügyi adatra). A `FinanceSugoTab` kapott egy opcionális **`extraSections`** prop-ot (visszafelé kompatibilis: a web nem ad át semmit → változatlan). A desktop egy **„Asztali (offline) verzió"** szekciót injektál (`apps/desktop/src/lib/desktop-help-sections.ts`): offline mód, szinkronizáció, iratszám-tárca, asztali tétel-rögzítés, sztornó/visszavonás, ütközés-feloldás, offline-vs-online összefoglaló, frissítés.
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (A `Section`/`Topic`/`ColorKey` típusok mostantól exportáltak a `FinanceSugoTab`-ból.)
