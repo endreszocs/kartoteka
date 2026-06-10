@@ -3,11 +3,10 @@
 **Módszertan:** 5 párhuzamos audit-ágens (architektúra, adatmodell, biztonság/GDPR, UI/UX/teljesítmény, keresztmodul-integráció) + a P0-gyanús leletek kézi kód-verifikációja.
 **Jelölés:** ✔ = kézzel ellenőrzött (kód beolvasva) · Ⓐ = ágens-lelet, szúrópróba nélkül elfogadva.
 
-> **Állapot (2026-06-10 este): Fázis 1 KÉSZ (SQL élesben ✅), Fázis 2–3 KÉSZ
-> (kód implementálva, SQL futtatásra vár), Fázis 4–5 részben kész** — tételes
-> bontás az 5. szakaszban. Futtatandó SQL a deploy előtt:
-> `2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql` (lásd `_RUN_LOG.md`).
-> Deploy-terv (Endre döntése): minden fázis EGYÜTT megy ki, tesztelés után.
+> **Állapot (2026-06-10): ÉLESÍTVE.** Fázis 1 ✅ (SQL + kód élesben), Fázis 2–3 ✅
+> (SQL + kód élesben — mindkét migráció lefutott, verifikálva), Fázis 4–5 részben
+> kész (tételes bontás az 5. szakaszban — a maradék tudatosan elhalasztva).
+> Deploy: PR #5 merge a main-re (b7553657), 2026-06-10.
 
 ---
 

@@ -67,8 +67,11 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        utóellenőrzés: 0 árva sor ✅. A backfill így 100%-os mindhárom táblán.
        A 2026-06-10-es webapp-kód (tag-törlés RPC, címtörzs-RPC-k) mostantól deployolható.
 
-- [ ] **`2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql`** — PENDING (még nem futott)
-       Indok: Tagnyilvántartás Fázis 2-3 (átvilágítás P1-5, P1-6, P1-7c).
+- [x] 2026-06-10 — **`2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql`** ✅ LEFUTOTT
+       Tagnyilvántartás Fázis 2-3 (átvilágítás P1-5, P1-6, P1-7c).
+       **Verifikáció (Endre, 2026-06-10):** `uidx_szemely_cnp_per_congregation` index
+       létrejött ✅ — ez egyben igazolja, hogy CNP-duplikátum nem volt; az árva
+       befizetes.id_csalad hivatkozásokat a migráció nullázta, a FK él.
        Hatás: (1) `befizetes.id_csalad` FK a csalad-ra (árva hivatkozások NULL-ozása után);
        (2) `uidx_szemely_cnp_per_congregation` partial unique — CNP-egyediség gyülekezeten
        belül (duplikátumnál NEM bukik el: NOTICE + a fájl végi diagnosztika listázza);
