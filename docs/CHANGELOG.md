@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Asztali app: megszűnt a folytonos újra-bejelentkezés és PIN-kérés
+<!-- key: 2026-06-10-desktop-keyring-persistence-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+### 🔐 Egyszer beállítod — onnantól megjegyzi
+
+A letölthető Windows-alkalmazás (asztali Kartotéka) egy bosszantó hibáját javítottuk: eddig **minden indításnál újra bejelentkezést és új offline belépési kód (PIN) beállítását** kérte, mert a gép nem őrizte meg biztonságosan a beállításokat.
+
+- **Az offline belépési kódot mostantól elég egyszer beállítani** — a következő indításkor már nem kéri újra, hanem a meglévő kóddal léphetsz be.
+- **A bejelentkezés is megmarad** — nem kell minden indításnál újra beírni az e-mailt és jelszót.
+- **Az offline (hálózat nélküli) adatok is megmaradnak** a gépen a két indítás között — eddig a helyi adatbázis minden indításkor újraépült.
+
+A beállítások mostantól a **Windows beépített, titkosított jelszókezelőjében** (Credential Manager) tárolódnak — biztonságosan, a gépedhez kötve.
+
+> *Megjegyzés a rendszergazdának:* a javítás a desktop **0.8.8** kiadással érkezik (új aláírt build + auto-updater). A frissítés utáni **első** indításkor a helyi adatbázis még egyszer újraépül (az új, immár tartós titkosítási kulccsal), utána stabil. Nincs SQL-migráció.
+
+---
+
 ## [2026-06-10] — Választói névjegyzék automatika + GDPR-hozzájárulások
 <!-- key: 2026-06-10-tagnyilvantartas-valasztoi-gdpr -->
 <!-- category: feature -->

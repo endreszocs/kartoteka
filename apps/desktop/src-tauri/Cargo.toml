@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.8.7"
+version = "0.8.8"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -31,8 +31,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # M2.3 — SQLCipher kulcs-tárolás OS-szintű titkos storage-ben.
 # Windows: Credential Manager (DPAPI), macOS: Keychain, Linux: Secret Service.
-# A `keyring` crate pure-Rust (windows-rs bindings alatta), tehát NEM hoz újabb
-# C-build-függőségeket (libsodium/OpenSSL stb.).
+#
+# ⚠️ 2026-06-10 KRITIKUS JAVÍTÁS: a keyring v3-ban a platform-backendek
+# feature-flag mögött vannak. Korábban itt csak `keyring = "3"` állt feature
+# nélkül — ekkor a crate NÉMÁN egy memóriabeli "mock" tárolóra esik vissza,
+# ami app-újraindításkor ÜRES. Emiatt veszett el minden indításkor: a Supabase
+# session (→ újra be kellett jelentkezni), az offline PIN (→ minden indításkor
+# PIN-beállítást kért) ÉS a SQLCipher DB-kulcs (→ a lokális DB minden indításkor
+# auto-recovery-zett). Az alábbi target-specifikus feature-ök kapcsolják be a
+# valódi OS-szintű titkos tárolót. (A base dep feature nélkül marad, hogy a crate
+# minden platformon elérhető legyen; a feature-öket Cargo unió-zza per-target.)
 keyring = "3"
 # SQLCipher-kulcs generáláshoz: kriptográfiailag biztonságos RNG.
 rand = "0.8"
@@ -56,4 +64,15 @@ argon2 = "0.5"
 # A `tauri-plugin-updater` pure-Rust a végén (az aláírás-ellenőrzéshez
 # a már behozott ed25519-dalek is elég).
 tauri-plugin-updater = "2"
+
+# 2026-06-10 — keyring platform-backend feature-ök (lásd a fenti megjegyzést).
+# Windows Credential Manager / macOS Keychain / Linux Secret Service.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
