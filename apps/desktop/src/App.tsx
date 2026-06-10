@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 import { AuthGate } from './lib/auth-gate'
 import { LoginPage } from './pages/login-page'
@@ -23,7 +23,6 @@ import { MembersPage } from './pages/members-page'
 import { MissziosMuhelyPage } from './pages/misszios-muhely-page'
 import { MunkanaploPage } from './pages/munkanaplo-page'
 import { PenzugyDashboardPage } from './pages/penzugy-dashboard-page'
-import { PenzugyLandingPage } from './pages/penzugy-landing-page'
 import { PenzugyTranzakciokPage } from './pages/penzugy-tranzakciok-page'
 import { PenzugySzamadasPage } from './pages/penzugy-szamadas-page'
 import { PinEntryPage } from './pages/pin-entry-page'
@@ -56,7 +55,9 @@ function App() {
           <Route index element={<HomePage />} />
           <Route path="/dashboard" element={<HomePage />} />
           <Route path="/munkanaplo" element={<MunkanaploPage />} />
-          <Route path="/penzugy" element={<PenzugyLandingPage />} />
+          {/* 2026-06-10: a Pénzügy az Áttekintésen landol (mint a web), nem a
+              kártyás landing oldalon. A korábbi PenzugyLandingPage kivezetve. */}
+          <Route path="/penzugy" element={<Navigate to="/penzugy/attekintes" replace />} />
           <Route path="/penzugy/attekintes" element={<PenzugyDashboardPage />} />
           <Route path="/penzugy/befizetes" element={<BefizetesPage />} />
           <Route path="/penzugy/kiadas" element={<KiadasPage />} />

@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Asztali app: a Pénzügy ugyanúgy néz ki, mint a webfelületen
+<!-- key: 2026-06-10-desktop-penzugy-parity -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+A letölthető Windows-alkalmazás (asztali Kartotéka) **Pénzügy** része mostantól a **webfelülettel azonos megjelenést** kap — ugyanazokat a táblázatokat és összesítőket látod, akár a böngészőben, akár az asztali appban dolgozol. Így nem kell kétféle felülethez szokni.
+
+### 💰 A Pénzügy az Áttekintéssel fogad
+
+- A bal oldali menüben a **Pénzügy**-re kattintva mostantól rögtön az **Áttekintés** nyílik meg (bevételek, kiadások, egyenleg), ahogy a webfelületen is — nem egy köztes választóoldal.
+
+### 📊 Új, a webbel azonos nézetek az asztali appban
+
+- **Áttekintés** — éves bevétel, kiadás és egyenleg, hónapokra és kategóriákra bontva.
+- **Tranzakciók** — az összes bevétel és kiadás egy kereshető listában, kategóriánként.
+- **Számadás** — az éves számadás a költségvetési terv tükrében (bevételek/kiadások tervhez mérve).
+
+Ezek a nézetek **internet nélkül is** működnek: a legutóbb szinkronizált adatokat mutatják, és amint újra online vagy, frissülnek. *(Ha egy lista üres: előbb legyen egyszer hálózat, hogy az adatok letöltődjenek.)*
+
+> *Megjegyzés a rendszergazdának:* a fenti nézetek csak **megjelenítenek** (read-only) — a rögzítés/véglegesítés továbbra is a meglévő felületeken történik. A változás a desktop **0.8.8** kiadással érkezik. A Tartozások és a bevétel/kiadás rögzítés web-azonossá tétele külön, gondos lépésekben jön (az offline pénztárca-rögzítés érintettsége miatt).
+
+---
+
 ## [2026-06-10] — Asztali app: megszűnt a folytonos újra-bejelentkezés és PIN-kérés
 <!-- key: 2026-06-10-desktop-keyring-persistence-fix -->
 <!-- category: bugfix -->
