@@ -58,3 +58,20 @@ A `@kartoteka/ui-app` csomag a finance modulhoz **már tartalmazza a megosztott,
 4. **D-hullám (külön projekt):** nem-pénzügyi modulok — új megosztott komponensek kiemelése a webből.
 
 **Elv:** soha nem cseréljük ki a működő offline írási utat tesztelés nélkül. Az A/B hullám semmilyen írási utat nem érint — ezekkel biztonságos kezdeni.
+
+---
+
+## 5. Megvalósítás-napló
+
+### 2026-06-10 — A-hullám alap + A3 (Tranzakciók) ✅ (TS-verifikált)
+
+**Kategória-szinkron alapréteg** (`apps/desktop/src/lib/finance-categories-sync.ts`):
+a `szamadasicel` + `befizetescel` + `kiadascel` referencia-táblák tükrözése a lokális SQLite-ba (TS-oldali `CREATE TABLE IF NOT EXISTS` — nincs Rust-migráció/rebuild). Getterek: `getLocalSzamadasiCellek`, `getLocalBevCelMap`, `getLocalKiaCelMap`. A web `initFinance` pontos lekérdezéseit követi (szamadasicel-nek nincs `kod` oszlopa → `kod = id`).
+
+**Adat-adapter** (`apps/desktop/src/lib/finance-adapters.ts`): `LocalBefizetesRow`/`LocalKiadasRow` → megosztott `BefitetesRow`/`KiadasRow` (0/1 → boolean, hiányzó `belso_mozgas_xkey` → null).
+
+**A3 — Tranzakciók tab** (`apps/desktop/src/pages/penzugy-tranzakciok-page.tsx`): a MEGOSZTOTT `@kartoteka/ui-app` `TransactionsTab` renderelése a desktopon (additív, új `/penzugy/tranzakciok` route + almenü-pont „Tranzakciók"). Offline-first: a lokális cache-ből táplálva, online-first best-effort frissítéssel. Read-only — nem érinti az írási utat.
+
+**Verifikáció (itt):** `tsc --noEmit` ✅ (a teljes desktop csomag típushelyes), `lint:imports` ✅ (0 tiltott import). **Hátravan (Te oldaladon):** a desktop build futtatása és vizuális ellenőrzés, hogy a Tranzakciók tab a webbel azonosan jelenik meg, és a kategória-nevek/összegek helyesek.
+
+**Következő A-hullám lépések:** A2 Áttekintés → `FinanceDashboard` (a `BealitasRow` beállítás-szinkron hozzáadásával), majd A4 Tartozások → `DebtTab`, A5 Számadás → `AccountingTab`.

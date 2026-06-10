@@ -23,6 +23,7 @@ import {
   ArrowUpRight,
   Eye,
   FileSpreadsheet,
+  ListOrdered,
   Receipt,
   ScrollText,
 } from 'lucide-react'
@@ -41,6 +42,7 @@ const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
   { label: 'Áttekintés', href: '/penzugy/attekintes', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
   { label: 'Bevétel', href: '/penzugy/befizetes', icon: ArrowUpRight, gradient: 'from-emerald-400 to-green-500' },
   { label: 'Kiadás', href: '/penzugy/kiadas', icon: ArrowDownRight, gradient: 'from-red-400 to-rose-500' },
+  { label: 'Tranzakciók', href: '/penzugy/tranzakciok', icon: ListOrdered, gradient: 'from-blue-400 to-cyan-500' },
   { label: 'Belső mozgás', href: '/penzugy/belsomozgas', icon: ArrowLeftRight, gradient: 'from-violet-400 to-purple-500' },
   { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
