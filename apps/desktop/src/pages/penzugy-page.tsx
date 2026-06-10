@@ -34,6 +34,8 @@ import {
   type ExpenseCategory,
 } from '@kartoteka/ui-app'
 
+import { undoStornoUseCase } from '@kartoteka/core'
+
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getLocalOwnProfile, getLocalOwnCongregation, getLocalMembersOfOwnCongregation } from '../lib/sync'
@@ -104,6 +106,10 @@ export function PenzugyPage() {
   const [userId, setUserId] = useState('')
   const [congregationId, setCongregationId] = useState('')
   const [combinedOpen, setCombinedOpen] = useState(false)
+  // Page-szintű visszajelzés (pl. sztornó-visszavonás eredménye a Kassza fülről).
+  const [pageToast, setPageToast] = useState<
+    { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
+  >(null)
 
   // Hash ⇄ activeTab szinkron (mint a web)
   useEffect(() => {
@@ -217,6 +223,13 @@ export function PenzugyPage() {
     void load()
   }, [load])
 
+  // Page-toast automatikus eltűntetése pár másodperc után.
+  useEffect(() => {
+    if (!pageToast) return
+    const t = setTimeout(() => setPageToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [pageToast])
+
   // Kategória-opciók a „+ Tétel rögzítése" összevont bevitelhez — PONTOSAN a web
   // `finance-tabs.tsx` képlete (bevCelMap/kiaCelMap → {id, kod, nev}, kod szerint
   // rendezve). Így a desktop és a web ugyanazokat a kategóriákat kínálja.
@@ -256,6 +269,21 @@ export function PenzugyPage() {
           onAddEntry={congregationId && userId ? () => setCombinedOpen(true) : undefined}
         />
 
+        {pageToast && (
+          <div
+            role={pageToast.kind === 'error' ? 'alert' : 'status'}
+            className={`mb-4 rounded-md border px-3 py-2 text-sm ${
+              pageToast.kind === 'error'
+                ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                : pageToast.kind === 'warning'
+                  ? 'border-amber-300 bg-amber-50 text-amber-800'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-800'
+            }`}
+          >
+            {pageToast.msg}
+          </div>
+        )}
+
         <ColorTabs tabs={TAB_DEFS} active={activeTab} onChange={setActiveTab} />
 
         <div className="mt-4">
@@ -289,10 +317,20 @@ export function PenzugyPage() {
               incomeCategories={incomeCategories}
               expenseCategories={expenseCategories}
               onTransactionChanged={() => void load()}
-              onToast={() => undefined}
-              // C1b: csak a sztornó van bekötve (létező use-case) → a CashbookTab
-              // a többi akció-gombot (szerkesztés, undo, nyugta) elrejti, amíg azok
-              // desktop use-case-ei el nem készülnek. Nincs inert gomb.
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+              // C1c: sztornó-visszavonás bekötve a core undoStornoUseCase-re
+              // (a web undoStornoTransaction tükre — belső-mozgás párral).
+              onUndoStorno={async ({ type, id }) => {
+                const supabase = getDesktopSupabase()
+                const result = await undoStornoUseCase(
+                  { congregationId, type, id },
+                  { supabase, runtime: 'desktop', userId },
+                )
+                return { success: result.success, error: result.success ? null : result.error }
+              }}
+              // C1b/C1c: a sztornó + sztornó-visszavonás van bekötve (létező use-case-ek).
+              // A szerkesztés / nyugta-kiállítás desktop use-case-ei még hiányoznak →
+              // azokat a CashbookTab elrejti (canEdit/canChitanta=false). Nincs inert gomb.
               stornoConfirmDialogSlot={({ open, onOpenChange, type, id, summary, isInternalTransfer, onStornoed }) => (
                 <DesktopStornoConfirmDialog
                   open={open}

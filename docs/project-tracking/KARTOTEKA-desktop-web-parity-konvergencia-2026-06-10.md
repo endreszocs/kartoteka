@@ -144,3 +144,11 @@ A megosztott **`CashbookTab`** mostantól megjelenik a desktop egységes `/penzu
 - **Sztornó-visszavonás** — nincs `undoStorno` core use-case (a storno tükre, megépíthető).
 - **Nyugta auto-kiállítás a kasszából** — `issueChitantaUseCase` van, de az „auto-issue befizetésből" + tömb/print slot-bekötés hátravan.
 - **Decont / Dispozíció hero-gombok** — nincs core use-case (web szerver-akció); új write-logika.
+
+### 2026-06-10 (folyt.) — C-hullám C1c-undo: sztornó-visszavonás ✅ (core+web+desktop verifikált)
+
+Új **`undoStornoUseCase`** a `@kartoteka/core`-ban (`packages/core/src/finance/undo-storno.ts`) — a web `undoStornoTransaction` (edit-storno-actions.ts) PONTOS tükre: év-véglegesítés blokk, `stornozott=false` + a sztornó-mezők nullázása, `belso_mozgas_xkey` esetén MINDKÉT tábla (befizetes+kiadas) párja, az oblio/chitanta cascade-et NEM fordítja vissza (paritás). Bekötve a Kassza fül `onUndoStorno`-jára → a `canUndoStorno` flag igazra vált, a Sztornó-vissza gomb (RotateCcw) megjelenik a sztornózott sorokon. Page-szintű toast a visszajelzéshez (az undo-hiba nem nyelődik el).
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (Az új core-export nem érinti a web meglévő `undoStornoTransaction`-jét.)
+
+**A Kassza-fülön bekötve:** sztornó ✅ · sztornó-visszavonás ✅. **Hátra (desktop use-case hiányzik):** szerkesztés (`updateIncome/Expense`), nyugta auto-kiállítás a kasszából. **Decont/Dispozíció** hero-gombok: külön.

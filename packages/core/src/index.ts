@@ -219,6 +219,15 @@ export {
   type StornoExpenseResult,
 } from './finance/kiadas/storno'
 
+// Sztornó visszavonása (befizetes + kiadas, belső-mozgás párral) — C1c
+export {
+  undoStornoUseCase,
+  type UndoStornoCtx,
+  type UndoStornoInput,
+  type UndoStornoResult,
+  type UndoStornoType,
+} from './finance/undo-storno'
+
 export {
   listInternalTransfersUseCase,
   type ListInternalTransfersCtx,
