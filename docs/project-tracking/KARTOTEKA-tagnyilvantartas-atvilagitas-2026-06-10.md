@@ -3,14 +3,11 @@
 **Módszertan:** 5 párhuzamos audit-ágens (architektúra, adatmodell, biztonság/GDPR, UI/UX/teljesítmény, keresztmodul-integráció) + a P0-gyanús leletek kézi kód-verifikációja.
 **Jelölés:** ✔ = kézzel ellenőrzött (kód beolvasva) · Ⓐ = ágens-lelet, szúrópróba nélkül elfogadva.
 
-> **Állapot (2026-06-10): Fázis 1 KÉSZ — kód implementálva, SQL lefutott élesben.**
-> Kód: `tagnyilvantartas/actions.ts` (ownership-check, törlés-RPC-hívás, felmentes-szűrés,
-> getOrCreate* RPC-re állítva), `tagnyilvantartas/presbyter-actions.ts` (congregation_id az
-> insertekben), `penzugy/actions.ts` (felmentes-szűrés). SQL:
-> `2026-06-10-tagnyilvantartas-fazis1-biztonsag.sql` ✅ **LEFUTOTT 2026-06-10** —
-> verifikáció: felmentes NULL=0, presbiter NULL=0, csoport NULL=0 (az egyetlen árva
-> körzet-sort töröltük — backfill 100%). A deploy szabad. A P0-2 'meghalt'-ág
-> haztartas-lezárási egységesítése (P1-7b) szándékosan a 3. fázisban marad.
+> **Állapot (2026-06-10 este): Fázis 1 KÉSZ (SQL élesben ✅), Fázis 2–3 KÉSZ
+> (kód implementálva, SQL futtatásra vár), Fázis 4–5 részben kész** — tételes
+> bontás az 5. szakaszban. Futtatandó SQL a deploy előtt:
+> `2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql` (lásd `_RUN_LOG.md`).
+> Deploy-terv (Endre döntése): minden fázis EGYÜTT megy ki, tesztelés után.
 
 ---
 
@@ -147,3 +144,43 @@ page.tsx (SSR)
 | **3. Integráció-zárás** | házasság→család automatika; halál-utak egységesítése; sirhelyelhunyt→szemely link; éves jelentés lélekszám | P1-7, P2-1 |
 | **4. Skálázás + UX** | szerveroldali lapozás vagy virtualizáció; export; import-wizard duplikátum + vissza-gomb; mobil-finomítások | P1-2, P2-2, P2-5…P2-8 |
 | **5. Új funkciók** | születésnap/névnap, korfa, tagsági igazolás, GDPR-mezők, voter-automatika | P3-* |
+
+---
+
+## 5. Fázis 2–5 megvalósulás (2026-06-10)
+
+### ✅ Elkészült
+
+| Tétel | Megvalósítás |
+|---|---|
+| P1-1 audit-log | `logAuditEvent` MINDEN tagnyilvántartási mutáción: `member.save/remove` (mind a 4 ág), `member.quick_create_parent`, `member.note_update`, `registry.note_update`, `family.save/delete/wipe_structure/visit_save`, `district.save/delete/assign_family/remove_family`, `presbyter.save/delete`, `validation.run/resolve/ignore/reopen` |
+| P1-5 saveFamily tranzakció | `tagnyilvantartas_csalad_mentes` RPC (Fázis 2-3 SQL): csalad + gyerek-csere atomikusan, minden érintett tag gyülekezet-ellenőrzésével; a háztartás-sync hibája toast-figyelmeztetés (nem néma console.warn) |
+| P1-6 FK + UNIQUE | Fázis 2-3 SQL: `befizetes.id_csalad` FK (árva hivatkozások NULL-ozása után) + `uidx_szemely_cnp_per_congregation` partial unique (duplikátum esetén nem bukik el — NOTICE + diagnosztika-lista) |
+| P1-7a házasság→család | `ensureFamilyForCouple` a saveMarriage-ben: meglévő közös család → fél-család kiegészítés → új család a házastárs címével (idempotens) |
+| P1-7b halál-utak | `removeMember('meghalt')` = saveBurial-szemantika: `member_status='elhunyt'` + haztartas_tag és hazastárs-kapcsolat lezárás (vér szerinti kapcsolatok érintetlenek) |
+| P1-7c sirhelyelhunyt→szemely | Fázis 2-3 SQL: `id_szemely` oszlop + backfill a temetes-hivatkozáson át + BEFORE INSERT/UPDATE trigger |
+| P2-1 éves jelentés lélekszám | `szekcio1.lelekszam` (aktív nyilvántartott tagok) + nyomtatási sor az I. szekcióban |
+| P1-2 (első lépés) | Személyek lista: 150 soros DOM-limit + „További 150 megjelenítése" gomb (virtualizáció-pótló) |
+| P2-5 (személyek) | Excel-export gomb a Személyek fülön — a szűrt lista xlsx-be |
+| P2-8 | Mobilon mindig látható a sortörlés-gomb (lg alatt nincs hover-rejtés) |
+| P3-1 (születésnap) | „E havi születésnaposok" lista az Áttekintés fülön |
+| P2-7 | ✓ Okafogyott — a gomb már korábban is `disabled={running}`-gal futott |
+| P3-2 korfa | ✓ Okafogyott — a „Korcsoportok" sávdiagram már létezett az Áttekintésen |
+
+### ⏳ Tudatosan elhalasztva (külön menetet igényel)
+
+| Tétel | Indok |
+|---|---|
+| P1-2 teljes (virtualizáció / szerveroldali lapozás) | getMembers API-átalakítás — külön sprint |
+| P2-2 revalidatePath granularizálás | a tab-state-kezelés átfogó átalakításával együtt érdemes |
+| P2-4 hash-routing csere | URL-séma változás, több modult érint |
+| P2-5 (családok export) | a FamilyRow-mezők normalizálásával együtt |
+| P2-6 import-wizard (vissza-gomb, duplikátum-jelzés) | a wizard állapotgép + import-RPC átvizsgálását igényli |
+| P2-9 csoport↔districts kettősség | migrációs döntés (az admin-átvilágítás Fázis 4-gyel együtt) |
+| P3-1 (névnap-lista) | nevnap-tábla bekötése + név-egyeztetési szabály döntése |
+| P3-3 tagsági igazolás nyomtatás | sablon-tervezés az emléklap-rendszerrel közösen |
+| P3-5 GDPR-mezők | a 2026-06-05-ös törlés/átadás/audit terv döntéseire vár |
+| P3-7 voter_eligible automatika | egyházjogi definíciót igényel (ki minősül választónak) |
+| P3-8 offline/desktop | termékdöntés szükséges (web-only marad-e a modul) |
+| P3-9 családfa új modell (szemely_kapcsolat) | külön menet |
+| „backfill-SQL élesítés" (2026-04-30l) | az élő blokk előtt kézi név-átnézés kell (~99 csak-keresztnevű anya) |

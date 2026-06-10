@@ -857,6 +857,45 @@ async function checkAndCreateFamily(supabase: any, childId: number, fatherCnp: s
   }
 }
 
+// 2026-06-10 (Fázis 3, átvilágítás P1-7a): házasságkötéskor a CSALÁDI rekordról
+// is gondoskodunk — keresztelésnél ez eddig is megvolt (checkAndCreateFamily),
+// házasságnál hiányzott, így az új házaspár nem jelent meg a Családok fülön.
+// Idempotens: meglévő közös aktív család esetén nem ír; fél-családot (özvegy/
+// egyedülálló családfő) kiegészít; különben új családot hoz létre a férj
+// (vagy feleség) lakcímével. A háztartás-modell szinkronja a család következő
+// szerkesztésekor (saveFamily) fut le.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureFamilyForCouple(supabase: any, ferfiId: number, noId: number) {
+  // 1) már létező közös aktív család?
+  const { data: existingBoth } = await supabase.from('csalad').select('id')
+    .eq('isaktiv', true).eq('id_ferfi', ferfiId).eq('id_no', noId).limit(1)
+  if (existingBoth?.length) return
+
+  // 2) fél-család kiegészítése
+  const { data: husbandSolo } = await supabase.from('csalad').select('id')
+    .eq('isaktiv', true).eq('id_ferfi', ferfiId).is('id_no', null).limit(1)
+  if (husbandSolo?.[0]) {
+    await supabase.from('csalad').update({ id_no: noId }).eq('id', husbandSolo[0].id)
+    return
+  }
+  const { data: wifeSolo } = await supabase.from('csalad').select('id')
+    .eq('isaktiv', true).eq('id_no', noId).is('id_ferfi', null).limit(1)
+  if (wifeSolo?.[0]) {
+    await supabase.from('csalad').update({ id_ferfi: ferfiId }).eq('id', wifeSolo[0].id)
+    return
+  }
+
+  // 3) új család a férj (vagy a feleség) lakcímével — cím nélkül nem hozunk
+  //    létre rekordot (a csalad.c_utcaid NOT NULL)
+  const { data: addr } = await supabase.from('szemely').select('id, c_utcaid, c_szam')
+    .in('id', [ferfiId, noId]).not('c_utcaid', 'is', null).limit(1)
+  if (!addr?.[0]?.c_utcaid) return
+  await supabase.from('csalad').insert([{
+    id_ferfi: ferfiId, id_no: noId,
+    c_utcaid: addr[0].c_utcaid, c_szam: addr[0].c_szam || '1', isaktiv: true,
+  }])
+}
+
 // ── Házasság mentés ──────────────────────────────────────────
 
 export async function saveMarriage(data: MarriageInput) {
@@ -931,7 +970,16 @@ export async function saveMarriage(data: MarriageInput) {
     }])
   }
 
+  // 2026-06-10 (Fázis 3, P1-7a): családi rekord biztosítása az új házaspárnak
+  try {
+    await ensureFamilyForCouple(supabase, d.id_ferfi, d.id_no)
+  } catch (e) {
+    console.warn('[saveMarriage] család-biztosítás sikertelen (nem blokkoló):',
+      e instanceof Error ? e.message : e)
+  }
+
   revalidatePath('/anyakonyv')
+  revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
 

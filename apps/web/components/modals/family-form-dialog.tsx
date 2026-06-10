@@ -154,7 +154,12 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       id_csoport: idCsoport ? parseInt(idCsoport) : null,
     })
     if (result.error) toast.error(result.error)
-    else { toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!'); onOpenChange(false) }
+    else {
+      toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
+      // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
+      if (result.warning) toast.warning(result.warning, { duration: 8000 })
+      onOpenChange(false)
+    }
     setLoading(false)
   }
 

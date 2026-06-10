@@ -67,6 +67,20 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
        utóellenőrzés: 0 árva sor ✅. A backfill így 100%-os mindhárom táblán.
        A 2026-06-10-es webapp-kód (tag-törlés RPC, címtörzs-RPC-k) mostantól deployolható.
 
+- [ ] **`2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql`** — PENDING (még nem futott)
+       Indok: Tagnyilvántartás Fázis 2-3 (átvilágítás P1-5, P1-6, P1-7c).
+       Hatás: (1) `befizetes.id_csalad` FK a csalad-ra (árva hivatkozások NULL-ozása után);
+       (2) `uidx_szemely_cnp_per_congregation` partial unique — CNP-egyediség gyülekezeten
+       belül (duplikátumnál NEM bukik el: NOTICE + a fájl végi diagnosztika listázza);
+       (3) `sirhelyelhunyt.id_szemely` oszlop + backfill a temetes-hivatkozáson át + trigger;
+       (4) `tagnyilvantartas_csalad_mentes(...)` RPC — atomikus család+gyerek mentés,
+       tag-szintű gyülekezet-ellenőrzéssel.
+       ⚠️ SORREND: a Fázis 2-3 webapp-kód deployja ELŐTT futtatandó (a saveFamily már az
+       RPC-t hívja; nélküle a család-mentés érthető hibaüzenettel leáll, adatvesztés nélkül).
+       Verifikáció: fájl végi diagnosztika — árva befizetes=0, CNP-duplikátum lista üres
+       (vagy rendezendő), sirhelyelhunyt-linkek feltöltve, index létrejött.
+       BEGIN/COMMIT csomagolva (P2-12 betartva).
+
 - [x] 2026-05-17 — **`2026-05-17-iktato-sequence-pointer-rpc.sql`** ✅ LEFUTOTT
        Új `iktato_sequence_pointers` tábla + `next_iktato_sequence(uuid, integer)` SECURITY DEFINER RPC + backfill + partial UNIQUE INDEX (P3-5 race-fix).
        Verifikáció: `next_iktato_sequence` ✅ OK, `search_path=public, pg_temp`, partial UNIQUE INDEX létrejött, pointer-tábla 0 sor (productionben még nincs iktato-bejegyzés). A frontend `saveFilingEntry` mostantól az RPC-t hívja az atomic sorszámért.

@@ -23,6 +23,39 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Tagnyilvántartás 2–3. fázis: auditnapló, megbízhatóbb mentések, összekapcsolt modulok
+<!-- key: 2026-06-10-tagnyilvantartas-fazis2-3 -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🧾 Minden változás nyomon követhető (auditnapló)
+
+- A tagnyilvántartás **minden módosítása** (tag mentése és kivezetése, család, körzet, presbiter, megjegyzések, ellenőrzési státuszok) mostantól **auditnaplóba kerül** — ki, mit, mikor. A vallási hovatartozás a GDPR szerint különleges adat: a kezelése így már elszámoltatható.
+
+### 🛡️ Megbízhatóbb mentések
+
+- **Család mentése egy lépésben:** a család adatai és a gyermek-hozzárendelések mostantól **egyetlen adatbázis-tranzakcióban** mentődnek — félbeszakadó mentés nem veszítheti el a gyermek-listát. Ha a háztartás-nézet frissítése nem sikerül, **látható figyelmeztetést** kapsz (eddig csendben maradt).
+- **Adatintegritási védelmek:** a befizetés család-hivatkozása nem mutathat többé nem létező családra, és egy gyülekezeten belül **nem jöhet létre két azonos személyi számú tag**.
+
+### 🔗 A modulok összeérnek
+
+- **Esketés után automatikusan család:** az anyakönyvi esketés rögzítésekor a rendszer a **családi rekordról is gondoskodik** (új család a pár címével, vagy a meglévő kiegészítése) — eddig ez csak keresztelésnél történt meg, ezért az új házaspárok nem jelentek meg a Családok fülön.
+- **Halálozás egységesen:** a tagnyilvántartásból rögzített haláleset ugyanúgy lezárja a háztartás-tagságot és a házastársi kapcsolatot, mint az anyakönyvi temetés-rögzítés (a szülő–gyermek kapcsolatok megmaradnak — a családfa nem sérül).
+- **Sírnyilvántartás ↔ tagok:** az elhunytak sír-bejegyzése mostantól össze van kötve a tag-rekorddal (a temetésen keresztül, visszamenőleg is).
+- **Éves jelentés lélekszámmal:** az I. szekcióban megjelenik a **gyülekezeti lélekszám** — automatikusan a tagnyilvántartásból számolva, nem kell fejből tudni.
+
+### ⚡ Gyorsabb, kényelmesebb taglista
+
+- **Excel-export** gomb a Személyek fülön — a szűrt lista (pl. csak a 25–50 évesek) egy kattintással letölthető.
+- Nagy gyülekezeteknél a lista **gyorsabban jelenik meg** (150 soronként, gombbal bővíthető).
+- Az Áttekintés fülön új **„E havi születésnaposok"** lista a köszöntésekhez.
+- Mobilon a sortörlés gomb mostantól mindig látható (eddig csak egérrel rámutatva jelent meg).
+
+> *Megjegyzés a rendszergazdának:* a deploy ELŐTT futtatandó migráció:
+> `migration-docs/sql/2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql` (részletek: `_RUN_LOG.md`).
+
+---
+
 ## [2026-06-10] — Tagnyilvántartás: családi karton nyomtatás, korszűrő, megjegyzések + anyakönyvi évfordulók
 <!-- key: 2026-06-10-tagnyilvantartas-funkciok -->
 <!-- category: feature -->

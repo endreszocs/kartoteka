@@ -6,6 +6,7 @@ import { familySchema, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
+import { logAuditEvent } from '@/lib/audit/log'
 
 export interface FamilyRow {
   id: number
@@ -426,53 +427,60 @@ export async function saveFamily(data: FamilyInput) {
     }
   }
 
-  const familyData: Record<string, unknown> = {
-    id_ferfi: d.id_ferfi,
-    id_no: d.id_no,
-    c_utcaid: d.c_utcaid || null,
-    c_szam: d.c_szam || null,
-    id_csoport: d.id_csoport || null,
-    isaktiv: true,
-  }
-
-  let familyId = d.id
-
+  // 2026-06-10 (Fázis 2, P1-5): a csalad-mentés és a gyerek-rekordok cseréje
+  // EGY tranzakcióban, RPC-ben fut (tagnyilvantartas_csalad_mentes) — korábban
+  // a delete+insert között elhasaló hiba a család gyermek-listáját elveszíthette.
   if (d.id) {
     const allowedFamilyIds = await getAllowedFamilyIds(supabase, congregationId)
     if (!allowedFamilyIds.has(d.id)) {
       return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
     }
-    const { error } = await supabase.from('csalad').update(familyData).eq('id', d.id)
-    if (error) return { error: `Hiba: ${error.message}` }
-    // Gyerekek frissítés: régi törlés + új insert
-    await supabase.from('gyerek').delete().eq('id_csalad', d.id)
-  } else {
-    const { data: ins, error } = await supabase.from('csalad').insert([familyData]).select('id')
-    if (error) return { error: `Hiba: ${error.message}` }
-    if (!ins?.[0]) return { error: 'Nem kaptunk vissza azonosítót.' }
-    familyId = ins[0].id
   }
 
-  // Gyerekek hozzárendelés
-  if (familyId && d.gyerekIds.length > 0) {
-    const gyerekRows = d.gyerekIds.map(szemId => ({ id_csalad: familyId!, id_szemely: szemId }))
-    await supabase.from('gyerek').insert(gyerekRows)
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('tagnyilvantartas_csalad_mentes', {
+    p_id: d.id ?? null,
+    p_id_ferfi: d.id_ferfi,
+    p_id_no: d.id_no,
+    p_gyerek_ids: d.gyerekIds,
+    p_c_utcaid: d.c_utcaid || null,
+    p_c_szam: d.c_szam || null,
+    p_id_csoport: d.id_csoport || null,
+  })
+  if (rpcErr) {
+    return { error: `Hiba: ${rpcErr.message} (Lefutott már a 2026-06-10-es Fázis 2-3 adatbázis-migráció?)` }
   }
+  const rpcRes = rpcData as { status?: string; family_id?: number; message?: string } | null
+  if (rpcRes?.status === 'forbidden') {
+    return { error: 'Nincs jogosultsága ennek a családnak a szerkesztéséhez.' }
+  }
+  if (rpcRes?.status !== 'ok' || !rpcRes.family_id) {
+    return { error: rpcRes?.message || 'A család mentése nem sikerült.' }
+  }
+  const familyId = rpcRes.family_id
 
   // 2026-06-01 (hibrid család-modell Fázis 2): az új modellt is naprakésszé
   // tesszük (haztartas + cim + haztartas_tag). Ha a saveFamily új csalad-ot
   // hozott létre vagy a meglévőt változtatta, a háztartás-szinkron lefut.
-  if (familyId) {
-    try {
-      await syncHouseholdFromCsalad(supabase, familyId, congregationId)
-    } catch (e) {
-      console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen (nem blokkoló):',
-        e instanceof Error ? e.message : e)
-    }
+  // 2026-06-10 (Fázis 2): a hibrid-sync hibája többé nem néma — figyelmeztetés
+  // formájában visszajut a felületre (P2-10 részleges).
+  let syncWarning: string | undefined
+  try {
+    await syncHouseholdFromCsalad(supabase, familyId, congregationId)
+  } catch (e) {
+    console.warn('[saveFamily] syncHouseholdFromCsalad sikertelen:',
+      e instanceof Error ? e.message : e)
+    syncWarning = 'A család mentve, de a háztartás-nézet szinkronizálása nem sikerült — mentsd el újra a családot, vagy jelezd a rendszergazdának.'
   }
 
+  await logAuditEvent({
+    action: 'family.save',
+    targetTable: 'csalad',
+    targetId: String(familyId),
+    metadata: { mode: d.id ? 'update' : 'create', gyerekek: d.gyerekIds.length, sync_ok: !syncWarning },
+  }, supabase)
+
   revalidatePath('/tagnyilvantartas')
-  return { success: true }
+  return { success: true, warning: syncWarning }
 }
 
 // ── Szabad személy keresés (házasok kiszűrve) ────────────────
@@ -588,6 +596,7 @@ export async function wipeFamilyStructure(confirmation: string) {
     stats.csalad = t6.count ?? 0
   }
 
+  await logAuditEvent({ action: 'family.wipe_structure', targetTable: 'csalad', metadata: { ...stats } }, supabase)
   revalidatePath('/tagnyilvantartas')
   return {
     success: true,
@@ -636,6 +645,7 @@ export async function deleteFamily(id: number) {
       e instanceof Error ? e.message : e)
   }
 
+  await logAuditEvent({ action: 'family.delete', targetTable: 'csalad', targetId: String(id) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -690,6 +700,7 @@ export async function saveFamilyVisit(data: { familyId: number; datum: string; l
     } catch { /* munkanapló hiba nem blokkolja a mentést */ }
   }
 
+  await logAuditEvent({ action: 'family.visit_save', targetTable: 'csaladlatogatas', targetId: String(data.familyId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }

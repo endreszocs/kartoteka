@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { memberSchema, removeSchema, type MemberInput, type RemoveInput } from '@/lib/validations/members'
 import { generateCnp } from '@/lib/utils/member-helpers'
+import { logAuditEvent } from '@/lib/audit/log'
 import type { MemberRow, EnrichedMember } from '@/lib/constants/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/finance/payment-compat'
@@ -608,6 +609,15 @@ export async function saveMember(data: MemberInput) {
     }
   }
 
+  // 2026-06-10 (Fázis 2, P1-1): minden tag-mutáció auditnaplóba — a vallási
+  // hovatartozás GDPR Art. 9 szerinti különleges adat.
+  await logAuditEvent({
+    action: 'member.save',
+    targetTable: 'szemely',
+    targetId: savedId != null ? String(savedId) : null,
+    metadata: { mode: d.id ? 'update' : 'create' },
+  }, supabase)
+
   revalidatePath('/tagnyilvantartas')
   return { success: true, id: savedId }
 }
@@ -644,8 +654,32 @@ export async function removeMember(data: RemoveInput) {
       lelkeszneve: parsed.data.lelkesz || null, munkanaploba: parsed.data.munkanaplo || false,
       hhelyid: hHelyId, thelyid: tHelyId,
     }])
-    const { error } = await supabase.from('szemely').update({ meghalt: true, congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
+    const { error } = await supabase.from('szemely').update({ meghalt: true, member_status: 'elhunyt', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+
+    // 2026-06-10 (Fázis 3, P1-7b): halál-utak egységesítése — az anyakönyvi
+    // saveBurial-lal azonos módon az új modellben lezárjuk a háztartás-tagságot
+    // és a házastársi kapcsolatot (a vér szerinti kapcsolatok érintetlenek).
+    try {
+      await supabase
+        .from('haztartas_tag')
+        .update({ ervenyes_ig: parsed.data.hdatum })
+        .eq('id_szemely', id)
+        .is('ervenyes_ig', null)
+        .eq('congregation_id', congregationId)
+      await supabase
+        .from('szemely_kapcsolat')
+        .update({ ervenyes_ig: parsed.data.hdatum })
+        .eq('tipus', 'hazastars')
+        .or(`id_szemely_1.eq.${id},id_szemely_2.eq.${id}`)
+        .is('ervenyes_ig', null)
+        .eq('congregation_id', congregationId)
+    } catch (e) {
+      console.warn('[removeMember] hibrid-modell lezárás sikertelen (nem blokkoló):',
+        e instanceof Error ? e.message : e)
+    }
+
+    await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'meghalt' } }, supabase)
     revalidatePath('/tagnyilvantartas')
     return { success: true, message: 'A haláleset sikeresen adminisztrálva.' }
   }
@@ -659,6 +693,7 @@ export async function removeMember(data: RemoveInput) {
     }])
     const { error } = await supabase.from('szemely').update({ elkoltozott: true, member_status: 'elköltözött', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+    await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'elkoltozott' } }, supabase)
     revalidatePath('/tagnyilvantartas')
     return { success: true, message: 'Az elköltözés sikeresen adminisztrálva.' }
   }
@@ -671,6 +706,7 @@ export async function removeMember(data: RemoveInput) {
     }])
     const { error } = await supabase.from('szemely').update({ member_status: 'kitért', vallas: parsed.data.kitert_vallas || 'Ismeretlen', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
+    await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'kitert' } }, supabase)
     revalidatePath('/tagnyilvantartas')
     return { success: true, message: 'A kitérés sikeresen adminisztrálva.' }
   }
@@ -690,8 +726,9 @@ export async function removeMember(data: RemoveInput) {
       return { error: `A törlés nem sikerült: ${rpcErr.message} (Lefutott már a 2026-06-10-es adatbázis-migráció?)` }
     }
 
-    revalidatePath('/tagnyilvantartas')
     const status = (rpcData as { status?: string } | null)?.status
+    await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'torles', eredmeny: status || 'ismeretlen' } }, supabase)
+    revalidatePath('/tagnyilvantartas')
     switch (status) {
       case 'deleted':
         return { success: true, message: 'A tag véglegesen törölve.' }
@@ -771,6 +808,7 @@ export async function quickCreateParentMember(input: {
   }]).select('id').single()
   if (error || !ins) return { error: `Hiba: ${error?.message || 'a szülő rögzítése nem sikerült'}` }
 
+  await logAuditEvent({ action: 'member.quick_create_parent', targetTable: 'szemely', targetId: String(ins.id) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { id: ins.id, cnp }
 }
@@ -785,6 +823,7 @@ export async function updateMemberNote(szemelyId: number, note: string) {
     .eq('id', szemelyId)
     .eq('congregation_id', congregationId)
   if (error) return { error: `Hiba: ${error.message}` }
+  await logAuditEvent({ action: 'member.note_update', targetTable: 'szemely', targetId: String(szemelyId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }
@@ -801,6 +840,7 @@ export async function updateRegistryEventNote(kind: NoteEventKind, recordId: num
     .eq('id', recordId)
     .eq('congregation_id', congregationId)
   if (error) return { error: `Hiba: ${error.message}` }
+  await logAuditEvent({ action: 'registry.note_update', targetTable: kind, targetId: String(recordId) }, supabase)
   revalidatePath('/tagnyilvantartas')
   return { success: true }
 }

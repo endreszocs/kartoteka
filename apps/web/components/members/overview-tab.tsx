@@ -11,6 +11,24 @@ interface OverviewTabProps {
 }
 
 export function OverviewTab({ members }: OverviewTabProps) {
+  // 2026-06-10 (Fázis 5, P3-1): e havi születésnaposok — köszöntésekhez
+  const birthdays = useMemo(() => {
+    const now = new Date()
+    const month = now.getMonth()
+    return members
+      .filter(m => !m.meghalt && m.sz_datum && new Date(m.sz_datum).getMonth() === month)
+      .map(m => {
+        const bd = new Date(m.sz_datum as string)
+        return {
+          id: m.id,
+          name: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim(),
+          day: bd.getDate(),
+          turning: now.getFullYear() - bd.getFullYear(),
+        }
+      })
+      .sort((a, b) => a.day - b.day)
+  }, [members])
+
   const stats = useMemo(() => {
     const curYear = new Date().getFullYear()
     // 2026-04-30 fix (Endre kérése): a member_status='elkoltozott' és 'kitért'
@@ -313,6 +331,31 @@ export function OverviewTab({ members }: OverviewTabProps) {
             {stats.topFirst.length === 0 && <p className="text-sm text-slate-400 py-2">Nincs elegendő adat.</p>}
           </div>
         </div>
+      </div>
+
+      {/* ── E havi születésnaposok (2026-06-10, Fázis 5 / P3-1) ───── */}
+      <div className="card-raised p-5">
+        <div className="mb-3 flex items-center gap-3">
+          <div className="icon-raised w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500">
+            <Calendar className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">E havi születésnaposok</h3>
+            <p className="text-xs text-slate-400">Köszöntéshez — az aktuális hónapban születettek (élő tagok).</p>
+          </div>
+        </div>
+        {birthdays.length === 0 ? (
+          <p className="text-xs text-slate-400">Ebben a hónapban nincs születésnapos tag.</p>
+        ) : (
+          <ul className="grid max-h-56 grid-cols-1 gap-x-4 gap-y-1 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+            {birthdays.map(b => (
+              <li key={b.id} className="flex items-baseline justify-between gap-2 py-0.5 text-sm">
+                <span className="truncate font-medium text-slate-700">{b.name}</span>
+                <span className="shrink-0 text-[11px] text-slate-400">{b.day}. napján · {b.turning} éves</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )
