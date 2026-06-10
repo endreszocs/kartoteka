@@ -87,3 +87,16 @@ a `szamadasicel` + `befizetescel` + `kiadascel` referencia-táblák tükrözése
 **Elhalasztva (indokkal):** **A4 Tartozások (DebtTab)** — `needs-engine`, MAGAS kockázat: a `computeJarulekForMemberYear` (~550 sor) + `calculateRentalDebts` determinisztikus portolása kell lokálisra, hogy a web == desktop tartozás-számítás garantált legyen. Ezt NEM batch-elem tesztelés nélkül — külön, gondos lépés (javaslat: a számító logikát `@kartoteka/core`-ba kiemelni, hogy web és desktop ugyanazt hívja). A **C-hullám (írási út: befizetés/kiadás bevitel)** és a **D-hullám (nem-pénzügyi modulok)** szintén tudatosan staged marad.
 
 **A-hullám állapot:** A2 ✅ · A3 ✅ · A5 ✅ · A1 (Súgó — a web bespoke, külön döntés) és A4 (DebtTab — motor-port) hátra.
+
+### 2026-06-10 (folyt.) — A4 alap: tartozás-motor megosztott csomagba kiemelve ✅ (web+desktop tsc)
+
+A `jarulek-calculation.ts` (345 sor) + `rental-calculation.ts` (218 sor) átkerült a `@kartoteka/ui-app/finance`-be; a web két fájlja re-export shim. Ezzel web és desktop **garantáltan ugyanazt** a tartozás-számítást hívja (determinizmus). Verifikáció: WEB tsc + DESKTOP tsc + lint = mind zöld (a production web nem sérült). Commit: `aac963c2`.
+
+**A4 desktop-wiring — HÁTRAVAN (finance-érzékeny, tag-hátralék):** a web pontos wiringje (`penzugy/actions.ts:893-965`) replikálandó a desktopra:
+- felmentes + jarulek_kedvezmeny **lokális szinkron** (új; members + befizetes + bealitas már szinkronban);
+- `getLocalYearSettings` a `bealitas_local`-ból (összes év — már szinkronizált);
+- a fizetés-szűrő `101.01` (egyházfenntartás) a `bevCelMap`-pel; `family_id` (members_local) → `familyId`;
+- `debtCalcMode` alapértelmezetten `'akkori'` (a `tartozas_szamitas_mod` nincs szinkronban — vagy bekötni);
+- `computeJarulekForMemberYear` per tag → `DebtRow[]` (status: felmentett/hátralékos/rendezve) + `DebtTab` wrapper.
+
+⚠️ **Ezt a hátralék-számítást a megépítés után a web számaihoz KELL hitelesíteni** (egy gyülekezeten ugyanazok a hátralékok jöjjenek ki web és desktop alatt), mert a tagok pénzügyi hátralékáról van szó.
