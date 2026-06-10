@@ -11,7 +11,7 @@
  * `koltsegvetes` PK: (bealitasid=év, szamadasicelid=kód, congregation_id).
  */
 
-import type { BealitasRow } from '@kartoteka/ui-app'
+import type { BealitasRow, JarulekYearSetting } from '@kartoteka/ui-app'
 
 import { getDesktopSupabase } from './supabase'
 import { dbExecute, dbSelect } from './local-db'
@@ -205,5 +205,39 @@ export async function getLocalBudgetData(congregationId: string, year: number): 
   )
   const map: Record<string, number> = {}
   for (const r of rows) map[r.szamadasicelid] = Number(r.osszeg) || 0
+  return map
+}
+
+/**
+ * Évenkénti járulék-beállítások (`year → { eves_jarulek, ... }`) a lokális
+ * cache-ből — a tartozás-számító motor (`computeJarulekForMemberYear`) `yearSettings`
+ * prop-jához. A `bealitas_local` minden évet tárol (a pull nem szűr évre).
+ */
+export async function getLocalYearSettings(congregationId: string): Promise<Record<number, JarulekYearSetting>> {
+  await ensureSettingsTables()
+  const rows = await dbSelect<{ id: string; eves_jarulek: number | null; jarulek_kedvezmenyes: number | null; jarulek_hatarid: string | null }>(
+    `SELECT id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid
+       FROM bealitas_local WHERE congregation_id = ?1`,
+    [congregationId],
+  )
+  const map: Record<number, JarulekYearSetting> = {}
+  for (const r of rows) {
+    const y = Number(r.id)
+    if (Number.isNaN(y)) continue
+    map[y] = {
+      year: y,
+      eves_jarulek: Number(r.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: r.jarulek_kedvezmenyes == null ? null : Number(r.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: r.jarulek_hatarid || null,
+    }
+  }
+  return map
+}
+
+/** Évenkénti járulék-összeg (`year → eves_jarulek`) — a DebtTab `yearlyFees` prop-jához. */
+export async function getLocalYearlyFees(congregationId: string): Promise<Record<number, number>> {
+  const settings = await getLocalYearSettings(congregationId)
+  const map: Record<number, number> = {}
+  for (const [year, s] of Object.entries(settings)) map[Number(year)] = s.eves_jarulek
   return map
 }

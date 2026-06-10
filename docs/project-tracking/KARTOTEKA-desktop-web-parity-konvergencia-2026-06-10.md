@@ -100,3 +100,11 @@ A `jarulek-calculation.ts` (345 sor) + `rental-calculation.ts` (218 sor) átker�
 - `computeJarulekForMemberYear` per tag → `DebtRow[]` (status: felmentett/hátralékos/rendezve) + `DebtTab` wrapper.
 
 ⚠️ **Ezt a hátralék-számítást a megépítés után a web számaihoz KELL hitelesíteni** (egy gyülekezeten ugyanazok a hátralékok jöjjenek ki web és desktop alatt), mert a tagok pénzügyi hátralékáról van szó.
+
+### 2026-06-10 (folyt.) — A4 Tartozások (DebtTab) ✅ (TS + build verifikált)
+
+A megosztott `DebtTab` bekötve (`/penzugy/tartozasok` + almenü). A tagok hátralékát a KÖZÖS `computeJarulekForMemberYear` motor számolja, a desktop lokális adatából — a web `penzugy/actions.ts:893-960` wiringjét pontosan követve. Új lokális szinkron: `finance-debt-sync.ts` (felmentes + jarulek_kedvezmeny), `getLocalYearSettings`/`getLocalYearlyFees` (finance-settings-sync), `buildDebtRows` (finance-debt-compute, tiszta fv.). `debtCalcMode='akkori'` (a `tartozas_szamitas_mod` nincs lokálisan); a bérleti hátralék (rentalDebtRows, opcionális) egyelőre elhagyva.
+
+**Verifikáció (itt):** tsc + lint (78 fájl) + production vite build = mind zöld. **⚠️ Te oldaladon:** a hátralék-számokat hitelesítsd a web számaihoz (ugyanaz a gyülekezet → ugyanaz a hátralék).
+
+**A-hullám teljes ✅:** A2 Áttekintés · A3 Tranzakciók · A4 Tartozások · A5 Számadás — mind a megosztott komponensekkel. (A1 Súgó: a web bespoke — külön döntés.) Következő: B-hullám (egységes tab-oldal) vagy C-hullám (írási út).
