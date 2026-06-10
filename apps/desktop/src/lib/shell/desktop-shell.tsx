@@ -26,6 +26,7 @@ import {
   FileSpreadsheet,
   ListOrdered,
   Receipt,
+  Scale,
   ScrollText,
 } from 'lucide-react'
 
@@ -48,6 +49,7 @@ const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
   { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Számadás', href: '/penzugy/szamadas', icon: ClipboardCheck, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Tartozások', href: '/penzugy/tartozasok', icon: Scale, gradient: 'from-rose-400 to-red-500' },
   { label: 'Bank import', href: '/penzugy/bank-import', icon: FileSpreadsheet, gradient: 'from-violet-400 to-purple-500' },
 ]
 
