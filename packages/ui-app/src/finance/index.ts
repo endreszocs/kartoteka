@@ -13,6 +13,9 @@
 
 export * from './types'
 export * from './helpers'
+// 2026-06-10: tartozás-számító motor (web↔desktop közös — determinizmus garancia)
+export * from './jarulek-calculation'
+export * from './rental-calculation'
 export * from './FinanceDashboard'
 export * from './DebtTab'
 export * from './AccountingTab'

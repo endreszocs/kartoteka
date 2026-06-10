@@ -1,7 +1,9 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { getVisibleDistrictName, getVisibleDistrictNameMap } from '@/lib/members/district-visibility'
+import { logAuditEvent } from '@/lib/audit/log'
 
 /**
  * Választó adatsor — névjegyzékhez és a nyomtatási központhoz.
@@ -29,6 +31,9 @@ export interface VoterRow {
   paidCurrentYearSum: number
   expectedPrevYear: number
   expectedCurrentYear: number
+  // 2026-06-10 (Fázis 5, P3-7): perzisztált választói jogosultság + felülbírálás
+  eligible: boolean
+  override: number | null
 }
 
 export async function getVoters(): Promise<VoterRow[]> {
@@ -38,7 +43,7 @@ export async function getVoters(): Promise<VoterRow[]> {
   const prevYear = currentYear - 1
 
   const [szemelyRes, konfirmRes, csaladRes, gyerekRes, jarulekRes, bealitasRes, districtState] = await Promise.all([
-    supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+    supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
       .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev'),
     supabase.from('konfirmalas').select('id_szemely').eq('congregation_id', congId),
     // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas + haztartas_tag-ból
@@ -53,7 +58,7 @@ export async function getVoters(): Promise<VoterRow[]> {
     getVisibleDistrictNameMap(supabase, congId),
   ])
 
-  const szemelyek = (szemelyRes.data || []) as unknown as { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; adrlocality: { name: string } | null; adrstreet: { name: string } | null }[]
+  const szemelyek = (szemelyRes.data || []) as unknown as { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; voter_eligible: boolean | null; voter_manual_override: number | null; adrlocality: { name: string } | null; adrstreet: { name: string } | null }[]
   const konfirmaltIds = new Set((konfirmRes.data || []).map((k: { id_szemely: number }) => k.id_szemely))
   // 2026-06-01 (hibrid család-modell Fázis 2): a haztartas-ot átkonvertáljuk
   // a régi csalad-szerkezetbe (id, id_csoport, id_ferfi, id_no) — backward-kompat.
@@ -132,7 +137,62 @@ export async function getVoters(): Promise<VoterRow[]> {
       paidCurrentYearSum: paidCurrentByPerson[m.id] || 0,
       expectedPrevYear,
       expectedCurrentYear,
+      eligible: m.voter_eligible === true,
+      override: m.voter_manual_override ?? null,
     }))
+}
+
+// ── Választói jogosultság automatika (2026-06-10, Fázis 5 / P3-7) ─────
+
+/**
+ * Újraszámítja a teljes gyülekezet választói névjegyzékét a szabály alapján
+ * (18+, konfirmált, élő aktív tag), a kézi felülbírálást tiszteletben tartva,
+ * és visszaadja az összesítőt: { eligible, total, added, removed }.
+ */
+export async function recomputeVoterEligibility(): Promise<{
+  ok: boolean
+  error?: string
+  eligible?: number
+  total?: number
+  added?: number
+  removed?: number
+}> {
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
+
+  const { data, error } = await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
+  if (error) return { ok: false, error: `${error.message} (Lefutott már a 2026-06-10-es Fázis 5 migráció?)` }
+
+  const res = data as { status?: string; eligible?: number; total?: number; added?: number; removed?: number } | null
+  if (res?.status === 'forbidden') return { ok: false, error: 'Nincs jogosultság.' }
+  if (res?.status !== 'ok') return { ok: false, error: 'Ismeretlen válasz az újraszámítástól.' }
+
+  await logAuditEvent({ action: 'voter.recompute', targetTable: 'szemely', metadata: { eligible: res.eligible, added: res.added, removed: res.removed } }, supabase)
+  revalidatePath('/tagnyilvantartas')
+  return { ok: true, eligible: res.eligible, total: res.total, added: res.added, removed: res.removed }
+}
+
+/**
+ * Egy tag választói jogosultságának kézi felülbírálása.
+ * override: 1 = mindig jogosult, 0 = mindig kizárt, null = automatikus (szabály dönt).
+ * A beállítás után újraszámítja az érintett gyülekezetet.
+ */
+export async function setVoterOverride(szemelyId: number, override: 0 | 1 | null) {
+  const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
+  if (!congId) return { ok: false, error: 'Nincs aktív gyülekezet.' }
+
+  const { error } = await supabase
+    .from('szemely')
+    .update({ voter_manual_override: override })
+    .eq('id', szemelyId)
+    .eq('congregation_id', congId)
+  if (error) return { ok: false, error: `Hiba: ${error.message}` }
+
+  await logAuditEvent({ action: 'voter.override_set', targetTable: 'szemely', targetId: String(szemelyId), metadata: { override } }, supabase)
+  // A flag tényleges értékét az újraszámítás állítja be a felülbírálás szerint
+  await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
+  revalidatePath('/tagnyilvantartas')
+  return { ok: true }
 }
 
 /**

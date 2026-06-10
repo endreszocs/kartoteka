@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Edit2, Grid3x3, Home, List, MapPin, Printer, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, ChevronsUpDown, Download, Edit2, Grid3x3, Home, List, MapPin, Printer, Search, Sparkles, Trash2, Users2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteFamily, getFamilies, type FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
@@ -226,6 +226,24 @@ export function FamiliesTab() {
     await loadFamilies()
   }
 
+  // 2026-06-10 (Fázis 4, P2-5b): a szűrt család-lista exportja Excelbe
+  async function handleExport() {
+    const XLSX = await import('xlsx')
+    const districtName = (id: number | null) => districts.find(d => d.id === id)?.nev || ''
+    const rows = filtered.map(f => ({
+      'Családfő': f.ferfi ? `${f.ferfi.csaladnev} ${f.ferfi.k_nev}` : '',
+      'Házastárs': f.no ? `${f.no.csaladnev} ${f.no.k_nev}` : '',
+      'Utca': f.utca?.name || '',
+      'Házszám': f.c_szam || '',
+      'Körzet': districtName(f.id_csoport),
+      'Státusz': f.isaktiv ? 'Aktív' : 'Inaktív',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Családok')
+    XLSX.writeFile(wb, `csaladok-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   function openDetails(id: number) {
     setDetailsId(id)
     setDetailsOpen(true)
@@ -348,6 +366,16 @@ export function FamiliesTab() {
                 Kartonok / Statisztikák
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExport}
+              className="rounded-full gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50"
+              title="A szűrt lista exportja Excelbe"
+            >
+              <Download className="size-3.5" />
+              Export
+            </Button>
             <Button
               size="sm"
               onClick={() => setFormOpen(true)}

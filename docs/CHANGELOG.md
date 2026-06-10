@@ -23,6 +23,94 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-10] — Asztali app: a Pénzügy ugyanúgy néz ki, mint a webfelületen
+<!-- key: 2026-06-10-desktop-penzugy-parity -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+A letölthető Windows-alkalmazás (asztali Kartotéka) **Pénzügy** része mostantól a **webfelülettel azonos megjelenést** kap — ugyanazokat a táblázatokat és összesítőket látod, akár a böngészőben, akár az asztali appban dolgozol. Így nem kell kétféle felülethez szokni.
+
+### 💰 A Pénzügy az Áttekintéssel fogad
+
+- A bal oldali menüben a **Pénzügy**-re kattintva mostantól rögtön az **Áttekintés** nyílik meg (bevételek, kiadások, egyenleg), ahogy a webfelületen is — nem egy köztes választóoldal.
+
+### 📊 Új, a webbel azonos nézetek az asztali appban
+
+- **Áttekintés** — éves bevétel, kiadás és egyenleg, hónapokra és kategóriákra bontva.
+- **Tranzakciók** — az összes bevétel és kiadás egy kereshető listában, kategóriánként.
+- **Számadás** — az éves számadás a költségvetési terv tükrében (bevételek/kiadások tervhez mérve).
+
+Ezek a nézetek **internet nélkül is** működnek: a legutóbb szinkronizált adatokat mutatják, és amint újra online vagy, frissülnek. *(Ha egy lista üres: előbb legyen egyszer hálózat, hogy az adatok letöltődjenek.)*
+
+> *Megjegyzés a rendszergazdának:* a fenti nézetek csak **megjelenítenek** (read-only) — a rögzítés/véglegesítés továbbra is a meglévő felületeken történik. A változás a desktop **0.8.8** kiadással érkezik. A Tartozások és a bevétel/kiadás rögzítés web-azonossá tétele külön, gondos lépésekben jön (az offline pénztárca-rögzítés érintettsége miatt).
+
+---
+
+## [2026-06-10] — Asztali app: megszűnt a folytonos újra-bejelentkezés és PIN-kérés
+<!-- key: 2026-06-10-desktop-keyring-persistence-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+### 🔐 Egyszer beállítod — onnantól megjegyzi
+
+A letölthető Windows-alkalmazás (asztali Kartotéka) egy bosszantó hibáját javítottuk: eddig **minden indításnál újra bejelentkezést és új offline belépési kód (PIN) beállítását** kérte, mert a gép nem őrizte meg biztonságosan a beállításokat.
+
+- **Az offline belépési kódot mostantól elég egyszer beállítani** — a következő indításkor már nem kéri újra, hanem a meglévő kóddal léphetsz be.
+- **A bejelentkezés is megmarad** — nem kell minden indításnál újra beírni az e-mailt és jelszót.
+- **Az offline (hálózat nélküli) adatok is megmaradnak** a gépen a két indítás között — eddig a helyi adatbázis minden indításkor újraépült.
+
+A beállítások mostantól a **Windows beépített, titkosított jelszókezelőjében** (Credential Manager) tárolódnak — biztonságosan, a gépedhez kötve.
+
+> *Megjegyzés a rendszergazdának:* a javítás a desktop **0.8.8** kiadással érkezik (új aláírt build + auto-updater). A frissítés utáni **első** indításkor a helyi adatbázis még egyszer újraépül (az új, immár tartós titkosítási kulccsal), utána stabil. Nincs SQL-migráció.
+
+---
+
+## [2026-06-10] — Választói névjegyzék automatika + GDPR-hozzájárulások
+<!-- key: 2026-06-10-tagnyilvantartas-valasztoi-gdpr -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### 🗳️ Választói névjegyzék egy gombnyomásra
+
+- A **Tagnyilvántartás → Választók** fülön új **„Jogosultság frissítése" gomb**: a rendszer a szabály alapján — **18 év feletti, konfirmált, élő aktív tag** — automatikusan összeállítja a választói névjegyzéket, és megmutatja, hányan jogosultak, kik kerültek be újonnan és kik estek ki.
+- **Kézi felülbírálás bárkire:** egy-egy tag a sor végén **mindig jogosulttá tehető** vagy **kizárható** (pl. fegyelmi helyzet vagy külön engedély miatt) — a felülbírálást a frissítés tiszteletben tartja, nem írja felül. Új **„Jogosult" oszlop, szűrő és KPI** segíti az áttekintést.
+- Minden frissítés és felülbírálás **auditnaplóba kerül**.
+
+### 🔐 GDPR-hozzájárulások a személyi kartonon
+
+- A személyi karton **Személyes adatok** fülén új **„GDPR-hozzájárulások"** szakasz három kapcsolóval: **adatkezelés**, **fotó / megjelenés**, **levelezés**. Az adatkezelési hozzájárulás **kelte** automatikusan rögzül az első bejelöléskor.
+- Így dokumentálható és elszámoltatható, kinek mihez van érvényes hozzájárulása (a vallási hovatartozás a GDPR szerint különleges adat). A módosítás **auditnaplóba kerül**.
+
+> *Megjegyzés a rendszergazdának:* a funkció a `migration-docs/sql/2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql` migrációt igényli (Supabase Studio-ban lefuttatva). Addig a felület hibátlanul működik, csak az új mezők/újraszámítás nem aktívak.
+
+---
+
+## [2026-06-10] — Tagsági igazolás nyomtatás, családok exportja, névnapok
+<!-- key: 2026-06-10-tagnyilvantartas-igazolas-export-nevnap -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+
+### 📜 Tagsági igazolás egy kattintással
+
+- A személyi kartonon új **„Igazolás" gomb**: hivatalos, A4-es **tagsági igazolás** készül a tag adataival (név, születési hely és idő, anyja neve, lakcím), opcionálisan a **keresztelés és konfirmáció** dátumával. Megadható az **igazolás célja** (pl. keresztszülői tisztség) — a lapon kelt, aláírás-vonal és pecsét helye (P. H.) szerepel. Nyomtatás előtt **élő előnézet** mutatja a végeredményt.
+- Az igazolás készítése **auditnaplóba kerül** (személyes adat kiadása — elszámoltathatóság).
+
+### 📊 Családok exportja Excelbe
+
+- A **Családok** fülön is megjelent az **Export** gomb — a szűrt lista (családfő, házastárs, cím, körzet, státusz) egy kattintással Excel-fájlba menthető, például körlevélhez vagy látogatási tervhez.
+
+### 📅 E heti névnapok az Áttekintésen
+
+- A születésnaposok mellett mostantól az **e heti névnapok** is látszanak — és a rendszer ki is gyűjti, **mely élő tagok érintettek** (keresztnév-egyezés alapján), így a köszöntés nem marad el.
+
+### ℹ️ Jó hír: két korábbi észrevétel okafogyottnak bizonyult
+
+- Az import-varázsló **Vissza gombjai** minden lépésnél működnek, és a hibaellenőrzés újrafuttatás-gombja futás közben már eddig is le volt tiltva — ellenőriztük, javítás nem kellett.
+
+---
+
 ## [2026-06-10] — Tagnyilvántartás 2–3. fázis: auditnapló, megbízhatóbb mentések, összekapcsolt modulok
 <!-- key: 2026-06-10-tagnyilvantartas-fazis2-3 -->
 <!-- category: improvement -->

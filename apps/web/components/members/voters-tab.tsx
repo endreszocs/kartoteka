@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { getVoters, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
-import { Users, User, UserRound, GraduationCap, CheckCircle, Printer, Send } from 'lucide-react'
+import { getVoters, recomputeVoterEligibility, setVoterOverride, type VoterRow } from '@/app/(dashboard)/tagnyilvantartas/voter-actions'
+import { Users, User, UserRound, CheckCircle, Printer, Send, Scale as ScaleIcon, RefreshCw, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { VoterPrintDialog } from '@/components/members/voter-print-dialog'
@@ -17,13 +17,34 @@ export function VotersTab() {
   const [jarulekFilter, setJarulekFilter] = useState('fizeto')
   const [nemFilter, setNemFilter] = useState('')
   const [korzetFilter, setKorzetFilter] = useState('')
+  const [eligFilter, setEligFilter] = useState('mind')
   const [printOpen, setPrintOpen] = useState(false)
+  const [recomputing, setRecomputing] = useState(false)
 
   const currentYear = new Date().getFullYear()
 
+  function reload() {
+    return getVoters().then(data => { setVoters(data); setLoading(false) })
+  }
+
   useEffect(() => {
-    getVoters().then(data => { setVoters(data); setLoading(false) })
+    reload()
   }, [])
+
+  async function handleRecompute() {
+    setRecomputing(true)
+    const res = await recomputeVoterEligibility()
+    setRecomputing(false)
+    if (!res.ok) { toast.error(res.error || 'Hiba az újraszámításkor.'); return }
+    await reload()
+    toast.success(`Névjegyzék frissítve: ${res.eligible} jogosult (${res.added ?? 0} új, ${res.removed ?? 0} kikerült).`)
+  }
+
+  async function handleOverride(id: number, override: 0 | 1 | null) {
+    const res = await setVoterOverride(id, override)
+    if (!res.ok) { toast.error(res.error || 'Hiba.'); return }
+    await reload()
+  }
 
   const korzetOptions = useMemo(() => {
     const names = new Set(voters.map(v => v.korzet_nev).filter(Boolean))
@@ -40,14 +61,16 @@ export function VotersTab() {
       if (korzetFilter === 'none' && v.korzet_nev) return false
       if (korzetFilter === 'none' && !v.korzet_nev) return true
       if (korzetFilter && korzetFilter !== 'none' && v.korzet_nev !== korzetFilter) return false
+      if (eligFilter === 'jogosult' && !v.eligible) return false
+      if (eligFilter === 'nem_jogosult' && v.eligible) return false
       return true
     })
-  }, [voters, search, nemFilter, jarulekFilter, korzetFilter])
+  }, [voters, search, nemFilter, jarulekFilter, korzetFilter, eligFilter])
 
   const fizetoCount = voters.filter(v => v.jarulekFizeto).length
   const maleCount = voters.filter(v => v.jarulekFizeto && v.ferfi).length
   const femaleCount = voters.filter(v => v.jarulekFizeto && !v.ferfi).length
-  const konfirmaltCount = voters.filter(v => v.jarulekFizeto && v.konfirmalt).length
+  const eligibleCount = voters.filter(v => v.eligible).length
 
   return (
     <div className="space-y-4">
@@ -56,11 +79,22 @@ export function VotersTab() {
         <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={fizetoCount} label="Összes választó" />
         <KpiCard icon={<User className="w-5 h-5" />} gradient="from-blue-400 to-blue-500" value={maleCount} label="Férfi" />
         <KpiCard icon={<UserRound className="w-5 h-5" />} gradient="from-pink-500 to-rose-500" value={femaleCount} label="Nő" />
-        <KpiCard icon={<GraduationCap className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={konfirmaltCount} label="Konfirmált" />
+        <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (névjegyzék)" />
       </div>
 
       {/* Műveletek */}
       <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          onClick={handleRecompute}
+          disabled={recomputing || loading}
+          title="A választói névjegyzék frissítése a szabály alapján: 18+, konfirmált, élő aktív tag (a kézi felülbírálás megmarad)"
+        >
+          <RefreshCw className={`mr-1 size-3.5 ${recomputing ? 'animate-spin' : ''}`} />
+          {recomputing ? 'Frissítés…' : 'Jogosultság frissítése'}
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -107,6 +141,11 @@ export function VotersTab() {
           {korzetOptions.map(k => <option key={k} value={k}>{k}</option>)}
           <option value="none">Körzet nélküli</option>
         </select>
+        <select value={eligFilter} onChange={e => setEligFilter(e.target.value)} className="rounded-lg border border-white/70 bg-white/80 px-3 py-2 text-sm shadow-sm" title="Választói jogosultság (névjegyzék)">
+          <option value="mind">Minden jogosultság</option>
+          <option value="jogosult">Csak jogosultak</option>
+          <option value="nem_jogosult">Nem jogosultak</option>
+        </select>
         <span className="text-sm text-slate-400">{filtered.length} fő</span>
       </div>
 
@@ -132,6 +171,7 @@ export function VotersTab() {
                   <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">Körzet</th>
                   <th className="p-2.5 text-center text-xs font-medium text-slate-500">Konf.</th>
                   <th className="p-2.5 text-center text-xs font-medium text-slate-500">Járulék</th>
+                  <th className="p-2.5 text-center text-xs font-medium text-slate-500">Jogosult</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/60">
@@ -152,6 +192,31 @@ export function VotersTab() {
                       {v.jarulekFizeto
                         ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">{v.jarulekMaxEv}</Badge>
                         : <span className="text-xs text-red-400">—</span>}
+                    </td>
+                    <td className="p-2.5 text-center">
+                      <div className="inline-flex items-center gap-1.5">
+                        {v.eligible
+                          ? <Badge className="text-[10px] bg-blue-100 text-blue-700 border-0">Jogosult</Badge>
+                          : <span className="text-xs text-slate-300">—</span>}
+                        {v.override !== null && (
+                          <span title={v.override === 1 ? 'Kézi: mindig jogosult' : 'Kézi: kizárva'}>
+                            <Lock className={`w-3 h-3 ${v.override === 1 ? 'text-blue-500' : 'text-rose-500'}`} />
+                          </span>
+                        )}
+                        {/* Felülbírálás-vezérlő: auto → jogosult → kizárt → auto */}
+                        <button
+                          type="button"
+                          className="text-slate-300 transition hover:text-slate-600"
+                          title={
+                            v.override === null ? 'Kézi felülbírálás: jogosulttá tétel'
+                              : v.override === 1 ? 'Kézi felülbírálás: kizárás'
+                              : 'Vissza automatikusra'
+                          }
+                          onClick={() => handleOverride(v.id, v.override === null ? 1 : v.override === 1 ? 0 : null)}
+                        >
+                          {v.override === null ? <Unlock className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

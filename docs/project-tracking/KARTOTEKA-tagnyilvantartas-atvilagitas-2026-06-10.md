@@ -3,11 +3,10 @@
 **Módszertan:** 5 párhuzamos audit-ágens (architektúra, adatmodell, biztonság/GDPR, UI/UX/teljesítmény, keresztmodul-integráció) + a P0-gyanús leletek kézi kód-verifikációja.
 **Jelölés:** ✔ = kézzel ellenőrzött (kód beolvasva) · Ⓐ = ágens-lelet, szúrópróba nélkül elfogadva.
 
-> **Állapot (2026-06-10 este): Fázis 1 KÉSZ (SQL élesben ✅), Fázis 2–3 KÉSZ
-> (kód implementálva, SQL futtatásra vár), Fázis 4–5 részben kész** — tételes
-> bontás az 5. szakaszban. Futtatandó SQL a deploy előtt:
-> `2026-06-10-tagnyilvantartas-fazis2-3-megbizhatosag.sql` (lásd `_RUN_LOG.md`).
-> Deploy-terv (Endre döntése): minden fázis EGYÜTT megy ki, tesztelés után.
+> **Állapot (2026-06-10): ÉLESÍTVE.** Fázis 1 ✅ (SQL + kód élesben), Fázis 2–3 ✅
+> (SQL + kód élesben — mindkét migráció lefutott, verifikálva), Fázis 4–5 részben
+> kész (tételes bontás az 5. szakaszban — a maradék tudatosan elhalasztva).
+> Deploy: PR #5 merge a main-re (b7553657), 2026-06-10.
 
 ---
 
@@ -166,6 +165,12 @@ page.tsx (SSR)
 | P3-1 (születésnap) | „E havi születésnaposok" lista az Áttekintés fülön |
 | P2-7 | ✓ Okafogyott — a gomb már korábban is `disabled={running}`-gal futott |
 | P3-2 korfa | ✓ Okafogyott — a „Korcsoportok" sávdiagram már létezett az Áttekintésen |
+| P3-3 tagsági igazolás | „Igazolás" gomb a személyi kartonon → A4 hivatalos igazolás (cél megadható, anyakönyvi adatok opcionálisan, P.H. + aláírás, élő előnézet); auditnaplózva |
+| P2-5 (családok export) | Excel-export gomb a Családok fülön (családfő/házastárs/cím/körzet/státusz) |
+| P3-1 (névnap-lista) | „E heti névnapok" kártya az Áttekintésen + köszöntendő tagok keresztnév-egyezéssel |
+| P2-6a (vissza-gomb) | ✓ Okafogyott — minden wizard-lépésnek van onBack-je (ellenőrizve) |
+| P3-5 GDPR-mezők | `szemely` consent-oszlopok (gdpr_consent_at / photo_consent / mailing_consent) + GDPR-panel a személyi karton Személyes fülén (3 kapcsoló, hozzájárulás kelte, auditnaplózva) — SQL: `2026-06-10-tagnyilvantartas-fazis5-gdpr-valasztoi.sql` |
+| P3-7 voter_eligible automatika | `recompute_voter_eligibility` RPC (18+, konfirmált, élő aktív tag) + kézi felülbírálás (`voter_manual_override`); „Jogosultság frissítése" gomb + jogosultság-oszlop/szűrő/KPI a Választók fülön; auditnaplózva |
 
 ### ⏳ Tudatosan elhalasztva (külön menetet igényel)
 
@@ -174,13 +179,9 @@ page.tsx (SSR)
 | P1-2 teljes (virtualizáció / szerveroldali lapozás) | getMembers API-átalakítás — külön sprint |
 | P2-2 revalidatePath granularizálás | a tab-state-kezelés átfogó átalakításával együtt érdemes |
 | P2-4 hash-routing csere | URL-séma változás, több modult érint |
-| P2-5 (családok export) | a FamilyRow-mezők normalizálásával együtt |
-| P2-6 import-wizard (vissza-gomb, duplikátum-jelzés) | a wizard állapotgép + import-RPC átvizsgálását igényli |
+| P2-6b import-wizard duplikátum-jelzés | az import-RPC átvizsgálását igényli |
 | P2-9 csoport↔districts kettősség | migrációs döntés (az admin-átvilágítás Fázis 4-gyel együtt) |
-| P3-1 (névnap-lista) | nevnap-tábla bekötése + név-egyeztetési szabály döntése |
-| P3-3 tagsági igazolás nyomtatás | sablon-tervezés az emléklap-rendszerrel közösen |
-| P3-5 GDPR-mezők | a 2026-06-05-ös törlés/átadás/audit terv döntéseire vár |
-| P3-7 voter_eligible automatika | egyházjogi definíciót igényel (ki minősül választónak) |
-| P3-8 offline/desktop | termékdöntés szükséges (web-only marad-e a modul) |
+| P3-5b GDPR adatexport (Art. 15) + alanyi törlési kérelem (Art. 17) | a consent-mezők kész (P3-5); az export/erasure workflow a 2026-06-05-ös törlés/átadás/audit tervhez tartozik |
+| P3-8 offline/desktop | folyamatban — külön terv: `KARTOTEKA-offline-excel-integracio-terv-2026-06-10.md` |
 | P3-9 családfa új modell (szemely_kapcsolat) | külön menet |
 | „backfill-SQL élesítés" (2026-04-30l) | az élő blokk előtt kézi név-átnézés kell (~99 csak-keresztnevű anya) |
