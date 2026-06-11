@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import {
+import { Camera,
   AlertCircle,
   Baby,
   BookOpen,
@@ -29,6 +29,8 @@ import { getFamilyTreeData } from '@/lib/family-tree/get-family-tree'
 import type { FamilyTreeData } from '@/lib/family-tree/types'
 import { FamilyTreeView } from '@/components/family-tree/family-tree-view'
 import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
+import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
+import { MemberAvatar } from '@kartoteka/ui-app'
 import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
 import { FamilyVisitFormDialog } from '@/components/modals/family-visit-form-dialog'
 import { getTransactionDocumentNumber } from '@/lib/constants/finance'
@@ -88,6 +90,9 @@ export function FamilyDetailsDialogRefined({
   // a családi kartonra (a family dialog open marad).
   const [memberDialogMember, setMemberDialogMember] = useState<EnrichedMember | null>(null)
   const [memberDialogLoading, setMemberDialogLoading] = useState(false)
+  // 2026-06-11: fénykép/közösségi-link szerkesztő + a lap újratöltése mentés után
+  const [avatarEditPerson, setAvatarEditPerson] = useState<{ id: number; name: string; kepUrl?: string | null; socialUrl?: string | null } | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   // 2026-06-02: család szerkesztés + új családlátogatás
   const [editFamilyOpen, setEditFamilyOpen] = useState(false)
@@ -126,7 +131,7 @@ export function FamilyDetailsDialogRefined({
       })
     })
     return () => { cancelled = true }
-  }, [open, familyId])
+  }, [open, familyId, reloadKey])
 
   // Lazy load: családfa
   useEffect(() => {
@@ -357,13 +362,28 @@ export function FamilyDetailsDialogRefined({
                   >
                     <div className="grid gap-3 md:grid-cols-2">
                       {family.ferfi ? (
-                        <MemberPanel role="head" member={family.ferfi} onClick={() => openMemberCard(family.ferfi!.id)} />
+                        <MemberPanel
+                          role="head"
+                          member={family.ferfi}
+                          onClick={() => openMemberCard(family.ferfi!.id)}
+                          onEditAvatar={() => setAvatarEditPerson({ id: family.ferfi!.id, name: `${family.ferfi!.csaladnev} ${family.ferfi!.k_nev}`.trim(), kepUrl: family.ferfi!.kep, socialUrl: family.ferfi!.social_profil_url })}
+                        />
                       ) : family.no ? (
-                        <MemberPanel role="head" member={family.no} onClick={() => openMemberCard(family.no!.id)} />
+                        <MemberPanel
+                          role="head"
+                          member={family.no}
+                          onClick={() => openMemberCard(family.no!.id)}
+                          onEditAvatar={() => setAvatarEditPerson({ id: family.no!.id, name: `${family.no!.csaladnev} ${family.no!.k_nev}`.trim(), kepUrl: family.no!.kep, socialUrl: family.no!.social_profil_url })}
+                        />
                       ) : null}
 
                       {family.ferfi && family.no && (
-                        <MemberPanel role="spouse" member={family.no} onClick={() => openMemberCard(family.no!.id)} />
+                        <MemberPanel
+                          role="spouse"
+                          member={family.no}
+                          onClick={() => openMemberCard(family.no!.id)}
+                          onEditAvatar={() => setAvatarEditPerson({ id: family.no!.id, name: `${family.no!.csaladnev} ${family.no!.k_nev}`.trim(), kepUrl: family.no!.kep, socialUrl: family.no!.social_profil_url })}
+                        />
                       )}
                     </div>
 
@@ -391,13 +411,12 @@ export function FamilyDetailsDialogRefined({
                                 }`}
                                 title="Személyi karton megnyitása"
                               >
-                                <span
-                                  className={`inline-flex size-5 items-center justify-center rounded-full ${
-                                    c.ferfi ? 'bg-blue-50 text-blue-600' : 'bg-pink-50 text-pink-600'
-                                  }`}
-                                >
-                                  {c.ferfi ? '♂' : '♀'}
-                                </span>
+                                <MemberAvatar
+                                  name={`${c.csaladnev} ${c.k_nev}`.trim()}
+                                  kepUrl={(c as MemberShape).kep}
+                                  meghalt={c.meghalt}
+                                  size={22}
+                                />
                                 <span>
                                   {c.meghalt && '† '}
                                   {c.csaladnev} {c.k_nev}
@@ -559,6 +578,14 @@ export function FamilyDetailsDialogRefined({
       </DialogContent>
 
       {/* 2026-06-02: Drill-down dialog — egy person-kartonra kattintáskor. */}
+      {/* 2026-06-11: fénykép + közösségi link szerkesztő */}
+      <AvatarEditorDialog
+        open={!!avatarEditPerson}
+        onOpenChange={(o) => { if (!o) setAvatarEditPerson(null) }}
+        person={avatarEditPerson}
+        onSaved={() => setReloadKey((k) => k + 1)}
+      />
+
       <MemberDetailsDialogV2
         open={!!memberDialogMember || memberDialogLoading}
         onOpenChange={(open) => {
@@ -751,20 +778,24 @@ interface MemberShape {
   telefon?: string | null
   namepattern?: string | null
   allapot?: string | null
+  kep?: string | null
+  social_profil_url?: string | null
 }
 
 function MemberPanel({
   role,
   member,
   onClick,
+  onEditAvatar,
 }: {
   role: 'head' | 'spouse'
   member: MemberShape
   onClick?: () => void
+  /** 2026-06-11: fénykép/közösségi link szerkesztő megnyitása. */
+  onEditAvatar?: () => void
 }) {
   const isHead = role === 'head'
   const Icon = isHead ? Crown : Heart
-  const iconTone = isHead ? 'text-amber-600 bg-amber-50' : 'text-rose-600 bg-rose-50'
   const labelText = isHead ? 'Családfő' : 'Házastárs'
   const labelTone = isHead ? 'text-amber-800 bg-amber-50' : 'text-rose-700 bg-rose-50'
   const age = ageFromDate(member.sz_datum)
@@ -783,11 +814,33 @@ function MemberPanel({
   return (
     <Wrapper {...(wrapperProps as Record<string, unknown>)}>
       <div className="flex items-start gap-3">
-        <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${iconTone}`}>
-          <Icon className="size-5" />
+        {/* 2026-06-11: ikon-korong helyett valódi avatar (kép vagy monogram) */}
+        <div className="relative shrink-0">
+          <MemberAvatar
+            name={`${member.csaladnev} ${member.k_nev}`.trim()}
+            kepUrl={member.kep}
+            meghalt={member.meghalt}
+            size={48}
+            ring={isHead}
+          />
+          {onEditAvatar && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditAvatar()
+              }}
+              className="absolute -bottom-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition hover:scale-110 hover:text-violet-600"
+              title="Fénykép társítása"
+              aria-label="Fénykép társítása"
+            >
+              <Camera className="size-3" />
+            </button>
+          )}
         </div>
         <div className="min-w-0 flex-1">
-          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${labelTone}`}>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${labelTone}`}>
+            <Icon className="size-2.5" />
             {labelText}
           </span>
           <h4

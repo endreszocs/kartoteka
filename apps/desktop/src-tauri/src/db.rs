@@ -2031,8 +2031,25 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v30 migráció (Excel write-through) sikertelen: {e}"))?;
     }
 
+    // v31 (2026-06-11, Endre — avatar): a szemely_local-ba bekerül a kep
+    // (Storage public URL) + social_profil_url — a kep eddig SZÁNDÉKOSAN
+    // maradt ki (V1), de az avatar csak egy URL-string: olcsó szinkronizálni,
+    // a kép maga online töltődik (offline: monogram-fallback).
+    if current < 31 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE szemely_local ADD COLUMN kep TEXT;
+            ALTER TABLE szemely_local ADD COLUMN social_profil_url TEXT;
+            PRAGMA user_version = 31;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v31 migráció (szemely avatar) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 31 { ... PRAGMA user_version = 31; }
+    // if current < 32 { ... PRAGMA user_version = 32; }
 
     Ok(())
 }

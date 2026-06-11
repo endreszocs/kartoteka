@@ -13,9 +13,11 @@ export interface FamilyRow {
   c_szam: string | null
   isaktiv: boolean
   id_csoport: number | null
-  ferfi: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; allapot: string | null; meghalt: boolean; namepattern: string | null; vallas: string | null } | null
-  no: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; allapot: string | null; meghalt: boolean; namepattern: string | null; vallas: string | null } | null
+  ferfi: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; allapot: string | null; meghalt: boolean; namepattern: string | null; vallas: string | null; kep?: string | null } | null
+  no: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; allapot: string | null; meghalt: boolean; namepattern: string | null; vallas: string | null; kep?: string | null } | null
   utca: { name: string } | null
+  /** 2026-06-11 (modern kártyanézet): a háztartás gyermekei avatarhoz/létszámhoz. */
+  gyerekek?: Array<{ id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null; meghalt: boolean | null; kep?: string | null }>
 }
 
 async function getFamilyAccessContext() {
@@ -272,24 +274,38 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     .from('haztartas_tag')
     .select(`
       id_haztartas, szerep, is_primary,
-      szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, allapot, meghalt, namepattern, vallas)
+      szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, allapot, meghalt, namepattern, vallas, kep)
     `)
     .in('id_haztartas', haztartasIds)
     .is('ervenyes_ig', null)
-    .in('szerep', ['csaladfo', 'hazastars'])
+    .in('szerep', ['csaladfo', 'hazastars', 'gyerek'])
 
-  // Map: haztartas_id → { ferfi, no }
+  // Map: haztartas_id → { ferfi, no, gyerekek }
   type SzemelyRef = FamilyRow['ferfi']
-  const tagokByHaztartas = new Map<string, { ferfi: SzemelyRef; no: SzemelyRef }>()
+  type GyerekRef = NonNullable<FamilyRow['gyerekek']>[number]
+  const tagokByHaztartas = new Map<string, { ferfi: SzemelyRef; no: SzemelyRef; gyerekek: GyerekRef[] }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const tag of (tagok || []) as any[]) {
-    const szuloRaw = tag.szemely
-    const szulo = (Array.isArray(szuloRaw) ? szuloRaw[0] : szuloRaw) as SzemelyRef
-    if (!szulo) continue
-    const entry = tagokByHaztartas.get(tag.id_haztartas) ?? { ferfi: null, no: null }
-    if (szulo.ferfi === true && !entry.ferfi) entry.ferfi = szulo
-    else if (szulo.ferfi === false && !entry.no) entry.no = szulo
+    const szemelyRaw = tag.szemely
+    const sz = (Array.isArray(szemelyRaw) ? szemelyRaw[0] : szemelyRaw) as (SzemelyRef & GyerekRef) | null
+    if (!sz) continue
+    const entry = tagokByHaztartas.get(tag.id_haztartas) ?? { ferfi: null, no: null, gyerekek: [] }
+    if (tag.szerep === 'gyerek') {
+      entry.gyerekek.push({
+        id: sz.id,
+        csaladnev: sz.csaladnev ?? null,
+        k_nev: sz.k_nev ?? null,
+        sz_datum: sz.sz_datum ?? null,
+        meghalt: sz.meghalt ?? null,
+        kep: sz.kep ?? null,
+      })
+    } else if (sz.ferfi === true && !entry.ferfi) entry.ferfi = sz
+    else if (sz.ferfi === false && !entry.no) entry.no = sz
     tagokByHaztartas.set(tag.id_haztartas, entry)
+  }
+  // Gyermekek életkor szerint (legidősebb elöl)
+  for (const entry of tagokByHaztartas.values()) {
+    entry.gyerekek.sort((a, b) => (a.sz_datum || '9999').localeCompare(b.sz_datum || '9999'))
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -303,7 +319,7 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     const utca_name = ujCim?.utca_name ?? regiCim?.utca_name ?? null
     const szam = ujCim?.szam ?? regiCim?.szam ?? null
 
-    const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null }
+    const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null, gyerekek: [] }
     return {
       id: h.legacy_csalad_id as number,
       c_szam: szam,
@@ -312,6 +328,7 @@ export async function getFamilies(): Promise<FamilyRow[]> {
       ferfi: entry.ferfi,
       no: entry.no,
       utca: utca_name ? { name: utca_name } : null,
+      gyerekek: entry.gyerekek,
     } satisfies FamilyRow
   })
 }
@@ -329,7 +346,7 @@ export async function getFamilyDetails(id: number) {
   // mert a `haztartas_tag.ervenyes_ig` szűréssel automatikusan kihagyjuk a
   // költözött / elhalálozott / lezárt tagokat.
   const [familyRes, haztartasRes, districtState] = await Promise.all([
-    supabase.from('csalad').select('*, ferfi:szemely!id_ferfi(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot), no:szemely!id_no(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot), utca:adrstreet!c_utcaid(name), csoport:csoport!id_csoport(nev)').eq('id', id).single(),
+    supabase.from('csalad').select('*, ferfi:szemely!id_ferfi(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot, kep, social_profil_url), no:szemely!id_no(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, namepattern, allapot, kep, social_profil_url), utca:adrstreet!c_utcaid(name), csoport:csoport!id_csoport(nev)').eq('id', id).single(),
     // A `legacy_csalad_id = id` alapján megtaláljuk az új háztartást.
     supabase.from('haztartas').select('id').eq('legacy_csalad_id', id).is('ervenyes_ig', null).limit(1).maybeSingle(),
     getVisibleDistrictState(supabase, congregationId),
@@ -346,11 +363,11 @@ export async function getFamilyDetails(id: number) {
   // + szerep IN ('gyermek', 'unoka'). Ez automatikusan kihagyja a már nem-tagokat.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const haztartasId = (haztartasRes.data as any)?.id as string | undefined
-  let children: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; meghalt: boolean; vallas: string | null; foglalkozas?: string | null; namepattern?: string | null; allapot?: string | null }[] = []
+  let children: { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; meghalt: boolean; vallas: string | null; foglalkozas?: string | null; namepattern?: string | null; allapot?: string | null; kep?: string | null; social_profil_url?: string | null }[] = []
   if (haztartasId) {
     const { data: tagok } = await supabase
       .from('haztartas_tag')
-      .select('szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot)')
+      .select('szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot, kep, social_profil_url)')
       .eq('id_haztartas', haztartasId)
       .is('ervenyes_ig', null)
       .in('szerep', ['gyermek', 'unoka'])
@@ -361,7 +378,7 @@ export async function getFamilyDetails(id: number) {
     // valami baj van), a régi `gyerek` táblát olvassuk.
     const { data: gyerekek } = await supabase
       .from('gyerek')
-      .select('id_szemely, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot)')
+      .select('id_szemely, szemely:szemely!id_szemely(id, csaladnev, k_nev, ferfi, sz_datum, meghalt, vallas, foglalkozas, namepattern, allapot, kep, social_profil_url)')
       .eq('id_csalad', id)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     children = (gyerekek || []).map((c: any) => c.szemely).filter(Boolean)

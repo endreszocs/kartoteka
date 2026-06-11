@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Megújult családi kartonok: fényképek, modern kártyák, nyomtatás mindenhol
+<!-- key: 2026-06-11-csaladi-kartonok-avatarok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Fénykép a tagokhoz.** Mostantól minden személyhez társíthatsz fényképet —
+  két módon: (1) megadod a Facebook/Instagram profil-linkjét, és a rendszer
+  megpróbálja letölteni a nyilvános profilképet (a `facebook.com/profile.php?id=…`
+  formátumú linkeknél megy a legbiztosabban), vagy (2) egyszerűen feltöltesz
+  egy képet a gépedről. A kép a Kartotéka saját tárhelyére kerül, a megadott
+  profil-link pedig a kapcsolatokhoz mentődik. Akinek nincs képe, annak szép
+  színes monogram jelenik meg.
+- **Modern családi kártyák.** A Tagnyilvántartás → Családok kártyanézete
+  megújult: a család tagjainak képei egymást átfedő sorban, a gyermekek
+  kis névjegy-chipekben, a cím, körzet és létszám egy pillantásra látszik —
+  finom animációkkal. Ugyanez a kinézet él a weben és az asztali appban.
+- **Családi karton nyomtatása — most már az asztali appban is.** A kártyára
+  ráállva megjelenik a nyomtató-gomb, és a webről ismert A4-es, lefűzhető
+  családi karton nyomtatható (relációk, anyakönyvi dátumok, megjegyzések,
+  opcionálisan befizetések + családlátogatások). Eddig ez csak a weben volt.
+- **A családi lapon minden tag képe látszik** — a szülők paneljein és a
+  gyermek-soroknál is; a kis kamera-gombbal rögtön képet is társíthatsz.
+
+### ℹ️ Tudnivaló
+
+- A képek tárolásához egy egyszeri adatbázis-frissítés szükséges
+  (`2026-06-11p-szemely-social-avatar.sql`) — amíg ez nem fut le, a mentés
+  erre figyelmeztet.
+
 ## [2026-06-11] — Excel-fejléc egy kattintással, nyomtatási központ az asztali appban
 <!-- key: 2026-06-11-excel-fejlec-nyomtatasi-kozpont -->
 <!-- category: improvement -->

@@ -10,10 +10,9 @@ import { FamilyFormDialog } from '@/components/modals/family-form-dialog'
 import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
 import { FamilyCardPrintDialog } from '@/components/members/family-card-print-dialog'
 import {
-  FamilyCardPreview,
-  familyRowToCardData,
   districtsToMap,
 } from '@/components/modals/family-card-preview'
+import { FamilyCardModern, type FamilyCardModernData } from '@kartoteka/ui-app'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatNameWithPrefix } from '@/lib/utils/member-helpers'
@@ -24,6 +23,56 @@ type SortDir = 'asc' | 'desc'
 // rögzített felnőtt fél elhunyt (üres család = nincs senki). Az `inactive`
 // külön kategória a manuálisan lezárt háztartásokra (isaktiv=false).
 type StatusFilter = 'all' | 'active' | 'deceased' | 'inactive'
+
+/** FamilyRow → modern kártya-adat (avatarokkal + gyermekekkel). */
+function familyRowToModernCard(
+  row: FamilyRow,
+  districtMap: Map<number, string>,
+): FamilyCardModernData {
+  const yearNow = new Date().getFullYear()
+  const ageOf = (d: string | null | undefined) => (d ? yearNow - new Date(d).getFullYear() : null)
+  const members: FamilyCardModernData['members'] = []
+  if (row.ferfi) {
+    members.push({
+      id: row.ferfi.id,
+      name: `${row.ferfi.csaladnev} ${row.ferfi.k_nev}`.trim(),
+      role: 'csaladfo',
+      age: ageOf(row.ferfi.sz_datum),
+      meghalt: row.ferfi.meghalt,
+      kepUrl: row.ferfi.kep ?? null,
+    })
+  }
+  if (row.no) {
+    members.push({
+      id: row.no.id,
+      name: `${row.no.csaladnev} ${row.no.k_nev}`.trim(),
+      role: 'hazastars',
+      age: ageOf(row.no.sz_datum),
+      meghalt: row.no.meghalt,
+      kepUrl: row.no.kep ?? null,
+    })
+  }
+  for (const gy of row.gyerekek ?? []) {
+    members.push({
+      id: gy.id,
+      name: `${gy.csaladnev ?? ''} ${gy.k_nev ?? ''}`.trim() || 'Gyermek',
+      role: 'gyerek',
+      age: ageOf(gy.sz_datum),
+      meghalt: !!gy.meghalt,
+      kepUrl: gy.kep ?? null,
+    })
+  }
+  return {
+    familyId: row.id,
+    familyName: row.ferfi?.csaladnev || row.no?.csaladnev || null,
+    members,
+    street: row.utca?.name ?? null,
+    houseNumber: row.c_szam,
+    districtName: row.id_csoport != null ? districtMap.get(row.id_csoport) ?? null : null,
+    isActive: row.isaktiv,
+    paymentStatus: 'unknown',
+  }
+}
 
 export function FamiliesTab() {
   const [families, setFamilies] = useState<FamilyRow[]>([])
@@ -479,13 +528,18 @@ export function FamiliesTab() {
       ) : filtered.length === 0 ? (
         <div className="card-raised p-8 text-center text-slate-500">Nincs a keresésnek megfelelő család.</div>
       ) : viewMode === 'cards' ? (
+        // 2026-06-11 (Endre): modern kártyanézet — tag-avatarok, gyermek-chipek,
+        // hover-animáció, kártyán belüli karton-nyomtatás gomb (közös komponens).
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((family) => (
-            <FamilyCardPreview
+            <FamilyCardModern
               key={family.id}
-              data={familyRowToCardData(family, { districtMap })}
-              compact
+              data={familyRowToModernCard(family, districtMap)}
               onClick={() => openDetails(family.id)}
+              onPrint={() => {
+                setPrintFamilyId(family.id)
+                setPrintOpen(true)
+              }}
             />
           ))}
         </div>

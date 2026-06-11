@@ -11,6 +11,7 @@ mod auth;
 mod auth_pin;
 mod db;
 mod device;
+mod avatar;
 mod excel;
 
 use auth::{auth_clear_item, auth_read_item, auth_store_item};
@@ -22,6 +23,7 @@ use db::{
     iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
 };
 use device::device_info;
+use avatar::{fetch_image, fetch_page_text};
 use excel::{
     excel_append_rows, excel_default_folder, excel_folder_info, excel_list_sheets,
     excel_open_folder, excel_read_cells, excel_read_meta, excel_read_sheet_sums,
@@ -87,6 +89,8 @@ pub fn run() {
             excel_list_sheets,
             excel_read_meta,
             excel_read_cells,
+            fetch_image,
+            fetch_page_text,
             excel_read_sheet_sums,
             excel_set_cells,
             excel_save_file,

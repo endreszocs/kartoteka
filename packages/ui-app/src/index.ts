@@ -52,3 +52,5 @@ export * from './dashboard/AgeDistribution'
 // Pénzügyi modul közös réteg (Sprint Q Fázis 1, 2026-04-25)
 // Web és desktop egyaránt INNEN importál minden finance-típust és helpert.
 export * from './finance'
+// Tagnyilvántartás közös darabjai (D-hullám, 2026-06-11): avatar + családi kártya + karton-print
+export * from './members'
