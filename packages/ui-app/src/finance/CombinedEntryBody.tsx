@@ -32,9 +32,14 @@ const DOC_TYPES = ['Factură', 'Bon fiscal', 'Chitanță', 'Stat de plată', 'Or
  * mozgások jelennek meg (bankszámla-választóval). A bank-bank átutalás
  * KI VAN ZÁRVA — az kizárólag a Bank fülön rögzíthető.
  */
+// A kanonikus 2026-06-10 EREK-modellhez igazítva (forrás: a hivatalos
+// Adatok_2025.xlsx → 2026-06-10-belso-mozgas-kodok-INSTALL.sql):
+//   kassza → bank (letétel):  kassza-kiadás 400.01 + bank-bevétel 301.01
+//   bank → kassza (felvétel):  bank-kiadás   401.01 + kassza-bevétel 300.01
+//   bank ↔ bank:               402.02 (mindkét oldal)
 const DEPOSIT_KODS = new Set(['400.01', '301.01']) // kassza → bank (letétel)
-const WITHDRAW_KODS = new Set(['401.01']) // bank → kassza (felvétel)
-const BANKBANK_KODS = new Set(['401.02', '301.02']) // bank ↔ bank — kizárva
+const WITHDRAW_KODS = new Set(['401.01', '300.01']) // bank → kassza (felvétel)
+const BANKBANK_KODS = new Set(['402.02']) // bank ↔ bank — kizárva
 
 function dirOfKod(kod: string | undefined): 'deposit' | 'withdraw' | null {
   if (!kod) return null
