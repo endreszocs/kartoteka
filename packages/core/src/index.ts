@@ -293,3 +293,11 @@ export {
   BANK_LETTERS,
   type BankLetter,
 } from './finance/excel/belso-mozgas-nevek'
+
+// ── Költségvetés-kompat (web `lib/finance/budget-compat` áthelyezve, 2026-06-11) ──
+export {
+  loadBudgetRowsCompat,
+  saveBudgetRowsCompat,
+  saveBudgetModification,
+  type BudgetCompatRow,
+} from './finance/budget-compat'

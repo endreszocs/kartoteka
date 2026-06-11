@@ -195,6 +195,37 @@ export async function getLocalBealitas(congregationId: string, year: number): Pr
   }
 }
 
+/**
+ * Teljes költségvetés-sorok (alap + 3 módosítás) a lokális cache-ből —
+ * a Költségvetés-fül OFFLINE megtekintéséhez (2026-06-11, paritás #5).
+ * A mezőnevek a `BudgetCompatRow` alakot követik (tervezett/modositott/mod2/mod3).
+ */
+export async function getLocalBudgetCompatRows(
+  congregationId: string,
+  year: number,
+): Promise<Array<{ szamadasicelid: string; tervezett: number; modositott: number | null; mod2: number | null; mod3: number | null }>> {
+  await ensureSettingsTables()
+  const rows = await dbSelect<{
+    szamadasicelid: string
+    osszeg: number | null
+    osszeg_modositott: number | null
+    osszeg_mod_2: number | null
+    osszeg_mod_3: number | null
+  }>(
+    `SELECT szamadasicelid, osszeg, osszeg_modositott, osszeg_mod_2, osszeg_mod_3
+       FROM koltsegvetes_local
+      WHERE bealitasid = ?1 AND congregation_id = ?2`,
+    [String(year), congregationId],
+  )
+  return rows.map((r) => ({
+    szamadasicelid: r.szamadasicelid,
+    tervezett: Number(r.osszeg) || 0,
+    modositott: r.osszeg_modositott == null ? null : Number(r.osszeg_modositott),
+    mod2: r.osszeg_mod_2 == null ? null : Number(r.osszeg_mod_2),
+    mod3: r.osszeg_mod_3 == null ? null : Number(r.osszeg_mod_3),
+  }))
+}
+
 /** A költségvetési tervek térképe (`szamadasicelid → tervezett összeg`) a lokális cache-ből. */
 export async function getLocalBudgetData(congregationId: string, year: number): Promise<Record<string, number>> {
   await ensureSettingsTables()

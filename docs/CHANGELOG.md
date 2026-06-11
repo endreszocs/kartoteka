@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Az asztali app Pénzügy oldala teljessé vált: Bank, Költségvetés és Monetár fül
+<!-- key: 2026-06-11-desktop-penzugy-paritas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop 0.9.1 -->
+
+### ✨ Új funkciók
+
+- **Bank fül az asztali appban — ugyanaz, mint a weben.** A bankszámláid kártyái,
+  a banki tételek listája, az éves nyitó egyenlegek, sztornó és szerkesztés —
+  mind elérhető az asztali Pénzügy oldal Bank fülén. A tételek listája offline
+  is megjelenik (a gépeden tárolt adatból); a bankszámla-műveletekhez internet
+  és belépés kell. Új bankszámlát is itt vehetsz fel.
+- **Költségvetés fül az asztali appban.** Az éves költségvetés tervezése
+  (alap + 3 módosítási kör), véglegesítés és az egyházmegyei beküldés mostantól
+  az asztali appból is megy — pontosan úgy, ahogy a weben megszoktad. Internet
+  nélkül a költségvetésed megtekinthető; a mentéshez belépés szükséges.
+- **Monetár (címletjegyzék) fül az asztali appban.** A kasszaszámláláskor
+  rögzített címletek (hány darab 100 lejes, 50 banis…) felvétele, az elvárt
+  kassza-egyenleggel való összevetés és a nyomtatható címletjegyzék is átkerült.
+- **Teljes Pénzügy menü a bal oldalsávban.** A Bank, Költségvetés, Bérleti
+  szerződések, Monetár és Súgó pontok is megjelentek az asztali app Pénzügy
+  almenüjében — ugyanabban a rendben, mint a weben.
+
+### 🎨 UX javítások
+
+- **A „+ Tétel rögzítése" gomb mostantól a bankszámláidat is ismeri.** Az
+  egységes Pénzügy oldalról indított rögzítésnél a banki tételek és a belső
+  mozgások (kassza↔bank) is teljes választékkal rögzíthetők.
+- **A Bérleti szerződések fül** az asztali appban egyelőre a webes felületre
+  irányít (a szerződés-rögzítés és az e-Factura számlázás webes szolgáltatás).
+
 ## [2026-06-11] — Letöltés-oldal, súgó-megújulás, bank-import számlával, Excel-egyeztetés
 <!-- key: 2026-06-11-sugo-bankimport-egyeztetes -->
 <!-- category: improvement -->

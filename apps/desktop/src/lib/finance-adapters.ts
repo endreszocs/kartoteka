@@ -16,7 +16,10 @@ import type { BefitetesRow, KiadasRow } from '@kartoteka/ui-app'
 import type { LocalBefizetesRow, LocalKiadasRow } from './finance-sync'
 
 export function toBefitetesRow(r: LocalBefizetesRow): BefitetesRow {
-  return {
+  // 2026-06-11 (paritás #5): a `bankszamla_id` NEM része a BefitetesRow
+  // típusnak, de a BankTab futásidőben strukturális cast-tal olvassa (a webes
+  // sorok `select *`-ból jönnek) — ezért extra mezőként átadjuk.
+  const row = {
     id: r.id,
     osszeg: r.osszeg,
     datum: r.datum,
@@ -34,11 +37,13 @@ export function toBefitetesRow(r: LocalBefizetesRow): BefitetesRow {
     stornozott: r.stornozott === 1,
     stornozott_indok: r.stornozott_indok ?? null,
     stornozott_at: r.stornozott_at ?? null,
+    bankszamla_id: r.bankszamla_id ?? null,
   }
+  return row
 }
 
 export function toKiadasRow(r: LocalKiadasRow): KiadasRow {
-  return {
+  const row = {
     id: r.id,
     osszeg: r.osszeg,
     datum: r.datum,
@@ -57,5 +62,7 @@ export function toKiadasRow(r: LocalKiadasRow): KiadasRow {
     stornozott: r.stornozott === 1,
     stornozott_indok: r.stornozott_indok ?? null,
     stornozott_at: r.stornozott_at ?? null,
+    bankszamla_id: r.bankszamla_id ?? null,
   }
+  return row
 }

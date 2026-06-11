@@ -256,3 +256,30 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
    oldal a helyük). Rendben van így?
 4. **B2 súgó:** a vázolt irány (lépés-kártyák + folyamatábrák + „gyakori
    hibák") megfelel-e; van-e konkrét téma, amit elsőként kérsz?
+
+---
+
+## ✅ KONSZOLIDÁLT LISTA #5 — PARITÁS KÉSZ (2026-06-11, este)
+
+A Bank / Költségvetés / Monetár fülek bekerültek az egységes desktop
+`/penzugy` tab-oldalba — a web-azonos MEGOSZTOTT komponensekkel
+(`@kartoteka/ui-app`: BankTab, BudgetTab, MonetaryTab), desktop adatforrással:
+
+| Fül | Adatforrás | Írás |
+|---|---|---|
+| **Bank** | tranzakciók a lokális tükörből (`bankszamla_id` az adapteren át), bankszámla-törzs + éves nyitó egyenlegek online | sztornó/visszavonás/szerkesztés a meglévő desktop dialógusokkal; bankszámla felvétel/szerkesztés új `DesktopBankAccountDialog`-gal (B6-őr) |
+| **Költségvetés** | online a közös `loadBudgetRowsCompat`-tal (`@kartoteka/core`-ba költözött, a web shim-en át ugyanazt használja); OFFLINE megtekintés a `koltsegvetes_local` tükörből | mentés/véglegesítés/egyházmegyei beküldés/feloldás-kérés igazolt belépéssel; mentés után lokális tükör-frissítés |
+| **Monetár** | címlettörzs + pillanatfelvétel online (web-azonos kanonikus fallback) | mentés igazolt belépéssel; címletjegyzék-nyomtatás rejtett iframe printtel |
+
+Kapcsolódó: a sidebar Pénzügy-almenü web-paritásra bővült (Bank, Költségvetés,
+Bérleti szerződések, Monetár, Súgó horgonyok); az összevont rögzítő
+(`+ Tétel rögzítése`) mostantól a VALÓDI bankszámla-listát kapja (eddig üres
+tömböt — banki tétel és belső mozgás opciók így a fő oldalról is teljesek).
+
+**Tudatosan később (nem hiba):**
+- **Bérleti szerződések fül**: webes szerződés-dialógra + Oblio e-Facturára
+  épül — a desktop fül tájékoztató kártyát mutat, a webre irányít.
+- **Költségvetés-nyomtatás gomb** (webes html2pdf print-engine): a fül teljes
+  funkciójú nélküle; desktop-print később, az egységes print-stratégiával.
+- **BCR import-wizard modal**: desktopon a dedikált `/bank-import` oldal a
+  kanonikus út (bankszámla-kötéssel + Excel-írással) — a fül gombja oda visz.

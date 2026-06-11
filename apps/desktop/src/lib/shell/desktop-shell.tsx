@@ -21,9 +21,13 @@ import {
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
+  Building2,
   ClipboardCheck,
+  CreditCard,
   Eye,
   FileSpreadsheet,
+  HelpCircle,
+  Landmark,
   ListOrdered,
   Receipt,
   Scale,
@@ -44,18 +48,25 @@ import { KartotekaShell, type MenuItem } from '@kartoteka/ui'
 // almenü-linkek az EGYSÉGES /penzugy tab-oldal horgonyaira mutatnak (mint a
 // weben) — korábban külön oldalakra vittek, ami duplikált belépési pontot adott.
 // A régi route-ok megmaradnak (közvetlen URL működik), csak a menü egységes.
+// 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár / Súgó is felkerült —
+// a fülek a web-azonos megosztott komponenssel élnek az egységes /penzugy oldalon.
 const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
   { label: 'Áttekintés', href: '/penzugy#dashboard', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
   { label: 'Kassza', href: '/penzugy#cashbook', icon: ListOrdered, gradient: 'from-emerald-400 to-green-500' },
   { label: 'Bevétel', href: '/penzugy/befizetes', icon: ArrowUpRight, gradient: 'from-emerald-400 to-green-500' },
   { label: 'Kiadás', href: '/penzugy/kiadas', icon: ArrowDownRight, gradient: 'from-red-400 to-rose-500' },
+  { label: 'Bank', href: '/penzugy#bank', icon: Landmark, gradient: 'from-violet-400 to-purple-500' },
   { label: 'Tranzakciók', href: '/penzugy#transactions', icon: ListOrdered, gradient: 'from-blue-400 to-cyan-500' },
   { label: 'Belső mozgás', href: '/penzugy/belsomozgas', icon: ArrowLeftRight, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Költségvetés', href: '/penzugy#budget', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Számadás', href: '/penzugy#accounting', icon: ClipboardCheck, gradient: 'from-blue-400 to-indigo-500' },
   { label: 'Tartozások', href: '/penzugy#debt', icon: Scale, gradient: 'from-rose-400 to-red-500' },
+  { label: 'Bérleti szerződések', href: '/penzugy#rental', icon: Building2, gradient: 'from-amber-400 to-yellow-500' },
+  { label: 'Monetár', href: '/penzugy#monetary', icon: CreditCard, gradient: 'from-slate-400 to-slate-600' },
   { label: 'Bank import', href: '/penzugy/bank-import', icon: FileSpreadsheet, gradient: 'from-violet-400 to-purple-500' },
+  { label: 'Súgó', href: '/penzugy#sugo', icon: HelpCircle, gradient: 'from-teal-400 to-cyan-500' },
 ]
 
 // Desktopon még nem létező modulok — a sidebar elrejti őket („halott részek").
