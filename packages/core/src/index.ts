@@ -277,12 +277,15 @@ export {
   buildExpenseExcelRow,
   buildReversalRow,
   buildTransferExcelRows,
+  buildBankBankExcelRows,
   irattipToExcel,
   roundCent,
   type ExcelKasszaRow,
   type BuildEntryRowInput,
   type BuildTransferRowsInput,
   type TransferExcelRows,
+  type BuildBankBankRowsInput,
+  type BankBankExcelRows,
 } from './finance/excel/row-builder'
 
 export {

@@ -40,6 +40,10 @@ import type {
   RentalContractRow,
   RentalDebtRow,
 } from '@/lib/constants/finance'
+import {
+  BELSO_MOZGAS_ROGZITO_KODS,
+  isGyulekezetiKonyvelhetoKod,
+} from '@/lib/constants/finance'
 
 interface FinanceTabsProps {
   settings: BealitasRow
@@ -192,14 +196,24 @@ export function FinanceTabs({
   // mindig sikerül, mert a szerver MINDEN szintű szamadasicel-t lekér — lásd a
   // 2026-04-18-i javítást actions.ts:450-ben és a diagnosztikát
   // migration-docs/sql/2026-04-18-diagnoszika-szamadasicel.sql-ben.
+  // 2026-06-11 (Endre): az AGGREGÁT sorok — pl. "Egyházi tevékenységből származó
+  // bevételek (5+...+12)" — és a nem-gyülekezeti szintű tételek NEM könyvelhetők,
+  // ezért gyülekezeti módban kiszűrjük őket; a kanonikus belső-mozgás kódok
+  // maradnak (a CombinedEntryBody belső-mozgás sor-típusa használja őket).
+  // Egyházmegyei módban a viselkedés VÁLTOZATLAN.
   const incomeCategories = useMemo(() => {
     const celIds = Object.entries(bevCelMap)
     return celIds.map(([id, kod]) => {
       const cel = szamadasiCellek.find(c => c.id === kod)
       const nev = (cel?.nev || '').trim()
-      return { id: Number(id), kod, nev: nev || kod }
-    }).sort((a, b) => a.kod.localeCompare(b.kod))
-  }, [bevCelMap, szamadasiCellek])
+      return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
+    }).filter((c) =>
+      scope !== 'congregation' ||
+      isGyulekezetiKonyvelhetoKod(c.kod, c.szint) ||
+      BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
+    ).map(({ id, kod, nev }) => ({ id, kod, nev }))
+      .sort((a, b) => a.kod.localeCompare(b.kod))
+  }, [bevCelMap, szamadasiCellek, scope])
 
   // Kiadás kategória opciók — ua. mint incomeCategories
   const expenseCategories = useMemo(() => {
@@ -207,9 +221,14 @@ export function FinanceTabs({
     return celIds.map(([id, kod]) => {
       const cel = szamadasiCellek.find(c => c.id === kod)
       const nev = (cel?.nev || '').trim()
-      return { id: Number(id), kod, nev: nev || kod }
-    }).sort((a, b) => a.kod.localeCompare(b.kod))
-  }, [kiaCelMap, szamadasiCellek])
+      return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
+    }).filter((c) =>
+      scope !== 'congregation' ||
+      isGyulekezetiKonyvelhetoKod(c.kod, c.szint) ||
+      BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
+    ).map(({ id, kod, nev }) => ({ id, kod, nev }))
+      .sort((a, b) => a.kod.localeCompare(b.kod))
+  }, [kiaCelMap, szamadasiCellek, scope])
 
   const debtModeLabel = debtCalcMode === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás'
   const hasReceiptWarnings = receiptHealth.missingNumbers.length > 0 || receiptHealth.duplicateNumbers.length > 0 || receiptHealth.chronologyIssues.length > 0

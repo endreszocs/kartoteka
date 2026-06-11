@@ -61,6 +61,17 @@ export interface KartotekaShellProps {
 
   /** Opcionális banner slot a header alá (god-mode, setup-prompt stb.). */
   banners?: ReactNode
+  /**
+   * Extra tartalom a header jobb oldali sávjába (a súgó-gomb elé) — pl.
+   * session/szinkron státusz-jelvények (desktop, 2026-06-11). A korábbi
+   * lebegő (fixed) jelvények kitakarták a tartalmat.
+   */
+  headerExtra?: ReactNode
+  /**
+   * Menüpontok elrejtése href szerint — olyan kliensekhez, ahol egy modul
+   * még nem létezik (pl. desktop: /admin, /profile). A web változatlan.
+   */
+  hiddenMenuHrefs?: string[]
   children: ReactNode
 
   /**
@@ -99,6 +110,8 @@ export function KartotekaShell({
   onOpenHelp,
   onOpenSettings,
   banners,
+  headerExtra,
+  hiddenMenuHrefs,
   children,
   financeSubmenu,
 }: KartotekaShellProps) {
@@ -126,6 +139,7 @@ export function KartotekaShell({
         onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
         activeScope={activeScope}
         financeSubmenu={financeSubmenu}
+        hiddenMenuHrefs={hiddenMenuHrefs}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -139,6 +153,7 @@ export function KartotekaShell({
           onOpenHelp={onOpenHelp}
           onOpenSettings={onOpenSettings}
           onToggleMobileMenu={() => setMobileOpen((prev) => !prev)}
+          headerExtra={headerExtra}
         />
 
         {banners}

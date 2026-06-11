@@ -37,12 +37,18 @@ import {
   type SaveExpenseBatchRow,
   type CombinedInternalTransferPayload,
 } from '@kartoteka/ui-app'
-import { saveExpenseUseCase, saveIncomeUseCase } from '@kartoteka/core'
+import {
+  getFamilyIdForPersonUseCase,
+  saveExpenseUseCase,
+  saveIncomeUseCase,
+  searchMembersForFinanceUseCase,
+} from '@kartoteka/core'
 
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
+import { isOnlineWithSession } from '../lib/use-session-online'
 
 interface Props {
   open: boolean
@@ -69,19 +75,19 @@ export function DesktopCombinedEntryDialog({
 }: Props) {
   const [toast, setToast] = useState<ToastState>(null)
 
-  function isOnlineNow(): boolean {
-    return typeof navigator === 'undefined' ? true : navigator.onLine
-  }
-
   // ── Bevétel-batch → soronként saveIncomeUseCase (online + offline) ──
   // A web `saveIncomeBatch` mintájára: az ELSŐ hibás sornál megállunk és a sor
   // sorszámával jelezzük (a már mentett sorok bent maradnak — azonos a web
   // viselkedésével, mert a megosztott komponens hibánál nyitva hagyja a modalt).
+  //
+  // 2026-06-11 fix: az online-döntés SESSION-tudatos (isOnlineWithSession) —
+  // PIN-es munkamenetben működő internettel is az offline (tárcás) ág fut,
+  // különben a kérés anon-szerepkörrel menne („permission denied").
   async function handleIncomeBatch(
     rows: SaveIncomeBatchRow[],
   ): Promise<{ error?: string | null }> {
     const supabase = getDesktopSupabase()
-    const isOnline = isOnlineNow()
+    const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
 
     for (let i = 0; i < rows.length; i += 1) {
@@ -93,8 +99,9 @@ export function DesktopCombinedEntryDialog({
             osszeg: row.osszeg,
             datum: row.datum,
             id_befizetescel: row.id_befizetescel,
-            id_szemely: null,
-            id_csalad: null,
+            // B1: a rögzítő tag-keresőjéből (kölcsönösen kizáró pár)
+            id_szemely: row.id_szemely ?? null,
+            id_csalad: row.id_csalad ?? null,
             forrasa: row.forrasa,
             // Offline-ban a backend a tárcából választ iratszámot.
             iratszam: isOnline ? row.iratszam : null,
@@ -136,7 +143,7 @@ export function DesktopCombinedEntryDialog({
     rows: SaveExpenseBatchRow[],
   ): Promise<{ error?: string | null }> {
     const supabase = getDesktopSupabase()
-    const isOnline = isOnlineNow()
+    const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
 
     for (let i = 0; i < rows.length; i += 1) {
@@ -244,6 +251,25 @@ export function DesktopCombinedEntryDialog({
             expenseCategories={expenseCategories}
             bankAccounts={bankAccounts}
             currentYear={currentYear}
+            // B1 (2026-06-11): tag-keresés a Befizető mezőben + családi mód
+            onSearchMembers={async (query) => {
+              const res = await searchMembersForFinanceUseCase(
+                { congregationId, query, limit: 8 },
+                { supabase: getDesktopSupabase(), runtime: 'desktop' },
+              )
+              if (!res.success) return []
+              return res.members.map((m) => ({
+                id: m.id,
+                name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
+              }))
+            }}
+            onResolveFamilyId={async (szemelyId) => {
+              const res = await getFamilyIdForPersonUseCase(
+                { congregationId, personId: szemelyId },
+                { supabase: getDesktopSupabase(), runtime: 'desktop' },
+              )
+              return res.success ? res.familyId : null
+            }}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
             onSaveInternalTransfer={handleInternalTransfer}

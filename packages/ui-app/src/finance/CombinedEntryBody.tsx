@@ -14,7 +14,7 @@
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Save, Trash2, ArrowLeftRight } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
@@ -62,6 +62,12 @@ export interface CombinedInternalTransferPayload {
   megjegyzes: string
 }
 
+/** Tag-találat a Befizető-keresőhöz (B1, 2026-06-11). */
+export interface CombinedMemberHit {
+  id: number
+  name: string
+}
+
 export interface CombinedEntryBodyProps {
   incomeCategories: IncomeCategory[]
   expenseCategories: ExpenseCategory[]
@@ -72,6 +78,18 @@ export interface CombinedEntryBodyProps {
   onSaveInternalTransfer: (payload: CombinedInternalTransferPayload) => Promise<{ error?: string | null }>
   onClose: () => void
   onToast: CombinedToastFn
+  /**
+   * B1 (2026-06-11, Endre): tag-keresés a „Befizető / forrás" mezőben — a
+   * befizetés személyhez kapcsolásához (egyházfenntartás, adomány). Opcionális:
+   * ha nincs megadva, a mező sima szövegmező marad (a web változatlan, amíg
+   * be nem kötik). Min. 2 karaktertől hívódik.
+   */
+  onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
+  /**
+   * Családi befizetéshez: a kiválasztott tag családjának feloldása.
+   * Null = nincs család (a sor tag-szintű marad).
+   */
+  onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
 }
 
 type EntryRow = {
@@ -84,11 +102,16 @@ type EntryRow = {
   amount: string
   megjegyzes: string
   bankId: number | ''
+  /** B1: a kiválasztott tag (kölcsönösen kizáró a csaladId-vel). */
+  szemelyId: number | null
+  /** B1: családi befizetésnél a család azonosítója. */
+  csaladId: number | null
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const newRow = (): EntryRow => ({
   id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', amount: '', megjegyzes: '', bankId: '',
+  szemelyId: null, csaladId: null,
 })
 
 const inputClass =
@@ -98,6 +121,7 @@ const inputClass =
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
+  onSearchMembers, onResolveFamilyId,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>([newRow()])
@@ -126,11 +150,42 @@ export function CombinedEntryBody({
   const expenseValid = expenseRows.filter((r) => rowValidIn('expense', r)).length
 
   // A kategória-lista a bank-bank átutalást NEM tartalmazza (csak a Bank fülön).
+  //
+  // 2026-06-11 (Endre): a belső-mozgás opciók EGYÉRTELMŰ megnevezést kapnak —
+  // a gyülekezet SAJÁT banki megnevezésével (pl. „Készpénzletétel a(z) BCR (RON)
+  // számlára"), ha pontosan egy bankszámla van; több banknál irány-címkével
+  // (a sor bank-választója dönti el, melyik számla). Ha NINCS rögzített
+  // bankszámla, a belső-mozgás opciók el sem jelennek meg.
+  // FONTOS: ez csak a UI-címke — a mentett kategória (és a hivatalos Excelbe
+  // írt katalógus-név) változatlan.
   const cats = tab === 'income' ? incomeCategories : expenseCategories
-  const categoryOptions = useMemo(
-    () => cats.filter((c) => !BANKBANK_KODS.has(c.kod)).map((c) => ({ id: c.id, label: c.nev })),
-    [cats],
-  )
+  const categoryOptions = useMemo(() => {
+    const hasBank = bankAccounts.length > 0
+    const singleBank = bankAccounts.length === 1 ? bankAccounts[0] : null
+    return cats
+      .filter((c) => !BANKBANK_KODS.has(c.kod))
+      .filter((c) => hasBank || !dirOfKod(c.kod))
+      .map((c) => {
+        const dir = dirOfKod(c.kod)
+        if (!dir) return { id: c.id, label: c.nev }
+        if (singleBank) {
+          return {
+            id: c.id,
+            label:
+              dir === 'deposit'
+                ? `Készpénzletétel a(z) ${singleBank.bank_neve} számlára`
+                : `Készpénzfelvétel a(z) ${singleBank.bank_neve} számláról`,
+          }
+        }
+        return {
+          id: c.id,
+          label:
+            dir === 'deposit'
+              ? 'Készpénzletétel bankszámlára (kassza → bank)'
+              : 'Készpénzfelvétel bankszámláról (bank → kassza)',
+        }
+      })
+  }, [cats, bankAccounts])
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
@@ -173,6 +228,9 @@ export function CombinedEntryBody({
         datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
         fizetettev: Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
+        // B1: tag- vagy család-kapcsolat (kölcsönösen kizáró)
+        id_szemely: r.csaladId ? null : r.szemelyId,
+        id_csalad: r.csaladId,
       })
     }
     for (const r of expenseRows) {
@@ -299,7 +357,17 @@ export function CombinedEntryBody({
                     {renderBankSelect(r)}
                   </td>
                   <td className="px-2 py-1.5">
-                    {dir ? <span className="text-xs text-slate-400">—</span> : <input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} />}
+                    {dir ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : (
+                      <PartnerCell
+                        row={r}
+                        searchable={tab === 'income' && !!onSearchMembers}
+                        onSearchMembers={onSearchMembers}
+                        onResolveFamilyId={onResolveFamilyId}
+                        updateRow={updateRow}
+                      />
+                    )}
                   </td>
                   <td className="px-2 py-1.5 w-[130px]">
                     <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
@@ -353,7 +421,13 @@ export function CombinedEntryBody({
                 {!dir && (
                   <>
                     <label className="col-span-2 text-xs text-slate-500">{partnerLabel}
-                      <input className={inputClass} value={r.partner} onChange={(e) => updateRow(r.id, { partner: e.target.value })} />
+                      <PartnerCell
+                        row={r}
+                        searchable={tab === 'income' && !!onSearchMembers}
+                        onSearchMembers={onSearchMembers}
+                        onResolveFamilyId={onResolveFamilyId}
+                        updateRow={updateRow}
+                      />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
                       <select className={inputClass} value={r.docType} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
@@ -391,6 +465,167 @@ export function CombinedEntryBody({
           <Save className="size-4" /> Mentés ({incomeValid + expenseValid} tétel)
         </button>
       </div>
+    </div>
+  )
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// PartnerCell — „Befizető / forrás" mező, opcionális tag-keresővel (B1)
+//
+// Ha nincs onSearchMembers (pl. a web, amíg be nem köti), sima szövegmező —
+// byte-azonos a korábbi viselkedéssel. Kereső-módban: 2 karaktertől 300 ms
+// debounce-szal keres a tagnyilvántartásban; a kiválasztott tag chipként
+// jelenik meg (X-szel leválasztható), és kérhető a CSALÁDI mód — ilyenkor a
+// befizetés a tag családjához kapcsolódik (kölcsönösen kizáró a taggal).
+// ─────────────────────────────────────────────────────────────────────────
+
+function PartnerCell({
+  row,
+  searchable,
+  onSearchMembers,
+  onResolveFamilyId,
+  updateRow,
+}: {
+  row: EntryRow
+  searchable: boolean
+  onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
+  onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
+  updateRow: (id: string, patch: Partial<EntryRow>) => void
+}) {
+  const [hits, setHits] = useState<CombinedMemberHit[]>([])
+  const [open, setOpen] = useState(false)
+  const [familyNote, setFamilyNote] = useState<string | null>(null)
+  const debounceRef = useRef<number | null>(null)
+
+  // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt)
+  useEffect(() => {
+    if (!searchable || !onSearchMembers || row.szemelyId != null) return
+    const q = row.partner.trim()
+    if (q.length < 2) {
+      setHits([])
+      setOpen(false)
+      return
+    }
+    if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    debounceRef.current = window.setTimeout(() => {
+      void onSearchMembers(q)
+        .then((res) => {
+          setHits(res.slice(0, 8))
+          setOpen(res.length > 0)
+        })
+        .catch(() => {
+          setHits([])
+          setOpen(false)
+        })
+    }, 300)
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.partner, row.szemelyId, searchable])
+
+  if (!searchable) {
+    return (
+      <input
+        className={inputClass}
+        value={row.partner}
+        onChange={(e) => updateRow(row.id, { partner: e.target.value })}
+      />
+    )
+  }
+
+  // Kiválasztott tag/család — chip nézet
+  if (row.szemelyId != null || row.csaladId != null) {
+    return (
+      <div className="space-y-1">
+        <div className="flex h-9 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50/70 px-2 text-sm text-emerald-900">
+          <span className="min-w-0 flex-1 truncate" title={row.partner}>
+            {row.partner}
+            {row.csaladId != null && (
+              <span className="ml-1 rounded bg-emerald-200/70 px-1 text-[10px] font-semibold uppercase">családi</span>
+            )}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100"
+            title="Kapcsolat leválasztása (a név szövegként megmarad)"
+            onClick={() => {
+              updateRow(row.id, { szemelyId: null, csaladId: null })
+              setFamilyNote(null)
+            }}
+          >
+            ×
+          </button>
+        </div>
+        {onResolveFamilyId && row.csaladId == null && (
+          <label className="flex items-center gap-1 text-[11px] text-slate-500">
+            <input
+              type="checkbox"
+              className="size-3"
+              checked={false}
+              onChange={() => {
+                const szemelyId = row.szemelyId
+                if (szemelyId == null) return
+                void onResolveFamilyId(szemelyId)
+                  .then((familyId) => {
+                    if (familyId != null) {
+                      updateRow(row.id, { csaladId: familyId })
+                      setFamilyNote(null)
+                    } else {
+                      setFamilyNote('Ehhez a taghoz nincs család rögzítve.')
+                    }
+                  })
+                  .catch(() => setFamilyNote('A család feloldása nem sikerült.'))
+              }}
+            />
+            Családi befizetés
+          </label>
+        )}
+        {row.csaladId != null && (
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
+            onClick={() => updateRow(row.id, { csaladId: null })}
+          >
+            Vissza tag-szintűre
+          </button>
+        )}
+        {familyNote && <p className="text-[11px] text-amber-700">{familyNote}</p>}
+      </div>
+    )
+  }
+
+  // Gépelés + találati lista
+  return (
+    <div className="relative">
+      <input
+        className={inputClass}
+        value={row.partner}
+        placeholder="Név (keresés a tagok közt) vagy szabad szöveg"
+        onChange={(e) => updateRow(row.id, { partner: e.target.value })}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onFocus={() => hits.length > 0 && setOpen(true)}
+      />
+      {open && hits.length > 0 && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+          {hits.map((h) => (
+            <button
+              key={h.id}
+              type="button"
+              className="block w-full px-2 py-1.5 text-left text-sm hover:bg-emerald-50"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
+                setHits([])
+                setOpen(false)
+              }}
+            >
+              {h.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
 
-import { AutoSyncStatusBar } from '../components/auto-sync-status-bar'
-import { SessionStatusIndicator } from '../components/session-status-indicator'
-import { SyncStatusIndicator } from '../components/sync-status-indicator'
 import {
   clearRememberOffline,
   hasPin,
@@ -143,14 +140,7 @@ export function AuthGate() {
 
   // 1. kapu: friss Supabase session
   if (session) {
-    return (
-      <>
-        <SessionStatusIndicator />
-        <SyncStatusIndicator />
-        <AutoSyncStatusBar />
-        <Outlet />
-      </>
-    )
+    return <Outlet />
   }
 
   // 2. kapu: offline-mode flag aktív (PIN már verifikálódott ebben az
@@ -158,14 +148,7 @@ export function AuthGate() {
   // jön: a mentett kódos belépésnek nem szabad a getSession()-re várnia —
   // ha közben mégis megjön a session, a state-frissítés átvált online módra.
   if (offlineActive) {
-    return (
-      <>
-        <SessionStatusIndicator />
-        <SyncStatusIndicator />
-        <AutoSyncStatusBar />
-        <Outlet />
-      </>
-    )
+    return <Outlet />
   }
 
   if (loading) {

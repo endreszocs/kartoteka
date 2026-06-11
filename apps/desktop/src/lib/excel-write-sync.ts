@@ -21,7 +21,7 @@
  *     Beállítások → Könyvelés panelről).
  */
 
-import { buildTransferExcelRows, type ExcelKasszaRow } from '@kartoteka/core'
+import { buildBankBankExcelRows, buildTransferExcelRows, type ExcelKasszaRow } from '@kartoteka/core'
 
 import { excelAppendRows } from './excel'
 import {
@@ -84,13 +84,16 @@ interface ParsedPayload {
   row?: ExcelKasszaRow | null
   celResolve?: { kind: 'bev' | 'kiad'; celId: number }
   transfer?: {
-    tipus: 'kassza_bank' | 'bank_kassza'
+    tipus: 'kassza_bank' | 'bank_kassza' | 'bank_bank'
     datum: string
     belsomozgasId: number
     osszeg: number
     megjegyzes: string | null
+    /** bank_bank: a forrás- és cél-számla neve (a párosítás-feloldáshoz). */
+    forrasBankName?: string
+    celBankName?: string
   }
-  transferSide?: 'kassza' | 'bank'
+  transferSide?: 'kassza' | 'bank' | 'bank-forras' | 'bank-cel'
   bankName?: string
 }
 
@@ -193,7 +196,46 @@ export async function pushPendingExcelRows(ignoreBackoff = false): Promise<Excel
       let sheet: string
       let row: ExcelKasszaRow | null = null
 
-      if (payload.transfer && payload.transferSide) {
+      if (payload.transfer && payload.transfer.tipus === 'bank_bank' && payload.transferSide) {
+        // Bank → bank: MINDKÉT betűt fel kell oldani a megerősített párosításból.
+        const forrasLetter = getConfirmedLetterForBankName(
+          item.congregation_id,
+          item.ev,
+          payload.transfer.forrasBankName ?? '',
+        )
+        const celLetter = getConfirmedLetterForBankName(
+          item.congregation_id,
+          item.ev,
+          payload.transfer.celBankName ?? '',
+        )
+        if (!forrasLetter || !celLetter) {
+          await backend.updateExcelRowAttempt(
+            item.id,
+            waitMsg(
+              'mapping',
+              `A(z) „${payload.transfer.forrasBankName ?? '?'}" → „${payload.transfer.celBankName ?? '?'}" átvezetéshez mindkét bank betű-párosítása szükséges (Beállítások → Könyvelés).`,
+            ),
+          )
+          result.waiting += 1
+          lastNote = 'Bank–betű párosítás megerősítése szükséges — tételek várakoznak.'
+          continue
+        }
+        const bbRows = buildBankBankExcelRows({
+          datum: payload.transfer.datum,
+          belsomozgasId: payload.transfer.belsomozgasId,
+          osszeg: payload.transfer.osszeg,
+          forrasLetter,
+          celLetter,
+          megjegyzes: payload.transfer.megjegyzes,
+        })
+        if (payload.transferSide === 'bank-forras') {
+          sheet = bbRows.forrasSheet
+          row = bbRows.forrasRow
+        } else {
+          sheet = bbRows.celSheet
+          row = bbRows.celRow
+        }
+      } else if (payload.transfer && payload.transfer.tipus !== 'bank_bank' && payload.transferSide) {
         // Belső mozgás — a betű feloldása után a sor-párt ÚJRAÉPÍTJÜK a
         // hivatalos per-számla nevekkel (a payload a nyers adatokat őrzi).
         const letter = getConfirmedLetterForBankName(

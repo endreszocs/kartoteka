@@ -233,3 +233,88 @@ export function buildTransferExcelRows(input: BuildTransferRowsInput): TransferE
 
   return { kasszaRow, bankRow, bankSheet: input.bankLetter }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bank ↔ bank átvezetés — KÉT betű-lap (forrás kiadás + cél bevétel)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface BuildBankBankRowsInput {
+  datum: string
+  belsomozgasId: number
+  osszeg: number
+  /** A forrás-számla betűje (ahonnan a pénz megy). */
+  forrasLetter: string
+  /** A cél-számla betűje (ahová érkezik). */
+  celLetter: string
+  megjegyzes?: string | null
+}
+
+export interface BankBankExcelRows {
+  /** A forrás betű-lapra írandó KIADÁS-sor. */
+  forrasRow: ExcelKasszaRow
+  /** A cél betű-lapra írandó BEVÉTEL-sor. */
+  celRow: ExcelKasszaRow
+  forrasSheet: string
+  celSheet: string
+}
+
+/**
+ * Bank→bank átvezetés két Excel-sora. Névminta (Endre élő fájljának
+ * képernyőképével igazolva, 2026-06-11):
+ *   forrás X lapon (kiadás): „Átutalva a(z) <CÉL> számlára - <X>"
+ *   cél Y lapon (bevétel):  „Átutalva a(z) <FORRÁS> számláról - <Y>"
+ * A nevek KÖTELEZŐEN a hivatalos katalógus-készletből jönnek — ha a pár
+ * bármelyik neve hiányzik, hibát dobunk (sosem tippelünk).
+ */
+export function buildBankBankExcelRows(input: BuildBankBankRowsInput): BankBankExcelRows {
+  const letters = BANK_LETTERS as readonly string[]
+  if (!letters.includes(input.forrasLetter) || !letters.includes(input.celLetter)) {
+    throw new Error(
+      `Ismeretlen bank-betű: "${input.forrasLetter}" → "${input.celLetter}" (A–T várt).`,
+    )
+  }
+  if (input.forrasLetter === input.celLetter) {
+    throw new Error('A forrás- és cél-számla nem lehet azonos.')
+  }
+
+  const forrasNev = `Átutalva a(z) ${input.celLetter} számlára - ${input.forrasLetter}`
+  const celNev = `Átutalva a(z) ${input.forrasLetter} számláról - ${input.celLetter}`
+  const keszlet = Object.values(BELSO_MOZGAS_EXCEL_NEVEK)
+  if (!keszlet.includes(forrasNev) || !keszlet.includes(celNev)) {
+    throw new Error(
+      `Hiányzó bank→bank Excel-név (`+
+        `„${forrasNev}" / „${celNev}") — a hivatalos katalógus nem fedi ezt a lap-párt.`,
+    )
+  }
+
+  const osszeg = roundCent(input.osszeg)
+  const iratszam = `BM-${input.belsomozgasId}`
+  const megjegyzes = input.megjegyzes || ''
+
+  return {
+    forrasSheet: input.forrasLetter,
+    celSheet: input.celLetter,
+    forrasRow: {
+      datum: input.datum,
+      iratszam,
+      irattip: 'OP',
+      nev: forrasNev,
+      bevOsszeg: null,
+      bevKod: null,
+      kiadOsszeg: osszeg,
+      kiadKod: forrasNev,
+      megjegyzes,
+    },
+    celRow: {
+      datum: input.datum,
+      iratszam,
+      irattip: 'Extr',
+      nev: celNev,
+      bevOsszeg: osszeg,
+      bevKod: celNev,
+      kiadOsszeg: null,
+      kiadKod: null,
+      megjegyzes,
+    },
+  }
+}

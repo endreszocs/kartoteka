@@ -19,7 +19,7 @@
  *   - Offline-mentés, Kuka, Admin override, God-mode gombok
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   ChevronDown,
   Church,
@@ -69,6 +69,12 @@ export interface KartotekaHeaderProps {
   onOpenSettings?: () => void
   /** Mobile-menu toggle — a parent state-et módosít. */
   onToggleMobileMenu: () => void
+  /**
+   * Extra tartalom a header jobb oldali gomb-sávjába (a súgó-gomb elé) —
+   * pl. session/szinkron státusz-jelvények (desktop, 2026-06-11). Opcionális,
+   * a web változatlanul működik nélküle.
+   */
+  headerExtra?: ReactNode
 }
 
 // Role-label egyszerűsítés — a web-oldali `getRoleLabel` másolata.
@@ -97,6 +103,7 @@ export function KartotekaHeader({
   onOpenHelp,
   onOpenSettings,
   onToggleMobileMenu,
+  headerExtra,
 }: KartotekaHeaderProps) {
   const [signingOut, setSigningOut] = useState(false)
 
@@ -161,6 +168,7 @@ export function KartotekaHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          {headerExtra}
           {onOpenHelp && (
             <button
               type="button"

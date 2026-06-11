@@ -34,7 +34,7 @@ import { MemberDetailDialog } from '../components/member-detail-dialog'
 import { SzemelyConflictDialog } from '../components/szemely-conflict-dialog'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile } from '../lib/sync'
 import { useDataVersion, notifyLocalDataChanged } from '../lib/sync-orchestrator'
 import { startSzemelyAutoSync } from '../lib/szemely-write-sync'
@@ -69,14 +69,12 @@ export function MembersPage() {
   // Auth + congregation_id
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth
-      .getUser()
-      .then(async ({ data }) => {
-        if (!mounted || !data.user) return
-        setUserId(data.user.id)
+    getDesktopUser()
+      .then(async (resolvedUser) => {
+        if (!mounted || !resolvedUser) return
+        setUserId(resolvedUser.id)
         try {
-          const profile = await getLocalOwnProfile(data.user.id)
+          const profile = await getLocalOwnProfile(resolvedUser.id)
           if (mounted) setCongregationId(profile?.congregation_id ?? null)
         } catch {
           /* csendes */

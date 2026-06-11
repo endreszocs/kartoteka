@@ -23,6 +23,63 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Pénzügyi finomítások: tisztább kategória-lista, biztos rögzítés, rendezett felület
+<!-- key: 2026-06-11-penzugy-eszrevetelek-fixek -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop 0.9.0 -->
+
+Lelkipásztori visszajelzések nyomán több ponton pontosítottuk a pénzügyi rögzítést —
+a weben és az asztali appban egyaránt.
+
+### ✨ Tisztább kategória-választó
+
+- A tétel rögzítésénél mostantól **csak valóban könyvelhető kategóriák** jelennek
+  meg — az összesítő kategóriafejek (pl. „Egyházi tevékenységből származó bevételek
+  (5+...+12)", „Múlt évi pénztármaradvány (2+3)") és az egyházmegyei szintű tételek
+  eltűntek a listából. Pontosan a hivatalos számadási kategóriák választhatók:
+  39 bevételi és 48 kiadási tétel.
+
+### 🐛 Biztos rögzítés a kódos (offline) munkamenetben is
+
+- Ha a mentett biztonsági kóddal léptél be, és közben volt internet, a rögzítés
+  zavaros hibával állhatott le („permission denied"). Mostantól ilyenkor az app
+  automatikusan a **bevált offline utat** használja: a tétel az iratszám-tárcából
+  kap számot, és a következő online bejelentkezéskor magától felkerül a felhőbe.
+
+### ✨ Befizető-keresés a tagnyilvántartásból (asztali app)
+
+- A „Tétel rögzítése" ablak **Befizető / forrás** mezőjében mostantól kereshetsz
+  a tagjaid közt: két betű után felugranak a találatok, kiválasztásnál a
+  befizetés a személyhez kapcsolódik (egyházfenntartásnál, adománynál így a
+  tartozás-nyilvántartás is naprakész). Egy pipával **családi befizetéssé**
+  tehető. Ha nem tagtól jön a pénz, a mező továbbra is szabad szövegként működik.
+
+### 🛡️ Szinkron csak hiteles belépéssel
+
+- A felhőbe írás mostantól **hármas ellenőrzés** után indul: érvényes belépés,
+  nem járt-e le, és hogy **ugyanaz a fiók** van-e belépve, amelyikhez a gépen
+  tárolt adatok tartoznak. Ha más fiókkal lépnének be ugyanazon a gépen, a
+  szinkron biztonsági okból leáll — érthető üzenettel, soha nem csendben.
+
+### 🎨 Rendezett felület
+
+- Az „Offline munkamenet" és a szinkronizálás jelzői **a fejlécbe költöztek** —
+  többé nem takarják ki a modulok tartalmát.
+- A **belső mozgás** mostantól egyértelmű megnevezésekkel megy: a saját bankod
+  nevét látod (pl. „Készpénzletétel a(z) BCR (RON) számlára"), a forrás/cél pedig
+  a rögzített bankszámláid közül választható — elgépelni sem lehet. Ha még nincs
+  bankszámla rögzítve, a banki opciók meg sem jelennek.
+- A bal oldali menü **megtisztult**: a még el nem készült modulok (Profilom,
+  Admin) nem mutatnak üres oldalra, a Pénzügy-almenü pedig egységesen az új
+  pénzügyi főoldal füleire visz.
+
+> *Megjegyzés a rendszergazdának:* a részletes terv- és diagnosztikai dokumentum:
+> `docs/project-tracking/KARTOTEKA-penzugy-eszrevetelek-terv-2026-06-11.md` —
+> a futtatandó ellenőrző SQL-lel együtt.
+
+---
+
 ## [2026-06-11] — Asztali app 0.9.0: a Kartotéka mostantól a hivatalos Excel-könyvelésbe is beírja a tételeket
 <!-- key: 2026-06-11-desktop-excel-write-through -->
 <!-- category: feature -->

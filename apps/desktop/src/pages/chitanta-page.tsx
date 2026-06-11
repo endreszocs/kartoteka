@@ -62,6 +62,7 @@ import { runChitantaSyncManually } from '../lib/chitanta-sync'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 import { getLocalOwnProfile } from '../lib/sync'
 
@@ -97,15 +98,13 @@ export function ChitantaPage() {
   // ── Auth + congregation_id ──
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth
-      .getUser()
-      .then(async ({ data }) => {
+    getDesktopUser()
+      .then(async (resolvedUser) => {
         if (!mounted) return
-        setUser(data.user)
-        if (data.user) {
+        setUser(resolvedUser)
+        if (resolvedUser) {
           try {
-            const profile = await getLocalOwnProfile(data.user.id)
+            const profile = await getLocalOwnProfile(resolvedUser.id)
             if (mounted) setCongregationId(profile?.congregation_id ?? null)
           } catch {
             /* csendes */

@@ -74,6 +74,10 @@ export interface SaveIncomeBatchRow {
   irattipus: (typeof RECEIPT_TYPES)[number]
   fizetettev: number | null
   megjegyzes: string | null
+  /** B1 (2026-06-11): a befizetés tag-kapcsolata (kölcsönösen kizáró a családdal). */
+  id_szemely?: number | null
+  /** B1: családi befizetésnél a család azonosítója. */
+  id_csalad?: number | null
 }
 
 export interface SaveLinkedInventoryPayload {

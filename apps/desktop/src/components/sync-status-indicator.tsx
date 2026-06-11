@@ -31,7 +31,7 @@ interface SyncCounts {
   primaryRoute: '/penzugy/chitanta' | '/penzugy/befizetes' | '/penzugy/kiadas'
 }
 
-export function SyncStatusIndicator() {
+export function SyncStatusIndicator({ position = 'fixed' }: { position?: 'fixed' | 'inline' } = {}) {
   const navigate = useNavigate()
   const [counts, setCounts] = useState<SyncCounts | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
@@ -126,6 +126,7 @@ export function SyncStatusIndicator() {
       pending={counts.pending}
       conflict={counts.conflict}
       onClick={() => navigate(counts.primaryRoute)}
+      position={position}
     />
   )
 }

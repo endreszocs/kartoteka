@@ -8,9 +8,11 @@ export interface SyncStatusBadgeProps {
   onClick: () => void
   label?: string
   title?: string
+  /** 'fixed' (default): lebegő pozíció · 'inline': a header-be ágyazáshoz. */
+  position?: 'fixed' | 'inline'
 }
 
-export function SyncStatusBadge({ pending, conflict, onClick, label, title }: SyncStatusBadgeProps) {
+export function SyncStatusBadge({ pending, conflict, onClick, label, title, position = 'fixed' }: SyncStatusBadgeProps) {
   if (pending === 0 && conflict === 0) return null
 
   const hasConflict = conflict > 0
@@ -37,7 +39,7 @@ export function SyncStatusBadge({ pending, conflict, onClick, label, title }: Sy
     <button
       type="button"
       onClick={onClick}
-      className={`fixed right-3 top-12 z-40 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm transition-colors ${toneClasses}`}
+      className={`${position === 'fixed' ? 'fixed right-3 top-12 z-40' : ''} flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm transition-colors ${toneClasses}`}
       title={computedTitle}
       aria-label={computedLabel}
     >

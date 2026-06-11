@@ -165,9 +165,13 @@ duplikál; (3) sztornó = ellenelőjeles sor; (4) belső mozgás = pontosan 2 so
 
 ## 5. ÚJ FUNKCIÓ javaslatok (üzleti érték szerint)
 
-1. **Számadás-export közvetlenül a Kimutatasok_2026.xlsx-be** — az éves
-   számadás (web Számadás fül) értékeinek átvezetése a hivatalos kimutatás-
-   fájlba, ugyanazzal a biztonságos cella-író mechanizmussal (excel_set_cells).
+1. ~~Számadás-export a Kimutatasok_2026.xlsx-be~~ — **ELVETVE (Endre, 2026-06-11):
+   a Kimutatások-fájlba írni TILOS.** A Kimutatasok_2026.xlsx a hivatalos
+   módszertan szerint az Adatok_2026.xlsx-ből AUTOMATIKUSAN veszi át és
+   rendszerezi az adatokat — minden tételt kizárólag az Adatok-fájlban kell
+   rögzíteni, a megfelelő módon és formában. (Verifikálva: a kódban semmi nem
+   ír a Kimutatások-fájlba — a Rust `find_adatok_file` csak `Adatok_*.xlsx`-et
+   fogad el írási célnak.)
 2. **Pénzügyi év-váltó varázsló** — január 1-jén: új Könyvelés-mappa
    előkészítése + nyitóegyenlegek átvezetése (bank + kassza) + iratszám-tárca
    újratöltési emlékeztető, egy lépésben.
