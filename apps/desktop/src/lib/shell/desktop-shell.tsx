@@ -107,6 +107,19 @@ export function DesktopShell({ children }: DesktopShellProps) {
   const [profile, setProfile] = useState<ProfileLocalRow | null>(null)
   const [congregation, setCongregation] = useState<CongregationLocalRow | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
+
+  // Bárhonnan megnyitható Beállítások egy adott füllel (pl. Pénzügy →
+  // „Excel-könyvelés" hero-gomb → Könyvelés fül). Lazán csatolt custom event.
+  useEffect(() => {
+    function onOpenSettingsEvent(e: Event) {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      setSettingsTab(tab)
+      setSettingsOpen(true)
+    }
+    window.addEventListener('kartoteka:open-settings', onOpenSettingsEvent)
+    return () => window.removeEventListener('kartoteka:open-settings', onOpenSettingsEvent)
+  }, [])
 
   // Felhasználó feloldása — OFFLINE-barát (2026-06-11 fix): PIN-es belépésnél
   // nincs Supabase session, ezért a getDesktopUser a cache-elt/lokális userre
@@ -306,7 +319,10 @@ export function DesktopShell({ children }: DesktopShellProps) {
         isGodMode={false}
         activeScope={activeScope}
         onSignOut={handleSignOut}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsTab(undefined)
+          setSettingsOpen(true)
+        }}
         financeSubmenu={DESKTOP_FINANCE_SUBMENU}
         hiddenMenuHrefs={DESKTOP_HIDDEN_MENU_HREFS}
         // 2026-06-11 (Endre): a session/szinkron jelvények a HEADERBEN élnek —
@@ -325,6 +341,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        initialTab={settingsTab}
         userEmail={effectiveProfile.email}
         publicSiteUrl={
           congregation?.public_slug

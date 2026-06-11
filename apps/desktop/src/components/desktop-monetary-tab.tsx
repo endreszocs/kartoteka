@@ -22,6 +22,7 @@ import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getVerifiedSession } from '../lib/verified-session'
 import { isOnlineWithSession } from '../lib/use-session-online'
+import { printHtmlViaIframe } from '../lib/print-html'
 
 type DesktopMonetaryTabProps = Pick<
   MonetaryTabProps,
@@ -49,40 +50,6 @@ const CANONICAL_DENOMINATIONS = [
 function formatDisplayValue(value: number) {
   if (value >= 1) return `${value} RON`
   return `${Math.round(value * 100)} bani`
-}
-
-/** Rejtett iframe-be írt HTML nyomtatása (Tauri webview-kompatibilis). */
-async function printHtmlViaIframe(html: string): Promise<void> {
-  const iframe = document.createElement('iframe')
-  iframe.style.position = 'fixed'
-  iframe.style.right = '0'
-  iframe.style.bottom = '0'
-  iframe.style.width = '0'
-  iframe.style.height = '0'
-  iframe.style.border = '0'
-  document.body.appendChild(iframe)
-  const doc = iframe.contentWindow?.document
-  if (!doc) {
-    document.body.removeChild(iframe)
-    throw new Error('A nyomtatási nézet nem hozható létre.')
-  }
-  doc.open()
-  doc.write(html)
-  doc.close()
-  await new Promise((resolve) => setTimeout(resolve, 300))
-  try {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-  } finally {
-    // A print-dialógus modális — pár másodperc után takarítunk.
-    setTimeout(() => {
-      try {
-        document.body.removeChild(iframe)
-      } catch {
-        /* már eltávolítva */
-      }
-    }, 60_000)
-  }
 }
 
 export function DesktopMonetaryTab({ congregationId, ...props }: DesktopMonetaryTabProps) {

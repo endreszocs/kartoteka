@@ -160,3 +160,15 @@ export interface SheetSums {
 export async function excelReadSheetSums(filePath: string, sheet: string): Promise<SheetSums> {
   return invoke<SheetSums>('excel_read_sheet_sums', { filePath, sheet })
 }
+
+/**
+ * Megadott cellák nyers szöveges értéke egy lapról (sorrendtartó; hiányzó
+ * cella = üres string). A Koltsegvetes-fejléc (B78/B79) állapotához.
+ */
+export async function excelReadCells(
+  filePath: string,
+  sheet: string,
+  cells: string[],
+): Promise<string[]> {
+  return invoke<string[]>('excel_read_cells', { filePath, sheet, cells })
+}

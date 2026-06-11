@@ -283,3 +283,31 @@ tömböt — banki tétel és belső mozgás opciók így a fő oldalról is tel
   funkciójú nélküle; desktop-print később, az egységes print-stratégiával.
 - **BCR import-wizard modal**: desktopon a dedikált `/bank-import` oldal a
   kanonikus út (bankszámla-kötéssel + Excel-írással) — a fül gombja oda visz.
+
+
+---
+
+## ✅ ENDRE 4 ÚJ ÉSZREVÉTELE (2026-06-11, esti teszt-kör) — MIND KÉSZ
+
+1. **Excel Koltsegvetes-fejléc**: a tételek csak akkor érhetők el a fájlban, ha
+   a B78 (egyházmegye, az X1:X24 lenyíló PONTOS rövid nevével) és a B79
+   (egyházközség, „Református"/„Egyházközség" nélkül) ki van töltve. GYÖKÉR-OK:
+   a korábbi auto-konfig a V3 suffix-KONSTANSBA írta a teljes megyenevet (rossz
+   cella + a B88 képletet is rontotta). FIX: új `excel_read_cells` Rust-parancs,
+   `EXCEL_EGYHAZMEGYEK` hivatalos lista + név-normalizálók
+   (`suggestExcelMegye`/`suggestExcelEgyhazkozsegNev`), a panel látható
+   „Excel-fejléc" szekciója (állapot + lenyíló + input + Beírás gomb), a setup
+   utáni auto-kitöltés, V3 gyári visszaállítása (öngyógyítás).
+2. **Eldugott Könyvelés-beállítások**: „Excel-könyvelés" gomb a Pénzügy hero-ban
+   (custom event → SettingsDialog `initialTab='konyveles'`); a panel instrukciói
+   lépésvezetettek; nyitott fájlnál a szekció figyelmeztet a zárolásra.
+3. **Súgó 3-osztatú**: a `FinanceSugoTab` fő gridje xl-től
+   `[280px | 1fr | 340px]` — az élő év-végi checklist jobb oldali sticky
+   oszlop; lg-n/mobilon a tartalom alá csúszik (EGY példány, nincs
+   state-duplikáció). A web ugyanezt a megosztott komponenst használja.
+4. **Nyomtatási központ desktopra**: a `reporting.ts` + `budget-reporting.ts`
+   builderek a webből az `@kartoteka/ui-app`-ba költöztek (web: re-export shim),
+   új `DesktopFinancePrintDialog` + `DesktopBudgetPrintDialog` (megosztott
+   body-k; nyugtatömb-report + Decont/Dispoziție újranyomtatás direkt
+   Supabase-szel), hero `onPrint` + Költségvetés-fül gomb, közös
+   `printHtmlViaIframe` helper (rendszer print-dialógus, PDF onnan).

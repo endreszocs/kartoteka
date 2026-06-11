@@ -123,3 +123,67 @@ export function getConfirmedLetterForBankName(
     map.entries.find((e) => e.bankNeve.trim().toLowerCase() === needle)?.letter ?? null
   )
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Koltsegvetes-fejléc (2026-06-11, Endre #1): egyházmegye + egyházközség
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * A hivatalos `Adatok_2026.xlsx` Koltsegvetes lapjának fejléc-cellái.
+ * A B78 lenyílójának forrása a lapon belüli X1:X24 lista (24 egyházmegye) —
+ * a B88 képlet `UPPER(B78&" REFORMÁTUS EGYHÁZMEGYE")`-t, a B90 pedig
+ * `TRIM(UPPER(B79&" Református Egyházközség"))`-et képez belőlük; e kettő
+ * kitöltése nélkül a fájl kategória-lenyílói üresek (kézzel nem szerkeszthető).
+ */
+export const KOLTSEGVETES_SHEET = 'Koltsegvetes'
+export const KOLTSEGVETES_MEGYE_CELL = 'B78'
+export const KOLTSEGVETES_EGYHAZKOZSEG_CELL = 'B79'
+
+/** A sablon X1:X24 listája — a B78-ba CSAK ezek egyike írható (byte-pontosan). */
+export const EXCEL_EGYHAZMEGYEK = [
+  'Brassói', 'Dési', 'Erdővidéki', 'Görgényi', 'Hunyadi', 'Kalotaszegi',
+  'Kézdi-Orbai', 'Kolozsvári', 'Küküllői', 'Marosi', 'Maros-Mezőségi',
+  'Nagyenyedi', 'Sepsi', 'Székelyudvarhelyi', 'Tordai', 'Aradi', 'Bihari',
+  'Érmelléki', 'Nagybányai', 'Nagykárolyi', 'Szatmári', 'Szilágysomlyói',
+  'Temesvári', 'Zilahi',
+] as const
+
+/** Ékezet-toleráns, kisbetűs összevetési alak. */
+function foldName(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * A DB-beli egyházmegye-névből (pl. „Kolozsvári Református Egyházmegye")
+ * javaslat a sablon 24 hivatalos rövid neve közül. Nincs egyezés → null
+ * (a panel kézi választást kér — NEM találgatunk).
+ */
+export function suggestExcelMegye(dbName: string | null | undefined): string | null {
+  if (!dbName) return null
+  const cleaned = foldName(
+    dbName.replace(/református/gi, '').replace(/egyházmegye/gi, ''),
+  )
+  if (!cleaned) return null
+  for (const hivatalos of EXCEL_EGYHAZMEGYEK) {
+    if (foldName(hivatalos) === cleaned) return hivatalos
+  }
+  return null
+}
+
+/**
+ * Az egyházközség nevének sablon-alakja: a gyülekezet nevéből a „Református"
+ * és „Egyházközség" szavak nélkül (a B90 képlet fűzi vissza őket).
+ */
+export function suggestExcelEgyhazkozsegNev(dbName: string | null | undefined): string {
+  if (!dbName) return ''
+  return dbName
+    .replace(/református/gi, ' ')
+    .replace(/egyházközség/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
