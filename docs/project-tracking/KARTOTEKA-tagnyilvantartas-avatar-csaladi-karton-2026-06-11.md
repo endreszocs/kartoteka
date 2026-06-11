@@ -58,5 +58,5 @@
 
 ## 3. NYITOTT / KÉSŐBBI
 - A személyi karton (MemberDetailsDialogV2 / member-oldal) avatar-szerkesztője — most a családi lapról érhető el; oda is kitehető.
-- Web `getFamilies` haztartas_tag szerep-értékei: a lista-oldal 'gyerek', a részletlap 'gyermek'/'unoka' szerepeket szűr — a DB-ben érdemes ellenőrizni, melyik a kanonikus (most mindkét helyen a meglévő mintát követtük).
+- ~~Web `getFamilies` szerep-értékek~~ → **LEZÁRVA (2026-06-12):** az író-kód (`syncHouseholdFromCsalad`) a kanonikus **'gyermek'** szerepet menti — a getFamilies 'gyerek'-szűrője bug volt (a gyermekek nem jelentek volna meg a kártyákon); javítva 'gyermek'+'unoka'-ra.
 - Avatar-cache offline-ra (a kép-URL szinkronizált, a kép maga online töltődik; offline monogram-fallback van).

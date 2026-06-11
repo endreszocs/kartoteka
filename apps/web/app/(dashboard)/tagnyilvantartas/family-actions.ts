@@ -278,7 +278,7 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     `)
     .in('id_haztartas', haztartasIds)
     .is('ervenyes_ig', null)
-    .in('szerep', ['csaladfo', 'hazastars', 'gyerek'])
+    .in('szerep', ['csaladfo', 'hazastars', 'gyermek', 'unoka'])
 
   // Map: haztartas_id → { ferfi, no, gyerekek }
   type SzemelyRef = FamilyRow['ferfi']
@@ -290,7 +290,7 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     const sz = (Array.isArray(szemelyRaw) ? szemelyRaw[0] : szemelyRaw) as (SzemelyRef & GyerekRef) | null
     if (!sz) continue
     const entry = tagokByHaztartas.get(tag.id_haztartas) ?? { ferfi: null, no: null, gyerekek: [] }
-    if (tag.szerep === 'gyerek') {
+    if (tag.szerep === 'gyermek' || tag.szerep === 'unoka') {
       entry.gyerekek.push({
         id: sz.id,
         csaladnev: sz.csaladnev ?? null,
