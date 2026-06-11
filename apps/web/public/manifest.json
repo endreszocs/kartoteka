@@ -1,7 +1,7 @@
 {
   "name": "KARTOTEKA — Egyházi Nyilvántartás",
   "short_name": "KARTOTEKA",
-  "description": "Református gyülekezetek offline-first digitális nyilvántartási rendszere",
+  "description": "Egyházi nyilvántartó rendszer — gyülekezetek offline-first digitális nyilvántartása",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

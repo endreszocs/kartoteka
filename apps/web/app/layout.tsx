@@ -6,7 +6,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Kartotéka — Egyházi Nyilvántartási Rendszer',
-  description: 'Erdélyi Református Egyházkerület digitális nyilvántartási rendszere',
+  description: 'Egyházi nyilvántartó rendszer — gyülekezetek digitális nyilvántartása',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
