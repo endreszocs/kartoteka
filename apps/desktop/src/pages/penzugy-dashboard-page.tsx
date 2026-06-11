@@ -32,7 +32,7 @@ import {
 } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile, getLocalOwnCongregation } from '../lib/sync'
 import {
   getLocalBefizetesek,
@@ -67,10 +67,7 @@ export function PenzugyDashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const user = await getDesktopUser()
       if (!user) {
         setLoading(false)
         return

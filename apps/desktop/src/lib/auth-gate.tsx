@@ -13,6 +13,7 @@ import {
 } from './auth-pin'
 import { runBefizetesSyncManually, startBefizetesAutoSync } from './befizetes-write-sync'
 import { runChitantaSyncManually, startChitantaAutoSync } from './chitanta-sync'
+import { clearLastUser, saveLastUser } from './desktop-user'
 import { startExcelWriteAutoSync } from './excel-write-sync'
 import { runKiadasSyncManually, startKiadasAutoSync } from './kiadas-write-sync'
 import { getDesktopSupabase } from './supabase'
@@ -99,6 +100,9 @@ export function AuthGate() {
       if (event === 'SIGNED_IN' && newSession) {
         setOfflineMode(false)
         setOfflineActive(false)
+        // Az offline user-feloldás cache-e (2026-06-11) — a PIN-es belépés
+        // ebből tudja, ki a gép felhasználója session nélkül is.
+        saveLastUser({ id: newSession.user.id, email: newSession.user.email ?? null })
         // A-M7.2d2c — az outbox-ban várakozó chitantákat felküldjük azonnal.
         // A runChitantaSyncManually önmagában guard-olva van (nem duplikál).
         void runChitantaSyncManually()
@@ -114,6 +118,7 @@ export function AuthGate() {
         setOfflineMode(false)
         setOfflineActive(false)
         clearRememberOffline()
+        clearLastUser()
       }
     })
 

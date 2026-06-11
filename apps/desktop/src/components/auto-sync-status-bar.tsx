@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle2, CloudOff, Loader2, RefreshCw } from 'lucide-react'
 
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { useAutoSyncOrchestrator } from '../lib/sync-orchestrator'
 
 function formatRelativeTime(ts: number): string {
@@ -42,8 +43,8 @@ export function AutoSyncStatusBar() {
   useEffect(() => {
     let mounted = true
     const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUserId(data.user?.id ?? null)
+    getDesktopUser().then((resolvedUser) => {
+      if (mounted) setUserId(resolvedUser?.id ?? null)
     })
     const {
       data: { subscription },

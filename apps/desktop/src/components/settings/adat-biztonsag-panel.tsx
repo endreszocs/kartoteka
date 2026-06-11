@@ -24,7 +24,7 @@ import { Button } from '@kartoteka/ui'
 
 import { errorMessage } from '../../lib/error'
 import { getDbStatus, getOutboxStats, type OutboxStats } from '../../lib/local-db'
-import { getDesktopSupabase } from '../../lib/supabase'
+import { getDesktopUser } from '../../lib/desktop-user'
 import {
   isOnline,
   processOutbox,
@@ -49,9 +49,8 @@ export function AdatBiztonsagPanel() {
   // Auth + online + DB + outbox + device — egyszerre töltjük be
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user)
+    getDesktopUser().then((resolvedUser) => {
+      if (mounted) setUser(resolvedUser)
     })
     isOnline().then((v) => {
       if (mounted) setOnline(v)

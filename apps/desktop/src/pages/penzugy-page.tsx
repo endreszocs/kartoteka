@@ -43,6 +43,7 @@ import {
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile, getLocalOwnCongregation, getLocalMembersOfOwnCongregation } from '../lib/sync'
 import { getLocalBefizetesek, getLocalKiadasok, pullBefizetesek, pullKiadasok } from '../lib/finance-sync'
 import {
@@ -137,10 +138,7 @@ export function PenzugyPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const user = await getDesktopUser()
       if (!user) {
         setLoading(false)
         return

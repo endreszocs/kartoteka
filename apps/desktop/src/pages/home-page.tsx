@@ -42,7 +42,7 @@ import {
   calculateAgeDistribution,
   extractUpcomingBirthdays,
 } from '../lib/dashboard-helpers'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import {
   getLocalCsaladokCount,
   getLocalMembersOfOwnCongregation,
@@ -94,9 +94,8 @@ export function HomePage() {
 
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user)
+    getDesktopUser().then((resolvedUser) => {
+      if (mounted) setUser(resolvedUser)
     })
     return () => {
       mounted = false

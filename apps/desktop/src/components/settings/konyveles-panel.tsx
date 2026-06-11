@@ -54,6 +54,7 @@ import {
   startExcelWriteAutoSync,
 } from '../../lib/excel-write-sync'
 import { getDesktopSupabase } from '../../lib/supabase'
+import { getDesktopUser } from '../../lib/desktop-user'
 import { getLocalOwnProfile, getLocalOwnCongregation } from '../../lib/sync'
 import { getTauriSqliteBackend } from '../../lib/tauri-sqlite-backend'
 
@@ -148,9 +149,7 @@ export function KonyvelesPanel() {
     setMapMsg(null)
     try {
       const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const user = await getDesktopUser()
       if (!user) return
       const profile = await getLocalOwnProfile(user.id)
       const cid = profile?.congregation_id ?? null
@@ -310,9 +309,7 @@ export function KonyvelesPanel() {
     let cimerUrl: string | null = null
     try {
       const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const user = await getDesktopUser()
       if (user) {
         const cong = await getLocalOwnCongregation(user.id)
         if (!cong) await getLocalOwnProfile(user.id) // best-effort hidratálás
