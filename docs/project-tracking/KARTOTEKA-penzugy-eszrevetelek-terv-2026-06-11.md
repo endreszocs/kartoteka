@@ -185,6 +185,15 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 > `2026-06-11i-hianyzo-hivatalos-kategoriak.sql` (név szerint mutatja a
 > hiányzókat) és `2026-06-11j-grants-ellenorzes.sql` (jogosultság-ellenőrzés).
 
+> **KORREKCIÓ (Endre képernyőképe nyomán, még 2026-06-11):** a 87-es katalógus
+> EGYHÁZMEGYEI tételeket is tartalmaz! Az egyházközségi bevétel-lista a
+> hivatalos Excelben 30 tételes (101.01–107.02), a 9 különbözet mind felsőbb
+> szintű (101.07/101.08, 105.03 Kongrua, 106.01–106.06). **A DB 31-es bevétel-
+> készlete tehát lényegében HELYES, nem hiányos.** Az i-SQL v2-re frissült
+> (a kép tudását hordozza); a kiadás-oldal igazolásához Endre kiadási
+> képernyőképe kell (a névminta ott nem dönt — pl. a „Központi járulékok"
+> tipikus GYÜLEKEZETI fizetési kötelezettség).
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e
