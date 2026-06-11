@@ -84,6 +84,23 @@ export async function excelOpenFolder(path: string): Promise<void> {
   await invoke('excel_open_folder', { path })
 }
 
+/** Egy cella-szerkesztés (lap + cella + új szöveges érték). */
+export interface CellEdit {
+  sheet: string
+  /** Cella-hivatkozás, pl. „V3". */
+  cell: string
+  value: string
+}
+
+/**
+ * Konkrét cellák biztonságos beállítása (pl. `Koltsegvetes!V3` = egyházmegye neve
+ * → populálódik a hivatalos chart). CSAK érték-cellát célozz, képletet SOHA.
+ * Visszaadja a backup útvonalát.
+ */
+export async function excelSetCells(filePath: string, edits: CellEdit[]): Promise<string> {
+  return invoke<string>('excel_set_cells', { filePath, edits })
+}
+
 /** A munkafüzet lapjainak nevei (a Kassza + A/B/C… bank-lapok felismeréséhez). */
 export async function excelListSheets(filePath: string): Promise<string[]> {
   return invoke<string[]>('excel_list_sheets', { filePath })

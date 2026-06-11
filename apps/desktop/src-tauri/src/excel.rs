@@ -333,6 +333,56 @@ pub fn excel_append_rows(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// E1.5 — Auto-konfiguráció: gyülekezeti adatok (egyházmegye) az Excelbe
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Egy cella-szerkesztés (lap + cella-hivatkozás + új szöveges érték).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellEdit {
+    pub sheet: String,
+    /// Cella-hivatkozás, pl. „V3".
+    pub cell: String,
+    pub value: String,
+}
+
+/// Konkrét cellák biztonságos beállítása (pl. `Koltsegvetes!V3` = egyházmegye
+/// neve — ettől populálódik a hivatalos 2026-os költségvetési chart).
+///
+/// A hívó FELELŐSSÉGE, hogy CSAK érték-cellát célozzon (a V3 érték-cella) —
+/// képlet-cellát SOHA. Backup → ideiglenes fájl → recalc-patch → atomikus mentés.
+#[tauri::command]
+pub fn excel_set_cells(file_path: String, edits: Vec<CellEdit>) -> Result<String, String> {
+    if edits.is_empty() {
+        return Err("Nincs beállítandó cella.".to_string());
+    }
+    if !Path::new(&file_path).exists() {
+        return Err(format!("A fájl nem található: {file_path}"));
+    }
+
+    let backup_path = backup_file(&file_path)?;
+
+    let mut book = reader::xlsx::read(Path::new(&file_path))
+        .map_err(|e| format!("Excel olvasási hiba: {e}"))?;
+
+    for edit in &edits {
+        let ws = book
+            .get_sheet_by_name_mut(&edit.sheet)
+            .ok_or_else(|| format!("Nincs '{}' munkalap a fájlban.", edit.sheet))?;
+        ws.get_cell_mut(&*edit.cell).set_value_string(edit.value.clone());
+    }
+
+    let tmp1 = format!("{file_path}.tmp1");
+    writer::xlsx::write(&book, Path::new(&tmp1)).map_err(|e| format!("Excel írási hiba: {e}"))?;
+    let tmp2 = format!("{file_path}.tmp2");
+    recalc_patch(&tmp1, &tmp2)?;
+    std::fs::rename(&tmp2, &file_path).map_err(|e| format!("Atomikus mentés hiba: {e}"))?;
+    let _ = std::fs::remove_file(&tmp1);
+
+    Ok(backup_path)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // E1 — Könyvelés-mappa kezelése (bundling → másolás → megnyitás)
 // ───────────────────────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle2, FolderOpen, FolderSync, RefreshCw } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle2, FolderOpen, FolderSync, RefreshCw } from 'lucide-react'
 
 import { Button } from '@kartoteka/ui'
 
@@ -21,9 +21,12 @@ import {
   excelDefaultFolder,
   excelFolderInfo,
   excelOpenFolder,
+  excelSetCells,
   excelSetupFolder,
   type ExcelFolderInfo,
 } from '../../lib/excel'
+import { getDesktopSupabase } from '../../lib/supabase'
+import { getLocalOwnProfile, getLocalOwnCongregation } from '../../lib/sync'
 
 const LS_FOLDER = 'kartoteka-excel-folder-v1'
 const LS_SYNC = 'kartoteka-excel-sync-v1'
@@ -38,6 +41,7 @@ export function KonyvelesPanel() {
   const [info, setInfo] = useState<ExcelFolderInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [applyingCong, setApplyingCong] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [syncEnabled, setSyncEnabled] = useState(false)
@@ -92,6 +96,63 @@ export function KonyvelesPanel() {
       await excelOpenFolder(info.folderPath)
     } catch (e) {
       setError(`A mappa megnyitása nem sikerült: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // Gyülekezeti adatok (egyházmegye) alkalmazása az Excelre — ettől populálódik
+  // a hivatalos chart. Az egyházmegye nevét a felhőből (dioceses.name) oldjuk fel
+  // a congregation diocese_id-ja alapján; offline a denormalizált egyhazmegye-mezőt.
+  async function handleApplyCongregation() {
+    if (!info?.adatokPath) return
+    setApplyingCong(true)
+    setError(null)
+    setMsg(null)
+    try {
+      const supabase = getDesktopSupabase()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) {
+        setError('Nincs bejelentkezett felhasználó.')
+        return
+      }
+      const cong = await getLocalOwnCongregation(user.id)
+      if (!cong) {
+        await getLocalOwnProfile(user.id) // best-effort: profil hidratálás
+        setError('A gyülekezeti adatok még nem töltődtek le — előbb legyen egyszer hálózat.')
+        return
+      }
+
+      // Egyházmegye-név feloldása: elsődlegesen a hivatalos dioceses.name (online),
+      // tartalékként a denormalizált egyhazmegye-mező.
+      let dioceseName = cong.egyhazmegye?.trim() || null
+      if (cong.diocese_id) {
+        try {
+          const { data } = await supabase
+            .from('dioceses')
+            .select('name')
+            .eq('id', cong.diocese_id)
+            .maybeSingle()
+          if (data?.name) dioceseName = String(data.name).trim()
+        } catch {
+          /* offline — marad a denormalizált név */
+        }
+      }
+      if (!dioceseName) {
+        setError('Nincs egyházmegye beállítva a gyülekezethez.')
+        return
+      }
+
+      await excelSetCells(info.adatokPath, [
+        { sheet: 'Koltsegvetes', cell: 'V3', value: dioceseName },
+      ])
+      setMsg(
+        `Egyházmegye beírva az Excelbe: „${dioceseName}". A költségvetési kategóriák így a megnyitáskor megjelennek.`,
+      )
+    } catch (e) {
+      setError(`A gyülekezeti adatok alkalmazása nem sikerült: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setApplyingCong(false)
     }
   }
 
@@ -171,6 +232,31 @@ export function KonyvelesPanel() {
             Állapot frissítése
           </Button>
         </div>
+
+        {/* Gyülekezeti adatok alkalmazása — az egyházmegyét írja az Excelbe */}
+        {info?.exists && (
+          <div className="mt-3 border-t border-slate-200 pt-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void handleApplyCongregation()}
+              disabled={applyingCong}
+              className="border-teal-200 text-teal-700 hover:bg-teal-50"
+            >
+              {applyingCong ? (
+                <RefreshCw className="mr-1.5 size-4 animate-spin" />
+              ) : (
+                <Building2 className="mr-1.5 size-4" />
+              )}
+              Gyülekezeti adatok alkalmazása
+            </Button>
+            <p className="mt-1.5 text-xs text-slate-500">
+              A gyülekezet egyházmegyéjét beírja az Excelbe — ettől jelennek meg a hivatalos
+              költségvetési kategóriák. (Logó-beágyazás a következő frissítésben.)
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Szinkron kapcsoló */}
