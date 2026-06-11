@@ -37,8 +37,11 @@ a weben és az asztali appban egyaránt.
 - A tétel rögzítésénél mostantól **csak valóban könyvelhető kategóriák** jelennek
   meg — az összesítő kategóriafejek (pl. „Egyházi tevékenységből származó bevételek
   (5+...+12)", „Múlt évi pénztármaradvány (2+3)") és az egyházmegyei szintű tételek
-  eltűntek a listából. Pontosan a hivatalos számadási kategóriák választhatók:
-  39 bevételi és 48 kiadási tétel.
+  eltűntek a listából. Pontosan a hivatalos egyházközségi számadási kategóriák
+  választhatók: **31 bevételi és 38 kiadási tétel** — a készletet a hivatalos
+  Excel-listákkal tételesen egyeztettük, és az adatbázisban is rendeztük (a
+  18 egyházmegyei szintű kategória mostantól csak az egyházmegyei felületen
+  jelenik meg).
 
 ### 🐛 Biztos rögzítés a kódos (offline) munkamenetben is
 
@@ -103,6 +106,10 @@ az mostantól **magától bekerül a hivatalos EREK Excel-könyvelésbe is**
 - **Belső mozgás = két sor.** A perselypénz bankba vitele (vagy pénzfelvétel a
   kasszába) a Kassza-lapra ÉS az érintett bank-lapra is felkerül, a hivatalos
   megnevezésekkel („Készpénzletétel a(z) A számlára" stb.).
+- **Bank → bank átutalás is megy.** Ha az egyik számládról a másikra utalsz, a
+  forrás-számla lapjára kiadásként, a cél-számla lapjára bevételként kerül be —
+  a hivatalos „Átutalva a(z) … számlára/számláról" megnevezésekkel. (Egyedül a
+  valutacsere Excel-írása érkezik későbbi frissítésben.)
 - **Sztornó és módosítás is követve.** Ha egy tételt sztornózol, az Excelbe egy
   ellentételező sor kerül (az eredeti is megmarad — így az ellenőrzésnél minden
   lépés visszakövethető, és a végösszeg pontos). Módosításnál ugyanígy: a régi
