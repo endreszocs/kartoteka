@@ -101,6 +101,15 @@ export async function excelSetCells(filePath: string, edits: CellEdit[]): Promis
   return invoke<string>('excel_set_cells', { filePath, edits })
 }
 
+/**
+ * Egy base64-kódolt bináris tartalom mentése lokálisan (a szülő mappát létrehozza).
+ * A gyülekezeti logó (cimer_url) letöltött bájtjait cache-eljük vele — „csak
+ * letöltés/cache", NEM az Excelbe ágyazva.
+ */
+export async function excelSaveFile(destPath: string, base64Content: string): Promise<void> {
+  await invoke('excel_save_file', { destPath, base64Content })
+}
+
 /** A munkafüzet lapjainak nevei (a Kassza + A/B/C… bank-lapok felismeréséhez). */
 export async function excelListSheets(filePath: string): Promise<string[]> {
   return invoke<string[]>('excel_list_sheets', { filePath })

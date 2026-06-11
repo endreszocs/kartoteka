@@ -333,6 +333,26 @@ pub fn excel_append_rows(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// E1.5b — Bináris fájl mentése lokálisan (pl. a gyülekezeti logó cache-elése)
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Egy base64-kódolt bináris tartalom mentése a megadott útvonalra (a szülő
+/// mappát létrehozza). A frontend a logót (cimer_url) letölti, base64-be alakítja,
+/// és ezzel a commanddal menti lokálisan — „csak letöltés/cache", NEM az Excelbe.
+#[tauri::command]
+pub fn excel_save_file(dest_path: String, base64_content: String) -> Result<(), String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_content.as_bytes())
+        .map_err(|e| format!("Base64 dekódolási hiba: {e}"))?;
+    if let Some(parent) = Path::new(&dest_path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+    }
+    std::fs::write(&dest_path, &bytes).map_err(|e| format!("Fájl-írás hiba: {e}"))?;
+    Ok(())
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // E1.5 — Auto-konfiguráció: gyülekezeti adatok (egyházmegye) az Excelbe
 // ───────────────────────────────────────────────────────────────────────────
 

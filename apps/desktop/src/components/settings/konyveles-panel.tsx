@@ -21,6 +21,7 @@ import {
   excelDefaultFolder,
   excelFolderInfo,
   excelOpenFolder,
+  excelSaveFile,
   excelSetCells,
   excelSetupFolder,
   type ExcelFolderInfo,
@@ -31,6 +32,15 @@ import { getLocalOwnProfile, getLocalOwnCongregation } from '../../lib/sync'
 const LS_FOLDER = 'kartoteka-excel-folder-v1'
 const LS_SYNC = 'kartoteka-excel-sync-v1'
 const LS_DIOCESE = 'kartoteka-excel-diocese-v1' // cache az offline újra-alkalmazáshoz
+const LS_LOGO = 'kartoteka-excel-logo-v1' // a lokálisan cache-elt logó útvonala
+
+/** ArrayBuffer → base64 (a webview btoa-jával; a logók kicsik, ez bőven elég). */
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
 
 function loadSyncEnabled(): boolean {
   if (typeof window === 'undefined') return false
@@ -89,8 +99,12 @@ export function KonyvelesPanel() {
       let appliedNote = ''
       if (i.adatokPath) {
         try {
-          const r = await applyCongregationTo(i.adatokPath)
-          if ('dioceseName' in r) appliedNote = ` Egyházmegye automatikusan beírva: „${r.dioceseName}".`
+          const r = await applyCongregationTo(i)
+          if ('dioceseName' in r) {
+            appliedNote =
+              ` Egyházmegye automatikusan beírva: „${r.dioceseName}".` +
+              (r.logoCached ? ' A gyülekezeti logó is letöltve.' : '')
+          }
         } catch {
           /* az auto-konfig best-effort */
         }
@@ -112,10 +126,14 @@ export function KonyvelesPanel() {
     }
   }
 
-  // Egyházmegye-név feloldása: elsődlegesen a hivatalos `dioceses.name` (online,
-  // a congregation diocese_id-ja alapján); tartalékként a denormalizált
-  // egyhazmegye-mező, majd a lokális cache (offline). Sikeres feloldáskor cache-el.
-  async function resolveDioceseName(): Promise<string | null> {
+  // Gyülekezeti kontextus feloldása: az egyházmegye nevét (elsődlegesen a hivatalos
+  // `dioceses.name` online, a congregation diocese_id-ja alapján; tartalékként a
+  // denormalizált egyhazmegye-mező, majd a lokális cache offline) + a logó URL-jét.
+  async function getCongregationContext(): Promise<{
+    dioceseName: string | null
+    cimerUrl: string | null
+  }> {
+    let cimerUrl: string | null = null
     try {
       const supabase = getDesktopSupabase()
       const {
@@ -124,6 +142,7 @@ export function KonyvelesPanel() {
       if (user) {
         const cong = await getLocalOwnCongregation(user.id)
         if (!cong) await getLocalOwnProfile(user.id) // best-effort hidratálás
+        cimerUrl = cong?.cimer_url ?? null
         let name = cong?.egyhazmegye?.trim() || null
         if (cong?.diocese_id) {
           try {
@@ -139,29 +158,57 @@ export function KonyvelesPanel() {
         }
         if (name) {
           window.localStorage.setItem(LS_DIOCESE, name)
-          return name
+          return { dioceseName: name, cimerUrl }
         }
       }
     } catch {
       /* csendes — esünk a cache-re */
     }
-    return window.localStorage.getItem(LS_DIOCESE)
+    return { dioceseName: window.localStorage.getItem(LS_DIOCESE), cimerUrl }
   }
 
-  // Az egyházmegye beírása az adott Adatok-fájl `Koltsegvetes!V3` cellájába —
-  // ettől populálódik a hivatalos költségvetési chart.
+  // A gyülekezeti logó letöltése + lokális cache-elése a Könyvelés-mappába
+  // („csak letöltés/cache", NEM az Excelbe ágyazva). Best-effort: null hiba esetén.
+  async function cacheLogo(folderPath: string, cimerUrl: string): Promise<string | null> {
+    try {
+      const res = await fetch(cimerUrl)
+      if (!res.ok) return null
+      const buf = await res.arrayBuffer()
+      const ext = (
+        cimerUrl.split('?')[0].match(/\.(png|jpe?g|gif|webp|svg)$/i)?.[1] ?? 'png'
+      ).toLowerCase()
+      const sep = folderPath.includes('\\') ? '\\' : '/'
+      const dest = `${folderPath}${sep}cimer.${ext}`
+      await excelSaveFile(dest, arrayBufferToBase64(buf))
+      window.localStorage.setItem(LS_LOGO, dest)
+      return dest
+    } catch {
+      return null
+    }
+  }
+
+  // Az egyházmegye beírása az `Koltsegvetes!V3`-ba (ettől populálódik a hivatalos
+  // chart) + a gyülekezeti logó letöltése/cache-elése (ha van beállítva).
   async function applyCongregationTo(
-    adatokPath: string,
-  ): Promise<{ dioceseName: string } | { error: string }> {
-    const dioceseName = await resolveDioceseName()
-    if (!dioceseName) {
+    target: ExcelFolderInfo,
+  ): Promise<{ dioceseName: string; logoCached: boolean } | { error: string }> {
+    const ctx = await getCongregationContext()
+    if (!ctx.dioceseName) {
       return {
         error:
           'Nincs egyházmegye (még nem töltődött le — előbb legyen egyszer hálózat —, vagy nincs beállítva a gyülekezethez).',
       }
     }
-    await excelSetCells(adatokPath, [{ sheet: 'Koltsegvetes', cell: 'V3', value: dioceseName }])
-    return { dioceseName }
+    if (target.adatokPath) {
+      await excelSetCells(target.adatokPath, [
+        { sheet: 'Koltsegvetes', cell: 'V3', value: ctx.dioceseName },
+      ])
+    }
+    let logoCached = false
+    if (ctx.cimerUrl) {
+      logoCached = (await cacheLogo(target.folderPath, ctx.cimerUrl)) !== null
+    }
+    return { dioceseName: ctx.dioceseName, logoCached }
   }
 
   async function handleApplyCongregation() {
@@ -170,11 +217,12 @@ export function KonyvelesPanel() {
     setError(null)
     setMsg(null)
     try {
-      const r = await applyCongregationTo(info.adatokPath)
+      const r = await applyCongregationTo(info)
       if ('error' in r) setError(r.error)
       else
         setMsg(
-          `Egyházmegye beírva az Excelbe: „${r.dioceseName}". A költségvetési kategóriák a megnyitáskor megjelennek.`,
+          `Egyházmegye beírva az Excelbe: „${r.dioceseName}". A költségvetési kategóriák a megnyitáskor megjelennek.` +
+            (r.logoCached ? ' A gyülekezeti logó is letöltve.' : ''),
         )
     } catch (e) {
       setError(`A gyülekezeti adatok alkalmazása nem sikerült: ${e instanceof Error ? e.message : String(e)}`)
@@ -280,7 +328,7 @@ export function KonyvelesPanel() {
             </Button>
             <p className="mt-1.5 text-xs text-slate-500">
               A gyülekezet egyházmegyéjét beírja az Excelbe — ettől jelennek meg a hivatalos
-              költségvetési kategóriák. (Logó-beágyazás a következő frissítésben.)
+              költségvetési kategóriák —, és letölti a gyülekezeti logót a könyvelés-mappába.
             </p>
           </div>
         )}
