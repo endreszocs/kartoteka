@@ -60,6 +60,7 @@ import {
 import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
+import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile } from '../lib/sync'
@@ -87,6 +88,10 @@ export function BankImportPage() {
   const [defaultIncomeCelId, setDefaultIncomeCelId] = useState<number | null>(null)
   const [defaultExpenseCelId, setDefaultExpenseCelId] = useState<number | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  // 2026-06-11 (audit P1): a kivonat melyik BANKSZÁMLÁHOZ tartozik — a rögzített
+  // tételek bankszamla_id-t kapnak, és az Excel-szinkron a betű-lapra írhatja őket.
+  const [banks, setBanks] = useState<Array<{ id: number; bank_neve: string; valuta: string | null }>>([])
+  const [selectedBankId, setSelectedBankId] = useState<number | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{
     success: number
@@ -115,6 +120,33 @@ export function BankImportPage() {
       mounted = false
     }
   }, [])
+
+  // Aktív bankszámlák betöltése (a kivonat-számla választóhoz)
+  useEffect(() => {
+    if (!congregationId) return
+    let mounted = true
+    void (async () => {
+      try {
+        const supabase = getDesktopSupabase()
+        const { data } = await supabase
+          .from('bankszamlak')
+          .select('id, bank_neve, valuta')
+          .eq('congregation_id', congregationId)
+          .eq('aktiv', true)
+          .order('bank_neve')
+        if (mounted && data) {
+          setBanks(data as Array<{ id: number; bank_neve: string; valuta: string | null }>)
+          // Egyetlen számla esetén automatikusan azt választjuk
+          if (data.length === 1) setSelectedBankId((data[0] as { id: number }).id)
+        }
+      } catch {
+        /* offline — az import úgyis online művelet */
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [congregationId])
 
   // A-M7.10c — kategóriák betöltése egyszer (a default-dropdownokhoz)
   useEffect(() => {
@@ -250,6 +282,7 @@ export function BankImportPage() {
               irattipus: 'Banki',
               fizetettev: new Date(tx.date).getFullYear(),
               megjegyzes: composeMegjegyzes(tx),
+              bankszamla_id: selectedBankId,
             },
             { supabase, runtime: 'desktop', userId },
           )
@@ -260,6 +293,23 @@ export function BankImportPage() {
             })
           } else {
             successCount += 1
+            // E3: a banki tétel a kiválasztott számla betű-lapjára kerül
+            if (res.data.id > 0 && selectedBankId) {
+              void enqueueEntryExcelRow({
+                type: 'befizetes',
+                serverId: res.data.id,
+                congregationId,
+                datum: tx.date,
+                iratszam: res.data.iratszam,
+                irattipus: 'Banki',
+                nev: tx.counterparty || 'Bank-import',
+                osszeg: Math.abs(tx.amount),
+                celId: defaultIncomeCelId,
+                megjegyzes: composeMegjegyzes(tx),
+                bankszamlaId: selectedBankId,
+                ev: new Date(tx.date).getFullYear(),
+              })
+            }
           }
         } else {
           if (!defaultExpenseCelId) {
@@ -283,6 +333,7 @@ export function BankImportPage() {
               iratszam: iratszamFromBank,
               irattipus: 'Banki',
               megjegyzes: composeMegjegyzes(tx),
+              bankszamla_id: selectedBankId,
             },
             { supabase, runtime: 'desktop', userId },
           )
@@ -293,6 +344,23 @@ export function BankImportPage() {
             })
           } else {
             successCount += 1
+            // E3: a banki kiadás is a számla betű-lapjára kerül
+            if (res.data.id > 0 && selectedBankId) {
+              void enqueueEntryExcelRow({
+                type: 'kiadas',
+                serverId: res.data.id,
+                congregationId,
+                datum: tx.date,
+                iratszam: res.data.iratszam,
+                irattipus: 'Banki',
+                nev: tx.counterparty || tx.description.slice(0, 100),
+                osszeg: Math.abs(tx.amount),
+                celId: defaultExpenseCelId,
+                megjegyzes: composeMegjegyzes(tx),
+                bankszamlaId: selectedBankId,
+                ev: new Date(tx.date).getFullYear(),
+              })
+            }
           }
         }
       } catch (err) {
@@ -527,6 +595,34 @@ export function BankImportPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {/* 2026-06-11 (audit P1): melyik bankszámla kivonata ez? */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="import-bank">A kivonat bankszámlája *</Label>
+                    <select
+                      id="import-bank"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={selectedBankId ?? ''}
+                      onChange={(e) =>
+                        setSelectedBankId(
+                          e.currentTarget.value ? Number(e.currentTarget.value) : null,
+                        )
+                      }
+                      disabled={importing || banks.length === 0}
+                    >
+                      <option value="">— válassz bankszámlát —</option>
+                      {banks.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.bank_neve}
+                          {b.valuta ? ` (${b.valuta})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {banks.length === 0 && (
+                      <p className="text-xs text-amber-700">
+                        Nincs aktív bankszámla rögzítve — előbb vedd fel a webes Pénzügy → Bank fülön.
+                      </p>
+                    )}
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="default-income">Default befizetés-kategória</Label>
@@ -577,6 +673,7 @@ export function BankImportPage() {
                     onClick={() => void handleImportUnmatched()}
                     disabled={
                       importing ||
+                      !selectedBankId ||
                       (!defaultIncomeCelId && !defaultExpenseCelId) ||
                       !congregationId ||
                       !userId

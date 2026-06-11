@@ -12,6 +12,8 @@ export interface SessionStatusBadgeProps {
    * Endre: a lebegő jelvény kitakarta a modulokat).
    */
   position?: 'fixed' | 'inline'
+  /** Ha megadod, a jelvény kattintható gombbá válik (pl. online belépésre visz). */
+  onClick?: () => void
 }
 
 const TONE_CLASSES: Record<SessionStatusTone, string> = {
@@ -28,20 +30,28 @@ const DOT_CLASSES: Record<SessionStatusTone, string> = {
   slate: 'bg-slate-400',
 }
 
-export function SessionStatusBadge({ tone, label, isOnline, position = 'fixed' }: SessionStatusBadgeProps) {
+export function SessionStatusBadge({ tone, label, isOnline, position = 'fixed', onClick }: SessionStatusBadgeProps) {
   const positionClasses =
     position === 'fixed' ? 'fixed right-3 top-3 z-40' : ''
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`${positionClasses} flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm ${TONE_CLASSES[tone]}`}
-      title={label}
-    >
+  const className = `${positionClasses} flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm ${TONE_CLASSES[tone]} ${onClick ? 'cursor-pointer transition-colors hover:brightness-95' : ''}`
+  const inner = (
+    <>
       <span
         className={`inline-block size-2 rounded-full ${DOT_CLASSES[tone]} ${isOnline ? 'animate-pulse' : ''}`}
       />
       <span className="max-w-[280px] truncate">{label}</span>
+    </>
+  )
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className} title={label} aria-label={label}>
+        {inner}
+      </button>
+    )
+  }
+  return (
+    <div role="status" aria-live="polite" className={className} title={label}>
+      {inner}
     </div>
   )
 }

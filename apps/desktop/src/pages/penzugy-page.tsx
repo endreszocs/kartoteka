@@ -4,12 +4,13 @@
  * A web `finance-tabs.tsx` szerkezetét másolja: KÖZÖS `FinanceHero` + KÖZÖS
  * `ColorTabs` tab-bar + tab-tartalom. Azonos komponens = azonos megjelenés.
  *
- * Az összes adatot EGYSZER tölti be a lokális SQLite-ból (a 4 kész tab közös
- * adatait), és a megosztott komponenseknek prop-on adja át — pontosan, mint a web.
+ * Az összes adatot EGYSZER tölti be a lokális SQLite-ból (+ online törzsadatok:
+ * bankszámlák, belső mozgások), és a megosztott komponenseknek prop-on adja át —
+ * pontosan, mint a web.
  *
- * Kész tabok (read-only, inline): Áttekintés, Tranzakciók, Számadás, Tartozások.
- * A többi tab (Kassza/Bank/Költségvetés/Bérleti/Monetár/Súgó) az írási út / külön
- * szinkron miatt egyelőre a bal oldali Pénzügy-almenüben érhető el (C-hullám).
+ * Kész tabok (2026-06-11, paritás #5): Áttekintés, Kassza, Bank, Tranzakciók,
+ * Költségvetés, Számadás, Tartozások, Monetár, Súgó. Egyedül a Bérleti
+ * szerződések fül vár (webes szerződés-dialóg + Oblio e-Factura kötés).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -34,6 +35,8 @@ import {
   type JarulekPaymentLike,
   type IncomeCategory,
   type ExpenseCategory,
+  type BankAccount,
+  type InternalTransferRow,
   BELSO_MOZGAS_ROGZITO_KODS,
   isGyulekezetiKonyvelhetoKod,
 } from '@kartoteka/ui-app'
@@ -66,14 +69,21 @@ import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/fina
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { enqueueUndoStornoReappend } from '../lib/excel-enqueue'
+import { isOnlineWithSession } from '../lib/use-session-online'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
+import { DesktopBankTab } from '../components/desktop-bank-tab'
+import { DesktopBudgetTab } from '../components/desktop-budget-tab'
+import { DesktopMonetaryTab } from '../components/desktop-monetary-tab'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
 import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 
-const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
+// 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár is a web-azonos
+// megosztott komponenssel renderelődik. Egyedül a Bérleti szerződések fül vár
+// még (webes szerződés-dialóg + Oblio e-Factura kötés).
+const READY_TABS = ['dashboard', 'cashbook', 'bank', 'transactions', 'budget', 'accounting', 'debt', 'monetary']
 
 const TAB_DEFS = [
   { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
@@ -109,6 +119,13 @@ export function PenzugyPage() {
   const [balances, setBalances] = useState<FinanceBalances>(EMPTY_BALANCES)
   // Előző évi záró kassza-egyenleg (a Kassza-fül nyitó egyenlege).
   const [carryoverCash, setCarryoverCash] = useState(0)
+  // Előző évi záró bank-egyenleg (a Bank-fül nyitó egyenlege) — paritás #5.
+  const [carryoverBank, setCarryoverBank] = useState(0)
+  // Online törzsadatok a Bank/Monetár fülhöz (lokális tükör nélkül): aktív
+  // bankszámlák + idei belső mozgások. Offline → üres (a tranzakció-lista a
+  // lokális tükörből így is teljes).
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [internalTransfers, setInternalTransfers] = useState<InternalTransferRow[]>([])
   const [settings, setSettings] = useState<BealitasRow | null>(null)
   const [budgetData, setBudgetData] = useState<Record<string, number>>({})
   const [debtRows, setDebtRows] = useState<DebtRow[]>([])
@@ -201,6 +218,49 @@ export function PenzugyPage() {
       const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), 0, 0)
       const yearBalances = calculateBalances(incomeRows, expenseRows, prevBalances.cashBalance, prevBalances.bankBalance)
 
+      // Paritás #5 — online törzsadatok a Bank/Monetár fülhöz. Hibatűrő:
+      // offline vagy lejárt session esetén üres marad (a fülek jelzik).
+      let banks: BankAccount[] = []
+      let transfers: InternalTransferRow[] = []
+      if (await isOnlineWithSession()) {
+        try {
+          const supabase = getDesktopSupabase()
+          const [bankRes, trRes] = await Promise.all([
+            supabase
+              .from('bankszamlak')
+              .select('*')
+              .eq('congregation_id', congId)
+              .eq('aktiv', true),
+            supabase
+              .from('belsomozgas')
+              .select('id, datum, tipus, forras, cel, osszeg, cel_osszeg, arfolyam, megjegyzes, deleted')
+              .eq('congregation_id', congId)
+              .or('deleted.eq.false,deleted.is.null')
+              .gte('datum', `${year}-01-01`)
+              .lte('datum', `${year}-12-31`)
+              .order('datum', { ascending: false }),
+          ])
+          if (!bankRes.error && bankRes.data) banks = bankRes.data as BankAccount[]
+          if (!trRes.error && trRes.data) {
+            // A web `normalizeInternalTransfers` tükre.
+            transfers = (trRes.data as Record<string, unknown>[]).map((row) => ({
+              id: Number(row.id),
+              datum: typeof row.datum === 'string' ? row.datum : '',
+              tipus: String(row.tipus || 'bank_bank') as InternalTransferRow['tipus'],
+              forras: typeof row.forras === 'string' ? row.forras : '',
+              cel: typeof row.cel === 'string' ? row.cel : '',
+              osszeg: Number(row.osszeg) || 0,
+              cel_osszeg: row.cel_osszeg == null ? null : Number(row.cel_osszeg) || 0,
+              arfolyam: row.arfolyam == null ? null : Number(row.arfolyam) || 0,
+              megjegyzes: typeof row.megjegyzes === 'string' ? row.megjegyzes : null,
+              deleted: typeof row.deleted === 'boolean' ? row.deleted : null,
+            }))
+          }
+        } catch {
+          /* online törzsadat nélkül a lokális nézet él tovább */
+        }
+      }
+
       const maintenancePayments: JarulekPaymentLike[] = befLocal
         .filter((b) => (bevMap[b.id_befizetescel] || '').startsWith('101.01'))
         .map((b) => ({ id_szemely: b.id_szemely ?? null, id_csalad: b.id_csalad ?? null, datum: b.datum ?? null, fizetettev: b.fizetettev ?? null, osszeg: b.osszeg }))
@@ -220,6 +280,9 @@ export function PenzugyPage() {
       setSzamadasiCellek(cells)
       setBalances(yearBalances)
       setCarryoverCash(prevBalances.cashBalance)
+      setCarryoverBank(prevBalances.bankBalance)
+      setBankAccounts(banks)
+      setInternalTransfers(transfers)
       setBudgetData(budget)
       setDebtRows(computedDebt)
       setYearlyFees(fees)
@@ -331,9 +394,12 @@ export function PenzugyPage() {
             <div className="py-12 text-center text-sm text-slate-400">Pénzügyi adatok betöltése…</div>
           ) : !READY_TABS.includes(activeTab) ? (
             <div className="card-raised p-8 text-center">
-              <p className="text-sm font-medium text-slate-600">Ez a fül hamarosan a webfelülettel megegyező lesz.</p>
+              <p className="text-sm font-medium text-slate-600">
+                A Bérleti szerződések kezelése egyelőre a webes felületen érhető el.
+              </p>
               <p className="mt-1 text-xs text-slate-400">
-                Jelenleg a bal oldali <strong>Pénzügy</strong> almenüben érhető el (Bevétel, Kiadás, Bank, Nyugta…).
+                A szerződés-rögzítés és az e-Factura (Oblio) számlázás webes szolgáltatásokra épül —
+                nyisd meg a Kartotékát a böngészőben (Pénzügy → Bérleti szerződések).
               </p>
             </div>
           ) : activeTab === 'dashboard' ? (
@@ -447,6 +513,49 @@ export function PenzugyPage() {
                 />
               )}
             />
+          ) : activeTab === 'bank' ? (
+            // Paritás #5: web-azonos Bank-fül. A tranzakciók a lokális tükörből,
+            // a bankszámla-törzs + nyitó egyenlegek online-ból jönnek.
+            <DesktopBankTab
+              incomeRecords={income}
+              expenseRecords={expense}
+              carryoverBank={carryoverBank}
+              bankAccounts={bankAccounts}
+              bevCelMap={bevCelMap}
+              kiaCelMap={kiaCelMap}
+              szamadasiCellek={szamadasiCellek}
+              incomeCategories={incomeCategories}
+              expenseCategories={expenseCategories}
+              congregationId={congregationId}
+              userId={userId}
+              currentYear={year}
+              onTransactionChanged={() => void load()}
+              onBankAccountSaved={() => void load()}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
+          ) : activeTab === 'budget' ? (
+            // Paritás #5: web-azonos Költségvetés-fül (alap + 3 módosítás,
+            // véglegesítés + egyházmegyei beküldés). Offline: megtekintés a
+            // lokális tükörből; mentés igazolt belépéssel.
+            <DesktopBudgetTab
+              szamadasiCellek={szamadasiCellek}
+              settings={settings}
+              currentYear={year}
+              userId={userId}
+              onRefresh={() => void load()}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
+          ) : activeTab === 'monetary' ? (
+            // Paritás #5: web-azonos Monetár (címletjegyzék) fül — online adat.
+            <DesktopMonetaryTab
+              expectedCashBalance={balances.cashBalance}
+              currentYear={year}
+              bankAccounts={bankAccounts}
+              internalTransfers={internalTransfers}
+              congregationName={congregationName}
+              congregationId={congregationId}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
           ) : activeTab === 'transactions' ? (
             <TransactionsTab
               incomeRecords={income}
@@ -486,7 +595,7 @@ export function PenzugyPage() {
           }}
           incomeCategories={incomeCategories}
           expenseCategories={expenseCategories}
-          bankAccounts={[]}
+          bankAccounts={bankAccounts}
           currentYear={year}
           congregationId={congregationId}
           userId={userId}

@@ -23,6 +23,81 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Az asztali app Pénzügy oldala teljessé vált: Bank, Költségvetés és Monetár fül
+<!-- key: 2026-06-11-desktop-penzugy-paritas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop 0.9.1 -->
+
+### ✨ Új funkciók
+
+- **Bank fül az asztali appban — ugyanaz, mint a weben.** A bankszámláid kártyái,
+  a banki tételek listája, az éves nyitó egyenlegek, sztornó és szerkesztés —
+  mind elérhető az asztali Pénzügy oldal Bank fülén. A tételek listája offline
+  is megjelenik (a gépeden tárolt adatból); a bankszámla-műveletekhez internet
+  és belépés kell. Új bankszámlát is itt vehetsz fel.
+- **Költségvetés fül az asztali appban.** Az éves költségvetés tervezése
+  (alap + 3 módosítási kör), véglegesítés és az egyházmegyei beküldés mostantól
+  az asztali appból is megy — pontosan úgy, ahogy a weben megszoktad. Internet
+  nélkül a költségvetésed megtekinthető; a mentéshez belépés szükséges.
+- **Monetár (címletjegyzék) fül az asztali appban.** A kasszaszámláláskor
+  rögzített címletek (hány darab 100 lejes, 50 banis…) felvétele, az elvárt
+  kassza-egyenleggel való összevetés és a nyomtatható címletjegyzék is átkerült.
+- **Teljes Pénzügy menü a bal oldalsávban.** A Bank, Költségvetés, Bérleti
+  szerződések, Monetár és Súgó pontok is megjelentek az asztali app Pénzügy
+  almenüjében — ugyanabban a rendben, mint a weben.
+
+### 🎨 UX javítások
+
+- **A „+ Tétel rögzítése" gomb mostantól a bankszámláidat is ismeri.** Az
+  egységes Pénzügy oldalról indított rögzítésnél a banki tételek és a belső
+  mozgások (kassza↔bank) is teljes választékkal rögzíthetők.
+- **A Bérleti szerződések fül** az asztali appban egyelőre a webes felületre
+  irányít (a szerződés-rögzítés és az e-Factura számlázás webes szolgáltatás).
+
+## [2026-06-11] — Letöltés-oldal, súgó-megújulás, bank-import számlával, Excel-egyeztetés
+<!-- key: 2026-06-11-sugo-bankimport-egyeztetes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop 0.9.0 -->
+
+### 🐛 Javítások
+
+- **A letöltés-oldal mindig a legfrissebb verziót mutatja.** Eddig előfordulhatott,
+  hogy az „Offline" oldal régebbi telepítőt kínált, mint amit az appok frissítésként
+  már megkaptak — mostantól ugyanabból a hivatalos forrásból olvas, mint maga a
+  frissítő, így soha nem térhet el.
+- **Érthető munkamenet-jelzés.** Ha van interneted, de a felhő-belépésed lejárt,
+  a jelvény mostantól ezt pontosan mondja ki („Helyi munkamenet — van internet,
+  de a felhő-belépésed lejárt"), és **rákattintva azonnal az online belépésre visz**.
+- **Az asztali Beállítások ablak** mostantól a webbel azonos elrendezésű: bal
+  oldalon a menüpontok, jobb oldalon a beállítások (eddig egy elrendezési hiba
+  miatt egymás alá kerültek).
+
+### ✨ Megújult pénzügyi Súgó
+
+- A kulcstémák (rögzítés, sztornó, nyugta, bank-import, számadás, költségvetés,
+  decont, tartozások) mostantól **„Mikor kell ez neked?"** élethelyzettel
+  kezdődnek, **folyamatábra** mutatja a lépéseket egy pillantásra, és piros
+  **„Gyakori hibák"** kártyák óvnak a tipikus tévedésektől.
+- Az asztali súgó új témát kapott: **Excel-könyvelés szinkron** — szájbarágósan,
+  a bekapcsolástól a bank-párosításig.
+
+### ✨ Bank-import: számlához kötve
+
+- A bankkivonat importjánál mostantól **kiválasztod, melyik bankszámla kivonata** —
+  a tételek a számlához kötve kerülnek a nyilvántartásba, és (bekapcsolt
+  Excel-szinkronnál) **a megfelelő betű-lapra is bekerülnek**.
+
+### ✨ Egyeztetés gombnyomásra (Excel ↔ Kartotéka)
+
+- Beállítások → Könyvelés: új **„Egyeztetés futtatása"** gomb — laponként
+  összeveti az Excel sorait és összegeit a Kartotéka idei tételeivel, és jelzi,
+  ha eltérés van. Így bármikor megbizonyosodhatsz róla, hogy a két könyvelés
+  együtt mozog.
+
+---
+
 ## [2026-06-11] — Pénzügyi finomítások: tisztább kategória-lista, biztos rögzítés, rendezett felület
 <!-- key: 2026-06-11-penzugy-eszrevetelek-fixek -->
 <!-- category: improvement -->
@@ -37,8 +112,11 @@ a weben és az asztali appban egyaránt.
 - A tétel rögzítésénél mostantól **csak valóban könyvelhető kategóriák** jelennek
   meg — az összesítő kategóriafejek (pl. „Egyházi tevékenységből származó bevételek
   (5+...+12)", „Múlt évi pénztármaradvány (2+3)") és az egyházmegyei szintű tételek
-  eltűntek a listából. Pontosan a hivatalos számadási kategóriák választhatók:
-  39 bevételi és 48 kiadási tétel.
+  eltűntek a listából. Pontosan a hivatalos egyházközségi számadási kategóriák
+  választhatók: **31 bevételi és 38 kiadási tétel** — a készletet a hivatalos
+  Excel-listákkal tételesen egyeztettük, és az adatbázisban is rendeztük (a
+  18 egyházmegyei szintű kategória mostantól csak az egyházmegyei felületen
+  jelenik meg).
 
 ### 🐛 Biztos rögzítés a kódos (offline) munkamenetben is
 
@@ -103,6 +181,10 @@ az mostantól **magától bekerül a hivatalos EREK Excel-könyvelésbe is**
 - **Belső mozgás = két sor.** A perselypénz bankba vitele (vagy pénzfelvétel a
   kasszába) a Kassza-lapra ÉS az érintett bank-lapra is felkerül, a hivatalos
   megnevezésekkel („Készpénzletétel a(z) A számlára" stb.).
+- **Bank → bank átutalás is megy.** Ha az egyik számládról a másikra utalsz, a
+  forrás-számla lapjára kiadásként, a cél-számla lapjára bevételként kerül be —
+  a hivatalos „Átutalva a(z) … számlára/számláról" megnevezésekkel. (Egyedül a
+  valutacsere Excel-írása érkezik későbbi frissítésben.)
 - **Sztornó és módosítás is követve.** Ha egy tételt sztornózol, az Excelbe egy
   ellentételező sor kerül (az eredeti is megmarad — így az ellenőrzésnél minden
   lépés visszakövethető, és a végösszeg pontos). Módosításnál ugyanígy: a régi

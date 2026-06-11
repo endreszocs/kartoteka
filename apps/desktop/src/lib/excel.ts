@@ -149,3 +149,14 @@ export async function excelAppendRows(
 ): Promise<AppendReport> {
   return invoke<AppendReport>('excel_append_rows', { filePath, sheet, rows })
 }
+
+/** Egy lap adatsorainak összesítése (E4 egyeztetés): sor-darab + H/J összegek. */
+export interface SheetSums {
+  rowCount: number
+  bevSum: number
+  kiadSum: number
+}
+
+export async function excelReadSheetSums(filePath: string, sheet: string): Promise<SheetSums> {
+  return invoke<SheetSums>('excel_read_sheet_sums', { filePath, sheet })
+}
