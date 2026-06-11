@@ -84,12 +84,18 @@ export type Topic = {
   shortDescription: string
   /** Részletes intro — a tartalmi rész tetején. */
   intro: string
+  /** „Mikor kell ez neked?" — egysoros élethelyzet (B2 súgó-felújítás, 2026-06-11). */
+  whenNeeded?: string
   /** „Mire jó?" — a fő funkció leírása. */
   whatItDoes: string
+  /** Folyamatábra: nyíllal kötött lépés-dobozok (B2). */
+  flow?: Array<{ label: string; sub?: string }>
   /** Lépések — hogy működik a felhasználó számára. */
   howItWorks?: Step[]
   /** Tippek és figyelmeztetések. */
   tips?: Array<{ kind: 'tip' | 'warning'; text: string }>
+  /** Gyakori hibák — piros kártyák, amik a tipikus tévedésektől óvnak (B2). */
+  commonMistakes?: string[]
   /** Példák valós helyzetekre. */
   examples?: Array<{ situation: string; solution: string }>
 }
@@ -231,6 +237,20 @@ const SECTIONS: Section[] = [
         shortDescription: 'A készpénzes mozgások és nyugta-kiállítás',
         intro:
           'Itt vezeted a készpénzes pénztárt — mind a bevételeket, mind a kiadásokat. A Kassza a Bank független párja: a kettő nem keveredik.',
+        whenNeeded:
+          'Vasárnap megszámoltad a perselypénzt, vagy valaki készpénzben fizetett egyházfenntartást — itt rögzíted.',
+        flow: [
+          { label: '+ Tétel rögzítése', sub: 'a Pénzügy fejlécében' },
+          { label: 'Kategória + összeg', sub: 'befizető kereshető a tagok közt' },
+          { label: 'Mentés', sub: 'iratszámot a rendszer ad' },
+          { label: 'Nyugta', sub: 'ha a befizető kéri' },
+          { label: 'Excel', sub: 'asztali appban magától' },
+        ],
+        commonMistakes: [
+          'Banki átutalást NE a Kasszába rögzíts — az a bankkivonat-importtal érkezik a bank-lapra.',
+          'A perselypénz bankba vitele nem bevétel és nem kiadás — az Belső mozgás (kassza → bank).',
+          'Offline módban ne írj kézzel iratszámot — a szám-tárcából kapja a következő szabadot.',
+        ],
         whatItDoes:
           'Hónaponkénti listázás dátum szerint, nyitó- és záró-egyenleg, hiányos adatok jelzése, **nyugta (chitanță) kiállítás** közvetlenül a sorból.',
         howItWorks: [
@@ -329,6 +349,18 @@ const SECTIONS: Section[] = [
         shortDescription: 'A kerülettől vett nyugtatömbök teljes életciklusa',
         intro:
           'Minden gyülekezet a kerülettől kap előre számozott nyugtatömböket. A rendszer automatikusan követi, mikor melyik számot használtad, és év végén kimutatást ad róla.',
+        whenNeeded:
+          'Készpénzes befizetésről hivatalos nyugtát (chitanță) kell adnod a befizetőnek.',
+        flow: [
+          { label: 'Tömb felvétele', sub: 'seria + sorszám-tartomány' },
+          { label: 'Befizetés rögzítése' },
+          { label: 'Nyugta automatikusan', sub: 'a következő sorszámmal' },
+          { label: 'Nyomtatás', sub: 'azonnal vagy később újra' },
+        ],
+        commonMistakes: [
+          'Előbb legyen AKTÍV nyugtatömb — anélkül a rendszer nem tud sorszámot adni.',
+          'Elrontott nyugtát ne hagyj „lyukasan" — sztornózd, hogy a tömb hiánytalanul elszámolható legyen.',
+        ],
         whatItDoes:
           'A Kassza fülön az „Aktív nyugtatömb" panelen látod a maradékot. Új tömb átvételkor a „+ Új tömb" gombra kattintva egyszerre több tömb is rögzíthető (közös vásárlási dátummal).',
         howItWorks: [
@@ -366,6 +398,18 @@ const SECTIONS: Section[] = [
         shortDescription: 'Egy kattintásos módosítás vagy stornó a Kassza / Bank fülön',
         intro:
           'Ha valahol hibát találtál, nem kell törölni a tételt — szerkesztheted vagy stornózhatod. A stornózott sor látható marad auditra, de kimarad a számításokból.',
+        whenNeeded:
+          'Elütöttél egy összeget, rossz kategóriát választottál, vagy duplán került be egy tétel.',
+        flow: [
+          { label: 'Tétel megnyitása', sub: 'Kassza vagy Tranzakciók fül' },
+          { label: 'Sztornó + indoklás', sub: 'legalább 5 karakter' },
+          { label: 'Áthúzva megmarad', sub: 'semmi nem vész el' },
+          { label: 'Excel', sub: 'ellentételező sor kerül be' },
+        ],
+        commonMistakes: [
+          'Sztornó helyett SOSE törölj vagy írj át kézzel az Excelben — a rendszer ellentételező sort ír, így a végösszeg pontos ÉS minden visszakövethető.',
+          'Az indoklást ne spórold el — a számvevői ellenőrzésnél ez az első, amit néznek.',
+        ],
         whatItDoes:
           'Minden sor mellett ceruza (szerkesztés) és ⊘ (stornó) ikon. Szerkesztéskor: dátum, összeg, jogcím, iratszám, megjegyzés módosítható. Stornónál: kötelező indoklás.',
         howItWorks: [
@@ -437,6 +481,14 @@ const SECTIONS: Section[] = [
         shortDescription: 'Egy átvevő által elköltött előleg részletes elszámolása',
         intro:
           'Ha egy átvevő (pl. iskolaigazgató, egyházmegyei küldött) előleget kapott, és azzal el kell számolnia, ezzel a sablonnal tudja megtenni.',
+        whenNeeded:
+          'Valaki a saját pénzéből vásárolt a gyülekezetnek, és számlákkal számol el utólag.',
+        flow: [
+          { label: 'Számlák összegyűjtése' },
+          { label: 'Decont kiállítása', sub: 'tételek felvitele' },
+          { label: 'Kiadások automatikusan', sub: 'minden tételből kiadás lesz' },
+          { label: 'Aláírás + kifizetés', sub: 'hivatalos nyomtatvány' },
+        ],
         whatItDoes:
           'Hivatalos „Decont de cheltuieli" sablon — bizonylatok listája, egyenleg számítás, nyomtatás vagy PDF mentés.',
         howItWorks: [
@@ -472,6 +524,14 @@ const SECTIONS: Section[] = [
         shortDescription: 'Az éves terv — bevétel és kiadás',
         intro:
           'Évente egyszer kell elkészíteni az éves költségvetést — a presbiteri jegyzőkönyv mellékleteként megy.',
+        whenNeeded:
+          'Az új évre tervezed a gyülekezet bevételeit és kiadásait a presbitérium elé.',
+        flow: [
+          { label: 'Tervszámok', sub: 'kategóriánként' },
+          { label: 'Presbiteri elfogadás' },
+          { label: 'Évközi követés', sub: 'terv vs. tény magától' },
+          { label: 'Módosítás', sub: 'ha az élet közbeszól' },
+        ],
         whatItDoes:
           'Számadási cél kódonként megadható a tervezett bevétel és kiadás. A rendszer számolja az össz- és kategória-szintű egyenlegeket.',
         howItWorks: [
@@ -491,6 +551,17 @@ const SECTIONS: Section[] = [
         shortDescription: 'Az év végi pénzügyi zárás',
         intro:
           'A költségvetés (terv) és a tényleges teljesítés összehasonlítása — sortörést mutat, kategóriánként.',
+        whenNeeded:
+          'Év végén — vagy az esperesi/számvevői ellenőrzés előtt — a hivatalos éves kimutatás kell.',
+        flow: [
+          { label: 'Évközi rögzítések', sub: 'ebből épül minden' },
+          { label: 'Számadás fül', sub: 'magától összesít kódonként' },
+          { label: 'Ellenőrzés', sub: 'sztornók, belső mozgás párok' },
+          { label: 'Véglegesítés', sub: 'az év zárolódik' },
+        ],
+        commonMistakes: [
+          'Véglegesítés után az év zárolt — előtte ellenőrizd a függő sztornókat és a párosítatlan belső mozgásokat.',
+        ],
         whatItDoes:
           'A bevételek és kiadások célonként összesítve, a tervhez viszonyítva. Év végén véglegesíthető.',
         howItWorks: [
@@ -510,6 +581,11 @@ const SECTIONS: Section[] = [
         shortDescription: 'Egyházfenntartói járulék és bérleti tartozások',
         intro:
           'Két típusú tartozás: egyrészt az egyházfenntartói járulék (személyenként, évente), másrészt a bérleti díj (szerződésenként, havonta).',
+        whenNeeded:
+          'Tudni szeretnéd, ki nem fizette még be az idei egyházfenntartói járulékot.',
+        commonMistakes: [
+          'A kedvezmények (kor, jövedelem, felmentés) beállítása nélkül a lista többet mutat tartozásnak, mint a valóság.',
+        ],
         whatItDoes:
           'A KARTOTEKA évente kiszámolja, ki mennyivel tartozik, és a befizetésekből automatikusan levonja.',
         howItWorks: [
@@ -559,6 +635,18 @@ const SECTIONS: Section[] = [
         shortDescription: 'Hónap végén a BCR-ből letöltött Excel automatikus feldolgozása',
         intro:
           'A BCR online bankból lehet letölteni egy Excel tranzakció-kivonatot (havi, negyedéves vagy éves). A KARTOTEKA automatikusan feldolgozza, és végigvezet a kategorizáláson.',
+        whenNeeded:
+          'Megjött a havi bankkivonat, és a banki tételeket be kell vezetni a nyilvántartásba.',
+        flow: [
+          { label: 'Kivonat letöltése', sub: 'a bank internetbankjából' },
+          { label: 'Import', sub: 'Pénzügy → Bank import' },
+          { label: 'Párosítás ellenőrzése', sub: 'meglévő tételekkel veti össze' },
+          { label: 'Hiányzók rögzítése', sub: 'egy gombbal, default kategóriával' },
+        ],
+        commonMistakes: [
+          'A banki tételeket ne vidd fel kézzel a Kasszába — az import gyorsabb, és nem lehet elütni.',
+          'Import után nézd át a most-rögzített sorokat — a default kategória nem mindig a legtalálóbb.',
+        ],
         whatItDoes:
           '4 lépéses wizard: fájl feltöltés + bankszámla választás → kategorizálás (income/expense/belső mozgás/kihagyás) → megerősítés → kész. A rendszer felismeri a már importált tranzakciókat, és kihagyja őket (duplikáció-védelem).',
         howItWorks: [
@@ -967,9 +1055,44 @@ export function FinanceSugoTab({
                   </div>
                 </div>
                 <p className="text-sm text-slate-600 mt-1 leading-6">{activeTopic.intro}</p>
+                {activeTopic.whenNeeded && (
+                  <p className={`mt-2 inline-flex items-start gap-2 rounded-xl ${palette.bgLight} ${palette.border} border px-3 py-2 text-sm ${palette.text}`}>
+                    <Sparkles className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      <span className="font-semibold">Mikor kell ez neked? </span>
+                      {activeTopic.whenNeeded}
+                    </span>
+                  </p>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Folyamatábra — nyíllal kötött lépés-dobozok (B2, 2026-06-11) */}
+          {activeTopic.flow && activeTopic.flow.length > 0 && (
+            <div className={`card-raised border ${palette.border} p-4`}>
+              <p className={`mb-3 text-xs font-bold uppercase tracking-wide ${palette.text}`}>
+                A folyamat egy pillantásra
+              </p>
+              <div className="flex flex-wrap items-stretch gap-y-3">
+                {activeTopic.flow.map((node, i) => (
+                  <div key={i} className="flex items-center">
+                    <div
+                      className={`flex min-w-[110px] max-w-[180px] flex-col justify-center rounded-xl bg-gradient-to-br ${palette.gradient} px-3 py-2 text-white shadow-sm`}
+                    >
+                      <span className="text-[13px] font-semibold leading-tight">{node.label}</span>
+                      {node.sub && (
+                        <span className="mt-0.5 text-[11px] leading-tight text-white/85">{node.sub}</span>
+                      )}
+                    </div>
+                    {i < activeTopic.flow!.length - 1 && (
+                      <span className={`mx-1.5 text-lg font-bold ${palette.text}`}>→</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Mire jó kártya */}
           <CardSection palette={palette} title="Mire jó?" icon={<Lightbulb className="size-4" />}>
@@ -1045,6 +1168,25 @@ export function FinanceSugoTab({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Gyakori hibák — piros kártyák (B2, 2026-06-11) */}
+          {activeTopic.commonMistakes && activeTopic.commonMistakes.length > 0 && (
+            <div className="card-raised border border-rose-200 bg-rose-50/50 p-4">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-rose-700">
+                Gyakori hibák — ezekre figyelj!
+              </p>
+              <ul className="space-y-2">
+                {activeTopic.commonMistakes.map((m, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-bold text-rose-700">
+                      ✕
+                    </span>
+                    <p className="text-sm leading-6 text-slate-700">{m}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

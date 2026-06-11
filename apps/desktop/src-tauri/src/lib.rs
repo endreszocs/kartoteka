@@ -24,7 +24,8 @@ use db::{
 use device::device_info;
 use excel::{
     excel_append_rows, excel_default_folder, excel_folder_info, excel_list_sheets,
-    excel_open_folder, excel_read_meta, excel_save_file, excel_set_cells, excel_setup_folder,
+    excel_open_folder, excel_read_meta, excel_read_sheet_sums, excel_save_file,
+    excel_set_cells, excel_setup_folder,
 };
 use tauri::Manager;
 
@@ -85,6 +86,7 @@ pub fn run() {
             iratszam_wallet_release,
             excel_list_sheets,
             excel_read_meta,
+            excel_read_sheet_sums,
             excel_set_cells,
             excel_save_file,
             excel_append_rows,

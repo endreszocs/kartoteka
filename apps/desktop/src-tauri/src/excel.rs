@@ -333,6 +333,62 @@ pub fn excel_append_rows(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// E4 — Lap-összesítő (egyeztetéshez): adatsorok száma + H/J összegek
+// ───────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetSums {
+    /// Kitöltött adatsorok száma (a 7. sortól az első üres sorig).
+    pub row_count: u32,
+    /// A H oszlop (bevétel) összege, 2 tizedesre kerekítve.
+    pub bev_sum: f64,
+    /// A J oszlop (kiadás) összege, 2 tizedesre kerekítve.
+    pub kiad_sum: f64,
+}
+
+/// Egy lap adatsorainak összesítése — az E4 egyeztetéshez (DB ↔ Excel).
+/// CSAK OLVAS; képletet nem értékel (a nyers H/J értékeket összegzi).
+#[tauri::command]
+pub fn excel_read_sheet_sums(file_path: String, sheet: String) -> Result<SheetSums, String> {
+    let book = reader::xlsx::read(Path::new(&file_path))
+        .map_err(|e| format!("Excel olvasási hiba: {e}"))?;
+    let ws = book
+        .get_sheet_by_name(&sheet)
+        .ok_or_else(|| format!("Nincs '{sheet}' munkalap a fájlban."))?;
+
+    let mut r: u32 = 7;
+    let mut row_count: u32 = 0;
+    let mut bev_sum: f64 = 0.0;
+    let mut kiad_sum: f64 = 0.0;
+
+    loop {
+        let empty = ["D", "E", "F", "G", "H", "I", "J", "K", "L"]
+            .iter()
+            .all(|c| cell_str(ws, &format!("{c}{r}")).trim().is_empty());
+        if empty {
+            break;
+        }
+        // A számok ponttal vagy vesszővel is jöhetnek (lokalizált kézi bevitel)
+        let h = cell_str(ws, &format!("H{r}")).trim().replace(',', ".");
+        let j = cell_str(ws, &format!("J{r}")).trim().replace(',', ".");
+        bev_sum += h.parse::<f64>().unwrap_or(0.0);
+        kiad_sum += j.parse::<f64>().unwrap_or(0.0);
+        row_count += 1;
+        r += 1;
+        if r > 200_000 {
+            break;
+        }
+    }
+
+    Ok(SheetSums {
+        row_count,
+        bev_sum: (bev_sum * 100.0).round() / 100.0,
+        kiad_sum: (kiad_sum * 100.0).round() / 100.0,
+    })
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // E1.5b — Bináris fájl mentése lokálisan (pl. a gyülekezeti logó cache-elése)
 // ───────────────────────────────────────────────────────────────────────────
 

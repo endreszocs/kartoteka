@@ -23,6 +23,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Letöltés-oldal, súgó-megújulás, bank-import számlával, Excel-egyeztetés
+<!-- key: 2026-06-11-sugo-bankimport-egyeztetes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop 0.9.0 -->
+
+### 🐛 Javítások
+
+- **A letöltés-oldal mindig a legfrissebb verziót mutatja.** Eddig előfordulhatott,
+  hogy az „Offline" oldal régebbi telepítőt kínált, mint amit az appok frissítésként
+  már megkaptak — mostantól ugyanabból a hivatalos forrásból olvas, mint maga a
+  frissítő, így soha nem térhet el.
+- **Érthető munkamenet-jelzés.** Ha van interneted, de a felhő-belépésed lejárt,
+  a jelvény mostantól ezt pontosan mondja ki („Helyi munkamenet — van internet,
+  de a felhő-belépésed lejárt"), és **rákattintva azonnal az online belépésre visz**.
+- **Az asztali Beállítások ablak** mostantól a webbel azonos elrendezésű: bal
+  oldalon a menüpontok, jobb oldalon a beállítások (eddig egy elrendezési hiba
+  miatt egymás alá kerültek).
+
+### ✨ Megújult pénzügyi Súgó
+
+- A kulcstémák (rögzítés, sztornó, nyugta, bank-import, számadás, költségvetés,
+  decont, tartozások) mostantól **„Mikor kell ez neked?"** élethelyzettel
+  kezdődnek, **folyamatábra** mutatja a lépéseket egy pillantásra, és piros
+  **„Gyakori hibák"** kártyák óvnak a tipikus tévedésektől.
+- Az asztali súgó új témát kapott: **Excel-könyvelés szinkron** — szájbarágósan,
+  a bekapcsolástól a bank-párosításig.
+
+### ✨ Bank-import: számlához kötve
+
+- A bankkivonat importjánál mostantól **kiválasztod, melyik bankszámla kivonata** —
+  a tételek a számlához kötve kerülnek a nyilvántartásba, és (bekapcsolt
+  Excel-szinkronnál) **a megfelelő betű-lapra is bekerülnek**.
+
+### ✨ Egyeztetés gombnyomásra (Excel ↔ Kartotéka)
+
+- Beállítások → Könyvelés: új **„Egyeztetés futtatása"** gomb — laponként
+  összeveti az Excel sorait és összegeit a Kartotéka idei tételeivel, és jelzi,
+  ha eltérés van. Így bármikor megbizonyosodhatsz róla, hogy a két könyvelés
+  együtt mozog.
+
+---
+
 ## [2026-06-11] — Pénzügyi finomítások: tisztább kategória-lista, biztos rögzítés, rendezett felület
 <!-- key: 2026-06-11-penzugy-eszrevetelek-fixek -->
 <!-- category: improvement -->

@@ -16,6 +16,7 @@ import {
   Ban,
   Download,
   Eye,
+  FolderSync,
   ListPlus,
   Monitor,
   RefreshCw,
@@ -237,6 +238,55 @@ export const DESKTOP_HELP_SECTIONS: Section[] = [
             kind: 'tip',
             text: 'Tervezd úgy: a napi készpénzt offline is rögzítheted, a havi/ritkább műveleteket (bank, Oblio, számadás-zárás) pedig akkor, amikor van hálózat.',
           },
+        ],
+      },
+      {
+        key: 'excel-szinkron',
+        label: 'Excel-könyvelés szinkron',
+        icon: FolderSync,
+        color: 'emerald',
+        shortDescription: 'A rögzített tételek a hivatalos EREK Excelbe is bekerülnek',
+        intro:
+          'Az asztali app a Kartotékában rögzített tételeket a hivatalos EREK könyvelés-fájlba (Adatok_2026.xlsx) is beírja — nem kell ugyanazt kétszer vezetni.',
+        whenNeeded:
+          'Ha a gyülekezeted a hivatalos Excel-könyvelést is vezeti, és nem akarsz mindent kétszer beírni.',
+        flow: [
+          { label: 'Bekapcsolás', sub: 'Beállítások → Könyvelés' },
+          { label: 'Bank-párosítás', sub: 'egyszeri megerősítés' },
+          { label: 'Rögzítés a Kartotékában' },
+          { label: 'Excel magától', sub: 'Kassza- vagy betű-lapra' },
+        ],
+        whatItDoes:
+          'A készpénzes tételek a Kassza-lapra, a banki tételek és belső mozgások a megfelelő bankszámla betű-lapjára (A, B, C…) kerülnek — a hivatalos kategória-nevekkel, dátummal, iratszámmal. Sztornónál ellentételező sort ír, így a hivatalos könyv mindig pontos marad. Minden írás előtt automatikus biztonsági másolat készül.',
+        howItWorks: [
+          {
+            text: 'Beállítások → Könyvelés: „Mappa előkészítése" — a hivatalos sablon a gépedre kerül (Dokumentumok/Kartoteka).',
+          },
+          {
+            text: 'Bank-párosítás: a rendszer deviza alapján javasolja, melyik bankszámlád melyik betű-lap — neked kell egyszer megerősítened.',
+            hint: 'Megerősítés nélkül banki tétel SOHA nem kerül a fájlba — a rendszer nem találgat.',
+          },
+          {
+            text: 'Kapcsold be az „Excel-szinkron" kapcsolót — onnantól minden rögzítés magától bekerül.',
+          },
+          {
+            text: 'A panel élőben mutatja: hány tétel vár, hány került be, és ha teendőd van (pl. zárd be a nyitott Excelt).',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Ha az Excel-fájl éppen nyitva van, a tételek sorban várakoznak, és a fájl bezárása után maguktól bekerülnek — semmi nem vész el.',
+          },
+          {
+            kind: 'tip',
+            text: 'Offline rögzített tétel akkor kerül az Excelbe, amikor a gép újra hálózatra csatlakozott és a szinkron lefutott — így garantáltan a végleges iratszámmal.',
+          },
+        ],
+        commonMistakes: [
+          'Ne írj kézzel ugyanarról a tételről sort az Excelbe — duplán szerepelne; a rendszer mindent bevezet helyetted.',
+          'A Kimutatasok_2026.xlsx fájlba SOHA ne írj — az magától számol az Adatok-fájlból.',
+          'Sztornónál ne töröld a sort az Excelben — a rendszer ellentételező sort ír, a végösszeg így is pontos.',
         ],
       },
       {

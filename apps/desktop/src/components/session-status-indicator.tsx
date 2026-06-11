@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
 
 import { SessionStatusBadge } from '@kartoteka/ui-app'
@@ -21,6 +22,7 @@ import { analyzeSession, type SessionInfo } from '../lib/session-state'
  *   - 🟤 Kijelentkezve   — (ritkán látható, mert az auth-gate /login-ra terel)
  */
 export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fixed' | 'inline' } = {}) {
+  const navigate = useNavigate()
   const [session, setSession] = useState<Session | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [, setTick] = useState(0)
@@ -59,5 +61,13 @@ export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fix
 
   if (info.kind === 'signed-out') return null
 
-  return <SessionStatusBadge tone={info.tone} label={info.label} isOnline={info.kind === 'online'} position={position} />
+  return (
+    <SessionStatusBadge
+      tone={info.tone}
+      label={info.label}
+      isOnline={info.kind === 'online'}
+      position={position}
+      onClick={info.actionable ? () => navigate('/login') : undefined}
+    />
+  )
 }

@@ -31,6 +31,7 @@ import {
   excelFolderInfo,
   excelOpenFolder,
   excelReadMeta,
+  excelReadSheetSums,
   excelSaveFile,
   excelSetCells,
   excelSetupFolder,
@@ -430,6 +431,146 @@ export function KonyvelesPanel() {
     }
   }
 
+  // ── E4: Excel ↔ Kartotéka egyeztetés (tájékoztató összevetés) ──
+  interface E4Row {
+    lap: string
+    excelDb: number
+    excelBev: number
+    excelKiad: number
+    kartotekaDb: number | null
+    kartotekaBev: number | null
+    kartotekaKiad: number | null
+    egyezik: boolean | null
+  }
+  const [e4Rows, setE4Rows] = useState<E4Row[] | null>(null)
+  const [e4Busy, setE4Busy] = useState(false)
+
+  async function handleE4Check() {
+    if (!info?.adatokPath || !congregationId) return
+    setE4Busy(true)
+    setError(null)
+    try {
+      const supabase = getDesktopSupabase()
+      const ev = year
+      const rows: E4Row[] = []
+
+      // Kassza-lap ↔ készpénzes tételek (nem sztornózott — az Excel a tükör-
+      // sorokkal nettóz, így az összegnek a nem-sztornózott DB-összeggel kell
+      // nagyságrendileg egyeznie; kézzel vezetett sorok eltérést adhatnak).
+      const kasszaSums = await excelReadSheetSums(info.adatokPath, 'Kassza')
+      let kBev: number | null = null
+      let kKiad: number | null = null
+      let kDb: number | null = null
+      try {
+        const [bevRes, kiadRes] = await Promise.all([
+          supabase
+            .from('befizetes')
+            .select('osszeg')
+            .eq('congregation_id', congregationId)
+            .eq('deleted', false)
+            .eq('stornozott', false)
+            .is('bankszamla_id', null)
+            .gte('datum', `${ev}-01-01`)
+            .lte('datum', `${ev}-12-31`),
+          supabase
+            .from('kiadas')
+            .select('osszeg')
+            .eq('congregation_id', congregationId)
+            .eq('deleted', false)
+            .eq('stornozott', false)
+            .is('bankszamla_id', null)
+            .gte('datum', `${ev}-01-01`)
+            .lte('datum', `${ev}-12-31`),
+        ])
+        if (!bevRes.error && !kiadRes.error) {
+          const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>
+          const kiadList = (kiadRes.data ?? []) as Array<{ osszeg: number }>
+          kBev = Math.round(bevList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
+          kKiad = Math.round(kiadList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
+          kDb = bevList.length + kiadList.length
+        }
+      } catch {
+        /* offline — csak az Excel-oldal látszik */
+      }
+      rows.push({
+        lap: 'Kassza',
+        excelDb: kasszaSums.rowCount,
+        excelBev: kasszaSums.bevSum,
+        excelKiad: kasszaSums.kiadSum,
+        kartotekaDb: kDb,
+        kartotekaBev: kBev,
+        kartotekaKiad: kKiad,
+        egyezik:
+          kBev == null || kKiad == null
+            ? null
+            : Math.abs(kasszaSums.bevSum - kBev) < 0.005 &&
+              Math.abs(kasszaSums.kiadSum - kKiad) < 0.005,
+      })
+
+      // Megerősített bank-lapok ↔ az adott bankszámla tételei
+      const map = getBankMap(congregationId, ev)
+      if (map?.confirmed) {
+        for (const entry of map.entries) {
+          const sums = await excelReadSheetSums(info.adatokPath, entry.letter)
+          let bBev: number | null = null
+          let bKiad: number | null = null
+          let bDb: number | null = null
+          try {
+            const [bevRes, kiadRes] = await Promise.all([
+              supabase
+                .from('befizetes')
+                .select('osszeg')
+                .eq('congregation_id', congregationId)
+                .eq('deleted', false)
+                .eq('stornozott', false)
+                .eq('bankszamla_id', entry.bankszamlaId)
+                .gte('datum', `${ev}-01-01`)
+                .lte('datum', `${ev}-12-31`),
+              supabase
+                .from('kiadas')
+                .select('osszeg')
+                .eq('congregation_id', congregationId)
+                .eq('deleted', false)
+                .eq('stornozott', false)
+                .eq('bankszamla_id', entry.bankszamlaId)
+                .gte('datum', `${ev}-01-01`)
+                .lte('datum', `${ev}-12-31`),
+            ])
+            if (!bevRes.error && !kiadRes.error) {
+              const bevList = (bevRes.data ?? []) as Array<{ osszeg: number }>
+              const kiadList = (kiadRes.data ?? []) as Array<{ osszeg: number }>
+              bBev = Math.round(bevList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
+              bKiad = Math.round(kiadList.reduce((t, r) => t + Number(r.osszeg || 0), 0) * 100) / 100
+              bDb = bevList.length + kiadList.length
+            }
+          } catch {
+            /* offline */
+          }
+          rows.push({
+            lap: `${entry.letter} (${entry.bankNeve})`,
+            excelDb: sums.rowCount,
+            excelBev: sums.bevSum,
+            excelKiad: sums.kiadSum,
+            kartotekaDb: bDb,
+            kartotekaBev: bBev,
+            kartotekaKiad: bKiad,
+            egyezik:
+              bBev == null || bKiad == null
+                ? null
+                : Math.abs(sums.bevSum - bBev) < 0.005 &&
+                  Math.abs(sums.kiadSum - bKiad) < 0.005,
+          })
+        }
+      }
+
+      setE4Rows(rows)
+    } catch (e) {
+      setError(`Egyeztetés-hiba: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setE4Busy(false)
+    }
+  }
+
   async function handleRetryBlocked() {
     setSyncRunning(true)
     try {
@@ -676,6 +817,77 @@ export function KonyvelesPanel() {
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* E4 — Egyeztetés (Excel ↔ Kartotéka), tájékoztató összevetés */}
+      {info?.exists && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Egyeztetés — Excel ↔ Kartotéka
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Lap-szintű összevetés: az Excel adatsorainak összegei a Kartotéka idei
+            (nem sztornózott) tételeivel. Ha kézzel is vezettél sorokat az Excelben,
+            az eltérés természetes — a nagy eltérés viszont kihagyott tételt jelez.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            onClick={() => void handleE4Check()}
+            disabled={e4Busy}
+          >
+            {e4Busy ? (
+              <RefreshCw className="mr-1.5 size-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1.5 size-4" />
+            )}
+            Egyeztetés futtatása
+          </Button>
+          {e4Rows && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-1 pr-2">Lap</th>
+                    <th className="py-1 pr-2 text-right">Excel sor</th>
+                    <th className="py-1 pr-2 text-right">Excel bevétel</th>
+                    <th className="py-1 pr-2 text-right">Excel kiadás</th>
+                    <th className="py-1 pr-2 text-right">Kartotéka bevétel</th>
+                    <th className="py-1 pr-2 text-right">Kartotéka kiadás</th>
+                    <th className="py-1">Állapot</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {e4Rows.map((r) => (
+                    <tr key={r.lap} className="border-b border-slate-100">
+                      <td className="py-1 pr-2 font-medium text-slate-700">{r.lap}</td>
+                      <td className="py-1 pr-2 text-right">{r.excelDb}</td>
+                      <td className="py-1 pr-2 text-right">{r.excelBev.toLocaleString('hu-HU')}</td>
+                      <td className="py-1 pr-2 text-right">{r.excelKiad.toLocaleString('hu-HU')}</td>
+                      <td className="py-1 pr-2 text-right">
+                        {r.kartotekaBev == null ? '— (offline)' : r.kartotekaBev.toLocaleString('hu-HU')}
+                      </td>
+                      <td className="py-1 pr-2 text-right">
+                        {r.kartotekaKiad == null ? '— (offline)' : r.kartotekaKiad.toLocaleString('hu-HU')}
+                      </td>
+                      <td className="py-1">
+                        {r.egyezik == null ? (
+                          <span className="text-slate-400">n/a</span>
+                        ) : r.egyezik ? (
+                          <span className="font-semibold text-emerald-700">egyezik ✓</span>
+                        ) : (
+                          <span className="font-semibold text-amber-700">eltér — nézd át!</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

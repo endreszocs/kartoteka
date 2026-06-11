@@ -34,6 +34,8 @@ export interface SessionInfo {
   label: string
   /** UI-szín hint (emerald = OK, orange = offline-mode, slate = signed out). */
   tone: 'emerald' | 'orange' | 'slate'
+  /** Ha true, a jelvény kattintható — online belépésre visz (PIN-mód + van net). */
+  actionable?: boolean
 }
 
 export function analyzeSession(session: Session | null): SessionInfo {
@@ -52,11 +54,26 @@ export function analyzeSession(session: Session | null): SessionInfo {
   }
 
   if (isOfflineMode()) {
+    // 2026-06-11 (Endre): „miért írja, hogy offline, amikor van internetem?" —
+    // mert a FELHŐ-BELÉPÉS járt le, nem a hálózat. Internettel a jelvény ezt
+    // pontosan mondja ki, és kattintásra az online belépésre visz.
+    const hasInternet =
+      typeof navigator !== 'undefined' ? navigator.onLine : false
+    if (hasInternet) {
+      return {
+        kind: 'offline-pin',
+        expiresAt: null,
+        label:
+          'Helyi munkamenet — van internet, de a felhő-belépésed lejárt. Kattints az online belépéshez!',
+        tone: 'orange',
+        actionable: true,
+      }
+    }
     return {
       kind: 'offline-pin',
       expiresAt: null,
       label:
-        'Offline munkamenet — a változtatásaid a következő csatlakozáskor szinkronizálódnak.',
+        'Offline munkamenet — nincs internet; a változtatásaid a következő csatlakozáskor szinkronizálódnak.',
       tone: 'orange',
     }
   }

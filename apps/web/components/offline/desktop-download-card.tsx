@@ -15,6 +15,20 @@ const GITHUB_REPO = 'endreszocs/kartoteka'
 const GITHUB_API_LATEST = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 
+/**
+ * 2026-06-11 (Endre): a kártya ELSŐDLEGES forrása a hivatalos frissítés-csatorna
+ * `latest.json`-ja (Supabase Storage `updater` bucket) — UGYANAZ, amiből a
+ * telepített appok automatikusan frissülnek. Így a letöltés-oldal soha nem
+ * mutathat régebbi verziót, mint amit a csatorna kiszolgál. (Korábban a GitHub
+ * Releases volt a forrás, ami 0.8.7-en ragadt, miközben a csatornán már 0.9.0
+ * volt.) A GitHub csak tartalék, ha a csatorna nem érhető el.
+ */
+function updaterLatestUrl(): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!base) return null
+  return `${base.replace(/\/$/, '')}/storage/v1/object/public/updater/windows-x86_64/latest.json`
+}
+
 type ReleaseAsset = {
   name: string
   size: number
@@ -24,7 +38,10 @@ type ReleaseAsset = {
 type ReleaseInfo = {
   version: string
   publishedAt: string | null
-  notesUrl: string
+  /** Külső release-notes link (GitHub-tartaléknál) — a csatornás útnál nincs. */
+  notesUrl?: string
+  /** A kiadás rövid jegyzete (a csatorna latest.json-jából). */
+  notes?: string
   asset: ReleaseAsset
 }
 
@@ -59,6 +76,53 @@ export function DesktopDownloadCard() {
     let mounted = true
 
     void (async () => {
+      // 1) ELSŐDLEGES: a hivatalos frissítés-csatorna latest.json-ja
+      const latestUrl = updaterLatestUrl()
+      if (latestUrl) {
+        try {
+          const resp = await fetch(latestUrl, { cache: 'no-store' })
+          if (!mounted) return
+          if (resp.ok) {
+            const body = (await resp.json()) as {
+              version?: string
+              pub_date?: string | null
+              notes?: string
+              platforms?: Record<string, { url?: string }>
+            }
+            const dlUrl = body.platforms?.['windows-x86_64']?.url
+            if (body.version && dlUrl) {
+              // Méret best-effort (HEAD) — ha nem megy, kötőjelet mutatunk.
+              let size = 0
+              try {
+                const head = await fetch(dlUrl, { method: 'HEAD', cache: 'no-store' })
+                size = Number(head.headers.get('content-length') ?? 0)
+              } catch {
+                /* méret nélkül is jó */
+              }
+              if (!mounted) return
+              setAvail({
+                state: 'available',
+                release: {
+                  version: body.version,
+                  publishedAt: body.pub_date ?? null,
+                  notes: body.notes,
+                  asset: {
+                    name: decodeURIComponent(dlUrl.split('/').pop() ?? 'Kartoteka-setup.exe'),
+                    size,
+                    url: dlUrl,
+                  },
+                },
+              })
+              return
+            }
+          }
+        } catch {
+          /* csatorna nem érhető el — jön a GitHub-tartalék */
+        }
+      }
+      if (!mounted) return
+
+      // 2) TARTALÉK: GitHub Releases
       try {
         const resp = await fetch(GITHUB_API_LATEST, {
           headers: { Accept: 'application/vnd.github+json' },
@@ -178,15 +242,23 @@ export function DesktopDownloadCard() {
                   <span>· Kiadva: {formatHuDate(avail.release.publishedAt)}</span>
                 )}
               </div>
-              <a
-                href={avail.release.notesUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-xs text-violet-700 underline-offset-2 hover:underline"
-              >
-                Mi újság ebben a verzióban?
-                <ExternalLink className="size-3" />
-              </a>
+              {avail.release.notes && (
+                <p className="max-w-md text-xs leading-snug text-muted-foreground">
+                  <span className="font-semibold text-violet-800">Ebben a verzióban: </span>
+                  {avail.release.notes}
+                </p>
+              )}
+              {avail.release.notesUrl && (
+                <a
+                  href={avail.release.notesUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1 text-xs text-violet-700 underline-offset-2 hover:underline"
+                >
+                  Mi újság ebben a verzióban?
+                  <ExternalLink className="size-3" />
+                </a>
+              )}
             </>
           )}
 

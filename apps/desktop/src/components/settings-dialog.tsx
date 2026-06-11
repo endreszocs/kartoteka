@@ -192,7 +192,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl lg:max-w-4xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl lg:max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5 font-heading text-2xl">
             <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-white shadow-sm">
@@ -203,9 +203,12 @@ export function SettingsDialog({
         </DialogHeader>
 
         {/* Bal oldalsáv MINDEN méretben — a tabok mindig vertikálisan a dialog
-            bal oldalán, a tartalom jobbra. v0.5.4 (Sprint P) — Endre kérése. */}
-        <Tabs defaultValue="ertesitesek" className="flex flex-row gap-4 sm:gap-5">
-          <div className="flex w-44 shrink-0 flex-col gap-3 self-start sm:w-52">
+            bal oldalán, a tartalom jobbra (web-azonos elrendezés).
+            2026-06-11 fix (Endre): a korábbi `flex flex-row` NEM hatott át a
+            Radix Tabs.Root saját display-jén (a web ugyanebbe futott bele) —
+            ezért a menü a tartalom FÖLÉ került. A web megoldása: grid. */}
+        <Tabs defaultValue="ertesitesek" className="grid grid-cols-[200px_1fr] gap-5 sm:grid-cols-[240px_1fr] sm:gap-7">
+          <div className="flex flex-col gap-3 self-start min-w-0">
             <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
               <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">
                 <Bell className="mr-2 size-4" />
