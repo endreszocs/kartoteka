@@ -1,0 +1,5564 @@
+[
+ {
+  "row": 51,
+  "kod": "101.01",
+  "nev": "Egyházfenntartói járulék",
+  "ro": "Contr. anuală a credincioşilor"
+ },
+ {
+  "row": 52,
+  "kod": "101.02",
+  "nev": "Bevételek a különböző egyházi szolgálatokért",
+  "ro": "Contribuţii pt. diverse servicii religioase"
+ },
+ {
+  "row": 53,
+  "kod": "101.03",
+  "nev": "Perselypénz",
+  "ro": "Contribuţii în lăcaşuri de cult - colecta"
+ },
+ {
+  "row": 54,
+  "kod": "101.04",
+  "nev": "Adományok hívektől, egyházi intézményektől",
+  "ro": "Ajutoare primite de la credincioşi şi organizaţii religioase"
+ },
+ {
+  "row": 55,
+  "kod": "101.05",
+  "nev": "Úrasztali adományok",
+  "ro": "Donații pt. masa domnului"
+ },
+ {
+  "row": 56,
+  "kod": "101.06",
+  "nev": "Sírhelyek eladásából, bérleti díjából, gondozásából származó bevételek",
+  "ro": "Cont. pt. concesionarea şi îngrijirea locurilor din cimitire"
+ },
+ {
+  "row": 57,
+  "kod": "101.07",
+  "nev": "Központi járulékok - egyházmegyei bevétel",
+  "ro": "Contribuţia pt. susţinerea unit. Ierarhic superioare"
+ },
+ {
+  "row": 58,
+  "kod": "101.08",
+  "nev": "Egyházközségek fizetésalapja - emei bevétel",
+  "ro": "Contr. pt. prestări servicii la parohii"
+ },
+ {
+  "row": 59,
+  "kod": "102.01",
+  "nev": "Gyerek és ifjúsági tevékenységek bevételei",
+  "ro": "Venituri cu scop misionar - tineret"
+ },
+ {
+  "row": 60,
+  "kod": "102.02",
+  "nev": "Nőszövetségi tevékenységek bevételei",
+  "ro": "Venituri cu scop misionar - asoc. femeilor crestine"
+ },
+ {
+  "row": 61,
+  "kod": "102.03",
+  "nev": "Presbiterszövetségi tevékenységek bevételei",
+  "ro": "Venituri cu scop misionar - asoc. presbiterilor"
+ },
+ {
+  "row": 62,
+  "kod": "102.04",
+  "nev": "Diakóniai célú adományok",
+  "ro": "Donaţii pt. scopuri diaconice"
+ },
+ {
+  "row": 63,
+  "kod": "102.05",
+  "nev": "Missziós célú adományok",
+  "ro": "Donatii pt. scopuri misionare"
+ },
+ {
+  "row": 64,
+  "kod": "102.06",
+  "nev": "Legátumok - adományok teológiai hallgatók támogatására",
+  "ro": "Donatii pt. studenti de la teologie"
+ },
+ {
+  "row": 65,
+  "kod": "103.01",
+  "nev": "Segélyszervezetektől, alapítványoktól, helyi szervezetektől származó adományok",
+  "ro": "Alte donaţii"
+ },
+ {
+  "row": 66,
+  "kod": "103.02",
+  "nev": "Pályázatokból",
+  "ro": "Incasări proiecte"
+ },
+ {
+  "row": 67,
+  "kod": "103.03",
+  "nev": "Más bevételek",
+  "ro": "Din alte surse"
+ },
+ {
+  "row": 68,
+  "kod": "103.04",
+  "nev": "Banki kamatok, árfolyam nyereségek, kötvények jövedelme, osztalékok",
+  "ro": "Dobândă bancară, diferentă curs valutar, venituri din dividende si obligatiuni"
+ },
+ {
+  "row": 69,
+  "kod": "103.05",
+  "nev": "Hozzájárulás konferenciák és szeretetvendégségek szervezéséhez",
+  "ro": "Pt. participare la conferinţe"
+ },
+ {
+  "row": 70,
+  "kod": "103.06",
+  "nev": "Iratterjesztés - bevétel",
+  "ro": "Distribuirea tipăriturilor"
+ },
+ {
+  "row": 71,
+  "kod": "103.07",
+  "nev": "Javak és részvények értékesítéséből",
+  "ro": "Din valorificarea unor bunuri si vânzare unori actiuni"
+ },
+ {
+  "row": 72,
+  "kod": "103.08",
+  "nev": "Számlavisszatérítések",
+  "ro": "Rambursări"
+ },
+ {
+  "row": 73,
+  "kod": "103.09",
+  "nev": "Szponzortámogatások, adók 3,5 %-a",
+  "ro": "Din sponsorizări"
+ },
+ {
+  "row": 74,
+  "kod": "104.01",
+  "nev": "Mezőgazdasági jövedelem",
+  "ro": "Activităţi agricole"
+ },
+ {
+  "row": 75,
+  "kod": "104.02",
+  "nev": "Erdőgazdálkodási jövedelem",
+  "ro": "Activităţi silvice"
+ },
+ {
+  "row": 76,
+  "kod": "104.03",
+  "nev": "Más gazdasági bevételek",
+  "ro": "Alte venituri din activităţi anexe"
+ },
+ {
+  "row": 77,
+  "kod": "104.04",
+  "nev": "Épületek bérjövedelme",
+  "ro": "Venit din închirierea clădirilor"
+ },
+ {
+  "row": 78,
+  "kod": "104.05",
+  "nev": "Területek bérjövedelme",
+  "ro": "Venit din închirierea terenurilor"
+ },
+ {
+  "row": 79,
+  "kod": "105.01",
+  "nev": "Más egyházi intézményektől kapott támogatás",
+  "ro": "De la unităţi din cadrul cultului"
+ },
+ {
+  "row": 80,
+  "kod": "105.02",
+  "nev": "Állami intézménytől kapott támogatás (APIA, stb.)",
+  "ro": "Subvenţii de la stat"
+ },
+ {
+  "row": 81,
+  "kod": "105.03",
+  "nev": "Kongrua és járulékai",
+  "ro": "Subvenţii primite pt. Salarii"
+ },
+ {
+  "row": 82,
+  "kod": "106.01",
+  "nev": "Bevételek más egyházi intézmények részére",
+  "ro": "Alte încasări"
+ },
+ {
+  "row": 83,
+  "kod": "106.02",
+  "nev": "Biztosítások - bevétel",
+  "ro": "Asigurari"
+ },
+ {
+  "row": 84,
+  "kod": "106.03",
+  "nev": "Missziói segélyek",
+  "ro": "Pt. fond misionar"
+ },
+ {
+  "row": 85,
+  "kod": "106.04",
+  "nev": "Bérjövedelmek 10%-a",
+  "ro": "Cota 10% din chirii"
+ },
+ {
+  "row": 86,
+  "kod": "106.05",
+  "nev": "Bevételek egyházközségek részére",
+  "ro": "Încasări pt. Parohii"
+ },
+ {
+  "row": 87,
+  "kod": "106.06",
+  "nev": "Bevételek a felsőbb egyházi intézmények részére",
+  "ro": "Încasări pt. unităţi ierarhice superioare"
+ },
+ {
+  "row": 88,
+  "kod": "107.01",
+  "nev": "Kapott hitelek",
+  "ro": "Credite primite"
+ },
+ {
+  "row": 89,
+  "kod": "107.02",
+  "nev": "Visszakapott hitelek",
+  "ro": "Restituiri din credite"
+ },
+ {
+  "row": 90,
+  "kod": "201.01",
+  "nev": "Fizetés alap",
+  "ro": "Contr. pt. prestări servicii efectuate către protopopiat"
+ },
+ {
+  "row": 91,
+  "kod": "201.02",
+  "nev": "Közköltségek (fűtés, világítás, víz stb.)",
+  "ro": "Cheltuieli de întreţinere (încălzire iluminat apă etc.)"
+ },
+ {
+  "row": 92,
+  "kod": "201.03",
+  "nev": "Házbérek",
+  "ro": "Chirii"
+ },
+ {
+  "row": 93,
+  "kod": "201.04",
+  "nev": "Épületadó, földadó biztosítás",
+  "ro": "Impozite, taxe, şi asigurări ADAS"
+ },
+ {
+  "row": 94,
+  "kod": "201.05",
+  "nev": "Szállítóeszközök üzemeltetési költségei",
+  "ro": "Mijloace de transport"
+ },
+ {
+  "row": 95,
+  "kod": "201.06",
+  "nev": "Napidíj, utazási költségek",
+  "ro": "Diurnă, cheltuieli de deplasare"
+ },
+ {
+  "row": 96,
+  "kod": "201.07",
+  "nev": "Posta, telefon, internet",
+  "ro": "Poştă, telefon, internet"
+ },
+ {
+  "row": 97,
+  "kod": "201.08",
+  "nev": "Irodaszerek, nyomtatványok",
+  "ro": "Articole de birotică și papetărie"
+ },
+ {
+  "row": 98,
+  "kod": "201.09",
+  "nev": "Fogyóanyagok, más anyagok",
+  "ro": "Alte materiale"
+ },
+ {
+  "row": 99,
+  "kod": "201.10",
+  "nev": "Szolgáltatások költségei",
+  "ro": "Prestări şi servicii"
+ },
+ {
+  "row": 100,
+  "kod": "201.11",
+  "nev": "Protokoll",
+  "ro": "Protocol"
+ },
+ {
+  "row": 101,
+  "kod": "201.12",
+  "nev": "Kis értékű leltári tárgyak beszerzése",
+  "ro": "Obiecte de inventar (de mică valoare, scurtă durată)"
+ },
+ {
+  "row": 102,
+  "kod": "201.13",
+  "nev": "Karbantartási kiadások",
+  "ro": "Reparaţii curente"
+ },
+ {
+  "row": 103,
+  "kod": "201.14",
+  "nev": "Más javadalmak",
+  "ro": "Alte drepturi de retribuţie"
+ },
+ {
+  "row": 104,
+  "kod": "201.15",
+  "nev": "Nettó fizetések",
+  "ro": "Salarii nete"
+ },
+ {
+  "row": 105,
+  "kod": "201.16",
+  "nev": "Javadalmak utáni adó",
+  "ro": "Impozit asupra drepturilor de retribuire"
+ },
+ {
+  "row": 106,
+  "kod": "201.17",
+  "nev": "Társadalombiztosítás",
+  "ro": "Contribuţii pt. asigurări sociale"
+ },
+ {
+  "row": 107,
+  "kod": "201.18",
+  "nev": "Egészségügyi biztosítás",
+  "ro": "C.A.S.S."
+ },
+ {
+  "row": 108,
+  "kod": "201.19",
+  "nev": "Munkabiztosítási hozzájárulás - 2,25%",
+  "ro": "Contribuția asiguratorie pt. muncă - 2,25%"
+ },
+ {
+  "row": 109,
+  "kod": "202.01",
+  "nev": "Gyerek és ifjúsági tevékenységek kiadásai",
+  "ro": "Cheltuieli cu scop misionar - tineret"
+ },
+ {
+  "row": 110,
+  "kod": "202.02",
+  "nev": "Nőszövetségi tevékenységek kiadásai",
+  "ro": "Cheltuieli cu scop misionar - asoc. femeilor crestine"
+ },
+ {
+  "row": 111,
+  "kod": "202.03",
+  "nev": "Presbiterszövetségi tevékenységek kiadásai",
+  "ro": "Cheltuieli cu scop misionar - asoc. Presbiterilor"
+ },
+ {
+  "row": 112,
+  "kod": "202.04",
+  "nev": "Egyházközségek, vagy más egyházi intézmények támogatása",
+  "ro": "Plăti pt. alte parohii"
+ },
+ {
+  "row": 113,
+  "kod": "202.05",
+  "nev": "Kiadások diakóniai célokra",
+  "ro": "Cheltuieli pt. scopuri diaconice"
+ },
+ {
+  "row": 114,
+  "kod": "202.06",
+  "nev": "Missziós célú kiadások",
+  "ro": "Cheltuieli pt. scopuri misionare"
+ },
+ {
+  "row": 115,
+  "kod": "202.07",
+  "nev": "Teológiai hallgatók tanulmányi segélye - legátumok",
+  "ro": "Ajutoare pt. studentii de la teologie"
+ },
+ {
+  "row": 116,
+  "kod": "202.08",
+  "nev": "Egyháztagok segélyezése",
+  "ro": "Ajutoare acordate credincioşilor"
+ },
+ {
+  "row": 117,
+  "kod": "203.01",
+  "nev": "Szociális-kulturális tevékenységek támogatása",
+  "ro": "Sprijinirea unor acţiuni social culturale"
+ },
+ {
+  "row": 118,
+  "kod": "203.02",
+  "nev": "Más kiadások",
+  "ro": "Alte cheltuieli"
+ },
+ {
+  "row": 119,
+  "kod": "203.03",
+  "nev": "Kezelési költségek, árfolyam veszteségek, kötvényeladási veszteségek",
+  "ro": "Comisioane, pierderi curs valutar, pierderi din vânzari certificate si obligatiuni"
+ },
+ {
+  "row": 120,
+  "kod": "203.04",
+  "nev": "Konferenciák és szeretetvendégségek költségei",
+  "ro": "Cheltuieli pt. Conferinţe"
+ },
+ {
+  "row": 121,
+  "kod": "203.05",
+  "nev": "Iratterjesztés - kiadás",
+  "ro": "Distribuirea tipăriturilor"
+ },
+ {
+  "row": 122,
+  "kod": "203.06",
+  "nev": "Központi járulékok",
+  "ro": "Contribuţii pt. susţinerea unităţii ierarhic superioare"
+ },
+ {
+  "row": 123,
+  "kod": "203.07",
+  "nev": "Bérjövedelmek 10%-a központi járulékba",
+  "ro": "Contribuţia centrală 10% din chirii"
+ },
+ {
+  "row": 124,
+  "kod": "204.01",
+  "nev": "Mezőgazdasági kiadások",
+  "ro": "Activităţi agricole"
+ },
+ {
+  "row": 125,
+  "kod": "204.02",
+  "nev": "Erdőgazdálkodási kiadások",
+  "ro": "Activităţi silvice"
+ },
+ {
+  "row": 126,
+  "kod": "204.03",
+  "nev": "Más gazdasági kiadások",
+  "ro": "Alte cheltuieli din activităţi anexe"
+ },
+ {
+  "row": 127,
+  "kod": "204.04",
+  "nev": "Bérbeadott épületek javítása és karbantartása",
+  "ro": "Întreţinerea spaţiilor locative sau cu alte destinaţii închiriate"
+ },
+ {
+  "row": 128,
+  "kod": "205.01",
+  "nev": "Új beruházások",
+  "ro": "Investiţii noi"
+ },
+ {
+  "row": 129,
+  "kod": "205.02",
+  "nev": "Általános javítások",
+  "ro": "Reparaţii capitale"
+ },
+ {
+  "row": 130,
+  "kod": "206.01",
+  "nev": "Kiadás más egyházi intézmény részére",
+  "ro": "Alte plăţi"
+ },
+ {
+  "row": 131,
+  "kod": "206.02",
+  "nev": "Biztosítások - kiadás",
+  "ro": "Asigurari"
+ },
+ {
+  "row": 132,
+  "kod": "206.03",
+  "nev": "Kifizetett missziói segélyek",
+  "ro": "Plăţi pt. fd. misionar"
+ },
+ {
+  "row": 133,
+  "kod": "206.04",
+  "nev": "Kifizetett bérjövedelmek 10%-a",
+  "ro": "Cota 10% din chirii"
+ },
+ {
+  "row": 134,
+  "kod": "206.05",
+  "nev": "Kiadások egyházközségek részére",
+  "ro": "Plăţi pt. parohii"
+ },
+ {
+  "row": 135,
+  "kod": "206.06",
+  "nev": "Kiadások a felsőbb egyházi intézmények részére",
+  "ro": "Plăţi pt. unităţi ierarhice superioare"
+ },
+ {
+  "row": 136,
+  "kod": "207.01",
+  "nev": "Törlesztett hitelek",
+  "ro": "Rambursări de credite"
+ },
+ {
+  "row": 137,
+  "kod": "207.02",
+  "nev": "Kiadott hitelek",
+  "ro": "Acordări de credite"
+ },
+ {
+  "row": 201,
+  "kod": "300.01",
+  "nev": "Készpénzfelvétel a(z) A számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 202,
+  "kod": "300.02",
+  "nev": "Készpénzfelvétel a(z) B számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 203,
+  "kod": "300.03",
+  "nev": "Készpénzfelvétel a(z) C számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 204,
+  "kod": "300.04",
+  "nev": "Készpénzfelvétel a(z) D számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 205,
+  "kod": "300.05",
+  "nev": "Készpénzfelvétel a(z) E számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 206,
+  "kod": "300.06",
+  "nev": "Készpénzfelvétel a(z) F számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 207,
+  "kod": "300.07",
+  "nev": "Készpénzfelvétel a(z) G számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 208,
+  "kod": "300.08",
+  "nev": "Készpénzfelvétel a(z) H számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 209,
+  "kod": "300.09",
+  "nev": "Készpénzfelvétel a(z) I számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 210,
+  "kod": "300.10",
+  "nev": "Készpénzfelvétel a(z) J számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 211,
+  "kod": "300.11",
+  "nev": "Készpénzfelvétel a(z) K számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 212,
+  "kod": "300.12",
+  "nev": "Készpénzfelvétel a(z) L számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 213,
+  "kod": "300.13",
+  "nev": "Készpénzfelvétel a(z) M számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 214,
+  "kod": "300.14",
+  "nev": "Készpénzfelvétel a(z) N számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 215,
+  "kod": "300.15",
+  "nev": "Készpénzfelvétel a(z) O számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 216,
+  "kod": "300.16",
+  "nev": "Készpénzfelvétel a(z) P számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 217,
+  "kod": "300.17",
+  "nev": "Készpénzfelvétel a(z) Q számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 218,
+  "kod": "300.18",
+  "nev": "Készpénzfelvétel a(z) R számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 219,
+  "kod": "300.19",
+  "nev": "Készpénzfelvétel a(z) S számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 220,
+  "kod": "300.20",
+  "nev": "Készpénzfelvétel a(z) T számláról",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 221,
+  "kod": "301.01",
+  "nev": "Készpénzletétel a kasszából - A",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 222,
+  "kod": "301.02",
+  "nev": "Átutalva a(z) B számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 223,
+  "kod": "301.03",
+  "nev": "Átutalva a(z) C számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 224,
+  "kod": "301.04",
+  "nev": "Átutalva a(z) D számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 225,
+  "kod": "301.05",
+  "nev": "Átutalva a(z) E számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 226,
+  "kod": "301.06",
+  "nev": "Átutalva a(z) F számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 227,
+  "kod": "301.07",
+  "nev": "Átutalva a(z) G számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 228,
+  "kod": "301.08",
+  "nev": "Átutalva a(z) H számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 229,
+  "kod": "301.09",
+  "nev": "Átutalva a(z) I számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 230,
+  "kod": "301.10",
+  "nev": "Átutalva a(z) J számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 231,
+  "kod": "301.11",
+  "nev": "Átutalva a(z) K számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 232,
+  "kod": "301.12",
+  "nev": "Átutalva a(z) L számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 233,
+  "kod": "301.13",
+  "nev": "Átutalva a(z) M számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 234,
+  "kod": "301.14",
+  "nev": "Átutalva a(z) N számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 235,
+  "kod": "301.15",
+  "nev": "Átutalva a(z) O számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 236,
+  "kod": "301.16",
+  "nev": "Átutalva a(z) P számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 237,
+  "kod": "301.17",
+  "nev": "Átutalva a(z) Q számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 238,
+  "kod": "301.18",
+  "nev": "Átutalva a(z) R számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 239,
+  "kod": "301.19",
+  "nev": "Átutalva a(z) S számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 240,
+  "kod": "301.20",
+  "nev": "Átutalva a(z) T számláról - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 241,
+  "kod": "302.01",
+  "nev": "Készpénzletétel a kasszából - B",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 242,
+  "kod": "302.02",
+  "nev": "Átutalva a(z) A számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 243,
+  "kod": "302.03",
+  "nev": "Átutalva a(z) C számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 244,
+  "kod": "302.04",
+  "nev": "Átutalva a(z) D számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 245,
+  "kod": "302.05",
+  "nev": "Átutalva a(z) E számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 246,
+  "kod": "302.06",
+  "nev": "Átutalva a(z) F számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 247,
+  "kod": "302.07",
+  "nev": "Átutalva a(z) G számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 248,
+  "kod": "302.08",
+  "nev": "Átutalva a(z) H számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 249,
+  "kod": "302.09",
+  "nev": "Átutalva a(z) I számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 250,
+  "kod": "302.10",
+  "nev": "Átutalva a(z) J számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 251,
+  "kod": "302.11",
+  "nev": "Átutalva a(z) K számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 252,
+  "kod": "302.12",
+  "nev": "Átutalva a(z) L számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 253,
+  "kod": "302.13",
+  "nev": "Átutalva a(z) M számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 254,
+  "kod": "302.14",
+  "nev": "Átutalva a(z) N számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 255,
+  "kod": "302.15",
+  "nev": "Átutalva a(z) O számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 256,
+  "kod": "302.16",
+  "nev": "Átutalva a(z) P számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 257,
+  "kod": "302.17",
+  "nev": "Átutalva a(z) Q számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 258,
+  "kod": "302.18",
+  "nev": "Átutalva a(z) R számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 259,
+  "kod": "302.19",
+  "nev": "Átutalva a(z) S számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 260,
+  "kod": "302.20",
+  "nev": "Átutalva a(z) T számláról - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 261,
+  "kod": "303.01",
+  "nev": "Készpénzletétel a kasszából - C",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 262,
+  "kod": "303.02",
+  "nev": "Átutalva a(z) A számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 263,
+  "kod": "303.03",
+  "nev": "Átutalva a(z) B számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 264,
+  "kod": "303.04",
+  "nev": "Átutalva a(z) D számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 265,
+  "kod": "303.05",
+  "nev": "Átutalva a(z) E számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 266,
+  "kod": "303.06",
+  "nev": "Átutalva a(z) F számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 267,
+  "kod": "303.07",
+  "nev": "Átutalva a(z) G számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 268,
+  "kod": "303.08",
+  "nev": "Átutalva a(z) H számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 269,
+  "kod": "303.09",
+  "nev": "Átutalva a(z) I számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 270,
+  "kod": "303.10",
+  "nev": "Átutalva a(z) J számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 271,
+  "kod": "303.11",
+  "nev": "Átutalva a(z) K számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 272,
+  "kod": "303.12",
+  "nev": "Átutalva a(z) L számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 273,
+  "kod": "303.13",
+  "nev": "Átutalva a(z) M számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 274,
+  "kod": "303.14",
+  "nev": "Átutalva a(z) N számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 275,
+  "kod": "303.15",
+  "nev": "Átutalva a(z) O számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 276,
+  "kod": "303.16",
+  "nev": "Átutalva a(z) P számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 277,
+  "kod": "303.17",
+  "nev": "Átutalva a(z) Q számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 278,
+  "kod": "303.18",
+  "nev": "Átutalva a(z) R számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 279,
+  "kod": "303.19",
+  "nev": "Átutalva a(z) S számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 280,
+  "kod": "303.20",
+  "nev": "Átutalva a(z) T számláról - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 281,
+  "kod": "304.01",
+  "nev": "Készpénzletétel a kasszából - D",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 282,
+  "kod": "304.02",
+  "nev": "Átutalva a(z) A számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 283,
+  "kod": "304.03",
+  "nev": "Átutalva a(z) B számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 284,
+  "kod": "304.04",
+  "nev": "Átutalva a(z) C számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 285,
+  "kod": "304.05",
+  "nev": "Átutalva a(z) E számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 286,
+  "kod": "304.06",
+  "nev": "Átutalva a(z) F számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 287,
+  "kod": "304.07",
+  "nev": "Átutalva a(z) G számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 288,
+  "kod": "304.08",
+  "nev": "Átutalva a(z) H számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 289,
+  "kod": "304.09",
+  "nev": "Átutalva a(z) I számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 290,
+  "kod": "304.10",
+  "nev": "Átutalva a(z) J számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 291,
+  "kod": "304.11",
+  "nev": "Átutalva a(z) K számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 292,
+  "kod": "304.12",
+  "nev": "Átutalva a(z) L számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 293,
+  "kod": "304.13",
+  "nev": "Átutalva a(z) M számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 294,
+  "kod": "304.14",
+  "nev": "Átutalva a(z) N számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 295,
+  "kod": "304.15",
+  "nev": "Átutalva a(z) O számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 296,
+  "kod": "304.16",
+  "nev": "Átutalva a(z) P számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 297,
+  "kod": "304.17",
+  "nev": "Átutalva a(z) Q számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 298,
+  "kod": "304.18",
+  "nev": "Átutalva a(z) R számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 299,
+  "kod": "304.19",
+  "nev": "Átutalva a(z) S számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 300,
+  "kod": "304.20",
+  "nev": "Átutalva a(z) T számláról - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 301,
+  "kod": "305.01",
+  "nev": "Készpénzletétel a kasszából - E",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 302,
+  "kod": "305.02",
+  "nev": "Átutalva a(z) A számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 303,
+  "kod": "305.03",
+  "nev": "Átutalva a(z) B számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 304,
+  "kod": "305.04",
+  "nev": "Átutalva a(z) C számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 305,
+  "kod": "305.05",
+  "nev": "Átutalva a(z) D számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 306,
+  "kod": "305.06",
+  "nev": "Átutalva a(z) F számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 307,
+  "kod": "305.07",
+  "nev": "Átutalva a(z) G számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 308,
+  "kod": "305.08",
+  "nev": "Átutalva a(z) H számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 309,
+  "kod": "305.09",
+  "nev": "Átutalva a(z) I számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 310,
+  "kod": "305.10",
+  "nev": "Átutalva a(z) J számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 311,
+  "kod": "305.11",
+  "nev": "Átutalva a(z) K számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 312,
+  "kod": "305.12",
+  "nev": "Átutalva a(z) L számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 313,
+  "kod": "305.13",
+  "nev": "Átutalva a(z) M számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 314,
+  "kod": "305.14",
+  "nev": "Átutalva a(z) N számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 315,
+  "kod": "305.15",
+  "nev": "Átutalva a(z) O számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 316,
+  "kod": "305.16",
+  "nev": "Átutalva a(z) P számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 317,
+  "kod": "305.17",
+  "nev": "Átutalva a(z) Q számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 318,
+  "kod": "305.18",
+  "nev": "Átutalva a(z) R számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 319,
+  "kod": "305.19",
+  "nev": "Átutalva a(z) S számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 320,
+  "kod": "305.20",
+  "nev": "Átutalva a(z) T számláról - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 321,
+  "kod": "306.01",
+  "nev": "Készpénzletétel a kasszából - F",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 322,
+  "kod": "306.02",
+  "nev": "Átutalva a(z) A számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 323,
+  "kod": "306.03",
+  "nev": "Átutalva a(z) B számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 324,
+  "kod": "306.04",
+  "nev": "Átutalva a(z) C számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 325,
+  "kod": "306.05",
+  "nev": "Átutalva a(z) D számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 326,
+  "kod": "306.06",
+  "nev": "Átutalva a(z) E számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 327,
+  "kod": "306.07",
+  "nev": "Átutalva a(z) G számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 328,
+  "kod": "306.08",
+  "nev": "Átutalva a(z) H számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 329,
+  "kod": "306.09",
+  "nev": "Átutalva a(z) I számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 330,
+  "kod": "306.10",
+  "nev": "Átutalva a(z) J számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 331,
+  "kod": "306.11",
+  "nev": "Átutalva a(z) K számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 332,
+  "kod": "306.12",
+  "nev": "Átutalva a(z) L számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 333,
+  "kod": "306.13",
+  "nev": "Átutalva a(z) M számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 334,
+  "kod": "306.14",
+  "nev": "Átutalva a(z) N számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 335,
+  "kod": "306.15",
+  "nev": "Átutalva a(z) O számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 336,
+  "kod": "306.16",
+  "nev": "Átutalva a(z) P számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 337,
+  "kod": "306.17",
+  "nev": "Átutalva a(z) Q számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 338,
+  "kod": "306.18",
+  "nev": "Átutalva a(z) R számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 339,
+  "kod": "306.19",
+  "nev": "Átutalva a(z) S számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 340,
+  "kod": "306.20",
+  "nev": "Átutalva a(z) T számláról - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 341,
+  "kod": "307.01",
+  "nev": "Készpénzletétel a kasszából - G",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 342,
+  "kod": "307.02",
+  "nev": "Átutalva a(z) A számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 343,
+  "kod": "307.03",
+  "nev": "Átutalva a(z) B számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 344,
+  "kod": "307.04",
+  "nev": "Átutalva a(z) C számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 345,
+  "kod": "307.05",
+  "nev": "Átutalva a(z) D számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 346,
+  "kod": "307.06",
+  "nev": "Átutalva a(z) E számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 347,
+  "kod": "307.07",
+  "nev": "Átutalva a(z) F számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 348,
+  "kod": "307.08",
+  "nev": "Átutalva a(z) H számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 349,
+  "kod": "307.09",
+  "nev": "Átutalva a(z) I számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 350,
+  "kod": "307.10",
+  "nev": "Átutalva a(z) J számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 351,
+  "kod": "307.11",
+  "nev": "Átutalva a(z) K számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 352,
+  "kod": "307.12",
+  "nev": "Átutalva a(z) L számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 353,
+  "kod": "307.13",
+  "nev": "Átutalva a(z) M számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 354,
+  "kod": "307.14",
+  "nev": "Átutalva a(z) N számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 355,
+  "kod": "307.15",
+  "nev": "Átutalva a(z) O számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 356,
+  "kod": "307.16",
+  "nev": "Átutalva a(z) P számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 357,
+  "kod": "307.17",
+  "nev": "Átutalva a(z) Q számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 358,
+  "kod": "307.18",
+  "nev": "Átutalva a(z) R számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 359,
+  "kod": "307.19",
+  "nev": "Átutalva a(z) S számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 360,
+  "kod": "307.20",
+  "nev": "Átutalva a(z) T számláról - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 361,
+  "kod": "308.01",
+  "nev": "Készpénzletétel a kasszából - H",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 362,
+  "kod": "308.02",
+  "nev": "Átutalva a(z) A számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 363,
+  "kod": "308.03",
+  "nev": "Átutalva a(z) B számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 364,
+  "kod": "308.04",
+  "nev": "Átutalva a(z) C számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 365,
+  "kod": "308.05",
+  "nev": "Átutalva a(z) D számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 366,
+  "kod": "308.06",
+  "nev": "Átutalva a(z) E számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 367,
+  "kod": "308.07",
+  "nev": "Átutalva a(z) F számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 368,
+  "kod": "308.08",
+  "nev": "Átutalva a(z) G számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 369,
+  "kod": "308.09",
+  "nev": "Átutalva a(z) I számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 370,
+  "kod": "308.10",
+  "nev": "Átutalva a(z) J számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 371,
+  "kod": "308.11",
+  "nev": "Átutalva a(z) K számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 372,
+  "kod": "308.12",
+  "nev": "Átutalva a(z) L számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 373,
+  "kod": "308.13",
+  "nev": "Átutalva a(z) M számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 374,
+  "kod": "308.14",
+  "nev": "Átutalva a(z) N számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 375,
+  "kod": "308.15",
+  "nev": "Átutalva a(z) O számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 376,
+  "kod": "308.16",
+  "nev": "Átutalva a(z) P számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 377,
+  "kod": "308.17",
+  "nev": "Átutalva a(z) Q számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 378,
+  "kod": "308.18",
+  "nev": "Átutalva a(z) R számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 379,
+  "kod": "308.19",
+  "nev": "Átutalva a(z) S számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 380,
+  "kod": "308.20",
+  "nev": "Átutalva a(z) T számláról - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 381,
+  "kod": "309.01",
+  "nev": "Készpénzletétel a kasszából - I",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 382,
+  "kod": "309.02",
+  "nev": "Átutalva a(z) A számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 383,
+  "kod": "309.03",
+  "nev": "Átutalva a(z) B számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 384,
+  "kod": "309.04",
+  "nev": "Átutalva a(z) C számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 385,
+  "kod": "309.05",
+  "nev": "Átutalva a(z) D számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 386,
+  "kod": "309.06",
+  "nev": "Átutalva a(z) E számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 387,
+  "kod": "309.07",
+  "nev": "Átutalva a(z) F számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 388,
+  "kod": "309.08",
+  "nev": "Átutalva a(z) G számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 389,
+  "kod": "309.09",
+  "nev": "Átutalva a(z) H számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 390,
+  "kod": "309.10",
+  "nev": "Átutalva a(z) J számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 391,
+  "kod": "309.11",
+  "nev": "Átutalva a(z) K számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 392,
+  "kod": "309.12",
+  "nev": "Átutalva a(z) L számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 393,
+  "kod": "309.13",
+  "nev": "Átutalva a(z) M számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 394,
+  "kod": "309.14",
+  "nev": "Átutalva a(z) N számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 395,
+  "kod": "309.15",
+  "nev": "Átutalva a(z) O számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 396,
+  "kod": "309.16",
+  "nev": "Átutalva a(z) P számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 397,
+  "kod": "309.17",
+  "nev": "Átutalva a(z) Q számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 398,
+  "kod": "309.18",
+  "nev": "Átutalva a(z) R számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 399,
+  "kod": "309.19",
+  "nev": "Átutalva a(z) S számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 400,
+  "kod": "309.20",
+  "nev": "Átutalva a(z) T számláról - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 401,
+  "kod": "310.01",
+  "nev": "Készpénzletétel a kasszából - J",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 402,
+  "kod": "310.02",
+  "nev": "Átutalva a(z) A számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 403,
+  "kod": "310.03",
+  "nev": "Átutalva a(z) B számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 404,
+  "kod": "310.04",
+  "nev": "Átutalva a(z) C számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 405,
+  "kod": "310.05",
+  "nev": "Átutalva a(z) D számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 406,
+  "kod": "310.06",
+  "nev": "Átutalva a(z) E számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 407,
+  "kod": "310.07",
+  "nev": "Átutalva a(z) F számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 408,
+  "kod": "310.08",
+  "nev": "Átutalva a(z) G számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 409,
+  "kod": "310.09",
+  "nev": "Átutalva a(z) H számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 410,
+  "kod": "310.10",
+  "nev": "Átutalva a(z) I számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 411,
+  "kod": "310.11",
+  "nev": "Átutalva a(z) K számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 412,
+  "kod": "310.12",
+  "nev": "Átutalva a(z) L számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 413,
+  "kod": "310.13",
+  "nev": "Átutalva a(z) M számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 414,
+  "kod": "310.14",
+  "nev": "Átutalva a(z) N számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 415,
+  "kod": "310.15",
+  "nev": "Átutalva a(z) O számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 416,
+  "kod": "310.16",
+  "nev": "Átutalva a(z) P számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 417,
+  "kod": "310.17",
+  "nev": "Átutalva a(z) Q számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 418,
+  "kod": "310.18",
+  "nev": "Átutalva a(z) R számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 419,
+  "kod": "310.19",
+  "nev": "Átutalva a(z) S számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 420,
+  "kod": "310.20",
+  "nev": "Átutalva a(z) T számláról - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 421,
+  "kod": "311.01",
+  "nev": "Készpénzletétel a kasszából - K",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 422,
+  "kod": "311.02",
+  "nev": "Átutalva a(z) A számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 423,
+  "kod": "311.03",
+  "nev": "Átutalva a(z) B számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 424,
+  "kod": "311.04",
+  "nev": "Átutalva a(z) C számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 425,
+  "kod": "311.05",
+  "nev": "Átutalva a(z) D számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 426,
+  "kod": "311.06",
+  "nev": "Átutalva a(z) E számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 427,
+  "kod": "311.07",
+  "nev": "Átutalva a(z) F számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 428,
+  "kod": "311.08",
+  "nev": "Átutalva a(z) G számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 429,
+  "kod": "311.09",
+  "nev": "Átutalva a(z) H számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 430,
+  "kod": "311.10",
+  "nev": "Átutalva a(z) I számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 431,
+  "kod": "311.11",
+  "nev": "Átutalva a(z) J számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 432,
+  "kod": "311.12",
+  "nev": "Átutalva a(z) L számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 433,
+  "kod": "311.13",
+  "nev": "Átutalva a(z) M számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 434,
+  "kod": "311.14",
+  "nev": "Átutalva a(z) N számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 435,
+  "kod": "311.15",
+  "nev": "Átutalva a(z) O számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 436,
+  "kod": "311.16",
+  "nev": "Átutalva a(z) P számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 437,
+  "kod": "311.17",
+  "nev": "Átutalva a(z) Q számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 438,
+  "kod": "311.18",
+  "nev": "Átutalva a(z) R számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 439,
+  "kod": "311.19",
+  "nev": "Átutalva a(z) S számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 440,
+  "kod": "311.20",
+  "nev": "Átutalva a(z) T számláról - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 441,
+  "kod": "312.01",
+  "nev": "Készpénzletétel a kasszából - L",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 442,
+  "kod": "312.02",
+  "nev": "Átutalva a(z) A számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 443,
+  "kod": "312.03",
+  "nev": "Átutalva a(z) B számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 444,
+  "kod": "312.04",
+  "nev": "Átutalva a(z) C számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 445,
+  "kod": "312.05",
+  "nev": "Átutalva a(z) D számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 446,
+  "kod": "312.06",
+  "nev": "Átutalva a(z) E számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 447,
+  "kod": "312.07",
+  "nev": "Átutalva a(z) F számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 448,
+  "kod": "312.08",
+  "nev": "Átutalva a(z) G számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 449,
+  "kod": "312.09",
+  "nev": "Átutalva a(z) H számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 450,
+  "kod": "312.10",
+  "nev": "Átutalva a(z) I számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 451,
+  "kod": "312.11",
+  "nev": "Átutalva a(z) J számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 452,
+  "kod": "312.12",
+  "nev": "Átutalva a(z) K számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 453,
+  "kod": "312.13",
+  "nev": "Átutalva a(z) M számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 454,
+  "kod": "312.14",
+  "nev": "Átutalva a(z) N számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 455,
+  "kod": "312.15",
+  "nev": "Átutalva a(z) O számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 456,
+  "kod": "312.16",
+  "nev": "Átutalva a(z) P számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 457,
+  "kod": "312.17",
+  "nev": "Átutalva a(z) Q számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 458,
+  "kod": "312.18",
+  "nev": "Átutalva a(z) R számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 459,
+  "kod": "312.19",
+  "nev": "Átutalva a(z) S számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 460,
+  "kod": "312.20",
+  "nev": "Átutalva a(z) T számláról - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 461,
+  "kod": "313.01",
+  "nev": "Készpénzletétel a kasszából - M",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 462,
+  "kod": "313.02",
+  "nev": "Átutalva a(z) A számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 463,
+  "kod": "313.03",
+  "nev": "Átutalva a(z) B számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 464,
+  "kod": "313.04",
+  "nev": "Átutalva a(z) C számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 465,
+  "kod": "313.05",
+  "nev": "Átutalva a(z) D számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 466,
+  "kod": "313.06",
+  "nev": "Átutalva a(z) E számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 467,
+  "kod": "313.07",
+  "nev": "Átutalva a(z) F számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 468,
+  "kod": "313.08",
+  "nev": "Átutalva a(z) G számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 469,
+  "kod": "313.09",
+  "nev": "Átutalva a(z) H számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 470,
+  "kod": "313.10",
+  "nev": "Átutalva a(z) I számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 471,
+  "kod": "313.11",
+  "nev": "Átutalva a(z) J számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 472,
+  "kod": "313.12",
+  "nev": "Átutalva a(z) K számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 473,
+  "kod": "313.13",
+  "nev": "Átutalva a(z) L számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 474,
+  "kod": "313.14",
+  "nev": "Átutalva a(z) N számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 475,
+  "kod": "313.15",
+  "nev": "Átutalva a(z) O számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 476,
+  "kod": "313.16",
+  "nev": "Átutalva a(z) P számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 477,
+  "kod": "313.17",
+  "nev": "Átutalva a(z) Q számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 478,
+  "kod": "313.18",
+  "nev": "Átutalva a(z) R számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 479,
+  "kod": "313.19",
+  "nev": "Átutalva a(z) S számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 480,
+  "kod": "313.20",
+  "nev": "Átutalva a(z) T számláról - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 481,
+  "kod": "314.01",
+  "nev": "Készpénzletétel a kasszából - N",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 482,
+  "kod": "314.02",
+  "nev": "Átutalva a(z) A számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 483,
+  "kod": "314.03",
+  "nev": "Átutalva a(z) B számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 484,
+  "kod": "314.04",
+  "nev": "Átutalva a(z) C számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 485,
+  "kod": "314.05",
+  "nev": "Átutalva a(z) D számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 486,
+  "kod": "314.06",
+  "nev": "Átutalva a(z) E számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 487,
+  "kod": "314.07",
+  "nev": "Átutalva a(z) F számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 488,
+  "kod": "314.08",
+  "nev": "Átutalva a(z) G számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 489,
+  "kod": "314.09",
+  "nev": "Átutalva a(z) H számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 490,
+  "kod": "314.10",
+  "nev": "Átutalva a(z) I számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 491,
+  "kod": "314.11",
+  "nev": "Átutalva a(z) J számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 492,
+  "kod": "314.12",
+  "nev": "Átutalva a(z) K számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 493,
+  "kod": "314.13",
+  "nev": "Átutalva a(z) L számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 494,
+  "kod": "314.14",
+  "nev": "Átutalva a(z) M számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 495,
+  "kod": "314.15",
+  "nev": "Átutalva a(z) O számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 496,
+  "kod": "314.16",
+  "nev": "Átutalva a(z) P számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 497,
+  "kod": "314.17",
+  "nev": "Átutalva a(z) Q számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 498,
+  "kod": "314.18",
+  "nev": "Átutalva a(z) R számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 499,
+  "kod": "314.19",
+  "nev": "Átutalva a(z) S számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 500,
+  "kod": "314.20",
+  "nev": "Átutalva a(z) T számláról - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 501,
+  "kod": "315.01",
+  "nev": "Készpénzletétel a kasszából - O",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 502,
+  "kod": "315.02",
+  "nev": "Átutalva a(z) A számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 503,
+  "kod": "315.03",
+  "nev": "Átutalva a(z) B számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 504,
+  "kod": "315.04",
+  "nev": "Átutalva a(z) C számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 505,
+  "kod": "315.05",
+  "nev": "Átutalva a(z) D számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 506,
+  "kod": "315.06",
+  "nev": "Átutalva a(z) E számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 507,
+  "kod": "315.07",
+  "nev": "Átutalva a(z) F számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 508,
+  "kod": "315.08",
+  "nev": "Átutalva a(z) G számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 509,
+  "kod": "315.09",
+  "nev": "Átutalva a(z) H számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 510,
+  "kod": "315.10",
+  "nev": "Átutalva a(z) I számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 511,
+  "kod": "315.11",
+  "nev": "Átutalva a(z) J számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 512,
+  "kod": "315.12",
+  "nev": "Átutalva a(z) K számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 513,
+  "kod": "315.13",
+  "nev": "Átutalva a(z) L számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 514,
+  "kod": "315.14",
+  "nev": "Átutalva a(z) M számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 515,
+  "kod": "315.15",
+  "nev": "Átutalva a(z) N számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 516,
+  "kod": "315.16",
+  "nev": "Átutalva a(z) P számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 517,
+  "kod": "315.17",
+  "nev": "Átutalva a(z) Q számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 518,
+  "kod": "315.18",
+  "nev": "Átutalva a(z) R számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 519,
+  "kod": "315.19",
+  "nev": "Átutalva a(z) S számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 520,
+  "kod": "315.20",
+  "nev": "Átutalva a(z) T számláról - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 521,
+  "kod": "316.01",
+  "nev": "Készpénzletétel a kasszából - P",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 522,
+  "kod": "316.02",
+  "nev": "Átutalva a(z) A számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 523,
+  "kod": "316.03",
+  "nev": "Átutalva a(z) B számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 524,
+  "kod": "316.04",
+  "nev": "Átutalva a(z) C számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 525,
+  "kod": "316.05",
+  "nev": "Átutalva a(z) D számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 526,
+  "kod": "316.06",
+  "nev": "Átutalva a(z) E számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 527,
+  "kod": "316.07",
+  "nev": "Átutalva a(z) F számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 528,
+  "kod": "316.08",
+  "nev": "Átutalva a(z) G számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 529,
+  "kod": "316.09",
+  "nev": "Átutalva a(z) H számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 530,
+  "kod": "316.10",
+  "nev": "Átutalva a(z) I számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 531,
+  "kod": "316.11",
+  "nev": "Átutalva a(z) J számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 532,
+  "kod": "316.12",
+  "nev": "Átutalva a(z) K számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 533,
+  "kod": "316.13",
+  "nev": "Átutalva a(z) L számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 534,
+  "kod": "316.14",
+  "nev": "Átutalva a(z) M számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 535,
+  "kod": "316.15",
+  "nev": "Átutalva a(z) N számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 536,
+  "kod": "316.16",
+  "nev": "Átutalva a(z) O számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 537,
+  "kod": "316.17",
+  "nev": "Átutalva a(z) Q számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 538,
+  "kod": "316.18",
+  "nev": "Átutalva a(z) R számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 539,
+  "kod": "316.19",
+  "nev": "Átutalva a(z) S számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 540,
+  "kod": "316.20",
+  "nev": "Átutalva a(z) T számláról - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 541,
+  "kod": "317.01",
+  "nev": "Készpénzletétel a kasszából - Q",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 542,
+  "kod": "317.02",
+  "nev": "Átutalva a(z) A számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 543,
+  "kod": "317.03",
+  "nev": "Átutalva a(z) B számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 544,
+  "kod": "317.04",
+  "nev": "Átutalva a(z) C számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 545,
+  "kod": "317.05",
+  "nev": "Átutalva a(z) D számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 546,
+  "kod": "317.06",
+  "nev": "Átutalva a(z) E számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 547,
+  "kod": "317.07",
+  "nev": "Átutalva a(z) F számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 548,
+  "kod": "317.08",
+  "nev": "Átutalva a(z) G számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 549,
+  "kod": "317.09",
+  "nev": "Átutalva a(z) H számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 550,
+  "kod": "317.10",
+  "nev": "Átutalva a(z) I számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 551,
+  "kod": "317.11",
+  "nev": "Átutalva a(z) J számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 552,
+  "kod": "317.12",
+  "nev": "Átutalva a(z) K számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 553,
+  "kod": "317.13",
+  "nev": "Átutalva a(z) L számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 554,
+  "kod": "317.14",
+  "nev": "Átutalva a(z) M számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 555,
+  "kod": "317.15",
+  "nev": "Átutalva a(z) N számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 556,
+  "kod": "317.16",
+  "nev": "Átutalva a(z) O számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 557,
+  "kod": "317.17",
+  "nev": "Átutalva a(z) P számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 558,
+  "kod": "317.18",
+  "nev": "Átutalva a(z) R számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 559,
+  "kod": "317.19",
+  "nev": "Átutalva a(z) S számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 560,
+  "kod": "317.20",
+  "nev": "Átutalva a(z) T számláról - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 561,
+  "kod": "318.01",
+  "nev": "Készpénzletétel a kasszából - R",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 562,
+  "kod": "318.02",
+  "nev": "Átutalva a(z) A számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 563,
+  "kod": "318.03",
+  "nev": "Átutalva a(z) B számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 564,
+  "kod": "318.04",
+  "nev": "Átutalva a(z) C számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 565,
+  "kod": "318.05",
+  "nev": "Átutalva a(z) D számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 566,
+  "kod": "318.06",
+  "nev": "Átutalva a(z) E számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 567,
+  "kod": "318.07",
+  "nev": "Átutalva a(z) F számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 568,
+  "kod": "318.08",
+  "nev": "Átutalva a(z) G számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 569,
+  "kod": "318.09",
+  "nev": "Átutalva a(z) H számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 570,
+  "kod": "318.10",
+  "nev": "Átutalva a(z) I számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 571,
+  "kod": "318.11",
+  "nev": "Átutalva a(z) J számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 572,
+  "kod": "318.12",
+  "nev": "Átutalva a(z) K számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 573,
+  "kod": "318.13",
+  "nev": "Átutalva a(z) L számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 574,
+  "kod": "318.14",
+  "nev": "Átutalva a(z) M számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 575,
+  "kod": "318.15",
+  "nev": "Átutalva a(z) N számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 576,
+  "kod": "318.16",
+  "nev": "Átutalva a(z) O számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 577,
+  "kod": "318.17",
+  "nev": "Átutalva a(z) P számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 578,
+  "kod": "318.18",
+  "nev": "Átutalva a(z) Q számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 579,
+  "kod": "318.19",
+  "nev": "Átutalva a(z) S számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 580,
+  "kod": "318.20",
+  "nev": "Átutalva a(z) T számláról - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 581,
+  "kod": "319.01",
+  "nev": "Készpénzletétel a kasszából - S",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 582,
+  "kod": "319.02",
+  "nev": "Átutalva a(z) A számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 583,
+  "kod": "319.03",
+  "nev": "Átutalva a(z) B számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 584,
+  "kod": "319.04",
+  "nev": "Átutalva a(z) C számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 585,
+  "kod": "319.05",
+  "nev": "Átutalva a(z) D számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 586,
+  "kod": "319.06",
+  "nev": "Átutalva a(z) E számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 587,
+  "kod": "319.07",
+  "nev": "Átutalva a(z) F számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 588,
+  "kod": "319.08",
+  "nev": "Átutalva a(z) G számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 589,
+  "kod": "319.09",
+  "nev": "Átutalva a(z) H számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 590,
+  "kod": "319.10",
+  "nev": "Átutalva a(z) I számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 591,
+  "kod": "319.11",
+  "nev": "Átutalva a(z) J számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 592,
+  "kod": "319.12",
+  "nev": "Átutalva a(z) K számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 593,
+  "kod": "319.13",
+  "nev": "Átutalva a(z) L számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 594,
+  "kod": "319.14",
+  "nev": "Átutalva a(z) M számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 595,
+  "kod": "319.15",
+  "nev": "Átutalva a(z) N számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 596,
+  "kod": "319.16",
+  "nev": "Átutalva a(z) O számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 597,
+  "kod": "319.17",
+  "nev": "Átutalva a(z) P számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 598,
+  "kod": "319.18",
+  "nev": "Átutalva a(z) Q számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 599,
+  "kod": "319.19",
+  "nev": "Átutalva a(z) R számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 600,
+  "kod": "319.20",
+  "nev": "Átutalva a(z) T számláról - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 601,
+  "kod": "320.01",
+  "nev": "Készpénzletétel a kasszából - T",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 602,
+  "kod": "320.02",
+  "nev": "Átutalva a(z) A számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 603,
+  "kod": "320.03",
+  "nev": "Átutalva a(z) B számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 604,
+  "kod": "320.04",
+  "nev": "Átutalva a(z) C számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 605,
+  "kod": "320.05",
+  "nev": "Átutalva a(z) D számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 606,
+  "kod": "320.06",
+  "nev": "Átutalva a(z) E számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 607,
+  "kod": "320.07",
+  "nev": "Átutalva a(z) F számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 608,
+  "kod": "320.08",
+  "nev": "Átutalva a(z) G számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 609,
+  "kod": "320.09",
+  "nev": "Átutalva a(z) H számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 610,
+  "kod": "320.10",
+  "nev": "Átutalva a(z) I számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 611,
+  "kod": "320.11",
+  "nev": "Átutalva a(z) J számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 612,
+  "kod": "320.12",
+  "nev": "Átutalva a(z) K számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 613,
+  "kod": "320.13",
+  "nev": "Átutalva a(z) L számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 614,
+  "kod": "320.14",
+  "nev": "Átutalva a(z) M számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 615,
+  "kod": "320.15",
+  "nev": "Átutalva a(z) N számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 616,
+  "kod": "320.16",
+  "nev": "Átutalva a(z) O számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 617,
+  "kod": "320.17",
+  "nev": "Átutalva a(z) P számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 618,
+  "kod": "320.18",
+  "nev": "Átutalva a(z) Q számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 619,
+  "kod": "320.19",
+  "nev": "Átutalva a(z) R számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 620,
+  "kod": "320.20",
+  "nev": "Átutalva a(z) S számláról - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 621,
+  "kod": "400.01",
+  "nev": "Készpénzletétel a(z) A számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 622,
+  "kod": "400.02",
+  "nev": "Készpénzletétel a(z) B számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 623,
+  "kod": "400.03",
+  "nev": "Készpénzletétel a(z) C számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 624,
+  "kod": "400.04",
+  "nev": "Készpénzletétel a(z) D számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 625,
+  "kod": "400.05",
+  "nev": "Készpénzletétel a(z) E számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 626,
+  "kod": "400.06",
+  "nev": "Készpénzletétel a(z) F számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 627,
+  "kod": "400.07",
+  "nev": "Készpénzletétel a(z) G számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 628,
+  "kod": "400.08",
+  "nev": "Készpénzletétel a(z) H számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 629,
+  "kod": "400.09",
+  "nev": "Készpénzletétel a(z) I számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 630,
+  "kod": "400.10",
+  "nev": "Készpénzletétel a(z) J számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 631,
+  "kod": "400.11",
+  "nev": "Készpénzletétel a(z) K számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 632,
+  "kod": "400.12",
+  "nev": "Készpénzletétel a(z) L számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 633,
+  "kod": "400.13",
+  "nev": "Készpénzletétel a(z) M számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 634,
+  "kod": "400.14",
+  "nev": "Készpénzletétel a(z) N számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 635,
+  "kod": "400.15",
+  "nev": "Készpénzletétel a(z) O számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 636,
+  "kod": "400.16",
+  "nev": "Készpénzletétel a(z) P számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 637,
+  "kod": "400.17",
+  "nev": "Készpénzletétel a(z) Q számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 638,
+  "kod": "400.18",
+  "nev": "Készpénzletétel a(z) R számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 639,
+  "kod": "400.19",
+  "nev": "Készpénzletétel a(z) S számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 640,
+  "kod": "400.20",
+  "nev": "Készpénzletétel a(z) T számlára",
+  "ro": "Depunere numerar din casă"
+ },
+ {
+  "row": 641,
+  "kod": "401.01",
+  "nev": "Készpénzfelvétel a kasszába - A",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 642,
+  "kod": "401.02",
+  "nev": "Átutalva a(z) B számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 643,
+  "kod": "401.03",
+  "nev": "Átutalva a(z) C számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 644,
+  "kod": "401.04",
+  "nev": "Átutalva a(z) D számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 645,
+  "kod": "401.05",
+  "nev": "Átutalva a(z) E számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 646,
+  "kod": "401.06",
+  "nev": "Átutalva a(z) F számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 647,
+  "kod": "401.07",
+  "nev": "Átutalva a(z) G számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 648,
+  "kod": "401.08",
+  "nev": "Átutalva a(z) H számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 649,
+  "kod": "401.09",
+  "nev": "Átutalva a(z) I számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 650,
+  "kod": "401.10",
+  "nev": "Átutalva a(z) J számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 651,
+  "kod": "401.11",
+  "nev": "Átutalva a(z) K számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 652,
+  "kod": "401.12",
+  "nev": "Átutalva a(z) L számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 653,
+  "kod": "401.13",
+  "nev": "Átutalva a(z) M számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 654,
+  "kod": "401.14",
+  "nev": "Átutalva a(z) N számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 655,
+  "kod": "401.15",
+  "nev": "Átutalva a(z) O számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 656,
+  "kod": "401.16",
+  "nev": "Átutalva a(z) P számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 657,
+  "kod": "401.17",
+  "nev": "Átutalva a(z) Q számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 658,
+  "kod": "401.18",
+  "nev": "Átutalva a(z) R számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 659,
+  "kod": "401.19",
+  "nev": "Átutalva a(z) S számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 660,
+  "kod": "401.20",
+  "nev": "Átutalva a(z) T számlára - A",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 661,
+  "kod": "402.01",
+  "nev": "Készpénzfelvétel a kasszába - B",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 662,
+  "kod": "402.02",
+  "nev": "Átutalva a(z) A számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 663,
+  "kod": "402.03",
+  "nev": "Átutalva a(z) C számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 664,
+  "kod": "402.04",
+  "nev": "Átutalva a(z) D számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 665,
+  "kod": "402.05",
+  "nev": "Átutalva a(z) E számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 666,
+  "kod": "402.06",
+  "nev": "Átutalva a(z) F számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 667,
+  "kod": "402.07",
+  "nev": "Átutalva a(z) G számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 668,
+  "kod": "402.08",
+  "nev": "Átutalva a(z) H számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 669,
+  "kod": "402.09",
+  "nev": "Átutalva a(z) I számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 670,
+  "kod": "402.10",
+  "nev": "Átutalva a(z) J számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 671,
+  "kod": "402.11",
+  "nev": "Átutalva a(z) K számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 672,
+  "kod": "402.12",
+  "nev": "Átutalva a(z) L számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 673,
+  "kod": "402.13",
+  "nev": "Átutalva a(z) M számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 674,
+  "kod": "402.14",
+  "nev": "Átutalva a(z) N számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 675,
+  "kod": "402.15",
+  "nev": "Átutalva a(z) O számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 676,
+  "kod": "402.16",
+  "nev": "Átutalva a(z) P számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 677,
+  "kod": "402.17",
+  "nev": "Átutalva a(z) Q számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 678,
+  "kod": "402.18",
+  "nev": "Átutalva a(z) R számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 679,
+  "kod": "402.19",
+  "nev": "Átutalva a(z) S számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 680,
+  "kod": "402.20",
+  "nev": "Átutalva a(z) T számlára - B",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 681,
+  "kod": "403.01",
+  "nev": "Készpénzfelvétel a kasszába - C",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 682,
+  "kod": "403.02",
+  "nev": "Átutalva a(z) A számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 683,
+  "kod": "403.03",
+  "nev": "Átutalva a(z) B számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 684,
+  "kod": "403.04",
+  "nev": "Átutalva a(z) D számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 685,
+  "kod": "403.05",
+  "nev": "Átutalva a(z) E számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 686,
+  "kod": "403.06",
+  "nev": "Átutalva a(z) F számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 687,
+  "kod": "403.07",
+  "nev": "Átutalva a(z) G számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 688,
+  "kod": "403.08",
+  "nev": "Átutalva a(z) H számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 689,
+  "kod": "403.09",
+  "nev": "Átutalva a(z) I számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 690,
+  "kod": "403.10",
+  "nev": "Átutalva a(z) J számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 691,
+  "kod": "403.11",
+  "nev": "Átutalva a(z) K számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 692,
+  "kod": "403.12",
+  "nev": "Átutalva a(z) L számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 693,
+  "kod": "403.13",
+  "nev": "Átutalva a(z) M számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 694,
+  "kod": "403.14",
+  "nev": "Átutalva a(z) N számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 695,
+  "kod": "403.15",
+  "nev": "Átutalva a(z) O számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 696,
+  "kod": "403.16",
+  "nev": "Átutalva a(z) P számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 697,
+  "kod": "403.17",
+  "nev": "Átutalva a(z) Q számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 698,
+  "kod": "403.18",
+  "nev": "Átutalva a(z) R számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 699,
+  "kod": "403.19",
+  "nev": "Átutalva a(z) S számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 700,
+  "kod": "403.20",
+  "nev": "Átutalva a(z) T számlára - C",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 701,
+  "kod": "404.01",
+  "nev": "Készpénzfelvétel a kasszába - D",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 702,
+  "kod": "404.02",
+  "nev": "Átutalva a(z) A számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 703,
+  "kod": "404.03",
+  "nev": "Átutalva a(z) B számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 704,
+  "kod": "404.04",
+  "nev": "Átutalva a(z) C számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 705,
+  "kod": "404.05",
+  "nev": "Átutalva a(z) E számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 706,
+  "kod": "404.06",
+  "nev": "Átutalva a(z) F számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 707,
+  "kod": "404.07",
+  "nev": "Átutalva a(z) G számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 708,
+  "kod": "404.08",
+  "nev": "Átutalva a(z) H számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 709,
+  "kod": "404.09",
+  "nev": "Átutalva a(z) I számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 710,
+  "kod": "404.10",
+  "nev": "Átutalva a(z) J számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 711,
+  "kod": "404.11",
+  "nev": "Átutalva a(z) K számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 712,
+  "kod": "404.12",
+  "nev": "Átutalva a(z) L számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 713,
+  "kod": "404.13",
+  "nev": "Átutalva a(z) M számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 714,
+  "kod": "404.14",
+  "nev": "Átutalva a(z) N számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 715,
+  "kod": "404.15",
+  "nev": "Átutalva a(z) O számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 716,
+  "kod": "404.16",
+  "nev": "Átutalva a(z) P számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 717,
+  "kod": "404.17",
+  "nev": "Átutalva a(z) Q számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 718,
+  "kod": "404.18",
+  "nev": "Átutalva a(z) R számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 719,
+  "kod": "404.19",
+  "nev": "Átutalva a(z) S számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 720,
+  "kod": "404.20",
+  "nev": "Átutalva a(z) T számlára - D",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 721,
+  "kod": "405.01",
+  "nev": "Készpénzfelvétel a kasszába - E",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 722,
+  "kod": "405.02",
+  "nev": "Átutalva a(z) A számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 723,
+  "kod": "405.03",
+  "nev": "Átutalva a(z) B számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 724,
+  "kod": "405.04",
+  "nev": "Átutalva a(z) C számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 725,
+  "kod": "405.05",
+  "nev": "Átutalva a(z) D számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 726,
+  "kod": "405.06",
+  "nev": "Átutalva a(z) F számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 727,
+  "kod": "405.07",
+  "nev": "Átutalva a(z) G számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 728,
+  "kod": "405.08",
+  "nev": "Átutalva a(z) H számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 729,
+  "kod": "405.09",
+  "nev": "Átutalva a(z) I számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 730,
+  "kod": "405.10",
+  "nev": "Átutalva a(z) J számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 731,
+  "kod": "405.11",
+  "nev": "Átutalva a(z) K számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 732,
+  "kod": "405.12",
+  "nev": "Átutalva a(z) L számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 733,
+  "kod": "405.13",
+  "nev": "Átutalva a(z) M számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 734,
+  "kod": "405.14",
+  "nev": "Átutalva a(z) N számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 735,
+  "kod": "405.15",
+  "nev": "Átutalva a(z) O számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 736,
+  "kod": "405.16",
+  "nev": "Átutalva a(z) P számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 737,
+  "kod": "405.17",
+  "nev": "Átutalva a(z) Q számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 738,
+  "kod": "405.18",
+  "nev": "Átutalva a(z) R számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 739,
+  "kod": "405.19",
+  "nev": "Átutalva a(z) S számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 740,
+  "kod": "405.20",
+  "nev": "Átutalva a(z) T számlára - E",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 741,
+  "kod": "406.01",
+  "nev": "Készpénzfelvétel a kasszába - F",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 742,
+  "kod": "406.02",
+  "nev": "Átutalva a(z) A számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 743,
+  "kod": "406.03",
+  "nev": "Átutalva a(z) B számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 744,
+  "kod": "406.04",
+  "nev": "Átutalva a(z) C számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 745,
+  "kod": "406.05",
+  "nev": "Átutalva a(z) D számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 746,
+  "kod": "406.06",
+  "nev": "Átutalva a(z) E számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 747,
+  "kod": "406.07",
+  "nev": "Átutalva a(z) G számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 748,
+  "kod": "406.08",
+  "nev": "Átutalva a(z) H számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 749,
+  "kod": "406.09",
+  "nev": "Átutalva a(z) I számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 750,
+  "kod": "406.10",
+  "nev": "Átutalva a(z) J számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 751,
+  "kod": "406.11",
+  "nev": "Átutalva a(z) K számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 752,
+  "kod": "406.12",
+  "nev": "Átutalva a(z) L számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 753,
+  "kod": "406.13",
+  "nev": "Átutalva a(z) M számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 754,
+  "kod": "406.14",
+  "nev": "Átutalva a(z) N számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 755,
+  "kod": "406.15",
+  "nev": "Átutalva a(z) O számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 756,
+  "kod": "406.16",
+  "nev": "Átutalva a(z) P számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 757,
+  "kod": "406.17",
+  "nev": "Átutalva a(z) Q számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 758,
+  "kod": "406.18",
+  "nev": "Átutalva a(z) R számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 759,
+  "kod": "406.19",
+  "nev": "Átutalva a(z) S számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 760,
+  "kod": "406.20",
+  "nev": "Átutalva a(z) T számlára - F",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 761,
+  "kod": "407.01",
+  "nev": "Készpénzfelvétel a kasszába - G",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 762,
+  "kod": "407.02",
+  "nev": "Átutalva a(z) A számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 763,
+  "kod": "407.03",
+  "nev": "Átutalva a(z) B számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 764,
+  "kod": "407.04",
+  "nev": "Átutalva a(z) C számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 765,
+  "kod": "407.05",
+  "nev": "Átutalva a(z) D számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 766,
+  "kod": "407.06",
+  "nev": "Átutalva a(z) E számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 767,
+  "kod": "407.07",
+  "nev": "Átutalva a(z) F számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 768,
+  "kod": "407.08",
+  "nev": "Átutalva a(z) H számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 769,
+  "kod": "407.09",
+  "nev": "Átutalva a(z) I számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 770,
+  "kod": "407.10",
+  "nev": "Átutalva a(z) J számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 771,
+  "kod": "407.11",
+  "nev": "Átutalva a(z) K számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 772,
+  "kod": "407.12",
+  "nev": "Átutalva a(z) L számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 773,
+  "kod": "407.13",
+  "nev": "Átutalva a(z) M számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 774,
+  "kod": "407.14",
+  "nev": "Átutalva a(z) N számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 775,
+  "kod": "407.15",
+  "nev": "Átutalva a(z) O számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 776,
+  "kod": "407.16",
+  "nev": "Átutalva a(z) P számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 777,
+  "kod": "407.17",
+  "nev": "Átutalva a(z) Q számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 778,
+  "kod": "407.18",
+  "nev": "Átutalva a(z) R számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 779,
+  "kod": "407.19",
+  "nev": "Átutalva a(z) S számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 780,
+  "kod": "407.20",
+  "nev": "Átutalva a(z) T számlára - G",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 781,
+  "kod": "408.01",
+  "nev": "Készpénzfelvétel a kasszába - H",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 782,
+  "kod": "408.02",
+  "nev": "Átutalva a(z) A számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 783,
+  "kod": "408.03",
+  "nev": "Átutalva a(z) B számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 784,
+  "kod": "408.04",
+  "nev": "Átutalva a(z) C számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 785,
+  "kod": "408.05",
+  "nev": "Átutalva a(z) D számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 786,
+  "kod": "408.06",
+  "nev": "Átutalva a(z) E számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 787,
+  "kod": "408.07",
+  "nev": "Átutalva a(z) F számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 788,
+  "kod": "408.08",
+  "nev": "Átutalva a(z) G számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 789,
+  "kod": "408.09",
+  "nev": "Átutalva a(z) I számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 790,
+  "kod": "408.10",
+  "nev": "Átutalva a(z) J számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 791,
+  "kod": "408.11",
+  "nev": "Átutalva a(z) K számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 792,
+  "kod": "408.12",
+  "nev": "Átutalva a(z) L számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 793,
+  "kod": "408.13",
+  "nev": "Átutalva a(z) M számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 794,
+  "kod": "408.14",
+  "nev": "Átutalva a(z) N számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 795,
+  "kod": "408.15",
+  "nev": "Átutalva a(z) O számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 796,
+  "kod": "408.16",
+  "nev": "Átutalva a(z) P számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 797,
+  "kod": "408.17",
+  "nev": "Átutalva a(z) Q számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 798,
+  "kod": "408.18",
+  "nev": "Átutalva a(z) R számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 799,
+  "kod": "408.19",
+  "nev": "Átutalva a(z) S számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 800,
+  "kod": "408.20",
+  "nev": "Átutalva a(z) T számlára - H",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 801,
+  "kod": "409.01",
+  "nev": "Készpénzfelvétel a kasszába - I",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 802,
+  "kod": "409.02",
+  "nev": "Átutalva a(z) A számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 803,
+  "kod": "409.03",
+  "nev": "Átutalva a(z) B számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 804,
+  "kod": "409.04",
+  "nev": "Átutalva a(z) C számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 805,
+  "kod": "409.05",
+  "nev": "Átutalva a(z) D számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 806,
+  "kod": "409.06",
+  "nev": "Átutalva a(z) E számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 807,
+  "kod": "409.07",
+  "nev": "Átutalva a(z) F számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 808,
+  "kod": "409.08",
+  "nev": "Átutalva a(z) G számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 809,
+  "kod": "409.09",
+  "nev": "Átutalva a(z) H számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 810,
+  "kod": "409.10",
+  "nev": "Átutalva a(z) J számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 811,
+  "kod": "409.11",
+  "nev": "Átutalva a(z) K számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 812,
+  "kod": "409.12",
+  "nev": "Átutalva a(z) L számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 813,
+  "kod": "409.13",
+  "nev": "Átutalva a(z) M számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 814,
+  "kod": "409.14",
+  "nev": "Átutalva a(z) N számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 815,
+  "kod": "409.15",
+  "nev": "Átutalva a(z) O számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 816,
+  "kod": "409.16",
+  "nev": "Átutalva a(z) P számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 817,
+  "kod": "409.17",
+  "nev": "Átutalva a(z) Q számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 818,
+  "kod": "409.18",
+  "nev": "Átutalva a(z) R számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 819,
+  "kod": "409.19",
+  "nev": "Átutalva a(z) S számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 820,
+  "kod": "409.20",
+  "nev": "Átutalva a(z) T számlára - I",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 821,
+  "kod": "410.01",
+  "nev": "Készpénzfelvétel a kasszába - J",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 822,
+  "kod": "410.02",
+  "nev": "Átutalva a(z) A számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 823,
+  "kod": "410.03",
+  "nev": "Átutalva a(z) B számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 824,
+  "kod": "410.04",
+  "nev": "Átutalva a(z) C számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 825,
+  "kod": "410.05",
+  "nev": "Átutalva a(z) D számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 826,
+  "kod": "410.06",
+  "nev": "Átutalva a(z) E számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 827,
+  "kod": "410.07",
+  "nev": "Átutalva a(z) F számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 828,
+  "kod": "410.08",
+  "nev": "Átutalva a(z) G számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 829,
+  "kod": "410.09",
+  "nev": "Átutalva a(z) H számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 830,
+  "kod": "410.10",
+  "nev": "Átutalva a(z) I számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 831,
+  "kod": "410.11",
+  "nev": "Átutalva a(z) K számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 832,
+  "kod": "410.12",
+  "nev": "Átutalva a(z) L számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 833,
+  "kod": "410.13",
+  "nev": "Átutalva a(z) M számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 834,
+  "kod": "410.14",
+  "nev": "Átutalva a(z) N számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 835,
+  "kod": "410.15",
+  "nev": "Átutalva a(z) O számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 836,
+  "kod": "410.16",
+  "nev": "Átutalva a(z) P számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 837,
+  "kod": "410.17",
+  "nev": "Átutalva a(z) Q számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 838,
+  "kod": "410.18",
+  "nev": "Átutalva a(z) R számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 839,
+  "kod": "410.19",
+  "nev": "Átutalva a(z) S számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 840,
+  "kod": "410.20",
+  "nev": "Átutalva a(z) T számlára - J",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 841,
+  "kod": "411.01",
+  "nev": "Készpénzfelvétel a kasszába - K",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 842,
+  "kod": "411.02",
+  "nev": "Átutalva a(z) A számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 843,
+  "kod": "411.03",
+  "nev": "Átutalva a(z) B számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 844,
+  "kod": "411.04",
+  "nev": "Átutalva a(z) C számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 845,
+  "kod": "411.05",
+  "nev": "Átutalva a(z) D számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 846,
+  "kod": "411.06",
+  "nev": "Átutalva a(z) E számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 847,
+  "kod": "411.07",
+  "nev": "Átutalva a(z) F számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 848,
+  "kod": "411.08",
+  "nev": "Átutalva a(z) G számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 849,
+  "kod": "411.09",
+  "nev": "Átutalva a(z) H számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 850,
+  "kod": "411.10",
+  "nev": "Átutalva a(z) I számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 851,
+  "kod": "411.11",
+  "nev": "Átutalva a(z) J számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 852,
+  "kod": "411.12",
+  "nev": "Átutalva a(z) L számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 853,
+  "kod": "411.13",
+  "nev": "Átutalva a(z) M számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 854,
+  "kod": "411.14",
+  "nev": "Átutalva a(z) N számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 855,
+  "kod": "411.15",
+  "nev": "Átutalva a(z) O számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 856,
+  "kod": "411.16",
+  "nev": "Átutalva a(z) P számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 857,
+  "kod": "411.17",
+  "nev": "Átutalva a(z) Q számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 858,
+  "kod": "411.18",
+  "nev": "Átutalva a(z) R számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 859,
+  "kod": "411.19",
+  "nev": "Átutalva a(z) S számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 860,
+  "kod": "411.20",
+  "nev": "Átutalva a(z) T számlára - K",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 861,
+  "kod": "412.01",
+  "nev": "Készpénzfelvétel a kasszába - L",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 862,
+  "kod": "412.02",
+  "nev": "Átutalva a(z) A számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 863,
+  "kod": "412.03",
+  "nev": "Átutalva a(z) B számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 864,
+  "kod": "412.04",
+  "nev": "Átutalva a(z) C számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 865,
+  "kod": "412.05",
+  "nev": "Átutalva a(z) D számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 866,
+  "kod": "412.06",
+  "nev": "Átutalva a(z) E számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 867,
+  "kod": "412.07",
+  "nev": "Átutalva a(z) F számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 868,
+  "kod": "412.08",
+  "nev": "Átutalva a(z) G számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 869,
+  "kod": "412.09",
+  "nev": "Átutalva a(z) H számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 870,
+  "kod": "412.10",
+  "nev": "Átutalva a(z) I számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 871,
+  "kod": "412.11",
+  "nev": "Átutalva a(z) J számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 872,
+  "kod": "412.12",
+  "nev": "Átutalva a(z) K számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 873,
+  "kod": "412.13",
+  "nev": "Átutalva a(z) M számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 874,
+  "kod": "412.14",
+  "nev": "Átutalva a(z) N számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 875,
+  "kod": "412.15",
+  "nev": "Átutalva a(z) O számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 876,
+  "kod": "412.16",
+  "nev": "Átutalva a(z) P számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 877,
+  "kod": "412.17",
+  "nev": "Átutalva a(z) Q számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 878,
+  "kod": "412.18",
+  "nev": "Átutalva a(z) R számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 879,
+  "kod": "412.19",
+  "nev": "Átutalva a(z) S számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 880,
+  "kod": "412.20",
+  "nev": "Átutalva a(z) T számlára - L",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 881,
+  "kod": "413.01",
+  "nev": "Készpénzfelvétel a kasszába - M",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 882,
+  "kod": "413.02",
+  "nev": "Átutalva a(z) A számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 883,
+  "kod": "413.03",
+  "nev": "Átutalva a(z) B számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 884,
+  "kod": "413.04",
+  "nev": "Átutalva a(z) C számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 885,
+  "kod": "413.05",
+  "nev": "Átutalva a(z) D számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 886,
+  "kod": "413.06",
+  "nev": "Átutalva a(z) E számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 887,
+  "kod": "413.07",
+  "nev": "Átutalva a(z) F számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 888,
+  "kod": "413.08",
+  "nev": "Átutalva a(z) G számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 889,
+  "kod": "413.09",
+  "nev": "Átutalva a(z) H számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 890,
+  "kod": "413.10",
+  "nev": "Átutalva a(z) I számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 891,
+  "kod": "413.11",
+  "nev": "Átutalva a(z) J számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 892,
+  "kod": "413.12",
+  "nev": "Átutalva a(z) K számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 893,
+  "kod": "413.13",
+  "nev": "Átutalva a(z) L számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 894,
+  "kod": "413.14",
+  "nev": "Átutalva a(z) N számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 895,
+  "kod": "413.15",
+  "nev": "Átutalva a(z) O számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 896,
+  "kod": "413.16",
+  "nev": "Átutalva a(z) P számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 897,
+  "kod": "413.17",
+  "nev": "Átutalva a(z) Q számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 898,
+  "kod": "413.18",
+  "nev": "Átutalva a(z) R számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 899,
+  "kod": "413.19",
+  "nev": "Átutalva a(z) S számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 900,
+  "kod": "413.20",
+  "nev": "Átutalva a(z) T számlára - M",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 901,
+  "kod": "414.01",
+  "nev": "Készpénzfelvétel a kasszába - N",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 902,
+  "kod": "414.02",
+  "nev": "Átutalva a(z) A számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 903,
+  "kod": "414.03",
+  "nev": "Átutalva a(z) B számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 904,
+  "kod": "414.04",
+  "nev": "Átutalva a(z) C számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 905,
+  "kod": "414.05",
+  "nev": "Átutalva a(z) D számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 906,
+  "kod": "414.06",
+  "nev": "Átutalva a(z) E számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 907,
+  "kod": "414.07",
+  "nev": "Átutalva a(z) F számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 908,
+  "kod": "414.08",
+  "nev": "Átutalva a(z) G számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 909,
+  "kod": "414.09",
+  "nev": "Átutalva a(z) H számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 910,
+  "kod": "414.10",
+  "nev": "Átutalva a(z) I számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 911,
+  "kod": "414.11",
+  "nev": "Átutalva a(z) J számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 912,
+  "kod": "414.12",
+  "nev": "Átutalva a(z) K számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 913,
+  "kod": "414.13",
+  "nev": "Átutalva a(z) L számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 914,
+  "kod": "414.14",
+  "nev": "Átutalva a(z) M számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 915,
+  "kod": "414.15",
+  "nev": "Átutalva a(z) O számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 916,
+  "kod": "414.16",
+  "nev": "Átutalva a(z) P számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 917,
+  "kod": "414.17",
+  "nev": "Átutalva a(z) Q számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 918,
+  "kod": "414.18",
+  "nev": "Átutalva a(z) R számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 919,
+  "kod": "414.19",
+  "nev": "Átutalva a(z) S számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 920,
+  "kod": "414.20",
+  "nev": "Átutalva a(z) T számlára - N",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 921,
+  "kod": "415.01",
+  "nev": "Készpénzfelvétel a kasszába - O",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 922,
+  "kod": "415.02",
+  "nev": "Átutalva a(z) A számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 923,
+  "kod": "415.03",
+  "nev": "Átutalva a(z) B számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 924,
+  "kod": "415.04",
+  "nev": "Átutalva a(z) C számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 925,
+  "kod": "415.05",
+  "nev": "Átutalva a(z) D számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 926,
+  "kod": "415.06",
+  "nev": "Átutalva a(z) E számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 927,
+  "kod": "415.07",
+  "nev": "Átutalva a(z) F számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 928,
+  "kod": "415.08",
+  "nev": "Átutalva a(z) G számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 929,
+  "kod": "415.09",
+  "nev": "Átutalva a(z) H számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 930,
+  "kod": "415.10",
+  "nev": "Átutalva a(z) I számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 931,
+  "kod": "415.11",
+  "nev": "Átutalva a(z) J számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 932,
+  "kod": "415.12",
+  "nev": "Átutalva a(z) K számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 933,
+  "kod": "415.13",
+  "nev": "Átutalva a(z) L számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 934,
+  "kod": "415.14",
+  "nev": "Átutalva a(z) M számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 935,
+  "kod": "415.15",
+  "nev": "Átutalva a(z) N számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 936,
+  "kod": "415.16",
+  "nev": "Átutalva a(z) P számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 937,
+  "kod": "415.17",
+  "nev": "Átutalva a(z) Q számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 938,
+  "kod": "415.18",
+  "nev": "Átutalva a(z) R számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 939,
+  "kod": "415.19",
+  "nev": "Átutalva a(z) S számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 940,
+  "kod": "415.20",
+  "nev": "Átutalva a(z) T számlára - O",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 941,
+  "kod": "416.01",
+  "nev": "Készpénzfelvétel a kasszába - P",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 942,
+  "kod": "416.02",
+  "nev": "Átutalva a(z) A számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 943,
+  "kod": "416.03",
+  "nev": "Átutalva a(z) B számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 944,
+  "kod": "416.04",
+  "nev": "Átutalva a(z) C számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 945,
+  "kod": "416.05",
+  "nev": "Átutalva a(z) D számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 946,
+  "kod": "416.06",
+  "nev": "Átutalva a(z) E számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 947,
+  "kod": "416.07",
+  "nev": "Átutalva a(z) F számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 948,
+  "kod": "416.08",
+  "nev": "Átutalva a(z) G számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 949,
+  "kod": "416.09",
+  "nev": "Átutalva a(z) H számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 950,
+  "kod": "416.10",
+  "nev": "Átutalva a(z) I számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 951,
+  "kod": "416.11",
+  "nev": "Átutalva a(z) J számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 952,
+  "kod": "416.12",
+  "nev": "Átutalva a(z) K számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 953,
+  "kod": "416.13",
+  "nev": "Átutalva a(z) L számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 954,
+  "kod": "416.14",
+  "nev": "Átutalva a(z) M számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 955,
+  "kod": "416.15",
+  "nev": "Átutalva a(z) N számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 956,
+  "kod": "416.16",
+  "nev": "Átutalva a(z) O számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 957,
+  "kod": "416.17",
+  "nev": "Átutalva a(z) Q számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 958,
+  "kod": "416.18",
+  "nev": "Átutalva a(z) R számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 959,
+  "kod": "416.19",
+  "nev": "Átutalva a(z) S számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 960,
+  "kod": "416.20",
+  "nev": "Átutalva a(z) T számlára - P",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 961,
+  "kod": "417.01",
+  "nev": "Készpénzfelvétel a kasszába - Q",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 962,
+  "kod": "417.02",
+  "nev": "Átutalva a(z) A számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 963,
+  "kod": "417.03",
+  "nev": "Átutalva a(z) B számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 964,
+  "kod": "417.04",
+  "nev": "Átutalva a(z) C számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 965,
+  "kod": "417.05",
+  "nev": "Átutalva a(z) D számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 966,
+  "kod": "417.06",
+  "nev": "Átutalva a(z) E számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 967,
+  "kod": "417.07",
+  "nev": "Átutalva a(z) F számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 968,
+  "kod": "417.08",
+  "nev": "Átutalva a(z) G számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 969,
+  "kod": "417.09",
+  "nev": "Átutalva a(z) H számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 970,
+  "kod": "417.10",
+  "nev": "Átutalva a(z) I számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 971,
+  "kod": "417.11",
+  "nev": "Átutalva a(z) J számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 972,
+  "kod": "417.12",
+  "nev": "Átutalva a(z) K számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 973,
+  "kod": "417.13",
+  "nev": "Átutalva a(z) L számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 974,
+  "kod": "417.14",
+  "nev": "Átutalva a(z) M számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 975,
+  "kod": "417.15",
+  "nev": "Átutalva a(z) N számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 976,
+  "kod": "417.16",
+  "nev": "Átutalva a(z) O számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 977,
+  "kod": "417.17",
+  "nev": "Átutalva a(z) P számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 978,
+  "kod": "417.18",
+  "nev": "Átutalva a(z) R számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 979,
+  "kod": "417.19",
+  "nev": "Átutalva a(z) S számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 980,
+  "kod": "417.20",
+  "nev": "Átutalva a(z) T számlára - Q",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 981,
+  "kod": "418.01",
+  "nev": "Készpénzfelvétel a kasszába - S",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 982,
+  "kod": "418.02",
+  "nev": "Átutalva a(z) A számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 983,
+  "kod": "418.03",
+  "nev": "Átutalva a(z) B számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 984,
+  "kod": "418.04",
+  "nev": "Átutalva a(z) C számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 985,
+  "kod": "418.05",
+  "nev": "Átutalva a(z) D számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 986,
+  "kod": "418.06",
+  "nev": "Átutalva a(z) E számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 987,
+  "kod": "418.07",
+  "nev": "Átutalva a(z) F számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 988,
+  "kod": "418.08",
+  "nev": "Átutalva a(z) G számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 989,
+  "kod": "418.09",
+  "nev": "Átutalva a(z) H számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 990,
+  "kod": "418.10",
+  "nev": "Átutalva a(z) I számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 991,
+  "kod": "418.11",
+  "nev": "Átutalva a(z) J számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 992,
+  "kod": "418.12",
+  "nev": "Átutalva a(z) K számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 993,
+  "kod": "418.13",
+  "nev": "Átutalva a(z) L számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 994,
+  "kod": "418.14",
+  "nev": "Átutalva a(z) M számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 995,
+  "kod": "418.15",
+  "nev": "Átutalva a(z) N számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 996,
+  "kod": "418.16",
+  "nev": "Átutalva a(z) O számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 997,
+  "kod": "418.17",
+  "nev": "Átutalva a(z) P számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 998,
+  "kod": "418.18",
+  "nev": "Átutalva a(z) Q számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 999,
+  "kod": "418.19",
+  "nev": "Átutalva a(z) S számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1000,
+  "kod": "418.20",
+  "nev": "Átutalva a(z) T számlára - R",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1001,
+  "kod": "419.01",
+  "nev": "Készpénzfelvétel a kasszába - T",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 1002,
+  "kod": "419.02",
+  "nev": "Átutalva a(z) A számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1003,
+  "kod": "419.03",
+  "nev": "Átutalva a(z) B számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1004,
+  "kod": "419.04",
+  "nev": "Átutalva a(z) C számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1005,
+  "kod": "419.05",
+  "nev": "Átutalva a(z) D számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1006,
+  "kod": "419.06",
+  "nev": "Átutalva a(z) E számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1007,
+  "kod": "419.07",
+  "nev": "Átutalva a(z) F számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1008,
+  "kod": "419.08",
+  "nev": "Átutalva a(z) G számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1009,
+  "kod": "419.09",
+  "nev": "Átutalva a(z) H számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1010,
+  "kod": "419.10",
+  "nev": "Átutalva a(z) I számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1011,
+  "kod": "419.11",
+  "nev": "Átutalva a(z) J számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1012,
+  "kod": "419.12",
+  "nev": "Átutalva a(z) K számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1013,
+  "kod": "419.13",
+  "nev": "Átutalva a(z) L számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1014,
+  "kod": "419.14",
+  "nev": "Átutalva a(z) M számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1015,
+  "kod": "419.15",
+  "nev": "Átutalva a(z) N számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1016,
+  "kod": "419.16",
+  "nev": "Átutalva a(z) O számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1017,
+  "kod": "419.17",
+  "nev": "Átutalva a(z) P számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1018,
+  "kod": "419.18",
+  "nev": "Átutalva a(z) Q számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1019,
+  "kod": "419.19",
+  "nev": "Átutalva a(z) R számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1020,
+  "kod": "419.20",
+  "nev": "Átutalva a(z) T számlára - S",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1021,
+  "kod": "420.01",
+  "nev": "Készpénzfelvétel a kasszába - U",
+  "ro": "Ridicare numerar"
+ },
+ {
+  "row": 1022,
+  "kod": "420.02",
+  "nev": "Átutalva a(z) A számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1023,
+  "kod": "420.03",
+  "nev": "Átutalva a(z) B számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1024,
+  "kod": "420.04",
+  "nev": "Átutalva a(z) C számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1025,
+  "kod": "420.05",
+  "nev": "Átutalva a(z) D számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1026,
+  "kod": "420.06",
+  "nev": "Átutalva a(z) E számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1027,
+  "kod": "420.07",
+  "nev": "Átutalva a(z) F számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1028,
+  "kod": "420.08",
+  "nev": "Átutalva a(z) G számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1029,
+  "kod": "420.09",
+  "nev": "Átutalva a(z) H számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1030,
+  "kod": "420.10",
+  "nev": "Átutalva a(z) I számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1031,
+  "kod": "420.11",
+  "nev": "Átutalva a(z) J számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1032,
+  "kod": "420.12",
+  "nev": "Átutalva a(z) K számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1033,
+  "kod": "420.13",
+  "nev": "Átutalva a(z) L számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1034,
+  "kod": "420.14",
+  "nev": "Átutalva a(z) M számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1035,
+  "kod": "420.15",
+  "nev": "Átutalva a(z) N számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1036,
+  "kod": "420.16",
+  "nev": "Átutalva a(z) O számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1037,
+  "kod": "420.17",
+  "nev": "Átutalva a(z) P számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1038,
+  "kod": "420.18",
+  "nev": "Átutalva a(z) Q számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1039,
+  "kod": "420.19",
+  "nev": "Átutalva a(z) R számlára - T",
+  "ro": "Transfer între conturi"
+ },
+ {
+  "row": 1040,
+  "kod": "420.20",
+  "nev": "Átutalva a(z) S számlára - T",
+  "ro": "Transfer între conturi"
+ }
+]
