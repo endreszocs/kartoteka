@@ -13,6 +13,7 @@ import {
 } from './auth-pin'
 import { runBefizetesSyncManually, startBefizetesAutoSync } from './befizetes-write-sync'
 import { runChitantaSyncManually, startChitantaAutoSync } from './chitanta-sync'
+import { startExcelWriteAutoSync } from './excel-write-sync'
 import { runKiadasSyncManually, startKiadasAutoSync } from './kiadas-write-sync'
 import { getDesktopSupabase } from './supabase'
 
@@ -31,6 +32,15 @@ import { getDesktopSupabase } from './supabase'
  * a session, a gate azonnal engedi (pl. `SIGNED_IN` event), és az offline-mode
  * flag törlődik.
  */
+/**
+ * Az induló getSession() lejárt access-tokennél hálózati refresh-t indít —
+ * offline gépen (vagy lassú hálózaton) ez sokáig vagy örökre függhet, és a
+ * kapu addig a "Betöltés…" spinnert mutatta (2026-06-11 bugfix: a mentett
+ * kódos belépés ezen ragadt be). A timeout után session nélkül továbbengedjük
+ * a döntést (PIN-kapu / login), a kései session-t pedig utólag felvesszük.
+ */
+const GET_SESSION_TIMEOUT_MS = 5000
+
 export function AuthGate() {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<Session | null>(null)
@@ -41,11 +51,26 @@ export function AuthGate() {
     let mounted = true
     const supabase = getDesktopSupabase()
 
-    // 1) Első session-check + PIN-check párhuzamosan
-    Promise.all([supabase.auth.getSession(), hasPin()])
-      .then(([sessionRes, pinPresent]) => {
+    // 1) Első session-check + PIN-check párhuzamosan — a session-check
+    // timeout-tal, hogy offline soha ne blokkolja a kaput.
+    const sessionPromise = supabase.auth
+      .getSession()
+      .then((res) => res.data.session)
+      .catch((err) => {
+        console.error('[auth-gate] getSession hiba:', err)
+        return null
+      })
+    const sessionWithTimeout = Promise.race([
+      sessionPromise,
+      new Promise<null>((resolve) => {
+        window.setTimeout(() => resolve(null), GET_SESSION_TIMEOUT_MS)
+      }),
+    ])
+
+    Promise.all([sessionWithTimeout, hasPin()])
+      .then(([initialSession, pinPresent]) => {
         if (!mounted) return
-        setSession(sessionRes.data.session)
+        setSession(initialSession)
         setPinExists(pinPresent)
         setLoading(false)
       })
@@ -56,6 +81,12 @@ export function AuthGate() {
         setPinExists(false)
         setLoading(false)
       })
+
+    // Ha a session a timeout UTÁN mégis megjön (lassú refresh), vegyük fel —
+    // a kapu ilyenkor átáll online módra.
+    void sessionPromise.then((lateSession) => {
+      if (mounted && lateSession) setSession(lateSession)
+    })
 
     // 2) Auth-state változás figyelése
     const {
@@ -95,23 +126,15 @@ export function AuthGate() {
     startBefizetesAutoSync()
     // A-M7.9b — kiadás-pending push-er (szintén független loop)
     startKiadasAutoSync()
+    // E3 — Excel write-through worker (a kapcsolót a worker maga ellenőrzi;
+    // kikapcsolt Excel-szinkronnál no-op, bekapcsolva boot-on is indul)
+    startExcelWriteAutoSync()
 
     return () => {
       mounted = false
       subscription.unsubscribe()
     }
   }, [])
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <div className="flex flex-col items-center gap-2">
-          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm">Betöltés…</p>
-        </div>
-      </div>
-    )
-  }
 
   // 1. kapu: friss Supabase session
   if (session) {
@@ -125,7 +148,10 @@ export function AuthGate() {
     )
   }
 
-  // 2. kapu: offline-mode flag aktív (PIN már verifikálódott ebben az indításban)
+  // 2. kapu: offline-mode flag aktív (PIN már verifikálódott ebben az
+  // indításban, vagy él a "Emlékezz erre a gépre" flag). Ez a loading ELŐTT
+  // jön: a mentett kódos belépésnek nem szabad a getSession()-re várnia —
+  // ha közben mégis megjön a session, a state-frissítés átvált online módra.
   if (offlineActive) {
     return (
       <>
@@ -134,6 +160,17 @@ export function AuthGate() {
         <AutoSyncStatusBar />
         <Outlet />
       </>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-2">
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm">Betöltés…</p>
+        </div>
+      </div>
     )
   }
 
