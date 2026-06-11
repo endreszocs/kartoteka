@@ -22,6 +22,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { enqueueEntryExcelRow } from './excel-enqueue'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 
@@ -188,6 +189,24 @@ export async function pushPendingBefizetes(
       // Siker — a lokális sort átjelöljük sync-eltnek + szerver-ID, mutation törölve
       try {
         await backend.markBefizetesSynced(mutation.pk, Number(data.id))
+        // E3: az offline-rögzített tétel CSAK MOST kap végleges szerver-id-t és
+        // iratszámot — innen mehet az Excel-várólistára. SOHA nem mentéskor
+        // (az iratszám 23505-konfliktusnál újraosztható), és SOHA a konfliktus-
+        // ágon. A hiba itt nem akadhat a sync-be (no-throw helper).
+        void enqueueEntryExcelRow({
+          type: 'befizetes',
+          serverId: Number(data.id),
+          congregationId: String(payload.congregation_id ?? ''),
+          datum: String(payload.datum ?? ''),
+          iratszam: String(payload.iratszam ?? ''),
+          irattipus: String(payload.irattipus ?? ''),
+          nev: String(payload.forrasa ?? ''),
+          osszeg: Number(payload.osszeg ?? 0),
+          celId: Number(payload.id_befizetescel ?? 0),
+          megjegyzes: (payload.megjegyzes as string | null) ?? null,
+          bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+          ev: (payload.fizetettev as number | null) ?? null,
+        })
         await backend.removeMutation(mutation.id)
         result.succeeded += 1
       } catch (err) {

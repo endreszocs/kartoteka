@@ -23,6 +23,153 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Asztali app 0.9.0: a Kartotéka mostantól a hivatalos Excel-könyvelésbe is beírja a tételeket
+<!-- key: 2026-06-11-desktop-excel-write-through -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop 0.9.0 -->
+
+Nagy lépés a kettős munka megszüntetésében: amit az asztali Kartotékában rögzítesz,
+az mostantól **magától bekerül a hivatalos EREK Excel-könyvelésbe is**
+(`Adatok_2026.xlsx`) — nem kell ugyanazt kétszer beírni.
+
+### ✨ Hogyan működik?
+
+- **Egy rögzítés — két helyre.** Ha a Pénzügyben felviszel egy készpénzes bevételt
+  vagy kiadást, az a Kartotéka mellett a könyvelés-fájl **Kassza** lapjára is
+  felkerül, pontosan úgy (dátum, iratszám, összeg, hivatalos kategória-név),
+  ahogy kézzel írnád.
+- **Bankszámlák betű-lapjai.** A hivatalos Excelben minden bankszámlának saját
+  lapja van (A, B, C…). A Beállítások → Könyvelés fülön a rendszer a deviza
+  alapján **javaslatot tesz a párosításra, de az első banki írás előtt neked
+  kell jóváhagynod** — jóváhagyás nélkül banki tételt soha nem ír a fájlba.
+- **Belső mozgás = két sor.** A perselypénz bankba vitele (vagy pénzfelvétel a
+  kasszába) a Kassza-lapra ÉS az érintett bank-lapra is felkerül, a hivatalos
+  megnevezésekkel („Készpénzletétel a(z) A számlára" stb.).
+- **Sztornó és módosítás is követve.** Ha egy tételt sztornózol, az Excelbe egy
+  ellentételező sor kerül (az eredeti is megmarad — így az ellenőrzésnél minden
+  lépés visszakövethető, és a végösszeg pontos). Módosításnál ugyanígy: a régi
+  sor kiegyenlítődik, az új bekerül.
+- **Offline rögzítés?** Ha hálózat nélkül rögzítettél, a tétel akkor kerül az
+  Excelbe, amikor a gép újra hálózatra csatlakozik és a szinkron lefutott —
+  így garantáltan a végleges iratszámmal kerül a hivatalos könyvbe.
+
+### 🛡️ Biztonság („pénzügyekkel nem lehet viccelni")
+
+- Minden írás előtt **automatikus biztonsági másolat** készül a fájlról.
+- Egy tétel **soha nem kerülhet be kétszer** — újraindítás, hálózat-hiba vagy
+  ismételt szinkron után sem.
+- Ha az Excel-fájl éppen **nyitva van**, a rendszer nem erőlteti az írást:
+  jelzi, hogy „zárd be a fájlt", és a tételek sorban várakoznak, semmi nem vész el.
+- Ha valamit nem tud egyértelműen beírni (pl. nincs megerősítve a bank-párosítás),
+  a tétel **látható várakozó állapotba** kerül érthető magyarázattal — soha nem
+  ír „tippre" a hivatalos könyvbe.
+
+### ⚙️ Bekapcsolás
+
+A funkció a **Beállítások → Könyvelés** fülön kapcsolható be (alapból ki van
+kapcsolva). Ugyanott élőben látod: hány tétel vár beírásra, hány került már be,
+és van-e teendőd (pl. bank-párosítás megerősítése). A „Szinkron most" gombbal
+azonnal is futtathatod.
+
+> *Megjegyzés:* a bank-kivonat importtal felvitt tételek Excel-írása a következő
+> frissítésben érkezik (előbb a bankszámla-hozzárendelést kötjük be az importba) —
+> addig azokat a megszokott módon vezesd a betű-lapokra.
+
+---
+
+## [2026-06-11] — Asztali app: a mentett kódos belépés többé nem akad el
+<!-- key: 2026-06-11-desktop-pin-belepes-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.9.0 -->
+
+### 🐛 Javítás
+
+- **Elakadó belépés a biztonsági kóddal**: ha hosszabb ideje nem voltál hálózaton
+  (vagy épp nem volt internet), a mentett kódos belépés egy végtelen „Betöltés…"
+  képernyőn ragadhatott, mert az app a háttérben a felhő-kapcsolatra várt.
+  Mostantól a kódos belépés **azonnal beenged a helyi adataidhoz** — a felhő-
+  kapcsolatot az app a háttérben, türelmesen próbálja újra, és ha létrejön,
+  magától átvált online módba.
+
+---
+
+## [2026-06-11] — Asztali app: ünnepi nyitóképernyő + teljes képernyős indulás
+<!-- key: 2026-06-11-desktop-splash-fullscreen -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.9.0 -->
+
+### 🎨 Megjelenés
+
+- **Ugyanaz a nyitóképernyő, mint a weben**: az asztali app mostantól a webes
+  felülettel pixelre azonos, ünnepélyes indítóképernyővel köszön —
+  „Békesség Istentől!" felirattal, a két egyházkerület címerével és a Kartotéka
+  emblémájával.
+- **Teljes képernyős indulás**: az app mostantól mindig maximalizált ablakban
+  nyílik — nem kell minden indításnál széthúzni.
+- Az alkalmazás leírása mindenhol egységesen **„Egyházi nyilvántartó rendszer"**
+  (a webes telepítőben/böngészőben is).
+
+---
+
+## [2026-06-10] — Asztali app: Pénzügy Súgó, külön „Asztali (offline) verzió" résszel
+<!-- key: 2026-06-10-desktop-penzugy-sugo -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+Az asztali Kartotéka Pénzügy oldalán mostantól elérhető a **Súgó** fül — a webbel azonos, lelkészbarát magyarázat minden pénzügyi funkcióról, kategóriákba rendezve, lépésről lépésre, tippekkel és példákkal.
+
+### 🖥️ Külön rész az asztali (offline) működésről
+
+A súgó végén egy **„Asztali (offline) verzió"** kategória pontosan azt magyarázza el, ami kimondottan a letölthető appra vonatkozik:
+
+- **Offline mód** — hogyan dolgozik a gép a helyi, titkosított másolattal internet nélkül.
+- **Szinkronizáció** — mi tölt le a felhőből, és hogyan mennek fel a rögzítéseid.
+- **Iratszám-tárca** — miért kell, és hogyan töltsd fel az offline sorszámokat.
+- **Tétel rögzítése**, valamint **sztornó és visszavonás** — az asztali viselkedés (online vs. offline).
+- **Ütközések feloldása**, és **mi megy offline, mi csak online** — gyors összefoglaló.
+- **Frissítés** — hogy az asztali app külön frissül a webfelülettől.
+
+> *Megjegyzés a rendszergazdának:* a közös pénzügyi súgó egy forrásból származik (a webbel azonos), a desktop csak az „Asztali (offline) verzió" szekciót adja hozzá — a web súgója változatlan. A változás a desktop **0.8.8** kiadással érkezik.
+
+---
+
+## [2026-06-10] — Asztali app: a Pénzügy oldalon mostantól rögzíteni is lehet (web-azonos „Tétel rögzítése")
+<!-- key: 2026-06-10-desktop-penzugy-tetel-rogzites -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop 0.8.8 -->
+
+Az asztali Kartotéka **Pénzügy** oldalán mostantól nem csak nézni, hanem **rögzíteni** is lehet — pontosan ugyanazzal a „**+ Tétel rögzítése**" gombbal és ablakkal, mint a webfelületen.
+
+### 💰 Bevétel és kiadás egy helyen, tömegesen
+
+- A Pénzügy fejlécében megjelent a **„+ Tétel rögzítése"** gomb (mint a weben). Egy ablakban, **Bevétel/Kiadás füleken** egyszerre több tételt is felvihetsz; a Mentés **dátum szerint rendezi** és a helyére írja őket.
+- Minden tétel a saját **iratszámát** és ellenőrzését kapja — ugyanúgy, ahogy a Befizetés/Kiadás oldalon megszoktad.
+- **Internet nélkül is**: a készpénzes tételek az **iratszám-tárcából** kapnak sorszámot, és a hálózatra csatlakozáskor **automatikusan felmennek** (mint eddig a Befizetés oldalon).
+
+### 📒 Kassza fül — lista, sztornó, visszavonás, szerkesztés és nyugta
+
+- A **Kassza** fül mostantól az asztali Pénzügy oldalon is megjelenik, a **webbel azonos** kasszanapló-nézetben (havi bontás, nyitó/záró egyenleg, bevétel/kiadás egy listában).
+- A listából egy téves tétel **sztornózható** (kötelező indoklással) — pontosan úgy, mint a Befizetés/Kiadás oldalon: a tétel nem törlődik, hanem áthúzva, indoklással marad, és a kapcsolt nyugták / belső mozgás párja automatikusan vele sztornózódik.
+- A **sztornó vissza is vonható** egy kattintással (a tétel ismét bekerül a számításokba) — a belső mozgás párjával együtt. Lezárt (véglegesített) évnél a visszavonás védve van.
+- Egy tétel **szerkeszthető** is (ceruza ikon): dátum, összeg, jogcím, iratszám, megjegyzés gyors javítása. A **dátum csak az éven belüli utolsó tételnél** módosítható (kronológia-védelem) — egyébként stornózz és rögzíts újra. Lezárt évnél a szerkesztés védve van.
+- Egy befizetéshez egy kattintással **nyugta (chitanță) állítható ki** közvetlenül a listából (🧾 gomb): a rendszer az **aktív nyugtatömbből** veszi a következő sorszámot, a befizető nevét/címét és a jogcímet automatikusan kitölti, majd nyomtatható. Amelyik sorhoz már van nyugta, ott **újranyomtatás** jelenik meg (nincs dupla kiállítás). Ha nincs aktív tömb, a rendszer a Nyugtatömbök oldalra irányít.
+
+### 🛟 Biztonságos korlátok (a pénzügy pontossága miatt)
+
+- **Banki átutalás internet nélkül** nem rögzíthető — csak készpénz; online minden megy.
+- A **kiadáshoz kötelező az átvevő** megadása (teljesebb, ellenőrizhető nyilvántartás).
+- A **belső mozgást** (kassza ↔ bank) továbbra is a **Pénzügy → Belső mozgás** oldalon rögzítsd, ahol a banki forrás és cél pontosan megadható.
+- A Kassza-fül mind a négy fő művelete elérhető: **sztornó**, **sztornó-visszavonás**, **tétel-szerkesztés** és **nyugta-kiállítás** — pontosan a webbel egyező módon. (Ezek mind online műveletek.)
+
+> *Megjegyzés a rendszergazdának:* a rögzítés és a sztornó a desktop **bevált** írási/sztornó-útját használja (ugyanazt, amit a Befizetés/Kiadás oldal), így a tételek **azonos pénzügyi rekordot** adnak, mint a weben. A változás a desktop **0.8.8** kiadással érkezik.
+
+---
+
 ## [2026-06-10] — Asztali app: a Pénzügy ugyanúgy néz ki, mint a webfelületen
 <!-- key: 2026-06-10-desktop-penzugy-parity -->
 <!-- category: improvement -->

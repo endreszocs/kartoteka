@@ -1978,8 +1978,61 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v29 migráció (sync infra + adrlocality) sikertelen: {e}"))?;
     }
 
+    if current < 30 {
+        // E3 (2026-06-11) — DB→Excel write-through infrastruktúra.
+        //
+        //   - `excel_outbox`: a hivatalos EREK Excelbe írandó sorok várólistája.
+        //     KÜLÖN a finance `outbox`-tól — az Excel-írás kizárólagos tulajdonosa
+        //     egyetlen TS-oldali háttér-worker (excel-write-sync.ts), szigorúan
+        //     egyesével dolgoz fel (a teljes-fájl backup+rewrite nem konkurencia-
+        //     biztos). A UNIQUE(identity_key, side) a dupla-enqueue ellen véd.
+        //
+        //   - `excel_row_map`: idempotencia-térkép — melyik tétel (identity_key +
+        //     side) melyik fájl/lap/sor-ba került. A worker MINDEN írás előtt
+        //     ellenőrzi; crash-nél a retry így nem duplázhat sort a hivatalos
+        //     könyvben. PK(identity_key, side) az idempotencia gerince.
+        conn.execute_batch(
+            r#"
+            BEGIN;
+
+            CREATE TABLE IF NOT EXISTS excel_outbox (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                op              TEXT NOT NULL DEFAULT 'append',
+                identity_key    TEXT NOT NULL,
+                side            TEXT NOT NULL DEFAULT 'main',
+                target_sheet    TEXT NOT NULL,
+                payload_json    TEXT NOT NULL,
+                congregation_id TEXT NOT NULL,
+                ev              INTEGER NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'pending',
+                retry_count     INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at TEXT,
+                last_error      TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(identity_key, side)
+            );
+            CREATE INDEX IF NOT EXISTS idx_excel_outbox_status
+                ON excel_outbox(status, created_at);
+
+            CREATE TABLE IF NOT EXISTS excel_row_map (
+                identity_key TEXT NOT NULL,
+                side         TEXT NOT NULL DEFAULT 'main',
+                file_path    TEXT NOT NULL,
+                sheet        TEXT NOT NULL,
+                row_index    INTEGER NOT NULL,
+                appended_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (identity_key, side)
+            );
+
+            PRAGMA user_version = 30;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v30 migráció (Excel write-through) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 30 { ... PRAGMA user_version = 30; }
+    // if current < 31 { ... PRAGMA user_version = 31; }
 
     Ok(())
 }

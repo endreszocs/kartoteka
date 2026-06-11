@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.8.8"
+version = "0.9.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -64,6 +64,15 @@ argon2 = "0.5"
 # A `tauri-plugin-updater` pure-Rust a végén (az aláírás-ellenőrzéshez
 # a már behozott ed25519-dalek is elég).
 tauri-plugin-updater = "2"
+# E0 (2026-06-11) — hivatalos EREK Excel-könyvelés írása/olvasása.
+# `umya-spreadsheet`: pure-Rust xlsx, amely append-eléskor MEGŐRZI a többi lap
+# képleteit / definiált neveit / struktúráját (a PoC-ban byte-pontosan bizonyítva,
+# 26 lap / 45 név). A `Kassza` (készpénz) és az A/B/C… (bankszámla) lapok D–L
+# oszlopaiba írunk, a képlet-cellákhoz (M/N + minden számolt lap) SOHA.
+# `zip`: a `fullCalcOnLoad` patch-hez — az `xl/workbook.xml` újracsomagolása, hogy
+# az Excel megnyitáskor magától újraszámoljon (nincs kézi F9).
+umya-spreadsheet = "2"
+zip = "2"
 
 # 2026-06-10 — keyring platform-backend feature-ök (lásd a fenti megjegyzést).
 # Windows Credential Manager / macOS Keychain / Linux Secret Service.

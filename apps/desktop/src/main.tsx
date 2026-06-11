@@ -1,28 +1,23 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { SplashScreen, ThemeStyleProvider } from '@kartoteka/ui-app'
+import { ThemeStyleProvider } from '@kartoteka/ui-app'
 import App from './App'
+import { SplashScreen } from './components/splash-screen'
 import { ErrorBoundary } from './lib/error-boundary'
 import './index.css'
 
 /**
- * AppWithSplash — Sprint R F4 (v0.8.3).
- *
- * A desktop indításkor 1.5 másodpercig megjelenik a SplashScreen (sidebar
- * mély színe + Kartotéka logó kt-pulse + indeterminate progress + verzió).
- * Az App komponens már a háttérben mountol és tölt — a Splash csak overlay
- * (position: fixed, z-index: 9999), így a tényleges idle nem nőtt meg.
+ * AppWithSplash — 2026-06-11 (web-paritás): a webapp animált, 5-fázisos
+ * splash-ének pixelpontos portja fut indításkor (Hatter + KEREK/EREK címerek
+ * + KARTOTEKA logó + "Békesség Istentől!"). A komponens a saját életciklusát
+ * maga kezeli (sessionStorage-guard: app-indításonként egyszer fut, ~6,5 mp,
+ * fade-del), az App már a háttérben mountol és tölt — a Splash csak overlay.
  */
 function AppWithSplash() {
-  const [showSplash, setShowSplash] = useState(true)
-  useEffect(() => {
-    const id = window.setTimeout(() => setShowSplash(false), 1500)
-    return () => window.clearTimeout(id)
-  }, [])
   return (
     <>
       <App />
-      {showSplash && <SplashScreen logoSrc="/kartoteka-logo.png" version="v0.8.8" />}
+      <SplashScreen />
     </>
   )
 }

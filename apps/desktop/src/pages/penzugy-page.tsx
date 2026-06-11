@@ -12,7 +12,7 @@
  * szinkron miatt egyelőre a bal oldali Pénzügy-almenüben érhető el (C-hullám).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   FinanceHero,
@@ -21,6 +21,8 @@ import {
   TransactionsTab,
   AccountingTab,
   DebtTab,
+  CashbookTab,
+  FinanceSugoTab,
   calculateBalances,
   type BefitetesRow,
   type KiadasRow,
@@ -29,7 +31,15 @@ import {
   type FinanceBalances,
   type DebtRow,
   type JarulekPaymentLike,
+  type IncomeCategory,
+  type ExpenseCategory,
 } from '@kartoteka/ui-app'
+
+import {
+  undoStornoUseCase,
+  autoIssueChitantaForBefizetesUseCase,
+  getChitantakForBefizetesekUseCase,
+} from '@kartoteka/core'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { getDesktopSupabase } from '../lib/supabase'
@@ -51,8 +61,15 @@ import {
 import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/finance-debt-sync'
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
+import { enqueueUndoStornoReappend } from '../lib/excel-enqueue'
+import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
+import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
+import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
+import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
+import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
+import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 
-const READY_TABS = ['dashboard', 'transactions', 'accounting', 'debt']
+const READY_TABS = ['dashboard', 'cashbook', 'transactions', 'accounting', 'debt']
 
 const TAB_DEFS = [
   { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
@@ -86,11 +103,23 @@ export function PenzugyPage() {
   const [kiaCelMap, setKiaCelMap] = useState<Record<number, string>>({})
   const [szamadasiCellek, setSzamadasiCellek] = useState<SzamadasiCel[]>([])
   const [balances, setBalances] = useState<FinanceBalances>(EMPTY_BALANCES)
+  // Előző évi záró kassza-egyenleg (a Kassza-fül nyitó egyenlege).
+  const [carryoverCash, setCarryoverCash] = useState(0)
   const [settings, setSettings] = useState<BealitasRow | null>(null)
   const [budgetData, setBudgetData] = useState<Record<string, number>>({})
   const [debtRows, setDebtRows] = useState<DebtRow[]>([])
   const [yearlyFees, setYearlyFees] = useState<Record<number, number>>({})
   const [congregationName, setCongregationName] = useState('')
+
+  // C-hullám C1 — írási út: a „+ Tétel rögzítése" összevont bevitelhez kell a
+  // gyülekezet-uuid + user-id (a saveIncome/saveExpense use-case ctx-éhez).
+  const [userId, setUserId] = useState('')
+  const [congregationId, setCongregationId] = useState('')
+  const [combinedOpen, setCombinedOpen] = useState(false)
+  // Page-szintű visszajelzés (pl. sztornó-visszavonás eredménye a Kassza fülről).
+  const [pageToast, setPageToast] = useState<
+    { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
+  >(null)
 
   // Hash ⇄ activeTab szinkron (mint a web)
   useEffect(() => {
@@ -122,6 +151,8 @@ export function PenzugyPage() {
         setLoading(false)
         return
       }
+      setUserId(user.id)
+      setCongregationId(congId)
 
       await Promise.allSettled([
         pullBefizetesek(congId, year),
@@ -180,6 +211,7 @@ export function PenzugyPage() {
       setKiaCelMap(kiaMap)
       setSzamadasiCellek(cells)
       setBalances(yearBalances)
+      setCarryoverCash(prevBalances.cashBalance)
       setBudgetData(budget)
       setDebtRows(computedDebt)
       setYearlyFees(fees)
@@ -201,17 +233,78 @@ export function PenzugyPage() {
     void load()
   }, [load])
 
+  // Page-toast automatikus eltűntetése pár másodperc után.
+  useEffect(() => {
+    if (!pageToast) return
+    const t = setTimeout(() => setPageToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [pageToast])
+
+  // Kategória-opciók a „+ Tétel rögzítése" összevont bevitelhez — PONTOSAN a web
+  // `finance-tabs.tsx` képlete (bevCelMap/kiaCelMap → {id, kod, nev}, kod szerint
+  // rendezve). Így a desktop és a web ugyanazokat a kategóriákat kínálja.
+  const incomeCategories = useMemo<IncomeCategory[]>(
+    () =>
+      Object.entries(bevCelMap)
+        .map(([id, kod]) => {
+          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const nev = (cel?.nev || '').trim()
+          return { id: Number(id), kod, nev: nev || kod }
+        })
+        .sort((a, b) => a.kod.localeCompare(b.kod)),
+    [bevCelMap, szamadasiCellek],
+  )
+
+  const expenseCategories = useMemo<ExpenseCategory[]>(
+    () =>
+      Object.entries(kiaCelMap)
+        .map(([id, kod]) => {
+          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const nev = (cel?.nev || '').trim()
+          return { id: Number(id), kod, nev: nev || kod }
+        })
+        .sort((a, b) => a.kod.localeCompare(b.kod)),
+    [kiaCelMap, szamadasiCellek],
+  )
+
   const debtModeLabel = 'akkori évi járulék'
 
   return (
     <DesktopShell>
       <div>
-        <FinanceHero congregationName={congregationName} currentYear={year} debtModeLabel={debtModeLabel} />
+        <FinanceHero
+          congregationName={congregationName}
+          currentYear={year}
+          debtModeLabel={debtModeLabel}
+          onAddEntry={congregationId && userId ? () => setCombinedOpen(true) : undefined}
+        />
+
+        {pageToast && (
+          <div
+            role={pageToast.kind === 'error' ? 'alert' : 'status'}
+            className={`mb-4 rounded-md border px-3 py-2 text-sm ${
+              pageToast.kind === 'error'
+                ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                : pageToast.kind === 'warning'
+                  ? 'border-amber-300 bg-amber-50 text-amber-800'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-800'
+            }`}
+          >
+            {pageToast.msg}
+          </div>
+        )}
 
         <ColorTabs tabs={TAB_DEFS} active={activeTab} onChange={setActiveTab} />
 
         <div className="mt-4">
-          {loading || !settings ? (
+          {activeTab === 'sugo' ? (
+            // A Súgó statikus tartalom — a pénzügyi adatok betöltésétől függetlenül
+            // azonnal megjelenik. A desktop-specifikus szekciót extraSections-ön adjuk át.
+            <FinanceSugoTab
+              extraSections={DESKTOP_HELP_SECTIONS}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
+          ) : loading || !settings ? (
             <div className="py-12 text-center text-sm text-slate-400">Pénzügyi adatok betöltése…</div>
           ) : !READY_TABS.includes(activeTab) ? (
             <div className="card-raised p-8 text-center">
@@ -228,6 +321,108 @@ export function PenzugyPage() {
               bevCelMap={bevCelMap}
               kiaCelMap={kiaCelMap}
               settings={settings}
+            />
+          ) : activeTab === 'cashbook' ? (
+            <CashbookTab
+              incomeRecords={income}
+              expenseRecords={expense}
+              carryoverCash={carryoverCash}
+              bevCelMap={bevCelMap}
+              kiaCelMap={kiaCelMap}
+              szamadasiCellek={szamadasiCellek}
+              congregationName={congregationName}
+              incomeCategories={incomeCategories}
+              expenseCategories={expenseCategories}
+              onTransactionChanged={() => void load()}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+              // C1c: sztornó-visszavonás bekötve a core undoStornoUseCase-re
+              // (a web undoStornoTransaction tükre — belső-mozgás párral).
+              onUndoStorno={async ({ type, id }) => {
+                const supabase = getDesktopSupabase()
+                const result = await undoStornoUseCase(
+                  { congregationId, type, id },
+                  { supabase, runtime: 'desktop', userId },
+                )
+                // E3: ha a sztornó tükör-sora az Excel-útvonalon volt, a
+                // visszavonás az eredeti sort újra-appendeli (kioltja a tükröt).
+                if (result.success) {
+                  void enqueueUndoStornoReappend({ type, serverId: id, congregationId })
+                }
+                return { success: result.success, error: result.success ? null : result.error }
+              }}
+              // C1b/C1c: a Kassza-fül mind a 4 akciója bekötve — sztornó, sztornó-
+              // visszavonás, szerkesztés, nyugta-kiállítás (mind online művelet).
+              stornoConfirmDialogSlot={({ open, onOpenChange, type, id, summary, isInternalTransfer, onStornoed }) => (
+                <DesktopStornoConfirmDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  type={type}
+                  id={id}
+                  summary={summary}
+                  isInternalTransfer={isInternalTransfer}
+                  onStornoed={onStornoed}
+                  congregationId={congregationId}
+                  userId={userId}
+                />
+              )}
+              // C1c: tétel-szerkesztés a core updateTransactionUseCase-en (a web
+              // updateTransactionBasic tükre) — dátum-utolsó védelemmel.
+              transactionEditDialogSlot={({ open, onOpenChange, type, id, initial, categories, onSaved }) => (
+                <DesktopTransactionEditDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  type={type}
+                  id={id}
+                  initial={initial}
+                  categories={categories}
+                  onSaved={onSaved}
+                  congregationId={congregationId}
+                  userId={userId}
+                />
+              )}
+              // C1c: nyugta (chitanță) auto-kiállítás befizetésből (a web
+              // autoIssueChitantaForBefizetes tükre, atomikus next_chitanta_full RPC).
+              onAutoIssueChitanta={async (befizetesId) => {
+                const r = await autoIssueChitantaForBefizetesUseCase(
+                  { congregationId, befizetesId },
+                  { supabase: getDesktopSupabase(), runtime: 'desktop', userId },
+                )
+                return {
+                  chitantaId: r.chitantaId ?? null,
+                  sorozat: r.sorozat ?? null,
+                  nyomdaiSzam: r.nyomdaiSzam ?? null,
+                  errorCode: r.errorCode ?? null,
+                  error: r.error ?? null,
+                  maradek: r.maradek ?? null,
+                }
+              }}
+              // A már kiállított nyugták lekérése — így a kiállított sorok az
+              // „újranyomtatás" gombot mutatják (NEM a kiállítás gombot) → nincs dupla nyugta.
+              loadChitantakForBefizetesek={async (ids) => {
+                const r = await getChitantakForBefizetesekUseCase(
+                  { congregationId, befizetesIds: ids },
+                  { supabase: getDesktopSupabase(), runtime: 'desktop' },
+                )
+                return { data: r.data, error: r.error ?? null }
+              }}
+              // Nyomtatás/újranyomtatás: a meglévő desktop ChitantaPrintDialog (online).
+              chitantaSilentPrintSlot={({ chitantaId, onDone }) =>
+                chitantaId ? (
+                  <ChitantaPrintDialog
+                    chitantaId={chitantaId}
+                    congregationId={congregationId}
+                    onClose={onDone}
+                  />
+                ) : null
+              }
+              // Nincs aktív tömb → a Nyugtatömbök oldalra irányító dialógus.
+              chitantaTombRequiredDialogSlot={({ open, onOpenChange, onTombCreated }) => (
+                <DesktopChitantaTombRequiredDialog
+                  open={open}
+                  onOpenChange={onOpenChange}
+                  onTombCreated={onTombCreated}
+                />
+              )}
             />
           ) : activeTab === 'transactions' ? (
             <TransactionsTab
@@ -256,6 +451,24 @@ export function PenzugyPage() {
           ) : null}
         </div>
       </div>
+
+      {/* C-hullám C1 — összevont bevétel/kiadás rögzítő (web-azonos CombinedEntryBody).
+          A bezárás után újratöltjük az adatokat, hogy az új tételek azonnal lássanak. */}
+      {congregationId && userId && (
+        <DesktopCombinedEntryDialog
+          open={combinedOpen}
+          onOpenChange={(open) => {
+            setCombinedOpen(open)
+            if (!open) void load()
+          }}
+          incomeCategories={incomeCategories}
+          expenseCategories={expenseCategories}
+          bankAccounts={[]}
+          currentYear={year}
+          congregationId={congregationId}
+          userId={userId}
+        />
+      )}
     </DesktopShell>
   )
 }

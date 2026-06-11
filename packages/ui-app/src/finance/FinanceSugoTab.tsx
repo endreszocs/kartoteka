@@ -58,7 +58,7 @@ import { FinanceSugoChecklist } from './FinanceSugoChecklist'
 // Típusok
 // ─────────────────────────────────────────────────────────────
 
-type ColorKey =
+export type ColorKey =
   | 'blue'
   | 'emerald'
   | 'violet'
@@ -70,12 +70,12 @@ type ColorKey =
   | 'rose'
   | 'teal'
 
-type Step = {
+export type Step = {
   text: string
   hint?: string
 }
 
-type Topic = {
+export type Topic = {
   key: string
   label: string
   icon: typeof BookOpen
@@ -94,7 +94,7 @@ type Topic = {
   examples?: Array<{ situation: string; solution: string }>
 }
 
-type Section = {
+export type Section = {
   key: string
   label: string
   description: string
@@ -785,6 +785,14 @@ export interface FinanceSugoTabProps {
    * Ha nincs megadva, a banner csak szöveges (link nélkül).
    */
   finalizeHref?: string
+
+  /**
+   * Platform-specifikus EXTRA szekciók — a közös tartalom UTÁN kerülnek a bal
+   * navigáció végére. A desktop az „Asztali (offline) verzió" szekciót injektálja
+   * (offline mód, szinkron, iratszám-tárca, az asztali írási út). A web nem ad át
+   * semmit, így a súgója változatlan marad.
+   */
+  extraSections?: Section[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -796,14 +804,19 @@ export function FinanceSugoTab({
   onPrintTopicToPdf,
   onToast,
   finalizeHref,
+  extraSections,
 }: FinanceSugoTabProps = {}) {
-  const [activeTopicKey, setActiveTopicKey] = useState<string>(SECTIONS[0].topics[0].key)
+  // A közös szekciók + a platform-specifikus extra szekciók (desktop: offline).
+  const ALL_SECTIONS =
+    extraSections && extraSections.length ? [...SECTIONS, ...extraSections] : SECTIONS
+
+  const [activeTopicKey, setActiveTopicKey] = useState<string>(ALL_SECTIONS[0].topics[0].key)
   const [printing, setPrinting] = useState<'preview' | 'pdf' | null>(null)
 
-  const allTopics = SECTIONS.flatMap((s) => s.topics.map((t) => ({ ...t, sectionKey: s.key })))
+  const allTopics = ALL_SECTIONS.flatMap((s) => s.topics.map((t) => ({ ...t, sectionKey: s.key })))
   const activeTopic = allTopics.find((t) => t.key === activeTopicKey) || allTopics[0]
   const palette = PALETTE[activeTopic.color]
-  const activeSectionLabel = SECTIONS.find((s) => s.key === activeTopic.sectionKey)?.label
+  const activeSectionLabel = ALL_SECTIONS.find((s) => s.key === activeTopic.sectionKey)?.label
 
   async function handlePrintTopic(mode: 'preview' | 'pdf') {
     setPrinting(mode)
@@ -867,7 +880,7 @@ export function FinanceSugoTab({
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* ───── BAL: KATEGÓRIÁK ÉS TÉMÁK ───── */}
         <div className="space-y-3 self-start">
-          {SECTIONS.map((section) => (
+          {ALL_SECTIONS.map((section) => (
             <div key={section.key} className="card-raised p-3">
               <div className="flex items-center gap-2 mb-2 px-1">
                 <span className="inline-flex size-6 items-center justify-center rounded-md bg-slate-100 text-slate-500">
@@ -1095,7 +1108,7 @@ export function FinanceSugoTab({
             KARTOTEKA · Egyházi pénzügyi nyilvántartó rendszer
             <span className="mx-2">·</span>
             <span>
-              {allTopics.length} téma · {SECTIONS.length} kategória
+              {allTopics.length} téma · {ALL_SECTIONS.length} kategória
             </span>
           </div>
         </div>

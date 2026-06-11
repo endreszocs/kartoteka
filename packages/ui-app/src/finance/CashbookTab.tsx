@@ -641,6 +641,13 @@ export function CashbookTab({
                           onUndoStorno={handleUndoStorno}
                           onIssueChitanta={issueChitantaForRow}
                           onReprintChitanta={(id) => setSilentPrintChitantaId(id)}
+                          // Egy akció-gomb CSAK akkor jelenik meg, ha a hozzá tartozó
+                          // callback/slot át van adva. A web mindet átadja (változatlan);
+                          // a desktop a részhalmazt adja (a többi gomb rejtve marad).
+                          canEdit={!!transactionEditDialogSlot}
+                          canStorno={!!stornoConfirmDialogSlot}
+                          canUndoStorno={!!onUndoStorno}
+                          canChitanta={!!onAutoIssueChitanta}
                         />
                       ))}
                     </tbody>
@@ -714,6 +721,11 @@ interface CashRowProps {
   onUndoStorno: (r: CashRow) => void | Promise<void>
   onIssueChitanta: (id: number) => void | Promise<void>
   onReprintChitanta: (chitantaId: string) => void
+  /** Akció-gomb láthatóság — a szülő a callback/slot megléte alapján adja. */
+  canEdit: boolean
+  canStorno: boolean
+  canUndoStorno: boolean
+  canChitanta: boolean
 }
 
 function CashRow({
@@ -725,6 +737,10 @@ function CashRow({
   onUndoStorno,
   onIssueChitanta,
   onReprintChitanta,
+  canEdit,
+  canStorno,
+  canUndoStorno,
+  canChitanta,
 }: CashRowProps) {
   const missingItems: string[] = []
   if (r.hasMissingPerson) missingItems.push('nincs személy/család hozzárendelve')
@@ -808,7 +824,7 @@ function CashRow({
       </td>
       <td className="p-2.5">
         <div className="flex items-center justify-end gap-1">
-          {!r.stornozott && !r.isBm && (
+          {canEdit && !r.stornozott && !r.isBm && (
             <button
               type="button"
               title="Szerkesztés"
@@ -818,26 +834,28 @@ function CashRow({
               <Pencil className="size-3.5" />
             </button>
           )}
-          {r.stornozott ? (
-            <button
-              type="button"
-              title="Stornó visszavonása"
-              onClick={() => void onUndoStorno(r)}
-              className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
-            >
-              <RotateCcw className="size-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              title="Stornózás"
-              onClick={() => onStorno(r)}
-              className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <Ban className="size-3.5" />
-            </button>
-          )}
-          {r.type === 'income' && !r.isBm && !r.stornozott ? (
+          {r.stornozott
+            ? canUndoStorno && (
+                <button
+                  type="button"
+                  title="Stornó visszavonása"
+                  onClick={() => void onUndoStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                >
+                  <RotateCcw className="size-3.5" />
+                </button>
+              )
+            : canStorno && (
+                <button
+                  type="button"
+                  title="Stornózás"
+                  onClick={() => onStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Ban className="size-3.5" />
+                </button>
+              )}
+          {canChitanta && r.type === 'income' && !r.isBm && !r.stornozott ? (
             chitantakByBefizetes[r.id] ? (
               <button
                 type="button"

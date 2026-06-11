@@ -232,3 +232,43 @@ A jóváhagyás után a javasolt indulás: a **3.0 PoC-spike** (umya-spreadsheet
 **Emberi záró-ellenőrzés (hátravan):** a `C:\Users\endre\kartoteka-excel-poc\test_output_calc.xlsx` megnyitása **valódi Excelben**, és szemrevételezés: a 3 teszt-sor megjelenik a `Kassza`-ban, és a Számadás / A–T lapok / (külön megnyitva) a Kimutatások helyesen újraszámolnak. Ez a GO végső, gépileg nem pótolható megerősítése — éles pénzügyi kód csak ezután készül.
 
 **Következő lépések:** 3.1 kód-szótár 1:1 egyeztetés (tisztán elemző) → 3.2 Tauri-alapok (umya bekötése a desktop crate-be, `excel_append_kassza`/`excel_read_kassza`/`excel_backup` Rust commandok + fs-capability + Excel-fájl regisztrálás a Beállításokban).
+
+---
+
+## 9. 2026-06-11 — KORRIGÁLT szerkezet (valós 2025-ös adat) + Endre új követelményei
+
+A tényleges `Adatok_2025.xlsx` (valós adattal) + `Adatok_2026.xlsx` (sablon) gépi vizsgálata és Endre megerősítése alapján a 1.2 szakasz **téves feltevését korrigáljuk**: az **A–T lapok NEM költségvetési oldalak, hanem BANKSZÁMLA-könyvek**.
+
+### 9.1 A valódi szerkezet
+
+| Lap(ok) | Szerep | Bevitel? |
+|---|---|---|
+| **`Kassza`** | KÉSZPÉNZ-pénztárkönyv | ✅ D–L (M/N képlet) |
+| **`A`, `B`, `C`… (betű-lapok)** | **BANKSZÁMLA-könyvek** — egy lap / bankszámla, saját nyitó egyenleggel (6. sor); a 3. sorban a deviza (**A=RON, B=EUR**) | ✅ D–L, UGYANAZ a séma mint a Kassza |
+| `Monetar` | Készpénz-címletszámolás | ✅ |
+| `Kasszakonyv`, `Szamadas`, `Koltsegvetes`, `Hibak` | Számolt nézetek / kimutatások / kereszt-ellenőrzés | ❌ képlet |
+
+**Verifikáció:** a 2025-ös „A" lap D–L tartománya **0 képlet-cella / 1544 érték-cella** → valódi adatbeviteli konto. A 2025-ös fájlban **A–F** (6 számla), a 2026-os sablonban **A–T** (20 tartalék-számla) — a gyülekezet annyit használ, ahány bankszámlája van; a többi üres marad.
+
+**Az F-oszlop (Irattíp) = DOKUMENTUM-TÍPUS** (Chit. / Extr / OP / Fact. / Bon fiscal / Disp. Plata / Decont.), nem a bank/kassza jelölés. A 2025 valós F-eloszlás: Chit. 488, Bon fiscal 19, Fact.+Bon. 14, OP 11, Fact. 9, … A banki lapokon jellemzően `Extr` (extras de cont / bankkivonat).
+
+### 9.2 Append-célzás a tétel számlája szerint
+
+| Kartotéka tétel | Excel cél-lap |
+|---|---|
+| `befizetes`/`kiadas`, `irattipus='Készpénz'` | **`Kassza`** |
+| `befizetes`/`kiadas`, `irattipus='Banki'`, `bankszamla_id=X` | a `bankszamla_id` → **betű-lap** mapping szerinti lap |
+| `belsomozgas` kassza↔bank | **KÉT sor**: kiadás/bevétel a Kasszán + ellenpár a betű-lapon (a 2025 adat mintája: „Készpénzletétel a(z) A számlára") |
+
+**Kell egy MAPPING:** Kartotéka `bankszamla` (név, valuta) → Excel betű-lap. A betű-lap 3. sorából a deviza kiolvasható → **auto-javaslat** (RON→A, EUR→B), a lelkész a Beállításokban megerősíti/módosítja.
+
+### 9.3 Endre új követelményei (2026-06-11) — felülírják a 6. szakasz 2. döntését
+
+1. **Bundling:** a teljes `Konyveles_2026_a` mappa (Adatok + Kimutatasok + Nyomtatvanyok + PDF-ek) **be legyen csomagolva minden letöltött desktop appba** (Tauri `bundle.resources`), és első indításkor a gép egy írható Könyvelés-mappájába másolódjon — **nem** csak a meglévő fájl regisztrálása. *(A korábbi 3.4 „kezdeti egyeztetés" így opcionális: üres sablonnal indul, vagy ha a lelkésznek van saját fájlja, azt is regisztrálhatja.)*
+2. **Beállítások:** a Könyvelés-mappa útvonala a Beállításokban látható/módosítható (+ „Mappa megnyitása" gomb).
+3. **Bank ÉS kassza:** mindkettő folyamatos write-through (a 9.2 célzás szerint).
+4. **Évente új mappa:** minden évre új `Konyveles_<év>_a` mappa jön létre a gépen (a következő évi hivatalos EREK-sablonból, az előző évi záró egyenlegek nyitó egyenlegként átvezetve). *Megjegyzés: az új évi sablont az EREK adja ki évente → a desktop app-frissítéssel kell szállítani.*
+
+### 9.4 Megvalósíthatóság — ✅ IGEN
+
+A 3.0 PoC bizonyította, hogy az umya append a Kassza-lapra megőrzi az összes képletet/nevet/struktúrát. **A betű-lapok strukturálisan azonosak a Kasszával** (D–L bevitel) → ugyanaz az append-mechanizmus terjed ki a bankra is, plusz a `bankszamla_id`→betű mapping. A bundling, a Beállítás-útvonal és az évi-mappa mind standard Tauri-képesség (`bundle.resources`, `fs`/`path`/`dialog` plugin, capability-bővítés).

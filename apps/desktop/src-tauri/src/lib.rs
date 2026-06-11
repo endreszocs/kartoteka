@@ -11,6 +11,7 @@ mod auth;
 mod auth_pin;
 mod db;
 mod device;
+mod excel;
 
 use auth::{auth_clear_item, auth_read_item, auth_store_item};
 use auth_pin::{
@@ -21,6 +22,10 @@ use db::{
     iratszam_wallet_claim_next, iratszam_wallet_release, open_and_migrate, DbState,
 };
 use device::device_info;
+use excel::{
+    excel_append_rows, excel_default_folder, excel_folder_info, excel_list_sheets,
+    excel_open_folder, excel_read_meta, excel_save_file, excel_set_cells, excel_setup_folder,
+};
 use tauri::Manager;
 
 /// Tauri alkalmazás belépési pont.
@@ -77,7 +82,16 @@ pub fn run() {
             chitanta_wallet_claim_next,
             chitanta_wallet_release,
             iratszam_wallet_claim_next,
-            iratszam_wallet_release
+            iratszam_wallet_release,
+            excel_list_sheets,
+            excel_read_meta,
+            excel_set_cells,
+            excel_save_file,
+            excel_append_rows,
+            excel_default_folder,
+            excel_folder_info,
+            excel_setup_folder,
+            excel_open_folder
         ])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");

@@ -48,6 +48,7 @@ import type { BelsomozgasListRow, TransferType } from '@kartoteka/validations'
 import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
+import { enqueueTransferExcelRows } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getLocalOwnProfile } from '../lib/sync'
 
@@ -272,6 +273,18 @@ function TransferForm({
         setError(result.error)
         return
       }
+      // E3: a belső mozgás KÉT sort érint a hivatalos Excelben (Kassza-lap +
+      // bank betű-lap, hivatalos per-számla nevekkel) — várólistára tesszük.
+      // A betű-lapot a worker a megerősített bank-párosításból oldja fel.
+      void enqueueTransferExcelRows({
+        belsomozgasId: result.data.id,
+        congregationId,
+        tipus,
+        datum,
+        osszeg: osszegNum,
+        bankNeve: tipus === 'kassza_bank' ? cel.trim() : forras.trim(),
+        megjegyzes: megjegyzes.trim() || null,
+      })
       setSuccessMsg(
         `Belső mozgás rögzítve (${TYPE_LABELS[tipus]}, ${osszegNum.toLocaleString('hu')} RON).`,
       )

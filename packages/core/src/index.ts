@@ -91,6 +91,18 @@ export {
   type GetChitantaForPrintResult,
 } from './finance/chitanta/print'
 
+// Nyugta auto-kiállítás befizetésből + batch lookup (Kassza fül) — C1c
+export {
+  autoIssueChitantaForBefizetesUseCase,
+  getChitantakForBefizetesekUseCase,
+  type AutoIssueChitantaForBefizetesInput,
+  type AutoIssueChitantaForBefizetesResult,
+  type AutoIssueChitantaCtx,
+  type GetChitantakForBefizetesekInput,
+  type GetChitantakForBefizetesekResult,
+  type GetChitantakForBefizetesekCtx,
+} from './finance/chitanta/auto-issue-for-befizetes'
+
 export {
   refillChitantaWalletUseCase,
   type RefillChitantaWalletCtx,
@@ -219,6 +231,28 @@ export {
   type StornoExpenseResult,
 } from './finance/kiadas/storno'
 
+// Sztornó visszavonása (befizetes + kiadas, belső-mozgás párral) — C1c
+export {
+  undoStornoUseCase,
+  type UndoStornoCtx,
+  type UndoStornoInput,
+  type UndoStornoResult,
+  type UndoStornoType,
+} from './finance/undo-storno'
+
+// Tétel-szerkesztés (befizetes + kiadas alapmezők) + dátum-utolsó check — C1c
+export {
+  updateTransactionUseCase,
+  isLastTransactionOfTypeUseCase,
+  type UpdateTransactionCtx,
+  type UpdateTransactionInput,
+  type UpdateTransactionResult,
+  type UpdateTransactionType,
+  type IsLastTransactionCtx,
+  type IsLastTransactionInput,
+  type IsLastTransactionResult,
+} from './finance/update-transaction'
+
 export {
   listInternalTransfersUseCase,
   type ListInternalTransfersCtx,
@@ -236,3 +270,23 @@ export {
   type SoftDeleteInternalTransferCtx,
   type SoftDeleteInternalTransferResult,
 } from './finance/belsomozgas/soft-delete'
+
+// Excel write-through (E3) — pure D–L sor-építő + hivatalos belső-mozgás nevek
+export {
+  buildIncomeExcelRow,
+  buildExpenseExcelRow,
+  buildReversalRow,
+  buildTransferExcelRows,
+  irattipToExcel,
+  roundCent,
+  type ExcelKasszaRow,
+  type BuildEntryRowInput,
+  type BuildTransferRowsInput,
+  type TransferExcelRows,
+} from './finance/excel/row-builder'
+
+export {
+  BELSO_MOZGAS_EXCEL_NEVEK,
+  BANK_LETTERS,
+  type BankLetter,
+} from './finance/excel/belso-mozgas-nevek'

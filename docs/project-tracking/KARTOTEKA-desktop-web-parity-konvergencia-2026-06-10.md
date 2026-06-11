@@ -108,3 +108,77 @@ A megosztott `DebtTab` bekötve (`/penzugy/tartozasok` + almenü). A tagok hátr
 **Verifikáció (itt):** tsc + lint (78 fájl) + production vite build = mind zöld. **⚠️ Te oldaladon:** a hátralék-számokat hitelesítsd a web számaihoz (ugyanaz a gyülekezet → ugyanaz a hátralék).
 
 **A-hullám teljes ✅:** A2 Áttekintés · A3 Tranzakciók · A4 Tartozások · A5 Számadás — mind a megosztott komponensekkel. (A1 Súgó: a web bespoke — külön döntés.) Következő: B-hullám (egységes tab-oldal) vagy C-hullám (írási út).
+
+### 2026-06-10 (folyt.) — B-hullám: egységes Pénzügy tab-oldal ✅ (web+desktop verifikált)
+
+A desktop `/penzugy` mostantól EGY oldal (mint a web `FinanceTabs`): közös `FinanceHero` + közös `ColorTabs` tab-bar + tab-tartalom. A `ColorTabs` és `FinanceHero` kiemelve `@kartoteka/ui-app`-ba (a web `color-tabs.tsx` re-export shim) → web és desktop **azonos** hero+tab-bar. A 4 kész tab (Áttekintés/Tranzakciók/Számadás/Tartozások) inline renderel a közös adatbetöltésből; a többi tab „Hamarosan" + a sidebar-almenüben elérhető. Címer: EREK → Kartotéka-logó (shell/splash/installer).
+
+**Verifikáció:** WEB tsc + DESKTOP tsc + lint (79) + production vite build = mind zöld. Deploy: PR #9.
+
+**Pénzügy paritás állapot:** A-hullám ✅ · B-hullám ✅ (váz kész). **Hátra: C-hullám (írási út)** — tesztelés után, egyesével. **D-hullám (nem-pénzügy)** — külön.
+
+### 2026-06-10 (folyt.) — C-hullám C1: írási út a Pénzügy oldalon ✅ (web+desktop verifikált)
+
+A desktop egységes `/penzugy` oldal fejlécében megjelent a web-azonos **„+ Tétel rögzítése"** gomb (`FinanceHero.onAddEntry`), és megnyitja a megosztott **`CombinedEntryBody`** modált (`DesktopCombinedEntryDialog`). Ugyanaz a komponens = azonos pixel; a callbackek a desktop SAJÁT, bevált írási útjára kötnek:
+
+- **Bevétel-batch** → `saveIncomeUseCase` soronként (online Supabase / offline iratszám-tárca + `befizetes_pending_local` + outbox), pontosan mint a `befizetes-page`. Web-azonos „első hibánál megáll" szemantika.
+- **Kiadás-batch** → `saveExpenseUseCase` soronként. *Szándékos, biztonságos eltérés:* a desktop kötelezővé teszi az átvevőt (`atvevoid || atvevo`) — teljesebb kiadás-nyilvántartás.
+- **Belső mozgás** → a dedikált Pénzügy → Belső mozgás oldalra irányít (a `CombinedEntryBody` a forrás/cél-t bank-**ID**-vel tölti, a desktop use-case szöveges nevet vár; a névfeloldás = C2 BankTab). Soha nem rögzít hibás forrás/cél nevet.
+
+`bankAccounts={[]}` (nincs még lokális banklista-szinkron) → belső-mozgás sorok amúgy sem validálhatók a modálban; a készpénzes bevétel/kiadás teljes körű.
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**Hátra:** **C1b** — a Kassza-fül (`CashbookTab`) soron belüli kezelése (sztornó/szerkesztés/nyugta-kiállítás desktop-bekötéssel) + Decont/Dispozíció hero-gombok. **C2** — BankTab + belső mozgás bank-névfeloldással. **C3–C5** a terv szerint.
+
+### 2026-06-10 (folyt.) — C-hullám C1b: Kassza fül + sztornó ✅ (web+desktop verifikált)
+
+A megosztott **`CashbookTab`** mostantól megjelenik a desktop egységes `/penzugy` oldal **Kassza** fülén (web-azonos kasszanapló). A soron belüli **sztornó** bekötve a desktop bevált `stornoIncomeUseCase`/`stornoExpenseUseCase` útjára (új `DesktopStornoConfirmDialog`, a `befizetes-page` inline sztornó-paneljének mintájára; kaszkád chitanta + belső mozgás pár).
+
+**Megosztott komponens-fejlesztés (visszafelé kompatibilis):** a `CashbookTab`/`CashRow` mostantól minden akció-gombot (Szerkesztés / Sztornó / Sztornó-vissza / Nyugta) CSAK akkor renderel, ha a hozzá tartozó callback/slot át van adva (`canEdit`/`canStorno`/`canUndoStorno`/`canChitanta`). A web mindet átadja → változatlan; a desktop csak a sztornót → **nincs inert gomb**. Verifikálva: WEB tsc=0 (a web `cashbook-tab.tsx` minden callbacket átad).
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fülön hátra (desktop use-case hiányzik, ezért rejtve):**
+- **Szerkesztés** — nincs `updateIncome/updateExpense` core use-case (új fejlesztés).
+- **Sztornó-visszavonás** — nincs `undoStorno` core use-case (a storno tükre, megépíthető).
+- **Nyugta auto-kiállítás a kasszából** — `issueChitantaUseCase` van, de az „auto-issue befizetésből" + tömb/print slot-bekötés hátravan.
+- **Decont / Dispozíció hero-gombok** — nincs core use-case (web szerver-akció); új write-logika.
+
+### 2026-06-10 (folyt.) — C-hullám C1c-undo: sztornó-visszavonás ✅ (core+web+desktop verifikált)
+
+Új **`undoStornoUseCase`** a `@kartoteka/core`-ban (`packages/core/src/finance/undo-storno.ts`) — a web `undoStornoTransaction` (edit-storno-actions.ts) PONTOS tükre: év-véglegesítés blokk, `stornozott=false` + a sztornó-mezők nullázása, `belso_mozgas_xkey` esetén MINDKÉT tábla (befizetes+kiadas) párja, az oblio/chitanta cascade-et NEM fordítja vissza (paritás). Bekötve a Kassza fül `onUndoStorno`-jára → a `canUndoStorno` flag igazra vált, a Sztornó-vissza gomb (RotateCcw) megjelenik a sztornózott sorokon. Page-szintű toast a visszajelzéshez (az undo-hiba nem nyelődik el).
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (Az új core-export nem érinti a web meglévő `undoStornoTransaction`-jét.)
+
+**A Kassza-fülön bekötve:** sztornó ✅ · sztornó-visszavonás ✅. **Hátra (desktop use-case hiányzik):** szerkesztés (`updateIncome/Expense`), nyugta auto-kiállítás a kasszából. **Decont/Dispozíció** hero-gombok: külön.
+
+### 2026-06-10 (folyt.) — Pénzügy Súgó fül + desktop-specifikus szekció ✅ (web+desktop verifikált)
+
+A desktop egységes `/penzugy` oldal **Súgó** füle mostantól a megosztott **`FinanceSugoTab`**-ot rendereli (a betöltési kapu ELŐTT — statikus tartalom, nem vár pénzügyi adatra). A `FinanceSugoTab` kapott egy opcionális **`extraSections`** prop-ot (visszafelé kompatibilis: a web nem ad át semmit → változatlan). A desktop egy **„Asztali (offline) verzió"** szekciót injektál (`apps/desktop/src/lib/desktop-help-sections.ts`): offline mód, szinkronizáció, iratszám-tárca, asztali tétel-rögzítés, sztornó/visszavonás, ütközés-feloldás, offline-vs-online összefoglaló, frissítés.
+
+**Verifikáció:** WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld. (A `Section`/`Topic`/`ColorKey` típusok mostantól exportáltak a `FinanceSugoTab`-ból.)
+
+### 2026-06-10 (folyt.) — C-hullám C1c-edit: tétel-szerkesztés a Kassza fülön ✅ (core+web+desktop verifikált)
+
+Új core use-case-ek (`packages/core/src/finance/update-transaction.ts`) — a web `updateTransactionBasic` + `isLastTransactionOfType` tükre gyülekezet-scope-ra:
+- **`updateTransactionUseCase`** — dátum / összeg / jogcím (id_cel → id_befizetescel|id_kiadascel) / iratszám / megjegyzés módosítása; év-véglegesítés blokk; „nincs változás" eset.
+- **`isLastTransactionOfTypeUseCase`** — a dátum csak az éven belüli utolsó tételnél szerkeszthető (kronológia-védelem).
+
+Desktop `DesktopTransactionEditDialog` (`apps/desktop/src/components/transaction-edit-dialog.tsx`) — a web `transaction-edit-dialog.tsx` UX-ének tükre (dátum-utolsó zárolás, kategória-select). Bekötve a Kassza fül `transactionEditDialogSlot`-jára → `canEdit=true`, a ✎ ceruza gomb megjelenik a `!isBm` sorokon (belső mozgás nem szerkeszthető).
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fülön bekötve:** sztornó ✅ · visszavonás ✅ · szerkesztés ✅. **Hátra:** nyugta auto-kiállítás a kasszából (chitanta — `issueChitantaUseCase` + tömb/print slot). **Decont/Dispozíció** hero-gombok: külön.
+
+### 2026-06-10 (folyt.) — C-hullám C1c-chitanta: nyugta-kiállítás a Kassza fülön ✅ (core+web+desktop verifikált)
+
+Új core use-case-ek (`packages/core/src/finance/chitanta/auto-issue-for-befizetes.ts`) — a web `autoIssueChitantaForBefizetes` / `getChitantakForBefizetesek` PONTOS tükre:
+- **`autoIssueChitantaForBefizetesUseCase`** — befizetés → befizető név/cím feloldás (szemely FK / haztartas FK / forrasa / fallback), reprezentand a befizetescel-ből, **atomikus `next_chitanta_full` RPC** (tomb_id/nyomdai_szam/gyulekezeti_szam/sorozat/maradek), INSERT `oblio_szamlak` (15 oszlop), NO_ACTIVE_BLOCK kezelés. **Online** művelet.
+- **`getChitantakForBefizetesekUseCase`** — batch lookup (mely befizetéshez van már nyugta → dupla-kiállítás megelőzése).
+
+Desktop slotok bekötve a Kassza fülön: `onAutoIssueChitanta`, `loadChitantakForBefizetesek`, `chitantaSilentPrintSlot` (meglévő `ChitantaPrintDialog`), `chitantaTombRequiredDialogSlot` (új `DesktopChitantaTombRequiredDialog` → Nyugtatömbök oldal). `canChitanta=true` → a 🧾 gomb megjelenik. (A `chitantaTombokPanelSlot` — aktív tömb panel a lista felett — egyelőre kihagyva; a tömb-státusz a Nyugtatömbök oldalon látszik.)
+
+**Verifikáció:** CORE tsc=0 · WEB tsc=0 · DESKTOP lint:imports + tsc + vite build = mind zöld.
+
+**A Kassza-fül mind a 4 akciója KÉSZ:** sztornó ✅ · visszavonás ✅ · szerkesztés ✅ · nyugta ✅. **Hátra:** aktív-tömb panel a Kassza felett (opcionális); **Decont/Dispozíció** hero-gombok (külön write-logika).

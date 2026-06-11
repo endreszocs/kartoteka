@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { enqueueEntryExcelRow } from './excel-enqueue'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 
@@ -179,6 +180,21 @@ export async function pushPendingKiadas(
 
       try {
         await backend.markKiadasSynced(mutation.pk, Number(data.id))
+        // E3: az offline-rögzített kiadás CSAK MOST kap végleges szerver-id-t —
+        // innen mehet az Excel-várólistára (no-throw helper, soha mentéskor).
+        void enqueueEntryExcelRow({
+          type: 'kiadas',
+          serverId: Number(data.id),
+          congregationId: String(payload.congregation_id ?? ''),
+          datum: String(payload.datum ?? ''),
+          iratszam: String(payload.iratszam ?? ''),
+          irattipus: String(payload.irattipus ?? ''),
+          nev: String(payload.atvevo ?? ''),
+          osszeg: Number(payload.osszeg ?? 0),
+          celId: Number(payload.id_kiadascel ?? 0),
+          megjegyzes: (payload.megjegyzes as string | null) ?? null,
+          bankszamlaId: (payload.bankszamla_id as number | null) ?? null,
+        })
         await backend.removeMutation(mutation.id)
         result.succeeded += 1
       } catch (err) {
