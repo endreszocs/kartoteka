@@ -194,6 +194,17 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 > képernyőképe kell (a névminta ott nem dönt — pl. a „Központi járulékok"
 > tipikus GYÜLEKEZETI fizetési kötelezettség).
 
+> **LEZÁRÁS (Endre kiadás-oldali képe, 2026-06-11):** a kiadás-oldal is
+> igazolva — az egyházközségi kiadás-lista PONTOSAN 38 tételes, ami egyezik a
+> DB-vel! A felsőbb szintű 10: 201.15–201.19 (bér-blokk: nettó fizetések, adó,
+> TB, eü., munkabizt.) + 206.02–206.06. A heurisztikus gyanú a 203.06/203.07-re
+> TÉVES volt (azok gyülekezeti kiadások — a kép igazolta; ezért nem találgatunk).
+> **A kategória-készlet tehát HELYES (30+38 = 68 egyházközségi tétel; a
+> katalógus 19 felsőbb tételével együtt 87).** Egyetlen nyitott szál: a
+> bevétel-oldali +1 (31 vs 30) — valószínűleg duplikált sor (a sablonban a
+> 101.06 kétszer szerepel) → `2026-06-11k-bevetel-duplikatum.sql` mutatja meg.
+> Az i-SQL v3 immár mindkét kép tudását hordozza.
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e
