@@ -205,6 +205,24 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 > 101.06 kétszer szerepel) → `2026-06-11k-bevetel-duplikatum.sql` mutatja meg.
 > Az i-SQL v3 immár mindkét kép tudását hordozza.
 
+> **VÉGSŐ LEZÁRÁS (2026-06-11):**
+> - **Jogosultságok ✅** — a j-SQL eredménye: `authenticated` = SELECT/INSERT/
+>   UPDATE/DELETE a befizetes/kiadas/belsomozgas táblákon; `anon` = SEMMI
+>   (nem is szerepel). Pontosan a kívánt állapot — a „permission denied"
+>   diagnózis (PIN-módos anon-kérés, kliens-oldalon javítva) 100%-ban igazolt.
+> - **Duplikátum nincs** (k-SQL: 0 találat) → a bevételi +1 = az egyik
+>   felsőbb szintű kód aktívan felvéve a választékba. Javítás:
+>   `2026-06-11l-felsobb-szint-jeloles.sql` — a 19 igazoltan felsőbb szintű
+>   kód (9 bevétel + 10 kiadás) szint='egyhazmegye' jelölése; ettől a
+>   gyülekezeti rögzítő pontosan 30+38 tételes lesz, az egyházmegyei felület
+>   pedig pont ezeket kapja. Rögzített tételeket nem érint, nem töröl.
+> - **bank↔bank Excel-írás ✅ élesítve** — a bank-lap képernyőkép igazolta a
+>   névmintát (301.xx „Átutalva …ról - X" / 401.xx „Átutalva …ra - X" + a
+>   kassza-párok); a névszótár v2 (840 név), buildBankBankExcelRows
+>   név-egyeztetéssel, 2 sor enqueue (bank-forras/bank-cel), a worker mindkét
+>   betűt a megerősített párosításból oldja fel. Valutacsere továbbra is
+>   későbbi kör.
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e
