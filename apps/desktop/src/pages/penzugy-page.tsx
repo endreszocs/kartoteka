@@ -61,6 +61,7 @@ import {
 import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/finance-debt-sync'
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
+import { enqueueUndoStornoReappend } from '../lib/excel-enqueue'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
@@ -342,6 +343,11 @@ export function PenzugyPage() {
                   { congregationId, type, id },
                   { supabase, runtime: 'desktop', userId },
                 )
+                // E3: ha a sztornó tükör-sora az Excel-útvonalon volt, a
+                // visszavonás az eredeti sort újra-appendeli (kioltja a tükröt).
+                if (result.success) {
+                  void enqueueUndoStornoReappend({ type, serverId: id, congregationId })
+                }
                 return { success: result.success, error: result.success ? null : result.error }
               }}
               // C1b/C1c: a Kassza-fül mind a 4 akciója bekötve — sztornó, sztornó-

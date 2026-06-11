@@ -16,6 +16,7 @@ import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label 
 import { stornoExpenseUseCase, stornoIncomeUseCase } from '@kartoteka/core'
 
 import { errorMessage } from '../lib/error'
+import { enqueueStornoReversal } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 
 interface Props {
@@ -77,6 +78,15 @@ export function DesktopStornoConfirmDialog({
         setError(result.error)
         return
       }
+      // E3: ha a tétel az Excel-útvonalon volt, ellenelőjeles SZTORNÓ tükör-sor
+      // kerül a várólistára (append-only — a hivatalos könyv nettóz, az audit-
+      // nyom megmarad). No-throw helper, a sztornó sikerét nem érinti.
+      void enqueueStornoReversal({
+        type,
+        serverId: id,
+        congregationId,
+        indok: indok.trim(),
+      })
       await onStornoed()
       reset()
       onOpenChange(false)

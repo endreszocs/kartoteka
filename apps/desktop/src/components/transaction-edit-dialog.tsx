@@ -20,6 +20,7 @@ import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label 
 import { isLastTransactionOfTypeUseCase, updateTransactionUseCase } from '@kartoteka/core'
 
 import { errorMessage } from '../lib/error'
+import { enqueueEditExcelRows, fetchEditSnapshot } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 
 interface Category {
@@ -112,6 +113,10 @@ export function DesktopTransactionEditDialog({
     }
     setSaving(true)
     try {
+      // E3: a szerkesztés ELŐTTI állapot pillanatképe — a hivatalos Excel
+      // append-only tükrözéséhez (régi sor reverzál + új sor append).
+      const beforeSnapshot = await fetchEditSnapshot(type, id)
+
       const result = await updateTransactionUseCase(
         {
           congregationId,
@@ -129,6 +134,14 @@ export function DesktopTransactionEditDialog({
       if (!result.success) {
         setError(result.error)
         return
+      }
+      if (beforeSnapshot) {
+        void enqueueEditExcelRows({
+          type,
+          serverId: id,
+          congregationId,
+          before: beforeSnapshot,
+        })
       }
       onOpenChange(false)
       await onSaved()

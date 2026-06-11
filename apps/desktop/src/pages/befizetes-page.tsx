@@ -70,6 +70,7 @@ import {
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { runBefizetesSyncManually } from '../lib/befizetes-write-sync'
+import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getLocalOwnProfile } from '../lib/sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
@@ -503,6 +504,26 @@ function IncomeForm({
           setError(result.error)
         }
         return
+      }
+
+      // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
+      // Offline tételt a push-sync enqueue-ol, amikor már van szerver-id.
+      if (!result.pending && result.data.id > 0) {
+        void enqueueEntryExcelRow({
+          type: 'befizetes',
+          serverId: result.data.id,
+          congregationId,
+          datum,
+          iratszam: result.data.iratszam,
+          irattipus,
+          nev: selectedTag
+            ? `${selectedTag.csaladnev ?? ''} ${selectedTag.k_nev ?? ''}`.trim()
+            : '',
+          osszeg: osszegNum,
+          celId,
+          megjegyzes: megjegyzes.trim() || null,
+          ev: fizetettev,
+        })
       }
 
       const pendingNote = result.pending

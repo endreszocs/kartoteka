@@ -69,6 +69,7 @@ import {
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { runKiadasSyncManually } from '../lib/kiadas-write-sync'
+import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getLocalOwnProfile } from '../lib/sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
@@ -450,6 +451,26 @@ function ExpenseForm({
           setError(result.error)
         }
         return
+      }
+
+      // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
+      if (!result.pending && result.data.id > 0) {
+        void enqueueEntryExcelRow({
+          type: 'kiadas',
+          serverId: result.data.id,
+          congregationId,
+          datum,
+          iratszam: result.data.iratszam,
+          irattipus,
+          nev: hasSzoveg
+            ? atvevoSzoveg.trim()
+            : selectedTag
+              ? `${selectedTag.csaladnev ?? ''} ${selectedTag.k_nev ?? ''}`.trim()
+              : '',
+          osszeg: osszegNum,
+          celId,
+          megjegyzes: megjegyzes.trim() || null,
+        })
       }
 
       const pendingNote = result.pending

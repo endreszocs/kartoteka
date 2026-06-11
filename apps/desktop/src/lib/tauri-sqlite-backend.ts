@@ -2201,6 +2201,183 @@ export class TauriSqliteBackend implements StorageBackend {
       [localId],
     )
   }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // E3 (2026-06-11) — Excel write-through outbox + row-map
+  //
+  // Az Excel-írás kizárólagos tulajdonosa az `excel-write-sync.ts` worker;
+  // ezek a metódusok csak a várólistát + az idempotencia-térképet kezelik.
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Egy Excel-sor várólistára tétele. INSERT OR IGNORE — az
+   * UNIQUE(identity_key, side) miatt az ismételt enqueue nem duplikál.
+   */
+  async enqueueExcelRow(row: {
+    op: 'append' | 'reversal'
+    identityKey: string
+    side: string
+    targetSheet: string
+    payloadJson: string
+    congregationId: string
+    ev: number
+    status?: 'pending' | 'blocked'
+    lastError?: string | null
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT OR IGNORE INTO excel_outbox
+         (op, identity_key, side, target_sheet, payload_json,
+          congregation_id, ev, status, last_error)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      [
+        row.op,
+        row.identityKey,
+        row.side,
+        row.targetSheet,
+        row.payloadJson,
+        row.congregationId,
+        row.ev,
+        row.status ?? 'pending',
+        row.lastError ?? null,
+      ],
+    )
+  }
+
+  /** A feldolgozandó sorok, created_at sorrendben (a belső-mozgás 2 oldala együtt). */
+  async getPendingExcelRows(limit = 50): Promise<
+    Array<{
+      id: number
+      op: 'append' | 'reversal'
+      identity_key: string
+      side: string
+      target_sheet: string
+      payload_json: string
+      congregation_id: string
+      ev: number
+      retry_count: number
+      last_attempt_at: string | null
+      last_error: string | null
+    }>
+  > {
+    return dbSelect(
+      `SELECT id, op, identity_key, side, target_sheet, payload_json,
+              congregation_id, ev, retry_count, last_attempt_at, last_error
+         FROM excel_outbox
+        WHERE status = 'pending'
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?1`,
+      [limit],
+    )
+  }
+
+  async markExcelRowDone(id: number): Promise<void> {
+    await dbExecute(
+      `UPDATE excel_outbox
+          SET status = 'done', last_error = NULL, last_attempt_at = datetime('now')
+        WHERE id = ?1`,
+      [id],
+    )
+  }
+
+  async markExcelRowBlocked(id: number, reason: string): Promise<void> {
+    await dbExecute(
+      `UPDATE excel_outbox
+          SET status = 'blocked', last_error = ?1, last_attempt_at = datetime('now')
+        WHERE id = ?2`,
+      [reason, id],
+    )
+  }
+
+  async updateExcelRowAttempt(id: number, lastError: string): Promise<void> {
+    await dbExecute(
+      `UPDATE excel_outbox
+          SET retry_count = retry_count + 1,
+              last_error = ?1,
+              last_attempt_at = datetime('now')
+        WHERE id = ?2`,
+      [lastError, id],
+    )
+  }
+
+  /** Blokkolt sorok visszaengedése a feldolgozásba (pl. bank-párosítás megerősítése után). */
+  async requeueBlockedExcelRows(): Promise<void> {
+    await dbExecute(
+      `UPDATE excel_outbox
+          SET status = 'pending', retry_count = 0
+        WHERE status = 'blocked'`,
+      [],
+    )
+  }
+
+  /** Várólista-összesítő a státusz-UI-nak. */
+  async getExcelOutboxCounts(): Promise<{ pending: number; blocked: number; done: number }> {
+    const rows = await dbSelect<{ status: string; cnt: number }>(
+      `SELECT status, COUNT(*) AS cnt FROM excel_outbox GROUP BY status`,
+      [],
+    )
+    const out = { pending: 0, blocked: 0, done: 0 }
+    for (const r of rows) {
+      if (r.status === 'pending') out.pending = r.cnt
+      else if (r.status === 'blocked') out.blocked = r.cnt
+      else if (r.status === 'done') out.done = r.cnt
+    }
+    return out
+  }
+
+  /** Van-e már outbox-sor ehhez a tételhez (bármilyen státusszal). */
+  async hasExcelOutboxRow(identityKey: string, side: string): Promise<boolean> {
+    const rows = await dbSelect<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM excel_outbox WHERE identity_key = ?1 AND side = ?2`,
+      [identityKey, side],
+    )
+    return (rows[0]?.c ?? 0) > 0
+  }
+
+  /** Idempotencia-check: bekerült-e már ez a tétel az Excelbe. */
+  async hasExcelRowMap(identityKey: string, side: string): Promise<boolean> {
+    const rows = await dbSelect<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM excel_row_map WHERE identity_key = ?1 AND side = ?2`,
+      [identityKey, side],
+    )
+    return (rows[0]?.c ?? 0) > 0
+  }
+
+  /** Sikeres append után AZONNAL hívandó — a crash-dedup alapja. */
+  async insertExcelRowMap(entry: {
+    identityKey: string
+    side: string
+    filePath: string
+    sheet: string
+    rowIndex: number
+  }): Promise<void> {
+    await dbExecute(
+      `INSERT OR REPLACE INTO excel_row_map
+         (identity_key, side, file_path, sheet, row_index, appended_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))`,
+      [entry.identityKey, entry.side, entry.filePath, entry.sheet, entry.rowIndex],
+    )
+  }
+
+  /**
+   * Hivatalos kategória-név feloldása a lokális tükörből:
+   * `id_befizetescel`/`id_kiadascel` → `*_cel_local.id_szamadasicel` →
+   * `szamadasicel_local.nev` (= a hivatalos Excel I/K név a 2026-06-11
+   * név-fix óta). Null, ha a lánc bármelyik tagja hiányzik.
+   */
+  async resolveOfficialCategoryName(
+    kind: 'bev' | 'kiad',
+    celId: number,
+  ): Promise<string | null> {
+    const celTable = kind === 'bev' ? 'befizetescel_local' : 'kiadascel_local'
+    const rows = await dbSelect<{ nev: string | null }>(
+      `SELECT s.nev AS nev
+         FROM ${celTable} c
+         JOIN szamadasicel_local s ON s.id = c.id_szamadasicel
+        WHERE c.id = ?1`,
+      [celId],
+    )
+    return rows[0]?.nev ?? null
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

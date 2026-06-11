@@ -40,6 +40,7 @@ import {
 import { saveExpenseUseCase, saveIncomeUseCase } from '@kartoteka/core'
 
 import { errorMessage } from '../lib/error'
+import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
@@ -106,6 +107,23 @@ export function DesktopCombinedEntryDialog({
         if (!result.success) {
           return { error: `${i + 1}. bevétel-sor: ${result.error}` }
         }
+        // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
+        // Offline tételt a push-sync enqueue-ol, amikor már van szerver-id.
+        if (!result.pending && result.data.id > 0) {
+          void enqueueEntryExcelRow({
+            type: 'befizetes',
+            serverId: result.data.id,
+            congregationId,
+            datum: row.datum,
+            iratszam: result.data.iratszam,
+            irattipus: row.irattipus,
+            nev: row.forrasa ?? '',
+            osszeg: row.osszeg,
+            celId: row.id_befizetescel,
+            megjegyzes: row.megjegyzes,
+            ev: row.fizetettev,
+          })
+        }
       } catch (err) {
         return { error: `${i + 1}. bevétel-sor: ${errorMessage(err)}` }
       }
@@ -145,6 +163,21 @@ export function DesktopCombinedEntryDialog({
         )
         if (!result.success) {
           return { error: `${i + 1}. kiadás-sor: ${result.error}` }
+        }
+        // E3: online mentés sikerkor a hivatalos Excelbe is (várólistán át).
+        if (!result.pending && result.data.id > 0) {
+          void enqueueEntryExcelRow({
+            type: 'kiadas',
+            serverId: result.data.id,
+            congregationId,
+            datum: row.datum,
+            iratszam: result.data.iratszam,
+            irattipus: row.irattipus,
+            nev: row.kedvezmenyzett ?? '',
+            osszeg: row.osszeg,
+            celId: row.id_kiadascel,
+            megjegyzes: row.megjegyzes,
+          })
         }
       } catch (err) {
         return { error: `${i + 1}. kiadás-sor: ${errorMessage(err)}` }

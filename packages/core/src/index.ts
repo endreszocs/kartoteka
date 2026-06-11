@@ -270,3 +270,23 @@ export {
   type SoftDeleteInternalTransferCtx,
   type SoftDeleteInternalTransferResult,
 } from './finance/belsomozgas/soft-delete'
+
+// Excel write-through (E3) — pure D–L sor-építő + hivatalos belső-mozgás nevek
+export {
+  buildIncomeExcelRow,
+  buildExpenseExcelRow,
+  buildReversalRow,
+  buildTransferExcelRows,
+  irattipToExcel,
+  roundCent,
+  type ExcelKasszaRow,
+  type BuildEntryRowInput,
+  type BuildTransferRowsInput,
+  type TransferExcelRows,
+} from './finance/excel/row-builder'
+
+export {
+  BELSO_MOZGAS_EXCEL_NEVEK,
+  BANK_LETTERS,
+  type BankLetter,
+} from './finance/excel/belso-mozgas-nevek'
