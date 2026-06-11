@@ -97,7 +97,13 @@ duplikál; (3) sztornó = ellenelőjeles sor; (4) belső mozgás = pontosan 2 so
 ## 3. JAVÍTANDÓ — prioritizált hibalista
 
 ### P0 (pénz-helyesség / fő-folyamat)
-1. ~~PIN-belépés beragadás~~ → **javítva ebben a sessionben** (2.2).
+1. ~~PIN-belépés beragadás~~ → **javítva + a user által élesben igazolva** (2.2).
+   A teljes gyökérok-lánc: (a) auth-gate getSession() timeout nélkül; (b) a
+   DesktopShell + 14 oldal `supabase.auth.getUser()`-re épült, ami offline null
+   → végtelen „Betöltés…". Megoldás: központi `getDesktopUser()`
+   (lib/desktop-user.ts) — felhő (4s timeout) → utolsó-belépés cache →
+   egyetlen lokális `profiles_local` sor; látható hibaüzenet kiúttal a néma
+   töltés helyett. Élő képernyő-diagnózissal azonosítva, 0.9.0-ban kiadva.
 2. **E3 end-to-end teszt hiányzik** — a kód kész és minden build zöld, de a
    teljes lánc (rögzítés → outbox → valódi xlsx-be írás → Excel-újraszámolás)
    csak aláírt desktop-buildben tesztelhető. A kapcsoló addig default KI.

@@ -86,12 +86,20 @@ azonnal is futtathatod.
 
 ### 🐛 Javítás
 
-- **Elakadó belépés a biztonsági kóddal**: ha hosszabb ideje nem voltál hálózaton
-  (vagy épp nem volt internet), a mentett kódos belépés egy végtelen „Betöltés…"
-  képernyőn ragadhatott, mert az app a háttérben a felhő-kapcsolatra várt.
-  Mostantól a kódos belépés **azonnal beenged a helyi adataidhoz** — a felhő-
-  kapcsolatot az app a háttérben, türelmesen próbálja újra, és ha létrejön,
-  magától átvált online módba.
+- **Elakadó belépés a biztonsági kóddal — végleg javítva.** Eddig a kódos
+  (offline) belépés után az app egy végtelen „Betöltés…" képernyőn ragadhatott.
+  Két ok állt mögötte, mindkettőt kijavítottuk:
+  1. a beléptető-kapu a felhő-kapcsolatra várt határidő nélkül — mostantól a
+     kódos belépés **azonnal beenged a helyi adataidhoz**, a felhő-kapcsolatot
+     az app a háttérben próbálja, és ha létrejön, magától átvált online módba;
+  2. a belépés utáni képernyők a felhő-azonosítódat keresték, ami hálózat
+     nélkül nem érhető el — mostantól az app **a gépeden tárolt profilodból**
+     ismer fel, így a kezdőlap és minden oldal offline is betölt.
+- **Ha hiba van, mostantól kiírja.** Végtelen töltés helyett az app minden
+  elakadásnál érthető üzenetet mutat (pl. „Nem sikerült azonosítani a
+  felhasználót…"), és gombot ad a megoldáshoz (Újrapróbálás / Online belépés).
+  Hibás kódnál továbbra is pontos visszajelzést kapsz, a hátralévő
+  próbálkozások számával.
 
 ---
 
