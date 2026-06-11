@@ -47,6 +47,21 @@ a weben és az asztali appban egyaránt.
   automatikusan a **bevált offline utat** használja: a tétel az iratszám-tárcából
   kap számot, és a következő online bejelentkezéskor magától felkerül a felhőbe.
 
+### ✨ Befizető-keresés a tagnyilvántartásból (asztali app)
+
+- A „Tétel rögzítése" ablak **Befizető / forrás** mezőjében mostantól kereshetsz
+  a tagjaid közt: két betű után felugranak a találatok, kiválasztásnál a
+  befizetés a személyhez kapcsolódik (egyházfenntartásnál, adománynál így a
+  tartozás-nyilvántartás is naprakész). Egy pipával **családi befizetéssé**
+  tehető. Ha nem tagtól jön a pénz, a mező továbbra is szabad szövegként működik.
+
+### 🛡️ Szinkron csak hiteles belépéssel
+
+- A felhőbe írás mostantól **hármas ellenőrzés** után indul: érvényes belépés,
+  nem járt-e le, és hogy **ugyanaz a fiók** van-e belépve, amelyikhez a gépen
+  tárolt adatok tartoznak. Ha más fiókkal lépnének be ugyanazon a gépen, a
+  szinkron biztonsági okból leáll — érthető üzenettel, soha nem csendben.
+
 ### 🎨 Rendezett felület
 
 - Az „Offline munkamenet" és a szinkronizálás jelzői **a fejlécbe költöztek** —

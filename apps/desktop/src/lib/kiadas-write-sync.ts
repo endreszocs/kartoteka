@@ -22,6 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { enqueueEntryExcelRow } from './excel-enqueue'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { getVerifiedSession } from './verified-session'
 
 const MAX_ATTEMPTS = 5
 
@@ -66,10 +67,10 @@ export async function pushPendingKiadas(
     errors: [],
   }
 
-  try {
-    const sessionRes = await supabase.auth.getSession()
-    if (!sessionRes.data.session) return result
-  } catch {
+  // 2026-06-11 (Endre): felhő-írás csak hitelesített ÉS fiók-egyező belépéssel.
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    if (verified.reason === 'user-mismatch') result.errors.push(verified.message)
     return result
   }
 

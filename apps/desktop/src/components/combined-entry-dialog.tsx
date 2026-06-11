@@ -37,7 +37,12 @@ import {
   type SaveExpenseBatchRow,
   type CombinedInternalTransferPayload,
 } from '@kartoteka/ui-app'
-import { saveExpenseUseCase, saveIncomeUseCase } from '@kartoteka/core'
+import {
+  getFamilyIdForPersonUseCase,
+  saveExpenseUseCase,
+  saveIncomeUseCase,
+  searchMembersForFinanceUseCase,
+} from '@kartoteka/core'
 
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
@@ -94,8 +99,9 @@ export function DesktopCombinedEntryDialog({
             osszeg: row.osszeg,
             datum: row.datum,
             id_befizetescel: row.id_befizetescel,
-            id_szemely: null,
-            id_csalad: null,
+            // B1: a rögzítő tag-keresőjéből (kölcsönösen kizáró pár)
+            id_szemely: row.id_szemely ?? null,
+            id_csalad: row.id_csalad ?? null,
             forrasa: row.forrasa,
             // Offline-ban a backend a tárcából választ iratszámot.
             iratszam: isOnline ? row.iratszam : null,
@@ -245,6 +251,25 @@ export function DesktopCombinedEntryDialog({
             expenseCategories={expenseCategories}
             bankAccounts={bankAccounts}
             currentYear={currentYear}
+            // B1 (2026-06-11): tag-keresés a Befizető mezőben + családi mód
+            onSearchMembers={async (query) => {
+              const res = await searchMembersForFinanceUseCase(
+                { congregationId, query, limit: 8 },
+                { supabase: getDesktopSupabase(), runtime: 'desktop' },
+              )
+              if (!res.success) return []
+              return res.members.map((m) => ({
+                id: m.id,
+                name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
+              }))
+            }}
+            onResolveFamilyId={async (szemelyId) => {
+              const res = await getFamilyIdForPersonUseCase(
+                { congregationId, personId: szemelyId },
+                { supabase: getDesktopSupabase(), runtime: 'desktop' },
+              )
+              return res.success ? res.familyId : null
+            }}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
             onSaveInternalTransfer={handleInternalTransfer}

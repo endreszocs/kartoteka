@@ -29,6 +29,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { getVerifiedSession } from './verified-session'
 
 const MAX_ATTEMPTS = 5
 
@@ -115,13 +116,11 @@ export async function pushPendingChitantas(
   // ne futtassunk insert-et — a supabase 401-et ad, és a retry-counter
   // hamar max-hoz érne, amitől minden lokális chitanta conflict-ra menne.
   // Várjuk meg, amíg a user újra online-ban lép be.
-  try {
-    const sessionRes = await supabase.auth.getSession()
-    if (!sessionRes.data.session) {
-      return result // üres eredmény — nem attempted semmi
-    }
-  } catch {
-    // getSession is failing — szintén nincs értelme insert-eket indítani
+  // 2026-06-11 (Endre): a felhő-írás CSAK hitelesített ÉS fiók-egyező
+  // belépéssel mehet — más fiók alatt a helyi tételek nem kerülhetnek fel.
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    if (verified.reason === 'user-mismatch') result.errors.push(verified.message)
     return result
   }
 

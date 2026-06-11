@@ -148,7 +148,42 @@ utána az import-tételek Excel-betű-lapra írása.
 
 ---
 
+## B6) Biztonság: szinkron csak hitelesített belépéssel ✅ (Endre kérése, 2026-06-11)
+
+**Kérés:** „A szinkronizáció a Supabase adatbázissal csak akkor történhet meg,
+ha biztosan helyesen van belépve! Ennek a biztonsági funkcióit ki kell dolgozni
+alaposan!"
+
+**Elkészült (1. ütem — a felhő-ÍRÁS védelme):** új `verified-session.ts` őr,
+amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőriz:
+1. van-e érvényes Supabase-session (4 mp-es határidővel — sosem blokkol);
+2. nem járt-e le (a lejárt session nem ad zöld utat);
+3. **fiók-egyezőség:** a bejelentkezett fiók azonos-e azzal, akihez a gépen
+   tárolt adatok tartoznak — ha valaki MÁS fiókkal lép be ugyanazon a gépen,
+   a helyi függő tételek NEM mennek fel (látható üzenettel: „Más fiókkal vagy
+   bejelentkezve… a szinkron biztonsági okból szünetel."). Sosem csendben.
+
+**2. ütem (tervezett — jóváhagyásra):**
+- ugyanez az őr a LETÖLTŐ (pull) szinkronra is — más fiók alatt a helyi tükör
+  ne íródjon felül idegen adatokkal;
+- fiók-váltási folyamat: ha szándékosan vált gazdát a gép, vezetett
+  adattörlés + új letöltés (a meglévő wipe-mechanizmusra építve);
+- a PIN-es offline munkamenetben a felhő-műveletek egységes tiltása már él
+  (session-tudatos online-döntés, A/3. pont).
+
+---
+
 ## C) KÉRDÉSEK ENDRÉHEZ (válasz után lépünk)
+
+> **2026-06-11 állapot:** Endre válaszolt — B1 ✅ jóváhagyva (családi móddal
+> EGYÜTT — implementálva: közös `PartnerCell` kereső + desktop bekötés; a web
+> bekötése a desktopos próba után), dedikált oldalak ✅ rendben, B2 súgó-irány
+> ✅ jóváhagyva (következő kör). A diagnoszt-SQL-ből csak a 3. eredmény jött át
+> (Supabase-korlát: csak az utolsó lekérdezés látszik) — **31 bevétel + 38
+> kiadás maradt a hivatalos 39+48 helyett → 8+10 hivatalos kategória hiányzik
+> a választékból.** Két ÚJ, egy-lekérdezéses szkript készült:
+> `2026-06-11i-hianyzo-hivatalos-kategoriak.sql` (név szerint mutatja a
+> hiányzókat) és `2026-06-11j-grants-ellenorzes.sql` (jogosultság-ellenőrzés).
 
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
