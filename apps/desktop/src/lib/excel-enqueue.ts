@@ -475,8 +475,10 @@ export interface EnqueueTransferInput {
   tipus: 'kassza_bank' | 'bank_kassza' | 'bank_bank' | 'valutacsere'
   datum: string
   osszeg: number
-  /** A bank szabad-szöveges neve (kassza_bank → cél; bank_kassza → forrás). */
+  /** A bank neve (kassza_bank → cél; bank_kassza → forrás; bank_bank → FORRÁS). */
   bankNeve: string
+  /** bank_bank esetén a CÉL-számla neve. */
+  celBankNeve?: string
   megjegyzes?: string | null
 }
 
@@ -495,7 +497,7 @@ export async function enqueueTransferExcelRows(input: EnqueueTransferInput): Pro
     const identityKey = `belsomozgas:${input.belsomozgasId}`
     const ev = yearOf(input.datum)
 
-    if (input.tipus === 'bank_bank' || input.tipus === 'valutacsere') {
+    if (input.tipus === 'valutacsere') {
       await backend.enqueueExcelRow({
         op: 'append',
         identityKey,
@@ -506,9 +508,58 @@ export async function enqueueTransferExcelRows(input: EnqueueTransferInput): Pro
         ev,
         status: 'blocked',
         lastError:
-          input.tipus === 'bank_bank'
-            ? 'Bank → bank átvezetés Excel-írása egy későbbi frissítésben érkezik — ezt a tételt kézzel vezesd át a két betű-lapra.'
-            : 'Valutacsere Excel-írása egy későbbi frissítésben érkezik — ezt a tételt kézzel vezesd át.',
+          'Valutacsere Excel-írása egy későbbi frissítésben érkezik — ezt a tételt kézzel vezesd át.',
+      })
+      return
+    }
+
+    // bank → bank: KÉT betű-lapot érint (forrás kiadás + cél bevétel) — a
+    // névminta Endre élő fájljából igazolva (2026-06-11). A betűket a worker
+    // oldja fel a megerősített párosításból; a sorokat is ő építi.
+    if (input.tipus === 'bank_bank') {
+      const celNev = (input.celBankNeve ?? '').trim()
+      if (!celNev) {
+        await backend.enqueueExcelRow({
+          op: 'append',
+          identityKey,
+          side: 'main',
+          targetSheet: KASSZA_SHEET,
+          payloadJson: JSON.stringify({ row: null, tipus: input.tipus }),
+          congregationId: input.congregationId,
+          ev,
+          status: 'blocked',
+          lastError: 'Bank → bank átvezetésnél hiányzik a cél-számla neve.',
+        })
+        return
+      }
+      const payloadBB = {
+        transfer: {
+          tipus: 'bank_bank' as const,
+          datum: input.datum,
+          belsomozgasId: input.belsomozgasId,
+          osszeg: input.osszeg,
+          megjegyzes: input.megjegyzes ?? null,
+          forrasBankName: input.bankNeve.trim(),
+          celBankName: celNev,
+        },
+      }
+      await backend.enqueueExcelRow({
+        op: 'append',
+        identityKey,
+        side: 'bank-forras',
+        targetSheet: `BANKNAME:${input.bankNeve.trim()}`,
+        payloadJson: JSON.stringify({ ...payloadBB, transferSide: 'bank-forras' }),
+        congregationId: input.congregationId,
+        ev,
+      })
+      await backend.enqueueExcelRow({
+        op: 'append',
+        identityKey,
+        side: 'bank-cel',
+        targetSheet: `BANKNAME:${celNev}`,
+        payloadJson: JSON.stringify({ ...payloadBB, transferSide: 'bank-cel' }),
+        congregationId: input.congregationId,
+        ev,
       })
       return
     }

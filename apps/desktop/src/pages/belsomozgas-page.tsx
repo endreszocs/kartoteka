@@ -301,7 +301,10 @@ function TransferForm({
         tipus,
         datum,
         osszeg: osszegNum,
+        // kassza_bank → a bank a CÉL; bank_kassza/bank_bank → a bank a FORRÁS
         bankNeve: tipus === 'kassza_bank' ? cel.trim() : forras.trim(),
+        // bank_bank: a cél-számla neve is kell (két betű-lapot érint)
+        celBankNeve: tipus === 'bank_bank' ? cel.trim() : undefined,
         megjegyzes: megjegyzes.trim() || null,
       })
       setSuccessMsg(
