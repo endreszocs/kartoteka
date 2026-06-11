@@ -238,6 +238,13 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 > l-szkript v2-re frissült (18 kód, a 106.01 nélkül); az m/i ellenőrzők is
 > követik a korrekciót. App-oldali kódváltozás NEM kell (a szűrő szint-alapú).
 
+> **✅ ADATBÁZIS-OLDAL LEZÁRVA (Endre futtatta, 2026-06-11):** n-szkript:
+> 106.01 = gyulekezet, választékban, bevetel_db = 31 ✓ · l-szkript v2: mind a
+> 18 felsőbb kód szint = egyhazmegye ✓. (Az ellenőrző tábla „valasztekban_volt
+> IGEN" felirata csak a kategória-KAPCSOLAT meglétét jelzi — a rögzítőben
+> egyedül a 106.01 volt ténylegesen látható, a többit a szint-jelölés már
+> korábban is rejtette.) **Végállapot: 31 bevétel + 38 kiadás — hivatalos.**
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e
