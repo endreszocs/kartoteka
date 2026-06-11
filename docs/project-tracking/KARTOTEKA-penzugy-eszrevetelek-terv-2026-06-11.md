@@ -223,6 +223,13 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 >   betűt a megerősített párosításból oldja fel. Valutacsere továbbra is
 >   későbbi kör.
 
+> **A „+1" AZONOSÍTVA (m-SQL, 2026-06-11):** a kakukktojás a **106.01
+> „Bevételek más egyházi intézmények részére"** — pontosan a várt felsőbb
+> szintű családból. A teljes lista minden más sora (30 bevétel + 38 kiadás)
+> hivatalos ✔. Teendő: az l-javítószkript futtatása (a 106.01-et és a többi
+> 18 felsőbb kódot egyházmegyei szintre jelöli) → a rögzítő pontosan 30+38
+> tételes lesz. **Ezzel a kategória-téma VÉGLEG lezárva.**
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e
