@@ -35,7 +35,7 @@ function formatRelativeTime(ts: number): string {
   return h === 1 ? '1 órája' : `${h} órája`
 }
 
-export function AutoSyncStatusBar() {
+export function AutoSyncStatusBar({ position = 'fixed' }: { position?: 'fixed' | 'inline' } = {}) {
   const [userId, setUserId] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
@@ -107,7 +107,7 @@ export function AutoSyncStatusBar() {
     <div
       role="status"
       aria-live="polite"
-      className={`fixed bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-sm backdrop-blur-md transition-colors ${toneClass}`}
+      className={`${position === 'fixed' ? 'fixed bottom-3 left-1/2 z-30 -translate-x-1/2' : ''} flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-sm backdrop-blur-md transition-colors ${toneClass}`}
       title={label}
     >
       <span

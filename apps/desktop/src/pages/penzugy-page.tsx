@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import {
   FinanceHero,
@@ -33,6 +34,8 @@ import {
   type JarulekPaymentLike,
   type IncomeCategory,
   type ExpenseCategory,
+  BELSO_MOZGAS_ROGZITO_KODS,
+  isGyulekezetiKonyvelhetoKod,
 } from '@kartoteka/ui-app'
 
 import {
@@ -128,6 +131,13 @@ export function PenzugyPage() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+  // A sidebar almenü hash-linkjei (pl. /penzugy#accounting) react-router
+  // navigációval érkeznek — ott nem mindig fut hashchange esemény, ezért a
+  // location-változásra is szinkronizálunk (2026-06-11, sidebar-egységesítés).
+  const location = useLocation()
+  useEffect(() => {
+    setActiveTab(readHashTab())
+  }, [location])
   useEffect(() => {
     const cur = window.location.hash.replace(/^#/, '')
     if (cur !== activeTab) {
@@ -241,14 +251,23 @@ export function PenzugyPage() {
   // Kategória-opciók a „+ Tétel rögzítése" összevont bevitelhez — PONTOSAN a web
   // `finance-tabs.tsx` képlete (bevCelMap/kiaCelMap → {id, kod, nev}, kod szerint
   // rendezve). Így a desktop és a web ugyanazokat a kategóriákat kínálja.
+  // 2026-06-11 (Endre): aggregát sorok ("(5+...+12)" típusú kategóriafejek) és
+  // nem-gyülekezeti szintű tételek kiszűrve — csak a hivatalos 87 levél +
+  // a kanonikus belső-mozgás kódok könyvelhetők (web-azonos szabály).
   const incomeCategories = useMemo<IncomeCategory[]>(
     () =>
       Object.entries(bevCelMap)
         .map(([id, kod]) => {
           const cel = szamadasiCellek.find((c) => c.id === kod)
           const nev = (cel?.nev || '').trim()
-          return { id: Number(id), kod, nev: nev || kod }
+          return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
         })
+        .filter(
+          (c) =>
+            isGyulekezetiKonyvelhetoKod(c.kod, c.szint) ||
+            BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
+        )
+        .map(({ id, kod, nev }) => ({ id, kod, nev }))
         .sort((a, b) => a.kod.localeCompare(b.kod)),
     [bevCelMap, szamadasiCellek],
   )
@@ -259,8 +278,14 @@ export function PenzugyPage() {
         .map(([id, kod]) => {
           const cel = szamadasiCellek.find((c) => c.id === kod)
           const nev = (cel?.nev || '').trim()
-          return { id: Number(id), kod, nev: nev || kod }
+          return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
         })
+        .filter(
+          (c) =>
+            isGyulekezetiKonyvelhetoKod(c.kod, c.szint) ||
+            BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
+        )
+        .map(({ id, kod, nev }) => ({ id, kod, nev }))
         .sort((a, b) => a.kod.localeCompare(b.kod)),
     [kiaCelMap, szamadasiCellek],
   )

@@ -43,6 +43,7 @@ import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
+import { isOnlineWithSession } from '../lib/use-session-online'
 
 interface Props {
   open: boolean
@@ -69,19 +70,19 @@ export function DesktopCombinedEntryDialog({
 }: Props) {
   const [toast, setToast] = useState<ToastState>(null)
 
-  function isOnlineNow(): boolean {
-    return typeof navigator === 'undefined' ? true : navigator.onLine
-  }
-
   // ── Bevétel-batch → soronként saveIncomeUseCase (online + offline) ──
   // A web `saveIncomeBatch` mintájára: az ELSŐ hibás sornál megállunk és a sor
   // sorszámával jelezzük (a már mentett sorok bent maradnak — azonos a web
   // viselkedésével, mert a megosztott komponens hibánál nyitva hagyja a modalt).
+  //
+  // 2026-06-11 fix: az online-döntés SESSION-tudatos (isOnlineWithSession) —
+  // PIN-es munkamenetben működő internettel is az offline (tárcás) ág fut,
+  // különben a kérés anon-szerepkörrel menne („permission denied").
   async function handleIncomeBatch(
     rows: SaveIncomeBatchRow[],
   ): Promise<{ error?: string | null }> {
     const supabase = getDesktopSupabase()
-    const isOnline = isOnlineNow()
+    const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
 
     for (let i = 0; i < rows.length; i += 1) {
@@ -136,7 +137,7 @@ export function DesktopCombinedEntryDialog({
     rows: SaveExpenseBatchRow[],
   ): Promise<{ error?: string | null }> {
     const supabase = getDesktopSupabase()
-    const isOnline = isOnlineNow()
+    const isOnline = await isOnlineWithSession()
     const offlineBackend = isOnline ? undefined : getTauriSqliteBackend()
 
     for (let i = 0; i < rows.length; i += 1) {

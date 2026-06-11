@@ -40,20 +40,36 @@ import { KartotekaShell, type MenuItem } from '@kartoteka/ui'
  * látszik), de a `MenuItem` típus megköveteli őket — ezért ikon-konzisztencia
  * miatt a finance-súgóból ismert ikonokat használjuk.
  */
+// 2026-06-11 (Endre sidebar-audit): az Áttekintés/Tranzakciók/Számadás/Tartozások
+// almenü-linkek az EGYSÉGES /penzugy tab-oldal horgonyaira mutatnak (mint a
+// weben) — korábban külön oldalakra vittek, ami duplikált belépési pontot adott.
+// A régi route-ok megmaradnak (közvetlen URL működik), csak a menü egységes.
 const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
-  { label: 'Áttekintés', href: '/penzugy/attekintes', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Áttekintés', href: '/penzugy#dashboard', icon: Eye, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Kassza', href: '/penzugy#cashbook', icon: ListOrdered, gradient: 'from-emerald-400 to-green-500' },
   { label: 'Bevétel', href: '/penzugy/befizetes', icon: ArrowUpRight, gradient: 'from-emerald-400 to-green-500' },
   { label: 'Kiadás', href: '/penzugy/kiadas', icon: ArrowDownRight, gradient: 'from-red-400 to-rose-500' },
-  { label: 'Tranzakciók', href: '/penzugy/tranzakciok', icon: ListOrdered, gradient: 'from-blue-400 to-cyan-500' },
+  { label: 'Tranzakciók', href: '/penzugy#transactions', icon: ListOrdered, gradient: 'from-blue-400 to-cyan-500' },
   { label: 'Belső mozgás', href: '/penzugy/belsomozgas', icon: ArrowLeftRight, gradient: 'from-violet-400 to-purple-500' },
   { label: 'Nyugta', href: '/penzugy/chitanta', icon: Receipt, gradient: 'from-amber-400 to-orange-500' },
   { label: 'Nyugtatömbök', href: '/penzugy/chitanta-tombok', icon: ScrollText, gradient: 'from-amber-400 to-orange-500' },
-  { label: 'Számadás', href: '/penzugy/szamadas', icon: ClipboardCheck, gradient: 'from-blue-400 to-indigo-500' },
-  { label: 'Tartozások', href: '/penzugy/tartozasok', icon: Scale, gradient: 'from-rose-400 to-red-500' },
+  { label: 'Számadás', href: '/penzugy#accounting', icon: ClipboardCheck, gradient: 'from-blue-400 to-indigo-500' },
+  { label: 'Tartozások', href: '/penzugy#debt', icon: Scale, gradient: 'from-rose-400 to-red-500' },
   { label: 'Bank import', href: '/penzugy/bank-import', icon: FileSpreadsheet, gradient: 'from-violet-400 to-purple-500' },
 ]
 
+// Desktopon még nem létező modulok — a sidebar elrejti őket („halott részek").
+const DESKTOP_HIDDEN_MENU_HREFS = [
+  '/profile',
+  '/admin',
+  '/dashboard-egyhazmegye',
+  '/dashboard-kerulet',
+]
+
+import { AutoSyncStatusBar } from '../../components/auto-sync-status-bar'
+import { SessionStatusIndicator } from '../../components/session-status-indicator'
 import { SettingsDialog } from '../../components/settings-dialog'
+import { SyncStatusIndicator } from '../../components/sync-status-indicator'
 import { getDesktopSupabase } from '../supabase'
 import { getDesktopUser } from '../desktop-user'
 import { getDbStatus } from '../local-db'
@@ -281,6 +297,16 @@ export function DesktopShell({ children }: DesktopShellProps) {
         onSignOut={handleSignOut}
         onOpenSettings={() => setSettingsOpen(true)}
         financeSubmenu={DESKTOP_FINANCE_SUBMENU}
+        hiddenMenuHrefs={DESKTOP_HIDDEN_MENU_HREFS}
+        // 2026-06-11 (Endre): a session/szinkron jelvények a HEADERBEN élnek —
+        // a korábbi lebegő (fixed) pozíció kitakarta a modulok tartalmát.
+        headerExtra={
+          <div className="hidden items-center gap-2 md:flex">
+            <AutoSyncStatusBar position="inline" />
+            <SyncStatusIndicator position="inline" />
+            <SessionStatusIndicator position="inline" />
+          </div>
+        }
       >
         {children}
       </KartotekaShell>

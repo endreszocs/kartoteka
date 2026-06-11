@@ -6,6 +6,12 @@ export interface SessionStatusBadgeProps {
   tone: SessionStatusTone
   label: string
   isOnline?: boolean
+  /**
+   * 'fixed' (default): jobb-felső lebegő pozíció (régi viselkedés).
+   * 'inline': a flow-ban marad — a shell HEADERÉBE ágyazáshoz (2026-06-11,
+   * Endre: a lebegő jelvény kitakarta a modulokat).
+   */
+  position?: 'fixed' | 'inline'
 }
 
 const TONE_CLASSES: Record<SessionStatusTone, string> = {
@@ -22,12 +28,14 @@ const DOT_CLASSES: Record<SessionStatusTone, string> = {
   slate: 'bg-slate-400',
 }
 
-export function SessionStatusBadge({ tone, label, isOnline }: SessionStatusBadgeProps) {
+export function SessionStatusBadge({ tone, label, isOnline, position = 'fixed' }: SessionStatusBadgeProps) {
+  const positionClasses =
+    position === 'fixed' ? 'fixed right-3 top-3 z-40' : ''
   return (
     <div
       role="status"
       aria-live="polite"
-      className={`fixed right-3 top-3 z-40 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm ${TONE_CLASSES[tone]}`}
+      className={`${positionClasses} flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm ${TONE_CLASSES[tone]}`}
       title={label}
     >
       <span

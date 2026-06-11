@@ -163,6 +163,8 @@ export interface KartotekaSidebarProps {
    * Ha undefined/üres tömb, a Pénzügy item flat marad (régi viselkedés).
    */
   financeSubmenu?: MenuItem[]
+  /** Menüpontok elrejtése href szerint (pl. desktop: még nem létező modulok). */
+  hiddenMenuHrefs?: string[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -390,6 +392,8 @@ interface SidebarNavProps {
   onNavigate?: () => void
   activeScope?: 'system' | 'district' | 'diocese' | 'congregation' | null
   financeSubmenu?: MenuItem[]
+  /** Menüpontok elrejtése href szerint (pl. desktop: még nem létező modulok). */
+  hiddenMenuHrefs?: string[]
 }
 
 function SidebarNav({
@@ -411,6 +415,7 @@ function SidebarNav({
   onNavigate,
   activeScope = null,
   financeSubmenu,
+  hiddenMenuHrefs,
 }: SidebarNavProps) {
   const sections: MenuSection[] = []
 
@@ -489,6 +494,17 @@ function SidebarNav({
     sections.push({ title: 'Rendszerszint', items: adminItems })
   }
 
+  // 2026-06-11 (Endre: „halott részek a sidebarban") — a kliens által elrejtett
+  // href-ek kiszűrése (pl. desktopon a /admin, /profile még nem létezik);
+  // a kiürült szekciók teljesen eltűnnek.
+  const hiddenSet =
+    hiddenMenuHrefs && hiddenMenuHrefs.length > 0 ? new Set(hiddenMenuHrefs) : null
+  const visibleSections = hiddenSet
+    ? sections
+        .map((sec) => ({ ...sec, items: sec.items.filter((i) => !hiddenSet.has(i.href)) }))
+        .filter((sec) => sec.items.length > 0)
+    : sections
+
   return (
     <div
       className="sidebar-adaptive relative flex h-full w-full flex-col overflow-hidden"
@@ -532,7 +548,7 @@ function SidebarNav({
               : 'space-y-2 [@media(max-height:1040px)]:space-y-1 [@media(max-height:820px)]:space-y-0.5',
           )}
         >
-          {sections.map((section) => (
+          {visibleSections.map((section) => (
             <SidebarSection
               key={section.title}
               title={section.title}
@@ -587,6 +603,7 @@ export function KartotekaSidebar({
   onToggleCollapsed,
   activeScope = null,
   financeSubmenu,
+  hiddenMenuHrefs,
 }: KartotekaSidebarProps) {
   const navProps = {
     Link,
@@ -603,6 +620,7 @@ export function KartotekaSidebar({
     isGodMode,
     activeScope,
     financeSubmenu,
+    hiddenMenuHrefs,
   }
   const shellBaseClassName =
     'relative shrink-0 overflow-hidden border-r border-white/10 bg-[var(--sidebar)] text-[var(--sidebar-foreground)]'

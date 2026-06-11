@@ -50,6 +50,8 @@ import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { enqueueTransferExcelRows } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
+import { useSessionOnline } from '../lib/use-session-online'
 import { getLocalOwnProfile } from '../lib/sync'
 
 const TYPE_LABELS: Record<TransferType, string> = {
@@ -74,23 +76,20 @@ export function BelsomozgasPage() {
   const [user, setUser] = useState<User | null>(null)
   const [congregationId, setCongregationId] = useState<string | null>(null)
   const [year, setYear] = useState<number>(() => new Date().getFullYear())
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof navigator === 'undefined' ? true : navigator.onLine,
-  )
+  // 2026-06-11: session-tudatos online-allapot (PIN-modban offline ag!)
+  const isOnline = useSessionOnline()
   const [refreshKey, setRefreshKey] = useState<number>(0)
 
   // Auth + congregation_id
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth
-      .getUser()
-      .then(async ({ data }) => {
+    getDesktopUser()
+      .then(async (resolvedUser) => {
         if (!mounted) return
-        setUser(data.user)
-        if (data.user) {
+        setUser(resolvedUser)
+        if (resolvedUser) {
           try {
-            const profile = await getLocalOwnProfile(data.user.id)
+            const profile = await getLocalOwnProfile(resolvedUser.id)
             if (mounted) setCongregationId(profile?.congregation_id ?? null)
           } catch {
             /* csendes */
@@ -102,18 +101,6 @@ export function BelsomozgasPage() {
       })
     return () => {
       mounted = false
-    }
-  }, [])
-
-  // Online/offline
-  useEffect(() => {
-    const onOnline = () => setIsOnline(true)
-    const onOffline = () => setIsOnline(false)
-    window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
-    return () => {
-      window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
     }
   }, [])
 
@@ -208,6 +195,38 @@ function TransferForm({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+
+  // 2026-06-11 (Endre): a forrás/cél nem szabad szöveg többé — a gyülekezet
+  // rögzített bankszámláiból választunk (elgépelés = rossz betű-lap az
+  // Excelben!). A lista online töltődik; bank nélkül a bankos típusok
+  // nem rögzíthetők (világos üzenettel).
+  const [banks, setBanks] = useState<Array<{ id: number; bank_neve: string; valuta: string | null }>>([])
+  const [banksLoaded, setBanksLoaded] = useState(false)
+  useEffect(() => {
+    let mounted = true
+    void (async () => {
+      try {
+        const profile = await getLocalOwnProfile(userId)
+        const cid = profile?.congregation_id
+        if (!cid) return
+        const supabase = getDesktopSupabase()
+        const { data } = await supabase
+          .from('bankszamlak')
+          .select('id, bank_neve, valuta')
+          .eq('congregation_id', cid)
+          .eq('aktiv', true)
+          .order('bank_neve')
+        if (mounted && data) setBanks(data as typeof banks)
+      } catch {
+        /* offline — a bankos típusok úgyis online-only műveletek */
+      } finally {
+        if (mounted) setBanksLoaded(true)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [userId])
 
   // Auto-fill a default forrás/cél értékeket a típus alapján
   useEffect(() => {
@@ -356,31 +375,82 @@ function TransferForm({
             </div>
           </div>
 
-          {/* Forrás + cél */}
+          {/* Forrás + cél — bank-oldalon a rögzített bankszámlákból választunk,
+              a kassza-oldal fix „Kassza" (2026-06-11, Endre kérése). */}
+          {banksLoaded && banks.length === 0 && tipus !== 'valutacsere' && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Még nincs rögzített bankszámla — előbb vedd fel a bankot a webes
+              Pénzügy → Bank fülön, utána rögzíthetsz kassza ↔ bank mozgást.
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="bm-forras">Forrás *</Label>
-              <Input
-                id="bm-forras"
-                required
-                maxLength={100}
-                value={forras}
-                onChange={(e) => setForras(e.currentTarget.value)}
-                disabled={formDisabled}
-                placeholder={tipus === 'bank_kassza' ? 'pl. BCR bank' : 'pl. Kassza'}
-              />
+              {tipus === 'kassza_bank' ? (
+                <Input id="bm-forras" value="Kassza" disabled readOnly />
+              ) : tipus === 'valutacsere' ? (
+                <Input
+                  id="bm-forras"
+                  required
+                  maxLength={100}
+                  value={forras}
+                  onChange={(e) => setForras(e.currentTarget.value)}
+                  disabled={formDisabled}
+                  placeholder="pl. EUR-számla"
+                />
+              ) : (
+                <select
+                  id="bm-forras"
+                  required
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={forras}
+                  onChange={(e) => setForras(e.currentTarget.value)}
+                  disabled={formDisabled || banks.length === 0}
+                >
+                  <option value="">— válassz bankszámlát —</option>
+                  {banks.map((b) => (
+                    <option key={b.id} value={b.bank_neve}>
+                      {b.bank_neve}
+                      {b.valuta ? ` (${b.valuta})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="bm-cel">Cél *</Label>
-              <Input
-                id="bm-cel"
-                required
-                maxLength={100}
-                value={cel}
-                onChange={(e) => setCel(e.currentTarget.value)}
-                disabled={formDisabled}
-                placeholder={tipus === 'kassza_bank' ? 'pl. BCR bank' : 'pl. Kassza'}
-              />
+              {tipus === 'bank_kassza' ? (
+                <Input id="bm-cel" value="Kassza" disabled readOnly />
+              ) : tipus === 'valutacsere' ? (
+                <Input
+                  id="bm-cel"
+                  required
+                  maxLength={100}
+                  value={cel}
+                  onChange={(e) => setCel(e.currentTarget.value)}
+                  disabled={formDisabled}
+                  placeholder="pl. RON-számla"
+                />
+              ) : (
+                <select
+                  id="bm-cel"
+                  required
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={cel}
+                  onChange={(e) => setCel(e.currentTarget.value)}
+                  disabled={formDisabled || banks.length === 0}
+                >
+                  <option value="">— válassz bankszámlát —</option>
+                  {banks
+                    .filter((b) => tipus !== 'bank_bank' || b.bank_neve !== forras)
+                    .map((b) => (
+                      <option key={b.id} value={b.bank_neve}>
+                        {b.bank_neve}
+                        {b.valuta ? ` (${b.valuta})` : ''}
+                      </option>
+                    ))}
+                </select>
+              )}
             </div>
           </div>
 

@@ -20,7 +20,7 @@ import { analyzeSession, type SessionInfo } from '../lib/session-state'
  *   - 🟡 Hamarosan lejár — refresh token ≤ 7 nap múlva lejár
  *   - 🟤 Kijelentkezve   — (ritkán látható, mert az auth-gate /login-ra terel)
  */
-export function SessionStatusIndicator() {
+export function SessionStatusIndicator({ position = 'fixed' }: { position?: 'fixed' | 'inline' } = {}) {
   const [session, setSession] = useState<Session | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [, setTick] = useState(0)
@@ -59,5 +59,5 @@ export function SessionStatusIndicator() {
 
   if (info.kind === 'signed-out') return null
 
-  return <SessionStatusBadge tone={info.tone} label={info.label} isOnline={info.kind === 'online'} />
+  return <SessionStatusBadge tone={info.tone} label={info.label} isOnline={info.kind === 'online'} position={position} />
 }

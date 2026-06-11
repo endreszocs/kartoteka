@@ -470,3 +470,47 @@ export interface BudgetPrintTypeMeta {
   subtitle: string
   description: string
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Könyvelhető kategóriák szűrése (2026-06-11, Endre észrevétele nyomán)
+//
+// A szamadasicel tábla AGGREGÁT sorokat is tartalmaz — pl. „Egyházi
+// tevékenységből származó bevételek (5+...+12)", „Múlt évi pénztármaradvány
+// (2+3)" —, amelyek NEM könyvelhető tételek, csak összesítő kategóriafejek,
+// valamint egyházmegyei/kerületi szintű tételeket is. A rögzítő legördülőkben
+// kizárólag a hivatalos EREK-katalógus LEVÉL-kategóriái jelenhetnek meg:
+//   bevétel: 101.xx–107.xx (39 db) · kiadás: 201.xx–207.xx (48 db)
+// (Ellenőrizve a hivatalos Adatok_2026.xlsx katalógusa ellen: pontosan 87.)
+// A 100.xx egyenleg-sorok és a pont nélküli aggregátok (100, 101…207) kiesnek.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A gyülekezeti rögzítőben könyvelhető levél-kódok mintája. */
+export const GYULEKEZETI_KONYVELHETO_KOD_RE = /^(10[1-7]|20[1-7])\.\d+$/
+
+/**
+ * A kanonikus belső-mozgás kódok — ezek NEM levél-kategóriák, de az összevont
+ * rögzítő belső-mozgás sor-típusához kellenek (a CombinedEntryBody kezeli őket,
+ * bank megléte szerint mutatva/rejtve).
+ */
+export const BELSO_MOZGAS_ROGZITO_KODS = new Set([
+  '300.01',
+  '301.01',
+  '400.01',
+  '401.01',
+  '402.02',
+])
+
+/**
+ * Könyvelhető-e a kategória a GYÜLEKEZETI rögzítőben?
+ *   - hivatalos levél-kód (101.xx–107.xx / 201.xx–207.xx), ÉS
+ *   - gyülekezeti szintű (szint hiánya = gyülekezeti, kompatibilitásból).
+ * Egyházmegyei módban NE használd — ott az egyházmegyei készlet érvényes.
+ */
+export function isGyulekezetiKonyvelhetoKod(
+  kod: string,
+  szint?: 'gyulekezet' | 'egyhazmegye' | 'kerulet' | null,
+): boolean {
+  if (!GYULEKEZETI_KONYVELHETO_KOD_RE.test(kod)) return false
+  if (szint && szint !== 'gyulekezet') return false
+  return true
+}

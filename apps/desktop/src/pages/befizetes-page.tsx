@@ -60,7 +60,7 @@ import {
 } from '@kartoteka/validations'
 
 import { IratszamWalletPanel } from '../components/iratszam-wallet-panel'
-import { PageHero } from '@kartoteka/ui-app'
+import { PageHero, GYULEKEZETI_KONYVELHETO_KOD_RE } from '@kartoteka/ui-app'
 import { WriteSyncConflictDialog } from '../components/write-sync-conflict-dialog'
 import {
   buildBefizetesCsv,
@@ -72,6 +72,8 @@ import { errorMessage } from '../lib/error'
 import { runBefizetesSyncManually } from '../lib/befizetes-write-sync'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
+import { useSessionOnline } from '../lib/use-session-online'
 import { getLocalOwnProfile } from '../lib/sync'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 
@@ -88,22 +90,18 @@ export function BefizetesPage() {
   const [celek, setCelek] = useState<BefizetesCelRow[]>([])
   const [celekError, setCelekError] = useState<string | null>(null)
 
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof navigator === 'undefined' ? true : navigator.onLine,
-  )
-
+  // 2026-06-11: session-tudatos online-allapot (PIN-modban offline ag!)
+  const isOnline = useSessionOnline()
   // ── Auth + congregation_id ──
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth
-      .getUser()
-      .then(async ({ data }) => {
+    getDesktopUser()
+      .then(async (resolvedUser) => {
         if (!mounted) return
-        setUser(data.user)
-        if (data.user) {
+        setUser(resolvedUser)
+        if (resolvedUser) {
           try {
-            const profile = await getLocalOwnProfile(data.user.id)
+            const profile = await getLocalOwnProfile(resolvedUser.id)
             if (mounted) setCongregationId(profile?.congregation_id ?? null)
           } catch {
             /* csendes */
@@ -118,18 +116,6 @@ export function BefizetesPage() {
     }
   }, [])
 
-  // ── Online/offline tracking ──
-  useEffect(() => {
-    const onOnline = () => setIsOnline(true)
-    const onOffline = () => setIsOnline(false)
-    window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
-    return () => {
-      window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
-    }
-  }, [])
-
   // ── Befizetés-célok (kategóriák) betöltése egyszer ──
   useEffect(() => {
     void (async () => {
@@ -140,7 +126,14 @@ export function BefizetesPage() {
           { supabase, runtime: 'desktop' },
         )
         if (result.success) {
-          setCelek(result.rows)
+          // 2026-06-11 (Endre): csak a hivatalos LEVÉL-kategóriák könyvelhetők —
+          // az aggregát kategóriafejek ("(5+...+12)") és a belső-mozgás kódok
+          // itt nem választhatók (utóbbiak a Belső mozgás oldalon élnek).
+          setCelek(
+            result.rows.filter((r) =>
+              GYULEKEZETI_KONYVELHETO_KOD_RE.test(r.id_szamadasicel ?? ''),
+            ),
+          )
         } else {
           setCelekError(result.error)
         }

@@ -36,6 +36,7 @@ import { PageHero } from '@kartoteka/ui-app'
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 import { getLocalOwnProfile } from '../lib/sync'
 
@@ -54,16 +55,14 @@ export function ChitantaTombokPage() {
   // ── Auth + profil betöltés (congregation_id a saját profilból) ──
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth
-      .getUser()
-      .then(async ({ data }) => {
+    getDesktopUser()
+      .then(async (resolvedUser) => {
         if (!mounted) return
-        setUser(data.user)
-        if (data.user) {
+        setUser(resolvedUser)
+        if (resolvedUser) {
           // Profilból olvassuk a congregation_id-t (offline-ban is működik)
           try {
-            const profile = await getLocalOwnProfile(data.user.id)
+            const profile = await getLocalOwnProfile(resolvedUser.id)
             if (mounted) setCongregationId(profile?.congregation_id ?? null)
           } catch (err) {
             console.warn('[chitanta-tombok] profile read failed:', err)

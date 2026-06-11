@@ -126,11 +126,42 @@ export function CombinedEntryBody({
   const expenseValid = expenseRows.filter((r) => rowValidIn('expense', r)).length
 
   // A kategória-lista a bank-bank átutalást NEM tartalmazza (csak a Bank fülön).
+  //
+  // 2026-06-11 (Endre): a belső-mozgás opciók EGYÉRTELMŰ megnevezést kapnak —
+  // a gyülekezet SAJÁT banki megnevezésével (pl. „Készpénzletétel a(z) BCR (RON)
+  // számlára"), ha pontosan egy bankszámla van; több banknál irány-címkével
+  // (a sor bank-választója dönti el, melyik számla). Ha NINCS rögzített
+  // bankszámla, a belső-mozgás opciók el sem jelennek meg.
+  // FONTOS: ez csak a UI-címke — a mentett kategória (és a hivatalos Excelbe
+  // írt katalógus-név) változatlan.
   const cats = tab === 'income' ? incomeCategories : expenseCategories
-  const categoryOptions = useMemo(
-    () => cats.filter((c) => !BANKBANK_KODS.has(c.kod)).map((c) => ({ id: c.id, label: c.nev })),
-    [cats],
-  )
+  const categoryOptions = useMemo(() => {
+    const hasBank = bankAccounts.length > 0
+    const singleBank = bankAccounts.length === 1 ? bankAccounts[0] : null
+    return cats
+      .filter((c) => !BANKBANK_KODS.has(c.kod))
+      .filter((c) => hasBank || !dirOfKod(c.kod))
+      .map((c) => {
+        const dir = dirOfKod(c.kod)
+        if (!dir) return { id: c.id, label: c.nev }
+        if (singleBank) {
+          return {
+            id: c.id,
+            label:
+              dir === 'deposit'
+                ? `Készpénzletétel a(z) ${singleBank.bank_neve} számlára`
+                : `Készpénzfelvétel a(z) ${singleBank.bank_neve} számláról`,
+          }
+        }
+        return {
+          id: c.id,
+          label:
+            dir === 'deposit'
+              ? 'Készpénzletétel bankszámlára (kassza → bank)'
+              : 'Készpénzfelvétel bankszámláról (bank → kassza)',
+        }
+      })
+  }, [cats, bankAccounts])
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
