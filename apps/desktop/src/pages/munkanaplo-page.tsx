@@ -23,7 +23,7 @@ import {
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { WorklogCreateDialog } from '../components/worklog-create-dialog'
 import { errorMessage } from '../lib/error'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import {
   deleteWorklogEntry,
   getLastPullWorklogIso,
@@ -52,9 +52,8 @@ export function MunkanaploPage() {
   // Auth
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user)
+    getDesktopUser().then((resolvedUser) => {
+      if (mounted) setUser(resolvedUser)
     })
     return () => {
       mounted = false

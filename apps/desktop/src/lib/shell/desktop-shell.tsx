@@ -55,6 +55,7 @@ const DESKTOP_FINANCE_SUBMENU: MenuItem[] = [
 
 import { SettingsDialog } from '../../components/settings-dialog'
 import { getDesktopSupabase } from '../supabase'
+import { getDesktopUser } from '../desktop-user'
 import { getDbStatus } from '../local-db'
 import {
   getLocalOwnCongregation,
@@ -75,20 +76,35 @@ export function DesktopShell({ children }: DesktopShellProps) {
   const navigate = useNavigate()
 
   const [user, setUser] = useState<User | null>(null)
+  const [userResolved, setUserResolved] = useState(false)
   const [profile, setProfile] = useState<ProfileLocalRow | null>(null)
   const [congregation, setCongregation] = useState<CongregationLocalRow | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Supabase auth session betöltése
+  // Felhasználó feloldása — OFFLINE-barát (2026-06-11 fix): PIN-es belépésnél
+  // nincs Supabase session, ezért a getDesktopUser a cache-elt/lokális userre
+  // esik vissza. Ha az SEM megy, LÁTHATÓ hibát mutatunk (sosem végtelen töltést).
   useEffect(() => {
     let mounted = true
     const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user)
-    })
+    getDesktopUser()
+      .then((resolved) => {
+        if (!mounted) return
+        setUser(resolved)
+        setUserResolved(true)
+      })
+      .catch(() => {
+        if (!mounted) return
+        setUserResolved(true)
+      })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return
-      setUser(session?.user ?? null)
+      // Csak akkor írjuk felül, ha valódi session jött — a null-ra állítás
+      // törölné az offline-feloldott usert (INITIAL_SESSION null-lal jön).
+      if (session?.user) {
+        setUser(session.user)
+        setUserResolved(true)
+      }
     })
     return () => {
       mounted = false
@@ -203,11 +219,42 @@ export function DesktopShell({ children }: DesktopShellProps) {
             ? 'congregation'
             : null
 
-  // Ha a session még nincs lekérve, jelenítsünk meg minimál loading state-et
+  // Amíg a feloldás fut (legfeljebb ~4 mp), minimál loading; ha lefutott és
+  // NINCS user, LÁTHATÓ hiba + kiút (sosem végtelen „Betöltés…" — 2026-06-11).
   if (!effectiveProfile) {
+    if (!userResolved) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-background">
+          <p className="text-sm text-muted-foreground">Betöltés…</p>
+        </div>
+      )
+    }
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">Betöltés…</p>
+      <div className="flex h-screen items-center justify-center bg-background p-6">
+        <div className="w-full max-w-md rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-900">
+          <p className="font-semibold">Nem sikerült azonosítani a felhasználót.</p>
+          <p className="mt-2 text-sm leading-relaxed">
+            Offline módban a gépen tárolt profil alapján lépnél be, de az még nem
+            töltődött le erre a gépre. Csatlakozz a hálózatra, és jelentkezz be
+            egyszer online — utána az offline belépés is működni fog.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              className="flex-1 rounded-md border border-amber-400 bg-white px-3 py-2 text-sm font-medium hover:bg-amber-100"
+              onClick={() => window.location.reload()}
+            >
+              Újrapróbálás
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+              onClick={() => navigate('/login', { replace: true })}
+            >
+              Online belépés
+            </button>
+          </div>
+        </div>
       </div>
     )
   }

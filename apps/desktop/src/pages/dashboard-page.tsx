@@ -25,6 +25,7 @@ import {
 } from '../lib/device'
 import { errorMessage } from '../lib/error'
 import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import {
   checkForUpdates,
   downloadAndInstall,
@@ -136,10 +137,9 @@ export function DashboardPage() {
 
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
+    getDesktopUser().then((resolvedUser) => {
       if (!mounted) return
-      setUser(data.user)
+      setUser(resolvedUser)
     })
     return () => {
       mounted = false

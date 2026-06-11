@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { SyncStatusBadge } from '@kartoteka/ui-app'
 
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 import { getLocalOwnProfile } from '../lib/sync'
 
@@ -38,16 +38,14 @@ export function SyncStatusIndicator() {
 
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-
-    supabase.auth.getUser().then(async ({ data }) => {
+    getDesktopUser().then(async (resolvedUser) => {
       if (!mounted) return
-      if (!data.user) {
+      if (!resolvedUser) {
         setCongregationId(null)
         return
       }
       try {
-        const profile = await getLocalOwnProfile(data.user.id)
+        const profile = await getLocalOwnProfile(resolvedUser.id)
         if (mounted) setCongregationId(profile?.congregation_id ?? null)
       } catch {
         /* csendes — nincs profil-fallback */

@@ -24,7 +24,7 @@ import {
 } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import { getLocalOwnProfile, getLocalMembersOfOwnCongregation } from '../lib/sync'
 import { getLocalBefizetesek, pullBefizetesek } from '../lib/finance-sync'
 import { pullFinanceCategories, getLocalBevCelMap } from '../lib/finance-categories-sync'
@@ -41,10 +41,7 @@ export function PenzugyTartozasokPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const user = await getDesktopUser()
       if (!user) {
         setLoading(false)
         return

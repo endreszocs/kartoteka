@@ -37,7 +37,7 @@ import { OnlineStatePill, PageHero } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
 import { errorMessage } from '../lib/error'
-import { getDesktopSupabase } from '../lib/supabase'
+import { getDesktopUser } from '../lib/desktop-user'
 import {
   getLastPullFilingIso,
   getLocalFilingEntries,
@@ -82,9 +82,8 @@ export function IktatoPage() {
   // Auth
   useEffect(() => {
     let mounted = true
-    const supabase = getDesktopSupabase()
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user)
+    getDesktopUser().then((resolvedUser) => {
+      if (mounted) setUser(resolvedUser)
     })
     return () => {
       mounted = false
