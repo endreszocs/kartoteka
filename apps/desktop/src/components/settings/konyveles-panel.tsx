@@ -30,6 +30,7 @@ import { getLocalOwnProfile, getLocalOwnCongregation } from '../../lib/sync'
 
 const LS_FOLDER = 'kartoteka-excel-folder-v1'
 const LS_SYNC = 'kartoteka-excel-sync-v1'
+const LS_DIOCESE = 'kartoteka-excel-diocese-v1' // cache az offline újra-alkalmazáshoz
 
 function loadSyncEnabled(): boolean {
   if (typeof window === 'undefined') return false
@@ -78,11 +79,23 @@ export function KonyvelesPanel() {
       const i = await excelSetupFolder(year, saved && saved.trim() ? saved : null)
       window.localStorage.setItem(LS_FOLDER, i.folderPath)
       setInfo(i)
-      setMsg(
-        i.created
-          ? 'A könyvelés-mappa előkészítve (a hivatalos sablon a gépre másolva).'
-          : 'A könyvelés-mappa már létezik — kész a használatra.',
-      )
+
+      const baseMsg = i.created
+        ? 'A könyvelés-mappa előkészítve (a hivatalos sablon a gépre másolva).'
+        : 'A könyvelés-mappa már létezik — kész a használatra.'
+
+      // A rendszer automatikusan beírja a gyülekezet egyházmegyéjét (best-effort —
+      // ettől populálódik a chart; ha most nem sikerül, a gombbal külön elvégezhető).
+      let appliedNote = ''
+      if (i.adatokPath) {
+        try {
+          const r = await applyCongregationTo(i.adatokPath)
+          if ('dioceseName' in r) appliedNote = ` Egyházmegye automatikusan beírva: „${r.dioceseName}".`
+        } catch {
+          /* az auto-konfig best-effort */
+        }
+      }
+      setMsg(baseMsg + appliedNote)
     } catch (e) {
       setError(`Nem sikerült előkészíteni a mappát: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -99,56 +112,70 @@ export function KonyvelesPanel() {
     }
   }
 
-  // Gyülekezeti adatok (egyházmegye) alkalmazása az Excelre — ettől populálódik
-  // a hivatalos chart. Az egyházmegye nevét a felhőből (dioceses.name) oldjuk fel
-  // a congregation diocese_id-ja alapján; offline a denormalizált egyhazmegye-mezőt.
+  // Egyházmegye-név feloldása: elsődlegesen a hivatalos `dioceses.name` (online,
+  // a congregation diocese_id-ja alapján); tartalékként a denormalizált
+  // egyhazmegye-mező, majd a lokális cache (offline). Sikeres feloldáskor cache-el.
+  async function resolveDioceseName(): Promise<string | null> {
+    try {
+      const supabase = getDesktopSupabase()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        const cong = await getLocalOwnCongregation(user.id)
+        if (!cong) await getLocalOwnProfile(user.id) // best-effort hidratálás
+        let name = cong?.egyhazmegye?.trim() || null
+        if (cong?.diocese_id) {
+          try {
+            const { data } = await supabase
+              .from('dioceses')
+              .select('name')
+              .eq('id', cong.diocese_id)
+              .maybeSingle()
+            if (data?.name) name = String(data.name).trim()
+          } catch {
+            /* offline — marad a denormalizált / cache */
+          }
+        }
+        if (name) {
+          window.localStorage.setItem(LS_DIOCESE, name)
+          return name
+        }
+      }
+    } catch {
+      /* csendes — esünk a cache-re */
+    }
+    return window.localStorage.getItem(LS_DIOCESE)
+  }
+
+  // Az egyházmegye beírása az adott Adatok-fájl `Koltsegvetes!V3` cellájába —
+  // ettől populálódik a hivatalos költségvetési chart.
+  async function applyCongregationTo(
+    adatokPath: string,
+  ): Promise<{ dioceseName: string } | { error: string }> {
+    const dioceseName = await resolveDioceseName()
+    if (!dioceseName) {
+      return {
+        error:
+          'Nincs egyházmegye (még nem töltődött le — előbb legyen egyszer hálózat —, vagy nincs beállítva a gyülekezethez).',
+      }
+    }
+    await excelSetCells(adatokPath, [{ sheet: 'Koltsegvetes', cell: 'V3', value: dioceseName }])
+    return { dioceseName }
+  }
+
   async function handleApplyCongregation() {
     if (!info?.adatokPath) return
     setApplyingCong(true)
     setError(null)
     setMsg(null)
     try {
-      const supabase = getDesktopSupabase()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) {
-        setError('Nincs bejelentkezett felhasználó.')
-        return
-      }
-      const cong = await getLocalOwnCongregation(user.id)
-      if (!cong) {
-        await getLocalOwnProfile(user.id) // best-effort: profil hidratálás
-        setError('A gyülekezeti adatok még nem töltődtek le — előbb legyen egyszer hálózat.')
-        return
-      }
-
-      // Egyházmegye-név feloldása: elsődlegesen a hivatalos dioceses.name (online),
-      // tartalékként a denormalizált egyhazmegye-mező.
-      let dioceseName = cong.egyhazmegye?.trim() || null
-      if (cong.diocese_id) {
-        try {
-          const { data } = await supabase
-            .from('dioceses')
-            .select('name')
-            .eq('id', cong.diocese_id)
-            .maybeSingle()
-          if (data?.name) dioceseName = String(data.name).trim()
-        } catch {
-          /* offline — marad a denormalizált név */
-        }
-      }
-      if (!dioceseName) {
-        setError('Nincs egyházmegye beállítva a gyülekezethez.')
-        return
-      }
-
-      await excelSetCells(info.adatokPath, [
-        { sheet: 'Koltsegvetes', cell: 'V3', value: dioceseName },
-      ])
-      setMsg(
-        `Egyházmegye beírva az Excelbe: „${dioceseName}". A költségvetési kategóriák így a megnyitáskor megjelennek.`,
-      )
+      const r = await applyCongregationTo(info.adatokPath)
+      if ('error' in r) setError(r.error)
+      else
+        setMsg(
+          `Egyházmegye beírva az Excelbe: „${r.dioceseName}". A költségvetési kategóriák a megnyitáskor megjelennek.`,
+        )
     } catch (e) {
       setError(`A gyülekezeti adatok alkalmazása nem sikerült: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
