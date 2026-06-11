@@ -230,6 +230,14 @@ amely MINDEN push-szinkron (befizetés, kiadás, nyugta) előtt hármat ellenőr
 > 18 felsőbb kódot egyházmegyei szintre jelöli) → a rögzítő pontosan 30+38
 > tételes lesz. **Ezzel a kategória-téma VÉGLEG lezárva.**
 
+> **KORREKCIÓ #2 (Endre, 2026-06-11): a 106.01 GYÜLEKEZETI tétel** — tévesen
+> maradt le a hivatalos képről. A helyes egyházközségi készlet tehát
+> **31 bevétel + 38 kiadás** — vagyis a DB készlete EREDETILEG IS PONTOS volt!
+> Teendő: ha az l-szkript (v1) már lefutott, a
+> `2026-06-11n-106-01-visszaallitas.sql` visszaállítja a 106.01-et; az
+> l-szkript v2-re frissült (18 kód, a 106.01 nélkül); az m/i ellenőrzők is
+> követik a korrekciót. App-oldali kódváltozás NEM kell (a szűrő szint-alapú).
+
 1. **Diagnoszt-SQL eredményei** (`2026-06-11h-diagnoszt-penzugy-eszrevetelek.sql`):
    (a) az 1. lekérdezésben az `authenticated`-nek van-e SELECT/INSERT joga a
    `befizetes`/`kiadas` táblákra? (b) a 2. lekérdezés kizárt-listájában van-e

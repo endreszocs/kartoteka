@@ -43,7 +43,7 @@ WITH hivatalos(kod, hivatalos_nev, vart_szint) AS (
   ('105.01', 'Más egyházi intézményektől kapott támogatás', 'gyülekezeti (a hivatalos Excel-listán szerepel)'),
   ('105.02', 'Állami intézménytől kapott támogatás (APIA, stb.)', 'gyülekezeti (a hivatalos Excel-listán szerepel)'),
   ('105.03', 'Kongrua és járulékai', 'EGYHÁZMEGYEI/felsőbb — rendben, ha nincs felvéve'),
-  ('106.01', 'Bevételek más egyházi intézmények részére', 'EGYHÁZMEGYEI/felsőbb — rendben, ha nincs felvéve'),
+  ('106.01', 'Bevételek más egyházi intézmények részére', 'gyülekezeti (Endre korrekciója, 2026-06-11)'),
   ('106.02', 'Biztosítások - bevétel', 'EGYHÁZMEGYEI/felsőbb — rendben, ha nincs felvéve'),
   ('106.03', 'Missziói segélyek', 'EGYHÁZMEGYEI/felsőbb — rendben, ha nincs felvéve'),
   ('106.04', 'Bérjövedelmek 10%-a', 'EGYHÁZMEGYEI/felsőbb — rendben, ha nincs felvéve'),

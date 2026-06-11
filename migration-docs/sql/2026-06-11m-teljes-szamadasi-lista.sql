@@ -3,7 +3,8 @@
 --
 -- MIT CSINÁL: kilistázza az ÖSSZES jelenleg választható kategóriát (bevétel
 -- és kiadás), és minden sorról megmondja, szerepel-e a hivatalos
--- egyházközségi Excel-listán (Endre képei: 30 bevétel + 38 kiadás).
+-- egyházközségi Excel-listán (Endre képei + korrekció: 31 bevétel + 38 kiadás;
+-- a 106.01 gyülekezeti — tévesen maradt le a képről).
 -- A KAKUKKTOJÁS (ami választható, de NEM hivatalos egyházközségi tétel)
 -- a lista TETEJÉN jelenik meg, „⚠ EZ A +1" jelöléssel.
 --
@@ -12,13 +13,13 @@
 -- ============================================================================
 WITH hivatalos(kod) AS (
   VALUES
-  -- bevétel (30)
+  -- bevétel (31)
   ('101.01'),('101.02'),('101.03'),('101.04'),('101.05'),('101.06'),
   ('102.01'),('102.02'),('102.03'),('102.04'),('102.05'),('102.06'),
   ('103.01'),('103.02'),('103.03'),('103.04'),('103.05'),('103.06'),
   ('103.07'),('103.08'),('103.09'),
   ('104.01'),('104.02'),('104.03'),('104.04'),('104.05'),
-  ('105.01'),('105.02'),('107.01'),('107.02'),
+  ('105.01'),('105.02'),('106.01'),('107.01'),('107.02'),
   -- kiadás (38)
   ('201.01'),('201.02'),('201.03'),('201.04'),('201.05'),('201.06'),
   ('201.07'),('201.08'),('201.09'),('201.10'),('201.11'),('201.12'),
