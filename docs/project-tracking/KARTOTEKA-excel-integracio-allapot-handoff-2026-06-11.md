@@ -1,5 +1,14 @@
 # KARTOTÉKA — Excel-integráció + desktop C-hullám: állapot-handoff (2026-06-11)
 
+> **FRISSÍTÉS (2026-06-11, későbbi session): az E3 write-through ELKÉSZÜLT** a
+> §6 terv szerint, mindhárom ajánlott döntéssel (storno = ellenelőjeles tükör-sor;
+> bank-mapping = localStorage + kötelező megerősítés; stabil identity-kulcs —
+> `<tábla>:<szerver-id>` formában, így a save use-case-t nem kellett módosítani).
+> Részletek + hátralévő lépések (E2E-teszt aláírt 0.9.0 builddel, E4 keresztellenőrzés,
+> bank-import bankszámla-bekötés): `KARTOTEKA-penzugy-teljes-audit-2026-06-11.md`.
+> A worker a kód-következetlenségek miatt (418.01="- S", R kimaradt; 420.01="- U")
+> a bank-oldali belső-mozgás neveket NÉV szerint oldja fel, nem kód-képlettel.
+
 > Cél: egy ÚJ session ebből a dokumentumból pontosan tudja folytatni. Minden, ami
 > ehhez kell: ág, commitok, kész munka, kulcs-artefaktumok, az E3 write-through terv
 > és a nyitott döntések.
