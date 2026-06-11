@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-11] — Excel-fejléc egy kattintással, nyomtatási központ az asztali appban
+<!-- key: 2026-06-11-excel-fejlec-nyomtatasi-kozpont -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop 0.9.2 -->
+
+### 🐛 Javítások
+
+- **A hivatalos Excel mostantól magától „életre kel".** A könyvelés-fájl
+  (Adatok_2026.xlsx) csak akkor kínálja fel a költségvetési tételeket, ha a
+  Koltsegvetes lapján ki van töltve az egyházmegye és az egyházközség neve.
+  Eddig ezt kézzel kellett megkeresni és beírni — mostantól a rendszer a
+  gyülekezeted adataiból **magától kitölti** (a hivatalos egyházmegye-lista
+  pontos nevével), és a Beállítások → Könyvelés részben látod is az állapotát.
+  Egy korábbi hibás beírást (ami a fejléc-képletet ronthatta) magától helyrehoz.
+
+### ✨ Új funkciók
+
+- **Pénzügyi nyomtatási központ az asztali appban.** A Pénzügy oldal tetején a
+  „Nyomtatás" gombbal minden hivatalos nyomtatvány elérhető — Kasszakönyv
+  (Registru Casa), banki kimutatás (Registru Banca), naplókönyv, nyugtatömb-
+  kimutatás, költségvetés, számadás, és a korábbi Decont/Dispoziție bizonylatok
+  újranyomtatása. A Költségvetés fülön külön gomb nyitja a költségvetés-
+  nyomtatást (részszámadással). PDF-be mentés a nyomtatás-ablakból választható.
+- **Könyvelés-beállítások egy kattintásra.** A Pénzügy oldal tetején új
+  „Excel-könyvelés" gomb visz közvetlenül a Beállítások → Könyvelés fülre —
+  nem kell többé keresgélni. A panel lépésről lépésre vezet.
+
+### 🎨 UX javítások
+
+- **A súgó élő év-végi checklistje mindig szem előtt.** Nagy képernyőn a Súgó
+  fül háromosztatú: balra a témák, középen a magyarázat, jobbra az élő
+  checklist — pipálgatás közben is olvashatod a teendők leírását.
+
 ## [2026-06-11] — Az asztali app Pénzügy oldala teljessé vált: Bank, Költségvetés és Monetár fül
 <!-- key: 2026-06-11-desktop-penzugy-paritas -->
 <!-- category: feature -->

@@ -23,13 +23,14 @@ import {
   RefreshCw,
 } from 'lucide-react'
 
-import { Button } from '@kartoteka/ui'
+import { Button, Input } from '@kartoteka/ui'
 import { BANK_LETTERS } from '@kartoteka/core'
 
 import {
   excelDefaultFolder,
   excelFolderInfo,
   excelOpenFolder,
+  excelReadCells,
   excelReadMeta,
   excelReadSheetSums,
   excelSaveFile,
@@ -47,6 +48,12 @@ import {
   saveBankMap,
   setExcelSyncEnabled,
   type BankMapEntry,
+  EXCEL_EGYHAZMEGYEK,
+  KOLTSEGVETES_SHEET,
+  KOLTSEGVETES_MEGYE_CELL,
+  KOLTSEGVETES_EGYHAZKOZSEG_CELL,
+  suggestExcelMegye,
+  suggestExcelEgyhazkozsegNev,
 } from '../../lib/excel-settings'
 import {
   getExcelWriteSyncStatus,
@@ -91,6 +98,14 @@ export function KonyvelesPanel() {
   const [mapConfirmed, setMapConfirmed] = useState(false)
   const [mapLoading, setMapLoading] = useState(false)
   const [mapMsg, setMapMsg] = useState<string | null>(null)
+  // ── Koltsegvetes-fejléc (Endre #1, 2026-06-11): B78 = egyházmegye (a sablon
+  // 24 hivatalos rövid neve közül), B79 = egyházközség neve csupaszon. Enélkül
+  // a fájl kategória-lenyílói üresek — kézzel nem szerkeszthető.
+  const [fejlecFileMegye, setFejlecFileMegye] = useState<string>('')
+  const [fejlecFileNev, setFejlecFileNev] = useState<string>('')
+  const [megyeDraft, setMegyeDraft] = useState<string>('')
+  const [nevDraft, setNevDraft] = useState<string>('')
+  const [fejlecLoading, setFejlecLoading] = useState(false)
 
   // Élő szinkron-státusz
   const [outboxCounts, setOutboxCounts] = useState<{ pending: number; blocked: number; done: number } | null>(null)
@@ -197,6 +212,35 @@ export function KonyvelesPanel() {
     if (info) void loadBankMapping(info)
   }, [info, loadBankMapping])
 
+  // ── Koltsegvetes-fejléc állapota: a fájl B78/B79 cellái + javaslatok ──
+  const loadFejlec = useCallback(async (target: ExcelFolderInfo | null) => {
+    if (!target?.adatokPath) return
+    setFejlecLoading(true)
+    try {
+      const [b78, b79] = await excelReadCells(target.adatokPath, KOLTSEGVETES_SHEET, [
+        KOLTSEGVETES_MEGYE_CELL,
+        KOLTSEGVETES_EGYHAZKOZSEG_CELL,
+      ])
+      setFejlecFileMegye(b78.trim())
+      setFejlecFileNev(b79.trim())
+      // Draft: a fájl értéke az igazság; ha üres, a gyülekezeti adatokból javaslunk.
+      const ctx = await getCongregationContext()
+      const megyeJavaslat = suggestExcelMegye(ctx.dioceseName)
+      const nevJavaslat = suggestExcelEgyhazkozsegNev(ctx.congName)
+      setMegyeDraft(b78.trim() || megyeJavaslat || '')
+      setNevDraft(b79.trim() || nevJavaslat)
+    } catch {
+      /* csendes — pl. nyitott/zárolt fájl; az Állapot frissítése gombbal újra */
+    } finally {
+      setFejlecLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (info?.exists) void loadFejlec(info)
+  }, [info, loadFejlec])
+
   // Deviza-alapú javaslat: az első olyan betű-lap, amelynek C3-deviza egyezik,
   // és még nincs másik bankhoz rendelve (bank_neve sorrendben).
   function suggestLetters(): Record<number, string> {
@@ -274,10 +318,12 @@ export function KonyvelesPanel() {
       if (i.adatokPath) {
         try {
           const r = await applyCongregationTo(i)
-          if ('dioceseName' in r) {
+          if ('megye' in r) {
             appliedNote =
-              ` Egyházmegye automatikusan beírva: „${r.dioceseName}".` +
+              ` Az Excel-fejléc automatikusan kitöltve: „${r.megye}" egyházmegye, „${r.nev}" egyházközség.` +
               (r.logoCached ? ' A gyülekezeti logó is letöltve.' : '')
+          } else {
+            appliedNote = ` FIGYELEM: ${r.error}`
           }
         } catch {
           /* az auto-konfig best-effort */
@@ -305,9 +351,11 @@ export function KonyvelesPanel() {
   // denormalizált egyhazmegye-mező, majd a lokális cache offline) + a logó URL-jét.
   async function getCongregationContext(): Promise<{
     dioceseName: string | null
+    congName: string | null
     cimerUrl: string | null
   }> {
     let cimerUrl: string | null = null
+    let congName: string | null = null
     try {
       const supabase = getDesktopSupabase()
       const user = await getDesktopUser()
@@ -315,6 +363,7 @@ export function KonyvelesPanel() {
         const cong = await getLocalOwnCongregation(user.id)
         if (!cong) await getLocalOwnProfile(user.id) // best-effort hidratálás
         cimerUrl = cong?.cimer_url ?? null
+        congName = cong?.nev_hu?.trim() || cong?.name?.trim() || null
         let name = cong?.egyhazmegye?.trim() || null
         if (cong?.diocese_id) {
           try {
@@ -330,13 +379,13 @@ export function KonyvelesPanel() {
         }
         if (name) {
           window.localStorage.setItem(LS_DIOCESE, name)
-          return { dioceseName: name, cimerUrl }
+          return { dioceseName: name, congName, cimerUrl }
         }
       }
     } catch {
       /* csendes — esünk a cache-re */
     }
-    return { dioceseName: window.localStorage.getItem(LS_DIOCESE), cimerUrl }
+    return { dioceseName: window.localStorage.getItem(LS_DIOCESE), congName, cimerUrl }
   }
 
   // A gyülekezeti logó letöltése + lokális cache-elése a Könyvelés-mappába
@@ -359,28 +408,57 @@ export function KonyvelesPanel() {
     }
   }
 
-  // Az egyházmegye beírása az `Koltsegvetes!V3`-ba (ettől populálódik a hivatalos
-  // chart) + a gyülekezeti logó letöltése/cache-elése (ha van beállítva).
+  // A Koltsegvetes-fejléc beírása: B78 = egyházmegye (a sablon X1:X24 listájának
+  // PONTOS rövid neve, pl. „Kolozsvári"), B79 = egyházközség neve („Református"
+  // és „Egyházközség" nélkül). A V3/V1 suffix-konstansokból a B88/B90 képletek
+  // állítják elő a hivatalos fejlécet — a V3-at egy korábbi (hibás) auto-konfig
+  // felülírhatta a teljes megyenévvel, ezért a gyári értéket visszaállítjuk.
+  // + a gyülekezeti logó letöltése/cache-elése (ha van beállítva).
   async function applyCongregationTo(
     target: ExcelFolderInfo,
-  ): Promise<{ dioceseName: string; logoCached: boolean } | { error: string }> {
+    override?: { megye?: string; nev?: string },
+  ): Promise<{ megye: string; nev: string; logoCached: boolean } | { error: string }> {
     const ctx = await getCongregationContext()
-    if (!ctx.dioceseName) {
+    const megye =
+      override?.megye?.trim() || megyeDraft.trim() || suggestExcelMegye(ctx.dioceseName) || ''
+    const nev =
+      override?.nev?.trim() || nevDraft.trim() || suggestExcelEgyhazkozsegNev(ctx.congName)
+
+    if (!megye) {
       return {
         error:
-          'Nincs egyházmegye (még nem töltődött le — előbb legyen egyszer hálózat —, vagy nincs beállítva a gyülekezethez).',
+          'Az egyházmegye neve még hiányzik — válaszd ki a lenyílóból a Beállítások → Könyvelés „Excel-fejléc" részben (a rendszer nem találgat).',
       }
     }
+    if (!(EXCEL_EGYHAZMEGYEK as readonly string[]).includes(megye)) {
+      return {
+        error: `„${megye}" nem szerepel a hivatalos egyházmegye-listában — válassz a lenyílóból.`,
+      }
+    }
+    if (!nev) {
+      return {
+        error:
+          'Az egyházközség neve még hiányzik — írd be a Beállítások → Könyvelés „Excel-fejléc" részben.',
+      }
+    }
+
     if (target.adatokPath) {
       await excelSetCells(target.adatokPath, [
-        { sheet: 'Koltsegvetes', cell: 'V3', value: ctx.dioceseName },
+        { sheet: KOLTSEGVETES_SHEET, cell: KOLTSEGVETES_MEGYE_CELL, value: megye },
+        { sheet: KOLTSEGVETES_SHEET, cell: KOLTSEGVETES_EGYHAZKOZSEG_CELL, value: nev },
+        // Gyári suffix visszaállítása (öngyógyítás a korábbi V3-felülírás után).
+        { sheet: KOLTSEGVETES_SHEET, cell: 'V3', value: ' REFORMÁTUS EGYHÁZMEGYE' },
       ])
+      setFejlecFileMegye(megye)
+      setFejlecFileNev(nev)
+      setMegyeDraft(megye)
+      setNevDraft(nev)
     }
     let logoCached = false
     if (ctx.cimerUrl) {
       logoCached = (await cacheLogo(target.folderPath, ctx.cimerUrl)) !== null
     }
-    return { dioceseName: ctx.dioceseName, logoCached }
+    return { megye, nev, logoCached }
   }
 
   async function handleApplyCongregation() {
@@ -393,7 +471,8 @@ export function KonyvelesPanel() {
       if ('error' in r) setError(r.error)
       else
         setMsg(
-          `Egyházmegye beírva az Excelbe: „${r.dioceseName}". A költségvetési kategóriák a megnyitáskor megjelennek.` +
+          `Az Excel-fejléc kitöltve: „${r.megye}" egyházmegye, „${r.nev}" egyházközség. ` +
+            'A költségvetési kategóriák a fájl következő megnyitásakor megjelennek.' +
             (r.logoCached ? ' A gyülekezeti logó is letöltve.' : ''),
         )
     } catch (e) {
@@ -658,27 +737,93 @@ export function KonyvelesPanel() {
           </Button>
         </div>
 
-        {/* Gyülekezeti adatok alkalmazása — az egyházmegyét írja az Excelbe */}
+        {/* Koltsegvetes-fejléc: egyházmegye + egyházközség (Endre #1) */}
         {info?.exists && (
           <div className="mt-3 border-t border-slate-200 pt-3">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <Building2 className="size-3.5" />
+              Excel-fejléc — egyházmegye és egyházközség
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              A hivatalos könyvelés-fájl csak akkor kínálja fel a költségvetési
+              tételeket (és csak akkor szerkeszthető kézzel), ha a Koltsegvetes
+              lapon ki van töltve az egyházmegye és az egyházközség neve. Itt egy
+              kattintással beíratod — a rendszer a gyülekezeted adataiból ajánlja fel.
+            </p>
+
+            {fejlecFileMegye && fejlecFileNev ? (
+              <p className="mt-2 flex items-start gap-1.5 text-sm text-emerald-700">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  Kitöltve: <strong>{fejlecFileMegye}</strong> egyházmegye,{' '}
+                  <strong>{fejlecFileNev}</strong> egyházközség.
+                </span>
+              </p>
+            ) : (
+              <p className="mt-2 flex items-start gap-1.5 text-sm text-amber-700">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  Még hiányzik {!fejlecFileMegye && 'az egyházmegye'}
+                  {!fejlecFileMegye && !fejlecFileNev && ' és '}
+                  {!fejlecFileNev && 'az egyházközség neve'} a fájlból — töltsd ki
+                  lent, majd kattints a „Beírás az Excelbe" gombra.
+                </span>
+              </p>
+            )}
+
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600" htmlFor="fejlec-megye">
+                  Egyházmegye (hivatalos lista)
+                </label>
+                <select
+                  id="fejlec-megye"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={megyeDraft}
+                  onChange={(e) => setMegyeDraft(e.currentTarget.value)}
+                  disabled={applyingCong || fejlecLoading}
+                >
+                  <option value="">— válassz egyházmegyét —</option>
+                  {EXCEL_EGYHAZMEGYEK.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600" htmlFor="fejlec-nev">
+                  Egyházközség neve („Református" és „Egyházközség" nélkül)
+                </label>
+                <Input
+                  id="fejlec-nev"
+                  className="h-9"
+                  value={nevDraft}
+                  onChange={(e) => setNevDraft(e.target.value)}
+                  placeholder="pl. Szászfenesi"
+                  disabled={applyingCong || fejlecLoading}
+                />
+              </div>
+            </div>
+
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() => void handleApplyCongregation()}
-              disabled={applyingCong}
-              className="border-teal-200 text-teal-700 hover:bg-teal-50"
+              disabled={applyingCong || fejlecLoading || !megyeDraft || !nevDraft.trim()}
+              className="mt-2 border-teal-200 text-teal-700 hover:bg-teal-50"
             >
               {applyingCong ? (
                 <RefreshCw className="mr-1.5 size-4 animate-spin" />
               ) : (
                 <Building2 className="mr-1.5 size-4" />
               )}
-              Gyülekezeti adatok alkalmazása
+              Beírás az Excelbe
             </Button>
             <p className="mt-1.5 text-xs text-slate-500">
-              A gyülekezet egyházmegyéjét beírja az Excelbe — ettől jelennek meg a hivatalos
-              költségvetési kategóriák —, és letölti a gyülekezeti logót a könyvelés-mappába.
+              A beírás előtt automatikus biztonsági másolat készül. Ha az Excel
+              éppen nyitva van, előbb zárd be — különben a fájl zárolt.
             </p>
           </div>
         )}

@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { FileSpreadsheet, Printer } from 'lucide-react'
 
 import {
   FinanceHero,
@@ -76,6 +77,8 @@ import { DesktopTransactionEditDialog } from '../components/transaction-edit-dia
 import { DesktopBankTab } from '../components/desktop-bank-tab'
 import { DesktopBudgetTab } from '../components/desktop-budget-tab'
 import { DesktopMonetaryTab } from '../components/desktop-monetary-tab'
+import { DesktopFinancePrintDialog } from '../components/finance-print-dialog'
+import { DesktopBudgetPrintDialog } from '../components/budget-print-dialog'
 import { ChitantaPrintDialog } from '../components/chitanta-print-dialog'
 import { DesktopChitantaTombRequiredDialog } from '../components/chitanta-tomb-required-dialog'
 import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
@@ -137,6 +140,10 @@ export function PenzugyPage() {
   const [userId, setUserId] = useState('')
   const [congregationId, setCongregationId] = useState('')
   const [combinedOpen, setCombinedOpen] = useState(false)
+  // Endre #4 (2026-06-11): nyomtatási központok — web-azonos belépési pontok
+  // (hero „Nyomtatás" gomb + Költségvetés-fül gombja).
+  const [printOpen, setPrintOpen] = useState(false)
+  const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
   // Page-szintű visszajelzés (pl. sztornó-visszavonás eredménye a Kassza fülről).
   const [pageToast, setPageToast] = useState<
     { kind: 'success' | 'error' | 'info' | 'warning'; msg: string } | null
@@ -363,6 +370,23 @@ export function PenzugyPage() {
           currentYear={year}
           debtModeLabel={debtModeLabel}
           onAddEntry={congregationId && userId ? () => setCombinedOpen(true) : undefined}
+          onPrint={settings ? () => setPrintOpen(true) : undefined}
+          // 2026-06-11 (Endre #2): az Excel-könyvelés beállításai eddig
+          // „eldugva" éltek — innen egy kattintás a Beállítások → Könyvelés fül.
+          extraActions={
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kartoteka:open-settings', { detail: { tab: 'konyveles' } }),
+                )
+              }
+              className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200 bg-white px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+            >
+              <FileSpreadsheet className="mr-1.5 size-3.5" />
+              Excel-könyvelés
+            </button>
+          }
         />
 
         {pageToast && (
@@ -537,14 +561,27 @@ export function PenzugyPage() {
             // Paritás #5: web-azonos Költségvetés-fül (alap + 3 módosítás,
             // véglegesítés + egyházmegyei beküldés). Offline: megtekintés a
             // lokális tükörből; mentés igazolt belépéssel.
-            <DesktopBudgetTab
-              szamadasiCellek={szamadasiCellek}
-              settings={settings}
-              currentYear={year}
-              userId={userId}
-              onRefresh={() => void load()}
-              onToast={(msg, kind) => setPageToast({ kind, msg })}
-            />
+            <>
+              {/* Web-azonos: a Költségvetés-nyomtatás gomb csak ezen a fülön. */}
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setBudgetPrintOpen(true)}
+                  className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-teal-200 bg-white px-3 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-50"
+                >
+                  <Printer className="mr-1 size-3.5" />
+                  Költségvetés nyomtatás
+                </button>
+              </div>
+              <DesktopBudgetTab
+                szamadasiCellek={szamadasiCellek}
+                settings={settings}
+                currentYear={year}
+                userId={userId}
+                onRefresh={() => void load()}
+                onToast={(msg, kind) => setPageToast({ kind, msg })}
+              />
+            </>
           ) : activeTab === 'monetary' ? (
             // Paritás #5: web-azonos Monetár (címletjegyzék) fül — online adat.
             <DesktopMonetaryTab
@@ -599,6 +636,43 @@ export function PenzugyPage() {
           currentYear={year}
           congregationId={congregationId}
           userId={userId}
+        />
+      )}
+
+      {/* Endre #4 — nyomtatási központok (web-azonos megosztott body-k) */}
+      {settings && (
+        <DesktopFinancePrintDialog
+          open={printOpen}
+          onOpenChange={setPrintOpen}
+          income={income}
+          expense={expense}
+          bankAccounts={bankAccounts}
+          cellek={szamadasiCellek}
+          bevCelMap={bevCelMap}
+          kiaCelMap={kiaCelMap}
+          congregationName={congregationName}
+          carryoverCash={carryoverCash}
+          carryoverBank={carryoverBank}
+          currentYear={year}
+          settings={settings}
+          onToast={(msg, kind) => setPageToast({ kind, msg })}
+        />
+      )}
+      {settings && (
+        <DesktopBudgetPrintDialog
+          open={budgetPrintOpen}
+          onOpenChange={setBudgetPrintOpen}
+          settings={settings}
+          cellek={szamadasiCellek}
+          bevCelMap={bevCelMap}
+          kiaCelMap={kiaCelMap}
+          incomeRecords={income}
+          expenseRecords={expense}
+          congregationName={congregationName}
+          carryoverCash={carryoverCash}
+          carryoverBank={carryoverBank}
+          currentYear={year}
+          onToast={(msg, kind) => setPageToast({ kind, msg })}
         />
       )}
     </DesktopShell>

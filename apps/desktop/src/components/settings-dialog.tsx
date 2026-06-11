@@ -122,6 +122,8 @@ export interface SettingsDialogProps {
   userEmail?: string | null
   publicSiteUrl?: string | null
   publicSiteEnabled?: boolean
+  /** Megnyitáskor aktív fül (pl. 'konyveles' a Pénzügy hero-gombjáról). */
+  initialTab?: string
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -134,8 +136,10 @@ export function SettingsDialog({
   userEmail,
   publicSiteUrl,
   publicSiteEnabled,
+  initialTab,
 }: SettingsDialogProps) {
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS)
+  const [activeTab, setActiveTab] = useState<string>(initialTab ?? 'ertesitesek')
   const [theme, setThemeState] = useState<ThemeMode>('system')
   const { theme: themeStyle, setTheme: setThemeStyle } = useThemeStyle()
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
@@ -145,7 +149,9 @@ export function SettingsDialog({
     if (!open) return
     setPrefs(loadPrefs())
     setThemeState(loadTheme())
-  }, [open])
+    // A hívó által kért fülre ugrunk minden megnyitáskor (pl. Pénzügy → Könyvelés).
+    setActiveTab(initialTab ?? 'ertesitesek')
+  }, [open, initialTab])
 
   const flashSaveMsg = useCallback(() => {
     setSaveMsg('Beállítás mentve')
@@ -207,7 +213,7 @@ export function SettingsDialog({
             2026-06-11 fix (Endre): a korábbi `flex flex-row` NEM hatott át a
             Radix Tabs.Root saját display-jén (a web ugyanebbe futott bele) —
             ezért a menü a tartalom FÖLÉ került. A web megoldása: grid. */}
-        <Tabs defaultValue="ertesitesek" className="grid grid-cols-[200px_1fr] gap-5 sm:grid-cols-[240px_1fr] sm:gap-7">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="grid grid-cols-[200px_1fr] gap-5 sm:grid-cols-[240px_1fr] sm:gap-7">
           <div className="flex flex-col gap-3 self-start min-w-0">
             <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
               <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">

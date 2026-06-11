@@ -31,6 +31,10 @@ export * from './FinanceSugoChecklist'
 export * from './FinanceSugoTab'
 export * from './FinancePrintDialogBody'
 export * from './BudgetPrintDialogBody'
+// Nyomtatvány-builderek (a webes lib/finance/reporting + budget-reporting
+// áthelyezve, 2026-06-11 — web/desktop közös nyomtatási központ)
+export * from './reporting'
+export * from './budget-reporting'
 export * from './DecontTabBody'
 export * from './ExpenseDialogBody'
 export * from './IncomeDialogBody'

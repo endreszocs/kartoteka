@@ -333,6 +333,27 @@ pub fn excel_append_rows(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// E1.5c — Konkrét cellák kiolvasása (a Koltsegvetes-fejléc állapotához)
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Megadott cellák aktuális (nyers szöveges) értéke egy lapról — pl. a
+/// `Koltsegvetes!B78/B79` fejléc-cellák állapotának megjelenítéséhez.
+/// CSAK OLVAS; a sorrend a kérés sorrendje, hiányzó cella = üres string.
+#[tauri::command]
+pub fn excel_read_cells(
+    file_path: String,
+    sheet: String,
+    cells: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let book = reader::xlsx::read(Path::new(&file_path))
+        .map_err(|e| format!("Excel olvasási hiba: {e}"))?;
+    let ws = book
+        .get_sheet_by_name(&sheet)
+        .ok_or_else(|| format!("Nincs '{sheet}' munkalap a fájlban."))?;
+    Ok(cells.iter().map(|c| cell_str(ws, c)).collect())
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // E4 — Lap-összesítő (egyeztetéshez): adatsorok száma + H/J összegek
 // ───────────────────────────────────────────────────────────────────────────
 

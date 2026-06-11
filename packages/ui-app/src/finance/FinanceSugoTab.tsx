@@ -964,8 +964,10 @@ export function FinanceSugoTab({
         </div>
       </div>
 
-      {/* MAIN GRID */}
-      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      {/* MAIN GRID — 2026-06-11 (Endre #3): xl-től HÁROMOSZTATÚ — bal témalista,
+          középen tartalom, jobbra az ÉLŐ év-végi checklist (sticky). Kisebb
+          képernyőn a checklist a lap aljára csúszik (teljes szélesség). */}
+      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_340px]">
         {/* ───── BAL: KATEGÓRIÁK ÉS TÉMÁK ───── */}
         <div className="space-y-3 self-start">
           {ALL_SECTIONS.map((section) => (
@@ -1254,10 +1256,15 @@ export function FinanceSugoTab({
             </span>
           </div>
         </div>
-      </div>
 
-      {/* ÉLŐ CHECKLIST — a súgó legvégén, teljes szélességben */}
-      <FinanceSugoChecklist finalizeHref={finalizeHref} />
+        {/* ───── JOBB: ÉLŐ ÉV-VÉGI CHECKLIST ─────
+            xl-en saját sticky oszlop; lg-n (2 oszlop) teljes szélességű sor a
+            tartalom alatt; mobilon a lap alja. EGY példány — a pipák állapota
+            (localStorage) így sosem duplázódik. */}
+        <div className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-0.5">
+          <FinanceSugoChecklist finalizeHref={finalizeHref} />
+        </div>
+      </div>
     </div>
   )
 }
