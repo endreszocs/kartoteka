@@ -23,6 +23,37 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-12] — Tétel-rögzítés hibajavítás, látható befizető-kereső, fényképek a családfán
+<!-- key: 2026-06-12-rogzites-fix-csaladfa-kepek -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A tétel-rögzítés „value too long" hibája megszűnt.** Az asztali appban a
+  bevétel-mentés egy rejtett adatbázis-korlát miatt hibázott (a tétel belső
+  azonosítója hosszabb volt, mint amit az adatbázis enged — ezt egy célzott
+  diagnosztikával derítettük ki). A rendszer mostantól a kereteken belül
+  marad; egy kísérő adatbázis-frissítés a korlátot végleg fel is oldja.
+- **A befizető-kereső találatai mostantól mindig látszanak.** Eddig a
+  találati lista a rögzítő-ablak görgetője alá szorult — mostantól mindenen
+  felül, az ablakból „kilógva" nyílik, és görgetésnél is a helyén marad.
+
+### ✨ Új funkciók
+
+- **Fényképek a családfán.** Ha egy taghoz fénykép van társítva, a családfa
+  kártyáin is a fénykép jelenik meg a nem-jelölő ikon helyett.
+- **Súgó-fejezet a fényképekről.** A Tagnyilvántartás súgó Családok fejezete
+  lépésről lépésre elmagyarázza a kép-társítás két útját (közösségi link /
+  kézi feltöltés), és hogy mire számíts.
+
+### ℹ️ Tudnivaló
+
+- Futtatandó adatbázis-frissítés: `2026-06-12b-kep-text-xkey-bovites.sql` —
+  e nélkül a FÉNYKÉP-mentés is hosszúság-hibára futna (a kép-mező az
+  adatbázisban eddig 30 karakteres volt, a kép-hivatkozás ennél hosszabb).
+
 ## [2026-06-11] — Megújult családi kartonok: fényképek, modern kártyák, nyomtatás mindenhol
 <!-- key: 2026-06-11-csaladi-kartonok-avatarok -->
 <!-- category: feature -->

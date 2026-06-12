@@ -177,7 +177,7 @@ async function insertKiadasWithFallback(
   const reference: Record<string, unknown> = {
     ...canonical,
     nyugta: canonical.iratszam,
-    xkey: randomUUID(),
+    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     atvevo: canonical.kedvezmenyzett ?? null,
     atvevoid: null,
     userid: userId,
@@ -390,7 +390,7 @@ export async function importBcrTransactions(
           congregation_id: congregationId,
           fizetettev: Number(item.date.slice(0, 4)),
           is_potlas: false,
-          xkey: randomUUID(),
+          xkey: randomUUID().replace(/-/g, '').slice(0, 20),
         }
         const { error } = await access.supabase.from('befizetes').insert([payload])
         if (error) {
@@ -422,7 +422,7 @@ export async function importBcrTransactions(
         const reference: Record<string, unknown> = {
           ...canonical,
           nyugta: docNumber,
-          xkey: randomUUID(),
+          xkey: randomUUID().replace(/-/g, '').slice(0, 20),
           atvevo: item.counterparty || item.description.slice(0, 100),
           atvevoid: null,
           userid: userId,
@@ -490,7 +490,7 @@ export async function importBcrTransactions(
             megjegyzes: item.megjegyzes || item.description,
             deleted: false, congregation_id: congregationId,
             fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
-            xkey: randomUUID(),
+            xkey: randomUUID().replace(/-/g, '').slice(0, 20),
           }
           const { error } = await access.supabase.from('befizetes').insert([befPayload])
           if (error) {
@@ -529,7 +529,7 @@ export async function importBcrTransactions(
               megjegyzes: item.megjegyzes || item.description,
               deleted: false, congregation_id: congregationId,
               fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
-              xkey: randomUUID(),
+              xkey: randomUUID().replace(/-/g, '').slice(0, 20),
             }
             const { error } = await access.supabase.from('befizetes').insert([befPayload])
             if (error) {

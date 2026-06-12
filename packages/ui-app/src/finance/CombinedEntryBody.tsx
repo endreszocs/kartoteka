@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Save, Trash2, ArrowLeftRight } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
@@ -497,6 +498,31 @@ function PartnerCell({
   const [open, setOpen] = useState(false)
   const [familyNote, setFamilyNote] = useState<string | null>(null)
   const debounceRef = useRef<number | null>(null)
+  // 2026-06-12 (Endre #2): a találati lista PORTÁLBAN, fix pozícióval nyílik —
+  // a dialógus overflow-y-auto-ja korábban levágta (a felhasználó nem látta).
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
+
+  const measure = () => {
+    const el = inputRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    measure()
+    // Görgetésre/átméretezésre újrapozicionálunk (capture: a dialóguson belüli
+    // scroll-konténerek eseményeit is elkapjuk).
+    const onMove = () => measure()
+    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('resize', onMove)
+    return () => {
+      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('resize', onMove)
+    }
+  }, [open])
 
   // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt)
   useEffect(() => {
@@ -596,10 +622,11 @@ function PartnerCell({
     )
   }
 
-  // Gépelés + találati lista
+  // Gépelés + találati lista (a lista PORTÁLBAN — sosem vágja le a dialógus)
   return (
     <div className="relative">
       <input
+        ref={inputRef}
         className={inputClass}
         value={row.partner}
         placeholder="Név (keresés a tagok közt) vagy szabad szöveg"
@@ -607,25 +634,30 @@ function PartnerCell({
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
-      {open && hits.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          {hits.map((h) => (
-            <button
-              key={h.id}
-              type="button"
-              className="block w-full px-2 py-1.5 text-left text-sm hover:bg-emerald-50"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
-                setHits([])
-                setOpen(false)
-              }}
-            >
-              {h.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed z-[200] max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl"
+            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 260) }}
+          >
+            {hits.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                className="block w-full px-2 py-1.5 text-left text-sm hover:bg-emerald-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
+                  setHits([])
+                  setOpen(false)
+                }}
+              >
+                {h.name}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

@@ -14,6 +14,8 @@ export interface FamilyTreeMember {
   generation: number
   /** True ha az adott személy a központi férj vagy feleség. */
   isCenter: boolean
+  /** 2026-06-12 (Endre): profilkép (Storage URL) — a fa-kártyán avatarként. */
+  kep?: string | null
   /** 2026-06-02: kapcsolati szerepkör-címke a központhoz képest.
    *  Pl. "Apa", "Anya", "Testvér", "Nagyszülő", "Gyermek", "Unoka", "Házastárs".
    *  A kártyán jelenik meg — nem jelmagyarázat. NULL a központra. */

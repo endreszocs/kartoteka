@@ -264,7 +264,7 @@ async function insertIncomeRecord(params: {
 
   const legacyCompatiblePayload = {
     ...modernPayload,
-    xkey: randomUUID(),
+    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     nyugta: documentNumber,
     csalad: Boolean(input.id_csalad),
     forrasa: input.forrasa || 'Kézi rögzítés',
@@ -320,7 +320,7 @@ async function insertExpenseRecord(params: {
   const referencePayload = {
     ...canonicalPayload,
     nyugta: documentNumber,
-    xkey: randomUUID(),
+    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     atvevo: input.kedvezmenyzett || 'Kézi rögzítés',
     atvevoid: 'id_szemely' in input ? input.id_szemely || null : null,
     userid: userId,
@@ -414,7 +414,7 @@ async function insertDioceseIncomeRecord(params: {
     fizetettev: input.fizetettev || new Date(input.datum).getFullYear(),
     megjegyzes: input.megjegyzes || null,
     bankszamla_id: null as number | null,
-    xkey: randomUUID(),
+    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     userid: userId,
     deleted: false,
     diocese_id: dioceseId,
@@ -465,7 +465,7 @@ async function insertDioceseExpenseRecord(params: {
     irattipus: normalizeIrattipusForDiocese(input.irattipus),
     megjegyzes: input.megjegyzes || null,
     bankszamla_id: null as number | null,
-    xkey: randomUUID(),
+    xkey: randomUUID().replace(/-/g, '').slice(0, 20),
     userid: userId,
     deleted: false,
     diocese_id: dioceseId,

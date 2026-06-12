@@ -140,7 +140,7 @@ async function buildTreeFromCenters(
 
   const { data: persons } = await supabase
     .from('szemely')
-    .select('id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas')
+    .select('id, csaladnev, k_nev, ferfi, sz_datum, meghalt, telefon, foglalkozas, vallas, kep')
     .in('id', finalIds)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -183,6 +183,7 @@ async function buildTreeFromCenters(
     }
     return {
       id: p.id as number,
+      kep: (p.kep as string | null) ?? null,
       csaladnev: (p.csaladnev as string | null) ?? '',
       k_nev: (p.k_nev as string | null) ?? '',
       ferfi: p.ferfi as boolean,
