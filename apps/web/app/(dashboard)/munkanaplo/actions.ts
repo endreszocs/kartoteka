@@ -4,22 +4,48 @@ import { revalidatePath } from 'next/cache'
 import { worklogSchema, type WorklogInput } from '@/lib/validations/worklog'
 import type { WorklogEntry } from '@/lib/constants/worklog'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { isMissingDeletedColumn } from '@/lib/worklog/registry-sync'
 
 async function getCongId() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId }
 }
 
-export async function getWorklogs(month: string): Promise<WorklogEntry[]> {
+/**
+ * Munkanapló-bejegyzések lekérdezése.
+ *
+ * 2026-06-12 (Endre #3 munkanapló): a `period` lehet
+ *  - 'YYYY-MM' → adott hónap (eddigi viselkedés)
+ *  - 'YYYY'    → teljes év (az év/típus-szűrőhöz és a nyomtatási központhoz)
+ *
+ * A `deleted` szűrő fallback-kel fut: ha az oszlop még nem létezik a DB-ben
+ * (a 2026-06-12c SQL lefuttatásáig), oszlop nélkül kérdezünk — különben a
+ * teljes lista üresen jönne vissza (ez volt a modul fő hibája).
+ */
+export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
   const { supabase, congId } = await getCongId()
   if (!congId) return []
-  const startDate = `${month}-01`
-  const endDate = `${month}-31`
-  const { data } = await supabase.from('munkanaplo').select('*')
-    .eq('congregation_id', congId).eq('deleted', false)
+  const isFullYear = /^\d{4}$/.test(period)
+  const startDate = isFullYear ? `${period}-01-01` : `${period}-01`
+  const endDate = isFullYear ? `${period}-12-31` : `${period}-31`
+
+  const base = () => supabase.from('munkanaplo').select('*')
+    .eq('congregation_id', congId)
     .gte('idopont', startDate).lte('idopont', endDate)
     .order('idopont', { ascending: false })
-  return (data || []) as unknown as WorklogEntry[]
+
+  let res = await base().eq('deleted', false)
+  if (res.error && isMissingDeletedColumn(res.error)) res = await base()
+  if (res.error) {
+    console.warn('[getWorklogs] lekérdezés hiba:', res.error.message)
+    return []
+  }
+  return (res.data || []) as unknown as WorklogEntry[]
+}
+
+/** Teljes éves lista — a nyomtatási központ (éves lelkészi jelentés) adatforrása. */
+export async function getWorklogsForYear(year: number): Promise<WorklogEntry[]> {
+  return getWorklogs(String(year))
 }
 
 export async function saveWorklog(data: WorklogInput) {
@@ -55,11 +81,23 @@ export async function saveWorklog(data: WorklogInput) {
     congregation_id: congId,
   }
   if (d.id) {
-    const { error } = await supabase.from('munkanaplo').update(record).eq('id', d.id).eq('congregation_id', congId)
-    if (error) return { error: `Hiba: ${error.message}` }
+    // 2026-06-12: szerkesztéskor az id_jellege-t NEM nulláznánk ki — abban él
+    // az anyakönyvi forrás-marker (pl. `keresztseg:123`). A dialog nem küldi,
+    // ezért csak akkor írjuk, ha ténylegesen jött érték.
+    if (!d.id_jellege) delete record.id_jellege
+    let upd = await supabase.from('munkanaplo').update(record).eq('id', d.id).eq('congregation_id', congId)
+    if (upd.error && isMissingDeletedColumn(upd.error)) {
+      delete record.deleted
+      upd = await supabase.from('munkanaplo').update(record).eq('id', d.id).eq('congregation_id', congId)
+    }
+    if (upd.error) return { error: `Hiba: ${upd.error.message}` }
   } else {
-    const { error } = await supabase.from('munkanaplo').insert([record])
-    if (error) return { error: `Hiba: ${error.message}` }
+    let ins = await supabase.from('munkanaplo').insert([record])
+    if (ins.error && isMissingDeletedColumn(ins.error)) {
+      delete record.deleted
+      ins = await supabase.from('munkanaplo').insert([record])
+    }
+    if (ins.error) return { error: `Hiba: ${ins.error.message}` }
   }
   revalidatePath('/munkanaplo')
   return { success: true }
@@ -68,19 +106,12 @@ export async function saveWorklog(data: WorklogInput) {
 export async function deleteWorklog(id: number) {
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const { error } = await supabase.from('munkanaplo').update({ deleted: true }).eq('id', id).eq('congregation_id', congId)
-  if (error) return { error: `Hiba: ${error.message}` }
+  // Soft-delete; ha a `deleted` oszlop még nem létezik, hard-delete fallback.
+  let res = await supabase.from('munkanaplo').update({ deleted: true }).eq('id', id).eq('congregation_id', congId)
+  if (res.error && isMissingDeletedColumn(res.error)) {
+    res = await supabase.from('munkanaplo').delete().eq('id', id).eq('congregation_id', congId)
+  }
+  if (res.error) return { error: `Hiba: ${res.error.message}` }
   revalidatePath('/munkanaplo')
   return { success: true }
-}
-
-// Publikus API az anyakönyv modulnak
-export async function triggerWorklogFromRegistry(sourceTable: string, date: string, jellege: string, cim: string) {
-  const { supabase, congId } = await getCongId()
-  if (!congId) return null
-  const { data, error } = await supabase.from('munkanaplo').insert([{
-    idopont: date, jellege, cim, deleted: false, congregation_id: congId,
-  }]).select('id')
-  if (error || !data?.[0]) return null
-  return data[0].id
 }

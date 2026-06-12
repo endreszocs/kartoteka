@@ -41,6 +41,8 @@ export * from './installer'
 export * from './indicators/SessionStatusBadge'
 export * from './indicators/SyncStatusBadge'
 export * from './indicators/OnlineStatePill'
+// 2026-06-12 (Endre #5 — dashboard-paritás): új dashboard-fájlok a barrel-en át
+export * from './dashboard'
 export * from './dashboard/HeroBannerScripture'
 export * from './dashboard/KpiCards'
 export * from './dashboard/BottomStats'

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { ModuleHero } from '@/components/shared/module-hero'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
+import { categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { HU_MONTHS } from '@/lib/constants/dashboard'
 import { toast } from 'sonner'
@@ -27,11 +28,11 @@ interface WorklogTabsProps {
   adminImportContent?: React.ReactNode
 }
 
-const WORKLOG_TYPES: Record<WorklogCategory, string[]> = {
-  szolgalat: ['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Bibliaóra', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet', 'Egyéb szolgálat'],
-  katekezis: ['Bibliaóra', 'Hittan', 'Konfirmáció előkészítő', 'Ifjúsági óra', 'Gyermek foglalkozás', 'Egyéb katekázis'],
-  latogatas: ['Családlátogatás', 'Kórházlátogatás', 'Idősek otthona', 'Börtönlátogatás', 'Egyéb látogatás'],
-}
+// 2026-06-12 (Endre #3-4 munkanapló): a korábbi helyi WORKLOG_TYPES másolat
+// törölve — a kategorizálás a közös categorizeWorklogEntry-vel történik
+// (lib/constants/worklog.ts). A helyi másolatban elgépelés is volt
+// ('Egyéb katekázis' vs. 'Egyéb katekézis'), emiatt a dialógusból mentett
+// bejegyzés nem jelent meg a fülön.
 
 function downloadCsv(entries: WorklogEntry[], fileName: string) {
   const header = ['Dátum', 'Típus', 'Cím', 'Alapige', 'Bibliaolvasás', 'Énekek', 'Szolgálatvezető', 'Férfi', 'Nő', 'Gyermek', 'Persely', 'Megjegyzés']
@@ -67,7 +68,11 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const [activeView, setActiveView] = useState<ActiveView>('tab')
   const now = new Date()
   const [activeTab, setActiveTab] = useState<WorklogTab>('szolgalat')
-  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+  // 2026-06-12 (Endre #3 munkanapló): év + hónap szűrő — a hónap 0 értéke a
+  // teljes évet jelenti (éves áttekintés / éves összesítő számokhoz).
+  const [year, setYear] = useState(now.getFullYear())
+  const [monthNum, setMonthNum] = useState<number>(now.getMonth() + 1)
+  const period = monthNum === 0 ? String(year) : `${year}-${String(monthNum).padStart(2, '0')}`
   const [entries, setEntries] = useState<WorklogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -76,7 +81,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
 
   function refreshEntries() {
     setLoading(true)
-    void getWorklogs(month).then((data) => {
+    void getWorklogs(period).then((data) => {
       setEntries(data)
       setLoading(false)
     })
@@ -86,7 +91,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
-      getWorklogs(month).then((data) => {
+      getWorklogs(period).then((data) => {
         if (!cancelled) {
           setEntries(data)
           setLoading(false)
@@ -96,17 +101,19 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     return () => {
       cancelled = true
     }
-  }, [month])
+  }, [period])
 
+  // 2026-06-12: kategorizálás a közös helperrel (kategoria mező + jellege
+  // fallback) — az anyakönyvből érkező kazuáliák is a Szolgálat fülre esnek.
   const filtered = useMemo(() => {
     if (activeTab === 'jelentes') return entries
-    return entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES[activeTab].includes(entry.jellege))
+    return entries.filter((entry) => categorizeWorklogEntry(entry) === activeTab)
   }, [entries, activeTab])
 
   const report = useMemo(() => {
-    const szolgalat = entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.szolgalat.includes(entry.jellege))
-    const katekezis = entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.katekezis.includes(entry.jellege))
-    const latogatas = entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.latogatas.includes(entry.jellege))
+    const szolgalat = entries.filter((entry) => categorizeWorklogEntry(entry) === 'szolgalat')
+    const katekezis = entries.filter((entry) => categorizeWorklogEntry(entry) === 'katekezis')
+    const latogatas = entries.filter((entry) => categorizeWorklogEntry(entry) === 'latogatas')
     const totalAttendance = entries.reduce((sum, entry) => sum + (entry.jelenlet_ferfi || 0) + (entry.jelenlet_no || 0) + (entry.jelenlet_gyermek || 0), 0)
     const totalOffering = entries.reduce((sum, entry) => sum + Number(entry.persely || 0), 0)
 
@@ -137,18 +144,15 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     refreshEntries()
   }
 
-  const monthOptions: { value: string; label: string }[] = []
-  for (let i = 0; i < 12; i++) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    monthOptions.push({ value, label: `${HU_MONTHS[date.getMonth()]} ${date.getFullYear()}` })
-  }
-  const activeMonthLabel = monthOptions.find((option) => option.value === month)?.label || month
+  // 2026-06-12: év-választó (8 évre vissza) + hónap-választó ("Egész év" opcióval)
+  const yearOptions: number[] = []
+  for (let i = 0; i < 8; i++) yearOptions.push(now.getFullYear() - i)
+  const activeMonthLabel = monthNum === 0 ? `${year} — egész év` : `${HU_MONTHS[monthNum - 1]} ${year}`
 
   const tabs = [
-    { value: 'szolgalat', label: 'Igehirdetés', color: 'blue', count: entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.szolgalat.includes(entry.jellege)).length },
-    { value: 'latogatas', label: 'Családlátogatás', color: 'violet', count: entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.latogatas.includes(entry.jellege)).length },
-    { value: 'katekezis', label: 'Katekézis', color: 'emerald', count: entries.filter((entry) => entry.jellege !== null && WORKLOG_TYPES.katekezis.includes(entry.jellege)).length },
+    { value: 'szolgalat', label: 'Igehirdetés', color: 'blue', count: report.szolgalat },
+    { value: 'latogatas', label: 'Családlátogatás', color: 'violet', count: report.latogatas },
+    { value: 'katekezis', label: 'Katekézis', color: 'emerald', count: report.katekezis },
     { value: 'jelentes', label: 'Lelkészi jelentés', color: 'amber', count: entries.length },
     // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
     { value: 'help', label: 'Súgó', color: 'teal' },
@@ -170,14 +174,19 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'violet' }[]}
         actions={
           <>
-            <select value={month} onChange={(event) => { setLoading(true); setMonth(event.target.value) }} className="rounded-xl border border-white/70 bg-white/85 px-3 py-2 text-sm shadow-sm">
-              {monthOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {/* 2026-06-12: év + hónap szűrő (a hónapnál "Egész év" opcióval) */}
+            <select value={year} onChange={(event) => { setLoading(true); setYear(Number(event.target.value)) }} className="rounded-xl border border-white/70 bg-white/85 px-3 py-2 text-sm shadow-sm">
+              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <select value={monthNum} onChange={(event) => { setLoading(true); setMonthNum(Number(event.target.value)) }} className="rounded-xl border border-white/70 bg-white/85 px-3 py-2 text-sm shadow-sm">
+              <option value={0}>Egész év</option>
+              {HU_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
             </select>
             <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setPrintDialogOpen(true)}>
               <Printer className="size-4" />
               Nyomtatási központ
             </Button>
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => downloadCsv(filtered, `munkanaplo_${month}.csv`)}>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => downloadCsv(filtered, `munkanaplo_${period}.csv`)}>
               <Download className="size-4" />
               Export
             </Button>
@@ -217,7 +226,9 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
           <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
             <div className="card-raised p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700/70">Jelentési összkép</p>
-              <h3 className="mt-1 font-heading text-2xl text-slate-800">Szolgálati ritmus egy hónapban</h3>
+              <h3 className="mt-1 font-heading text-2xl text-slate-800">
+                {monthNum === 0 ? 'Szolgálati ritmus az évben' : 'Szolgálati ritmus egy hónapban'}
+              </h3>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <MiniFact label="Összes jelenlét" value={`${report.totalAttendance} fő`} />
                 <MiniFact label="Összes persely" value={`${report.totalOffering.toFixed(2)} RON`} />
@@ -230,8 +241,8 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 <p className="text-xs font-semibold uppercase tracking-[0.24em]">Lelkészi jelentés</p>
               </div>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Ebben a hónapban <strong>{report.totalEntries}</strong> bejegyzés született, ebből <strong>{report.szolgalat}</strong> szolgálati,
-                <strong> {report.katekezis}</strong> katekázis jellegű és <strong>{report.latogatas}</strong> látogatási tétel.
+                {monthNum === 0 ? 'Ebben az évben' : 'Ebben a hónapban'} <strong>{report.totalEntries}</strong> bejegyzés született, ebből <strong>{report.szolgalat}</strong> szolgálati,
+                <strong> {report.katekezis}</strong> katekézis jellegű és <strong>{report.latogatas}</strong> látogatási tétel.
                 A rögzített alkalmak összesített jelenléte <strong>{report.totalAttendance}</strong> fő, a perselybevétel pedig
                 <strong> {report.totalOffering.toFixed(2)} RON</strong>.
               </p>
@@ -313,10 +324,14 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
 
       <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={activeTab === 'jelentes' ? 'szolgalat' : activeTab} />
 
+      {/* 2026-06-12: a nyomtatási központ saját maga tölti be a kiválasztott
+          ÉV TELJES adatait (getWorklogsForYear) — korábban csak az itt
+          betöltött hónap bejegyzéseit kapta, így az éves lelkészi jelentés
+          szinte üres volt. */}
       <WorklogPrintDialog
         open={printDialogOpen}
         onOpenChange={setPrintDialogOpen}
-        entries={entries}
+        initialYear={year}
         congregationName={congregationName}
       />
     </>

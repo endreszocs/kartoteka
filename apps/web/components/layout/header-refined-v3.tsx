@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Church, HardDrive, HelpCircle, Landmark, LogOut, RotateCcw, Settings, Shield, Trash2, User } from 'lucide-react'
+import { ChevronDown, Church, HardDrive, HelpCircle, Landmark, LogOut, Settings, Shield, Trash2, User } from 'lucide-react'
 import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
@@ -268,33 +268,9 @@ export function HeaderRefinedV3({
                   Beállító varázslók
                 </p>
               </div>
-              <DropdownMenuItem
-                onClick={async () => {
-                  if (
-                    !window.confirm(
-                      'Újraindítjuk a kezdő beállító varázslót — a meglévő adataid megmaradnak, csak újra végigmehetsz az 5 lépésen (pl. ha javítani szeretnél). Folytatod?',
-                    )
-                  ) {
-                    return
-                  }
-                  const { restartWelcomeWizard } = await import('@/app/(setup)/welcome/actions')
-                  const { toast } = await import('sonner')
-                  const result = await restartWelcomeWizard()
-                  if ('error' in result && result.error) {
-                    toast.error(result.error)
-                    return
-                  }
-                  toast.success('Varázsló újraindítva — átirányítunk.')
-                  router.push('/welcome')
-                }}
-                className="gap-3 rounded-xl py-2.5"
-              >
-                <RotateCcw className="size-4 text-primary/70" />
-                <div className="flex flex-col">
-                  <span>Kezdő beállító varázsló</span>
-                  <span className="text-[10px] text-muted-foreground">5 lépés: gyülekezet, lelkész, pénzügy</span>
-                </div>
-              </DropdownMenuItem>
+              {/* 2026-06-12 (Endre): a „Kezdő beállító varázsló" menüpont
+                  KIVÉVE — éles használatban félrevezető volt; a gyülekezeti
+                  adatok javítására a Gyülekezet-beállítás varázsló szolgál. */}
               <DropdownMenuItem
                 onClick={() => {
                   window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))

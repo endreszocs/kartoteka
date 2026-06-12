@@ -70,6 +70,7 @@ import { pullDebtData, getLocalExemptions, getLocalDiscounts } from '../lib/fina
 import { buildDebtRows } from '../lib/finance-debt-compute'
 import { toBefitetesRow, toKiadasRow } from '../lib/finance-adapters'
 import { enqueueUndoStornoReappend } from '../lib/excel-enqueue'
+import { isExcelSetupComplete } from '../lib/excel-setup-flow'
 import { isOnlineWithSession } from '../lib/use-session-online'
 import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
@@ -376,11 +377,18 @@ export function PenzugyPage() {
           extraActions={
             <button
               type="button"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kartoteka:open-settings', { detail: { tab: 'konyveles' } }),
-                )
-              }
+              onClick={() => {
+                // 2026-06-12 (Endre #1 Excel-wizard): hiányos előkészítésnél a
+                // varázslót nyitjuk a Beállítások-fül helyett — első használatkor
+                // így véletlenül se marad ki semmi. (Hibánál a megszokott fül nyílik.)
+                void isExcelSetupComplete().then((complete) => {
+                  window.dispatchEvent(
+                    complete
+                      ? new CustomEvent('kartoteka:open-settings', { detail: { tab: 'konyveles' } })
+                      : new CustomEvent('kartoteka:open-excel-wizard'),
+                  )
+                })
+              }}
               className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-xl border border-emerald-200 bg-white px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
             >
               <FileSpreadsheet className="mr-1.5 size-3.5" />

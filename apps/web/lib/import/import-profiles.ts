@@ -929,7 +929,10 @@ export const PROFILE_WORKLOG_VISITS: ImportProfile = {
   ],
   autoColumns: [
     { dbColumn: 'congregation_id', source: 'congregation_id' },
-    { dbColumn: 'kategoria', source: 'diakoniai' as AutoColumnSource },
+    // 2026-06-12 (Endre #3 munkanapló): 'diakoniai' → 'latogatas' — az app
+    // kanonikus kategória-készlete (szolgalat/katekezis/latogatas); a régi
+    // literál miatt az importált látogatások a Szolgálat fülre estek volna.
+    { dbColumn: 'kategoria', source: 'latogatas' as AutoColumnSource },
     { dbColumn: 'created', source: 'now' },
     { dbColumn: 'deleted', source: 'false' },
   ],

@@ -18,7 +18,7 @@
 import {
   WORKLOG_CATEGORIES,
   WORKLOG_CATEGORY_LABELS,
-  WORKLOG_TYPES,
+  categorizeWorklogEntry,
   type WorklogCategory,
   type WorklogEntry,
 } from '@/lib/constants/worklog'
@@ -102,11 +102,11 @@ function attendance(e: WorklogEntry): number {
   return (e.jelenlet_ferfi || 0) + (e.jelenlet_no || 0) + (e.jelenlet_gyermek || 0)
 }
 
+// 2026-06-12 (Endre #3 munkanapló): a közös kategorizáló (kategoria mező +
+// jellege fallback) — így az anyakönyvből szinkronizált kazuáliák is a
+// megfelelő összesítőbe esnek.
 function categorize(e: WorklogEntry): WorklogCategory {
-  for (const cat of WORKLOG_CATEGORIES) {
-    if (e.jellege && WORKLOG_TYPES[cat].includes(e.jellege)) return cat
-  }
-  return 'szolgalat'
+  return categorizeWorklogEntry(e)
 }
 
 function monthLabel(monthStr: string): string {

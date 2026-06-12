@@ -126,7 +126,10 @@ export function BurialDialog({ open, onOpenChange, congregationName = '', editEn
           setRelativeRelation('egyháztagunk és hitbeli testvérünk')
           setMourners('Gyászolják:\nSzerető családja és mindazok,\nakik ismerték és tisztelték')
         }
-        setMunkanaploba(false)
+        // 2026-06-12 (Endre #3-4 munkanapló): szerkesztéskor a mentett pipát
+        // töltjük vissza — korábban fixen false volt, így a szerkesztés-mentés
+        // némán kikapcsolta a munkanapló-rögzítést.
+        setMunkanaploba(!!editEntry.munkanaploba)
         return
       }
       setPerson(null)

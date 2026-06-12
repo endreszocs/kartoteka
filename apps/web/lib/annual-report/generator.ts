@@ -204,12 +204,23 @@ export async function buildAnnualReportData(
       .select('full_name, role, congregation_id, diocese_id')
       .or(`congregation_id.eq.${congregationId},role.in.(esperes,egyhazmegyei_admin)`),
     // Munkanapló (szolgalat + katekezis)
-    supabase
-      .from('munkanaplo')
-      .select('idopont, jellege, kategoria, jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, persely')
-      .eq('congregation_id', congregationId)
-      .gte('idopont', yearStart)
-      .lt('idopont', yearEndExclusive),
+    // 2026-06-12 (Endre #3 munkanapló): a soft-delete-elt sorok kizárása —
+    // korábban a törölt bejegyzések is beszámítottak az éves jelentésbe.
+    // Fallback: ha a `deleted` oszlop még nem létezik (2026-06-12c SQL előtt),
+    // szűrő nélkül kérdezünk.
+    (async () => {
+      const base = () => supabase
+        .from('munkanaplo')
+        .select('idopont, jellege, kategoria, jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, persely')
+        .eq('congregation_id', congregationId)
+        .gte('idopont', yearStart)
+        .lt('idopont', yearEndExclusive)
+      const res = await base().eq('deleted', false)
+      if (res.error && (res.error.message || '').toLowerCase().includes('deleted')) {
+        return base()
+      }
+      return res
+    })(),
     // Presbitérium
     supabase
       .from('presbiter')

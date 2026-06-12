@@ -78,6 +78,7 @@ const DESKTOP_HIDDEN_MENU_HREFS = [
 ]
 
 import { AutoSyncStatusBar } from '../../components/auto-sync-status-bar'
+import { ExcelSetupWizard } from '../../components/excel-setup-wizard'
 import { SessionStatusIndicator } from '../../components/session-status-indicator'
 import { SettingsDialog } from '../../components/settings-dialog'
 import { SyncStatusIndicator } from '../../components/sync-status-indicator'
@@ -108,6 +109,7 @@ export function DesktopShell({ children }: DesktopShellProps) {
   const [congregation, setCongregation] = useState<CongregationLocalRow | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
+  const [excelWizardOpen, setExcelWizardOpen] = useState(false)
 
   // Bárhonnan megnyitható Beállítások egy adott füllel (pl. Pénzügy →
   // „Excel-könyvelés" hero-gomb → Könyvelés fül). Lazán csatolt custom event.
@@ -119,6 +121,17 @@ export function DesktopShell({ children }: DesktopShellProps) {
     }
     window.addEventListener('kartoteka:open-settings', onOpenSettingsEvent)
     return () => window.removeEventListener('kartoteka:open-settings', onOpenSettingsEvent)
+  }, [])
+
+  // Excel-beállítás varázsló (2026-06-12, Endre #1 Excel-wizard) — ugyanazzal a
+  // lazán csatolt event-mintával, mint a Beállítások: a Pénzügy hero-gombja
+  // (hiányos előkészítésnél) és a Könyvelés-panel „Varázsló indítása" gombja süti el.
+  useEffect(() => {
+    function onOpenExcelWizardEvent() {
+      setExcelWizardOpen(true)
+    }
+    window.addEventListener('kartoteka:open-excel-wizard', onOpenExcelWizardEvent)
+    return () => window.removeEventListener('kartoteka:open-excel-wizard', onOpenExcelWizardEvent)
   }, [])
 
   // Felhasználó feloldása — OFFLINE-barát (2026-06-11 fix): PIN-es belépésnél
@@ -350,6 +363,10 @@ export function DesktopShell({ children }: DesktopShellProps) {
         }
         publicSiteEnabled={congregation?.public_site_enabled === 1}
       />
+
+      {/* Excel-beállítás varázsló (2026-06-12, Endre #1 Excel-wizard) —
+          a 'kartoteka:open-excel-wizard' eseményre nyílik. */}
+      <ExcelSetupWizard open={excelWizardOpen} onOpenChange={setExcelWizardOpen} />
     </>
   )
 }

@@ -2,23 +2,34 @@
  * HomePage (Irányítópult) — a desktop-kliens főoldala.
  *
  * 2026-04-25 (Sprint A3 + B + J): a webes /dashboard paritás-rés zárása.
+ * 2026-06-12 (Endre #5 — dashboard-paritás): a születésnaposok-kártya és a
+ * programok-widget web-AZONOS változatra cserélve:
+ *   - Celebrations: a webes „Ma köszöntjük" kártya közösített változata
+ *     (mai születésnap + mai névnapos tagok + következő 14 nap + szűrős/
+ *     nyomtatós Lista-dialógus) — adatok web-azonos logikával számolva
+ *   - UpcomingPrograms: a webes program-widget agenda-kártyáinak tükre
+ *     (kt-* design, típus-ikon/szín, ismétlődés-kibontás, read-only)
+ *   - Névnapok: új `nevnap_local` tükör (nevnap-sync.ts) — hero-chip is kapja
+ *
  * Közös `@kartoteka/ui-app` dashboard-komponensek:
  *   - HeroBannerScripture (üdvözlő gradient + napi ige + névnap chip)
- *   - KpiCards (5 KPI)
- *   - BottomStats (7 demográfiai stat — élesen kalkulálva)
- *   - UpcomingPrograms (közelgő alkalmak — Sprint J)
- *   - Celebrations (mai + 14 napos születésnapok)
+ *   - KpiCards (3 KPI desktopon)
+ *   - UpcomingPrograms (web-azonos agenda — szerkesztés a weben)
+ *   - Celebrations (web-azonos „Ma köszöntjük")
+ *   - AgeDistribution (korelosztás)
  *   - RecentActivity (10 friss munkanapló-bejegyzés)
  *
  * Adat-források (lokális SQLCipher cache):
- *   - Aktív tagok / családok / demográfia / születésnapok: szemely_local + csalad_local
+ *   - Aktív tagok / demográfia / születésnapok: szemely_local (mínusz elkoltozott_local)
+ *   - Névnapok: nevnap_local (országos katalógus — Sprint #5 tükör)
  *   - Munkanapló: munkanaplo_local
- *   - Programok: gyulekezeti_programok_local (Sprint J — auto-pull mount-kor)
+ *   - Programok: gyulekezeti_programok_local (auto-sync percenként)
  *   - Daily verse: best-effort fetch a webes app `/api/daily-verse` endpointjáról
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
+import { getVersion } from '@tauri-apps/api/app'
 import { ClipboardList, Users, Wallet } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -30,26 +41,28 @@ import {
   KpiCards,
   RecentActivity,
   UpcomingPrograms,
+  expandUpcomingProgramOccurrences,
   type AgeBucketEntry,
-  type CelebrationEntry,
+  type CelebrationsMember,
   type DailyVerseData,
   type RecentActivityEntry,
   type UpcomingProgramEntry,
 } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
-import {
-  calculateAgeDistribution,
-  extractUpcomingBirthdays,
-} from '../lib/dashboard-helpers'
+import { calculateAgeDistribution } from '../lib/dashboard-helpers'
 import { getDesktopUser } from '../lib/desktop-user'
+import { getLocalTodayNamedayNames } from '../lib/nevnap-sync'
+import { printHtmlViaIframe } from '../lib/print-html'
 import {
   getLocalCsaladokCount,
+  getLocalElkoltozottek,
   getLocalMembersOfOwnCongregation,
   getLocalOwnCongregation,
   getLocalOwnProfile,
-  getLocalUpcomingPrograms,
+  getLocalPrograms,
   getLocalWorklogOfOwnCongregation,
+  type MemberLocalRow,
 } from '../lib/sync'
 import { useDataVersion } from '../lib/sync-orchestrator'
 
@@ -71,6 +84,23 @@ function getGreeting(): string {
   return 'Szép estét'
 }
 
+/** A webes `lib/utils/date.ts` ageFromDate tükre. */
+function ageFromDate(dateStr: string | null): number | null {
+  if (!dateStr) return null
+  const today = new Date()
+  const b = new Date(dateStr)
+  if (isNaN(b.getTime())) return null
+  let age = today.getFullYear() - b.getFullYear()
+  const m = today.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--
+  return age
+}
+
+/** Tag neve web-azonos sorrendben (a desktop-cache-ben nincs namepattern). */
+function memberDisplayName(m: MemberLocalRow): string {
+  return [m.csaladnev, m.k_nev].filter(Boolean).join(' ').trim() || '(névtelen)'
+}
+
 const FALLBACK_VERSE: DailyVerseData = {
   verse: 'Bízzál az Úrban teljes szíveddel, és ne a magad eszére támaszkodj!',
   reference: 'Példabeszédek 3:5',
@@ -84,19 +114,28 @@ export function HomePage() {
   const [user, setUser] = useState<User | null>(null)
   const [fullName, setFullName] = useState<string | null>(null)
   const [congregationName, setCongregationName] = useState<string | null>(null)
-  const [memberCount, setMemberCount] = useState<number>(0)
+  const [congregationLogo, setCongregationLogo] = useState<string | null>(null)
   const [familyCount, setFamilyCount] = useState<number>(0)
-  const [ageBuckets, setAgeBuckets] = useState<AgeBucketEntry[]>([])
-  const [birthdays, setBirthdays] = useState<CelebrationEntry[]>([])
+  const [activeMembers, setActiveMembers] = useState<MemberLocalRow[]>([])
+  const [namedayNames, setNamedayNames] = useState<string[]>([])
   const [recentActivity, setRecentActivity] = useState<RecentActivityEntry[]>([])
   const [upcomingPrograms, setUpcomingPrograms] = useState<UpcomingProgramEntry[]>([])
   const [dailyVerse, setDailyVerse] = useState<DailyVerseData | null>(null)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
     getDesktopUser().then((resolvedUser) => {
       if (mounted) setUser(resolvedUser)
     })
+    // Verzió-felirat az info-dobozhoz (korábban kézzel frissített, elavult string volt)
+    getVersion()
+      .then((v) => {
+        if (mounted) setAppVersion(v)
+      })
+      .catch(() => {
+        // csendes — böngészős dev-módban nincs Tauri API
+      })
     return () => {
       mounted = false
     }
@@ -109,21 +148,40 @@ export function HomePage() {
     if (!user) return
     let mounted = true
 
+    const today = new Date()
+    const curYear = today.getFullYear()
+    // 14 napos program-ablak — évhatárnál a következő év elejét is kérjük
+    const windowEnd = new Date(today.getTime() + 14 * 86400000)
+    const needNextYear = windowEnd.getFullYear() !== curYear
+
     void Promise.all([
       getLocalOwnProfile(user.id).catch(() => null),
       getLocalOwnCongregation(user.id).catch(() => null),
       getLocalCsaladokCount(user.id).catch(() => 0),
       getLocalMembersOfOwnCongregation(user.id).catch(() => []),
       getLocalWorklogOfOwnCongregation(user.id, { limit: 10 }).catch(() => []),
-      getLocalUpcomingPrograms(user.id, 14, 5).catch(() => []),
-    ]).then(([profile, congregation, families, members, worklog, programs]) => {
+      getLocalPrograms(user.id, curYear).catch(() => []),
+      needNextYear ? getLocalPrograms(user.id, curYear + 1).catch(() => []) : Promise.resolve([]),
+      getLocalElkoltozottek(user.id, 100000).catch(() => []),
+      getLocalTodayNamedayNames().catch(() => []),
+    ]).then(([profile, congregation, families, members, worklog, programsThisYear, programsNextYear, elkoltozottek, namedays]) => {
       if (!mounted) return
       setFullName(profile?.full_name ?? null)
       setCongregationName(congregation?.nev_hu ?? congregation?.name ?? null)
+      setCongregationLogo(congregation?.cimer_url ?? null)
       setFamilyCount(families)
-      setMemberCount(members.filter((m) => !m.meghalt).length)
-      setAgeBuckets(calculateAgeDistribution(members))
-      setBirthdays(extractUpcomingBirthdays(members, 14))
+
+      // Web-paritás: az „aktív tag" = élő ÉS nem elköltözött (a webes
+      // dashboard az `elkoltozott` táblával szűri ki a már elköltözötteket).
+      const movedIds = new Set(
+        elkoltozottek
+          .map((e) => e.id_szemely)
+          .filter((id): id is number => id !== null),
+      )
+      const active = members.filter((m) => !m.meghalt && !movedIds.has(m.id))
+      setActiveMembers(active)
+      setNamedayNames(namedays)
+
       setRecentActivity(
         worklog.map((w) => ({
           id: w.id,
@@ -133,22 +191,25 @@ export function HomePage() {
           jelenlet: w.jelenlet_osszesen ?? null,
         })),
       )
-      setUpcomingPrograms(
-        programs.map((p) => ({
-          id: p.id,
-          cim: p.cim,
-          datum: p.datum,
-          ido_kezdes: p.ido_kezdes,
-          helyszin: p.helyszin,
-          tipus: p.tipus,
-          prioritas: p.prioritas,
-          ismetlodes_tipus: p.ismetlodes_tipus,
-          egyedi_tipus_nev: p.egyedi_tipus_nev,
-          leiras: p.leiras,
-          szin: p.szin,
-          egyedi_emoji: p.egyedi_emoji,
-        })),
-      )
+
+      // Programok: a teljes év(ek) sorai → ismétlődés-kibontás + 14 napos ablak
+      // (web-paritás: a heti/kétheti/havi alkalmak korábban nem jelentek meg)
+      const programEntries: UpcomingProgramEntry[] = [...programsThisYear, ...programsNextYear].map((p) => ({
+        id: p.id,
+        cim: p.cim,
+        datum: p.datum,
+        datum_vege: p.datum_vege,
+        ido_kezdes: p.ido_kezdes,
+        ido_befejezes: p.ido_befejezes,
+        helyszin: p.helyszin,
+        tipus: p.tipus,
+        prioritas: p.prioritas,
+        ismetlodes_tipus: p.ismetlodes_tipus,
+        egyedi_tipus_nev: p.egyedi_tipus_nev,
+        egyedi_emoji: p.egyedi_emoji,
+        teljesitett: p.teljesitett === 1,
+      }))
+      setUpcomingPrograms(expandUpcomingProgramOccurrences(programEntries, 14))
     })
 
     return () => {
@@ -179,6 +240,70 @@ export function HomePage() {
     }
   }, [])
 
+  // ── Születésnap / névnap adatok (a webes dashboard/page.tsx logika tükre) ──
+  const celebrationsData = useMemo(() => {
+    const today = new Date()
+    const curYear = today.getFullYear()
+    const mmDd = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    // Mai születésnaposok
+    const todayBirthdays = activeMembers
+      .filter((m) => m.sz_datum && m.sz_datum.slice(5, 10) === mmDd)
+      .map((m) => ({
+        name: memberDisplayName(m),
+        age: ageFromDate(m.sz_datum),
+      }))
+
+    // Mai névnapos tagok (keresztnév-egyezés a katalógus neveivel)
+    const todayNamedayMembers = namedayNames.length > 0
+      ? activeMembers
+          .filter((m) => m.k_nev && namedayNames.includes(m.k_nev))
+          .map((m) => memberDisplayName(m))
+      : []
+
+    // Következő 14 nap születésnapjai (web-azonos diffDays-logika)
+    const todayMs = new Date(curYear, today.getMonth(), today.getDate()).getTime()
+    const upcomingBirthdays = activeMembers
+      .filter((m) => m.sz_datum)
+      .map((m) => {
+        const b = new Date(m.sz_datum!)
+        if (isNaN(b.getTime())) return null
+        let nextBday = new Date(curYear, b.getMonth(), b.getDate())
+        if (nextBday.getTime() <= todayMs) nextBday = new Date(curYear + 1, b.getMonth(), b.getDate())
+        const diffDays = Math.round((nextBday.getTime() - todayMs) / 86400000)
+        if (diffDays <= 0 || diffDays > 14) return null
+        return {
+          name: memberDisplayName(m),
+          age: nextBday.getFullYear() - b.getFullYear(),
+          diffDays,
+          month: nextBday.getMonth(),
+          day: nextBday.getDate(),
+        }
+      })
+      .filter((b): b is NonNullable<typeof b> => b !== null)
+      .sort((a, b) => a.diffDays - b.diffDays)
+
+    // A szűrő/nyomtató dialógus tag-listája (a cache-ben nincs utca/helység-join,
+    // a c_szcim szabad-szöveges cím + házszám a lakhely-fallback)
+    const allMembers: CelebrationsMember[] = activeMembers.map((m) => ({
+      id: String(m.id),
+      csaladnev: m.csaladnev,
+      k_nev: m.k_nev,
+      namepattern: null,
+      sz_datum: m.sz_datum,
+      ferfi: m.ferfi === 1,
+      c_szam: m.c_szam,
+      c_szcim: m.c_szcim,
+    }))
+
+    return { todayBirthdays, todayNamedayMembers, upcomingBirthdays, allMembers }
+  }, [activeMembers, namedayNames])
+
+  const ageBuckets: AgeBucketEntry[] = useMemo(
+    () => calculateAgeDistribution(activeMembers),
+    [activeMembers],
+  )
+
   const firstName = fullName?.split(' ').pop() ?? null
   const greeting = useMemo(() => getGreeting(), [])
   const greetingText = `${greeting}${firstName ? `, ${firstName}!` : '!'}`
@@ -187,19 +312,19 @@ export function HomePage() {
   return (
     <DesktopShell>
       <div className="space-y-6">
-        {/* Üdvözlő banner */}
+        {/* Üdvözlő banner — a névnap-chip a nevnap_local tükörből él */}
         <HeroBannerScripture
           greetingText={greetingText}
           dateText={dateText}
           congregationName={congregationName}
-          todayNamedays={[]}
+          todayNamedays={namedayNames.map((name) => ({ name }))}
           dailyVerse={dailyVerse}
         />
 
         {/* 3 KPI kártya — desktop módban, a webes-only "Gyülekezeti weboldal"
             és „Prezentáció" kártyák elrejtve (Sprint P, v0.5.4). */}
         <KpiCards
-          activeMemberCount={memberCount}
+          activeMemberCount={activeMembers.length}
           familyCount={familyCount}
           monthlyIncome={0}
           monthlyExpense={0}
@@ -209,13 +334,21 @@ export function HomePage() {
         />
 
         {/* 3 oszlop a hero alatt: Ma köszöntjük + Gyülekezeti programok + Korelosztás
-            (Sprint O — Endre kérése a 3 widget egy sorba szépen dobozolva). */}
+            (Sprint O — Endre kérése a 3 widget egy sorba szépen dobozolva).
+            2026-06-12: a sorrend a webes dashboardot tükrözi
+            (Celebrations | Programok | Korelosztás). */}
         <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
           <Celebrations
-            entries={birthdays}
-            onEntryClick={(entry) => navigate(`/tagnyilvantartas?member=${entry.id}`)}
+            todayBirthdays={celebrationsData.todayBirthdays}
+            todayNamedayMembers={celebrationsData.todayNamedayMembers}
+            todayNamedayNames={namedayNames}
+            upcomingBirthdays={celebrationsData.upcomingBirthdays}
+            allMembers={celebrationsData.allMembers}
+            congregationName={congregationName ?? 'Gyülekezet'}
+            congregationLogo={congregationLogo}
+            onPrintHtml={(html) => void printHtmlViaIframe(html)}
           />
-          <UpcomingPrograms entries={upcomingPrograms} />
+          <UpcomingPrograms entries={upcomingPrograms} daysAhead={14} />
           <AgeDistribution buckets={ageBuckets} />
         </div>
 
@@ -269,15 +402,15 @@ export function HomePage() {
             <div className="flex-1 text-xs text-slate-700">
               <p className="font-medium text-slate-800">Fejlesztői állapot</p>
               <p className="mt-1 leading-snug">
-                A desktop app jelenleg <strong>v0.8.7</strong> verzióban fut. Tagnyilvántartás,
-                családok, munkanapló, pénzügy (7 oldal), anyakönyv (8 tábla), leltár, iktató,
-                jegyzőkönyvek, sírhelyek és éves jelentés mind elérhetők offline-ban. Az
-                adatok automatikusan szinkronizálódnak percenként a háttérben — az alsó
-                állapotsávon látszik, mikor frissültek utoljára.{' '}
-                <strong>Új a v0.8.7-ben:</strong> az offline belépési kódot mostantól
-                a rendszer megjegyzi a saját számítógépeden („Emlékezz erre a gépre" pipa) —
-                így nem kell minden frissítés után újra megadni; ha elfelejtetted a kódot,
-                az „Elfelejtettem" gomb után online belépéssel új kódot állíthatsz be.
+                A desktop app jelenleg <strong>{appVersion ? `v${appVersion}` : 'fejlesztői'}</strong>{' '}
+                verzióban fut. Tagnyilvántartás, családok, munkanapló, pénzügy (7 oldal),
+                anyakönyv (8 tábla), leltár, iktató, jegyzőkönyvek, sírhelyek és éves
+                jelentés mind elérhetők offline-ban. Az adatok automatikusan
+                szinkronizálódnak percenként a háttérben — az alsó állapotsávon látszik,
+                mikor frissültek utoljára. <strong>Tipp:</strong> az offline belépési
+                kódot a rendszer megjegyzi a saját számítógépeden („Emlékezz erre a gépre"
+                pipa) — ha elfelejtetted, az „Elfelejtettem" gomb után online belépéssel
+                új kódot állíthatsz be.
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => navigate('/dev')}>

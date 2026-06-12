@@ -177,6 +177,9 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
         getCongregationBankAccounts(congregationId),
       ]).then(([res, bankRes]) => {
         if (cancelled) return
+        // 2026-06-12 (Endre #2): a betöltési hiba eddig néma volt — üres
+        // űrlap jelent meg magyarázat nélkül.
+        if (res.error) toast.error(`A gyülekezeti adatok betöltése sikertelen: ${res.error}`)
         if (res.data) {
           const d = res.data
           setForm({
@@ -265,46 +268,33 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 
   // "Mentésre kész" feltétel (a gomb engedélyezéséhez). A szerver továbbra is
   // szigorúan validál; a hiányzó mezőket fieldErrors-ban jelezzük.
-  const canSave =
-    form.nev_hu.trim().length >= 2 &&
-    form.adoszam.trim().length > 0 &&
-    form.megye.trim().length > 0 &&
-    form.varos.trim().length > 0 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) &&
-    form.telefon.trim().length > 0 &&
-    !!primaryBank &&
-    primaryBank.bank_neve.trim().length > 0 &&
-    primaryBank.iban.trim().length > 0
+  //
+  // 2026-06-12 (Endre #2 — gyülekezet-beállítás ellenőrzés): a `cim` (utca) és
+  // a `cimer_url` EDDIG hiányzott innen, pedig a szerver-oldali
+  // congregationSetupSchema kötelezően kéri őket → a gomb aktív volt, de a
+  // mentés hibával elhasalt. Most a kliens-feltétel tükrözi a szervert, és a
+  // hiányzó mezőket fel is soroljuk a gomb mellett.
+  const missingRequired: string[] = []
+  if (form.nev_hu.trim().length < 2) missingRequired.push('magyar név')
+  if (!form.adoszam.trim()) missingRequired.push('adószám')
+  if (!form.megye.trim()) missingRequired.push('megye')
+  if (!form.varos.trim()) missingRequired.push('helység')
+  if (!form.cim.trim()) missingRequired.push('utca/cím')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) missingRequired.push('e-mail')
+  if (!form.telefon.trim()) missingRequired.push('telefon')
+  if (!form.cimer_url.trim()) missingRequired.push('címer')
+  if (!primaryBank || !primaryBank.bank_neve.trim() || !primaryBank.iban.trim()) missingRequired.push('fő bankszámla (név + IBAN)')
+  const canSave = missingRequired.length === 0
 
   function handleSave() {
     setFieldErrors({})
     startTransition(async () => {
-      // 1) Bankszámlák mentése (meglévő → update, új → insert; a fő számla
-      //    a congregations.bank/iban-t is szinkronizálja).
-      for (const acc of bankAccounts) {
-        if (!acc.bank_neve.trim()) continue
-        const res = await saveCongregationBankAccount(congregationId, {
-          id: acc.id,
-          bankNeve: acc.bank_neve.trim(),
-          iban: acc.iban.trim() || undefined,
-          valuta: acc.valuta,
-          nyitoEgyenleg: acc.nyito_egyenleg,
-          szin: acc.szin,
-          ikon: acc.ikon,
-          isDefault: acc.is_default,
-          aktiv: true,
-        })
-        if ('error' in res && res.error) {
-          toast.error(`Bankszámla mentése sikertelen: ${res.error}`)
-          return
-        }
-      }
-      // 2) Törlésre jelölt számlák
-      for (const id of removedBankIds) {
-        await deleteCongregationBankAccount(congregationId, id)
-      }
+      // 2026-06-12 (Endre #2): SORREND-CSERE — előbb a szigorúan validált
+      // gyülekezeti alapadat-mentés fut. Korábban a bankszámla-műveletek
+      // (insert/update/DELETE!) előbb futottak, így érvénytelen űrlapnál is
+      // részleges mentés történt.
 
-      // 3) Gyülekezeti alapadatok mentése (a fő számla bank/iban-jával)
+      // 1) Gyülekezeti alapadatok mentése (a fő számla bank/iban-jával)
       const res = await saveCongregationSetup({
         id: congregationId,
         ...form,
@@ -316,6 +306,36 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
         if (res.fieldErrors) setFieldErrors(res.fieldErrors)
         return
       }
+
+      // 2) Bankszámlák mentése (meglévő → update, új → insert; a fő számla
+      //    a congregations.bank/iban-t is szinkronizálja).
+      for (const acc of bankAccounts) {
+        if (!acc.bank_neve.trim()) continue
+        const bankRes = await saveCongregationBankAccount(congregationId, {
+          id: acc.id,
+          bankNeve: acc.bank_neve.trim(),
+          iban: acc.iban.trim() || undefined,
+          valuta: acc.valuta,
+          nyitoEgyenleg: acc.nyito_egyenleg,
+          szin: acc.szin,
+          ikon: acc.ikon,
+          isDefault: acc.is_default,
+          aktiv: true,
+        })
+        if ('error' in bankRes && bankRes.error) {
+          toast.error(`Bankszámla mentése sikertelen: ${bankRes.error}`)
+          return
+        }
+      }
+      // 3) Törlésre jelölt számlák — a hibát eddig némán elnyeltük
+      for (const id of removedBankIds) {
+        const delRes = await deleteCongregationBankAccount(congregationId, id)
+        if ('error' in delRes && delRes.error) {
+          toast.error(`Bankszámla törlése sikertelen: ${delRes.error}`)
+          return
+        }
+      }
+
       toast.success('Gyülekezet beállítva! 🎉', { duration: 4000 })
       if (onCompleted) await onCompleted()
       onOpenChange(false)
@@ -389,6 +409,17 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             </div>
           )}
         </div>
+
+        {/* 2026-06-12 (Endre #2): ha a Mentés gomb inaktív, mutassuk meg MIÉRT —
+            a hiányzó kötelező mezők felsorolása. */}
+        {!loading && !canSave && (
+          <div className="shrink-0 border-t border-amber-100 bg-amber-50/60 px-6 py-2">
+            <p className="text-xs text-amber-800">
+              <AlertCircle className="mr-1 inline size-3.5 align-[-2px]" />
+              A mentéshez még hiányzik: <strong>{missingRequired.join(', ')}</strong>
+            </p>
+          </div>
+        )}
 
         {/* Lábléc gombok */}
         <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3 flex items-center justify-between gap-2">

@@ -7,6 +7,7 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
 import { logAuditEvent } from '@/lib/audit/log'
+import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
 export interface FamilyRow {
   id: number
@@ -692,29 +693,38 @@ export async function saveFamilyVisit(data: { familyId: number; datum: string; l
   if (!allowedFamilyIds.has(data.familyId)) return { error: 'Nincs jogosultsága ehhez a családhoz.' }
 
   // Családlátogatás mentés
-  const { error } = await supabase.from('csaladlatogatas').insert({
+  const { error, data: insData } = await supabase.from('csaladlatogatas').insert({
     id_csalad: data.familyId,
     datum: data.datum,
     lelkesz: data.lelkesz,
     alapige: data.alapige || null,
     megjegyzes: data.megjegyzes || null,
     congregation_id: congregationId,
-  })
+  }).select('id')
   if (error) return { error: error.message }
 
-  // Munkanapló szinkron
-  if (data.toMunkanaplo) {
-    try {
-      await supabase.from('munkanaplo').insert({
+  // Munkanapló szinkron (2026-06-12, Endre #3-4 munkanapló): a közös
+  // registry-sync helperrel — a korábbi insert a munkanaplo.jelenlet_osszesen
+  // NOT NULL oszlop miatt NÉMÁN elbukott (a try/catch nem fogta, mert a
+  // Supabase nem dob, hanem error-t ad vissza). Most a csaladlatogatas sor
+  // `munkanaplo_id` linkje is kitöltődik (a séma eddig is tartalmazta).
+  const visitId = (insData?.[0]?.id as number | undefined) ?? null
+  if (data.toMunkanaplo && visitId) {
+    await syncRegistryWorklogLink(supabase, congregationId, {
+      sourceTable: 'csaladlatogatas',
+      sourceId: visitId,
+      currentWorklogId: null,
+      munkanaploba: true,
+      payload: {
         idopont: data.datum,
         jellege: 'Családlátogatás',
+        kategoria: 'latogatas',
         alapige: data.alapige || null,
         szolgalt: data.lelkesz,
         megjegyzes: data.megjegyzes || null,
-        kategoria: 'latogatas',
-        congregation_id: congregationId,
-      })
-    } catch { /* munkanapló hiba nem blokkolja a mentést */ }
+      },
+    })
+    revalidatePath('/munkanaplo')
   }
 
   await logAuditEvent({ action: 'family.visit_save', targetTable: 'csaladlatogatas', targetId: String(data.familyId) }, supabase)

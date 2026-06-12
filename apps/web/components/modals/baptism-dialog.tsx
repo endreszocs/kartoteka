@@ -122,7 +122,10 @@ export function BaptismDialog({ open, onOpenChange, congregationName, editEntry 
         }
         setFather(null); setMother(null); setFamilyAutoLoaded(false)
         setApjaneveText(null); setAnyjaneveText(null); setParentDiag(null)
-        setMunkanaploba(false)
+        // 2026-06-12 (Endre #3-4 munkanapló): szerkesztéskor a mentett pipát
+        // töltjük vissza — korábban fixen false volt, így a szerkesztés-mentés
+        // némán kikapcsolta a munkanapló-rögzítést.
+        setMunkanaploba(!!editEntry.munkanaploba)
         return
       }
       setSelectedPerson(null)
