@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Home, Plus, Search } from 'lucide-react'
+import { Grid3x3, Home, List, Plus, Search } from 'lucide-react'
 
 import {
   Button,
@@ -31,7 +31,9 @@ import {
 
 import { CsaladFormDialog } from '../components/csalad-form-dialog'
 import { FamilyDetailDialog } from '../components/family-detail-dialog'
-import { PageHero } from '@kartoteka/ui-app'
+import { PageHero, FamilyCardModern, type FamilyCardModernData } from '@kartoteka/ui-app'
+import { dbSelect } from '../lib/local-db'
+import { DesktopFamilyCardPrintDialog } from '../components/family-card-print-dialog'
 import {
   runCsaladSyncManually,
   startCsaladAutoSync,
@@ -63,6 +65,25 @@ export function FamiliesPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  // 2026-06-11 (Endre): modern kártyanézet — avatarokkal (web-azonos komponens).
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>(() => {
+    try {
+      return window.localStorage.getItem('kartoteka.families.viewMode.desktop') === 'list' ? 'list' : 'cards'
+    } catch {
+      return 'cards'
+    }
+  })
+  const [cardData, setCardData] = useState<Map<number, FamilyCardModernData>>(new Map())
+  const [printFamilyId, setPrintFamilyId] = useState<number | null>(null)
+
+  function changeViewMode(v: 'cards' | 'list') {
+    setViewMode(v)
+    try {
+      window.localStorage.setItem('kartoteka.families.viewMode.desktop', v)
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Auth + congregation_id
   useEffect(() => {
@@ -124,6 +145,86 @@ export function FamiliesPage() {
     }, 300)
     return () => clearTimeout(timer)
   }, [refresh, dataVersion, userId, congregationId])
+
+  // Kártya-kiegészítés a lokális tükörből: szülők (kep, kor, meghalt) +
+  // gyermekek névvel/avatarral — két batch-SQL, a lista-sorok mellé.
+  useEffect(() => {
+    if (rows.length === 0) {
+      setCardData(new Map())
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const parentIds = Array.from(
+          new Set(rows.flatMap((r) => [r.ferfi_id, r.no_id].filter((v): v is number => v != null))),
+        )
+        const csaladIds = rows.map((r) => r.id)
+        const ph = (n: number, offset = 0) => Array.from({ length: n }, (_, i) => `?${i + 1 + offset}`).join(',')
+
+        const szemelyek = parentIds.length
+          ? await dbSelect<{ id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null; meghalt: number; kep: string | null }>(
+              `SELECT id, csaladnev, k_nev, sz_datum, meghalt, kep FROM szemely_local WHERE id IN (${ph(parentIds.length)})`,
+              parentIds,
+            )
+          : []
+        const gyerekek = await dbSelect<{ id_csalad: number; id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null; meghalt: number; kep: string | null }>(
+          `SELECT g.id_csalad, s.id, s.csaladnev, s.k_nev, s.sz_datum, s.meghalt, s.kep
+             FROM gyerek_local g JOIN szemely_local s ON s.id = g.id_szemely
+            WHERE g.id_csalad IN (${ph(csaladIds.length)})
+            ORDER BY s.sz_datum`,
+          csaladIds,
+        )
+        if (cancelled) return
+
+        const szemelyById = new Map(szemelyek.map((sz) => [sz.id, sz]))
+        const gyerekByCsalad = new Map<number, typeof gyerekek>()
+        for (const gy of gyerekek) {
+          const list = gyerekByCsalad.get(gy.id_csalad) ?? []
+          list.push(gy)
+          gyerekByCsalad.set(gy.id_csalad, list)
+        }
+
+        const yearNow = new Date().getFullYear()
+        const ageOf = (d: string | null) => (d ? yearNow - new Date(d).getFullYear() : null)
+        const next = new Map<number, FamilyCardModernData>()
+        for (const r of rows) {
+          const members: FamilyCardModernData['members'] = []
+          const ferfi = r.ferfi_id != null ? szemelyById.get(r.ferfi_id) : undefined
+          const no = r.no_id != null ? szemelyById.get(r.no_id) : undefined
+          if (ferfi) {
+            members.push({ id: ferfi.id, name: `${ferfi.csaladnev ?? ''} ${ferfi.k_nev ?? ''}`.trim() || (r.ferfi_name ?? 'Családfő'), role: 'csaladfo', age: ageOf(ferfi.sz_datum), meghalt: ferfi.meghalt === 1, kepUrl: ferfi.kep })
+          } else if (r.ferfi_name) {
+            members.push({ id: -1, name: r.ferfi_name, role: 'csaladfo' })
+          }
+          if (no) {
+            members.push({ id: no.id, name: `${no.csaladnev ?? ''} ${no.k_nev ?? ''}`.trim() || (r.no_name ?? 'Házastárs'), role: 'hazastars', age: ageOf(no.sz_datum), meghalt: no.meghalt === 1, kepUrl: no.kep })
+          } else if (r.no_name) {
+            members.push({ id: -2, name: r.no_name, role: 'hazastars' })
+          }
+          for (const gy of gyerekByCsalad.get(r.id) ?? []) {
+            members.push({ id: gy.id, name: `${gy.csaladnev ?? ''} ${gy.k_nev ?? ''}`.trim() || 'Gyermek', role: 'gyerek', age: ageOf(gy.sz_datum), meghalt: gy.meghalt === 1, kepUrl: gy.kep })
+          }
+          next.set(r.id, {
+            familyId: r.id,
+            familyName: ferfi?.csaladnev || no?.csaladnev || r.ferfi_name?.split(' ')[0] || null,
+            members,
+            street: r.cim_display,
+            houseNumber: null,
+            districtName: null,
+            isActive: r.isaktiv === 1,
+            paymentStatus: 'unknown',
+          })
+        }
+        setCardData(next)
+      } catch {
+        /* a kártya-kiegészítés best-effort — a lista enélkül is él */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [rows])
 
   const selected = selectedId !== null ? rows.find((r) => r.id === selectedId) ?? null : null
 
@@ -189,7 +290,7 @@ export function FamiliesPage() {
                 </select>
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-2 text-xs">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <Label htmlFor="orderby">Rendezés:</Label>
               <select
                 id="orderby"
@@ -201,6 +302,27 @@ export function FamiliesPage() {
                 <option value="csaladfo-nev-desc">Név Z→A</option>
                 <option value="id-desc">Felvétel (legújabb)</option>
               </select>
+              {/* Nézet-váltó (web-azonos): kártya az alapértelmezett */}
+              <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => changeViewMode('cards')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition ${
+                    viewMode === 'cards' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Grid3x3 className="size-3.5" /> Kártyák
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeViewMode('list')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition ${
+                    viewMode === 'list' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <List className="size-3.5" /> Lista
+                </button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -226,6 +348,36 @@ export function FamiliesPage() {
             Nincs család a gyülekezetben. A háttér-szinkron percenként frissít — várd meg, vagy
             az anyakönyvi / tagnyilvántartási modulból vegyél fel újat.
           </p>
+        ) : viewMode === 'cards' ? (
+          // 2026-06-11 (Endre): modern kártyanézet — tag-avatarok + gyermek-chipek
+          // + kártyán belüli karton-nyomtatás (web-azonos megosztott komponens).
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {rows.map((f) => {
+              const data =
+                cardData.get(f.id) ??
+                ({
+                  familyId: f.id,
+                  familyName: f.ferfi_name?.split(' ')[0] || f.no_name?.split(' ')[0] || null,
+                  members: [
+                    ...(f.ferfi_name ? [{ id: -1, name: f.ferfi_name, role: 'csaladfo' as const }] : []),
+                    ...(f.no_name ? [{ id: -2, name: f.no_name, role: 'hazastars' as const }] : []),
+                  ],
+                  street: f.cim_display,
+                  houseNumber: null,
+                  districtName: null,
+                  isActive: f.isaktiv === 1,
+                  paymentStatus: 'unknown' as const,
+                } satisfies FamilyCardModernData)
+              return (
+                <FamilyCardModern
+                  key={f.id}
+                  data={data}
+                  onClick={() => setSelectedId(f.id)}
+                  onPrint={() => setPrintFamilyId(f.id)}
+                />
+              )
+            })}
+          </div>
         ) : (
           <Card>
             <CardContent className="p-0">
@@ -258,6 +410,16 @@ export function FamiliesPage() {
             }}
           />
         )}
+
+        {/* 2026-06-11: családi karton nyomtatás (web-azonos A4 lap) */}
+        <DesktopFamilyCardPrintDialog
+          open={printFamilyId !== null}
+          onOpenChange={(o) => {
+            if (!o) setPrintFamilyId(null)
+          }}
+          familyId={printFamilyId}
+          congregationId={congregationId}
+        />
 
         {/* Create dialog */}
         {createOpen && userId && congregationId && (

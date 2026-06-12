@@ -125,12 +125,15 @@ export type SaveExpenseResultOrError =
     }
 
 function generateXkey(): string {
+  // 2026-06-12 (Endre #3 + diagnoszt-SQL): az éles DB-n a befizetes.xkey és
+  // kiadas.xkey VARCHAR(20) — a 36 karakteres UUID „value too long" hibával
+  // buktatta a mentést. 20 hex karakter (16^20 tér) bőven egyedi az xkey célra.
   const cryptoObj =
     typeof globalThis !== 'undefined'
       ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
       : undefined
-  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID()
-  const rand = Array.from({ length: 16 }, () =>
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID().replace(/-/g, '').slice(0, 20)
+  const rand = Array.from({ length: 20 }, () =>
     Math.floor(Math.random() * 16).toString(16),
   ).join('')
   return `${rand}-${Date.now().toString(16)}`

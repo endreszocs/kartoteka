@@ -8,9 +8,14 @@
  *  - 4 nyomtatvány típus (szolgálati, katekétikai, diakóniai, éves jelentés)
  *  - Élő előnézet iframe-ben
  *  - PDF mentés + direkt nyomtatás
+ *
+ * 2026-06-12 (Endre #3 munkanapló): a dialog SAJÁT MAGA tölti be a kiválasztott
+ * év TELJES bejegyzés-listáját (getWorklogsForYear). Korábban a szülőtől kapta
+ * az aktuális hónap entries-ét — így az "Éves lelkészi jelentés" mindig csak
+ * egyetlen hónap adatait tartalmazta.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,11 +27,13 @@ import {
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
 import type { WorklogEntry } from '@/lib/constants/worklog'
+import { getWorklogsForYear } from '@/app/(dashboard)/munkanaplo/actions'
 
 interface WorklogPrintDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  entries: WorklogEntry[]
+  /** A megnyitáskor előválasztott év (a munkanapló-szűrő éve). */
+  initialYear?: number
   congregationName?: string
 }
 
@@ -38,15 +45,35 @@ const MONTHS = [
 export function WorklogPrintDialog({
   open,
   onOpenChange,
-  entries,
+  initialYear,
   congregationName,
 }: WorklogPrintDialogProps) {
   const currentYear = new Date().getFullYear()
   const [printType, setPrintType] = useState<WorklogPrintType>('eves_jelentes')
-  const [selectedYear, setSelectedYear] = useState(currentYear)
+  const [selectedYear, setSelectedYear] = useState(initialYear || currentYear)
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
+  const [entries, setEntries] = useState<WorklogEntry[]>([])
+  const [loadingEntries, setLoadingEntries] = useState(false)
+
+  // Megnyitáskor az átadott évre ugrunk
+  useEffect(() => {
+    if (open && initialYear) setSelectedYear(initialYear)
+  }, [open, initialYear])
+
+  // A kiválasztott év teljes adatainak betöltése
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoadingEntries(true)
+    getWorklogsForYear(selectedYear).then((data) => {
+      if (cancelled) return
+      setEntries(data)
+      setLoadingEntries(false)
+    })
+    return () => { cancelled = true }
+  }, [open, selectedYear])
 
   const filters: WorklogReportFilters = useMemo(() => ({
     year: selectedYear,
@@ -180,7 +207,7 @@ export function WorklogPrintDialog({
 
               <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
                 <div><span className="font-semibold text-slate-800">Időszak:</span> {selectedMonth ? `${MONTHS[parseInt(selectedMonth.split('-')[1], 10) - 1]} ${selectedYear}` : `${selectedYear}. teljes év`}</div>
-                <div><span className="font-semibold text-slate-800">Érintett bejegyzések:</span> {filteredCount} db</div>
+                <div><span className="font-semibold text-slate-800">Érintett bejegyzések:</span> {loadingEntries ? 'betöltés…' : `${filteredCount} db`}</div>
                 <div><span className="font-semibold text-slate-800">Tájolás:</span> {report.orientation === 'landscape' ? 'A4 fekvő' : 'A4 álló'}</div>
               </div>
 

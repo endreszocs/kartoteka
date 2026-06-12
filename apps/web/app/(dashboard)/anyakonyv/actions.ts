@@ -5,10 +5,33 @@ import { baptismSchema, marriageSchema, burialSchema, movementSchema, confirmati
 import type { BaptismInput, MarriageInput, BurialInput, MovementInput, ConfirmationBatchInput, ConfirmationSingleInput } from '@/lib/validations/registry'
 import type { RegistryEntry } from '@/lib/constants/registry'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { softDeleteRegistryWorklog, syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
 async function getCongregation() {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   return { supabase, congId: congregationId }
+}
+
+// ── Munkanapló-szinkron segéd (2026-06-12, Endre #3-4 munkanapló) ─────
+//
+// A keresztelés/esketés/temetés/konfirmálás mentésekor a "Rögzítés a
+// munkanaplóba" pipa hatására a munkanaplo táblába is bejegyzés kerül.
+// A részletes (idempotens) logika a lib/worklog/registry-sync.ts-ben él;
+// itt csak a nevek feloldása történik a beszédes címhez.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getSzemelyNames(supabase: any, ids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  const unique = [...new Set(ids)].filter(Boolean)
+  if (unique.length === 0) return out
+  const { data } = await supabase
+    .from('szemely')
+    .select('id, csaladnev, k_nev')
+    .in('id', unique)
+  for (const row of (data || []) as { id: number; csaladnev: string | null; k_nev: string | null }[]) {
+    out.set(row.id, `${row.csaladnev || ''} ${row.k_nev || ''}`.trim() || `#${row.id}`)
+  }
+  return out
 }
 
 // ── Adatbetöltés (fülváltáskor) ──────────────────────────────
@@ -649,24 +672,29 @@ export async function saveBaptism(data: BaptismInput) {
     congregation_id: congId,
   }
 
-  let isInsert = false
+  // 2026-06-12 (Endre #3-4): a sor id-ját ÉS a meglévő munkanaplo_id linket is
+  // megfogjuk — a mentés végi munkanapló-szinkronhoz.
+  let baptismRowId: number | null = null
+  let currentWorklogId: number | null = null
   if (d.id) {
     const { error, data: updData, count } = await supabase
       .from('keresztseg')
       .update(record, { count: 'exact' })
       .eq('id', d.id)
       .eq('congregation_id', congId)
-      .select('id')
+      .select('id, munkanaplo_id')
     console.log('[saveBaptism] UPDATE eredmény:', { id: d.id, count, updData, error: error?.message })
     if (error) return { error: `Hiba: ${error.message}` }
     if (!count || count === 0) {
       console.error('[saveBaptism] ⚠️ UPDATE 0 sort érintett! id=', d.id, 'congId=', congId)
       return { error: `A bejegyzés nem található (id=${d.id}). Vagy törölve lett, vagy más gyülekezeté.` }
     }
+    baptismRowId = d.id
+    currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
   } else {
-    isInsert = true
-    const { error } = await supabase.from('keresztseg').insert([record]).select('id')
+    const { error, data: insData } = await supabase.from('keresztseg').insert([record]).select('id')
     if (error) return { error: `Hiba: ${error.message}` }
+    baptismRowId = (insData?.[0]?.id as number | undefined) ?? null
   }
 
   // Szülő-csatolás a szemely táblában — MIND insert MIND update esetén.
@@ -723,24 +751,32 @@ export async function saveBaptism(data: BaptismInput) {
     }
   }
 
-  // Munkanapló — csak új kereszteléskor, hogy ne duplikáljunk.
-  // A munkanaplo insert hibája NEM blokkolja a fő műveletet (keresztelő már mentve),
-  // de a néma fail helyett warn-ra dobjuk a Railway/Vercel logba (DIAGNOSTICS P1-1).
-  if (isInsert && d.munkanaploba) {
-    try {
-      await supabase.from('munkanaplo').insert([{
-        idopont: d.datum, jellege: 'Keresztelő', cim: `Keresztelés: ${d.alapige || ''}`.trim(),
-        congregation_id: congId,
-      }])
-    } catch (error) {
-      console.warn(
-        '[saveBaptism] munkanaplo insert sikertelen — keresztelő rögzítve, de a munkanaplo-log kimaradt:',
-        error instanceof Error ? error.message : error,
-      )
-    }
+  // Munkanapló-szinkron (2026-06-12, Endre #3-4): idempotens — a keresztseg
+  // sor `munkanaplo_id` linkje + a munkanaplo.id_jellege forrás-marker véd a
+  // duplikáció ellen; szerkesztéskor a meglévő bejegyzés frissül; kicsekkolt
+  // pipánál a bejegyzés soft-delete-et kap. Hibája nem blokkolja a mentést.
+  //
+  // KORÁBBI BUG: az itteni insert a jelenlet_osszesen NOT NULL oszlop miatt
+  // NÉMÁN elbukott (nincs DB-default), így a pipa hatástalan volt.
+  if (baptismRowId) {
+    const names = await getSzemelyNames(supabase, [d.id_szemely])
+    await syncRegistryWorklogLink(supabase, congId, {
+      sourceTable: 'keresztseg',
+      sourceId: baptismRowId,
+      currentWorklogId,
+      munkanaploba: !!d.munkanaploba,
+      payload: {
+        idopont: d.datum,
+        jellege: 'Keresztelő',
+        cim: `Keresztelés: ${names.get(d.id_szemely) || ''}`.trim(),
+        alapige: d.alapige || null,
+        szolgalt: d.lelkeszneve || null,
+      },
+    })
   }
 
   revalidatePath('/anyakonyv')
+  revalidatePath('/munkanaplo')
   return { success: true }
 }
 
@@ -945,8 +981,21 @@ export async function saveMarriage(data: MarriageInput) {
     megjegyzes: finalMegj,
     congregation_id: congId,
   }
-  if (d.id) { const { error } = await supabase.from('hazassag').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
-  else { const { error } = await supabase.from('hazassag').insert([record]); if (error) return { error: `Hiba: ${error.message}` } }
+  // 2026-06-12 (Endre #3-4): sor-id + meglévő munkanapló-link megfogása a
+  // mentés végi munkanapló-szinkronhoz.
+  let marriageRowId: number | null = null
+  let currentWorklogId: number | null = null
+  if (d.id) {
+    const { error, data: updData } = await supabase.from('hazassag').update(record)
+      .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
+    if (error) return { error: `Hiba: ${error.message}` }
+    marriageRowId = d.id
+    currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
+  } else {
+    const { error, data: insData } = await supabase.from('hazassag').insert([record]).select('id')
+    if (error) return { error: `Hiba: ${error.message}` }
+    marriageRowId = (insData?.[0]?.id as number | undefined) ?? null
+  }
 
   // 2026-06-01 (hibrid család-modell Fázis 2): ÚJ modell — házastársi kapcsolat
   // rögzítése a szemely_kapcsolat táblában. Konvenció: id_szemely_1 = férfi
@@ -978,8 +1027,28 @@ export async function saveMarriage(data: MarriageInput) {
       e instanceof Error ? e.message : e)
   }
 
+  // Munkanapló-szinkron (2026-06-12, Endre #3-4): az esketés EDDIG egyáltalán
+  // nem került be a munkanaplóba (hiányzó integráció) — most a kereszteléssel
+  // azonos, idempotens úton szinkronizál. Hibája nem blokkolja a mentést.
+  if (marriageRowId) {
+    const names = await getSzemelyNames(supabase, [d.id_ferfi, d.id_no])
+    await syncRegistryWorklogLink(supabase, congId, {
+      sourceTable: 'hazassag',
+      sourceId: marriageRowId,
+      currentWorklogId,
+      munkanaploba: !!d.munkanaploba,
+      payload: {
+        idopont: d.datum,
+        jellege: 'Esketés',
+        cim: `Esketés: ${names.get(d.id_ferfi) || '?'} és ${names.get(d.id_no) || '?'}`,
+        szolgalt: d.lelkeszneve || null,
+      },
+    })
+  }
+
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
+  revalidatePath('/munkanaplo')
   return { success: true }
 }
 
@@ -1033,22 +1102,38 @@ export async function saveBurial(data: BurialInput) {
     megjegyzes: megjegyzes || null,
     congregation_id: congId,
   }
-  if (d.id) { const { error } = await supabase.from('temetes').update(record).eq('id', d.id).eq('congregation_id', congId); if (error) return { error: `Hiba: ${error.message}` } }
-  else {
-    const { error } = await supabase.from('temetes').insert([record])
+  // 2026-06-12 (Endre #3-4): sor-id + munkanapló-link megfogása a szinkronhoz.
+  // KORÁBBI BUG: a régi munkanaplo-insert a jelenlet_osszesen NOT NULL oszlop
+  // miatt némán elbukott, és csak új rögzítésre futott (szerkesztésre nem).
+  let burialRowId: number | null = null
+  let currentWorklogId: number | null = null
+  if (d.id) {
+    const { error, data: updData } = await supabase.from('temetes').update(record)
+      .eq('id', d.id).eq('congregation_id', congId).select('id, munkanaplo_id')
     if (error) return { error: `Hiba: ${error.message}` }
-    if (d.munkanaploba) {
-      try {
-        await supabase.from('munkanaplo').insert([{
-          idopont: d.tdatum, jellege: 'Temetés', cim: 'Temetési szertartás', congregation_id: congId,
-        }])
-      } catch (error) {
-        console.warn(
-          '[saveBurial] munkanaplo insert sikertelen — temetés rögzítve, de a munkanaplo-log kimaradt:',
-          error instanceof Error ? error.message : error,
-        )
-      }
-    }
+    burialRowId = d.id
+    currentWorklogId = (updData?.[0]?.munkanaplo_id as number | null) ?? null
+  } else {
+    const { error, data: insData } = await supabase.from('temetes').insert([record]).select('id')
+    if (error) return { error: `Hiba: ${error.message}` }
+    burialRowId = (insData?.[0]?.id as number | undefined) ?? null
+  }
+
+  // Munkanapló-szinkron (idempotens; hibája nem blokkol)
+  if (burialRowId) {
+    const names = await getSzemelyNames(supabase, [d.id_szemely])
+    await syncRegistryWorklogLink(supabase, congId, {
+      sourceTable: 'temetes',
+      sourceId: burialRowId,
+      currentWorklogId,
+      munkanaploba: !!d.munkanaploba,
+      payload: {
+        idopont: d.tdatum,
+        jellege: 'Temetés',
+        cim: `Temetés: ${names.get(d.id_szemely) || ''}`.trim(),
+        szolgalt: d.lelkeszneve || null,
+      },
+    })
   }
 
   // 2026-05-02 (v0.9.33) — Felhasználó panasza: "a temetések rögzítve vannak az
@@ -1102,6 +1187,7 @@ export async function saveBurial(data: BurialInput) {
 
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
+  revalidatePath('/munkanaplo')
   return { success: true }
 }
 
@@ -1184,25 +1270,45 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
     megjegyzes: d.megjegyzes || null,
     congregation_id: congId,
   }))
-  const { error } = await supabase.from('konfirmalas').insert(records)
+  const { error, data: insData } = await supabase.from('konfirmalas').insert(records).select('id')
   if (error) return { error: `Hiba: ${error.message}` }
-  if (d.munkanaploba) {
-    try {
-      await supabase.from('munkanaplo').insert([{
+
+  // Munkanapló-szinkron (2026-06-12, Endre #3-4): a teljes batch EGYETLEN
+  // szolgálati alkalom — egy munkanapló-bejegyzés készül, és MINDEN beszúrt
+  // konfirmalas sor `munkanaplo_id`-ja erre mutat. A markerhez az első sor
+  // id-ját használjuk (két külön batch ugyanazon a napon így sem ütközik).
+  // KORÁBBI BUG-OK: a jelenlet_osszesen NOT NULL miatt az insert némán
+  // elbukott + a cim a már-konfirmáltakat is beleszámolta (candidates vs.
+  // newCandidates).
+  const insertedIds = ((insData || []) as { id: number }[]).map(r => r.id)
+  if (d.munkanaploba && insertedIds.length > 0) {
+    const names = await getSzemelyNames(supabase, newCandidates)
+    const nameList = newCandidates.map(id => names.get(id) || `#${id}`).join(', ')
+    const worklogId = await syncRegistryWorklogLink(supabase, congId, {
+      sourceTable: 'konfirmalas',
+      sourceId: insertedIds[0],
+      currentWorklogId: null,
+      munkanaploba: true,
+      payload: {
         idopont: d.datum,
         jellege: 'Konfirmáció',
-        cim: `Konfirmáció (${d.candidates.length} fő)`,
-        congregation_id: congId,
-      }])
-    } catch (error) {
-      console.warn(
-        '[saveConfirmation] munkanaplo insert sikertelen — konfirmáció rögzítve, de a munkanaplo-log kimaradt:',
-        error instanceof Error ? error.message : error,
-      )
+        cim: `Konfirmáció (${newCandidates.length} fő)`,
+        szolgalt: d.lelkeszneve || null,
+        megjegyzes: `Konfirmandusok: ${nameList}`,
+      },
+    })
+    // A többi konfirmalas sor linkjének beállítása (az elsőét a sync írta)
+    if (worklogId && insertedIds.length > 1) {
+      const { error: linkErr } = await supabase.from('konfirmalas')
+        .update({ munkanaplo_id: worklogId })
+        .in('id', insertedIds.slice(1))
+        .eq('congregation_id', congId)
+      if (linkErr) console.warn('[saveConfirmationBatch] munkanaplo_id linkelés sikertelen:', linkErr.message)
     }
   }
   revalidatePath('/anyakonyv')
-  return { success: true, count: d.candidates.length }
+  revalidatePath('/munkanaplo')
+  return { success: true, count: newCandidates.length }
 }
 
 // ── Konfirmáció EGYETLEN bejegyzés szerkesztés (✏️ gomb) ─────
@@ -1229,11 +1335,43 @@ export async function saveConfirmationSingle(data: ConfirmationSingleInput) {
 
 // ── Bejegyzés törlés ─────────────────────────────────────────
 
+// 2026-06-12 (Endre #3-4): storno/törléskor a kapcsolt munkanapló-bejegyzést
+// is eltávolítjuk (soft-delete). DÖNTÉS: ha az anyakönyvi esemény törlődik, a
+// belőle generált "elvégzett szolgálat" sor sem maradhat a naplóban — de a
+// soft-delete miatt a DB-ben visszaállítható. Konfirmációnál a bejegyzés
+// KÖZÖS (egy batch = egy alkalom), ezért csak akkor töröljük, ha már nincs
+// más konfirmalas sor, ami rá hivatkozik.
+const REGISTRY_TABLES_WITH_WORKLOG = ['keresztseg', 'hazassag', 'temetes', 'konfirmalas'] as const
+
 export async function deleteRegistryEntry(tab: string, id: number) {
   const { supabase, congId } = await getCongregation()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  // A kapcsolt munkanapló-link kiolvasása MÉG a törlés előtt
+  let linkedWorklogId: number | null = null
+  const hasWorklogLink = (REGISTRY_TABLES_WITH_WORKLOG as readonly string[]).includes(tab)
+  if (hasWorklogLink) {
+    const { data } = await supabase.from(tab).select('munkanaplo_id')
+      .eq('id', id).eq('congregation_id', congId).maybeSingle()
+    linkedWorklogId = (data?.munkanaplo_id as number | null) ?? null
+  }
+
   const { error } = await supabase.from(tab).delete().eq('id', id).eq('congregation_id', congId)
   if (error) return { error: `Hiba: ${error.message}` }
+
+  if (linkedWorklogId) {
+    let removable = true
+    if (tab === 'konfirmalas') {
+      const { data: remaining } = await supabase.from('konfirmalas').select('id')
+        .eq('munkanaplo_id', linkedWorklogId).eq('congregation_id', congId).limit(1)
+      removable = !remaining || remaining.length === 0
+    }
+    if (removable) {
+      await softDeleteRegistryWorklog(supabase, congId, linkedWorklogId)
+    }
+  }
+
   revalidatePath('/anyakonyv')
+  revalidatePath('/munkanaplo')
   return { success: true }
 }

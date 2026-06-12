@@ -23,6 +23,101 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-12] — Munkanapló-megújulás, banki import varázsló, Excel-beállító varázsló
+<!-- key: 2026-06-12-munkanaplo-bankimport-wizardok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop 0.9.3 -->
+
+### ✨ Új funkciók
+
+- **A munkanapló mostantól magától vezeti a szolgálataidat.** Keresztelés,
+  esketés, temetés vagy konfirmálás rögzítésekor automatikus bejegyzés készül
+  a munkanaplóba — szerkesztésnél frissül, sosem duplikál. A családlátogatás
+  és a vallásóra/kátéóra (perselypénzzel, tartóval) is a helyére kerül. A régi
+  bejegyzéseid visszamenőleg is bekerültek.
+- **Az éves lelkészi jelentés végre a teljes évből számol** — eddig egy hiba
+  miatt szinte üres volt. Év + hónap szűrő került a munkanaplóra (webben és
+  az asztali appban is).
+- **Banki kivonat importálása az asztali appban — a webes varázslóval.**
+  5 lépés: fájl → nyitó egyenleg → tételenkénti besorolás (bevétel/kiadás/
+  belső mozgás/kihagyás) → megerősítés — duplikátum-védelemmel, és minden
+  importált tétel a hivatalos Excelbe is bekerül.
+- **Excel-könyvelés beállító varázsló (asztali):** 5 vezetett lépés a mappától
+  a fejlécen és bank-párosításon át a bekapcsolásig — semmi nem maradhat ki.
+- **Irányítópult: születésnaposok és közelgő programok** az asztali appban is,
+  a webbel egyező működéssel.
+
+### 🐛 Javítások
+
+- **Gyülekezet-beállítás varázsló:** négy hiba javítva — a Mentés gomb többé
+  nem enged el hiányos űrlapot (felsorolja, mi hiányzik), és a bankszámla-
+  műveletek nem futnak le érvénytelen alapadatok mellett.
+- A fejléc-menüből kikerült a félrevezető „Kezdő beállító varázsló".
+
+## [2026-06-12] — Tétel-rögzítés hibajavítás, látható befizető-kereső, fényképek a családfán
+<!-- key: 2026-06-12-rogzites-fix-csaladfa-kepek -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A tétel-rögzítés „value too long" hibája megszűnt.** Az asztali appban a
+  bevétel-mentés egy rejtett adatbázis-korlát miatt hibázott (a tétel belső
+  azonosítója hosszabb volt, mint amit az adatbázis enged — ezt egy célzott
+  diagnosztikával derítettük ki). A rendszer mostantól a kereteken belül
+  marad; egy kísérő adatbázis-frissítés a korlátot végleg fel is oldja.
+- **A befizető-kereső találatai mostantól mindig látszanak.** Eddig a
+  találati lista a rögzítő-ablak görgetője alá szorult — mostantól mindenen
+  felül, az ablakból „kilógva" nyílik, és görgetésnél is a helyén marad.
+
+### ✨ Új funkciók
+
+- **Fényképek a családfán.** Ha egy taghoz fénykép van társítva, a családfa
+  kártyáin is a fénykép jelenik meg a nem-jelölő ikon helyett.
+- **Súgó-fejezet a fényképekről.** A Tagnyilvántartás súgó Családok fejezete
+  lépésről lépésre elmagyarázza a kép-társítás két útját (közösségi link /
+  kézi feltöltés), és hogy mire számíts.
+
+### ℹ️ Tudnivaló
+
+- Futtatandó adatbázis-frissítés: `2026-06-12b-kep-text-xkey-bovites.sql` —
+  e nélkül a FÉNYKÉP-mentés is hosszúság-hibára futna (a kép-mező az
+  adatbázisban eddig 30 karakteres volt, a kép-hivatkozás ennél hosszabb).
+
+## [2026-06-11] — Megújult családi kartonok: fényképek, modern kártyák, nyomtatás mindenhol
+<!-- key: 2026-06-11-csaladi-kartonok-avatarok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Fénykép a tagokhoz.** Mostantól minden személyhez társíthatsz fényképet —
+  két módon: (1) megadod a Facebook/Instagram profil-linkjét, és a rendszer
+  megpróbálja letölteni a nyilvános profilképet (a `facebook.com/profile.php?id=…`
+  formátumú linkeknél megy a legbiztosabban), vagy (2) egyszerűen feltöltesz
+  egy képet a gépedről. A kép a Kartotéka saját tárhelyére kerül, a megadott
+  profil-link pedig a kapcsolatokhoz mentődik. Akinek nincs képe, annak szép
+  színes monogram jelenik meg.
+- **Modern családi kártyák.** A Tagnyilvántartás → Családok kártyanézete
+  megújult: a család tagjainak képei egymást átfedő sorban, a gyermekek
+  kis névjegy-chipekben, a cím, körzet és létszám egy pillantásra látszik —
+  finom animációkkal. Ugyanez a kinézet él a weben és az asztali appban.
+- **Családi karton nyomtatása — most már az asztali appban is.** A kártyára
+  ráállva megjelenik a nyomtató-gomb, és a webről ismert A4-es, lefűzhető
+  családi karton nyomtatható (relációk, anyakönyvi dátumok, megjegyzések,
+  opcionálisan befizetések + családlátogatások). Eddig ez csak a weben volt.
+- **A családi lapon minden tag képe látszik** — a szülők paneljein és a
+  gyermek-soroknál is; a kis kamera-gombbal rögtön képet is társíthatsz.
+
+### ℹ️ Tudnivaló
+
+- A képek tárolásához egy egyszeri adatbázis-frissítés szükséges
+  (`2026-06-11p-szemely-social-avatar.sql`) — amíg ez nem fut le, a mentés
+  erre figyelmeztet.
+
 ## [2026-06-11] — Excel-fejléc egy kattintással, nyomtatási központ az asztali appban
 <!-- key: 2026-06-11-excel-fejlec-nyomtatasi-kozpont -->
 <!-- category: improvement -->

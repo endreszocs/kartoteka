@@ -294,6 +294,42 @@ function FamiliesContent() {
         </ol>
       </div>
 
+      {/* ───── Fényképek a tagokhoz (2026-06-12, Endre) ───── */}
+      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 my-3">
+        <h4 className="text-sm font-semibold text-violet-900 mb-1.5">
+          📷 Fényképek a tagokhoz — hogyan működik?
+        </h4>
+        <p className="text-sm text-slate-700">
+          Minden személyhez társíthatsz fényképet — a kép megjelenik a családi
+          kártyákon, a családi lapon és a családfán is. Akinek nincs képe, annak
+          színes <strong>monogram-korong</strong> jelenik meg (mindig ugyanaz a szín).
+        </p>
+        <div className="mt-2 rounded-lg border border-violet-100 bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Két út</p>
+          <ol className="text-sm space-y-1.5 text-slate-700 list-decimal pl-5">
+            <li>
+              <strong>Közösségi link:</strong> a családi lapon a tag képén lévő kis
+              kamera-gombbal megadod a Facebook/Instagram profil-linkjét, és a
+              rendszer megpróbálja letölteni a nyilvános profilképet. A{' '}
+              <code className="rounded bg-slate-100 px-1 text-xs">facebook.com/profile.php?id=…</code>{' '}
+              formátumú link működik a legbiztosabban. A link mentésre kerül a
+              kapcsolatokhoz akkor is, ha a kép-letöltés nem sikerül.
+            </li>
+            <li>
+              <strong>Kézi feltöltés:</strong> kiválasztasz egy képfájlt a gépedről —
+              a rendszer automatikusan átméretezi. Ha a link-letöltés nem megy
+              (a platformok gyakran bejelentkezéshez kötik), ez mindig működik:
+              nyisd meg a profilt, mentsd le a képet, töltsd fel — 10 másodperc.
+            </li>
+          </ol>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          A kép a Kartotéka saját, biztonságos tárhelyére kerül (sosem a közösségi
+          oldalról hivatkozzuk) — nyilvánosan közzétett profilképről van szó, amit
+          te tudatosan társítasz. A kép bármikor cserélhető vagy törölhető ugyanott.
+        </p>
+      </div>
+
       {/* ───── Tartalomjegyzék ───── */}
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">

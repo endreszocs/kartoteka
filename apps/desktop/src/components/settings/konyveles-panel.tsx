@@ -8,6 +8,11 @@
  *   - Excel-szinkron kapcsoló ÉLŐ státusszal (várakozó/blokkolt tételek,
  *     „Excel nyitva" jelzés, Szinkron most gomb).
  *
+ * 2026-06-12 (Endre #1 Excel-wizard): a lépés-logika a KÖZÖS
+ * `lib/excel-setup-flow.ts` modulba került — a panel ÉS az Excel-beállítás
+ * varázsló (excel-setup-wizard.tsx) ugyanazokat a függvényeket hívja. A panel
+ * tetejéről a varázsló is indítható (első beállításhoz ajánlott út).
+ *
  * A tényleges fájl-írást kizárólag az `excel-write-sync.ts` worker végzi.
  */
 
@@ -21,64 +26,43 @@ import {
   Landmark,
   PlayCircle,
   RefreshCw,
+  Wand2,
 } from 'lucide-react'
 
 import { Button, Input } from '@kartoteka/ui'
 import { BANK_LETTERS } from '@kartoteka/core'
 
 import {
-  excelDefaultFolder,
-  excelFolderInfo,
   excelOpenFolder,
-  excelReadCells,
-  excelReadMeta,
   excelReadSheetSums,
-  excelSaveFile,
-  excelSetCells,
-  excelSetupFolder,
   type ExcelFolderInfo,
   type SheetMeta,
 } from '../../lib/excel'
 import {
-  LS_DIOCESE,
-  LS_FOLDER,
-  LS_LOGO,
   getBankMap,
   isExcelSyncEnabled,
-  saveBankMap,
-  setExcelSyncEnabled,
-  type BankMapEntry,
   EXCEL_EGYHAZMEGYEK,
-  KOLTSEGVETES_SHEET,
-  KOLTSEGVETES_MEGYE_CELL,
-  KOLTSEGVETES_EGYHAZKOZSEG_CELL,
-  suggestExcelMegye,
-  suggestExcelEgyhazkozsegNev,
 } from '../../lib/excel-settings'
+import {
+  EXCEL_SETUP_CHANGED_EVENT,
+  OPEN_EXCEL_WIZARD_EVENT,
+  applyExcelFejlec,
+  applyExcelSyncEnabled,
+  confirmExcelBankMapping,
+  loadExcelBankMappingState,
+  loadExcelFejlecState,
+  loadExcelFolderState,
+  setupExcelFolder,
+  suggestBankLetters,
+  type ExcelBankAccountRow,
+} from '../../lib/excel-setup-flow'
 import {
   getExcelWriteSyncStatus,
   runExcelWriteSyncManually,
   retryBlockedExcelRows,
-  startExcelWriteAutoSync,
 } from '../../lib/excel-write-sync'
 import { getDesktopSupabase } from '../../lib/supabase'
-import { getDesktopUser } from '../../lib/desktop-user'
-import { getLocalOwnProfile, getLocalOwnCongregation } from '../../lib/sync'
 import { getTauriSqliteBackend } from '../../lib/tauri-sqlite-backend'
-
-/** ArrayBuffer → base64 (a webview btoa-jával; a logók kicsik, ez bőven elég). */
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf)
-  let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-  return btoa(binary)
-}
-
-interface BankAccountRow {
-  id: number
-  bank_neve: string
-  valuta: string | null
-}
 
 export function KonyvelesPanel() {
   const year = new Date().getFullYear()
@@ -92,7 +76,7 @@ export function KonyvelesPanel() {
 
   // Bank-párosítás állapot
   const [congregationId, setCongregationId] = useState<string | null>(null)
-  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
+  const [bankAccounts, setBankAccounts] = useState<ExcelBankAccountRow[]>([])
   const [bankSheets, setBankSheets] = useState<SheetMeta[]>([])
   const [mapDraft, setMapDraft] = useState<Record<number, string>>({})
   const [mapConfirmed, setMapConfirmed] = useState(false)
@@ -116,11 +100,9 @@ export function KonyvelesPanel() {
     setLoading(true)
     setError(null)
     try {
-      const saved = window.localStorage.getItem(LS_FOLDER)
-      const path = saved && saved.trim() ? saved : await excelDefaultFolder(year)
-      const i = await excelFolderInfo(path)
+      const i = await loadExcelFolderState(year)
       setInfo(i)
-    } catch (e) {
+    } catch {
       setError(
         'Az Excel-könyvelés csak a letöltött asztali appban érhető el (böngészőben nem).',
       )
@@ -133,6 +115,17 @@ export function KonyvelesPanel() {
   useEffect(() => {
     setSyncEnabled(isExcelSyncEnabled())
     void refresh()
+  }, [refresh])
+
+  // A varázsló bezárása után a panel állapota frissül (2026-06-12, Endre #1
+  // Excel-wizard) — a wizard ugyanazt a flow-modult hívja, itt szinkronizálunk.
+  useEffect(() => {
+    function onSetupChanged() {
+      setSyncEnabled(isExcelSyncEnabled())
+      void refresh()
+    }
+    window.addEventListener(EXCEL_SETUP_CHANGED_EVENT, onSetupChanged)
+    return () => window.removeEventListener(EXCEL_SETUP_CHANGED_EVENT, onSetupChanged)
   }, [refresh])
 
   // ── Élő státusz-poll (5 mp, amíg a panel nyitva) ──
@@ -160,48 +153,20 @@ export function KonyvelesPanel() {
   }, [])
 
   // ── Bank-párosítás betöltése (bankszámlák online + Excel-lapok + mentett térkép) ──
+  // A tényleges betöltés a közös excel-setup-flow modulban él (a wizard is azt hívja).
   const loadBankMapping = useCallback(async (target: ExcelFolderInfo | null) => {
     setMapLoading(true)
     setMapMsg(null)
     try {
-      const supabase = getDesktopSupabase()
-      const user = await getDesktopUser()
-      if (!user) return
-      const profile = await getLocalOwnProfile(user.id)
-      const cid = profile?.congregation_id ?? null
-      setCongregationId(cid)
-      if (!cid) return
-
-      // Bankszámlák — online; offline a mentett térkép nevei maradnak
-      try {
-        const { data } = await supabase
-          .from('bankszamlak')
-          .select('id, bank_neve, valuta')
-          .eq('congregation_id', cid)
-          .eq('aktiv', true)
-          .order('bank_neve')
-        if (data) setBankAccounts(data as BankAccountRow[])
-      } catch {
-        /* offline — a mentett térkép alapján mutatunk */
-      }
-
-      // Excel betű-lapok (deviza a C3-ból) — a javaslathoz
-      if (target?.adatokPath) {
-        try {
-          const meta = await excelReadMeta(target.adatokPath)
-          setBankSheets(meta.sheets.filter((s) => s.isBank))
-        } catch {
-          /* csendes */
-        }
-      }
-
-      // Mentett térkép
-      const saved = getBankMap(cid, new Date().getFullYear())
-      if (saved) {
-        setMapConfirmed(saved.confirmed)
-        const draft: Record<number, string> = {}
-        for (const e of saved.entries) draft[e.bankszamlaId] = e.letter
-        setMapDraft(draft)
+      const state = await loadExcelBankMappingState(target, new Date().getFullYear())
+      setCongregationId(state.congregationId)
+      if (!state.congregationId) return
+      // Rész-hibáknál (offline / zárolt fájl) a korábbi értékeket hagyjuk meg.
+      if (state.bankAccounts.length > 0) setBankAccounts(state.bankAccounts)
+      if (state.bankSheets.length > 0) setBankSheets(state.bankSheets)
+      if (state.confirmed || Object.keys(state.draft).length > 0) {
+        setMapConfirmed(state.confirmed)
+        setMapDraft(state.draft)
       }
     } finally {
       setMapLoading(false)
@@ -213,57 +178,31 @@ export function KonyvelesPanel() {
   }, [info, loadBankMapping])
 
   // ── Koltsegvetes-fejléc állapota: a fájl B78/B79 cellái + javaslatok ──
+  // A cella-olvasás + javaslat-képzés a közös excel-setup-flow modulban él.
   const loadFejlec = useCallback(async (target: ExcelFolderInfo | null) => {
     if (!target?.adatokPath) return
     setFejlecLoading(true)
     try {
-      const [b78, b79] = await excelReadCells(target.adatokPath, KOLTSEGVETES_SHEET, [
-        KOLTSEGVETES_MEGYE_CELL,
-        KOLTSEGVETES_EGYHAZKOZSEG_CELL,
-      ])
-      setFejlecFileMegye(b78.trim())
-      setFejlecFileNev(b79.trim())
-      // Draft: a fájl értéke az igazság; ha üres, a gyülekezeti adatokból javaslunk.
-      const ctx = await getCongregationContext()
-      const megyeJavaslat = suggestExcelMegye(ctx.dioceseName)
-      const nevJavaslat = suggestExcelEgyhazkozsegNev(ctx.congName)
-      setMegyeDraft(b78.trim() || megyeJavaslat || '')
-      setNevDraft(b79.trim() || nevJavaslat)
-    } catch {
-      /* csendes — pl. nyitott/zárolt fájl; az Állapot frissítése gombbal újra */
+      const st = await loadExcelFejlecState(target)
+      // null = nem olvasható (pl. nyitott/zárolt fájl) — az Állapot frissítése gombbal újra.
+      if (st) {
+        setFejlecFileMegye(st.fileMegye)
+        setFejlecFileNev(st.fileNev)
+        setMegyeDraft(st.megyeDraft)
+        setNevDraft(st.nevDraft)
+      }
     } finally {
       setFejlecLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     if (info?.exists) void loadFejlec(info)
   }, [info, loadFejlec])
 
-  // Deviza-alapú javaslat: az első olyan betű-lap, amelynek C3-deviza egyezik,
-  // és még nincs másik bankhoz rendelve (bank_neve sorrendben).
-  function suggestLetters(): Record<number, string> {
-    const draft: Record<number, string> = { ...mapDraft }
-    const used = new Set(Object.values(draft))
-    for (const acc of bankAccounts) {
-      if (draft[acc.id]) continue
-      const wanted = (acc.valuta ?? 'RON').trim().toUpperCase()
-      const candidate = bankSheets.find(
-        (s) =>
-          !used.has(s.name) &&
-          (s.currency ?? '').trim().toUpperCase() === wanted,
-      )
-      if (candidate) {
-        draft[acc.id] = candidate.name
-        used.add(candidate.name)
-      }
-    }
-    return draft
-  }
-
+  // Deviza-alapú javaslat — a közös suggestBankLetters (excel-setup-flow) hívása.
   function handleSuggest() {
-    const draft = suggestLetters()
+    const draft = suggestBankLetters(bankAccounts, bankSheets, mapDraft)
     setMapDraft(draft)
     setMapConfirmed(false)
     setMapMsg('Javaslat kész — ellenőrizd, majd erősítsd meg a párosítást.')
@@ -274,28 +213,19 @@ export function KonyvelesPanel() {
     setMapConfirmed(false)
   }
 
+  // Megerősítés (duplikált-betű védelem + mentés + azonnali szinkron-kísérlet)
+  // a közös confirmExcelBankMapping-gel — a wizard is pontosan ezt hívja.
   function handleConfirmMap() {
     if (!congregationId) return
-    const entries: BankMapEntry[] = bankAccounts
-      .filter((a) => mapDraft[a.id])
-      .map((a) => ({
-        bankszamlaId: a.id,
-        bankNeve: a.bank_neve,
-        valuta: a.valuta,
-        letter: mapDraft[a.id],
-      }))
-    // Duplikált betű-védelem
-    const letters = entries.map((e) => e.letter)
-    if (new Set(letters).size !== letters.length) {
-      setMapMsg('Két bank nem kaphatja ugyanazt a betű-lapot — javítsd a kiosztást.')
+    const r = confirmExcelBankMapping(congregationId, year, bankAccounts, mapDraft)
+    if (!r.ok) {
+      setMapMsg(r.error)
       return
     }
-    saveBankMap(congregationId, year, { confirmed: true, entries })
     setMapConfirmed(true)
     setMapMsg(
-      `Párosítás megerősítve (${entries.length} számla). A várakozó banki tételek a következő szinkronnál bekerülnek.`,
+      `Párosítás megerősítve (${r.count} számla). A várakozó banki tételek a következő szinkronnál bekerülnek.`,
     )
-    void runExcelWriteSyncManually()
   }
 
   async function handleSetup() {
@@ -303,9 +233,7 @@ export function KonyvelesPanel() {
     setError(null)
     setMsg(null)
     try {
-      const saved = window.localStorage.getItem(LS_FOLDER)
-      const i = await excelSetupFolder(year, saved && saved.trim() ? saved : null)
-      window.localStorage.setItem(LS_FOLDER, i.folderPath)
+      const i = await setupExcelFolder(year)
       setInfo(i)
 
       const baseMsg = i.created
@@ -317,8 +245,12 @@ export function KonyvelesPanel() {
       let appliedNote = ''
       if (i.adatokPath) {
         try {
-          const r = await applyCongregationTo(i)
+          const r = await applyExcelFejlec(i, { megye: megyeDraft, nev: nevDraft })
           if ('megye' in r) {
+            setFejlecFileMegye(r.megye)
+            setFejlecFileNev(r.nev)
+            setMegyeDraft(r.megye)
+            setNevDraft(r.nev)
             appliedNote =
               ` Az Excel-fejléc automatikusan kitöltve: „${r.megye}" egyházmegye, „${r.nev}" egyházközség.` +
               (r.logoCached ? ' A gyülekezeti logó is letöltve.' : '')
@@ -346,135 +278,27 @@ export function KonyvelesPanel() {
     }
   }
 
-  // Gyülekezeti kontextus feloldása: az egyházmegye nevét (elsődlegesen a hivatalos
-  // `dioceses.name` online, a congregation diocese_id-ja alapján; tartalékként a
-  // denormalizált egyhazmegye-mező, majd a lokális cache offline) + a logó URL-jét.
-  async function getCongregationContext(): Promise<{
-    dioceseName: string | null
-    congName: string | null
-    cimerUrl: string | null
-  }> {
-    let cimerUrl: string | null = null
-    let congName: string | null = null
-    try {
-      const supabase = getDesktopSupabase()
-      const user = await getDesktopUser()
-      if (user) {
-        const cong = await getLocalOwnCongregation(user.id)
-        if (!cong) await getLocalOwnProfile(user.id) // best-effort hidratálás
-        cimerUrl = cong?.cimer_url ?? null
-        congName = cong?.nev_hu?.trim() || cong?.name?.trim() || null
-        let name = cong?.egyhazmegye?.trim() || null
-        if (cong?.diocese_id) {
-          try {
-            const { data } = await supabase
-              .from('dioceses')
-              .select('name')
-              .eq('id', cong.diocese_id)
-              .maybeSingle()
-            if (data?.name) name = String(data.name).trim()
-          } catch {
-            /* offline — marad a denormalizált / cache */
-          }
-        }
-        if (name) {
-          window.localStorage.setItem(LS_DIOCESE, name)
-          return { dioceseName: name, congName, cimerUrl }
-        }
-      }
-    } catch {
-      /* csendes — esünk a cache-re */
-    }
-    return { dioceseName: window.localStorage.getItem(LS_DIOCESE), congName, cimerUrl }
-  }
-
-  // A gyülekezeti logó letöltése + lokális cache-elése a Könyvelés-mappába
-  // („csak letöltés/cache", NEM az Excelbe ágyazva). Best-effort: null hiba esetén.
-  async function cacheLogo(folderPath: string, cimerUrl: string): Promise<string | null> {
-    try {
-      const res = await fetch(cimerUrl)
-      if (!res.ok) return null
-      const buf = await res.arrayBuffer()
-      const ext = (
-        cimerUrl.split('?')[0].match(/\.(png|jpe?g|gif|webp|svg)$/i)?.[1] ?? 'png'
-      ).toLowerCase()
-      const sep = folderPath.includes('\\') ? '\\' : '/'
-      const dest = `${folderPath}${sep}cimer.${ext}`
-      await excelSaveFile(dest, arrayBufferToBase64(buf))
-      window.localStorage.setItem(LS_LOGO, dest)
-      return dest
-    } catch {
-      return null
-    }
-  }
-
-  // A Koltsegvetes-fejléc beírása: B78 = egyházmegye (a sablon X1:X24 listájának
-  // PONTOS rövid neve, pl. „Kolozsvári"), B79 = egyházközség neve („Református"
-  // és „Egyházközség" nélkül). A V3/V1 suffix-konstansokból a B88/B90 képletek
-  // állítják elő a hivatalos fejlécet — a V3-at egy korábbi (hibás) auto-konfig
-  // felülírhatta a teljes megyenévvel, ezért a gyári értéket visszaállítjuk.
-  // + a gyülekezeti logó letöltése/cache-elése (ha van beállítva).
-  async function applyCongregationTo(
-    target: ExcelFolderInfo,
-    override?: { megye?: string; nev?: string },
-  ): Promise<{ megye: string; nev: string; logoCached: boolean } | { error: string }> {
-    const ctx = await getCongregationContext()
-    const megye =
-      override?.megye?.trim() || megyeDraft.trim() || suggestExcelMegye(ctx.dioceseName) || ''
-    const nev =
-      override?.nev?.trim() || nevDraft.trim() || suggestExcelEgyhazkozsegNev(ctx.congName)
-
-    if (!megye) {
-      return {
-        error:
-          'Az egyházmegye neve még hiányzik — válaszd ki a lenyílóból a Beállítások → Könyvelés „Excel-fejléc" részben (a rendszer nem találgat).',
-      }
-    }
-    if (!(EXCEL_EGYHAZMEGYEK as readonly string[]).includes(megye)) {
-      return {
-        error: `„${megye}" nem szerepel a hivatalos egyházmegye-listában — válassz a lenyílóból.`,
-      }
-    }
-    if (!nev) {
-      return {
-        error:
-          'Az egyházközség neve még hiányzik — írd be a Beállítások → Könyvelés „Excel-fejléc" részben.',
-      }
-    }
-
-    if (target.adatokPath) {
-      await excelSetCells(target.adatokPath, [
-        { sheet: KOLTSEGVETES_SHEET, cell: KOLTSEGVETES_MEGYE_CELL, value: megye },
-        { sheet: KOLTSEGVETES_SHEET, cell: KOLTSEGVETES_EGYHAZKOZSEG_CELL, value: nev },
-        // Gyári suffix visszaállítása (öngyógyítás a korábbi V3-felülírás után).
-        { sheet: KOLTSEGVETES_SHEET, cell: 'V3', value: ' REFORMÁTUS EGYHÁZMEGYE' },
-      ])
-      setFejlecFileMegye(megye)
-      setFejlecFileNev(nev)
-      setMegyeDraft(megye)
-      setNevDraft(nev)
-    }
-    let logoCached = false
-    if (ctx.cimerUrl) {
-      logoCached = (await cacheLogo(target.folderPath, ctx.cimerUrl)) !== null
-    }
-    return { megye, nev, logoCached }
-  }
-
+  // A Koltsegvetes-fejléc beírása a közös applyExcelFejlec-kel (excel-setup-flow):
+  // B78 = egyházmegye, B79 = egyházközség, V3 gyári suffix öngyógyítása + logó-cache.
   async function handleApplyCongregation() {
     if (!info?.adatokPath) return
     setApplyingCong(true)
     setError(null)
     setMsg(null)
     try {
-      const r = await applyCongregationTo(info)
+      const r = await applyExcelFejlec(info, { megye: megyeDraft, nev: nevDraft })
       if ('error' in r) setError(r.error)
-      else
+      else {
+        setFejlecFileMegye(r.megye)
+        setFejlecFileNev(r.nev)
+        setMegyeDraft(r.megye)
+        setNevDraft(r.nev)
         setMsg(
           `Az Excel-fejléc kitöltve: „${r.megye}" egyházmegye, „${r.nev}" egyházközség. ` +
             'A költségvetési kategóriák a fájl következő megnyitásakor megjelennek.' +
             (r.logoCached ? ' A gyülekezeti logó is letöltve.' : ''),
         )
+      }
     } catch (e) {
       setError(`A gyülekezeti adatok alkalmazása nem sikerült: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -485,11 +309,8 @@ export function KonyvelesPanel() {
   function toggleSync() {
     const next = !syncEnabled
     setSyncEnabled(next)
-    setExcelSyncEnabled(next)
-    if (next) {
-      // Bekapcsoláskor azonnal indítjuk a workert (boot-on az auth-gate indítja)
-      startExcelWriteAutoSync()
-    }
+    // Közös flow-helper: kapcsoló mentése + bekapcsoláskor a worker azonnali indítása.
+    applyExcelSyncEnabled(next)
   }
 
   async function handleSyncNow() {
@@ -678,6 +499,30 @@ export function KonyvelesPanel() {
           könyvelés-fájlba (<code className="rounded bg-slate-100 px-1">Adatok_{year}.xlsx</code>)
           is bekerülnek — így akár a Kartotékában nézed, akár az Excelben, minden egyezik.
         </p>
+      </div>
+
+      {/* Varázsló-indító (2026-06-12, Endre #1 Excel-wizard) — az előkészítés
+          vezetett, 5 lépéses útja; ugyanazt a flow-logikát hívja, mint ez a panel. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 p-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+            <Wand2 className="size-4 text-teal-600" />
+            Beállítás varázslóval
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+            Első beállításhoz ajánlott — öt lépés vezet végig (mappa, fejléc,
+            bank-párosítás, kapcsoló, ellenőrzés), hogy véletlenül se maradjon ki semmi.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => window.dispatchEvent(new CustomEvent(OPEN_EXCEL_WIZARD_EVENT))}
+          className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700"
+        >
+          <Wand2 className="mr-1.5 size-4" />
+          Varázsló indítása
+        </Button>
       </div>
 
       {/* Mappa-állapot */}

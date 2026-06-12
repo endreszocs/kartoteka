@@ -957,6 +957,9 @@ export interface MemberLocalRow {
   /** SQLite INTEGER (0/1). */
   isvisible: number
   megjegyzes: string | null
+  /** Avatar (Storage public URL) — 2026-06-11 (v31). */
+  kep: string | null
+  social_profil_url: string | null
 
   // Sync metadata
   revision: number
@@ -1002,6 +1005,8 @@ interface MemberSupabaseRow {
   type: string | null
   isvisible: boolean
   megjegyzes: string | null
+  kep: string | null
+  social_profil_url: string | null
   revision?: number
   updated_at?: string
 }
@@ -1012,7 +1017,7 @@ const MEMBER_SELECT_COLS =
   'apjaneve, anyjaneve, id_apja, id_anyja, ' +
   'c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim, ' +
   'telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, ' +
-  'congregation_id, family_id, type, isvisible, megjegyzes, revision, updated_at'
+  'congregation_id, family_id, type, isvisible, megjegyzes, kep, social_profil_url, revision, updated_at'
 
 /** Kulcs-prefix — a per-gyülekezet last_pull külön mezőben él. */
 const LAST_PULL_MEMBERS_KEY_PREFIX = 'sync:members:last_pull:'
@@ -1100,6 +1105,7 @@ export async function pullMembersOfOwnCongregation(
           c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
           telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
           congregation_id, family_id, type, isvisible, megjegyzes,
+          kep, social_profil_url,
           revision, updated_at, synced_at)
        VALUES
          (?1, ?2, ?3, ?4, ?5, ?6, ?7,
@@ -1108,6 +1114,7 @@ export async function pullMembersOfOwnCongregation(
           ?17, ?18, ?19, ?20, ?21, ?22,
           ?23, ?24, ?25, ?26, ?27, ?28,
           ?29, ?30, ?31, ?32, ?33,
+          ?36, ?37,
           ?34, ?35, datetime('now'))
        ON CONFLICT(id) DO UPDATE SET
          cnp = excluded.cnp,
@@ -1142,6 +1149,8 @@ export async function pullMembersOfOwnCongregation(
          type = excluded.type,
          isvisible = excluded.isvisible,
          megjegyzes = excluded.megjegyzes,
+         kep = excluded.kep,
+         social_profil_url = excluded.social_profil_url,
          revision = excluded.revision,
          updated_at = excluded.updated_at,
          synced_at = excluded.synced_at`,
@@ -1181,6 +1190,8 @@ export async function pullMembersOfOwnCongregation(
         row.megjegyzes,
         row.revision ?? 0,
         row.updated_at ?? null,
+        row.kep ?? null,
+        row.social_profil_url ?? null,
       ],
     )
   }
@@ -1535,7 +1546,15 @@ export async function pullWorklogOfOwnCongregation(
  */
 export async function getLocalWorklogOfOwnCongregation(
   userId: string,
-  options?: { search?: string; limit?: number; includeDeleted?: boolean },
+  options?: {
+    search?: string
+    limit?: number
+    includeDeleted?: boolean
+    /** Év-szűrő (idopont 'YYYY-' prefix) — a webes Munkanapló szűrő tükre. */
+    year?: number
+    /** Hónap-szűrő (1–12) — csak `year`-rel együtt; 0/undefined = egész év. */
+    month?: number
+  },
 ): Promise<WorklogLocalRow[]> {
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return []
@@ -1553,6 +1572,18 @@ export async function getLocalWorklogOfOwnCongregation(
       `(cim LIKE ?${idx} OR alapige LIKE ?${idx} OR bibliaolvasas LIKE ?${idx} OR szolgalt LIKE ?${idx} OR megjegyzes LIKE ?${idx})`,
     )
     params.push(`%${options.search}%`)
+    idx++
+  }
+
+  // 2026-06-12 (Endre #5 munkanapló): év + hónap szűrő — a webes Munkanapló
+  // oldal év/hónap választójának tükre (hónap nélkül a teljes év látszik).
+  if (options?.year) {
+    const prefix =
+      options.month && options.month >= 1 && options.month <= 12
+        ? `${options.year}-${String(options.month).padStart(2, '0')}`
+        : String(options.year)
+    conditions.push(`idopont LIKE ?${idx}`)
+    params.push(`${prefix}%`)
     idx++
   }
 

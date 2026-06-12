@@ -18,6 +18,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
+import { MemberAvatar } from '@kartoteka/ui-app'
 import { cn } from '@/lib/utils'
 import type {
   FamilyTreeData,
@@ -548,22 +549,28 @@ function PersonCard({
         </div>
       )}
 
-      {/* Név + ikon */}
+      {/* Név + avatar (2026-06-12, Endre: ha van profilkép, az látszik a fán) */}
       <div className="flex items-start gap-1.5">
-        <span
-          className={cn(
-            'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full',
-            isFemale ? 'bg-rose-400 text-white' : 'bg-sky-500 text-white',
-          )}
-        >
-          {isDead ? (
-            <UserMinus className="size-3" />
-          ) : isFemale ? (
-            <Heart className="size-3" />
-          ) : (
-            <User className="size-3" />
-          )}
-        </span>
+        {member.kep ? (
+          <span className="mt-0.5 shrink-0">
+            <MemberAvatar name={displayName} kepUrl={member.kep} meghalt={isDead} size={22} />
+          </span>
+        ) : (
+          <span
+            className={cn(
+              'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full',
+              isFemale ? 'bg-rose-400 text-white' : 'bg-sky-500 text-white',
+            )}
+          >
+            {isDead ? (
+              <UserMinus className="size-3" />
+            ) : isFemale ? (
+              <Heart className="size-3" />
+            ) : (
+              <User className="size-3" />
+            )}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div
             className={cn(

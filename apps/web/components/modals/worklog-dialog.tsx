@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
-import { WORKLOG_TYPES } from '@/lib/constants/worklog'
+import { WORKLOG_TYPES, categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { toast } from 'sonner'
 
@@ -29,6 +29,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
   const [no, setNo] = useState<number>(0)
   const [gyermek, setGyermek] = useState<number>(0)
   const [persely, setPersely] = useState<number>(0)
+  // 2026-06-12 (Endre #3 munkanapló): a hivatalos Excel "Du." oszlopa —
+  // délutáni alkalom jelölése (a DB-ben eddig is létezett a `du` mező).
+  const [du, setDu] = useState(false)
   const [megj, setMegj] = useState('')
 
   useEffect(() => {
@@ -48,14 +51,11 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setNo(editEntry.jelenlet_no || 0)
         setGyermek(editEntry.jelenlet_gyermek || 0)
         setPersely(editEntry.persely || 0)
+        setDu(!!editEntry.du)
         setMegj(editEntry.megjegyzes || '')
-        // Kategória meghatározás a típusból
-        for (const [cat, types] of Object.entries(WORKLOG_TYPES)) {
-          if (editEntry.jellege && types.includes(editEntry.jellege)) {
-            setCategory(cat as WorklogCategory)
-            break
-          }
-        }
+        // Kategória meghatározás — a közös helperrel (kategoria mező +
+        // jellege fallback; 2026-06-12, Endre #3 munkanapló)
+        setCategory(categorizeWorklogEntry(editEntry))
       } else {
         setCategory(defaultCategory)
         setIdopont(new Date().toISOString().slice(0, 10))
@@ -69,6 +69,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setNo(0)
         setGyermek(0)
         setPersely(0)
+        setDu(false)
         setMegj('')
       }
     })
@@ -97,6 +98,7 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
       jelenlet_no: no || null,
       jelenlet_gyermek: gyermek || null,
       persely: persely || null,
+      du,
       megjegyzes: megj || null,
     })
     if (result.error) toast.error(result.error)
@@ -128,6 +130,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
               <Label>Típus *</Label>
               <select value={jellege} onChange={e => setJellege(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                 <option value="">— Válasszon —</option>
+                {/* Legacy/egyedi típus megőrzése szerkesztéskor (pl. régi elgépelt
+                    érték) — különben a select üresre ugrana. 2026-06-12. */}
+                {jellege && !types.includes(jellege) && <option value={jellege}>{jellege}</option>}
                 {types.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
@@ -138,14 +143,18 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
             <div className="space-y-1.5"><Label>Cím</Label><Input value={cim} onChange={e => setCim(e.target.value)} /></div>
           </div>
 
+          {/* Jelenlét — mindhárom kategóriánál (a hivatalos Excel naplók
+              mindegyike tartalmaz létszámot: Férfi/Nő, Résztvett, Jelen volt).
+              2026-06-12 (Endre #3 munkanapló). */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5"><Label>Férfi</Label><Input type="number" min={0} value={ferfi} onChange={e => setFerfi(Number(e.target.value))} /></div>
+            <div className="space-y-1.5"><Label>Nő</Label><Input type="number" min={0} value={no} onChange={e => setNo(Number(e.target.value))} /></div>
+            <div className="space-y-1.5"><Label>Gyermek</Label><Input type="number" min={0} value={gyermek} onChange={e => setGyermek(Number(e.target.value))} /></div>
+          </div>
+
           {/* Szolgálat extra mezők */}
           {category === 'szolgalat' && (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5"><Label>Férfi</Label><Input type="number" min={0} value={ferfi} onChange={e => setFerfi(Number(e.target.value))} /></div>
-                <div className="space-y-1.5"><Label>Nő</Label><Input type="number" min={0} value={no} onChange={e => setNo(Number(e.target.value))} /></div>
-                <div className="space-y-1.5"><Label>Gyermek</Label><Input type="number" min={0} value={gyermek} onChange={e => setGyermek(Number(e.target.value))} /></div>
-              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Perselypénz (RON)</Label><Input type="number" min={0} step={0.01} value={persely} onChange={e => setPersely(Number(e.target.value))} /></div>
                 <div className="space-y-1.5"><Label>Alapige</Label><Input value={alapige} onChange={e => setAlapige(e.target.value)} placeholder="Pl. Jn 3,16" /></div>
@@ -155,16 +164,27 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
                 <div className="space-y-1.5"><Label>Énekek</Label><Input value={enekek} onChange={e => setEnekek(e.target.value)} placeholder="Pl. 458, 372" /></div>
               </div>
               <div className="space-y-1.5"><Label>Szolgálatot vezette</Label><Input value={szolgalt} onChange={e => setSzolgalt(e.target.value)} /></div>
+              {/* A hivatalos Excel "Du." oszlopa — délutáni/esti alkalom jelölése */}
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={du} onChange={e => setDu(e.target.checked)} />
+                Délutáni alkalom
+              </label>
             </>
           )}
 
-          {/* Katekézis: résztvevők */}
+          {/* Katekézis: persely + aki tartotta (a hivatalos Excel Katekézis
+              naplójában: Perselypénz, Tartotta oszlopok) */}
           {category === 'katekezis' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5"><Label>Férfi</Label><Input type="number" min={0} value={ferfi} onChange={e => setFerfi(Number(e.target.value))} /></div>
-              <div className="space-y-1.5"><Label>Nő</Label><Input type="number" min={0} value={no} onChange={e => setNo(Number(e.target.value))} /></div>
-              <div className="space-y-1.5"><Label>Gyermek</Label><Input type="number" min={0} value={gyermek} onChange={e => setGyermek(Number(e.target.value))} /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Perselypénz (RON)</Label><Input type="number" min={0} step={0.01} value={persely} onChange={e => setPersely(Number(e.target.value))} /></div>
+              <div className="space-y-1.5"><Label>Tartotta</Label><Input value={szolgalt} onChange={e => setSzolgalt(e.target.value)} placeholder="Pl. a lelkész neve" /></div>
             </div>
+          )}
+
+          {/* Látogatás: a látogató lelkész (a hivatalos Excel Családlátogatás
+              naplójában: lelkész + jelen volt) */}
+          {category === 'latogatas' && (
+            <div className="space-y-1.5"><Label>Lelkész / látogató</Label><Input value={szolgalt} onChange={e => setSzolgalt(e.target.value)} placeholder="Pl. a lelkész neve" /></div>
           )}
 
           <div className="space-y-1.5"><Label>Megjegyzés</Label><textarea value={megj} onChange={e => setMegj(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[50px] resize-y" /></div>

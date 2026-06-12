@@ -301,3 +301,29 @@ export {
   saveBudgetModification,
   type BudgetCompatRow,
 } from './finance/budget-compat'
+
+// ── Bank-import batch + nyitó egyenleg (web actionök portja, 2026-06-12, Endre #4) ──
+export {
+  importBankTransactionsUseCase,
+  getLatestBankTransactionDateUseCase,
+  type BankImportItem,
+  type BankImportItemAction,
+  type BankImportResult,
+  type BankImportedRow,
+  type BankImportReadCtx,
+  type GetLatestBankTransactionDateInput,
+  type ImportBankTransactionsCtx,
+  type ImportBankTransactionsInput,
+} from './finance/bank-import/import-transactions'
+
+export {
+  getBankszamlaNyitoEgyenlegUseCase,
+  upsertBankszamlaNyitoEgyenlegUseCase,
+  checkYearStartStateUseCase,
+  type CheckYearStartStateInput,
+  type GetBankszamlaNyitoEgyenlegInput,
+  type NyitoEgyenlegRow,
+  type UpsertBankszamlaNyitoEgyenlegInput,
+  type UpsertNyitoEgyenlegInput,
+  type YearStartCheckResult,
+} from './finance/bank-import/nyito-egyenleg'

@@ -1757,6 +1757,8 @@ export class TauriSqliteBackend implements StorageBackend {
       sz_datum: string | null
       csaladfo: number
       revision: number
+      kep: string | null
+      social_profil_url: string | null
     } | null
     no: {
       id: number
@@ -1766,6 +1768,8 @@ export class TauriSqliteBackend implements StorageBackend {
       sz_datum: string | null
       csaladfo: number
       revision: number
+      kep: string | null
+      social_profil_url: string | null
     } | null
     gyermekek: Array<{
       id_gyerek: number
@@ -1776,6 +1780,8 @@ export class TauriSqliteBackend implements StorageBackend {
       ferfi: number
       csaladfo: number
       revision: number
+      kep: string | null
+      social_profil_url: string | null
     }>
   }> {
     const familyRows = await dbSelect<{
@@ -1809,8 +1815,10 @@ export class TauriSqliteBackend implements StorageBackend {
         sz_datum: string | null
         csaladfo: number
         revision: number
+        kep: string | null
+        social_profil_url: string | null
       }>(
-        `SELECT id, csaladnev, k_nev, sz_datum, csaladfo, revision
+        `SELECT id, csaladnev, k_nev, sz_datum, csaladfo, revision, kep, social_profil_url
            FROM szemely_local WHERE id = ?1`,
         [family.id_ferfi],
       )
@@ -1827,8 +1835,10 @@ export class TauriSqliteBackend implements StorageBackend {
         sz_datum: string | null
         csaladfo: number
         revision: number
+        kep: string | null
+        social_profil_url: string | null
       }>(
-        `SELECT id, csaladnev, k_nev, ferjk_nev, sz_datum, csaladfo, revision
+        `SELECT id, csaladnev, k_nev, ferjk_nev, sz_datum, csaladfo, revision, kep, social_profil_url
            FROM szemely_local WHERE id = ?1`,
         [family.id_no],
       )
@@ -1844,9 +1854,12 @@ export class TauriSqliteBackend implements StorageBackend {
       ferfi: number
       csaladfo: number
       revision: number
+      kep: string | null
+      social_profil_url: string | null
     }>(
       `SELECT gl.id AS id_gyerek, gl.id_szemely AS szemely_id,
-              s.csaladnev, s.k_nev, s.sz_datum, s.ferfi, s.csaladfo, s.revision
+              s.csaladnev, s.k_nev, s.sz_datum, s.ferfi, s.csaladfo, s.revision,
+              s.kep, s.social_profil_url
          FROM gyerek_local gl
          JOIN szemely_local s ON s.id = gl.id_szemely
         WHERE gl.id_csalad = ?1

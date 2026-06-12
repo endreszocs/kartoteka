@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { pullNevnapCatalog } from './nevnap-sync'
 import {
   pullAdrlocalityCatalog,
   pullAnnualReportsOfOwnCongregation,
@@ -120,6 +121,8 @@ async function syncFullBundle(userId: string): Promise<void> {
     pullCemeteriesOfOwnCongregation(userId),
     pullAnnualReportsOfOwnCongregation(userId),
     pullAdrlocalityCatalog(),
+    // 2026-06-12 (Endre #5): névnap-katalógus a dashboard „Ma köszöntjük" kártyához
+    pullNevnapCatalog(),
   ])
 }
 

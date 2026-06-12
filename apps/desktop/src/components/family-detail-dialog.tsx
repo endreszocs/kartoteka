@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
+  Camera,
   Check,
   Crown,
   Home,
@@ -34,7 +35,10 @@ import {
   X,
 } from 'lucide-react'
 
-import { Button, Input } from '@kartoteka/ui'
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input } from '@kartoteka/ui'
+import { AvatarEditorBody, MemberAvatar } from '@kartoteka/ui-app'
+
+import { fetchSocialAvatarImageDesktop, saveMemberAvatarDesktop } from '../lib/avatar'
 
 import { CsaladFormDialog } from './csalad-form-dialog'
 import {
@@ -73,6 +77,8 @@ export function FamilyDetailDialog({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyMemberId, setBusyMemberId] = useState<number | null>(null)
+  // 2026-06-11 (Endre): fénykép + közösségi link szerkesztő
+  const [avatarEditPerson, setAvatarEditPerson] = useState<{ id: number; name: string; kepUrl?: string | null; socialUrl?: string | null } | null>(null)
   const [banner, setBanner] = useState<Banner>(null)
   const [editOpen, setEditOpen] = useState(false)
 
@@ -461,6 +467,12 @@ export function FamilyDetailDialog({
                   revision={detail.ferfi?.revision ?? 0}
                   busyMemberId={busyMemberId}
                   onSetCsaladfo={handleSetCsaladfo}
+                  kepUrl={detail.ferfi?.kep}
+                  onEditAvatar={
+                    detail.ferfi
+                      ? () => setAvatarEditPerson({ id: detail.ferfi!.id, name: ferfi_name ?? 'Apa', kepUrl: detail.ferfi!.kep, socialUrl: detail.ferfi!.social_profil_url })
+                      : undefined
+                  }
                 />
                 <MemberRow
                   label="Anya"
@@ -472,6 +484,12 @@ export function FamilyDetailDialog({
                   revision={detail.no?.revision ?? 0}
                   busyMemberId={busyMemberId}
                   onSetCsaladfo={handleSetCsaladfo}
+                  kepUrl={detail.no?.kep}
+                  onEditAvatar={
+                    detail.no
+                      ? () => setAvatarEditPerson({ id: detail.no!.id, name: no_name ?? 'Anya', kepUrl: detail.no!.kep, socialUrl: detail.no!.social_profil_url })
+                      : undefined
+                  }
                 />
               </DetailGroup>
 
@@ -501,15 +519,14 @@ export function FamilyDetailDialog({
                             isCsaladfo ? 'bg-amber-50/60' : 'bg-slate-50/50'
                           }`}
                         >
-                          <div
-                            className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
-                              g.ferfi === 1
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-pink-100 text-pink-800'
-                            }`}
+                          <button
+                            type="button"
+                            onClick={() => setAvatarEditPerson({ id: g.szemely_id, name, kepUrl: g.kep, socialUrl: g.social_profil_url })}
+                            className="shrink-0 transition hover:scale-105"
+                            title="Fénykép társítása"
                           >
-                            <Users className="size-3.5" />
-                          </div>
+                            <MemberAvatar name={name} kepUrl={g.kep} size={28} />
+                          </button>
                           <div className="flex-1">
                             <p className="font-medium text-slate-900">
                               {name}
@@ -690,6 +707,28 @@ export function FamilyDetailDialog({
           onClose={() => setEditOpen(false)}
         />
       )}
+
+      {/* 2026-06-11: fénykép + közösségi link szerkesztő (online művelet) */}
+      {avatarEditPerson && congregationId && (
+        <Dialog open onOpenChange={(o) => { if (!o) setAvatarEditPerson(null) }}>
+          <DialogContent className="z-[70] sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Fénykép és közösségi kapcsolat</DialogTitle>
+            </DialogHeader>
+            <AvatarEditorBody
+              personName={avatarEditPerson.name}
+              currentKepUrl={avatarEditPerson.kepUrl}
+              currentSocialUrl={avatarEditPerson.socialUrl}
+              onFetchFromSocial={(url) => fetchSocialAvatarImageDesktop(url)}
+              onSave={(params) => saveMemberAvatarDesktop(avatarEditPerson.id, congregationId, params)}
+              onSaved={() => {
+                setAvatarEditPerson(null)
+                void load()
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -736,6 +775,8 @@ function MemberRow({
   revision,
   busyMemberId,
   onSetCsaladfo,
+  kepUrl,
+  onEditAvatar,
 }: {
   label: string
   name: string | null
@@ -746,8 +787,10 @@ function MemberRow({
   revision: number
   busyMemberId: number | null
   onSetCsaladfo: (id: number, name: string, revision: number) => void
+  /** 2026-06-11: avatar + szerkesztő. */
+  kepUrl?: string | null
+  onEditAvatar?: () => void
 }) {
-  const color = kor === 'ferfi' ? 'bg-blue-100 text-blue-800' : 'bg-pink-100 text-pink-800'
   const age = szDatum ? ageFromIso(szDatum) : null
   const isCsaladfo = csaladfo === 1
   const isBusy = memberId !== null && busyMemberId === memberId
@@ -759,8 +802,20 @@ function MemberRow({
         isCsaladfo ? 'bg-amber-50/60' : 'bg-slate-50/50'
       }`}
     >
-      <div className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${color}`}>
-        {kor === 'ferfi' ? '♂' : '♀'}
+      <div className="relative shrink-0">
+        <MemberAvatar name={name ?? (kor === 'ferfi' ? 'Apa' : 'Anya')} kepUrl={kepUrl} size={36} />
+        {onEditAvatar && name && (
+          <button
+            type="button"
+            onClick={onEditAvatar}
+            className="absolute -bottom-1 -right-1 inline-flex size-4.5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition hover:scale-110 hover:text-violet-600"
+            style={{ width: 18, height: 18 }}
+            title="Fénykép társítása"
+            aria-label="Fénykép társítása"
+          >
+            <Camera className="size-2.5" />
+          </button>
+        )}
       </div>
       <div className="flex-1">
         <p className="text-xs text-slate-500">{label}</p>

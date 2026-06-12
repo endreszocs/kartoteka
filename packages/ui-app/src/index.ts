@@ -41,6 +41,8 @@ export * from './installer'
 export * from './indicators/SessionStatusBadge'
 export * from './indicators/SyncStatusBadge'
 export * from './indicators/OnlineStatePill'
+// 2026-06-12 (Endre #5 — dashboard-paritás): új dashboard-fájlok a barrel-en át
+export * from './dashboard'
 export * from './dashboard/HeroBannerScripture'
 export * from './dashboard/KpiCards'
 export * from './dashboard/BottomStats'
@@ -52,3 +54,5 @@ export * from './dashboard/AgeDistribution'
 // Pénzügyi modul közös réteg (Sprint Q Fázis 1, 2026-04-25)
 // Web és desktop egyaránt INNEN importál minden finance-típust és helpert.
 export * from './finance'
+// Tagnyilvántartás közös darabjai (D-hullám, 2026-06-11): avatar + családi kártya + karton-print
+export * from './members'

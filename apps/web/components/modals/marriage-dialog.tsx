@@ -74,6 +74,8 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   const [lelkesz, setLelkesz] = useState('')
   const [tanuk, setTanuk] = useState('')
   const [vegyes, setVegyes] = useState(false)
+  // 2026-06-12 (Endre #3-4 munkanapló): esketés → munkanapló pipa
+  const [munkanaploba, setMunkanaploba] = useState(false)
   const [megj, setMegj] = useState('')
   const [gondnok, setGondnok] = useState('')
   // 2026-05-30: emléklap-specifikus mezők (a hazassag táblában nincs külön
@@ -132,6 +134,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         setLelkesz((editEntry.lelkeszneve as string) || '')
         setTanuk((editEntry.tanuk as string) || '')
         setVegyes(!!editEntry.vegyes)
+        setMunkanaploba(!!editEntry.munkanaploba)
         // 2026-05-30: a sablon JSON parse a megjegyzes-ből (baptism mintára).
         // Ha az igevers/igehely üres, az alapértelmezett szöveget töltjük be —
         // a régi (sablon JSON előtti) bejegyzéseknél is azonnal kitölthető.
@@ -158,7 +161,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       }
       setGroom(null); setBride(null)
       setDatum(new Date().toISOString().slice(0, 10))
-      setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMegj('')
+      setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMunkanaploba(false); setMegj('')
       setHusbandBirthPlace(''); setWifeBirthPlace('')
       setVerseText(DEFAULT_VERSE_TEXT); setVerseReference(DEFAULT_VERSE_REFERENCE)
       try {
@@ -265,6 +268,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       lelkeszneve: lelkesz || null,
       tanuk: tanuk || null,
       vegyes,
+      munkanaploba,
       megjegyzes: megj || null,
       husband_birth_place: husbandBirthPlace || null,
       wife_birth_place: wifeBirthPlace || null,
@@ -460,6 +464,13 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={vegyes} onChange={e => setVegyes(e.target.checked)} />
               Vegyes házasság (egyik fél nem református)
+            </label>
+            {/* 2026-06-12 (Endre #3-4 munkanapló): az esketésnél eddig hiányzott a
+                munkanapló-pipa — a keresztelő/temetés/konfirmáció dialógokkal
+                egységesen az esketés is rögzíthető elvégzett szolgálatként. */}
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={munkanaploba} onChange={e => setMunkanaploba(e.target.checked)} />
+              Rögzítés a munkanaplóba
             </label>
           </div>
 

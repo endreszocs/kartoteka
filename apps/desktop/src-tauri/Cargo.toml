@@ -54,6 +54,9 @@ hex = "0.4"
 machine-uid = "0.5"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 base64 = "0.22"
+# Avatar-kepletoltes (2026-06-11): rustls-szel — nincs openssl-sys fuggoseg,
+# a CORS-mentes letoltes Rust-oldalon fut (a webview fetch-et a kep-CDN-ek blokkoljak)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
 # A-M6.9 — offline PIN hitelesítés.
 # Az argon2id pure-Rust implementáció, OWASP-ajánlott paraméterekkel jön.
 # A lelkész a PIN-t 30+ napos offline gap után is tudja használni a
