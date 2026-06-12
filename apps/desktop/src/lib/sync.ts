@@ -1546,7 +1546,15 @@ export async function pullWorklogOfOwnCongregation(
  */
 export async function getLocalWorklogOfOwnCongregation(
   userId: string,
-  options?: { search?: string; limit?: number; includeDeleted?: boolean },
+  options?: {
+    search?: string
+    limit?: number
+    includeDeleted?: boolean
+    /** Év-szűrő (idopont 'YYYY-' prefix) — a webes Munkanapló szűrő tükre. */
+    year?: number
+    /** Hónap-szűrő (1–12) — csak `year`-rel együtt; 0/undefined = egész év. */
+    month?: number
+  },
 ): Promise<WorklogLocalRow[]> {
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return []
@@ -1564,6 +1572,18 @@ export async function getLocalWorklogOfOwnCongregation(
       `(cim LIKE ?${idx} OR alapige LIKE ?${idx} OR bibliaolvasas LIKE ?${idx} OR szolgalt LIKE ?${idx} OR megjegyzes LIKE ?${idx})`,
     )
     params.push(`%${options.search}%`)
+    idx++
+  }
+
+  // 2026-06-12 (Endre #5 munkanapló): év + hónap szűrő — a webes Munkanapló
+  // oldal év/hónap választójának tükre (hónap nélkül a teljes év látszik).
+  if (options?.year) {
+    const prefix =
+      options.month && options.month >= 1 && options.month <= 12
+        ? `${options.year}-${String(options.month).padStart(2, '0')}`
+        : String(options.year)
+    conditions.push(`idopont LIKE ?${idx}`)
+    params.push(`${prefix}%`)
     idx++
   }
 

@@ -226,7 +226,9 @@ export function BcrImportWizardBody({
   const [hideOlder, setHideOlder] = useState(true)
   /** Nyitó egyenleg állapot (év eleji) */
   const [nyitoEve, setNyitoEve] = useState<number>(new Date().getFullYear())
-  const [nyitoExisting, setNyitoExisting] = useState<NyitoEgyenlegRow | null>(null)
+  // A meglévő nyitó-rekordot csak eltároljuk (mező-előtöltéshez) — a változó
+  // maga nem kerül kiolvasásra, ezért csak a setter él (desktop tsc: noUnusedLocals).
+  const [, setNyitoExisting] = useState<NyitoEgyenlegRow | null>(null)
   const [nyitoValuta, setNyitoValuta] = useState<number | ''>('')
   const [nyitoRon, setNyitoRon] = useState<number | ''>('')
   const [nyitoArfolyam, setNyitoArfolyam] = useState<number | ''>('')

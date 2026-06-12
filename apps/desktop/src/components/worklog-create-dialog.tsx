@@ -31,6 +31,9 @@ import {
 } from '../lib/sync'
 
 // A web `lib/constants/worklog.ts` másolata — forrás: apps/web/lib/constants/worklog.ts
+// 2026-06-12 (Endre #5 munkanapló): a webes bővítés tükre — a kazuáliák
+// (Keresztelő, Esketés, Temetés, Konfirmáció) a szolgálati típusok közé
+// kerültek, a katekézis Vallásóra/Kátéóra-val, a látogatás Beteglátogatás-sal bővült.
 const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
   szolgalat: [
     'Istentisztelet',
@@ -40,20 +43,49 @@ const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> =
     'Imaóra',
     'Esti áhítat',
     'Alkalmi istentisztelet',
+    'Keresztelő',
+    'Esketés',
+    'Temetés',
+    'Konfirmáció',
     'Egyéb szolgálat',
   ],
   katekezis: [
     'Bibliaóra',
     'Hittan',
+    'Vallásóra',
+    'Kátéóra',
     'Konfirmáció előkészítő',
     'Ifjúsági óra',
     'Gyermek foglalkozás',
     'Egyéb katekézis',
   ],
-  latogatas: ['Családlátogatás', 'Kórházlátogatás', 'Idősek otthona', 'Börtönlátogatás', 'Egyéb látogatás'],
+  latogatas: [
+    'Családlátogatás',
+    'Beteglátogatás',
+    'Kórházlátogatás',
+    'Idősek otthona',
+    'Börtönlátogatás',
+    'Egyéb látogatás',
+  ],
 }
 
 type WorklogCategory = keyof typeof WORKLOG_TYPES
+
+/**
+ * A webes `categorizeWorklogEntry` tükre (lib/constants/worklog.ts):
+ *  1. ha a `kategoria` kifejezetten 'katekezis'/'latogatas' → azt használjuk
+ *     (ezek nem DB-default értékek, tudatos beállítások);
+ *  2. különben a `jellege` típuslisták döntenek (a kategoria oszlop DEFAULT
+ *     'szolgalat'-tal jött létre, a legacy soroknál nem megbízható);
+ *  3. alapértelmezés: 'szolgalat'.
+ */
+function categorizeWorklogEntry(e: { kategoria?: string | null; jellege?: string | null }): WorklogCategory {
+  if (e.kategoria === 'katekezis' || e.kategoria === 'latogatas') return e.kategoria
+  for (const cat of Object.keys(WORKLOG_TYPES) as WorklogCategory[]) {
+    if (e.jellege && WORKLOG_TYPES[cat].includes(e.jellege)) return cat
+  }
+  return 'szolgalat'
+}
 
 export interface WorklogCreateDialogProps {
   open: boolean
@@ -104,9 +136,9 @@ export function WorklogCreateDialog({
   useEffect(() => {
     if (!open) return
     if (editEntry) {
-      // Edit mód — pre-fill
-      const cat = (editEntry.kategoria ?? 'szolgalat') as WorklogCategory
-      setCategory(WORKLOG_TYPES[cat] ? cat : 'szolgalat')
+      // Edit mód — pre-fill; a kategória a közös szabállyal (kategoria mező +
+      // jellege fallback — a webes categorizeWorklogEntry tükre, 2026-06-12)
+      setCategory(categorizeWorklogEntry(editEntry))
       setIdopont(editEntry.idopont ?? new Date().toISOString().slice(0, 10))
       setJellege(editEntry.jellege ?? '')
       setCim(editEntry.cim ?? '')
@@ -148,19 +180,22 @@ export function WorklogCreateDialog({
     setLoading(true)
     setError(null)
     try {
+      // 2026-06-12 (Endre #5 munkanapló): a webes WorklogDialog mentésének
+      // tükre — minden mező feltétel nélkül mentődik (a jelenlét mindhárom
+      // kategóriánál, a persely + szolgalt a katekézisnél/látogatásnál is).
       const input: WorklogInput = {
         idopont,
         jellege,
         kategoria: category,
         cim: cim || null,
-        bibliaolvasas: category === 'szolgalat' ? bibliaolvasas || null : null,
-        alapige: category === 'szolgalat' ? alapige || null : null,
-        enekek: category === 'szolgalat' ? enekek || null : null,
-        szolgalt: category === 'szolgalat' ? szolgalt || null : null,
-        jelenlet_ferfi: category !== 'latogatas' ? ferfi || null : null,
-        jelenlet_no: category !== 'latogatas' ? no || null : null,
-        jelenlet_gyermek: category !== 'latogatas' ? gyermek || null : null,
-        persely: category === 'szolgalat' ? persely || null : null,
+        bibliaolvasas: bibliaolvasas || null,
+        alapige: alapige || null,
+        enekek: enekek || null,
+        szolgalt: szolgalt || null,
+        jelenlet_ferfi: ferfi || null,
+        jelenlet_no: no || null,
+        jelenlet_gyermek: gyermek || null,
+        persely: persely || null,
         megjegyzes: megjegyzes || null,
         du,
       }
@@ -243,6 +278,11 @@ export function WorklogCreateDialog({
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="">— Válasszon —</option>
+                {/* Legacy/egyedi típus megőrzése szerkesztéskor (pl. régi elgépelt
+                    érték) — különben a select üresre ugrana. 2026-06-12 (web-tükör). */}
+                {jellege && !types.includes(jellege) && (
+                  <option value={jellege}>{jellege}</option>
+                )}
                 {types.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -275,41 +315,45 @@ export function WorklogCreateDialog({
             </div>
           </div>
 
+          {/* Jelenlét — mindhárom kategóriánál (a hivatalos Excel naplók
+              mindegyike tartalmaz létszámot: Férfi/Nő, Résztvett, Jelen volt).
+              2026-06-12 (Endre #5 munkanapló — a webes bővített rögzítő tükre). */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="wl-ferfi">Férfi</Label>
+              <Input
+                id="wl-ferfi"
+                type="number"
+                min={0}
+                value={ferfi}
+                onChange={(e) => setFerfi(Number(e.currentTarget.value))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wl-no">Nő</Label>
+              <Input
+                id="wl-no"
+                type="number"
+                min={0}
+                value={no}
+                onChange={(e) => setNo(Number(e.currentTarget.value))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wl-gyermek">Gyermek</Label>
+              <Input
+                id="wl-gyermek"
+                type="number"
+                min={0}
+                value={gyermek}
+                onChange={(e) => setGyermek(Number(e.currentTarget.value))}
+              />
+            </div>
+          </div>
+
           {/* Szolgálat extra mezők */}
           {category === 'szolgalat' && (
             <>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="wl-ferfi">Férfi</Label>
-                  <Input
-                    id="wl-ferfi"
-                    type="number"
-                    min={0}
-                    value={ferfi}
-                    onChange={(e) => setFerfi(Number(e.currentTarget.value))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="wl-no">Nő</Label>
-                  <Input
-                    id="wl-no"
-                    type="number"
-                    min={0}
-                    value={no}
-                    onChange={(e) => setNo(Number(e.currentTarget.value))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="wl-gyermek">Gyermek</Label>
-                  <Input
-                    id="wl-gyermek"
-                    type="number"
-                    min={0}
-                    value={gyermek}
-                    onChange={(e) => setGyermek(Number(e.currentTarget.value))}
-                  />
-                </div>
-              </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="wl-persely">Perselypénz (RON)</Label>
@@ -374,39 +418,44 @@ export function WorklogCreateDialog({
             </>
           )}
 
-          {/* Katekézis résztvevők */}
+          {/* Katekézis: persely + aki tartotta (a hivatalos Excel Katekézis
+              naplójában: Perselypénz, Tartotta oszlopok) — webes tükör. */}
           {category === 'katekezis' && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="wl-k-ferfi">Férfi</Label>
+                <Label htmlFor="wl-k-persely">Perselypénz (RON)</Label>
                 <Input
-                  id="wl-k-ferfi"
+                  id="wl-k-persely"
                   type="number"
                   min={0}
-                  value={ferfi}
-                  onChange={(e) => setFerfi(Number(e.currentTarget.value))}
+                  step={0.01}
+                  value={persely}
+                  onChange={(e) => setPersely(Number(e.currentTarget.value))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="wl-k-no">Nő</Label>
+                <Label htmlFor="wl-k-szolgalt">Tartotta</Label>
                 <Input
-                  id="wl-k-no"
-                  type="number"
-                  min={0}
-                  value={no}
-                  onChange={(e) => setNo(Number(e.currentTarget.value))}
+                  id="wl-k-szolgalt"
+                  value={szolgalt}
+                  onChange={(e) => setSzolgalt(e.currentTarget.value)}
+                  placeholder="Pl. a lelkész neve"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wl-k-gyermek">Gyermek</Label>
-                <Input
-                  id="wl-k-gyermek"
-                  type="number"
-                  min={0}
-                  value={gyermek}
-                  onChange={(e) => setGyermek(Number(e.currentTarget.value))}
-                />
-              </div>
+            </div>
+          )}
+
+          {/* Látogatás: a látogató lelkész (a hivatalos Excel Családlátogatás
+              naplójában: lelkész + jelen volt) — webes tükör. */}
+          {category === 'latogatas' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="wl-l-szolgalt">Lelkész / látogató</Label>
+              <Input
+                id="wl-l-szolgalt"
+                value={szolgalt}
+                onChange={(e) => setSzolgalt(e.currentTarget.value)}
+                placeholder="Pl. a lelkész neve"
+              />
             </div>
           )}
 

@@ -5,7 +5,7 @@
  * Pull (delta / full) a Supabase-ről, LIKE-keresés a lokális cache-en.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { BookOpen, ClipboardList, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 
@@ -33,11 +33,22 @@ import {
   type WorklogLocalRow,
 } from '../lib/sync'
 
+// A webes lib/constants/dashboard HU_MONTHS tükre (web-azonos feliratok).
+const HU_MONTHS = [
+  'Január', 'Február', 'Március', 'Április', 'Május', 'Június',
+  'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December',
+] as const
+
 export function MunkanaploPage() {
   const [user, setUser] = useState<User | null>(null)
   const [entries, setEntries] = useState<WorklogLocalRow[]>([])
   const [entryCount, setEntryCount] = useState<number>(0)
   const [search, setSearch] = useState('')
+  // 2026-06-12 (Endre #5 munkanapló): év + hónap szűrő — a webes Munkanapló
+  // oldal szűrőjének tükre. A hónap 0 értéke a teljes évet jelenti.
+  const now = new Date()
+  const [year, setYear] = useState<number>(now.getFullYear())
+  const [monthNum, setMonthNum] = useState<number>(now.getMonth() + 1)
   const [lastPull, setLastPull] = useState<string | null>(null)
   const [pulling, setPulling] = useState(false)
   const [pullError, setPullError] = useState<string | null>(null)
@@ -60,14 +71,22 @@ export function MunkanaploPage() {
     }
   }, [])
 
+  // Közös lista-szűrő (keresés + év + hónap) — minden frissítési út ezt használja.
+  const listOptions = useMemo(
+    () => ({
+      search: search.trim() || undefined,
+      year,
+      month: monthNum === 0 ? undefined : monthNum,
+    }),
+    [search, year, monthNum],
+  )
+
   // Lista frissítés
   useEffect(() => {
     if (!user) return
     let mounted = true
     Promise.all([
-      getLocalWorklogOfOwnCongregation(user.id, {
-        search: search.trim() || undefined,
-      }),
+      getLocalWorklogOfOwnCongregation(user.id, listOptions),
       getLocalWorklogCount(user.id),
       getLastPullWorklogIso(user.id),
     ])
@@ -83,7 +102,7 @@ export function MunkanaploPage() {
     return () => {
       mounted = false
     }
-  }, [user, search])
+  }, [user, listOptions])
 
   // M9 — edit handler: dialog megnyitása pre-filled módban
   const handleEdit = useCallback((entry: WorklogLocalRow) => {
@@ -124,9 +143,7 @@ export function MunkanaploPage() {
 
         // Lista frissítés
         const [rows, count] = await Promise.all([
-          getLocalWorklogOfOwnCongregation(user.id, {
-            search: search.trim() || undefined,
-          }),
+          getLocalWorklogOfOwnCongregation(user.id, listOptions),
           getLocalWorklogCount(user.id),
         ])
         setEntries(rows)
@@ -137,7 +154,7 @@ export function MunkanaploPage() {
         setDeletingId(null)
       }
     },
-    [user, search],
+    [user, listOptions],
   )
 
   const handlePull = useCallback(
@@ -165,9 +182,7 @@ export function MunkanaploPage() {
           )
         }
         const [rows, count] = await Promise.all([
-          getLocalWorklogOfOwnCongregation(user.id, {
-            search: search.trim() || undefined,
-          }),
+          getLocalWorklogOfOwnCongregation(user.id, listOptions),
           getLocalWorklogCount(user.id),
         ])
         setEntries(rows)
@@ -178,7 +193,7 @@ export function MunkanaploPage() {
         setPulling(false)
       }
     },
-    [user, search],
+    [user, listOptions],
   )
 
   return (
@@ -240,7 +255,7 @@ export function MunkanaploPage() {
           </div>
         )}
 
-        {/* Kereső + státusz */}
+        {/* Kereső + év/hónap szűrő + státusz */}
         <Card className="card-raised border-0">
           <CardContent className="space-y-3 pt-6">
             <div className="flex flex-wrap items-end gap-3">
@@ -257,6 +272,39 @@ export function MunkanaploPage() {
                     className="pl-9"
                   />
                 </div>
+              </div>
+              {/* 2026-06-12 (Endre #5): év + hónap szűrő — a webes szűrő tükre
+                  (a hónapnál "Egész év" opcióval) */}
+              <div className="space-y-1">
+                <Label htmlFor="worklog-year">Év</Label>
+                <select
+                  id="worklog-year"
+                  value={year}
+                  onChange={(e) => setYear(Number(e.currentTarget.value))}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {Array.from({ length: 8 }, (_, i) => now.getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="worklog-month">Hónap</Label>
+                <select
+                  id="worklog-month"
+                  value={monthNum}
+                  onChange={(e) => setMonthNum(Number(e.currentTarget.value))}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value={0}>Egész év</option>
+                  {HU_MONTHS.map((name, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="text-xs text-muted-foreground">
                 Utolsó pull:{' '}
@@ -404,7 +452,7 @@ export function MunkanaploPage() {
             <CardContent className="py-12 text-center">
               <p className="text-sm text-muted-foreground">
                 {lastPull
-                  ? 'Nincs találat a jelenlegi keresésre.'
+                  ? 'Nincs találat a jelenlegi szűrésre (év/hónap/keresés) — válts évet vagy hónapot, vagy töröld a keresést.'
                   : 'Még nincs lokálisan cache-elt munkanapló-bejegyzés. Kattints a „Full Pull" gombra az első letöltéshez.'}
               </p>
             </CardContent>
@@ -445,9 +493,7 @@ export function MunkanaploPage() {
 
             // Lista újratöltése a cache-ből
             const [rows, count] = await Promise.all([
-              getLocalWorklogOfOwnCongregation(user.id, {
-                search: search.trim() || undefined,
-              }),
+              getLocalWorklogOfOwnCongregation(user.id, listOptions),
               getLocalWorklogCount(user.id),
             ])
             setEntries(rows)

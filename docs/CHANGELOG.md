@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-12] — Munkanapló-megújulás, banki import varázsló, Excel-beállító varázsló
+<!-- key: 2026-06-12-munkanaplo-bankimport-wizardok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop 0.9.3 -->
+
+### ✨ Új funkciók
+
+- **A munkanapló mostantól magától vezeti a szolgálataidat.** Keresztelés,
+  esketés, temetés vagy konfirmálás rögzítésekor automatikus bejegyzés készül
+  a munkanaplóba — szerkesztésnél frissül, sosem duplikál. A családlátogatás
+  és a vallásóra/kátéóra (perselypénzzel, tartóval) is a helyére kerül. A régi
+  bejegyzéseid visszamenőleg is bekerültek.
+- **Az éves lelkészi jelentés végre a teljes évből számol** — eddig egy hiba
+  miatt szinte üres volt. Év + hónap szűrő került a munkanaplóra (webben és
+  az asztali appban is).
+- **Banki kivonat importálása az asztali appban — a webes varázslóval.**
+  5 lépés: fájl → nyitó egyenleg → tételenkénti besorolás (bevétel/kiadás/
+  belső mozgás/kihagyás) → megerősítés — duplikátum-védelemmel, és minden
+  importált tétel a hivatalos Excelbe is bekerül.
+- **Excel-könyvelés beállító varázsló (asztali):** 5 vezetett lépés a mappától
+  a fejlécen és bank-párosításon át a bekapcsolásig — semmi nem maradhat ki.
+- **Irányítópult: születésnaposok és közelgő programok** az asztali appban is,
+  a webbel egyező működéssel.
+
+### 🐛 Javítások
+
+- **Gyülekezet-beállítás varázsló:** négy hiba javítva — a Mentés gomb többé
+  nem enged el hiányos űrlapot (felsorolja, mi hiányzik), és a bankszámla-
+  műveletek nem futnak le érvénytelen alapadatok mellett.
+- A fejléc-menüből kikerült a félrevezető „Kezdő beállító varázsló".
+
 ## [2026-06-12] — Tétel-rögzítés hibajavítás, látható befizető-kereső, fényképek a családfán
 <!-- key: 2026-06-12-rogzites-fix-csaladfa-kepek -->
 <!-- category: bugfix -->
