@@ -62,6 +62,11 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, all
   const [resendMode, setResendMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  // 2026-06-13 (Endre): a Gmail ~102 kB felett LEVÁGJA a levelet — a végén
+  // lévő DicsHub-ajánló + lábléc tűnik el elsőként („nem egyezik az
+  // előnézettel"). Méret-őr: 95 kB felett figyelmeztetünk.
+  const [previewBytes, setPreviewBytes] = useState<number | null>(null)
+  const GMAIL_CLIP_WARN_BYTES = 95 * 1024
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop')
 
@@ -123,6 +128,7 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, all
         headerTitle: headerTitle.trim() || undefined,
       })
       setPreviewHtml(html)
+      setPreviewBytes(new TextEncoder().encode(html).length)
       setShowPreview(true)
     } finally {
       setLoadingPreview(false)
@@ -451,8 +457,21 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, all
               </div>
             ) : (
               <div className="h-full flex flex-col">
+                {previewBytes != null && previewBytes > GMAIL_CLIP_WARN_BYTES && (
+                  <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert">
+                    <strong>Figyelem — a levél {Math.round(previewBytes / 1024)} kB:</strong> a Gmail
+                    kb. 102 kB felett levágja az üzenetet („Üzenet csonkítva"), és a levél VÉGE —
+                    a DicsHub-ajánló és a lábléc — tűnik el elsőként. Válassz kevesebb frissítést
+                    egy levélbe, vagy küldd két részletben.
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-xs font-semibold text-slate-700">Élő előnézet</span>
+                  {previewBytes != null && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${previewBytes > GMAIL_CLIP_WARN_BYTES ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {Math.round(previewBytes / 1024)} kB
+                    </span>
+                  )}
                   {/* Desktop / Mobil nézet-váltó — a reszponzivitás ellenőrzéséhez */}
                   <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
                     <button
