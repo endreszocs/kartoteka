@@ -413,13 +413,17 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
                 ${tocHtml}
               </div>
 
+              <!-- DicsHub ajánló — 2026-06-14 (Endre): a részletes szekciók ELÉ
+                   került, hogy a Gmail esetleges csonkolása (ami a levél VÉGÉT
+                   vágja le ~102 kB felett) esetén IS látsszon, kattintás nélkül.
+                   A tartalomjegyzék már fentebb felsorolta az összes újdonságot,
+                   így az „egészet" reprezentálja a vágási pont fölött. -->
+              ${dicsHubPromoHtml()}
+
               <!-- Szekciók (részletes kifejtés) -->
               <div class="kt-px" style="padding:8px 28px 24px;">
                 ${sections}
               </div>
-
-              <!-- DicsHub ajánló -->
-              ${dicsHubPromoHtml()}
 
               <!-- Lábléc üzenet -->
               <div class="kt-px" style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
