@@ -23,6 +23,31 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
+<!-- key: 2026-06-15-oblio-desktop-offline-pdf -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Párosítás internet nélkül is.** Az asztali Oblio ellenőrzésben mostantól <strong>offline is
+  párosíthatsz</strong> kézzel: a kiadások a helyi (gépen tárolt) másolatból jönnek elő, a párosítások
+  pedig egy <strong>várólistára</strong> kerülnek, és amint újra van internet, <strong>automatikusan
+  szinkronizálnak</strong>. Egy sáv jelzi, hány párosítás vár szinkronra, és a „Szinkron most” gombbal
+  azonnal fel is töltheted őket.
+- **Árva PDF-ek automatikus felismerése a tartalom alapján.** Ha egy PDF-számla a fájlneve alapján nem
+  párosítható (mert a letöltött csomag vegyes volt), a <strong>„Tartalom-elemzés”</strong> gombbal a
+  rendszer beleolvas a PDF-be, kinyeri belőle a beszállító adószámát (CUI) és az összeget, és a megfelelő
+  számlával (XML) társítja — sikeres találatnál átnevezi a fájlt, hogy onnantól magától párosuljon.
+
+### ℹ️ Tudnivaló
+
+- Az offline párosítás a kézi párosításra vonatkozik; az automatikus (adószám/összeg alapú) párosítások
+  online amúgy is maguktól mentődnek a következő frissítéskor.
+- A tartalom-elemzés a PDF szövegét olvassa — a beszkennelt (kép-)PDF-eknél kevésbé megbízható; ilyenkor
+  a kézi párosítás a biztos út.
+
 ## [2026-06-15] — Oblio e-Factura ellenőrzés az asztali appban is, tiszta mappa-rendszerrel
 <!-- key: 2026-06-15-oblio-desktop-beolvasas -->
 <!-- category: feature -->

@@ -23,6 +23,7 @@ import {
   CircleAlert,
   ExternalLink,
   FileArchive,
+  FileSearch,
   FolderOpen,
   Link2,
   Link2Off,
@@ -30,6 +31,9 @@ import {
   PlusCircle,
   RefreshCw,
 } from 'lucide-react'
+// PDF.js worker — a Vite lokálisan bundle-öli, így offline (asztali) appban is
+// működik a tartalom-elemzés (a CDN-es worker offline nem érhető el).
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 import { Button, Input } from '@kartoteka/ui'
 import {
@@ -37,6 +41,7 @@ import {
   extractAnafUuidFromFilename,
   normalizeFileBaseName,
   matchXmlsToKiadas,
+  batchMatchPdfsToXmls,
   type UblInvoiceMeta,
   type MinimalKiadas,
   type XmlMatchResult,
@@ -44,6 +49,8 @@ import {
   type OblioKiadasMatchRow,
   type ExpenseCategory,
   type BankAccount,
+  type OrphanPdfFile,
+  type ContentMatchResult,
 } from '@kartoteka/ui-app'
 import { saveExpenseUseCase } from '@kartoteka/core'
 
@@ -51,13 +58,17 @@ import { getDesktopSupabase } from '../lib/supabase'
 import { isOnlineWithSession } from '../lib/use-session-online'
 import { excelOpenFolder } from '../lib/excel'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
+import { getLocalKiadasok } from '../lib/finance-sync'
 import {
   oblioFolderInfo,
   oblioIngest,
   oblioListProcessed,
   oblioReadText,
+  oblioReadBase64,
+  oblioRenameProcessed,
   oblioSetupFolder,
   type OblioFolderInfo,
+  type OblioFileEntry,
 } from '../lib/oblio'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
@@ -90,6 +101,91 @@ const NONE_MATCH = (uuid: string): XmlMatchResult => ({
   explanation: '—',
 })
 
+// ── #2 Offline párosítás-sor (localStorage) ──
+// Offline rögzített KÉZI párosítások itt várnak a hálózat visszatértére, akkor
+// a loadData felflusheli a Supabase-be. (Az auto-párosítások nem igényelnek
+// sort: a matcher minden frissítésnél újraszámolja, és online perzisztálja őket.)
+type PendingMatch = {
+  kiadasId: number
+  anafUuid: string
+  supplierCui: string | null
+  supplierName: string | null
+  invoiceNumber: string | null
+  invoiceDate: string | null
+  invoiceAmount: number | null
+  localFileRelpath: string | null
+}
+
+function pendingKey(congregationId: string): string {
+  return `oblio-pending-matches::${congregationId}`
+}
+
+function loadPendingMatches(congregationId: string): PendingMatch[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(pendingKey(congregationId))
+    return raw ? (JSON.parse(raw) as PendingMatch[]) : []
+  } catch {
+    return []
+  }
+}
+
+function savePendingMatches(congregationId: string, list: PendingMatch[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(pendingKey(congregationId), JSON.stringify(list))
+  } catch {
+    /* storage quota — csendben */
+  }
+}
+
+/** A várakozó párosítások felflushelése a Supabase-be; a sikertelenek maradnak. */
+async function flushPendingMatches(
+  congregationId: string,
+  list: PendingMatch[],
+  userId: string,
+): Promise<PendingMatch[]> {
+  if (list.length === 0) return []
+  const supabase = getDesktopSupabase()
+  const nowIso = new Date().toISOString()
+  const still: PendingMatch[] = []
+  for (const p of list) {
+    try {
+      const { error } = await supabase.from('oblio_kiadas_match').upsert(
+        {
+          congregation_id: congregationId,
+          kiadas_id: p.kiadasId,
+          anaf_uuid: p.anafUuid,
+          supplier_cui: p.supplierCui,
+          supplier_name: p.supplierName,
+          invoice_number: p.invoiceNumber,
+          invoice_date: p.invoiceDate,
+          invoice_amount: p.invoiceAmount,
+          local_file_relpath: p.localFileRelpath,
+          match_method: 'manual',
+          match_confidence: 'high',
+          matched_by: userId,
+          matched_at: nowIso,
+        },
+        { onConflict: 'congregation_id,anaf_uuid' },
+      )
+      if (error) still.push(p)
+    } catch {
+      still.push(p)
+    }
+  }
+  savePendingMatches(congregationId, still)
+  return still
+}
+
+/** base64 → Blob (a PDF tartalom-elemzéshez a webview-ban). */
+function base64ToBlob(b64: string, type: string): Blob {
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type })
+}
+
 export function DesktopOblioTab({
   congregationId,
   userId,
@@ -109,6 +205,10 @@ export function DesktopOblioTab({
   const [manualFor, setManualFor] = useState<Enriched | null>(null)
   const [wizardFor, setWizardFor] = useState<Enriched | null>(null)
   const [wizardBusy, setWizardBusy] = useState(false)
+  const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([])
+  const [orphanPdfs, setOrphanPdfs] = useState<OblioFileEntry[]>([])
+  const [contentMatching, setContentMatching] = useState(false)
+  const [contentResults, setContentResults] = useState<ContentMatchResult[]>([])
 
   // ── Adatbetöltés: feldolgozott XML-ek parse + online kiadások/párosítások + match ──
   const loadData = useCallback(async () => {
@@ -119,6 +219,13 @@ export function DesktopOblioTab({
       let mRows: OblioKiadasMatchRow[] = []
       const isOnline = await isOnlineWithSession()
       setOnline(isOnline)
+
+      // #2: a várakozó (offline rögzített) kézi párosítások betöltése + flush online.
+      let pending = loadPendingMatches(congregationId)
+      if (isOnline && pending.length > 0) {
+        pending = await flushPendingMatches(congregationId, pending, userId)
+      }
+
       if (isOnline) {
         try {
           const supabase = getDesktopSupabase()
@@ -142,7 +249,7 @@ export function DesktopOblioTab({
           if (!kiadasokRes.error && kiadasokRes.data) {
             kRows = (kiadasokRes.data as Record<string, unknown>[]).map((r) => ({
               id: Number(r.id),
-              datum: String(r.datum ?? ''),
+              datum: String(r.datum ?? '').slice(0, 10),
               osszeg: Number(r.osszeg) || 0,
               kedvezmenyzett: (r.kedvezmenyzett as string | null) ?? null,
               atvevo: (r.atvevo as string | null) ?? null,
@@ -151,11 +258,32 @@ export function DesktopOblioTab({
             }))
           }
         } catch {
-          /* online törzsadat nélkül a beolvasott lista így is látszik */
+          /* online törzsadat nélkül a lokális tükörből dolgozunk (lentebb) */
         }
       }
+
+      // Offline (vagy ha az online lekérés elbukott): a kiadások a LOKÁLIS
+      // SQLite-tükörből — így offline is lehet párosítani (a match a sorba kerül).
+      if (kRows.length === 0) {
+        try {
+          const local = await getLocalKiadasok(congregationId, currentYear)
+          kRows = local.map((r) => ({
+            id: r.id,
+            datum: String(r.datum ?? '').slice(0, 10),
+            osszeg: r.osszeg,
+            kedvezmenyzett: null,
+            atvevo: r.atvevo,
+            kedvezmenyezett_cui: r.kedvezmenyezett_cui,
+            iratszam: r.iratszam,
+          }))
+        } catch {
+          /* nincs lokális tükör — üres lista */
+        }
+      }
+
       setMatches(mRows)
       setKiadasok(kRows)
+      setPendingMatches(pending)
 
       // 2. Feldolgozott fájlok beolvasása + parse.
       const files = await oblioListProcessed()
@@ -193,7 +321,12 @@ export function DesktopOblioTab({
         atvevo: k.atvevo,
         kedvezmenyezett_cui: k.kedvezmenyezett_cui,
       }))
-      const existing = mRows.map((m) => ({ kiadasId: m.kiadas_id, anafUuid: m.anaf_uuid }))
+      // A matcher „existing" listája: a DB-párosítások ÉS a még szinkronra váró
+      // (offline) kézi párosítások — így az utóbbiak is párosítottként látszanak.
+      const existing = [
+        ...mRows.map((m) => ({ kiadasId: m.kiadas_id, anafUuid: m.anaf_uuid })),
+        ...pending.map((p) => ({ kiadasId: p.kiadasId, anafUuid: p.anafUuid })),
+      ]
       const { xmlResults } = matchXmlsToKiadas(
         unique.map((u) => u.meta),
         kiadasokForMatcher,
@@ -259,6 +392,11 @@ export function DesktopOblioTab({
         }
       })
       setEnriched(built)
+
+      // Árva PDF-ek: a feldolgozott PDF-ek, amelyek fájlnév-gyöke egyetlen XML-ével
+      // sem egyezik (tartalom-elemzéssel párosíthatók).
+      const xmlBases = new Set(unique.map((u) => normalizeFileBaseName(u.fileName)))
+      setOrphanPdfs(pdfFiles.filter((p) => !xmlBases.has(normalizeFileBaseName(p.name))))
     } finally {
       setLoading(false)
     }
@@ -347,6 +485,16 @@ export function DesktopOblioTab({
   }
 
   async function handleRemoveMatch(anafUuid: string) {
+    // Várakozó (offline) párosítás? Akkor csak a sorból vesszük ki — nincs DB-művelet.
+    if (pendingMatches.some((p) => p.anafUuid === anafUuid)) {
+      if (!window.confirm('Biztosan törlöd a (még szinkronra váró) párosítást?')) return
+      const next = pendingMatches.filter((p) => p.anafUuid !== anafUuid)
+      savePendingMatches(congregationId, next)
+      setPendingMatches(next)
+      onToast('Várakozó párosítás törölve.', 'success')
+      await loadData()
+      return
+    }
     const dbMatch = matches.find((m) => m.anaf_uuid === anafUuid)
     if (!dbMatch) {
       onToast('A párosítás csak helyileg (auto) létezik — frissíts a véglegesítéshez.', 'info')
@@ -372,26 +520,55 @@ export function DesktopOblioTab({
   }
 
   async function handleSaveManual(target: Enriched, kiadasId: number) {
+    if (!target.meta.anafUuid) {
+      onToast('Hiányzó ANAF UUID — a számla nem párosítható.', 'error')
+      return
+    }
+    const pendingPayload: PendingMatch = {
+      kiadasId,
+      anafUuid: target.meta.anafUuid,
+      supplierCui: target.meta.supplier.cui,
+      supplierName: target.meta.supplier.name,
+      invoiceNumber: target.meta.invoiceNumber,
+      invoiceDate: target.meta.issueDate,
+      invoiceAmount: target.meta.amounts.brut,
+      localFileRelpath: target.fileName,
+    }
+
+    // #2 Offline: a párosítás a sorba kerül, és a hálózat visszatértekor szinkronizál.
+    if (!online) {
+      const next = [
+        ...pendingMatches.filter((p) => p.anafUuid !== pendingPayload.anafUuid),
+        pendingPayload,
+      ]
+      savePendingMatches(congregationId, next)
+      setPendingMatches(next)
+      onToast('Párosítás elmentve — szinkronizálódik, amint újra online vagy.', 'success')
+      setManualFor(null)
+      await loadData()
+      return
+    }
+
     try {
       const supabase = getDesktopSupabase()
-      const payload = {
-        congregation_id: congregationId,
-        kiadas_id: kiadasId,
-        anaf_uuid: target.meta.anafUuid,
-        supplier_cui: target.meta.supplier.cui,
-        supplier_name: target.meta.supplier.name,
-        invoice_number: target.meta.invoiceNumber,
-        invoice_date: target.meta.issueDate,
-        invoice_amount: target.meta.amounts.brut,
-        local_file_relpath: target.fileName,
-        match_method: 'manual',
-        match_confidence: 'high',
-        matched_by: userId,
-        matched_at: new Date().toISOString(),
-      }
-      const { error } = await supabase
-        .from('oblio_kiadas_match')
-        .upsert(payload, { onConflict: 'congregation_id,anaf_uuid' })
+      const { error } = await supabase.from('oblio_kiadas_match').upsert(
+        {
+          congregation_id: congregationId,
+          kiadas_id: pendingPayload.kiadasId,
+          anaf_uuid: pendingPayload.anafUuid,
+          supplier_cui: pendingPayload.supplierCui,
+          supplier_name: pendingPayload.supplierName,
+          invoice_number: pendingPayload.invoiceNumber,
+          invoice_date: pendingPayload.invoiceDate,
+          invoice_amount: pendingPayload.invoiceAmount,
+          local_file_relpath: pendingPayload.localFileRelpath,
+          match_method: 'manual',
+          match_confidence: 'high',
+          matched_by: userId,
+          matched_at: new Date().toISOString(),
+        },
+        { onConflict: 'congregation_id,anaf_uuid' },
+      )
       if (error) {
         onToast(error.message, 'error')
         return
@@ -475,6 +652,65 @@ export function DesktopOblioTab({
     }
   }
 
+  // ── #1 Árva-PDF tartalom-elemzés (PDF.js) ──
+  // A fájlnév alapján nem párosított PDF-ekből kinyerjük a CUI-t/összeget, és a
+  // megfelelő XML-lel társítjuk; sikeres (biztos/közepes) találatnál a PDF-et az
+  // XML alapnevére nevezzük át → a következő frissítésnél fájlnév-gyök alapján párosul.
+  async function handleContentMatch() {
+    if (orphanPdfs.length === 0) return
+    setContentMatching(true)
+    setContentResults([])
+    try {
+      // A PDF.js worker-t a lokálisan bundle-ölt URL-re állítjuk (offline is megy).
+      const pdfjs = await import('pdfjs-dist')
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+
+      const orphanFiles: OrphanPdfFile[] = []
+      for (const p of orphanPdfs) {
+        try {
+          const b64 = await oblioReadBase64(p.name)
+          const blob = base64ToBlob(b64, 'application/pdf')
+          orphanFiles.push({
+            name: p.name,
+            // A matcher csak `handle.getFile()`-t hív — fake handle elég.
+            handle: { getFile: async () => blob } as unknown as FileSystemFileHandle,
+          })
+        } catch {
+          /* olvasási hiba — ezt a PDF-et kihagyjuk */
+        }
+      }
+
+      const xmlsForContentMatch = enriched.map((e) => ({ fileName: e.fileName, meta: e.meta }))
+      const results = await batchMatchPdfsToXmls(orphanFiles, xmlsForContentMatch)
+      setContentResults(results)
+
+      let renamed = 0
+      for (const r of results) {
+        if (r.xmlFileName && (r.confidence === 'high' || r.confidence === 'medium')) {
+          const newPdfName = `${r.xmlFileName.replace(/\.xml$/i, '')}.pdf`
+          try {
+            await oblioRenameProcessed(r.pdfName, newPdfName)
+            renamed += 1
+          } catch {
+            /* ütközés / hiba — marad árva */
+          }
+        }
+      }
+
+      const low = results.filter((r) => r.confidence === 'low').length
+      const none = results.filter((r) => r.confidence === 'none').length
+      let msg = `${renamed} PDF tartalom alapján párosítva`
+      if (low > 0) msg += ` · ${low} gyenge egyezés (kézi ellenőrzés ajánlott)`
+      if (none > 0) msg += ` · ${none} maradt árva`
+      onToast(msg, renamed > 0 ? 'success' : 'info')
+      if (renamed > 0) await loadData()
+    } catch (e) {
+      onToast(`Tartalom-elemzés hiba: ${e instanceof Error ? e.message : String(e)}`, 'error')
+    } finally {
+      setContentMatching(false)
+    }
+  }
+
   // ── Statisztika + szűrt lista ──
   const stats = useMemo(() => {
     const total = enriched.length
@@ -539,8 +775,26 @@ export function DesktopOblioTab({
       {!online && (
         <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          Nincs aktív kapcsolat — a beolvasott számlák listája látszik, de a kiadásokkal való
-          párosításhoz csatlakozz egyszer a hálózatra.
+          Nincs aktív kapcsolat — offline is párosíthatsz (a kiadások a helyi tükörből jönnek); a
+          párosítások a sorba kerülnek, és a hálózat visszatértekor automatikusan szinkronizálnak.
+        </div>
+      )}
+
+      {pendingMatches.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-1.5">
+            <AlertCircle className="size-4 shrink-0" />
+            {pendingMatches.length} párosítás vár szinkronra (offline rögzítve).
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void loadData()}
+            disabled={!online || loading}
+          >
+            <RefreshCw className="mr-1.5 size-4" /> Szinkron most
+          </Button>
         </div>
       )}
 
@@ -551,6 +805,73 @@ export function DesktopOblioTab({
         <StatCard color="amber" label="Hiányzó kiadás" value={stats.unmatched} hint="SPV-ben van, könyvelésben nincs" />
         <StatCard color="red" label="Nincs SPV-ben" value={stats.kiadasWithoutSpv} hint="Kifizetés előtt ellenőrizd!" />
       </div>
+
+      {/* Árva PDF-ek — tartalom-elemzéssel párosíthatók */}
+      {orphanPdfs.length > 0 && (
+        <div className="card-raised border border-rose-200 bg-rose-50/40 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-2xl bg-rose-100 text-rose-700">
+                📕
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-rose-900">
+                  {orphanPdfs.length} árva PDF — fájlnév alapján nem párosítva
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Indítsd a <strong>tartalom-elemzést</strong> — a rendszer a PDF szövegéből kinyeri a
+                  CUI-t/összeget, és a megfelelő XML-lel társítja (sikeres párosításnál átnevezi a fájlt).
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleContentMatch()}
+              disabled={contentMatching}
+              className="shrink-0"
+            >
+              {contentMatching ? (
+                <Loader2 className="mr-1.5 size-4 animate-spin" />
+              ) : (
+                <FileSearch className="mr-1.5 size-4" />
+              )}
+              Tartalom-elemzés
+            </Button>
+          </div>
+
+          {contentResults.length > 0 && (
+            <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto">
+              {contentResults.map((r) => {
+                const colorMap: Record<string, string> = {
+                  high: 'border-emerald-200 bg-emerald-50',
+                  medium: 'border-amber-200 bg-amber-50',
+                  low: 'border-orange-200 bg-orange-50',
+                  none: 'border-slate-200 bg-white',
+                }
+                const label =
+                  r.confidence === 'high'
+                    ? '✓ Biztos'
+                    : r.confidence === 'medium'
+                      ? '⚠️ Közepes'
+                      : r.confidence === 'low'
+                        ? '? Gyenge'
+                        : '✗ Nincs'
+                return (
+                  <div key={r.pdfName} className={`rounded-xl border px-3 py-2 text-xs ${colorMap[r.confidence]}`}>
+                    <div className="flex items-start gap-2">
+                      <span className="flex-1 break-all font-mono text-slate-700">📕 {r.pdfName}</span>
+                      <span className="shrink-0 font-semibold">{label}</span>
+                    </div>
+                    <p className="mt-1 text-slate-600">{r.reason}</p>
+                    {r.xmlFileName && <p className="mt-0.5 font-mono text-emerald-700">→ {r.xmlFileName}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Szűrő */}
       {enriched.length > 0 && (
@@ -650,7 +971,6 @@ export function DesktopOblioTab({
                               title="Kézi párosítás meglévő kiadáshoz"
                               color="text-cyan-600 hover:bg-cyan-50"
                               onClick={() => setManualFor(e)}
-                              disabled={!online}
                             >
                               <Link2 className="size-4" />
                             </IconBtn>

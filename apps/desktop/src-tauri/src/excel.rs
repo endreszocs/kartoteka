@@ -1036,6 +1036,46 @@ pub fn oblio_read_text(app: tauri::AppHandle, name: String) -> Result<String, St
     std::fs::read_to_string(&path).map_err(|e| format!("Fájl olvasás hiba: {e}"))
 }
 
+/// Egy feldolgozott fájl bájtjai base64-ben — a PDF tartalom-elemzéshez
+/// (a webview a base64-ből Blob-ot épít, és PDF.js-szel kinyeri a szöveget).
+#[tauri::command]
+pub fn oblio_read_base64(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    use base64::Engine as _;
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("Érvénytelen fájlnév.".to_string());
+    }
+    let processed = oblio_processed(&app)?;
+    let bytes =
+        std::fs::read(processed.join(&name)).map_err(|e| format!("Fájl olvasás hiba: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Egy feldolgozott fájl átnevezése a feldolgozott mappán belül — az árva-PDF
+/// tartalom-párosítás után, hogy a következő frissítésnél fájlnév-gyök alapján
+/// párosuljon az XML-lel. Ütközéskor NEM ír felül (hibát ad).
+#[tauri::command]
+pub fn oblio_rename_processed(
+    app: tauri::AppHandle,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    for n in [old_name.as_str(), new_name.as_str()] {
+        if n.contains('/') || n.contains('\\') || n.contains("..") {
+            return Err("Érvénytelen fájlnév.".to_string());
+        }
+    }
+    if old_name == new_name {
+        return Ok(());
+    }
+    let processed = oblio_processed(&app)?;
+    let dst = processed.join(&new_name);
+    if dst.exists() {
+        return Err(format!("A cél fájlnév már létezik: {new_name}"));
+    }
+    std::fs::rename(processed.join(&old_name), &dst).map_err(|e| format!("Átnevezés hiba: {e}"))?;
+    Ok(())
+}
+
 /// A mappa megnyitása az operációs rendszer fájlkezelőjében.
 #[tauri::command]
 pub fn excel_open_folder(path: String) -> Result<(), String> {

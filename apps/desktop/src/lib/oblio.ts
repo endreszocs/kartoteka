@@ -86,3 +86,13 @@ export async function oblioListProcessed(): Promise<OblioFileEntry[]> {
 export async function oblioReadText(name: string): Promise<string> {
   return invoke<string>('oblio_read_text', { name })
 }
+
+/** Egy feldolgozott fájl bájtjai base64-ben (PDF tartalom-elemzéshez). */
+export async function oblioReadBase64(name: string): Promise<string> {
+  return invoke<string>('oblio_read_base64', { name })
+}
+
+/** Egy feldolgozott fájl átnevezése a feldolgozott mappán belül (árva-PDF párosítás után). */
+export async function oblioRenameProcessed(oldName: string, newName: string): Promise<void> {
+  await invoke('oblio_rename_processed', { oldName, newName })
+}
