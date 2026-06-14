@@ -613,6 +613,99 @@ pub fn excel_setup_folder(
     })
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Oblio / befogadott e-Factura mappa (2026-06-14)
+//
+// A böngésző File System Access mappaválasztója sok hibalehetőséget hordoz
+// (rossz mappa, megtagadott engedély, felhő-szinkronizált hely). Az asztali
+// (offline) appban ehelyett a RENDSZER birtokolja a mappát: egy fix, ismert
+// helyen a Dokumentumok-ban (`…\Documents\Kartoteka\Oblio\befogadott`), amit
+// a Rust-réteg hoz létre és nyit meg. A lelkész ide teszi az Oblio ZIP-et.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// A befogadott e-Factura mappa: `…\Documents\Kartoteka\Oblio\befogadott`.
+fn oblio_folder(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let docs = app
+        .path()
+        .document_dir()
+        .map_err(|e| format!("A Dokumentumok mappa nem található: {e}"))?;
+    Ok(docs.join("Kartoteka").join("Oblio").join("befogadott"))
+}
+
+/// Egy Oblio-mappa állapota — a UI visszajelzéséhez (létezik-e + mit tartalmaz).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OblioFolderInfo {
+    /// A befogadott e-Factura mappa teljes útvonala.
+    pub folder_path: String,
+    /// Létezik-e már a mappa.
+    pub exists: bool,
+    /// A mappában talált ZIP/XML/PDF fájlok száma (megerősítés a felhasználónak).
+    pub zip_count: u32,
+    pub xml_count: u32,
+    pub pdf_count: u32,
+}
+
+fn count_oblio_files(folder: &Path) -> (u32, u32, u32) {
+    let (mut zip, mut xml, mut pdf) = (0u32, 0u32, 0u32);
+    if let Ok(rd) = std::fs::read_dir(folder) {
+        for e in rd.flatten() {
+            if let Some(name) = e.file_name().to_str() {
+                let lower = name.to_lowercase();
+                if lower.ends_with(".zip") {
+                    zip += 1;
+                } else if lower.ends_with(".xml") {
+                    xml += 1;
+                } else if lower.ends_with(".pdf") {
+                    pdf += 1;
+                }
+            }
+        }
+    }
+    (zip, xml, pdf)
+}
+
+/// A befogadott e-Factura mappa alapértelmezett útvonala (létrehozás nélkül).
+#[tauri::command]
+pub fn oblio_default_folder(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(oblio_folder(&app)?.to_string_lossy().to_string())
+}
+
+/// A befogadott e-Factura mappa állapota (létezik-e + fájl-számok) — másolás nélkül.
+#[tauri::command]
+pub fn oblio_folder_info(app: tauri::AppHandle) -> Result<OblioFolderInfo, String> {
+    let folder = oblio_folder(&app)?;
+    let exists = folder.is_dir();
+    let (zip_count, xml_count, pdf_count) = if exists {
+        count_oblio_files(&folder)
+    } else {
+        (0, 0, 0)
+    };
+    Ok(OblioFolderInfo {
+        folder_path: folder.to_string_lossy().to_string(),
+        exists,
+        zip_count,
+        xml_count,
+        pdf_count,
+    })
+}
+
+/// A befogadott e-Factura mappa előkészítése: létrehozza (a szülőkkel együtt),
+/// ha még nincs. Idempotens — meglévő mappát/tartalmat érintetlenül hagy.
+#[tauri::command]
+pub fn oblio_setup_folder(app: tauri::AppHandle) -> Result<OblioFolderInfo, String> {
+    let folder = oblio_folder(&app)?;
+    std::fs::create_dir_all(&folder).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+    let (zip_count, xml_count, pdf_count) = count_oblio_files(&folder);
+    Ok(OblioFolderInfo {
+        folder_path: folder.to_string_lossy().to_string(),
+        exists: true,
+        zip_count,
+        xml_count,
+        pdf_count,
+    })
+}
+
 /// A mappa megnyitása az operációs rendszer fájlkezelőjében.
 #[tauri::command]
 pub fn excel_open_folder(path: String) -> Result<(), String> {

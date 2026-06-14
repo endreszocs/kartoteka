@@ -23,6 +23,39 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-14] — Oblio e-Factura: kézikönyv a súgóban + a mappát az asztali app kezeli
+<!-- key: 2026-06-14-oblio-sugo-es-mappakezeles -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Lépésről lépésre útmutató az Oblio e-Factura ellenőrzéshez.** A Pénzügy súgóba új
+  fejezet került (<strong>„Oblio e-Factura ellenőrzés”</strong>): mit kell letölteni az
+  Oblio Wallet-ből, hova kell tenni, hogyan fut a párosítás, mit jelentenek a jelzések,
+  és mire kell figyelni (devizás és sztornó számlák, a 60 napos ANAF-határidő).
+- **A befogadott e-Factura mappát mostantól az asztali (offline) app kezeli helyetted.**
+  Eddig a böngészőben kézzel kellett mappát választani — ez sok hibalehetőséget rejtett
+  (rossz mappa, megtagadott engedély, felhőbe szinkronizált hely). Az asztali appban a
+  rendszer egy <strong>fix, ismert mappát</strong> hoz létre a Dokumentumok-ban:
+  <code>Documents\Kartoteka\Oblio\befogadott</code>. A <strong>Beállítások → Könyvelés</strong>
+  fülön egy gombbal előkészíted, egy másikkal megnyitod — és mindig <strong>ide teszed</strong>
+  az Oblio ZIP-et. Nincs többé mappa-keresgélés, nem tévesztheted el a helyét.
+
+### 🎨 Fejlesztések
+
+- **Egységes, rendszer által létrehozott hely a Dokumentumok-ban.** Az offline Kartotéka
+  minden gépi mappája (a könyvelés és az Oblio-mappa is) a Dokumentumok-on belüli
+  <code>Kartoteka</code> mappa alá kerül — átlátható, és a rendszer automatikusan létrehozza.
+
+### ℹ️ Tudnivaló
+
+- A befogadott számlák egyeztetése (a párosítás) jelenleg a webes felületen
+  (Pénzügy → Oblio ellenőrzés) történik, ugyanerre a fizikai mappára mutatva; az asztali
+  app a mappa előkészítését és megnyitását végzi. A teljes asztali egyeztető-fül egy
+  következő lépés.
+
 ## [2026-06-14] — Oblio e-Factura ellenőrzés: biztonságosabb, pontosabb, gyorsabb
 <!-- key: 2026-06-14-oblio-ellenorzes-javitasok -->
 <!-- category: bugfix -->
