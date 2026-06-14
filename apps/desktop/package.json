@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "npm run lint:imports && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "npm run lint:imports && tauri"
+    "tauri": "npm run lint:imports && node ../../scripts/desktop-tauri.mjs"
   },
   "dependencies": {
     "@kartoteka/supabase-client": "*",
