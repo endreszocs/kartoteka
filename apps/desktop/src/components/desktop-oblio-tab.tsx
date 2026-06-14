@@ -27,6 +27,7 @@ import {
   Link2,
   Link2Off,
   Loader2,
+  PlusCircle,
   RefreshCw,
 } from 'lucide-react'
 
@@ -41,11 +42,15 @@ import {
   type XmlMatchResult,
   type OblioMinimalKiadas,
   type OblioKiadasMatchRow,
+  type ExpenseCategory,
+  type BankAccount,
 } from '@kartoteka/ui-app'
+import { saveExpenseUseCase } from '@kartoteka/core'
 
 import { getDesktopSupabase } from '../lib/supabase'
 import { isOnlineWithSession } from '../lib/use-session-online'
 import { excelOpenFolder } from '../lib/excel'
+import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
 import {
   oblioFolderInfo,
   oblioIngest,
@@ -61,6 +66,10 @@ interface DesktopOblioTabProps {
   congregationId: string
   userId: string
   currentYear: number
+  /** Kiadás-kategóriák a „Bevezetés kiadásként” varázslóhoz. */
+  expenseCategories: ExpenseCategory[]
+  /** Aktív bankszámlák (banki fizetési mód választásához). */
+  bankAccounts: BankAccount[]
   onToast: (msg: string, kind: ToastKind) => void
 }
 
@@ -85,6 +94,8 @@ export function DesktopOblioTab({
   congregationId,
   userId,
   currentYear,
+  expenseCategories,
+  bankAccounts,
   onToast,
 }: DesktopOblioTabProps) {
   const [folder, setFolder] = useState<OblioFolderInfo | null>(null)
@@ -96,6 +107,8 @@ export function DesktopOblioTab({
   const [ingesting, setIngesting] = useState(false)
   const [filter, setFilter] = useState<'mind' | 'parositott' | 'hianyzo'>('mind')
   const [manualFor, setManualFor] = useState<Enriched | null>(null)
+  const [wizardFor, setWizardFor] = useState<Enriched | null>(null)
+  const [wizardBusy, setWizardBusy] = useState(false)
 
   // ── Adatbetöltés: feldolgozott XML-ek parse + online kiadások/párosítások + match ──
   const loadData = useCallback(async () => {
@@ -365,6 +378,77 @@ export function DesktopOblioTab({
     }
   }
 
+  // ── Számla bevezetése új kiadásként (a megosztott saveExpenseUseCase-szel) ──
+  // A létrehozott kiadás a számla CUI-jával + összegével + dátumával jön létre,
+  // így a következő frissítéskor a matcher AUTOMATIKUSAN párosítja vele.
+  async function handleIntroduceExpense(
+    target: Enriched,
+    idKiadascel: number,
+    paymentType: 'Készpénz' | 'Banki',
+    bankszamlaId: number | null,
+  ) {
+    const brut = target.meta.amounts.brut
+    if (brut === null || brut <= 0) {
+      onToast('A számla bruttó összege hiányzik vagy érvénytelen — nem vezethető be.', 'error')
+      return
+    }
+    const datum = (target.meta.issueDate || new Date().toISOString().slice(0, 10)).slice(0, 10)
+    const partner = target.meta.supplier.name?.trim() || 'Ismeretlen beszállító'
+    const cui = target.meta.supplier.cui?.trim().slice(0, 32) || null
+    const iratszam = target.meta.invoiceNumber?.trim().slice(0, 50) || null
+    const uuid = target.meta.anafUuid || ''
+
+    setWizardBusy(true)
+    try {
+      const supabase = getDesktopSupabase()
+      const result = await saveExpenseUseCase(
+        {
+          congregationId,
+          osszeg: brut,
+          datum,
+          id_kiadascel: idKiadascel,
+          atvevoid: null,
+          atvevo: partner,
+          kedvezmenyezett_cui: cui,
+          iratszam,
+          irattipus: paymentType,
+          bankszamla_id: paymentType === 'Banki' ? bankszamlaId : null,
+          megjegyzes: `Oblio bevezetés — ANAF UUID: ${uuid}${
+            target.meta.invoiceNumber ? ` (${target.meta.invoiceNumber})` : ''
+          }`,
+          vonatkozo_idoszak: null,
+        },
+        { supabase, runtime: 'desktop', userId, isOnline: true },
+      )
+      if (!result.success) {
+        onToast(`Bevezetés hiba: ${result.error}`, 'error')
+        return
+      }
+      // Hivatalos Excelbe is (várólistán át) — mint a tétel-rögzítőnél.
+      if (result.data.id > 0) {
+        void enqueueEntryExcelRow({
+          type: 'kiadas',
+          serverId: result.data.id,
+          congregationId,
+          datum,
+          iratszam: result.data.iratszam,
+          irattipus: paymentType,
+          nev: partner,
+          osszeg: brut,
+          celId: idKiadascel,
+          megjegyzes: `Oblio: ${uuid}`,
+        })
+      }
+      onToast('Kiadás bevezetve — a frissítés automatikusan párosítja a számlával.', 'success')
+      setWizardFor(null)
+      await loadData()
+    } catch (e) {
+      onToast(`Bevezetés hiba: ${e instanceof Error ? e.message : String(e)}`, 'error')
+    } finally {
+      setWizardBusy(false)
+    }
+  }
+
   // ── Statisztika + szűrt lista ──
   const stats = useMemo(() => {
     const total = enriched.length
@@ -527,14 +611,24 @@ export function DesktopOblioTab({
                           <ExternalLink className="size-4" />
                         </IconBtn>
                         {e.match.kiadasId === null ? (
-                          <IconBtn
-                            title="Kézi párosítás kiadáshoz"
-                            color="text-cyan-600 hover:bg-cyan-50"
-                            onClick={() => setManualFor(e)}
-                            disabled={!online}
-                          >
-                            <Link2 className="size-4" />
-                          </IconBtn>
+                          <>
+                            <IconBtn
+                              title="Bevezetés új kiadásként"
+                              color="text-emerald-600 hover:bg-emerald-50"
+                              onClick={() => setWizardFor(e)}
+                              disabled={!online || expenseCategories.length === 0}
+                            >
+                              <PlusCircle className="size-4" />
+                            </IconBtn>
+                            <IconBtn
+                              title="Kézi párosítás meglévő kiadáshoz"
+                              color="text-cyan-600 hover:bg-cyan-50"
+                              onClick={() => setManualFor(e)}
+                              disabled={!online}
+                            >
+                              <Link2 className="size-4" />
+                            </IconBtn>
+                          </>
                         ) : (
                           <IconBtn title="Párosítás eltávolítása" color="text-red-500 hover:bg-red-50" onClick={() => void handleRemoveMatch(e.match.anafUuid)}>
                             <Link2Off className="size-4" />
@@ -556,6 +650,19 @@ export function DesktopOblioTab({
           kiadasok={kiadasok}
           onClose={() => setManualFor(null)}
           onSelect={(kiadasId) => void handleSaveManual(manualFor, kiadasId)}
+        />
+      )}
+
+      {wizardFor && (
+        <IntroduceExpenseModal
+          target={wizardFor}
+          expenseCategories={expenseCategories}
+          bankAccounts={bankAccounts}
+          busy={wizardBusy}
+          onClose={() => setWizardFor(null)}
+          onSubmit={(idKiadascel, paymentType, bankId) =>
+            void handleIntroduceExpense(wizardFor, idKiadascel, paymentType, bankId)
+          }
         />
       )}
     </div>
@@ -661,6 +768,158 @@ function ManualMatchModal({
         <div className="flex justify-end border-t border-slate-100 p-3">
           <Button type="button" size="sm" variant="outline" onClick={onClose}>
             Mégse
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Bevezetés kiadásként modal
+// ───────────────────────────────────────────────────────────────────────────
+
+function IntroduceExpenseModal({
+  target,
+  expenseCategories,
+  bankAccounts,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  target: Enriched
+  expenseCategories: ExpenseCategory[]
+  bankAccounts: BankAccount[]
+  busy: boolean
+  onClose: () => void
+  onSubmit: (idKiadascel: number, paymentType: 'Készpénz' | 'Banki', bankId: number | null) => void
+}) {
+  const [categoryId, setCategoryId] = useState<number | ''>('')
+  const [payment, setPayment] = useState<'Készpénz' | 'Banki'>('Készpénz')
+  const [bankId, setBankId] = useState<number | ''>(() => {
+    const def = bankAccounts.find((b) => b.is_default) || bankAccounts[0]
+    return def ? def.id : ''
+  })
+  const [q, setQ] = useState('')
+
+  const brut = target.meta.amounts.brut
+  const filteredCats = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return expenseCategories
+    return expenseCategories.filter(
+      (c) => c.nev.toLowerCase().includes(needle) || c.kod.toLowerCase().includes(needle),
+    )
+  }, [expenseCategories, q])
+
+  const canSave =
+    categoryId !== '' &&
+    (payment === 'Készpénz' || (payment === 'Banki' && bankId !== '')) &&
+    !busy
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-slate-100 p-4">
+          <p className="font-heading text-lg text-slate-800">Számla bevezetése kiadásként</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {target.meta.supplier.name || 'Ismeretlen beszállító'}
+            {brut !== null
+              ? ` · ${brut.toLocaleString('hu-HU', { minimumFractionDigits: 2 })} ${target.meta.currency || 'RON'}`
+              : ''}
+            {target.meta.issueDate ? ` · ${target.meta.issueDate}` : ''}
+            {target.meta.invoiceNumber ? ` · ${target.meta.invoiceNumber}` : ''}
+          </p>
+          {target.meta.supplier.cui && (
+            <p className="mt-0.5 font-mono text-xs text-slate-400">CUI: {target.meta.supplier.cui}</p>
+          )}
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          <div>
+            <label className="text-xs font-medium text-slate-600">Költségvetési kategória</label>
+            <Input
+              className="mt-1 h-9"
+              placeholder="Keresés kód vagy név szerint…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select
+              className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.currentTarget.value ? Number(e.currentTarget.value) : '')}
+            >
+              <option value="">— válassz kategóriát —</option>
+              {filteredCats.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.kod} · {c.nev}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-600">Fizetési mód</label>
+            <div className="mt-1 flex gap-2">
+              {(['Készpénz', 'Banki'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPayment(p)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    payment === p
+                      ? 'border-cyan-300 bg-cyan-50 text-cyan-800'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p === 'Készpénz' ? 'Kassza (készpénz)' : 'Bankszámla'}
+                </button>
+              ))}
+            </div>
+            {payment === 'Banki' && (
+              <select
+                className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={bankId}
+                onChange={(e) => setBankId(e.currentTarget.value ? Number(e.currentTarget.value) : '')}
+              >
+                <option value="">— válassz bankszámlát —</option>
+                {bankAccounts.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bank_neve} ({b.valuta})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <p className="rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-500">
+            A kiadás a számla összegével, dátumával és a beszállító adószámával (CUI) jön létre — így a
+            következő frissítés automatikusan párosítja ezzel a számlával. A hivatalos Excel-könyvelésbe
+            is bekerül (ha a szinkron be van kapcsolva).
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 p-3">
+          <Button type="button" size="sm" variant="outline" onClick={onClose} disabled={busy}>
+            Mégse
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canSave}
+            onClick={() => {
+              if (categoryId === '') return
+              onSubmit(categoryId, payment, payment === 'Banki' && bankId !== '' ? bankId : null)
+            }}
+          >
+            {busy ? (
+              <Loader2 className="mr-1.5 size-4 animate-spin" />
+            ) : (
+              <PlusCircle className="mr-1.5 size-4" />
+            )}
+            Bevezetés
           </Button>
         </div>
       </div>

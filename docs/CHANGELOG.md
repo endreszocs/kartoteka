@@ -42,6 +42,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   a fájlokat egy belső <strong>feldolgozott</strong> mappába (a ZIP-et külön archívumba), és a
   bedobó mappa <strong>kiürül</strong>. Így egy pillantásra látod, mit olvasott már be a
   rendszer, és a mappa mindig tiszta marad — semmi nem keveredik a régivel.
+- **„Bevezetés kiadásként” varázsló** — ha egy befogadott számlához még nincs kiadás a
+  könyvelésben, egy kattintással bevezetheted: kiválasztod a költségvetési kategóriát és a
+  fizetési módot (kassza vagy bankszámla), a rendszer pedig a számla összegével, dátumával és
+  a beszállító adószámával (CUI) létrehozza a kiadást — és a következő frissítés
+  <strong>automatikusan párosítja</strong> a számlával. A tétel a hivatalos Excel-könyvelésbe is
+  bekerül (ha a szinkron be van kapcsolva).
 
 ### 🎨 Fejlesztések
 
@@ -54,8 +60,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - A számlák és a párosítások a felhőből (online) jönnek és oda mentődnek — a beolvasott
   számlák listája offline is látszik, de a kiadásokkal való párosításhoz egyszer
   csatlakozni kell a hálózatra.
-- Csak ZIP, XML és PDF fájlt tegyél a bedobó mappába. Az árva PDF-ek tartalom-elemzése és a
-  számlából-kiadás-bevezető varázsló egyelőre a webes felületen érhető el (következő lépés).
+- Csak ZIP, XML és PDF fájlt tegyél a bedobó mappába. Az árva PDF-ek tartalom-alapú
+  automatikus párosítása egyelőre a webes felületen érhető el (következő lépés).
 
 ## [2026-06-14] — Oblio e-Factura: kézikönyv a súgóban + a mappát az asztali app kezeli
 <!-- key: 2026-06-14-oblio-sugo-es-mappakezeles -->

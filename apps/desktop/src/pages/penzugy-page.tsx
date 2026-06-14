@@ -633,6 +633,8 @@ export function PenzugyPage() {
               congregationId={congregationId}
               userId={userId}
               currentYear={year}
+              expenseCategories={expenseCategories}
+              bankAccounts={bankAccounts}
               onToast={(msg, kind) => setPageToast({ kind, msg })}
             />
           ) : null}
