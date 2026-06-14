@@ -12,7 +12,7 @@ interface BrandLoadingScreenProps {
 export function BrandLoadingScreen({
   title = 'Kartotéka',
   // 2026-06-10: semleges felirat — a rendszer nem csak az erdélyi kerületé
-  subtitle = 'Református gyülekezeti nyilvántartás',
+  subtitle = 'Egyházi nyilvántartó rendszer',
   message = 'A szolgálati tér előkészítése folyamatban van...',
   compact = false,
 }: BrandLoadingScreenProps) {

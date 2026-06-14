@@ -68,7 +68,7 @@ export function DashboardIntroOverlay() {
         </div>
 
         <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/72">
-          Református gyülekezeti nyilvántartás
+          Egyházi nyilvántartó rendszer
         </p>
         <h2 className="mt-2 font-heading text-4xl text-slate-800">
           Kartotéka
