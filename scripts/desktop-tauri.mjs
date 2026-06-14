@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 
 const args = process.argv.slice(2)
@@ -39,12 +39,15 @@ if (process.platform === 'win32') {
   // 2) Ha az útvonal problémás és nincs explicit target-dir, tiszta helyre irányítunk.
   const cwd = process.cwd()
   if (isProblematicPath(cwd) && !env.CARGO_TARGET_DIR) {
-    const candidates = [
-      process.env.KARTOTEKA_TAURI_TARGET,
+    // Sorrend: explicit env → meglévő, bevált target-dir (cache újrahasznosítás,
+    // megspórol egy 15-25 perces OpenSSL-újrafordítást) → LOCALAPPDATA → C:\ tartalék.
+    const explicit = [process.env.KARTOTEKA_TAURI_TARGET].filter(Boolean)
+    const existingReuse = ['C:\\kartoteka-target'].filter((c) => existsSync(c))
+    const fresh = [
       process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'kartoteka-tauri-target'),
       'C:\\kartoteka-tauri-target',
     ].filter(Boolean)
-    const clean = candidates.find((c) => !isProblematicPath(c))
+    const clean = [...explicit, ...existingReuse, ...fresh].find((c) => !isProblematicPath(c))
     if (clean) {
       try {
         mkdirSync(clean, { recursive: true })
