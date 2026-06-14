@@ -198,6 +198,42 @@ const UNCATEGORIZED_META = {
 // Fő build
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * 2026-06-13 (Endre — Gmail-clipping ellen): a kész hírlevél-HTML
+ * minifikálása, hogy a TELJES levél (a DicsHub-ajánlóval együtt) EGY emailbe
+ * férjen a Gmail ~102 KB-os csonkolási határa alatt (ajánlott cél: < 80 KB).
+ *
+ * Biztonságos szabályok (EmailOnAcid / Litmus / HTML Crush gyakorlat):
+ *  - a sima HTML-kommentek törlése, DE az Outlook feltételes kommentek
+ *    (`<!--[if ...]> ... <![endif]-->`, `mso`) MEGŐRZÉSE,
+ *  - a `<style>`-blokk CSS-ének tömörítése (CSS-komment + felesleges whitespace),
+ *  - a TAG-KÖZI (struktúra-) whitespace összevonása — a `>\s+<` minta CSAK a
+ *    tagok közti tiszta behúzást érinti, a szöveg-tartalom közti szándékos
+ *    szóközöket NEM (azokat betű előzi/követi, pl. „A <strong>DicsHub</strong>").
+ *
+ * Nem változtat látható tartalmat; a builder a kiküldéshez ÉS az előnézethez is
+ * ezt adja, így a kettő bájtra azonos.
+ */
+function minifyEmailHtml(html: string): string {
+  return html
+    // 1) <style> CSS tömörítése
+    .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_full, css: string) => {
+      const min = css
+        .replace(/\/\*[\s\S]*?\*\//g, '') // CSS-kommentek
+        .replace(/\s+/g, ' ') // whitespace → egy szóköz
+        .replace(/\s*([{}:;,])\s*/g, '$1') // operátorok körüli szóköz el
+        .trim()
+      return `<style>${min}</style>`
+    })
+    // 2) Sima HTML-kommentek törlése — az MSO/feltételeseket meghagyjuk
+    .replace(/<!--([\s\S]*?)-->/g, (full, inner: string) =>
+      /\[if\b|\[endif\]|mso/i.test(inner) ? full : '',
+    )
+    // 3) Tag-közi struktúra-whitespace összevonása
+    .replace(/>\s+</g, '><')
+    .trim()
+}
+
 export function buildNewsletterHtml(input: NewsletterInput): string {
   const {
     entries,
@@ -304,7 +340,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
     </div>
   `
 
-  return `<!DOCTYPE html>
+  return minifyEmailHtml(`<!DOCTYPE html>
 <html lang="hu">
 <head>
   <meta charset="utf-8">
@@ -412,7 +448,7 @@ export function buildNewsletterHtml(input: NewsletterInput): string {
   </table>
 
 </body>
-</html>`
+</html>`)
 }
 
 // ─────────────────────────────────────────────────────────────

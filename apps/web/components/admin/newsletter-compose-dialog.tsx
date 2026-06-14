@@ -66,7 +66,11 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, all
   // lévő DicsHub-ajánló + lábléc tűnik el elsőként („nem egyezik az
   // előnézettel"). Méret-őr: 95 kB felett figyelmeztetünk.
   const [previewBytes, setPreviewBytes] = useState<number | null>(null)
-  const GMAIL_CLIP_WARN_BYTES = 95 * 1024
+  // 2026-06-13: a Gmail ~102 kB-nál vág (a kép nem számít bele), de a vágás
+  // 102 alatt is előfordulhat — a bevett ajánlás <80 kB. Kétszintű jelzés:
+  // 80 kB felett figyelmeztetünk, ~100 kB felett szinte biztos a csonkolás.
+  const GMAIL_RECOMMEND_BYTES = 80 * 1024
+  const GMAIL_CLIP_BYTES = 100 * 1024
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop')
 
@@ -457,18 +461,40 @@ export function NewsletterComposeDialog({ open, onOpenChange, unsentEntries, all
               </div>
             ) : (
               <div className="h-full flex flex-col">
-                {previewBytes != null && previewBytes > GMAIL_CLIP_WARN_BYTES && (
-                  <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert">
-                    <strong>Figyelem — a levél {Math.round(previewBytes / 1024)} kB:</strong> a Gmail
-                    kb. 102 kB felett levágja az üzenetet („Üzenet csonkítva"), és a levél VÉGE —
-                    a DicsHub-ajánló és a lábléc — tűnik el elsőként. Válassz kevesebb frissítést
-                    egy levélbe, vagy küldd két részletben.
+                {previewBytes != null && previewBytes > GMAIL_RECOMMEND_BYTES && (
+                  <div
+                    className={`mb-2 rounded-lg border px-3 py-2 text-xs ${previewBytes > GMAIL_CLIP_BYTES ? 'border-rose-300 bg-rose-50 text-rose-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}
+                    role="alert"
+                  >
+                    {previewBytes > GMAIL_CLIP_BYTES ? (
+                      <>
+                        <strong>A levél {Math.round(previewBytes / 1024)} kB — a Gmail szinte biztosan levágja!</strong>{' '}
+                        A levél VÉGE tűnik el elsőként (a DicsHub-ajánló és a lábléc), a címzett csak
+                        „Üzenet csonkítva / Teljes üzenet megtekintése" linket lát. Jelölj ki kevesebb
+                        frissítést, vagy küldd két-három részletben — így minden látszik.
+                      </>
+                    ) : (
+                      <>
+                        <strong>A levél {Math.round(previewBytes / 1024)} kB — közelíted a Gmail határát.</strong>{' '}
+                        A biztos megjelenéshez (a DicsHub-ajánlóval együtt) maradj 80 kB alatt; sok
+                        bejegyzésnél érdemes két levélre osztani.
+                      </>
+                    )}
                   </div>
                 )}
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-xs font-semibold text-slate-700">Élő előnézet</span>
                   {previewBytes != null && (
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${previewBytes > GMAIL_CLIP_WARN_BYTES ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}`}>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        previewBytes > GMAIL_CLIP_BYTES
+                          ? 'bg-rose-100 text-rose-800'
+                          : previewBytes > GMAIL_RECOMMEND_BYTES
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                      title="A levél mérete — a Gmail ~102 kB felett csonkol; ajánlott 80 kB alatt maradni."
+                    >
                       {Math.round(previewBytes / 1024)} kB
                     </span>
                   )}
