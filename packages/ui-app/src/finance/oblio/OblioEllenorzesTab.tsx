@@ -20,7 +20,7 @@
  * desktop/iOS: jövőbeli Tauri-fs adapter).
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   CheckCircle2,
   CircleAlert,
@@ -33,7 +33,6 @@ import {
   Loader2,
   PlusCircle,
   Printer,
-  X,
 } from 'lucide-react'
 
 import { batchMatchPdfsToXmls, type ContentMatchResult } from './pdf-xml-content-matcher'
@@ -254,13 +253,15 @@ export function OblioEllenorzesTab({
   const [matchDialogRelpath, setMatchDialogRelpath] = useState<string | null>(null)
   /** Az ismeretlen formátumú fájlok (NEM zip/xml/pdf) — törlés ajánlott. */
   const [unknownFiles, setUnknownFiles] = useState<OblioLocalFile[]>([])
-  /** Duplikált UUID-k: kulcs az UUID, érték a hozzá tartozó fájlnevek listája.
-   *  A duplikátumokat csendben takarítjuk a refresh-ben — a `setDuplicateGroups`
-   *  hívás megmarad audit-célra, de a `_duplicateGroups`-on jelölünk az unused-
-   *  szabály kerüléséhez. */
-  const [_duplicateGroups, setDuplicateGroups] = useState<Array<{ uuid: string; fileNames: string[] }>>([])
-  void _duplicateGroups
+  /** Duplikált UUID-k: kulcs az UUID, érték a (biztosan azonos méretű) fájlnevek
+   *  listája. P0-1 (2026-06-14): a duplikátumokat NEM töröljük csendben — itt
+   *  jelezzük a felhasználónak, és csak explicit gombnyomásra távolítjuk el. */
+  const [duplicateGroups, setDuplicateGroups] = useState<Array<{ uuid: string; fileNames: string[] }>>([])
   const [cleaningUp, setCleaningUp] = useState(false)
+  /** Re-entrancy guard a handleRefresh-hez (P1-10) — több belépési pont
+   *  (auto-refresh, gomb, save/törlés utáni void hívások) ne futtasson
+   *  párhuzamos scant ugyanazon a mappán. */
+  const refreshInFlight = useRef(false)
   /** A nyomtatási központ dialog állapota — egy konkrét XML-re/PDF-re. */
   const [printDialogTarget, setPrintDialogTarget] = useState<EnrichedXml | null>(null)
   /** Egyszer-volt auto-refresh flag — akkor fut, amikor a komponens először
@@ -272,21 +273,38 @@ export function OblioEllenorzesTab({
   const [diagDialogOpen, setDiagDialogOpen] = useState(false)
   /** A felhasználó által „mellőzött" XML-ek (anaf_uuid) — localStorage-ben
    *  tárolva, hogy a következő szkenelésnél már ne jelenjenek meg. */
+  // P1-6: gyülekezetenként ELKÜLÖNÍTETT kulcs — közös gépen / kerületi adminnál
+  // az egyik gyülekezetben mellőzött UUID ne rejtse el egy másik gyülekezet
+  // valós párosítatlan számláját.
+  const dismissedStorageKey = `oblio-dismissed-uuids::${congregationSlug}`
   const [dismissedUuids, setDismissedUuids] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set()
     try {
-      const raw = localStorage.getItem('oblio-dismissed-uuids')
+      const raw = localStorage.getItem(`oblio-dismissed-uuids::${congregationSlug}`)
       return new Set(raw ? (JSON.parse(raw) as string[]) : [])
     } catch {
       return new Set()
     }
   })
 
+  // Gyülekezet-váltáskor töltsük újra a megfelelő (scope-os) listát.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = localStorage.getItem(dismissedStorageKey)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDismissedUuids(new Set(raw ? (JSON.parse(raw) as string[]) : []))
+    } catch {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDismissedUuids(new Set())
+    }
+  }, [dismissedStorageKey])
+
   function persistDismissedUuids(next: Set<string>) {
     setDismissedUuids(new Set(next))
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('oblio-dismissed-uuids', JSON.stringify([...next]))
+        localStorage.setItem(dismissedStorageKey, JSON.stringify([...next]))
       } catch {
         /* storage quota exceeded — csendben */
       }
@@ -300,12 +318,6 @@ export function OblioEllenorzesTab({
   const [contentMatching, setContentMatching] = useState(false)
   /** Az utolsó tartalom-párosítás eredménye (a UI-n megjelenik). */
   const [contentMatchResults, setContentMatchResults] = useState<ContentMatchResult[]>([])
-  /** Az utolsó frissítés rendszerüzenete — duplikátum-takarítás eredménye. */
-  const [systemMessage, setSystemMessage] = useState<{
-    kind: 'duplicate-cleanup'
-    deletedCount: number
-    groupCount: number
-  } | null>(null)
   /** A wizard nyitva van-e. */
   const [wizardOpen, setWizardOpen] = useState(false)
 
@@ -357,6 +369,10 @@ export function OblioEllenorzesTab({
 
   // ─── 3. Frissítés: scan → ZIP kibontás → parse → cache → match ───
   const handleRefresh = useCallback(async () => {
+    // P1-10: ha már fut egy frissítés, ne indítsunk párhuzamosat (a párhuzamos
+    // ZIP-kibontás / fájl-törlés ütközne és adatvesztést okozhatna).
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
     setRefreshing(true)
     try {
       // 3.1 Folder status újra (esetleg permission kérés)
@@ -459,49 +475,31 @@ export function OblioEllenorzesTab({
       const actualNames = new Set(xmlsRaw.map((x) => x.name))
       await pruneCacheToActualFiles(cong, actualNames)
 
-      // 3.6.b Duplikátumok detektálása + AUTOMATIKUS takarítás
-      // Több XML ugyanazzal az ANAF UUID-val tipikusan azt jelenti, hogy
-      // a felhasználó kétszer letöltötte ugyanazt a ZIP-et. Csendben
-      // eltávolítjuk a duplikátumokat (csak az ELSŐ XML-t tartjuk meg
-      // minden UUID-n), hogy a user 500 tételnél ne kelljen 500-szor
-      // kattintgatnia.
+      // 3.6.b Duplikátumok detektálása — P0-1: NEM törlünk csendben!
+      // Több XML ugyanazzal az ANAF UUID-val tipikusan azt jelenti, hogy a ZIP
+      // kétszer lett letöltve. KORÁBBAN a frissítés ezeket automatikusan,
+      // megerősítés nélkül törölte a felhasználó mappájából — ez adatvesztést
+      // okozhatott, ha két KÜLÖNBÖZŐ számla ugyanazt a (fallback) azonosítót
+      // kapta. Most: csak JELEZZÜK a duplikátumokat (figyelmeztető sáv), és
+      // kizárólag azokat tekintjük biztos duplikátumnak, amelyek BYTE-MÉRETE is
+      // azonos. A tényleges törlés explicit gombnyomásra történik.
+      const sizeByName = new Map(xmlsRaw.map((f) => [f.name, f.size]))
       const uuidToFiles = new Map<string, string[]>()
       for (const p of parsedXmls) {
         const uuid = p.meta.anafUuid || p.fileName
         if (!uuidToFiles.has(uuid)) uuidToFiles.set(uuid, [])
         uuidToFiles.get(uuid)!.push(p.fileName)
       }
-      const dupFilesToDelete: string[] = []
-      let dupGroupCount = 0
-      for (const [, names] of uuidToFiles.entries()) {
-        if (names.length > 1) {
-          dupGroupCount++
-          // Az első fájlt megtartjuk, a többit töröljük
-          dupFilesToDelete.push(...names.slice(1))
-        }
+      const dupGroups: Array<{ uuid: string; fileNames: string[] }> = []
+      for (const [uuid, names] of uuidToFiles.entries()) {
+        if (names.length < 2) continue
+        const keepSize = sizeByName.get(names[0])
+        const confirmed = names.filter(
+          (n, i) => i === 0 || (keepSize !== undefined && sizeByName.get(n) === keepSize),
+        )
+        if (confirmed.length >= 2) dupGroups.push({ uuid, fileNames: confirmed })
       }
-      if (dupFilesToDelete.length > 0) {
-        try {
-          const res = await fileSystem.removeFilesFromFolder(befogadottDir, dupFilesToDelete)
-          if (res.deleted > 0) {
-            __toast_success(
-              `${res.deleted} duplikált fájl automatikusan eltávolítva ` +
-                `(${dupGroupCount} csoport).`,
-            )
-            // Rendszerüzenet a fülön — addig látható, amíg a felhasználó be nem zárja
-            setSystemMessage({
-              kind: 'duplicate-cleanup',
-              deletedCount: res.deleted,
-              groupCount: dupGroupCount,
-            })
-          }
-        } catch (e) {
-          console.warn('[Oblio] Duplikátum auto-cleanup hiba:', e)
-        }
-      }
-      // A duplikátum-figyelmeztető sávot tisztítjuk — a takarítás után
-      // nincs mit mutatni
-      setDuplicateGroups([])
+      setDuplicateGroups(dupGroups)
 
       // Csak az UUID-nként ELSŐ XML kerül feldolgozásra
       const seenUuids = new Set<string>()
@@ -706,6 +704,7 @@ export function OblioEllenorzesTab({
       __toast_error(`Frissítés hiba: ${msg}`)
     } finally {
       setRefreshing(false)
+      refreshInFlight.current = false
     }
   }, [congregationSlug, currentYear, loadFolderStatus, loadDbData])
 
@@ -838,6 +837,43 @@ export function OblioEllenorzesTab({
       }
       setUnknownFiles([])
       // Lefuttatjuk a frissítést, hogy a UI is frissüljön
+      void handleRefresh()
+    } finally {
+      setCleaningUp(false)
+    }
+  }
+
+  /**
+   * Duplikátumok eltávolítása — P0-1: KIZÁRÓLAG explicit gombnyomásra,
+   * megerősítéssel. Csoportonként az első fájlt megtartjuk, a (biztosan azonos
+   * méretű) többit töröljük. A korábbi csendes auto-törlés megszűnt.
+   */
+  async function handleDeleteDuplicates() {
+    const toDelete = duplicateGroups.flatMap((g) => g.fileNames.slice(1))
+    if (toDelete.length === 0) return
+    const ok = window.confirm(
+      `Biztosan eltávolítod a ${toDelete.length} duplikált fájlt ` +
+        `(${duplicateGroups.length} csoportból)?\n\n` +
+        'Csoportonként az első, azonos méretű másolatok kerülnek törlésre — ' +
+        'minden számlából megmarad egy példány.',
+    )
+    if (!ok) return
+
+    setCleaningUp(true)
+    try {
+      const dir = await fileSystem.getBefogadottDir(congregationSlug)
+      if (!dir) {
+        __toast_error('A mappa nem érhető el.')
+        return
+      }
+      const res = await fileSystem.removeFilesFromFolder(dir, toDelete)
+      if (res.errors.length > 0) {
+        __toast_warning(`${res.deleted} duplikátum törölve, ${res.errors.length} hiba.`)
+      } else {
+        __toast_success(`${res.deleted} duplikált fájl eltávolítva.`)
+      }
+      setDuplicateGroups([])
+      setHasAutoRefreshed(false)
       void handleRefresh()
     } finally {
       setCleaningUp(false)
@@ -1091,33 +1127,6 @@ export function OblioEllenorzesTab({
         )}
       </div>
 
-      {/* Rendszerüzenet — duplikátum-takarítás eredménye (dismissible) */}
-      {systemMessage?.kind === 'duplicate-cleanup' && (
-        <div className="card-raised border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5 flex items-start gap-3">
-          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-            <Info className="size-4" />
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-emerald-900 text-sm">
-              Duplikátum-takarítás eredménye
-            </p>
-            <p className="text-sm text-slate-700 mt-0.5">
-              <strong>{systemMessage.deletedCount}</strong> duplikált fájl került
-              eltávolításra ({systemMessage.groupCount} csoportból). A KARTOTEKA
-              csoportonként az első XML-t megtartotta.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSystemMessage(null)}
-            className="shrink-0 inline-flex size-7 items-center justify-center rounded-lg text-emerald-700 hover:bg-emerald-100"
-            title="Bezárás"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      )}
-
       {/* Árva PDF-ek — automatikus tartalom-elemzéssel megpróbáljuk párosítani */}
       {folderStatus?.ellenorzesDirReady && orphanPdfs.length > 0 && (
         <div className="card-raised border border-rose-200 bg-rose-50/40 p-4 sm:p-5">
@@ -1277,13 +1286,16 @@ export function OblioEllenorzesTab({
 
       {/* A Wizard trigger áthelyezve a felső 3-doboz sorba */}
 
-      {/* Figyelmeztető sáv — csak az ismeretlen formátumú fájlokra.
-          A duplikátumok automatikusan, csendben törlődnek a refresh végén. */}
+      {/* Figyelmeztető sáv — ismeretlen formátumú fájlok ÉS duplikátumok.
+          P0-1: a duplikátumokat már NEM töröljük csendben — itt jelezzük, és
+          a felhasználó explicit gombbal távolíthatja el őket. */}
       {folderStatus?.ellenorzesDirReady && (
         <OblioEllenorzesWarnings
           unknownFiles={unknownFiles}
+          duplicateGroups={duplicateGroups}
           cleaningUp={cleaningUp}
           onDeleteUnknownFiles={handleDeleteUnknownFiles}
+          onDeleteDuplicates={handleDeleteDuplicates}
         />
       )}
 

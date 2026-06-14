@@ -227,7 +227,9 @@ export async function readFileAsBlob(handle: FileSystemFileHandle): Promise<Blob
  * - PDF → a böngésző PDF viewer-e
  * - XML → szöveges (a browser default)
  *
- * Az object URL-t 30 mp után visszavonjuk (memóriaszivárgás védelem).
+ * Az object URL-t 2 perc után visszavonjuk (memóriaszivárgás védelem).
+ * P3-4 (2026-06-14): a korábbi 30 mp nagy PDF-eknél / lassú gépen idő előtt
+ * érvénytelenítette az URL-t ("blob not found"); 120 mp bőven elég a megnyitásra.
  */
 export async function openLocalFileInBrowser(
   handle: FileSystemFileHandle,
@@ -235,7 +237,7 @@ export async function openLocalFileInBrowser(
   const blob = await handle.getFile()
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank', 'noopener,noreferrer')
-  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+  setTimeout(() => URL.revokeObjectURL(url), 120_000)
 }
 
 /**
@@ -275,8 +277,12 @@ export async function removeFileFromFolder(
 /**
  * Egy fájl átnevezése a mappán belül. A File System Access API-nak nincs
  * direct rename API-ja, ezért: olvas → új névvel ír → régit töröl.
- * Idempotens: ha az új név már létezik, a régit egyszerűen törli (nem
- * írja felül a meglévőt).
+ *
+ * P0-2 (2026-06-14): ha a célnév MÁR létezik, NEM írjuk felül ÉS NEM töröljük
+ * a forrást — hibát adunk vissza. Korábban a régi fájlt akkor is törölte, ha az
+ * írás kimaradt (a cél foglalt volt), ami csendes adatvesztéshez vezetett
+ * (a forrás PDF nyom nélkül eltűnt). A hívó az eredménytelen átnevezést árva
+ * fájlként kezeli tovább.
  */
 export async function renameFileInFolder(
   dir: FileSystemDirectoryHandle,
@@ -288,7 +294,7 @@ export async function renameFileInFolder(
     // Olvasás
     const oldHandle = await dir.getFileHandle(oldName, { create: false })
     const oldFile = await oldHandle.getFile()
-    // Írás (ha az új név már foglalt, NEM írjuk felül)
+    // Ha a célnév már foglalt: NEM írunk felül és NEM töröljük a forrást.
     let exists = false
     try {
       await dir.getFileHandle(newName, { create: false })
@@ -296,13 +302,15 @@ export async function renameFileInFolder(
     } catch {
       /* nem létezik, OK */
     }
-    if (!exists) {
-      const newHandle = await dir.getFileHandle(newName, { create: true })
-      const writable = await newHandle.createWritable()
-      await writable.write(oldFile)
-      await writable.close()
+    if (exists) {
+      return { success: false, error: `A cél fájlnév már létezik: ${newName}` }
     }
-    // Régi törlése
+    // Írás
+    const newHandle = await dir.getFileHandle(newName, { create: true })
+    const writable = await newHandle.createWritable()
+    await writable.write(oldFile)
+    await writable.close()
+    // A forrást CSAK a sikeres írás után töröljük.
     await dir.removeEntry(oldName)
     return { success: true }
   } catch (e) {

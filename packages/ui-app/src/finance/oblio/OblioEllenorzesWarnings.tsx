@@ -10,24 +10,83 @@
  * Pure UI: csak react + lucide-react import. iOS-future-proof.
  */
 
-import { AlertTriangle, FileX, Trash2 } from 'lucide-react'
+import { AlertTriangle, Copy, FileX, Trash2 } from 'lucide-react'
 import type { OblioLocalFile } from './folder-types'
 
 interface OblioEllenorzesWarningsProps {
   unknownFiles: OblioLocalFile[]
+  /** Duplikátum-csoportok (azonos ANAF UUID + azonos méret). P0-1. */
+  duplicateGroups?: Array<{ uuid: string; fileNames: string[] }>
   cleaningUp: boolean
   onDeleteUnknownFiles: () => void
+  onDeleteDuplicates?: () => void
 }
 
 export function OblioEllenorzesWarnings({
   unknownFiles,
+  duplicateGroups = [],
   cleaningUp,
   onDeleteUnknownFiles,
+  onDeleteDuplicates,
 }: OblioEllenorzesWarningsProps) {
-  if (unknownFiles.length === 0) return null
+  // Hány fájl törölhető duplikátumként (csoportonként az első marad).
+  const duplicateExtraCount = duplicateGroups.reduce(
+    (sum, g) => sum + Math.max(0, g.fileNames.length - 1),
+    0,
+  )
+
+  if (unknownFiles.length === 0 && duplicateExtraCount === 0) return null
 
   return (
     <div className="space-y-3">
+      {/* Duplikátumok — P0-1: jelzés + explicit törlés (nincs csendes auto-törlés) */}
+      {duplicateExtraCount > 0 && (
+        <div className="card-raised border border-sky-200 bg-sky-50/40 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-start gap-3 min-w-0 flex-1">
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                <Copy className="size-5" />
+              </span>
+              <div className="min-w-0 space-y-1">
+                <p className="font-semibold text-sky-800">
+                  {duplicateExtraCount} duplikált fájl ({duplicateGroups.length} számla
+                  több példányban)
+                </p>
+                <p className="text-sm leading-6 text-slate-700">
+                  Ugyanaz a számla többször is a mappában van (valószínűleg a ZIP-et
+                  többször töltötted le). A KARTOTEKA <strong>nem törli automatikusan</strong>{' '}
+                  őket — eltávolításkor minden számlából <strong>egy példány megmarad</strong>.
+                  Csak a biztosan azonos (egyező méretű) másolatok kerülnek törlésre.
+                </p>
+                <details className="text-xs text-slate-500">
+                  <summary className="cursor-pointer hover:text-slate-700">
+                    Részletek ({duplicateGroups.length} csoport)
+                  </summary>
+                  <ul className="mt-2 ml-2 space-y-1 max-h-40 overflow-y-auto">
+                    {duplicateGroups.map((g) => (
+                      <li key={g.uuid} className="font-mono break-all">
+                        <span className="text-slate-400">{g.uuid}:</span>{' '}
+                        {g.fileNames.join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            </div>
+            {onDeleteDuplicates && (
+              <button
+                type="button"
+                onClick={onDeleteDuplicates}
+                disabled={cleaningUp}
+                className="inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white transition-colors disabled:pointer-events-none disabled:opacity-50 rounded-xl border-sky-300 text-sky-800 hover:bg-sky-100 shrink-0"
+              >
+                <Trash2 className="mr-1.5 size-4" /> Duplikátumok eltávolítása
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Ismeretlen fájlok */}
       {unknownFiles.length > 0 && (
         <div className="card-raised border border-amber-200 bg-amber-50/40 p-4 sm:p-5">

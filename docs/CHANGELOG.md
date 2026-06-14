@@ -23,6 +23,77 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-14] — Oblio e-Factura ellenőrzés: biztonságosabb, pontosabb, gyorsabb
+<!-- key: 2026-06-14-oblio-ellenorzes-javitasok -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+A Pénzügy → **Oblio ellenőrzés** fül (a befogadott román e-Factura számlák
+összevetése a könyvelt kiadásokkal) átfogó átvizsgáláson esett át. A
+legfontosabb: mostantól **semmilyen fájlt nem töröl magától a gépedről**, és
+jóval ritkábban társít téves számlát kiadáshoz.
+
+### 🐛 Javítások
+
+- **A rendszer többé NEM törli magától a számláidat.** Eddig a „Frissítés a
+  mappából" gomb csendben, megkérdezés nélkül kitörölte azokat a fájlokat,
+  amelyeket duplikátumnak hitt — pusztán a számla azonosítója alapján. Ritka
+  esetben így két **különböző** számla közül a valódit is törölhette. Mostantól
+  a duplikátumokat csak **jelzi** egy figyelmeztető sávban, és kizárólag a
+  **biztosan azonos** (egyforma méretű) másolatokat távolítja el — akkor is csak
+  ha te rákattintasz a gombra. Minden számlából **mindig megmarad egy példány**.
+- **Árva PDF párosításakor nem veszhet el fájl.** Ha egy PDF-et olyan névre
+  próbált átnevezni, ami már foglalt volt, korábban az eredeti PDF nyom nélkül
+  eltűnhetett. Ez megszűnt — ütközés esetén a fájl érintetlen marad.
+- **A devizában (pl. EUR) kiállított számlákat már nem párosítja tévesen.**
+  Eddig egy 100 eurós számla összegét közvetlenül a lejes kiadásokhoz
+  hasonlította, ami hibás párosításhoz vezethetett. Mostantól a nem-lejes
+  számlákat **kézi ellenőrzésre** teszi félre, érthető jelzéssel.
+- **A jóváíró / sztornó számlákat nem társítja automatikusan.** Ezeknél az
+  összeg előjele félrevezető lehet, ezért a rendszer kézi megerősítést kér,
+  hogy ne keletkezzen kétszeres vagy hiányzó könyvelési tétel.
+- **Sokkal kevesebb téves „beszállító-név" találat.** Az általános cégszavak
+  (pl. „Construct", „Trans", „Total") önmagukban már nem okoznak párosítást, és
+  a névegyezést szigorúbban értékeli — így ritkábban köt össze két különböző
+  céget.
+- **Két egyforma összegű számlánál rákérdez.** Ha ugyanahhoz a beszállítóhoz
+  több azonos összegű/dátumú kiadás is illik (pl. két havi díj), a rendszer már
+  nem találgat: „bizonytalan" jelzéssel megerősítésre vár.
+
+### 🎨 Fejlesztések, finomítások
+
+- **Villámgyors párosítás sok számlánál is.** A nagy mennyiségű automatikus
+  párosítás mentése eddig számlánként külön-külön ment a szerverre — több száz
+  számlánál ez perceket vett igénybe és el is akadhatott. Mostantól egyetlen
+  lépésben menti az egészet.
+- **Okosabb dátum- és összeg-illesztés.** A párosítás figyelembe veszi, hogy a
+  kifizetés rendszerint a számla **után** van, és nagy számláknál arányosan tág,
+  kicsiknél szigorúbb összeg-tűrést használ — pontosabb találatok, kevesebb
+  tévedés.
+- **Közös gépen nem keverednek a gyülekezetek.** Ha egy számítógépen több
+  gyülekezetet kezelsz, az egyikben „mellőzött" számla többé nem tűnik el a
+  másik gyülekezet listájából — minden gyülekezetnek külön nyilvántartása van.
+- **Minden mozzanat naplózásra kerül.** A párosítás létrehozása és törlése, a
+  beszállítói adószám (CUI) beállítása, valamint a számlából bevezetett kiadás
+  mostantól bekerül az **eseménynaplóba** (ki, mit, mikor) — fontos az
+  elszámoltathatóság és az ellenőrizhetőség miatt.
+- **Nem keletkezik „fél" kiadás.** Ha egy számla kiadásként való bevezetése a
+  párosítás mentésénél elakad, a rendszer visszavonja a félig elkészült kiadást,
+  és érthető hibát ad — így nem marad árva vagy duplikálható tétel a könyvelésben.
+- **Apró pontosítások:** a párosítás-törlés már jelzi, ha nincs mit törölni; a
+  helyi PDF/XML előnézet tovább marad nyitva (nagy fájloknál is); a „frissítés"
+  nem indulhat el kétszer egyszerre.
+
+### ℹ️ Tudnivaló
+
+- **Nincs adatbázis-frissítés** ehhez a kiadáshoz — az eseménynapló a meglévő
+  rendszert használja.
+- A háttérben egy részletes átvizsgálási dokumentum is készült a fejlesztőknek
+  (`docs/project-tracking/KARTOTEKA-oblio-ellenorzes-audit-2026-06-14.md`),
+  benne a további, nagyobb tervezett lépésekkel (pl. közvetlen ANAF-kapcsolat a
+  számlák automatikus letöltéséhez, tartós 10 éves számla-archívum).
+
 ## [2026-06-12] — Munkanapló-megújulás, banki import varázsló, Excel-beállító varázsló
 <!-- key: 2026-06-12-munkanaplo-bankimport-wizardok -->
 <!-- category: feature -->
