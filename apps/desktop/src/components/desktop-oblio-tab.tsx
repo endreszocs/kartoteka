@@ -289,6 +289,32 @@ export function DesktopOblioTab({
         // eslint-disable-next-line no-console
         console.warn('[Oblio ingest] hibák:', r.errors)
       }
+      // 60 napos ANAF-határidő: új fájl érkezésekor frissítjük az utolsó letöltés
+      // időpontját (a csengő-emlékeztető ez alapján számol). Best-effort, online.
+      if (newCount > 0) {
+        try {
+          const supabase = getDesktopSupabase()
+          const nowIso = new Date().toISOString()
+          const { data: cur } = await supabase
+            .from('oblio_fiokok')
+            .select('utolso_xml_letoltes_at')
+            .eq('congregation_id', congregationId)
+            .eq('aktiv', true)
+            .maybeSingle()
+          if (
+            !cur?.utolso_xml_letoltes_at ||
+            new Date(cur.utolso_xml_letoltes_at).getTime() < new Date(nowIso).getTime()
+          ) {
+            await supabase
+              .from('oblio_fiokok')
+              .update({ utolso_xml_letoltes_at: nowIso })
+              .eq('congregation_id', congregationId)
+              .eq('aktiv', true)
+          }
+        } catch {
+          /* offline / nincs Oblio-config — a beolvasás így is sikeres */
+        }
+      }
       setFolder(await oblioFolderInfo().catch(() => null))
       await loadData()
     } catch (e) {

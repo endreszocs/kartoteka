@@ -54,6 +54,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - A korábbi (csak weben elérhető) jelzés helyett az asztali Pénzügy fül most aktívan kínálja
   az Oblio ellenőrzést; a Beállítások → Könyvelés panel útmutatója is a beolvasás-áthelyezés
   folyamatot írja le.
+- Beolvasáskor a rendszer frissíti az „utolsó letöltés” időpontját, így a 60 napos ANAF-határidő
+  csengő-emlékeztetője az asztali beolvasás után is pontos marad.
 
 ### ℹ️ Tudnivaló
 
