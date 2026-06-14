@@ -41,3 +41,48 @@ export async function oblioFolderInfo(): Promise<OblioFolderInfo> {
 export async function oblioSetupFolder(): Promise<OblioFolderInfo> {
   return invoke<OblioFolderInfo>('oblio_setup_folder')
 }
+
+/** Egy fájl a feldolgozott tárban. */
+export interface OblioFileEntry {
+  name: string
+  /** Teljes útvonal (megnyitáshoz). */
+  path: string
+  size: number
+  /** Utolsó módosítás (ms az epoch óta). */
+  mtimeMs: number
+  /** "xml" | "pdf" | "other". */
+  kind: 'xml' | 'pdf' | 'other'
+}
+
+/** A beolvasás összesítője. */
+export interface OblioIngestReport {
+  extractedXml: number
+  extractedPdf: number
+  movedXml: number
+  movedPdf: number
+  archivedZips: number
+  /** Már korábban beolvasott (kihagyott) fájlok száma. */
+  skipped: number
+  /** A bedobó mappában maradt (ismeretlen formátumú) fájlok száma. */
+  befogadottRemaining: number
+  errors: string[]
+}
+
+/**
+ * BEOLVASÁS: a bedobó (`befogadott`) mappa ZIP-jeinek kibontása + a lazán
+ * bedobott XML/PDF áthelyezése a belső (`feldolgozott`) tárba. A bedobó mappa
+ * beolvasás után KIÜRÜL — így a lelkész látja, mit olvasott már be a rendszer.
+ */
+export async function oblioIngest(): Promise<OblioIngestReport> {
+  return invoke<OblioIngestReport>('oblio_ingest')
+}
+
+/** A feldolgozott mappa fájljainak listája (név szerint rendezve). */
+export async function oblioListProcessed(): Promise<OblioFileEntry[]> {
+  return invoke<OblioFileEntry[]>('oblio_list_processed')
+}
+
+/** Egy feldolgozott fájl szöveges tartalma (UBL XML parse-hoz) — fájlnév alapján. */
+export async function oblioReadText(name: string): Promise<string> {
+  return invoke<string>('oblio_read_text', { name })
+}

@@ -76,6 +76,7 @@ import { DesktopCombinedEntryDialog } from '../components/combined-entry-dialog'
 import { DesktopStornoConfirmDialog } from '../components/storno-confirm-dialog'
 import { DesktopTransactionEditDialog } from '../components/transaction-edit-dialog'
 import { DesktopBankTab } from '../components/desktop-bank-tab'
+import { DesktopOblioTab } from '../components/desktop-oblio-tab'
 import { DesktopBudgetTab } from '../components/desktop-budget-tab'
 import { DesktopMonetaryTab } from '../components/desktop-monetary-tab'
 import { DesktopFinancePrintDialog } from '../components/finance-print-dialog'
@@ -87,7 +88,7 @@ import { DESKTOP_HELP_SECTIONS } from '../lib/desktop-help-sections'
 // 2026-06-11 (paritás #5): Bank / Költségvetés / Monetár is a web-azonos
 // megosztott komponenssel renderelődik. Egyedül a Bérleti szerződések fül vár
 // még (webes szerződés-dialóg + Oblio e-Factura kötés).
-const READY_TABS = ['dashboard', 'cashbook', 'bank', 'transactions', 'budget', 'accounting', 'debt', 'monetary']
+const READY_TABS = ['dashboard', 'cashbook', 'bank', 'transactions', 'budget', 'accounting', 'debt', 'monetary', 'oblio']
 
 const TAB_DEFS = [
   { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
@@ -97,6 +98,7 @@ const TAB_DEFS = [
   { value: 'budget', label: 'Költségvetés', color: 'amber' },
   { value: 'accounting', label: 'Számadás', color: 'cyan' },
   { value: 'debt', label: 'Tartozások', color: 'orange' },
+  { value: 'oblio', label: 'Oblio ellenőrzés', color: 'cyan' },
   { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
   { value: 'monetary', label: 'Monetár', color: 'slate' },
   { value: 'sugo', label: 'Súgó', color: 'teal' },
@@ -430,8 +432,9 @@ export function PenzugyPage() {
                 A Bérleti szerződések kezelése egyelőre a webes felületen érhető el.
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                A szerződés-rögzítés és az e-Factura (Oblio) számlázás webes szolgáltatásokra épül —
-                nyisd meg a Kartotékát a böngészőben (Pénzügy → Bérleti szerződések).
+                A szerződés-rögzítés és a bérleti e-Factura számlázás webes szolgáltatásokra épül —
+                nyisd meg a Kartotékát a böngészőben (Pénzügy → Bérleti szerződések). A befogadott
+                e-Factura ellenőrzés viszont már itt is elérhető az „Oblio ellenőrzés” fülön.
               </p>
             </div>
           ) : activeTab === 'dashboard' ? (
@@ -625,6 +628,13 @@ export function PenzugyPage() {
             />
           ) : activeTab === 'debt' ? (
             <DebtTab debtRows={debtRows} yearlyFees={yearlyFees} currentYear={year} debtCalcMode="akkori" />
+          ) : activeTab === 'oblio' ? (
+            <DesktopOblioTab
+              congregationId={congregationId}
+              userId={userId}
+              currentYear={year}
+              onToast={(msg, kind) => setPageToast({ kind, msg })}
+            />
           ) : null}
         </div>
       </div>

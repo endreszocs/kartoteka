@@ -168,12 +168,15 @@ export function OblioMappaPanel() {
           </li>
           <li>
             Nyisd meg a <strong>Pénzügy → Oblio ellenőrzés</strong> fület, és kattints a
-            <strong> „Frissítés a mappából”</strong> gombra — a rendszer kibontja és párosítja a számlákat.
+            <strong> „Beolvasás”</strong> gombra — a rendszer kibontja a ZIP-et, a fájlokat áthelyezi
+            egy belső <em>feldolgozott</em> mappába, és párosítja a számlákat a kiadásokkal.
           </li>
         </ol>
         <p className="mt-2 text-xs text-slate-500">
-          Csak ZIP, XML és PDF fájlt tegyél a mappába. Az ANAF SPV a számlákat csak 60 napra
-          visszamenőleg engedi letölteni — a csengőnél időben figyelmeztetünk.
+          Csak ZIP, XML és PDF fájlt tegyél a mappába. <strong>Beolvasás után a bedobó mappa kiürül</strong>
+          {' '}(a fájlok a belső tárba kerülnek) — így mindig látod, mit olvasott már be a rendszer, és a
+          mappa tiszta marad. Az ANAF SPV a számlákat csak 60 napra visszamenőleg engedi letölteni — a
+          csengőnél időben figyelmeztetünk.
         </p>
       </div>
 

@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-15] — Oblio e-Factura ellenőrzés az asztali appban is, tiszta mappa-rendszerrel
+<!-- key: 2026-06-15-oblio-desktop-beolvasas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **A befogadott e-Factura ellenőrzés mostantól az asztali (offline) appban is elérhető.**
+  A Pénzügy modulban új <strong>„Oblio ellenőrzés”</strong> fül: beolvassa a letöltött
+  számlákat, és automatikusan párosítja a könyvelt kiadásaiddal (beszállító adószáma,
+  összeg és dátum alapján), pont mint a weben. Kézi párosítás, szűrők és számlanyitás
+  (XML/PDF) is van.
+- **Tiszta, kétmappás munkafolyamat — nem keveredik össze semmi.** A letöltött Oblio
+  ZIP-et (vagy a kibontott fájlokat) a <strong>befogadott</strong> mappába teszed, majd a
+  <strong>„Beolvasás”</strong> gombra kattintasz. A rendszer kibontja és <strong>áthelyezi</strong>
+  a fájlokat egy belső <strong>feldolgozott</strong> mappába (a ZIP-et külön archívumba), és a
+  bedobó mappa <strong>kiürül</strong>. Így egy pillantásra látod, mit olvasott már be a
+  rendszer, és a mappa mindig tiszta marad — semmi nem keveredik a régivel.
+
+### 🎨 Fejlesztések
+
+- A korábbi (csak weben elérhető) jelzés helyett az asztali Pénzügy fül most aktívan kínálja
+  az Oblio ellenőrzést; a Beállítások → Könyvelés panel útmutatója is a beolvasás-áthelyezés
+  folyamatot írja le.
+
+### ℹ️ Tudnivaló
+
+- A számlák és a párosítások a felhőből (online) jönnek és oda mentődnek — a beolvasott
+  számlák listája offline is látszik, de a kiadásokkal való párosításhoz egyszer
+  csatlakozni kell a hálózatra.
+- Csak ZIP, XML és PDF fájlt tegyél a bedobó mappába. Az árva PDF-ek tartalom-elemzése és a
+  számlából-kiadás-bevezető varázsló egyelőre a webes felületen érhető el (következő lépés).
+
 ## [2026-06-14] — Oblio e-Factura: kézikönyv a súgóban + a mappát az asztali app kezeli
 <!-- key: 2026-06-14-oblio-sugo-es-mappakezeles -->
 <!-- category: feature -->
