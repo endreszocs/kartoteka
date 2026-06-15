@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 interface RouteLoadingScreenProps {
   /** A betöltött modul neve — pl. "Tagnyilvántartás", "Pénzügy". */
   module?: string
-  /** Felirat a logó alatt (alapértelmezett: "Református gyülekezeti nyilvántartás"). */
+  /** Felirat a logó alatt (alapértelmezett: "Egyházi nyilvántartó rendszer"). */
   subtitle?: string
   /** Üzenet — egy mondat a betöltési folyamat hangulatáról. */
   message?: string
@@ -31,7 +31,7 @@ interface RouteLoadingScreenProps {
 export function RouteLoadingScreen({
   module = 'Kartotéka',
   // 2026-06-10: semleges felirat — a rendszer nem csak az erdélyi kerületé
-  subtitle = 'Református gyülekezeti nyilvántartás',
+  subtitle = 'Egyházi nyilvántartó rendszer',
   message = 'A modul betöltése folyamatban van, az adatok hamarosan megérkeznek.',
 }: RouteLoadingScreenProps) {
   const [mounted, setMounted] = useState(false)

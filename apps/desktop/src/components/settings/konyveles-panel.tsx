@@ -63,6 +63,7 @@ import {
 } from '../../lib/excel-write-sync'
 import { getDesktopSupabase } from '../../lib/supabase'
 import { getTauriSqliteBackend } from '../../lib/tauri-sqlite-backend'
+import { OblioMappaPanel } from './oblio-mappa-panel'
 
 export function KonyvelesPanel() {
   const year = new Date().getFullYear()
@@ -899,6 +900,12 @@ export function KonyvelesPanel() {
         ami az apphoz csomagolva érkezik. Minden évhez külön mappa jön létre a gépeden. Az Excel-fájl
         minden írás előtt automatikus biztonsági másolatot kap.
       </p>
+
+      {/* Befogadott e-Factura (Oblio) mappa — a rendszer által kezelt fix mappa
+          a Dokumentumok-ban, hogy a böngésző mappaválasztó hibalehetőségeit elkerüljük. */}
+      <div className="border-t border-slate-200 pt-5">
+        <OblioMappaPanel />
+      </div>
     </div>
   )
 }

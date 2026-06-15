@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "npm run lint:imports && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "npm run lint:imports && tauri"
+    "tauri": "npm run lint:imports && node ../../scripts/desktop-tauri.mjs"
   },
   "dependencies": {
     "@kartoteka/supabase-client": "*",
@@ -21,7 +21,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-updater": "^2",
-    "lucide-react": "^1.7.0"
+    "lucide-react": "^1.7.0",
+    "pdfjs-dist": "^5.6.205"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4",

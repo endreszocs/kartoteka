@@ -23,6 +23,177 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
+<!-- key: 2026-06-15-oblio-desktop-offline-pdf -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Párosítás internet nélkül is.** Az asztali Oblio ellenőrzésben mostantól <strong>offline is
+  párosíthatsz</strong> kézzel: a kiadások a helyi (gépen tárolt) másolatból jönnek elő, a párosítások
+  pedig egy <strong>várólistára</strong> kerülnek, és amint újra van internet, <strong>automatikusan
+  szinkronizálnak</strong>. Egy sáv jelzi, hány párosítás vár szinkronra, és a „Szinkron most” gombbal
+  azonnal fel is töltheted őket.
+- **Árva PDF-ek automatikus felismerése a tartalom alapján.** Ha egy PDF-számla a fájlneve alapján nem
+  párosítható (mert a letöltött csomag vegyes volt), a <strong>„Tartalom-elemzés”</strong> gombbal a
+  rendszer beleolvas a PDF-be, kinyeri belőle a beszállító adószámát (CUI) és az összeget, és a megfelelő
+  számlával (XML) társítja — sikeres találatnál átnevezi a fájlt, hogy onnantól magától párosuljon.
+
+### ℹ️ Tudnivaló
+
+- Az offline párosítás a kézi párosításra vonatkozik; az automatikus (adószám/összeg alapú) párosítások
+  online amúgy is maguktól mentődnek a következő frissítéskor.
+- A tartalom-elemzés a PDF szövegét olvassa — a beszkennelt (kép-)PDF-eknél kevésbé megbízható; ilyenkor
+  a kézi párosítás a biztos út.
+
+## [2026-06-15] — Oblio e-Factura ellenőrzés az asztali appban is, tiszta mappa-rendszerrel
+<!-- key: 2026-06-15-oblio-desktop-beolvasas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **A befogadott e-Factura ellenőrzés mostantól az asztali (offline) appban is elérhető.**
+  A Pénzügy modulban új <strong>„Oblio ellenőrzés”</strong> fül: beolvassa a letöltött
+  számlákat, és automatikusan párosítja a könyvelt kiadásaiddal (beszállító adószáma,
+  összeg és dátum alapján), pont mint a weben. Kézi párosítás, szűrők és számlanyitás
+  (XML/PDF) is van.
+- **Tiszta, kétmappás munkafolyamat — nem keveredik össze semmi.** A letöltött Oblio
+  ZIP-et (vagy a kibontott fájlokat) a <strong>befogadott</strong> mappába teszed, majd a
+  <strong>„Beolvasás”</strong> gombra kattintasz. A rendszer kibontja és <strong>áthelyezi</strong>
+  a fájlokat egy belső <strong>feldolgozott</strong> mappába (a ZIP-et külön archívumba), és a
+  bedobó mappa <strong>kiürül</strong>. Így egy pillantásra látod, mit olvasott már be a
+  rendszer, és a mappa mindig tiszta marad — semmi nem keveredik a régivel.
+- **„Bevezetés kiadásként” varázsló** — ha egy befogadott számlához még nincs kiadás a
+  könyvelésben, egy kattintással bevezetheted: kiválasztod a költségvetési kategóriát és a
+  fizetési módot (kassza vagy bankszámla), a rendszer pedig a számla összegével, dátumával és
+  a beszállító adószámával (CUI) létrehozza a kiadást — és a következő frissítés
+  <strong>automatikusan párosítja</strong> a számlával. A tétel a hivatalos Excel-könyvelésbe is
+  bekerül (ha a szinkron be van kapcsolva).
+
+### 🎨 Fejlesztések
+
+- A korábbi (csak weben elérhető) jelzés helyett az asztali Pénzügy fül most aktívan kínálja
+  az Oblio ellenőrzést; a Beállítások → Könyvelés panel útmutatója is a beolvasás-áthelyezés
+  folyamatot írja le.
+- Beolvasáskor a rendszer frissíti az „utolsó letöltés” időpontját, így a 60 napos ANAF-határidő
+  csengő-emlékeztetője az asztali beolvasás után is pontos marad.
+
+### ℹ️ Tudnivaló
+
+- A számlák és a párosítások a felhőből (online) jönnek és oda mentődnek — a beolvasott
+  számlák listája offline is látszik, de a kiadásokkal való párosításhoz egyszer
+  csatlakozni kell a hálózatra.
+- Csak ZIP, XML és PDF fájlt tegyél a bedobó mappába. Az árva PDF-ek tartalom-alapú
+  automatikus párosítása egyelőre a webes felületen érhető el (következő lépés).
+
+## [2026-06-14] — Oblio e-Factura: kézikönyv a súgóban + a mappát az asztali app kezeli
+<!-- key: 2026-06-14-oblio-sugo-es-mappakezeles -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Lépésről lépésre útmutató az Oblio e-Factura ellenőrzéshez.** A Pénzügy súgóba új
+  fejezet került (<strong>„Oblio e-Factura ellenőrzés”</strong>): mit kell letölteni az
+  Oblio Wallet-ből, hova kell tenni, hogyan fut a párosítás, mit jelentenek a jelzések,
+  és mire kell figyelni (devizás és sztornó számlák, a 60 napos ANAF-határidő).
+- **A befogadott e-Factura mappát mostantól az asztali (offline) app kezeli helyetted.**
+  Eddig a böngészőben kézzel kellett mappát választani — ez sok hibalehetőséget rejtett
+  (rossz mappa, megtagadott engedély, felhőbe szinkronizált hely). Az asztali appban a
+  rendszer egy <strong>fix, ismert mappát</strong> hoz létre a Dokumentumok-ban:
+  <code>Documents\Kartoteka\Oblio\befogadott</code>. A <strong>Beállítások → Könyvelés</strong>
+  fülön egy gombbal előkészíted, egy másikkal megnyitod — és mindig <strong>ide teszed</strong>
+  az Oblio ZIP-et. Nincs többé mappa-keresgélés, nem tévesztheted el a helyét.
+
+### 🎨 Fejlesztések
+
+- **Egységes, rendszer által létrehozott hely a Dokumentumok-ban.** Az offline Kartotéka
+  minden gépi mappája (a könyvelés és az Oblio-mappa is) a Dokumentumok-on belüli
+  <code>Kartoteka</code> mappa alá kerül — átlátható, és a rendszer automatikusan létrehozza.
+
+### ℹ️ Tudnivaló
+
+- A befogadott számlák egyeztetése (a párosítás) jelenleg a webes felületen
+  (Pénzügy → Oblio ellenőrzés) történik, ugyanerre a fizikai mappára mutatva; az asztali
+  app a mappa előkészítését és megnyitását végzi. A teljes asztali egyeztető-fül egy
+  következő lépés.
+
+## [2026-06-14] — Oblio e-Factura ellenőrzés: biztonságosabb, pontosabb, gyorsabb
+<!-- key: 2026-06-14-oblio-ellenorzes-javitasok -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+A Pénzügy → **Oblio ellenőrzés** fül (a befogadott román e-Factura számlák
+összevetése a könyvelt kiadásokkal) átfogó átvizsgáláson esett át. A
+legfontosabb: mostantól **semmilyen fájlt nem töröl magától a gépedről**, és
+jóval ritkábban társít téves számlát kiadáshoz.
+
+### 🐛 Javítások
+
+- **A rendszer többé NEM törli magától a számláidat.** Eddig a „Frissítés a
+  mappából" gomb csendben, megkérdezés nélkül kitörölte azokat a fájlokat,
+  amelyeket duplikátumnak hitt — pusztán a számla azonosítója alapján. Ritka
+  esetben így két **különböző** számla közül a valódit is törölhette. Mostantól
+  a duplikátumokat csak **jelzi** egy figyelmeztető sávban, és kizárólag a
+  **biztosan azonos** (egyforma méretű) másolatokat távolítja el — akkor is csak
+  ha te rákattintasz a gombra. Minden számlából **mindig megmarad egy példány**.
+- **Árva PDF párosításakor nem veszhet el fájl.** Ha egy PDF-et olyan névre
+  próbált átnevezni, ami már foglalt volt, korábban az eredeti PDF nyom nélkül
+  eltűnhetett. Ez megszűnt — ütközés esetén a fájl érintetlen marad.
+- **A devizában (pl. EUR) kiállított számlákat már nem párosítja tévesen.**
+  Eddig egy 100 eurós számla összegét közvetlenül a lejes kiadásokhoz
+  hasonlította, ami hibás párosításhoz vezethetett. Mostantól a nem-lejes
+  számlákat **kézi ellenőrzésre** teszi félre, érthető jelzéssel.
+- **A jóváíró / sztornó számlákat nem társítja automatikusan.** Ezeknél az
+  összeg előjele félrevezető lehet, ezért a rendszer kézi megerősítést kér,
+  hogy ne keletkezzen kétszeres vagy hiányzó könyvelési tétel.
+- **Sokkal kevesebb téves „beszállító-név" találat.** Az általános cégszavak
+  (pl. „Construct", „Trans", „Total") önmagukban már nem okoznak párosítást, és
+  a névegyezést szigorúbban értékeli — így ritkábban köt össze két különböző
+  céget.
+- **Két egyforma összegű számlánál rákérdez.** Ha ugyanahhoz a beszállítóhoz
+  több azonos összegű/dátumú kiadás is illik (pl. két havi díj), a rendszer már
+  nem találgat: „bizonytalan" jelzéssel megerősítésre vár.
+
+### 🎨 Fejlesztések, finomítások
+
+- **Villámgyors párosítás sok számlánál is.** A nagy mennyiségű automatikus
+  párosítás mentése eddig számlánként külön-külön ment a szerverre — több száz
+  számlánál ez perceket vett igénybe és el is akadhatott. Mostantól egyetlen
+  lépésben menti az egészet.
+- **Okosabb dátum- és összeg-illesztés.** A párosítás figyelembe veszi, hogy a
+  kifizetés rendszerint a számla **után** van, és nagy számláknál arányosan tág,
+  kicsiknél szigorúbb összeg-tűrést használ — pontosabb találatok, kevesebb
+  tévedés.
+- **Közös gépen nem keverednek a gyülekezetek.** Ha egy számítógépen több
+  gyülekezetet kezelsz, az egyikben „mellőzött" számla többé nem tűnik el a
+  másik gyülekezet listájából — minden gyülekezetnek külön nyilvántartása van.
+- **Minden mozzanat naplózásra kerül.** A párosítás létrehozása és törlése, a
+  beszállítói adószám (CUI) beállítása, valamint a számlából bevezetett kiadás
+  mostantól bekerül az **eseménynaplóba** (ki, mit, mikor) — fontos az
+  elszámoltathatóság és az ellenőrizhetőség miatt.
+- **Nem keletkezik „fél" kiadás.** Ha egy számla kiadásként való bevezetése a
+  párosítás mentésénél elakad, a rendszer visszavonja a félig elkészült kiadást,
+  és érthető hibát ad — így nem marad árva vagy duplikálható tétel a könyvelésben.
+- **Apró pontosítások:** a párosítás-törlés már jelzi, ha nincs mit törölni; a
+  helyi PDF/XML előnézet tovább marad nyitva (nagy fájloknál is); a „frissítés"
+  nem indulhat el kétszer egyszerre.
+
+### ℹ️ Tudnivaló
+
+- **Nincs adatbázis-frissítés** ehhez a kiadáshoz — az eseménynapló a meglévő
+  rendszert használja.
+- A háttérben egy részletes átvizsgálási dokumentum is készült a fejlesztőknek
+  (`docs/project-tracking/KARTOTEKA-oblio-ellenorzes-audit-2026-06-14.md`),
+  benne a további, nagyobb tervezett lépésekkel (pl. közvetlen ANAF-kapcsolat a
+  számlák automatikus letöltéséhez, tartós 10 éves számla-archívum).
+
 ## [2026-06-12] — Munkanapló-megújulás, banki import varázsló, Excel-beállító varázsló
 <!-- key: 2026-06-12-munkanaplo-bankimport-wizardok -->
 <!-- category: feature -->

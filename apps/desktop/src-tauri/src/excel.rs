@@ -613,6 +613,469 @@ pub fn excel_setup_folder(
     })
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Oblio / befogadott e-Factura mappa (2026-06-14)
+//
+// A böngésző File System Access mappaválasztója sok hibalehetőséget hordoz
+// (rossz mappa, megtagadott engedély, felhő-szinkronizált hely). Az asztali
+// (offline) appban ehelyett a RENDSZER birtokolja a mappát: egy fix, ismert
+// helyen a Dokumentumok-ban (`…\Documents\Kartoteka\Oblio\befogadott`), amit
+// a Rust-réteg hoz létre és nyit meg. A lelkész ide teszi az Oblio ZIP-et.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Az Oblio-gyökér: `…\Documents\Kartoteka\Oblio`.
+fn oblio_base(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let docs = app
+        .path()
+        .document_dir()
+        .map_err(|e| format!("A Dokumentumok mappa nem található: {e}"))?;
+    Ok(docs.join("Kartoteka").join("Oblio"))
+}
+
+/// A BEDOBÓ mappa (ide teszi a lelkész a letöltött ZIP-et / fájlokat):
+/// `…\Documents\Kartoteka\Oblio\befogadott`. Beolvasás után KIÜRÜL.
+fn oblio_folder(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(oblio_base(app)?.join("befogadott"))
+}
+
+/// A FELDOLGOZOTT (belső) tár: ide kerülnek a beolvasott XML/PDF-ek tartósan.
+/// `…\Documents\Kartoteka\Oblio\feldolgozott`.
+fn oblio_processed(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(oblio_base(app)?.join("feldolgozott"))
+}
+
+/// A feldolgozott ZIP-ek archívuma: `…\Documents\Kartoteka\Oblio\zip-arhivum`.
+fn oblio_zip_archive(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(oblio_base(app)?.join("zip-arhivum"))
+}
+
+/// Egy Oblio-mappa állapota — a UI visszajelzéséhez (létezik-e + mit tartalmaz).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OblioFolderInfo {
+    /// A befogadott e-Factura mappa teljes útvonala.
+    pub folder_path: String,
+    /// Létezik-e már a mappa.
+    pub exists: bool,
+    /// A mappában talált ZIP/XML/PDF fájlok száma (megerősítés a felhasználónak).
+    pub zip_count: u32,
+    pub xml_count: u32,
+    pub pdf_count: u32,
+}
+
+fn count_oblio_files(folder: &Path) -> (u32, u32, u32) {
+    let (mut zip, mut xml, mut pdf) = (0u32, 0u32, 0u32);
+    if let Ok(rd) = std::fs::read_dir(folder) {
+        for e in rd.flatten() {
+            if let Some(name) = e.file_name().to_str() {
+                let lower = name.to_lowercase();
+                if lower.ends_with(".zip") {
+                    zip += 1;
+                } else if lower.ends_with(".xml") {
+                    xml += 1;
+                } else if lower.ends_with(".pdf") {
+                    pdf += 1;
+                }
+            }
+        }
+    }
+    (zip, xml, pdf)
+}
+
+/// A befogadott e-Factura mappa alapértelmezett útvonala (létrehozás nélkül).
+#[tauri::command]
+pub fn oblio_default_folder(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(oblio_folder(&app)?.to_string_lossy().to_string())
+}
+
+/// A befogadott e-Factura mappa állapota (létezik-e + fájl-számok) — másolás nélkül.
+#[tauri::command]
+pub fn oblio_folder_info(app: tauri::AppHandle) -> Result<OblioFolderInfo, String> {
+    let folder = oblio_folder(&app)?;
+    let exists = folder.is_dir();
+    let (zip_count, xml_count, pdf_count) = if exists {
+        count_oblio_files(&folder)
+    } else {
+        (0, 0, 0)
+    };
+    Ok(OblioFolderInfo {
+        folder_path: folder.to_string_lossy().to_string(),
+        exists,
+        zip_count,
+        xml_count,
+        pdf_count,
+    })
+}
+
+/// A befogadott e-Factura mappa előkészítése: létrehozza (a szülőkkel együtt),
+/// ha még nincs. Idempotens — meglévő mappát/tartalmat érintetlenül hagy.
+#[tauri::command]
+pub fn oblio_setup_folder(app: tauri::AppHandle) -> Result<OblioFolderInfo, String> {
+    let folder = oblio_folder(&app)?;
+    std::fs::create_dir_all(&folder).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+    let (zip_count, xml_count, pdf_count) = count_oblio_files(&folder);
+    Ok(OblioFolderInfo {
+        folder_path: folder.to_string_lossy().to_string(),
+        exists: true,
+        zip_count,
+        xml_count,
+        pdf_count,
+    })
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Oblio beolvasás (ingest): a BEDOBÓ mappa → FELDOLGOZOTT mappa áthelyezés
+//
+// A lelkész a letöltött Oblio ZIP-et (vagy a kibontott XML/PDF-eket) a
+// `befogadott/` mappába teszi. Beolvasáskor:
+//   - a ZIP-eket kibontjuk a `feldolgozott/`-ba (1 XML + 1 PDF → a PDF az XML
+//     alapnevére átnevezve), majd a ZIP-et a `zip-arhivum/`-ba archiváljuk,
+//   - a lazán bedobott XML/PDF-eket áthelyezzük a `feldolgozott/`-ba.
+// Így a `befogadott/` mappa beolvasás után KIÜRÜL — a lelkész látja, hogy
+// a rendszer már beolvasta a fájlokat, és a mappa tiszta marad.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Egy fájl a feldolgozott tárban (a TS-oldal ebből parse-ol/párosít).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OblioFileEntry {
+    pub name: String,
+    /// Teljes útvonal (megnyitáshoz).
+    pub path: String,
+    pub size: u64,
+    /// Utolsó módosítás (ms az epoch óta).
+    pub mtime_ms: f64,
+    /// "xml" | "pdf" | "other".
+    pub kind: String,
+}
+
+/// A beolvasás összesítője.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OblioIngestReport {
+    pub extracted_xml: u32,
+    pub extracted_pdf: u32,
+    pub moved_xml: u32,
+    pub moved_pdf: u32,
+    pub archived_zips: u32,
+    /// Már korábban beolvasott (kihagyott) fájlok száma.
+    pub skipped: u32,
+    /// A `befogadott/`-ban maradt (ismeretlen formátumú) fájlok száma.
+    pub befogadott_remaining: u32,
+    pub errors: Vec<String>,
+}
+
+fn count_files(dir: &Path) -> u32 {
+    std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().filter(|e| e.path().is_file()).count() as u32)
+        .unwrap_or(0)
+}
+
+/// Egy fájl kiírása a célmappába, CSAK ha még nem létezik (idempotens).
+/// Visszaadja, hogy ténylegesen írtunk-e (false = már létezett).
+fn write_if_absent(dir: &Path, name: &str, bytes: &[u8]) -> Result<bool, String> {
+    let dest = dir.join(name);
+    if dest.exists() {
+        return Ok(false);
+    }
+    std::fs::write(&dest, bytes).map_err(|e| format!("Fájl-írás hiba: {e}"))?;
+    Ok(true)
+}
+
+/// Egy fájl áthelyezése a célmappába. Ha a cél MÁR létezik, NEM írjuk felül
+/// (false), a hívó a forrást így is eltávolítja a bedobó mappából.
+fn move_into(src: &Path, dst_dir: &Path, name: &str) -> Result<bool, String> {
+    let dest = dst_dir.join(name);
+    if dest.exists() {
+        return Ok(false);
+    }
+    if std::fs::rename(src, &dest).is_err() {
+        // Eltérő meghajtó / kötet — másolás + törlés.
+        std::fs::copy(src, &dest).map_err(|e| format!("Másolás hiba: {e}"))?;
+        std::fs::remove_file(src).map_err(|e| format!("Forrás törlés hiba: {e}"))?;
+    }
+    Ok(true)
+}
+
+/// Egy ZIP-bejegyzés bájtjainak kiolvasása (a `recalc_patch` mintájára).
+fn read_zip_entry(archive: &mut zip::ZipArchive<File>, i: usize) -> Result<Vec<u8>, String> {
+    let mut entry = archive
+        .by_index(i)
+        .map_err(|e| format!("ZIP bejegyzés hiba: {e}"))?;
+    let mut bytes = Vec::new();
+    entry
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("ZIP bejegyzés olvasás hiba: {e}"))?;
+    Ok(bytes)
+}
+
+/// Egy ZIP kibontása a feldolgozott mappába (aláírás-XML kihagyva, 1+1 esetén
+/// a PDF az XML alapnevére átnevezve — biztos pár).
+fn ingest_zip(
+    zip_path: &Path,
+    processed: &Path,
+    report: &mut OblioIngestReport,
+) -> Result<(), String> {
+    let f = File::open(zip_path).map_err(|e| format!("ZIP megnyitás hiba: {e}"))?;
+    let mut archive = zip::ZipArchive::new(f).map_err(|e| format!("ZIP olvasás hiba: {e}"))?;
+
+    // 1. lépés: bejegyzés-nevek begyűjtése (aláírás-XML kihagyva).
+    let mut xml_entries: Vec<(usize, String)> = Vec::new();
+    let mut pdf_entries: Vec<(usize, String)> = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| format!("ZIP bejegyzés hiba: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let full = entry.name().to_string();
+        let base = full
+            .rsplit(|c| c == '/' || c == '\\')
+            .next()
+            .unwrap_or(full.as_str())
+            .to_string();
+        let lower = base.to_lowercase();
+        if lower.starts_with("semnatura_") || lower.starts_with("semnatura-") {
+            continue;
+        }
+        if lower.ends_with(".xml") {
+            xml_entries.push((i, base));
+        } else if lower.ends_with(".pdf") {
+            pdf_entries.push((i, base));
+        }
+    }
+
+    let single_pair = xml_entries.len() == 1 && pdf_entries.len() == 1;
+
+    // 2. lépés: XML-ek kibontása (eredeti néven).
+    for (i, base) in &xml_entries {
+        let bytes = read_zip_entry(&mut archive, *i)?;
+        if write_if_absent(processed, base, &bytes)? {
+            report.extracted_xml += 1;
+        } else {
+            report.skipped += 1;
+        }
+    }
+
+    // 3. lépés: PDF-ek kibontása (1+1 esetén az XML alapnevére átnevezve).
+    for (i, base) in &pdf_entries {
+        let target = if single_pair {
+            let xb = &xml_entries[0].1;
+            let stem = if xb.to_lowercase().ends_with(".xml") {
+                &xb[..xb.len() - 4]
+            } else {
+                xb.as_str()
+            };
+            format!("{stem}.pdf")
+        } else {
+            base.clone()
+        };
+        let bytes = read_zip_entry(&mut archive, *i)?;
+        if write_if_absent(processed, &target, &bytes)? {
+            report.extracted_pdf += 1;
+        } else {
+            report.skipped += 1;
+        }
+    }
+
+    Ok(())
+}
+
+/// A feldolgozott ZIP archiválása (epoch-prefixszel, ütközés-mentesen).
+fn archive_zip(zip_path: &Path, archive_dir: &Path) -> Result<(), String> {
+    let name = zip_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("export.zip");
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dest = archive_dir.join(format!("{epoch}_{name}"));
+    if std::fs::rename(zip_path, &dest).is_err() {
+        std::fs::copy(zip_path, &dest).map_err(|e| format!("ZIP archiválás másolás hiba: {e}"))?;
+        std::fs::remove_file(zip_path).map_err(|e| format!("ZIP törlés hiba: {e}"))?;
+    }
+    Ok(())
+}
+
+/// A BEDOBÓ mappa beolvasása: ZIP-ek kibontása + lazán bedobott XML/PDF
+/// áthelyezése a feldolgozott mappába, majd a bedobó mappa kiürítése.
+#[tauri::command]
+pub fn oblio_ingest(app: tauri::AppHandle) -> Result<OblioIngestReport, String> {
+    let befogadott = oblio_folder(&app)?;
+    let processed = oblio_processed(&app)?;
+    let archive = oblio_zip_archive(&app)?;
+    std::fs::create_dir_all(&befogadott).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+    std::fs::create_dir_all(&processed).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+    std::fs::create_dir_all(&archive).map_err(|e| format!("Mappa-létrehozás hiba: {e}"))?;
+
+    let mut report = OblioIngestReport {
+        extracted_xml: 0,
+        extracted_pdf: 0,
+        moved_xml: 0,
+        moved_pdf: 0,
+        archived_zips: 0,
+        skipped: 0,
+        befogadott_remaining: 0,
+        errors: Vec::new(),
+    };
+
+    let entries: Vec<PathBuf> = match std::fs::read_dir(&befogadott) {
+        Ok(rd) => rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect(),
+        Err(e) => return Err(format!("A befogadott mappa olvasása sikertelen: {e}")),
+    };
+
+    for path in &entries {
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let lower = name.to_lowercase();
+
+        if lower.ends_with(".zip") {
+            match ingest_zip(path, &processed, &mut report) {
+                Ok(_) => {
+                    if let Err(e) = archive_zip(path, &archive) {
+                        report.errors.push(format!("ZIP archiválás hiba ({name}): {e}"));
+                    } else {
+                        report.archived_zips += 1;
+                    }
+                }
+                Err(e) => report.errors.push(format!("ZIP feldolgozás hiba ({name}): {e}")),
+            }
+        } else if lower.ends_with(".xml") || lower.ends_with(".pdf") {
+            // Aláírás-XML: nem visszük át, csak eltávolítjuk a bedobó mappából.
+            if lower.starts_with("semnatura_") || lower.starts_with("semnatura-") {
+                let _ = std::fs::remove_file(path);
+                continue;
+            }
+            match move_into(path, &processed, &name) {
+                Ok(moved) => {
+                    if moved {
+                        if lower.ends_with(".xml") {
+                            report.moved_xml += 1;
+                        } else {
+                            report.moved_pdf += 1;
+                        }
+                    } else {
+                        report.skipped += 1;
+                    }
+                    // A bedobó mappa ürüljön ki akkor is, ha a cél már létezett.
+                    let _ = std::fs::remove_file(path);
+                }
+                Err(e) => report.errors.push(format!("Áthelyezés hiba ({name}): {e}")),
+            }
+        }
+        // Ismeretlen formátumú fájlt NEM törlünk — a lelkész más fájljait nem
+        // bántjuk; a befogadott_remaining számláló jelzi, hogy maradt benne valami.
+    }
+
+    report.befogadott_remaining = count_files(&befogadott);
+    Ok(report)
+}
+
+/// A feldolgozott mappa fájljainak listája (a TS-oldal ebből parse-ol/párosít).
+#[tauri::command]
+pub fn oblio_list_processed(app: tauri::AppHandle) -> Result<Vec<OblioFileEntry>, String> {
+    let processed = oblio_processed(&app)?;
+    let mut out: Vec<OblioFileEntry> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&processed) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_file() {
+                continue;
+            }
+            let name = match p.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            let lower = name.to_lowercase();
+            let kind = if lower.ends_with(".xml") {
+                "xml"
+            } else if lower.ends_with(".pdf") {
+                "pdf"
+            } else {
+                "other"
+            };
+            let md = e.metadata().ok();
+            let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime_ms = md
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(0.0);
+            out.push(OblioFileEntry {
+                name,
+                path: p.to_string_lossy().to_string(),
+                size,
+                mtime_ms,
+                kind: kind.to_string(),
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Egy feldolgozott fájl szöveges (UTF-8) tartalma — az UBL XML parse-hoz.
+/// Path-traversal védelem: csak egyszerű fájlnevet fogad el.
+#[tauri::command]
+pub fn oblio_read_text(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("Érvénytelen fájlnév.".to_string());
+    }
+    let processed = oblio_processed(&app)?;
+    let path = processed.join(&name);
+    std::fs::read_to_string(&path).map_err(|e| format!("Fájl olvasás hiba: {e}"))
+}
+
+/// Egy feldolgozott fájl bájtjai base64-ben — a PDF tartalom-elemzéshez
+/// (a webview a base64-ből Blob-ot épít, és PDF.js-szel kinyeri a szöveget).
+#[tauri::command]
+pub fn oblio_read_base64(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    use base64::Engine as _;
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("Érvénytelen fájlnév.".to_string());
+    }
+    let processed = oblio_processed(&app)?;
+    let bytes =
+        std::fs::read(processed.join(&name)).map_err(|e| format!("Fájl olvasás hiba: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Egy feldolgozott fájl átnevezése a feldolgozott mappán belül — az árva-PDF
+/// tartalom-párosítás után, hogy a következő frissítésnél fájlnév-gyök alapján
+/// párosuljon az XML-lel. Ütközéskor NEM ír felül (hibát ad).
+#[tauri::command]
+pub fn oblio_rename_processed(
+    app: tauri::AppHandle,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    for n in [old_name.as_str(), new_name.as_str()] {
+        if n.contains('/') || n.contains('\\') || n.contains("..") {
+            return Err("Érvénytelen fájlnév.".to_string());
+        }
+    }
+    if old_name == new_name {
+        return Ok(());
+    }
+    let processed = oblio_processed(&app)?;
+    let dst = processed.join(&new_name);
+    if dst.exists() {
+        return Err(format!("A cél fájlnév már létezik: {new_name}"));
+    }
+    std::fs::rename(processed.join(&old_name), &dst).map_err(|e| format!("Átnevezés hiba: {e}"))?;
+    Ok(())
+}
+
 /// A mappa megnyitása az operációs rendszer fájlkezelőjében.
 #[tauri::command]
 pub fn excel_open_folder(path: String) -> Result<(), String> {

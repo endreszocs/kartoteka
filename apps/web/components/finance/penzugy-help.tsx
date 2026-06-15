@@ -8,7 +8,9 @@ import {
   ChevronRight,
   ClipboardCheck,
   Coins,
+  FileCheck2,
   FileText,
+  FolderCheck,
   Info,
   Landmark,
   Receipt,
@@ -38,6 +40,7 @@ const CATEGORIES: HelpCategory[] = [
   { id: 'transit-credit', label: 'Átmeneti tételek és hitelek', Icon: Calculator, short: '106 / 107 és 206 / 207 csoportok' },
   { id: 'balance', label: 'Egyenlegek, tartozások', Icon: ClipboardCheck, short: 'Záróegyenleg, kintlevőségek' },
   { id: 'audit', label: 'Pénzügyi vizsgálat', Icon: FileText, short: 'Bemutatandó iratok ellenőrzéskor' },
+  { id: 'oblio', label: 'Oblio e-Factura ellenőrzés', Icon: FileCheck2, short: 'Befogadott számlák egyeztetése — lépésről lépésre' },
   { id: 'changes-2026', label: 'Változások 2026', Icon: Sparkles, short: 'Új könyvelési segédlet, lelkészi jelentés' },
   { id: 'cash-rules', label: 'Készpénz-szabályok', Icon: Landmark, short: 'Kasszaplafon és értékhatárok' },
 ]
@@ -128,6 +131,7 @@ export function PenzugyHelp() {
             {active === 'transit-credit' && <TransitCreditContent />}
             {active === 'balance' && <BalanceContent />}
             {active === 'audit' && <AuditContent />}
+            {active === 'oblio' && <OblioContent />}
             {active === 'changes-2026' && <Changes2026Content />}
             {active === 'cash-rules' && <CashRulesContent />}
           </div>
@@ -832,6 +836,113 @@ function AuditContent() {
         </li>
         <li>Anyagraktárkönyvi nyilvántartás vagy leltári szám, ha az egyházközségnek marad.</li>
       </ul>
+    </>
+  )
+}
+
+function OblioContent() {
+  return (
+    <>
+      <p>
+        Romániában a beszállítók a számláikat az <strong>ANAF SPV</strong> rendszeren
+        (e-Factura) keresztül küldik. Az <strong>Oblio ellenőrzés</strong> fül segít
+        egyeztetni ezeket a <strong>befogadott számlákat</strong> a könyvelt
+        kiadásaiddal: így biztos lehetsz benne, hogy minden hivatalos számlát
+        bevezettél, és minden kiadásodhoz van érvényes e-Factura.
+      </p>
+
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+        <div className="flex items-start gap-2">
+          <FolderCheck className="size-4 shrink-0 mt-0.5" />
+          <div>
+            <strong>A mappát az asztali (offline) app kezeli helyetted.</strong> A{' '}
+            <strong>Beállítások → Könyvelés</strong> fülön egy kattintással létrehozza és
+            megnyitja a befogadott e-Factura mappáját a Dokumentumok-ban:
+            <Code>Documents\Kartoteka\Oblio\befogadott</Code>. Mindig <strong>ide tedd</strong> az
+            Oblio ZIP-et — nem kell mappát keresgélned, és nem tévesztheted el a helyét.
+          </div>
+        </div>
+      </div>
+
+      <SectionTitle>1. A befogadott számlák letöltése az Oblio-ból</SectionTitle>
+      <div className="space-y-2">
+        <StepCard n={1} title="Lépj be az Oblio Wallet-be">
+          Nyisd meg az <Code>oblio.eu/report/wallet</Code> oldalt. A{' '}
+          <strong>Documente din SPV</strong> szekcióban látod a beérkezett számlákat.
+        </StepCard>
+        <StepCard n={2} title="Konvertáld beszállítói dokumentummá">
+          Ha még nem tetted, a <strong>„Adaugă document furnizor”</strong> gombbal vezesd át
+          a befogadott számlákat beszállítói dokumentummá.
+        </StepCard>
+        <StepCard n={3} title="Exportáld ZIP-be">
+          <strong>Setări → Import/Export</strong> (<Code>oblio.eu/account/import_export</Code>) →
+          válaszd a <strong>„Documente furnizori”</strong> kategóriát és a dátumtartományt →{' '}
+          <strong>Export</strong>. Letöltődik egy <strong>ZIP fájl</strong> az UBL XML-ekkel
+          (és ha van, a PDF-ekkel).
+        </StepCard>
+      </div>
+
+      <SectionTitle>2. A ZIP a helyi mappába</SectionTitle>
+      <div className="space-y-2">
+        <StepCard n={1} title="Asztali (offline) app">
+          A <strong>Beállítások → Könyvelés</strong> fülön a „Befogadott e-Factura (Oblio) mappa”
+          résznél kattints a <strong>„Mappa megnyitása”</strong> gombra, és a letöltött ZIP-et
+          másold be ebbe a mappába. (Az első alkalommal a <strong>„Mappa előkészítése”</strong>
+          gomb létrehozza a Dokumentumok-ban.)
+        </StepCard>
+        <StepCard n={2} title="Böngészőben">
+          A fülön a mappa-állapot kártyán állítsd be egyszer a helyi KARTOTEKA mappát, majd a ZIP-et
+          tedd az <Code>oblio-ellenorzes/befogadott/</Code> almappába.
+        </StepCard>
+      </div>
+
+      <SectionTitle>3. Frissítés és párosítás</SectionTitle>
+      <div className="space-y-2">
+        <StepCard n={1} title="Frissítés a mappából">
+          Az <strong>Oblio ellenőrzés</strong> fülön kattints a <strong>„Frissítés a mappából”</strong>
+          gombra. A rendszer kibontja a ZIP-et, beolvassa a számlákat, és <strong>automatikusan
+          párosítja</strong> a kiadásaiddal (beszállító adószáma, összeg és dátum alapján).
+        </StepCard>
+        <StepCard n={2} title="Nézd át a párosításokat">
+          A táblázatban minden számlánál látod, melyik kiadáshoz lett rendelve, és mennyire biztos
+          („biztos / közepes / gyenge”). A <strong>„Hiányzó match”</strong> szűrővel kigyűjtöd a
+          még nem párosított számlákat.
+        </StepCard>
+        <StepCard n={3} title="Kézi párosítás">
+          A párosítatlan számlánál a <strong>lánc-ikonra</strong> kattintva kézzel rendelheted a
+          megfelelő kiadáshoz. A „Párosítás-diagnosztika” gomb megmutatja, miért nem sikerült
+          automatikusan, és felkínálja a legjobb jelölteket.
+        </StepCard>
+        <StepCard n={4} title="Hiányzó kiadás bevezetése">
+          Ha egy befogadott számlához még NINCS kiadás a könyvelésben, a <strong>„Bevezetés
+          indítása”</strong> varázsló végigvezet: kiválasztod a költségvetési kategóriát, és a
+          rendszer rögtön kiadásként bevezeti és párosítja.
+        </StepCard>
+      </div>
+
+      <SectionTitle>4. Mire figyelj</SectionTitle>
+      <ul className="ml-5 list-disc space-y-1.5">
+        <li>
+          <strong>Csak ZIP, XML és PDF</strong> kerülhet a mappába. Más fájlt a rendszer jelez és
+          felajánlja a törlést.
+        </li>
+        <li>
+          A <strong>devizás</strong> (pl. eurós) és a <strong>jóváíró/sztornó</strong> számlákat a
+          rendszer szándékosan <strong>nem párosítja automatikusan</strong> — ezeket kézzel
+          ellenőrizd, hogy ne legyen téves könyvelés.
+        </li>
+        <li>
+          A <strong>„Nincs SPV-ben”</strong> jelzés azt jelenti: a kiadásodhoz nem találtunk
+          befogadott e-Factura számlát. Készpénzes/magánszemélyes kifizetésnél ez rendben lehet.
+        </li>
+      </ul>
+
+      <CalloutWarning>
+        <strong>60 napos határidő!</strong> Az ANAF SPV a számlákat csak{' '}
+        <strong>60 napra visszamenőleg</strong> engedi letölteni, utána neked kell megőrizned őket
+        (a kötelező megőrzés 10 év). A csengőnél időben figyelmeztetünk, amikor közeledik a
+        határidő — ne hagyd ki, és rendszeresen töltsd le az új ZIP-et.
+      </CalloutWarning>
     </>
   )
 }

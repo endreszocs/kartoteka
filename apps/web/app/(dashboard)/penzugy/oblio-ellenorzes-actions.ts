@@ -14,6 +14,7 @@
 import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { logAuditEvent } from '@/lib/audit/log'
 
 // ─────────────────────────────────────────────────────────────
 // Típusok
@@ -186,6 +187,23 @@ export async function saveOblioMatch(input: SaveMatchInput): Promise<{
       .eq('id', input.kiadasId)
   }
 
+  // P1-8: audit-napló — ki, melyik számlát, melyik kiadáshoz, milyen módszerrel.
+  await logAuditEvent(
+    {
+      action: 'oblio_match_save',
+      targetTable: 'oblio_kiadas_match',
+      targetId: data?.id ?? null,
+      metadata: {
+        kiadasId: input.kiadasId,
+        anafUuid: input.anafUuid,
+        method: input.method,
+        confidence: input.confidence ?? 'medium',
+        congregationId: access.effectiveCongregationId,
+      },
+    },
+    access.supabase,
+  )
+
   revalidatePath('/penzugy')
   return { success: true, matchId: data?.id }
 }
@@ -198,13 +216,35 @@ export async function removeOblioMatch(matchId: string): Promise<{
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
 
-  const { error } = await access.supabase
+  // P3-4: a törölt sorokat is kérjük vissza, hogy nem-létező / más gyülekezethez
+  // tartozó id-re NE adjunk hamis sikert.
+  const { data: deleted, error } = await access.supabase
     .from('oblio_kiadas_match')
     .delete()
     .eq('id', matchId)
     .eq('congregation_id', access.effectiveCongregationId)
+    .select('id, kiadas_id, anaf_uuid')
 
   if (error) return { error: error.message }
+  if (!deleted || deleted.length === 0) {
+    return { error: 'A párosítás nem található (lehet, hogy már törölve lett).' }
+  }
+
+  // P1-8: audit-napló a törlésről (a párosítás-eltávolítás visszakövethető legyen).
+  await logAuditEvent(
+    {
+      action: 'oblio_match_remove',
+      targetTable: 'oblio_kiadas_match',
+      targetId: matchId,
+      metadata: {
+        kiadasId: deleted[0].kiadas_id,
+        anafUuid: deleted[0].anaf_uuid,
+        congregationId: access.effectiveCongregationId,
+      },
+    },
+    access.supabase,
+  )
+
   revalidatePath('/penzugy')
   return { success: true }
 }
@@ -221,15 +261,88 @@ export async function bulkSaveOblioMatches(
   if (!access.effectiveCongregationId)
     return { saved: 0, errors: ['Nincs aktív gyülekezet.'] }
 
-  const errors: string[] = []
-  let saved = 0
+  if (matches.length === 0) return { success: true, saved: 0, errors: [] }
 
-  for (const m of matches) {
-    const res = await saveOblioMatch(m)
-    if (res.error) errors.push(`UUID ${m.anafUuid}: ${res.error}`)
-    else saved++
+  // A narrowing nem öröklődik a .map() closure-be — kiemeljük lokálisba.
+  const userId = access.user.id
+
+  const errors: string[] = []
+
+  // P1-5: a korábbi N+1 szekvenciális kör (elemenként SELECT + UPSERT +
+  // revalidatePath) helyett EGY scope-ellenőrző SELECT + EGY batch UPSERT.
+  // 1. Egy lekérdezéssel ellenőrizzük, mely kiadások tartoznak a gyülekezethez.
+  const kiadasIds = [...new Set(matches.map((m) => m.kiadasId).filter(Boolean))]
+  const { data: validKiadasok, error: kErr } = await access.supabase
+    .from('kiadas')
+    .select('id')
+    .eq('congregation_id', access.effectiveCongregationId)
+    .in('id', kiadasIds)
+  if (kErr) return { saved: 0, errors: [`Kiadások ellenőrzése: ${kErr.message}`] }
+  const validIds = new Set((validKiadasok ?? []).map((k) => k.id as number))
+
+  // 2. Payload-ok összeállítása — csak a hatókörbe eső, érvényes kiadásokra.
+  const nowIso = new Date().toISOString()
+  const payloads = matches
+    .filter((m) => {
+      if (!m.kiadasId || !m.anafUuid) {
+        errors.push(`UUID ${m.anafUuid}: hiányzó kiadás vagy ANAF UUID.`)
+        return false
+      }
+      if (!validIds.has(m.kiadasId)) {
+        errors.push(
+          `UUID ${m.anafUuid}: a kiadás (#${m.kiadasId}) nem található vagy nincs jogosultság.`,
+        )
+        return false
+      }
+      return true
+    })
+    .map((m) => ({
+      congregation_id: access.effectiveCongregationId,
+      kiadas_id: m.kiadasId,
+      anaf_uuid: m.anafUuid,
+      supplier_cui: m.supplierCui ?? null,
+      supplier_name: m.supplierName ?? null,
+      invoice_number: m.invoiceNumber ?? null,
+      invoice_date: m.invoiceDate ?? null,
+      invoice_amount: m.invoiceAmount ?? null,
+      local_file_relpath: m.localFileRelpath ?? null,
+      match_method: m.method,
+      match_confidence: m.confidence ?? 'high',
+      manual_note: m.manualNote ?? null,
+      matched_by: userId,
+      matched_at: nowIso,
+    }))
+
+  if (payloads.length === 0) {
+    return { success: errors.length === 0, saved: 0, errors }
   }
 
+  // 3. EGYETLEN batch upsert.
+  const { data: upserted, error: upErr } = await access.supabase
+    .from('oblio_kiadas_match')
+    .upsert(payloads, { onConflict: 'congregation_id,anaf_uuid' })
+    .select('id')
+  if (upErr) {
+    return { saved: 0, errors: [...errors, `Mentés hiba: ${upErr.message}`] }
+  }
+
+  const saved = upserted?.length ?? payloads.length
+
+  // 4. Egyetlen aggregált audit-bejegyzés (nem elemenként).
+  await logAuditEvent(
+    {
+      action: 'oblio_match_bulk_save',
+      targetTable: 'oblio_kiadas_match',
+      metadata: {
+        saved,
+        congregationId: access.effectiveCongregationId,
+        methods: [...new Set(payloads.map((p) => p.match_method))],
+      },
+    },
+    access.supabase,
+  )
+
+  revalidatePath('/penzugy')
   return { success: errors.length === 0, saved, errors }
 }
 
@@ -254,6 +367,16 @@ export async function updateKiadasCui(
     .eq('congregation_id', access.effectiveCongregationId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(
+    {
+      action: 'oblio_kiadas_cui_update',
+      targetTable: 'kiadas',
+      metadata: { kiadasId, cui: cleaned, congregationId: access.effectiveCongregationId },
+    },
+    access.supabase,
+  )
+
   revalidatePath('/penzugy')
   return { success: true }
 }
@@ -280,10 +403,13 @@ export async function recordOblioDownloadNow(
     ? timestampIso
     : new Date().toISOString()
 
+  // P3-4: aktiv=true szűrő — egységesen a listázó és a határidő-RPC logikájával
+  // (soft-delete-elt config esetén ne keletkezzen inkonzisztencia).
   const { data: current } = await access.supabase
     .from('oblio_fiokok')
     .select('utolso_xml_letoltes_at')
     .eq('congregation_id', access.effectiveCongregationId)
+    .eq('aktiv', true)
     .maybeSingle()
 
   if (current?.utolso_xml_letoltes_at && new Date(current.utolso_xml_letoltes_at).getTime() > new Date(nowIso).getTime()) {
@@ -291,11 +417,12 @@ export async function recordOblioDownloadNow(
     return { success: true }
   }
 
-  // Csak akkor tudjuk frissíteni, ha van oblio_fiokok rekord (= van Oblio config)
+  // Csak akkor tudjuk frissíteni, ha van aktív oblio_fiokok rekord (= van Oblio config)
   const { error } = await access.supabase
     .from('oblio_fiokok')
     .update({ utolso_xml_letoltes_at: nowIso })
     .eq('congregation_id', access.effectiveCongregationId)
+    .eq('aktiv', true)
 
   if (error) return { error: error.message }
   return { success: true }
@@ -424,7 +551,12 @@ export async function createKiadasFromXmlAndMatch(input: CreateKiadasFromXmlInpu
     .maybeSingle()
 
   if (insertResult.error) {
-    // Próba canonical-lal
+    // P1-9: a bővebb (referencePayload) insert elbukott — naplózzuk az okot,
+    // mielőtt a szűkebb canonical payload-dal próbálnánk (régebbi sémák).
+    console.warn(
+      '[Oblio wizard] referencePayload insert hiba, canonical próba:',
+      insertResult.error.message,
+    )
     insertResult = await access.supabase
       .from('kiadas')
       .insert([canonicalPayload])
@@ -456,13 +588,35 @@ export async function createKiadasFromXmlAndMatch(input: CreateKiadasFromXmlInpu
   })
 
   if (matchRes.error) {
-    // A kiadás már be van vezetve, de a match nem mentett — figyelmeztetjük
+    // P1-9: a kiadás már be van szúrva, de a párosítás elbukott. Kompenzáló
+    // visszagörgetés — a frissen létrehozott kiadást kivezetjük (deleted=true),
+    // hogy NE maradjon árva, párosítás nélküli (és újrapróbálkozáskor
+    // duplikálható) tétel a könyvelésben.
+    await access.supabase
+      .from('kiadas')
+      .update({ deleted: true })
+      .eq('id', kiadasId)
+      .eq('congregation_id', access.effectiveCongregationId)
     return {
-      success: true,
-      kiadasId,
-      error: `Kiadás bevezetve (#${kiadasId}), de a párosítás nem mentődött: ${matchRes.error}`,
+      error: `A párosítás nem mentődött, ezért a kiadás bevezetését visszavontuk: ${matchRes.error}. Kérlek próbáld újra.`,
     }
   }
+
+  // 4. Audit-napló — Oblio XML-ből bevezetett kiadás.
+  await logAuditEvent(
+    {
+      action: 'oblio_kiadas_create_from_xml',
+      targetTable: 'kiadas',
+      metadata: {
+        kiadasId,
+        anafUuid: input.anafUuid,
+        amount: input.invoiceAmount,
+        idKiadascel: input.idKiadascel,
+        congregationId: access.effectiveCongregationId,
+      },
+    },
+    access.supabase,
+  )
 
   revalidatePath('/penzugy')
   return { success: true, kiadasId, matchId: matchRes.matchId }

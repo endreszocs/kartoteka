@@ -101,9 +101,13 @@ async function getPdfjs(): Promise<typeof import('pdfjs-dist')> {
   if (!pdfjsModulePromise) {
     pdfjsModulePromise = (async () => {
       const mod = await import('pdfjs-dist')
-      // Worker URL — a CDN-ről töltjük, hogy a Next.js bundle-be ne kerüljön
+      // Worker URL — a CDN-ről töltjük, hogy a Next.js bundle-be ne kerüljön.
+      // FONTOS: csak akkor, ha a hívó (pl. a Tauri-desktop) NEM állított be előzőleg
+      // egy lokálisan bundle-ölt worker-URL-t — offline desktopon a CDN nem érhető el.
       try {
-        mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`
+        if (!mod.GlobalWorkerOptions.workerSrc) {
+          mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`
+        }
       } catch {
         // Néhány Next.js runtime-on a worker setup nem szükséges (main thread)
       }

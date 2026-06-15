@@ -27,7 +27,9 @@ use avatar::{fetch_image, fetch_page_text};
 use excel::{
     excel_append_rows, excel_default_folder, excel_folder_info, excel_list_sheets,
     excel_open_folder, excel_read_cells, excel_read_meta, excel_read_sheet_sums,
-    excel_save_file, excel_set_cells, excel_setup_folder,
+    excel_save_file, excel_set_cells, excel_setup_folder, oblio_default_folder,
+    oblio_folder_info, oblio_ingest, oblio_list_processed, oblio_read_base64, oblio_read_text,
+    oblio_rename_processed, oblio_setup_folder,
 };
 use tauri::Manager;
 
@@ -98,7 +100,15 @@ pub fn run() {
             excel_default_folder,
             excel_folder_info,
             excel_setup_folder,
-            excel_open_folder
+            excel_open_folder,
+            oblio_default_folder,
+            oblio_folder_info,
+            oblio_setup_folder,
+            oblio_ingest,
+            oblio_list_processed,
+            oblio_read_text,
+            oblio_read_base64,
+            oblio_rename_processed
         ])
         .run(tauri::generate_context!())
         .expect("Tauri alkalmazás indítása meghiúsult");
