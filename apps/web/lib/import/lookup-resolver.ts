@@ -569,10 +569,35 @@ export function lookupPersonByQuadAttempt(
   }
 
   /**
-   * Egy candidate-listát visszaad: 1 elemnél `{ id }`, többnél utca-szűréssel.
+   * CÍM-ŐR (2026-06-19): igaz, ha a befizetőnek van HATÁROZOTT utcája ÉS a jelölt
+   * tagnyilvántartási utcája is határozott, de a kettő EGYÉRTELMŰEN ELTÉR. Ekkor
+   * két KÜLÖN személyről van szó (pl. „Beder Timea - Asztalos 160" vs a
+   * nyilvántartásbeli „Beder Csilla Timea - Templom 235"), ezért nem szabad
+   * automatikusan összerendelni — még akkor sem, ha ez az egyetlen név-jelölt.
+   * Csak az UTCÁRA néz (a házszám-eltérés gyengébb jel: költözés, családtag).
+   */
+  function clearStreetMismatch(id: string): boolean {
+    if (!street) return false
+    const donorStreet = normalizeStreetForMatch(street)
+    if (!donorStreet) return false
+    const addr = maps.addressById.get(id)
+    if (!addr || !addr.streetName) return false
+    const dbStreet = normalizeStreetForMatch(addr.streetName)
+    if (!dbStreet) return false
+    return dbStreet !== donorStreet
+  }
+
+  /**
+   * Egy candidate-listát visszaad: 1 elemnél `{ id }` (kivéve ha a cím-őr egyértelmű
+   * eltérést jelez → felülvizsgálatra `{ candidates }`), többnél utca-szűréssel.
    */
   function resolveCandidates(candidates: string[]): { id: string } | { candidates: string[] } {
-    if (candidates.length === 1) return { id: candidates[0] }
+    if (candidates.length === 1) {
+      // Cím-őr: egyetlen jelölt, de a befizető utcája egyértelműen MÁS → ne tippeljünk,
+      // hagyjuk felülvizsgálatra (a UI mutatja a jelölt címét + kézi kereső).
+      if (clearStreetMismatch(candidates[0])) return { candidates }
+      return { id: candidates[0] }
+    }
     const filtered = filterByAddress(candidates)
     if (filtered.length === 1) return { id: filtered[0] }
     return { candidates: filtered }
@@ -658,25 +683,41 @@ export function lookupPersonByQuadAttempt(
   for (const knVar of knVariants) {
     const knFerfiKey = `${knVar}|${ferfi}`
     const candidates = maps.byKnameFerfi.get(knFerfiKey)
-    if (candidates && candidates.length === 1) return { id: candidates[0] }
-    if (candidates && candidates.length > 1 && !lastCandidates) lastCandidates = candidates
+    if (candidates && candidates.length === 1) {
+      // Cím-őr az utolsó esélynél is: eltérő utca → ne tippelj, hagyd felülvizsgálatra.
+      if (clearStreetMismatch(candidates[0])) {
+        if (!lastCandidates) lastCandidates = candidates
+      } else {
+        return { id: candidates[0] }
+      }
+    } else if (candidates && candidates.length > 1 && !lastCandidates) {
+      lastCandidates = candidates
+    }
   }
 
   // 5b. P2-6: nem-agnosztikus fallback. Ha a tagnyilvántartásban a `ferfi` mező
   //     nincs kitöltve, az illető a `|?` index alatt van — a flagges (M/F) kulcs
   //     nem találja meg. Ilyenkor a `|?` variánst is próbáljuk, ugyanúgy csak
-  //     egyértelmű (1 jelölt) esetben adva {id}-t.
+  //     egyértelmű (1 jelölt) esetben adva {id}-t (a cím-őrrel).
   if (ferfi !== '?') {
     for (const knVar of knVariants) {
       const knAnyKey = `${knVar}|?`
       const candidates = maps.byKnameFerfi.get(knAnyKey)
-      if (candidates && candidates.length === 1) return { id: candidates[0] }
-      if (candidates && candidates.length > 1 && !lastCandidates) lastCandidates = candidates
+      if (candidates && candidates.length === 1) {
+        if (clearStreetMismatch(candidates[0])) {
+          if (!lastCandidates) lastCandidates = candidates
+        } else {
+          return { id: candidates[0] }
+        }
+      } else if (candidates && candidates.length > 1 && !lastCandidates) {
+        lastCandidates = candidates
+      }
     }
   }
 
-  // 6. Determinisztikus lánc kimerült — ha maradt nem-egyértelmű exact-jelölt, azt adjuk.
-  if (lastCandidates && lastCandidates.length > 1) {
+  // 6. Determinisztikus lánc kimerült — ha maradt nem-egyértelmű (vagy a cím-őr által
+  //    elvetett) exact-jelölt, azt felülvizsgálatra adjuk (a UI mutatja a címét).
+  if (lastCandidates && lastCandidates.length >= 1) {
     return { candidates: lastCandidates }
   }
 

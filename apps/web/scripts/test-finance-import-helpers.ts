@@ -413,6 +413,26 @@ function describe(r: { id: string } | { candidates: string[] } | null): string {
   expect('P2-1 becenév Katalin→Kati → id:9', describe(r), 'id:9')
 }
 
+// CÍM-ŐR: egyetlen név-jelölt, de ELTÉRŐ utca → ne auto-párosíts (a valós „Beder Timea -
+// Asztalos 160" vs nyilvántartásbeli „Beder ... Timea - Templom 235" hiba).
+{
+  const maps = makeMaps([{ id: '970', cs: 'beder', k: 'timea', flag: 'F', street: 'Templom', house: '235' }])
+  const r = lookupPersonByQuadAttempt('Beder', 'Timea', null, null, 'F', maps, 'Asztalos', '160')
+  expect('cím-őr: eltérő utca → candidates (nem auto)', describe(r), 'candidates:970')
+}
+// Azonos utca → marad biztos {id}
+{
+  const maps = makeMaps([{ id: '971', cs: 'beder', k: 'timea', flag: 'F', street: 'Templom', house: '235' }])
+  const r = lookupPersonByQuadAttempt('Beder', 'Timea', null, null, 'F', maps, 'Templom', '235')
+  expect('cím-őr: azonos utca → id:971', describe(r), 'id:971')
+}
+// A jelöltnek NINCS rögzített címe → nem tudunk dönteni → marad {id} (nem túl szigorú)
+{
+  const maps = makeMaps([{ id: '972', cs: 'beder', k: 'timea', flag: 'F' }])
+  const r = lookupPersonByQuadAttempt('Beder', 'Timea', null, null, 'F', maps, 'Asztalos', '160')
+  expect('cím-őr: jelöltnek nincs címe → id:972', describe(r), 'id:972')
+}
+
 // P2-1 fuzzy: elgépelt vezeték- ÉS keresztnév → felülvizsgálati jelölt (SOHA nem auto {id})
 {
   const maps = makeMaps([{ id: '10', cs: 'szilagyi', k: 'andras', flag: 'M', street: 'X', house: '1' }])
