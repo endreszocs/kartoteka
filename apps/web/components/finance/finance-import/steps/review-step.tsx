@@ -388,11 +388,39 @@ export function ReviewStep({
                 Béla&rdquo;) lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
                 ugyanazon a néven NEM számít duplikációnak.</em>
               </p>
-              <ul className="mt-2 space-y-1 text-xs text-red-800">
+              <ul className="mt-3 space-y-2 text-xs text-red-800">
                 {duplicateConflicts.slice(0, 10).map((c) => (
-                  <li key={`${c.pid}-${c.year}`}>
-                    <strong>{c.personName}</strong> ({c.year}) ←{' '}
-                    {c.raws.join('  +  ')}
+                  <li
+                    key={`${c.pid}-${c.year}`}
+                    className="rounded-lg bg-white/70 p-2.5 ring-1 ring-red-100"
+                  >
+                    <p className="font-semibold text-red-900">
+                      ⚠ <strong>{c.personName}</strong> — {c.year}. évre {c.raws.length} befizető van
+                      hozzárendelve:
+                    </p>
+                    <ul className="mt-1.5 space-y-1">
+                      {c.raws.map((raw) => {
+                        const parts = raw.split(/\s+[-–—]\s+/)
+                        const name = parts[0]?.trim() || raw
+                        const cim = parts.length > 1 ? parts.slice(1).join(' - ').trim() : null
+                        return (
+                          <li key={raw} className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium text-slate-800">{name}</span>
+                            {cim ? (
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
+                                📍 {cim}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">(nincs cím)</span>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                    <p className="mt-1.5 text-[11px] text-red-600">
+                      Ha a címek eltérnek → két külön személy: rendeld az egyiket a saját címén lakó
+                      taghoz (lentebb a Tag nem található / Több tag résznél), vagy hagyd tag nélkül.
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -429,6 +457,7 @@ export function ReviewStep({
               <AmbiguousCard
                 key={d.raw}
                 resolution={d}
+                payments={paymentsByDonor.get(d.raw) || []}
                 selected={manualPersonSelections[d.raw] || null}
                 onSelect={(id) => onManualPersonSelectionChange(d.raw, id)}
                 autoDistributed={false}
@@ -465,9 +494,10 @@ export function ReviewStep({
                 <div key={d.raw} className="rounded-xl bg-card p-4 ring-1 ring-rose-100">
                   <p className="text-sm font-medium text-foreground">{d.raw}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {payments.length} sor a Kasszában
+                    {payments.length} tétel a Kasszában
                     {picked ? ' · ✓ kézzel párosítva' : ''}
                   </p>
+                  <DonorPayments payments={payments} />
                   <ManualTagSearch
                     initialQuery={nameQuery}
                     currentId={picked ? Number(picked) : undefined}
@@ -798,6 +828,48 @@ function ExplainStep({ number, tone, icon, title, description }: ExplainStepProp
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// DonorPayments — egy befizető tételei (év / összeg / nyugta / kategória)
+// Az egyeztetéshez: a felhasználó lássa, mit köt épp egy taghoz.
+// ════════════════════════════════════════════════════════════════════════
+
+function DonorPayments({ payments }: { payments: ClassifiedKasszaRow[] }) {
+  if (!payments || payments.length === 0) return null
+  return (
+    <ul className="mt-2 space-y-1 rounded-lg bg-slate-50/80 p-2 text-[11px] text-slate-600 ring-1 ring-slate-100">
+      {payments.map((p, i) => {
+        const ev = p.fizetettevOverride ?? (p.datum ? p.datum.slice(0, 4) : null)
+        const isEgyhf = p.budgetCode === '101.01'
+        return (
+          <li key={i} className="flex flex-wrap items-center gap-1.5">
+            {ev && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
+                {ev}. évre
+              </span>
+            )}
+            <span className="font-semibold text-slate-700">
+              {typeof p.amount === 'number' ? `${p.amount.toLocaleString('hu-HU')} RON` : '—'}
+            </span>
+            <span className="text-slate-400">·</span>
+            <span className="font-mono">nyugta {p.iratszam || '—'}</span>
+            {p.datum && <span className="text-slate-400">· {p.datum}</span>}
+            {p.celNev && (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  isEgyhf ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {isEgyhf ? '⛪ ' : ''}
+                {p.celNev}
+              </span>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // AmbiguousCard — ambiguous donor választó
 // ════════════════════════════════════════════════════════════════════════
 
@@ -805,11 +877,13 @@ interface AmbiguousCardProps {
   resolution: DonorResolution
   selected: string | null
   onSelect: (id: string) => void
+  /** A befizető tételei (az egyeztetéshez — év / összeg / nyugta / kategória). */
+  payments?: ClassifiedKasszaRow[]
   /** B1: igaz, ha a kiválasztott jelölt az „1×/év" auto-elosztásból származik. */
   autoDistributed?: boolean
 }
 
-function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: AmbiguousCardProps) {
+function AmbiguousCard({ resolution, selected, onSelect, payments, autoDistributed }: AmbiguousCardProps) {
   // A Kassza-fájlból kinyert utca + házszám — ezt vetjük össze a jelöltek
   // 📍 címével, hogy a felhasználó vizuálisan tudjon dönteni
   const parsedCim =
@@ -846,7 +920,10 @@ function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: Ambi
         )}
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <DonorPayments payments={payments || []} />
+
+      <p className="mt-3 text-xs font-medium text-slate-600">Válaszd ki a megfelelő tagot:</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
         {resolution.candidates?.map((c) => {
           const isPicked = selected === c.id
           return (

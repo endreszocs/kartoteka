@@ -43,6 +43,16 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Kézi tag-keresés az áttekintőben.** Ahol a rendszer nem találta meg a befizetőt (személy-köthető
   kategóriában), vagy több azonos nevű illett rá, az áttekintőben **rákereshetsz** a tagra (családnév /
   keresztnév / lánykori név) és egy kattintással összekötheted — nem kell vakon hagyni vagy találgatni.
+- **Részletesebb egyeztetés.** Az egyeztető kártyákon mostantól látod az adott befizető **tételeit**
+  is — melyik **évre** szól, mennyi, melyik nyugta, milyen kategória —, így teljes képből döntesz. A
+  „kétszer fizetne" figyelmeztetés is áttekinthetőbb: minden ütköző befizető külön sorban, a **címével**.
+
+### 🐛 Javítások
+
+- **Eltérő cím = külön személy.** Ha egy névhez csak egyetlen, de **más utcában lakó** tag illett (pl.
+  „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
+  **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te
+  dönthess. Így nem fordulhat elő, hogy az egyik kétszer fizetőnek, a másik elmaradottnak látszik.
 
 ### 🎨 Fejlesztések
 
