@@ -53,11 +53,15 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
   **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te
   dönthess. Így nem fordulhat elő, hogy az egyik kétszer fizetőnek, a másik elmaradottnak látszik.
-- **Helyes év az év végi befizetéseknél.** Ha valaki **december 31-én** fizetett, de a járulék a
-  **következő évre** szól (pl. a 19. nyugta: dec. 31-i dátum, de a 2025-ös évre), a rendszer eddig a
-  dátum alapján tévesen az előző évhez (2024) sorolta. Mostantól a **bevételek XML „Befizetett év"**
-  adatát veszi mérvadónak — ahogy a hivatalos könyvelés is. Ahol az XML egyértelműen megadja az évet,
-  ott már nem jelez fölösleges „nem ebbe az évbe tartozik" figyelmeztetést sem.
+- **Pontos dátumok importáláskor (időzóna-javítás).** Az importáló (hivatalos Kassza, általános bevétel,
+  egyházfenntartás és bank) a **helyi gépen / az asztali (offline) appban minden dátumot egy nappal
+  korábbra olvasott** — pl. a **2025. január 1-jét 2024. december 31-ként** —, egy időzóna-kezelési hiba
+  miatt. Ez rossz napot, év elején/végén pedig rossz **évet** is okozhatott a befizetéseken és kiadásokon.
+  Mostantól a dátum **minden időzónában pontos** (a felhőben futó webes import eddig is helyes volt; a hiba
+  a helyi/asztali importot érintette).
+- **A „Befizetett év" a mérvadó a járulék évéhez.** Többéves elmaradás/előrefizetés esetén a rendszer a
+  bevételek XML **„Befizetett év"** adatát veszi a könyvelési évnek (nem pusztán a befizetés dátumát) — így
+  a hátralékos évek a megfelelő évhez kerülnek, és nincs fölösleges „nem ebbe az évbe tartozik" jelzés.
 
 ### 🎨 Fejlesztések
 

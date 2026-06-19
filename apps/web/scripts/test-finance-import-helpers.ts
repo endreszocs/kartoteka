@@ -27,6 +27,7 @@ import { expandNickname } from '../lib/import/hungarian-nicknames'
 import { shouldResolvePerson, personScope } from '../lib/import/person-scope-config'
 import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xml-overlay'
 import { detectKasszaColumns } from '../components/finance/finance-import/helpers/kassza-column-mapping'
+import { dateToLocalIso, toLocalIsoDate } from '../lib/import/date-utils'
 import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
 import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
@@ -493,15 +494,15 @@ console.log('\n=== 8. xml-overlay ===\n')
   })
   const xml: XmlBevetelekRow[] = [
     mkXml(1, 'Kádár Barna Zsolt - Vasút 183', 85, 134, 115134, 2021), // arrears 2021
-    // VALÓS eset (Barátosi): a 19. nyugta 2024-12-31-én kelt, de a 2025-ös évre szól.
-    mkXml(2, 'Szőcs Endre - Parókia 214', 130, 19, 115019, 2025, '2024-12-31'),
+    // VALÓS eset (Barátosi): a 19. nyugta 2025-01-01-én kelt, a 2025-ös évre (Befizetett év=2025).
+    mkXml(2, 'Szőcs Endre - Parókia 214', 130, 19, 115019, 2025, '2025-01-01'),
     mkXml(3, 'Valaki Más - Fő 1', 50, 999, 115999, 2025), // nincs xlsx-pár
   ]
   const r = applyXmlOverlay(income, xml)
   expect('overlay matched = 2', r.matchedCount, 2)
   expect('row5 fizetettev = 2021 (arrears)', r.byRowIndex.get(5)?.fizetettev, 2021)
   expect('row5 hivatalos iratszám = 115134', r.byRowIndex.get(5)?.iratszamHivatalos, '115134')
-  expect('row6 fizetettev = 2025 (év-határos: dec.31 dátum, 2025 Befizetett év)', r.byRowIndex.get(6)?.fizetettev, 2025)
+  expect('row6 fizetettev = 2025 (jan.1 dátum, 2025 Befizetett év)', r.byRowIndex.get(6)?.fizetettev, 2025)
   expect('onlyXml = 1 (Valaki Más)', r.onlyXml.length, 1)
 
   // KÖNYVELÉSI ÉV szabály (review-step accYear): a Befizetett év a mérvadó, nem a dátum.
@@ -539,6 +540,29 @@ console.log('\n=== 9. detectKasszaColumns ===\n')
   const d = detectKasszaColumns(['A', 'B', 'C', 'D'])
   expectTrue('hibás fejléc → ≥4 hiányzó kötelező', d.missingRequired.length >= 4)
   expect('hibás fejléc: datum nincs', d.mapping.datum, null)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 10. Dátum-olvasás időzóna-biztossága (SheetJS cellDates artifact)
+// A SheetJS pozitív időzónában a dátum-serialt az előző nap 23:59:xx-ére csúsztatja.
+// A dateToLocalIso a legközelebbi helyi naphoz kerekít → minden TZ-ben helyes.
+// (A teszt lokálisan konstruált Date-eket használ → időzóna-független a logika.)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 10. Dátum időzóna-biztosság ===\n')
+
+{
+  // A SheetJS artifact: 2025-01-01 dátum-serial → Date a 2024-12-31 23:59:36-on
+  expect('artifact dec.31 23:59:36 → 2025-01-01', dateToLocalIso(new Date(2024, 11, 31, 23, 59, 36)), '2025-01-01')
+  expect('helyes éjfél marad → 2025-01-01', dateToLocalIso(new Date(2025, 0, 1, 0, 0, 0)), '2025-01-01')
+  expect('év-vég artifact → 2026-01-01', dateToLocalIso(new Date(2025, 11, 31, 23, 59, 36)), '2026-01-01')
+  expect('hó-közi artifact (jan.7 23:59) → 2025-01-08', dateToLocalIso(new Date(2025, 0, 7, 23, 59, 36)), '2025-01-08')
+  expect('mid-éves helyes éjfél marad', dateToLocalIso(new Date(2025, 5, 15, 0, 0, 0)), '2025-06-15')
+  // Excel serial (45658 = 2025-01-01) — UTC-epoch ág, mindig helyes
+  expect('serial 45658 → 2025-01-01', toLocalIsoDate(45658), '2025-01-01')
+  expect('serial 46022 → 2025-12-31', toLocalIsoDate(46022), '2025-12-31')
+  // string formátumok
+  expect('string 2025/01/01 → 2025-01-01', toLocalIsoDate('2025/01/01'), '2025-01-01')
+  expect('string 2025-01-01 → 2025-01-01', toLocalIsoDate('2025-01-01'), '2025-01-01')
 }
 
 // ════════════════════════════════════════════════════════════════════════
