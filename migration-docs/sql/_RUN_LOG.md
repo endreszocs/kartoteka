@@ -28,6 +28,9 @@ Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQ
        Férjes asszonyok név-tárolása + lánykori (szcs_nev) kitöltöttség → eldönti, kell-e spouse-bridge (P1-4).
 - [ ] **`2026-06-19-diag-import-duplikatumok.sql`** — DIAGNOSZTIKA (csak olvas)
        Meglévő befizetés-duplikátumok kimutatása egy esetleges idempotens UNIQUE index ELŐTT.
+- [ ] **`2026-06-19-diag-300-belso-mozgas.sql`** — DIAGNOSZTIKA (csak olvas)
+       A 300.xx kód jellemzése a mérvadó `szamadasicel.belsotetel` alapján → igazolja/cáfolja a 300-as
+       belső-mozgás javítást (commit eda5237a). Az 1)–2) eredmény dönt.
 
 ---
 
