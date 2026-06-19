@@ -16,7 +16,7 @@
  * 2026-05-03 (átdolgozott v2 — felhasználói visszajelzés alapján).
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -26,7 +26,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  HandCoins,
   HelpCircle,
   Loader2,
   PlayCircle,
@@ -44,6 +43,8 @@ import type {
   KasszaAnalysisResult,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
 import type { MonetarDiagnostic } from '../helpers/monetar-diagnostic'
+import { ManualTagSearch } from '@/components/finance/finance-import/shared/manual-tag-search'
+import { shouldResolvePerson } from '@/lib/import/person-scope-config'
 
 interface ReviewStepProps {
   fileName: string
@@ -202,6 +203,15 @@ export function ReviewStep({
     .filter((d) => d.status === 'company')
     .sort((a, b) => b.occurrenceCount - a.occurrenceCount)
   const unknownCodes = (budgetCodeResolutions || []).filter((r) => r.kind === 'unknown')
+
+  // FÁZIS 2b — „Tag nem található", DE személy-köthető kategóriában (egyházfenntartás,
+  // adomány, bérlet stb.): a felhasználó KÉZZEL párosíthatja (szabad-szöveges kereső).
+  // A cég / kollektív / nem-scope sorok ide NEM kerülnek (nincs fölösleges zaj).
+  const notFoundScopeDonors = (donorResolutions || []).filter((d) => {
+    if (d.status !== 'not-found' && d.status !== 'unparsed') return false
+    const rows = paymentsByDonor.get(d.raw) || []
+    return rows.some((r) => r.kind === 'income' && shouldResolvePerson(r.budgetCode))
+  })
 
   const allAmbiguousResolved = ambiguous.every((a) => manualPersonSelections[a.raw])
   const allUnknownHandled = unknownCodes.every((c) => skippedCodes.has(c.rawKod))
@@ -371,11 +381,11 @@ export function ReviewStep({
               <p className="mt-1 text-sm text-red-700">
                 Egy személy évente egyszer fizet egyházfenntartást. Az alábbi befizetők
                 <strong> ugyanahhoz a taghoz</strong> lettek rendelve. <strong>Nézd meg a
-                neveknél a CÍMET:</strong> ha a két befizető máshol lakik (pl. „… - Asztalos 160"
-                és „… - Templom 235"), akkor szinte biztosan KÉT KÜLÖN személyről van szó — ilyenkor
+                neveknél a CÍMET:</strong> ha a két befizető máshol lakik (pl. „… - Asztalos 160&rdquo;
+                és „… - Templom 235&rdquo;), akkor szinte biztosan KÉT KÜLÖN személyről van szó — ilyenkor
                 az egyiket rendeld másik (a saját címén lakó) taghoz, vagy hagyd tag nélkül, ha még
-                nincs a nyilvántartásban. Ugyanazon a címen+néven (pl. „Józsa Béla" / „Ifj. Józsa
-                Béla") lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
+                nincs a nyilvántartásban. Ugyanazon a címen+néven (pl. „Józsa Béla&rdquo; / „Ifj. Józsa
+                Béla&rdquo;) lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
                 ugyanazon a néven NEM számít duplikációnak.</em>
               </p>
               <ul className="mt-2 space-y-1 text-xs text-red-800">
@@ -403,7 +413,7 @@ export function ReviewStep({
                 Erre a {manualAmbiguous.length} befizetőre kézi döntés kell
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                Ezeket az „1×/év" automatikus elosztás nem tudta egyértelműen feloldani (minden
+                Ezeket az „1×/év&rdquo; automatikus elosztás nem tudta egyértelműen feloldani (minden
                 lehetséges tagjuk már más befizetéshez került, vagy nincs megkülönböztető adat).
                 Válaszd ki a megfelelő tagnyilvántartási rekordot — a 📍 cím és a befizetés
                 részletei segítenek.
@@ -429,6 +439,48 @@ export function ReviewStep({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* TAG NEM TALÁLHATÓ — kézi párosítás (FÁZIS 2b)                      */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {notFoundScopeDonors.length > 0 && (
+        <div className="rounded-[1.75rem] border border-rose-200 bg-rose-50/40 p-5">
+          <div className="flex items-start gap-3">
+            <UserX className="mt-0.5 size-5 shrink-0 text-rose-600" />
+            <div className="flex-1">
+              <p className="font-serif text-lg text-rose-900">
+                {notFoundScopeDonors.length} befizetőhöz nem találtunk tagot
+              </p>
+              <p className="mt-1 text-sm text-rose-800">
+                Ezek a befizetők személy-köthető kategóriában vannak (pl. egyházfenntartás, adomány),
+                de a tagnyilvántartásban nem találtuk meg őket. Keresd meg kézzel — vagy hagyd üresen,
+                ekkor a befizetés tag-kapcsolat nélkül kerül be.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {notFoundScopeDonors.map((d) => {
+              const payments = paymentsByDonor.get(d.raw) || []
+              const nameQuery = (d.raw.split(/\s+[-–—]\s+/)[0] || d.raw).trim()
+              const picked = manualPersonSelections[d.raw]
+              return (
+                <div key={d.raw} className="rounded-xl bg-card p-4 ring-1 ring-rose-100">
+                  <p className="text-sm font-medium text-foreground">{d.raw}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {payments.length} sor a Kasszában
+                    {picked ? ' · ✓ kézzel párosítva' : ''}
+                  </p>
+                  <ManualTagSearch
+                    initialQuery={nameQuery}
+                    currentId={picked ? Number(picked) : undefined}
+                    onPick={(id) => onManualPersonSelectionChange(d.raw, String(id))}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
       {/* AUTOMATIKUSAN ELOSZTOTT BEFIZETŐK — összecsukva, ellenőrizhető     */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       {autoAmbiguous.length > 0 && (
@@ -445,7 +497,7 @@ export function ReviewStep({
               </p>
               <p className="mt-1 text-sm text-teal-800">
                 Ahol egy címen/néven több tag is illett, a befizetéseket a „egy személy évente
-                egyszer fizet" szabály + cím-egyezés alapján KÜLÖN-KÜLÖN taghoz rendeltük, így
+                egyszer fizet&rdquo; szabály + cím-egyezés alapján KÜLÖN-KÜLÖN taghoz rendeltük, így
                 senkinek nem látszik elmaradása. Ezekkel nem kell egyesével foglalkoznod —
                 {showAutoAssigned ? ' csukd be, ha rendben.' : ' kattints az ellenőrzéshez.'}
               </p>
@@ -625,7 +677,7 @@ export function ReviewStep({
               {items.length} tétel mehet a könyvelésbe
             </p>
             <p className="mt-1 text-sm text-emerald-800">
-              Ha minden rendben van, kattints az "Importálom" gombra. A
+              Ha minden rendben van, kattints az „Importálom&rdquo; gombra. A
               műveletet **nem lehet a wizardon belül visszavonni** — később
               csak egyenként, a tranzakciók fülön sztornózhatod.
             </p>
@@ -830,6 +882,15 @@ function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: Ambi
             </button>
           )
         })}
+      </div>
+
+      {/* Ha a helyes tag nincs a fenti jelöltek között — szabad-szöveges keresés */}
+      <div className="mt-2 border-t border-amber-100 pt-2">
+        <ManualTagSearch
+          initialQuery={(resolution.raw.split(/\s+[-–—]\s+/)[0] || resolution.raw).trim()}
+          currentId={selected ? Number(selected) : undefined}
+          onPick={(id) => onSelect(String(id))}
+        />
       </div>
     </div>
   )

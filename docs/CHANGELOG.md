@@ -40,6 +40,9 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
   így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet
   eltérő táblázata), feltűnő figyelmeztetést kapsz. Így a rendszer **soha nem dolgozik vakon rossz oszloppal**.
+- **Kézi tag-keresés az áttekintőben.** Ahol a rendszer nem találta meg a befizetőt (személy-köthető
+  kategóriában), vagy több azonos nevű illett rá, az áttekintőben **rákereshetsz** a tagra (családnév /
+  keresztnév / lánykori név) és egy kattintással összekötheted — nem kell vakon hagyni vagy találgatni.
 
 ### 🎨 Fejlesztések
 
