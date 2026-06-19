@@ -386,19 +386,13 @@ function RowCard({
               <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 {tagMode === 'fuzzy-name'
                   ? 'Hasonló nevű tagok — ellenőrizd, és válassz, ha stimmel:'
-                  : 'Több tag illik — válassz egyet:'}
-                {row.szemely.autoDistributed && (
-                  <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700">
-                    🔄 Auto-elosztva (1×/év szabály — ellenőrizd)
-                  </span>
-                )}
+                  : 'Több azonos nevű tag — válaszd ki a cím alapján a megfelelőt:'}
               </label>
-              {row.szemely.autoDistributed && (
+              {tagMode === 'multiple' && (
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Egyházfenntartást egy személy évente egyszer fizet. Ezen a címen több tag van,
-                  ezért minden befizetést külön taghoz rendeltünk, hogy senkinek ne látsszon
-                  elmaradása. A fenti befizetés-részletek (dátum, összeg, iratszám) alapján
-                  felülbírálhatod.
+                  Több azonos nevű személy van (a cím nem döntött egyértelműen — pl. azonos név
+                  azonos címen, apa-fia). A rendszer szándékosan NEM tippel — válaszd ki kézzel,
+                  ki fizette ezt a tételt (a dátum, összeg, iratszám segít).
                 </p>
               )}
               <select

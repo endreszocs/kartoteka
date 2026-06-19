@@ -237,3 +237,18 @@ A user kulcs-aggálya: ne fizessen valaki „2×/3×" míg egy azonos nevű „e
 **ÚJ, KRITIKUS dedup-hiba (a P1-5 is érinti):** több azonos line-item egy nyugtán (pl. „Beder Huba" 150/a: 130 + 130, mindkettő nyugta 122; nyugta 122-n Beder Huba+Ottilia+Hubáné Ibolya is 2×130) → a soronkénti dup-check (cong, év, iratszam, összeg, cél, **id_szemely**) a MÁSODIK azonos tételt **duplikátumként eldobja még az ELSŐ importkor is** (mert az 1. beszúrás után a 2.-ra már talál egyezést) → **adatvesztés**. A javítás: a dedup a CSAK importkor-előtti DB-állapothoz hasonlítson (snapshot: meglévő N vs. fájl M → max(0, M−N) beszúrás), ne növekményesen — így a batch-en belüli jogos ismétlődések megmaradnak, de a fájl újra-importja idempotens.
 
 **Tagnyilvántartás-oldal:** a `2026-06-19-diag-azonos-nevu-szemelyek.sql` méri fel, hány azonos-nevű személy van és feloldja-e a cím (A/B/C lekérdezés) — a robusztus párosítás-terv ettől függ.
+
+---
+
+## 12. XML-megerősítés (bevételek 2025.xml) + javítás (2026-06-19)
+
+A `bevételek 2025.xml` „Befizetett év" (col 11) + „Megjegyzés" (col 12) mezője **egyértelműen** megválaszolta a többszörös-fizetés kérdést:
+
+- **A többszörös fizetés = TÖBB ÉVRE szóló HÁTRALÉK, nem egy évi részlet.** Pl. Kádár Barna Zsolt 5 tétele: 2021→85, 2022→100, 2023→100, 2024→130, 2025→130 (megjegyzés „2021 -évre" … egy nyugtán). „Befizetett év" eloszlás: 2021:2, 2022:2, 2023:2, 2024:25, 2025:328, 2026:2.
+- **A helyes modell: minden tétel = (személy, BEFIZETETT ÉV, összeg). Egy személy ÉVENTE egyszer fizet.**
+
+**Korrekció a 11. szakasz dedup-aggályához:** a korábbi „adatvesztés" riadó **téves volt**. A dedup-kulcs tartalmazza a `fizetettev`-et ÉS az `iratszam`-ot, így pl. Beder Huba 2024-es és 2025-ös 130 RON-ja **külön kulcs → mindkettő megmarad**. Csak a tényleg azonos (azonos iratszám+év+összeg+személy, pl. Perdi Miklós nyugta 191) esik ki — az valódi duplikátum. → A dedup HELYES, nem kell snapshot-átírás.
+
+**JAVÍTÁS (elvégezve):** a `distributeEgyhfCandidates` **vak round-robin auto-elosztás eltávolítva**. Az arrears-modell miatt a több tétel ugyanannak a személynek a különböző évei → nem szabad emberek közt szétosztani. A genuin bizonytalan (azonos név+cím, pl. **apa-fia** — a user megerősítette, hogy előfordul) eseteket a rendszer **NEM tippeli**, hanem a párosító UI-ban kézi döntésre teszi. Ez közvetlenül megszünteti a „más fizet, más látszik elmaradottnak" hibát. (A `suggestedSzemelyId`/`autoDistributed` holt mezők + UI eltávolítva.)
+
+**Apa-fia (azonos név+cím):** a fizetési adatban nincs megkülönböztető (se szül.dátum, se mindig id./ifj.) → kötelezően kézi. A jövőbeli per-éves review (tartozás-nézet) itt segíthet: ha a tag már fizetett az adott évre, a másik azonos nevűhez javasolja a rendszer.

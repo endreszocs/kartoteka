@@ -60,6 +60,12 @@ hogy az automatikus párosítás nem talált rá a tagra, és nem lehetett kézz
 - **Belső átvezetések pontosabb felismerése.** A kassza és a bankszámla közötti pénzmozgásoknak (pl. készpénz
   befizetése a bankba, felvétele a bankból) egy ritkább kód-változatát (300-as) is helyesen **belső mozgásként**
   ismeri fel az importáló — így ezek nem számítanak tévesen bevételnek vagy kiadásnak az éves számadásban.
+- **Nincs többé „rossz emberhez könyvelés" azonos neveknél.** Az importáló korábban — ha egy néven több személy
+  illett — **megpróbálta kitalálni**, ki fizetett, és előfordulhatott, hogy az egyik azonos nevűnél két befizetés
+  jelent meg, miközben a másik (aki szintén fizetett) **elmaradottnak** látszott. Mostantól a rendszer az ilyen
+  bizonytalan eseteket (pl. azonos név azonos címen, apa-fia) **nem találgatja**, hanem rád bízza a döntést —
+  a befizetés dátuma, összege és iratszáma alapján te választod ki a megfelelő személyt. (A többszöri éves
+  befizetés — pl. több év hátralékának pótlása egyszerre — természetesen ugyanahhoz a személyhez kerül.)
 
 ## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
 <!-- key: 2026-06-15-oblio-desktop-offline-pdf -->
