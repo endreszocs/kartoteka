@@ -34,9 +34,11 @@ Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQ
        Eredmény: 125/183 (~68%) nő a férj nevén → spouse-bridge ELVETVE.
 - [x] 2026-06-19 — **`2026-06-19-diag-import-duplikatumok.sql`** ✅ LEFUTOTT
        Eredmény: 0 ütközés → idempotens UNIQUE index NEM ajánlott (app-szintű dedup elég).
-- [ ] **`2026-06-19-diag-berleti-dupla-szamitas.sql`** — DIAGNOSZTIKA (csak olvas)
-       A bérleti hátralék duális-párosítás dupla-számításának kimutatása a VALÓS adaton
-       (befizetes 104.04/104.05 ⨯ berleti_szerzodes). A 2)–3) eredmény dönti el a fix szükségességét.
+- [x] 2026-06-19 — **`2026-06-19-diag-berleti-dupla-szamitas.sql`** ✅ LEFUTOTT
+       Eredmény: szerzodes_db=0 → NINCS bérleti szerződés → a dupla-számítás jelenleg nem fordulhat elő.
+- [ ] **`2026-06-19-diag-azonos-nevu-szemelyek.sql`** — DIAGNOSZTIKA (csak olvas)
+       Azonos nevű személyek a tagnyilvántartásban + a cím feloldja-e őket (egyházfenntartás-import
+       duplikáció-kockázat). Az A)–C) eredmény kell a robusztus párosítás-tervhez.
 
 ---
 

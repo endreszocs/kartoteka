@@ -213,3 +213,27 @@ A bérlet-fix megalapozásához (user kérésére, adatból):
 - **Bank-befizető — nagybetűs név, CÍM NÉLKÜL**: „MARK LASZLO" (8459), banki kivonatból (`Extr`), megjegyzés „Arenda … teren agricol 2025".
 
 **Következtetés a dupla-számításra:** a duális párosítás dupla-számítása csak akkor üt be, ha a `forrasa` **pontosan** egyenlő a szerződés `berlo_nev`-jével ÉS a befizetésnek van a szerződéssel egyező `id_szemely`-je. Mivel a kassza-`forrasa` **címet is tartalmaz** („… - Híd 37"), egy cím nélküli `berlo_nev`-vel **nem fog pontosan egyezni** → a dupla-számítás a gyakorlatban valószínűleg **ritka**. A nagyobb kockázat fordított: a címes `forrasa` a **név-ágat is elronthatja** (alulpárosítás → hátralék túlbecsülve), ha a befizetésnek nincs `id_szemely`-je. A pontos képet a `2026-06-19-diag-berleti-dupla-szamitas.sql` adja a DB- adaton (szerződések `berlo_nev`/`id_szemely` formátuma + a tényleges dupla-/alul-párosítás).
+
+**Empirikus eredmény (2026-06-19):** `szerzodes_db = 0` — **nincs egyetlen bérleti szerződés sem** a rendszerben → a dupla-számítás jelenleg NEM fordulhat elő. A user víziója: az importált könyvelésből a Bérleti fülön látszik majd, ki fizetett (104.04/104.05), és ahhoz lehet szerződést rendelni. A dupla-szám fix akkor lesz aktuális, ha lesznek szerződések.
+
+---
+
+## 11. Egyházfenntartás (101.01) duplikáció-elemzés a 2025-ös valós adaton (Adatok_2025.xlsx)
+
+A user kulcs-aggálya: ne fizessen valaki „2×/3×" míg egy azonos nevű „elmaradottnak" látszik. A 358 db 101.01 sor (47 015 RON) elemzése:
+
+- **Minden befizető „Név - Cím" formátumú** (0 cím nélküli). 127 férjes („…né"), 49 prefixes (Özv./Elv./id./ifj.). 324 egyedi név-kulcs / 358 sor.
+
+**A duplikáció KÉT, eltérő esete:**
+
+1. **Azonos név, ELTÉRŐ cím — 7 eset = két KÜLÖN ember.** Pl. „Beder Győző" (Főút 27 / Főút 144), „Bitai József" (Híd 37 / Híd 36), „Nagy Csaba" (Egészségügy sétány 8/18 / Főút 35), „Joós Albert", „Beder Attila", „Bitai Lázár", „Márk László". → A cím a megkülönböztető; a párosítónak a befizetés címéhez tartozó személyt kell választania. Veszély, ha a tagnyilvántartásban csak az egyik cím szerepel.
+
+2. **RÉSZLETFIZETÉS — az egyházfenntartás NEM „1×/év".** Ugyanaz a személy többször fizet:
+   - „Kádár Barna Zsolt" (Vasút 183): **5 tétel** egy nyugtán (85+100+100+130+130 = 545)
+   - „Ferenc Csilla Timea" (Sport 21): **4 tétel** egy nyugtán
+   - „Beder Árpád" (Főút 85): 2 tétel két külön nyugtán (20, 321)
+   → A jelenlegi **`distributeEgyhfCandidates` „1×/év" round-robin HIBÁS**: a több tételt külön emberekhez osztaná → ez maga a user által rettegett mis-assignment. **Javítandó:** azonos „Név - Cím" → EGY személy, a tételek ÖSSZEADÓDNAK (nem szétosztva).
+
+**ÚJ, KRITIKUS dedup-hiba (a P1-5 is érinti):** több azonos line-item egy nyugtán (pl. „Beder Huba" 150/a: 130 + 130, mindkettő nyugta 122; nyugta 122-n Beder Huba+Ottilia+Hubáné Ibolya is 2×130) → a soronkénti dup-check (cong, év, iratszam, összeg, cél, **id_szemely**) a MÁSODIK azonos tételt **duplikátumként eldobja még az ELSŐ importkor is** (mert az 1. beszúrás után a 2.-ra már talál egyezést) → **adatvesztés**. A javítás: a dedup a CSAK importkor-előtti DB-állapothoz hasonlítson (snapshot: meglévő N vs. fájl M → max(0, M−N) beszúrás), ne növekményesen — így a batch-en belüli jogos ismétlődések megmaradnak, de a fájl újra-importja idempotens.
+
+**Tagnyilvántartás-oldal:** a `2026-06-19-diag-azonos-nevu-szemelyek.sql` méri fel, hány azonos-nevű személy van és feloldja-e a cím (A/B/C lekérdezés) — a robusztus párosítás-terv ettől függ.
