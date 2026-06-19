@@ -322,8 +322,22 @@ export function PenzugyImportWizard() {
     }
     setStage('importing')
     const fileName = file?.name || 'kassza.xlsx'
+
+    // A könyvelési év = a tételek túlnyomó éve (a nyitó egyenleg ehhez az évhez tartozik).
+    const yearCounts = new Map<string, number>()
+    for (const r of kasszaAnalysis?.rows || []) {
+      if (r.kind === 'skip' || !r.datum) continue
+      const y = r.datum.slice(0, 4)
+      if (/^\d{4}$/.test(y)) yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
+    }
+    const topYear = [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+    const keszpenzNyito =
+      topYear && kasszaBalances?.opening != null
+        ? { eve: Number(topYear), nyito: kasszaBalances.opening }
+        : null
+
     startImporting(async () => {
-      const result = await executeFinanceImport(builtItems.items, fileName)
+      const result = await executeFinanceImport(builtItems.items, fileName, keszpenzNyito)
       setImportResult(result)
       setStage('result')
       if (result.error) {
@@ -332,7 +346,7 @@ export function PenzugyImportWizard() {
         toast.success(`Sikeresen mentve: ${result.inserted} tétel.`)
       }
     })
-  }, [builtItems.items, file])
+  }, [builtItems.items, file, kasszaAnalysis, kasszaBalances])
 
   const currentStep: 1 | 2 | 3 =
     stage === 'welcome' ? 1 : stage === 'result' ? 3 : 2

@@ -54,6 +54,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   kiolvasott **nyitó (előző évi) egyenleg** és az **év végi (záró) egyenleg**, levezetve:
   *nyitó + bevétel − kiadás = számított záró*. A rendszer ezt összeveti a hivatalos záró egyenleggel:
   ha egyezik, a könyvelés hiteles (✓); ha eltér (pl. hiányzik a nyitó egyenleg), feltűnően jelzi.
+- **A készpénz nyitó egyenleg mostantól rögzül.** Importáláskor a rendszer **elmenti** az „Előző évi
+  készpénzegyenleg" értékét az adott évhez, így a készpénz-egyenleg nem 0-ról, hanem a **valós áthozott
+  maradványból** indul — ez teszi hitelessé az év végi egyenleget, és korábbi évek importjánál is helyes
+  marad (az egyik év nyitója a másik év zárójához igazodik). *(Egyszeri adatbázis-bővítés szükséges hozzá.)*
 
 ### 🐛 Javítások
 

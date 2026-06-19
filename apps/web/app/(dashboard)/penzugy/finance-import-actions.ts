@@ -728,6 +728,12 @@ export async function getMonetarDiagnostic(
 export async function executeFinanceImport(
   items: FinanceImportItem[],
   fileName: string,
+  /**
+   * Opcionális: a KÉSZPÉNZ (Kassza) éves nyitó egyenleg rögzítése a hiteles
+   * év végi egyenleghez. Az xlsx „Előző évi készpénzegyenleg" cellájából.
+   * `eve` = a könyvelési év (a tételek túlnyomó éve), `nyito` = RON.
+   */
+  keszpenzNyito?: { eve: number; nyito: number } | null,
 ): Promise<FinanceImportResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -833,6 +839,31 @@ export async function executeFinanceImport(
     })
   } catch {
     // Naplózás hiba nem blocker — az import sikeres lefutott
+  }
+
+  // Készpénz éves nyitó egyenleg rögzítése (forrasa='import') — enélkül a
+  // készpénz-egyenleg 0-ról indulna és az év végi egyenleg nem lenne hiteles.
+  // Best-effort: ha elbukik, az import attól még sikeres maradt.
+  if (
+    keszpenzNyito &&
+    Number.isFinite(keszpenzNyito.eve) &&
+    Number.isFinite(keszpenzNyito.nyito)
+  ) {
+    try {
+      await auth.access.supabase.from('keszpenz_nyito_egyenleg').upsert(
+        {
+          congregation_id: auth.congregationId,
+          eve: keszpenzNyito.eve,
+          nyito_egyenleg: keszpenzNyito.nyito,
+          forrasa: 'import',
+          updated_by: auth.userId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'congregation_id,eve' },
+      )
+    } catch {
+      // best-effort — nem blokkolja az importot
+    }
   }
 
   return {
