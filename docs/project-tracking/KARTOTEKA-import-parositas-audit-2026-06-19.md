@@ -289,3 +289,17 @@ Csak bevétel, de pontos „Befizetett év" + hivatalos iratszámmal: Egyházfen
 2. **Oldal**: [7]Bev>0 → befizetes; [9]Kiad>0 → kiadas; `belsotetel`/300-4xx → belső mozgás (kizárva).
 3. **Személy-párosítás CSAK a tag-bevétel kategóriákra** (101.01, 101.04, 104.05, 101.06, 102.06, 103.06, 103.08) — a kollektív (101.03) és cég-bevétel (103.02, 103.09) NEM. Kiadásnál partner-szöveg (opcionális link).
 4. **XML-enrich** a bevételekre: Befizetett év + hivatalos iratszám (kereszt-egyeztetés Nyugta⇆Iratszám).
+
+---
+
+## 14. KÖTELEZŐ: oszlop-egyeztetés — automatikus, de ELLENŐRIZHETŐ (multigyülekezetes biztonság)
+
+**Kockázat:** a 13. szakasz fix oszlop-indexei (pl. [7]=Bev.Összeg) EBBŐL a fájlból származnak. Más gyülekezet vagy más sablon-verzió eltérő elrendezésnél → **rossz adatokkal dolgozna**. Ezt KÖTELEZŐ kivédeni.
+
+**Követelmény:**
+1. **Fejléc-alapú auto-felismerés** (NEM fix index). A Kassza/bank lapokon a fejléc-sort (a hivatalos sablonban a „Dátum / Iratszám / Irattip. / Név / Bev. - Összeg / Bevétel - Költ.vet. név / Kiad. - Összeg / Kiadás - költ.vet. név / Megjegyzés / Magyarázat / szám" sor) megkeressük, és a cél-mezőkhöz a **fejléc szövege** alapján rendeljük az oszlopokat (szinonima-listával, ékezet/kis-nagybetű tűréssel).
+2. **Ellenőrző lépés a beolvasás után**: a felhasználó egy táblázatban LÁTJA az auto-felismert oszlop→mező párosítást, és **felülbírálhatja** (legördülő, mint a meglévő `general-income-wizard.tsx` `autoMap` + mapping lépésében). Import csak megerősítés után.
+3. **Épesség-ellenőrzés (sanity check)**: a felismert oszlopokon validálunk — pl. a „Bev.Összeg"/„Kiad.Összeg" oszlop tartalmaz-e számokat, a „kód" oszlop illeszkedik-e a `\d{3}\.\d` mintára, a „Dátum" dátum-szerű-e. Ha a felismerés bizonytalan → FIGYELMEZTETÉS, és a kötelező mezőket a user kézzel rendeli.
+4. **Lap-felismerés**: mely lapok Kassza/bank (A–F) vs. összesítő (Szamadas/Koltsegvetes/Monetar/Hibak) — az utóbbiak NEM importálandó tétel-sorok, kihagyandók (de a Szamadas a kereszt-ellenőrzéshez használható: a per-kategória végösszegek egyezzenek az importált tételek összegével).
+
+**Újrahasznosítható:** a `general-income-wizard.tsx` már tartalmaz fejléc-alapú `autoMap`-et + ellenőrizhető mapping-lépést — ezt általánosítjuk a hivatalos Kassza/bank elrendezésre (kettős bev/kia oszloppár) és tesszük a teljes importáló elé.
