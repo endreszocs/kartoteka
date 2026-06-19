@@ -20,6 +20,7 @@ import { useCallback, useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import {
   parseAndPreviewFinance,
+  parseXmlReference,
   analyzeKasszaRows,
   resolveBudgetCodes,
   resolveDonors,
@@ -39,6 +40,7 @@ import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
 import { buildFinanceImportItems } from './helpers/item-builder'
+import { applyXmlOverlay } from './helpers/xml-overlay'
 import { distributeAmbiguousDonors } from './helpers/donor-distribution'
 import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
 
@@ -47,6 +49,8 @@ type WizardStage = 'welcome' | 'review' | 'importing' | 'result'
 export function PenzugyImportWizard() {
   const [stage, setStage] = useState<WizardStage>('welcome')
   const [file, setFile] = useState<File | null>(null)
+  // Opcionális bevételek-XML referencia (Befizetett év + hivatalos iratszám).
+  const [xmlFile, setXmlFile] = useState<File | null>(null)
 
   // Review-step adatai
   const [kasszaAnalysis, setKasszaAnalysis] = useState<KasszaAnalysisResult | null>(null)
@@ -76,6 +80,7 @@ export function PenzugyImportWizard() {
   const reset = useCallback(() => {
     setStage('welcome')
     setFile(null)
+    setXmlFile(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -88,6 +93,7 @@ export function PenzugyImportWizard() {
 
   const handleClearFile = useCallback(() => {
     setFile(null)
+    setXmlFile(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -151,6 +157,31 @@ export function PenzugyImportWizard() {
           return
         }
 
+        // XML-overlay: ha van bevételek-XML referencia, a bevétel-sorokra rávetítjük
+        // a PONTOS „Befizetett év"-et + hivatalos iratszámot (több-éves hátralék helyes
+        // besorolása). Csak pontosít — hiba esetén az import a fájl szerint megy tovább.
+        if (xmlFile) {
+          const xmlFd = new FormData()
+          xmlFd.append('xmlFile', xmlFile)
+          const xmlRes = await parseXmlReference(xmlFd)
+          if (xmlRes.error) {
+            toast.warning(`XML-referencia kihagyva: ${xmlRes.error}`)
+          } else if (xmlRes.rows && analysisRes.rows) {
+            const incomeRows = analysisRes.rows.filter((r) => r.kind === 'income')
+            const overlay = applyXmlOverlay(incomeRows, xmlRes.rows)
+            for (const row of analysisRes.rows) {
+              const m = overlay.byRowIndex.get(row.rowIndex)
+              if (m) {
+                row.fizetettevOverride = m.fizetettev
+                row.iratszamHivatalos = m.iratszamHivatalos
+              }
+            }
+            toast.success(
+              `XML-referencia: ${overlay.matchedCount} bevétel pontosítva (Befizetett év + iratszám).`,
+            )
+          }
+        }
+
         setKasszaAnalysis(analysisRes)
         setBudgetCodeResolutions(budgetRes.resolutions || [])
         const donorResolutions = donorRes.resolutions || []
@@ -204,7 +235,7 @@ export function PenzugyImportWizard() {
         }
       })
     })
-  }, [file])
+  }, [file, xmlFile])
 
   // ─── Felhasználói döntések ───────────────────────────────────────────
   const handleSkipCodeToggle = useCallback((rawKod: string) => {
@@ -291,6 +322,9 @@ export function PenzugyImportWizard() {
           onClearFile={handleClearFile}
           onContinue={handleStartReview}
           isParsing={isParsing}
+          xmlFile={xmlFile}
+          onXmlFileSelected={setXmlFile}
+          onClearXmlFile={() => setXmlFile(null)}
         />
       )}
 

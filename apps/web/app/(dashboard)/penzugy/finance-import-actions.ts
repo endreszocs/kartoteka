@@ -43,6 +43,10 @@ import {
   diagnoseMonetar,
   type MonetarDiagnostic,
 } from '@/components/finance/finance-import/helpers/monetar-diagnostic'
+import {
+  parseXmlBevetelek,
+  type XmlBevetelekRow,
+} from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 import { applyKasszaFix } from '@/components/finance/finance-import/helpers/kassza-sheet-parser'
 import { logImportRun } from '@/lib/import/import-log'
 import type {
@@ -223,6 +227,43 @@ export async function parseAndPreviewFinance(
     fileName: workbook.fileName,
     isCsv: workbook.isCsv,
     sheets,
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 1b. parseXmlReference — opcionális bevételek-XML referencia (overlay-hez)
+// ════════════════════════════════════════════════════════════════════════
+
+export interface XmlReferenceResult {
+  success?: boolean
+  error?: string
+  rows?: XmlBevetelekRow[]
+}
+
+/**
+ * A felhasználó által OPCIONÁLISAN feltöltött `bevételek YYYY.xml` referencia-fájl
+ * parse-olása MINDEN bevétel-kategóriára (categoryKeyword: null). A kliens ezután az
+ * `applyXmlOverlay`-jel egyezteti a Kassza bevétel-soraival (Befizetett év + hivatalos
+ * iratszám átvétele). Beszúrást NEM végez — csak referencia.
+ */
+export async function parseXmlReference(formData: FormData): Promise<XmlReferenceResult> {
+  const auth = await requireFinanceImportAccess()
+  if ('error' in auth) return { error: auth.error }
+
+  const file = formData.get('xmlFile')
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: 'Nincs XML-referencia fájl.' }
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    return { error: 'Az XML-referencia túl nagy (max 50 MB).' }
+  }
+  try {
+    const parsed = await parseXmlBevetelek(await file.arrayBuffer(), { categoryKeyword: null })
+    return { success: true, rows: parsed.rows }
+  } catch (e) {
+    return {
+      error: `Az XML-referencia olvasása sikertelen: ${e instanceof Error ? e.message : 'ismeretlen hiba'}.`,
+    }
   }
 }
 
