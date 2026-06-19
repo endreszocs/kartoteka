@@ -108,11 +108,3 @@ export function nameSimilarity(a: string, b: string): number {
 
   return Math.max(direct, sorted)
 }
-
-/** Egyezés-szint a kalibrált küszöbök szerint. */
-export type NameMatchLevel = 'match' | 'review' | 'no-match'
-export function nameMatchLevel(similarity: number): NameMatchLevel {
-  if (similarity >= 0.92) return 'match'
-  if (similarity >= 0.88) return 'review'
-  return 'no-match'
-}

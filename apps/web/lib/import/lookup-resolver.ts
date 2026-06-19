@@ -91,6 +91,16 @@ function normalizeNameForQuad(s: string | null | undefined): string {
 }
 
 /**
+ * Utca-név normalizálás cím-egyeztetéshez (P2-5). A `normalizeNameForQuad`-nál
+ * szigorúbb: a szóközöket, pontokat és kötőjeleket is ELTÁVOLÍTJA, hogy a
+ * "Főút" == "Fő út" == "Fő-út" == "Fő u." egységesüljön. Csak az utca-szűréshez
+ * használjuk — a házszámot NEM lazítjuk (az pontosan egyezzen).
+ */
+function normalizeStreetForMatch(s: string | null | undefined): string {
+  return normalizeNameForQuad(s).replace(/[\s.\-]/g, '')
+}
+
+/**
  * Egységes ISO date string (YYYY-MM-DD) az XML / Excel oldali változatokból.
  * Üres / hibás bemenet → ''.
  */
@@ -486,14 +496,14 @@ export function lookupPersonByQuadAttempt(
    */
   function filterByAddress(candidates: string[]): string[] {
     if (!street || candidates.length <= 1) return candidates
-    const streetNorm = normalizeNameForQuad(street)
+    const streetNorm = normalizeStreetForMatch(street)
     const houseNorm = (houseNumber || '').trim().toLowerCase()
 
     // 1. utca + házszám pontos egyezés
     const exactMatches = candidates.filter((id) => {
       const addr = maps.addressById.get(id)
       if (!addr || !addr.streetName) return false
-      const dbStreet = normalizeNameForQuad(addr.streetName)
+      const dbStreet = normalizeStreetForMatch(addr.streetName)
       const dbHouse = (addr.houseNumber || '').trim().toLowerCase()
       return dbStreet === streetNorm && dbHouse === houseNorm
     })
@@ -503,7 +513,7 @@ export function lookupPersonByQuadAttempt(
     const streetMatches = candidates.filter((id) => {
       const addr = maps.addressById.get(id)
       if (!addr || !addr.streetName) return false
-      const dbStreet = normalizeNameForQuad(addr.streetName)
+      const dbStreet = normalizeStreetForMatch(addr.streetName)
       return dbStreet === streetNorm
     })
     if (streetMatches.length > 0) return streetMatches
@@ -590,14 +600,31 @@ export function lookupPersonByQuadAttempt(
     }
   }
 
-  // 5. K-nev + ferfi (utolsó esély — utca-szűréssel itt is mehet)
+  // 5. K-nev + ferfi (UTOLSÓ ESÉLY — a kulcsban NINCS vezetéknév!)
+  //    P2-2: itt TILOS cím-szűréssel egyetlen {id}-vé kollapszálni, mert a
+  //    jelöltek ELTÉRŐ VEZETÉKNEVŰEK lehetnek (a donor vezetékneve az 1–4.
+  //    szinten senkire nem illett). A `filterByAddress` egyetlen, más
+  //    vezetéknevű taghoz redukálhatna → magabiztos téves párosítás. Ezért itt
+  //    csak akkor adunk biztos {id}-t, ha az egész gyülekezetben PONTOSAN EGY
+  //    ilyen keresztnevű + nemű tag van; több jelöltnél emberi döntésre bízzuk
+  //    ({candidates}). Ez összhangban van a `resolvePersonByQuad` szigorával.
   for (const knVar of knVariants) {
     const knFerfiKey = `${knVar}|${ferfi}`
     const candidates = maps.byKnameFerfi.get(knFerfiKey)
-    if (candidates && candidates.length > 0) {
-      const r = resolveCandidates(candidates)
-      if ('id' in r) return r
-      lastCandidates = r.candidates
+    if (candidates && candidates.length === 1) return { id: candidates[0] }
+    if (candidates && candidates.length > 1 && !lastCandidates) lastCandidates = candidates
+  }
+
+  // 5b. P2-6: nem-agnosztikus fallback. Ha a tagnyilvántartásban a `ferfi` mező
+  //     nincs kitöltve, az illető a `|?` index alatt van — a flagges (M/F) kulcs
+  //     nem találja meg. Ilyenkor a `|?` variánst is próbáljuk, ugyanúgy csak
+  //     egyértelmű (1 jelölt) esetben adva {id}-t.
+  if (ferfi !== '?') {
+    for (const knVar of knVariants) {
+      const knAnyKey = `${knVar}|?`
+      const candidates = maps.byKnameFerfi.get(knAnyKey)
+      if (candidates && candidates.length === 1) return { id: candidates[0] }
+      if (candidates && candidates.length > 1 && !lastCandidates) lastCandidates = candidates
     }
   }
 

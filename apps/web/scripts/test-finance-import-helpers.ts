@@ -22,6 +22,7 @@ import { detectCompany } from '../components/finance/finance-import/helpers/comp
 import { parseDonorString } from '../components/finance/finance-import/helpers/donor-string-parser'
 import { splitKasszaRow } from '../components/finance/finance-import/helpers/kassza-row-classifier'
 import { normalizeBudgetCode } from '../components/finance/finance-import/helpers/budget-code-resolver'
+import { lookupPersonByQuadAttempt, type PersonLookupMaps } from '../lib/import/lookup-resolver'
 
 let passCount = 0
 let failCount = 0
@@ -281,6 +282,102 @@ expect('normalize üres', normalizeBudgetCode(''), null)
 expect('normalize abc', normalizeBudgetCode('abc'), null)
 expect('normalize null', normalizeBudgetCode(null), null)
 expect('normalize szám', normalizeBudgetCode(101), '101')
+
+// ════════════════════════════════════════════════════════════════════════
+// 5. lookupPersonByQuadAttempt — párosító korrektség (P2-2 / P2-5 / P2-6)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 5. lookupPersonByQuadAttempt ===\n')
+
+interface TestPerson {
+  id: string
+  cs: string // normalizált (kisbetűs, ékezet nélküli) családnév
+  k: string // normalizált keresztnév (egyszavas)
+  flag: 'M' | 'F' | '?'
+  street?: string | null // nyers DB utcanév (a lookup normalizál)
+  house?: string | null
+}
+
+/**
+ * Szintetikus PersonLookupMaps a `buildAllPersonsLookupMap` kulcs-logikáját
+ * utánozva (csak a teszthez szükséges indexek). Kisbetűs, ékezet nélküli,
+ * egyszavas nevekkel a normalizálás identitás → a kulcsok kiszámíthatók.
+ */
+function makeMaps(persons: TestPerson[]): PersonLookupMaps {
+  const byTriple = new Map<string, string[]>()
+  const byKnameFerfi = new Map<string, string[]>()
+  const byId = new Map<string, ReturnType<PersonLookupMaps['byId']['get']>>()
+  const addressById = new Map<string, { streetName: string | null; houseNumber: string | null }>()
+  const push = (m: Map<string, string[]>, key: string, id: string) => {
+    const arr = m.get(key) || []
+    if (!arr.includes(id)) arr.push(id)
+    m.set(key, arr)
+  }
+  for (const p of persons) {
+    byId.set(p.id, {
+      id: p.id, cnp: null, csaladnev: p.cs, k_nev: p.k,
+      sz_datum: null, ferfi: p.flag === 'M', szcs_nev: null,
+    })
+    addressById.set(p.id, { streetName: p.street ?? null, houseNumber: p.house ?? null })
+    // byTriple: a builder a saját flag ALATT és `|?` alatt is indexel
+    push(byTriple, `${p.cs}|${p.k}|${p.flag}`, p.id)
+    push(byTriple, `${p.cs}|${p.k}|?`, p.id)
+    // byKnameFerfi: a builder CSAK a saját flag alatt indexel
+    push(byKnameFerfi, `${p.k}|${p.flag}`, p.id)
+  }
+  return {
+    byCnp: new Map(), byName: new Map(), byQuad: new Map(),
+    byTriple, byMaiden: new Map(), byKnameFerfi, byId, addressById,
+  }
+}
+
+function describe(r: { id: string } | { candidates: string[] } | null): string {
+  if (r === null) return 'null'
+  if ('id' in r) return `id:${r.id}`
+  return `candidates:${[...r.candidates].sort().join(',')}`
+}
+
+// P2-5: utca-normalizálás — "Főút" (donor) == "Fő út" (DB) → cím-alapú feloldás
+{
+  const maps = makeMaps([
+    { id: '1', cs: 'kovacs', k: 'janos', flag: 'M', street: 'Fő út', house: '10' },
+    { id: '2', cs: 'kovacs', k: 'janos', flag: 'M', street: 'Petőfi', house: '5' },
+  ])
+  const r = lookupPersonByQuadAttempt('Kovacs', 'Janos', null, null, 'M', maps, 'Főút', '10')
+  expect('P2-5 utca "Főút"=="Fő út" → id:1', describe(r), 'id:1')
+}
+
+// P2-2: utolsó-esély (keresztnév-only) NEM kollapszálhat más vezetéknévre cím alapján
+{
+  const maps = makeMaps([
+    { id: '3', cs: 'nagy', k: 'zoltan', flag: 'M', street: 'Fő út', house: '10' },
+    { id: '4', cs: 'kiss', k: 'zoltan', flag: 'M', street: 'Petőfi', house: '5' },
+  ])
+  // "Szabo" vezetéknév senkire nem illik → 5. szint: 2 különböző vezetéknevű Zoltán
+  const r = lookupPersonByQuadAttempt('Szabo', 'Zoltan', null, null, 'M', maps, 'Főút', '10')
+  expect('P2-2 nem kollapszál más vezetéknévre → candidates:3,4', describe(r), 'candidates:3,4')
+}
+
+// P2-2: utolsó-esély EGYÉRTELMŰ esetben továbbra is {id}
+{
+  const maps = makeMaps([{ id: '5', cs: 'feher', k: 'bela', flag: 'M', street: 'X', house: '1' }])
+  const r = lookupPersonByQuadAttempt('Szabo', 'Bela', null, null, 'M', maps)
+  expect('P2-2 egyértelmű keresztnév → id:5', describe(r), 'id:5')
+}
+
+// P2-6: nem-agnosztikus fallback — a DB-ben hiányzó nemű (flag '?') tag is megtalálható
+{
+  const maps = makeMaps([{ id: '6', cs: 'torok', k: 'sandor', flag: '?', street: 'X', house: '1' }])
+  // donor ferfi='M', de a tag flag='?' → csak a `|?` fallback találja meg
+  const r = lookupPersonByQuadAttempt('Valaki', 'Sandor', null, null, 'M', maps)
+  expect('P2-6 ferfi=? tag fallback → id:6', describe(r), 'id:6')
+}
+
+// Regresszió: pontos triple (családnév+keresztnév+nem) továbbra is egyértelmű
+{
+  const maps = makeMaps([{ id: '7', cs: 'toth', k: 'eva', flag: 'F' }])
+  const r = lookupPersonByQuadAttempt('Tóth', 'Éva', null, null, 'F', maps)
+  expect('Regresszió: triple egyezés → id:7', describe(r), 'id:7')
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Összesítés

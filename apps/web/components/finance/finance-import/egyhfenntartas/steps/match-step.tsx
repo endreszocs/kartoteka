@@ -22,6 +22,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+import { ManualTagSearch } from '@/components/finance/finance-import/shared/manual-tag-search'
 import type { ParsePreviewResult, PreviewMatchedRow } from '@/app/(dashboard)/penzugy/egyhfenntartas-import-actions'
 import type { ReconcileResult } from '@/components/finance/finance-import/egyhfenntartas/helpers/books-reconciler'
 
@@ -104,7 +105,7 @@ export function MatchStep({
         </h2>
         <p className="mt-1 text-sm text-slate-600">
           A két fájlt összevetettük és minden sort párosítottunk a tagnyilvántartással.
-          Az alábbi 4 csoportban kell végigmenned. Ha "Skip"-eled, az adott sor nem
+          Az alábbi 4 csoportban kell végigmenned. A Skip gombbal kihagyott sor nem
           kerül a könyvelésbe.
         </p>
       </header>
@@ -348,6 +349,8 @@ function RowCard({
   const fr = row.finalRow
   const sourceKind = row.source.kind
   const tagMode = row.szemely.matchMode
+  // A kézi keresőhöz a befizető neve (a " - cím" rész levágásával) az alap keresőszó.
+  const nameQuery = (fr.forrasa.split(/\s+[-–—]\s+/)[0] || fr.forrasa).trim()
 
   return (
     <div
@@ -409,6 +412,28 @@ function RowCard({
                 ))}
               </select>
             </div>
+          )}
+
+          {(tagMode === 'not-found' || tagMode === 'multiple') && (
+            <>
+              {tagMode === 'not-found' && (
+                <p className="mt-2 rounded-md border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs text-rose-900">
+                  ❓ Nem találtunk hozzá tagot a tagnyilvántartásban. Keresd meg kézzel,
+                  vagy a Skip gombbal hagyd ki — különben a befizetés{' '}
+                  <strong>tag-kapcsolat nélkül</strong> kerül be.
+                </p>
+              )}
+              {tagMode === 'multiple' && (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Ha a helyes tag nincs a fenti listában, keresd meg kézzel:
+                </p>
+              )}
+              <ManualTagSearch
+                initialQuery={nameQuery}
+                currentId={manualId}
+                onPick={(id) => onManualChange(id)}
+              />
+            </>
           )}
         </div>
 

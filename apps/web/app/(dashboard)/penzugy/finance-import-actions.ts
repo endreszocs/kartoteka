@@ -33,7 +33,7 @@ import {
   type LookupRecord,
 } from '@/lib/import/lookup-resolver'
 import { parseDonorString } from '@/components/finance/finance-import/helpers/donor-string-parser'
-import { splitKasszaRow, type KasszaRowKind } from '@/components/finance/finance-import/helpers/kassza-row-classifier'
+import { splitKasszaRow } from '@/components/finance/finance-import/helpers/kassza-row-classifier'
 import {
   buildBudgetCodeMaps,
   resolveBudgetCode,

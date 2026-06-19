@@ -20,14 +20,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { parseDonorString } from '@/components/finance/finance-import/helpers/donor-string-parser'
-import {
-  parseXlsxEgyhf,
-  type XlsxEgyhfRow,
-} from '@/components/finance/finance-import/egyhfenntartas/helpers/xlsx-egyhf-parser'
-import {
-  parseXmlBevetelek,
-  type XmlBevetelekRow,
-} from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
+import { parseXlsxEgyhf } from '@/components/finance/finance-import/egyhfenntartas/helpers/xlsx-egyhf-parser'
+import { parseXmlBevetelek } from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 import {
   matchSources,
   type MatchedRow,
@@ -551,9 +545,13 @@ export async function executeEgyhfImport(
       }
     }
 
-    // Dup-check: meglévő befizetes a (cong, év, iratszam, összeg, cél) kulcsra
+    // Dup-check: meglévő befizetes a (cong, év, iratszam, összeg, cél, SZEMÉLY)
+    // kulcsra. P1-5: az `id_szemely` is a kulcs része — egy tömbös nyugtán (azonos
+    // iratszám) több KÜLÖN személy azonos összegű befizetése így NEM ütközik
+    // (korábban a 2. tétel némán „duplikátumként" kiesett → adatvesztés). A
+    // `.limit(1)` véd a történelmi >1 találat okozta PGRST116-hiba ellen.
     const iratszamForDup = item.finalRow.iratszam || ''
-    const { data: existing } = await supabase
+    let dupQuery = supabase
       .from('befizetes')
       .select('id')
       .eq('congregation_id', profile.congregation_id)
@@ -562,7 +560,11 @@ export async function executeEgyhfImport(
       .eq('osszeg', item.finalRow.osszeg)
       .eq('id_befizetescel', idBefizetescel)
       .eq('deleted', false)
-      .maybeSingle()
+    dupQuery =
+      finalSzemelyId === null
+        ? dupQuery.is('id_szemely', null)
+        : dupQuery.eq('id_szemely', finalSzemelyId)
+    const { data: existing } = await dupQuery.limit(1).maybeSingle()
 
     if (existing) {
       result.skippedDuplicateCount++
