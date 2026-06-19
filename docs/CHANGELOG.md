@@ -57,6 +57,9 @@ hogy az automatikus párosítás nem talált rá a tagra, és nem lehetett kézz
   keresztnév és cím alapján. Ha bizonytalan, inkább rád bízza a döntést (a „Hasonló név” / „Több tag” jelzéssel).
 - **Tömbös nyugta: nincs adatvesztés.** Ha ugyanazon a nyugtán több személy fizetett **azonos összeget**, most
   mindegyik tétel bekerül — korábban a második véletlenül „duplikátumként” kimaradhatott.
+- **Belső átvezetések pontosabb felismerése.** A kassza és a bankszámla közötti pénzmozgásoknak (pl. készpénz
+  befizetése a bankba, felvétele a bankból) egy ritkább kód-változatát (300-as) is helyesen **belső mozgásként**
+  ismeri fel az importáló — így ezek nem számítanak tévesen bevételnek vagy kiadásnak az éves számadásban.
 
 ## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
 <!-- key: 2026-06-15-oblio-desktop-offline-pdf -->

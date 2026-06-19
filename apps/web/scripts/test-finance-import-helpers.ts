@@ -271,6 +271,17 @@ console.log('\n=== 3. splitKasszaRow ===\n')
   expect('internal-out (vesszős kód) — kind', r.kind, 'internal-transfer-out')
 }
 
+// 300.xx kód is belső mozgás (konzisztens a budget-code-resolver-rel)
+{
+  const r = splitKasszaRow({
+    _donor_string: 'Bank művelet',
+    _bev_osszeg: 2000,
+    _bev_cel_nev: 'Egyéb',
+    _szamadasicel_kod: '300.01',
+  })
+  expect('internal-in (300.01 kód) — kind', r.kind, 'internal-transfer-in')
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // 4. normalizeBudgetCode
 // ════════════════════════════════════════════════════════════════════════
