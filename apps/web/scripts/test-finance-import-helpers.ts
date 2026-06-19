@@ -486,22 +486,30 @@ console.log('\n=== 8. xml-overlay ===\n')
   ]
   const mkXml = (
     rowIndex: number, rawForrasa: string, osszeg: number, nyugta: number,
-    iratszam: number, fizetettev: number,
+    iratszam: number, fizetettev: number, datum = '2025-08-16',
   ): XmlBevetelekRow => ({
-    rowIndex, rawForrasa, osszeg, datum: '2025-08-16', nyugta, iratszam,
+    rowIndex, rawForrasa, osszeg, datum, nyugta, iratszam,
     irattipus: 'chitanta', ksz: '101.01', fizetettev, megjegyzes: null, letrehozva: null,
   })
   const xml: XmlBevetelekRow[] = [
     mkXml(1, 'Kádár Barna Zsolt - Vasút 183', 85, 134, 115134, 2021), // arrears 2021
-    mkXml(2, 'Szőcs Endre - Parókia 214', 130, 19, 115019, 2024),
+    // VALÓS eset (Barátosi): a 19. nyugta 2024-12-31-én kelt, de a 2025-ös évre szól.
+    mkXml(2, 'Szőcs Endre - Parókia 214', 130, 19, 115019, 2025, '2024-12-31'),
     mkXml(3, 'Valaki Más - Fő 1', 50, 999, 115999, 2025), // nincs xlsx-pár
   ]
   const r = applyXmlOverlay(income, xml)
   expect('overlay matched = 2', r.matchedCount, 2)
   expect('row5 fizetettev = 2021 (arrears)', r.byRowIndex.get(5)?.fizetettev, 2021)
   expect('row5 hivatalos iratszám = 115134', r.byRowIndex.get(5)?.iratszamHivatalos, '115134')
-  expect('row6 fizetettev = 2024', r.byRowIndex.get(6)?.fizetettev, 2024)
+  expect('row6 fizetettev = 2025 (év-határos: dec.31 dátum, 2025 Befizetett év)', r.byRowIndex.get(6)?.fizetettev, 2025)
   expect('onlyXml = 1 (Valaki Más)', r.onlyXml.length, 1)
+
+  // KÖNYVELÉSI ÉV szabály (review-step accYear): a Befizetett év a mérvadó, nem a dátum.
+  const accYear = (p: { fizetettevOverride?: number | null; datum?: string | null }): string =>
+    p.fizetettevOverride != null ? String(p.fizetettevOverride) : (p.datum || '').slice(0, 4)
+  expect('accYear: dec.31 dátum + 2025 override → 2025', accYear({ datum: '2024-12-31', fizetettevOverride: 2025 }), '2025')
+  expect('accYear: dec.31 dátum, nincs override → 2024 (dátum éve)', accYear({ datum: '2024-12-31', fizetettevOverride: null }), '2024')
+  expect('accYear: 2024 arrears override → 2024', accYear({ datum: '2025-01-07', fizetettevOverride: 2024 }), '2024')
 }
 
 // ════════════════════════════════════════════════════════════════════════

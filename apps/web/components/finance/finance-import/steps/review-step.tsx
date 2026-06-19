@@ -144,6 +144,11 @@ export function ReviewStep({
   //    az idei járulékot is fizeti, az KÉT KÜLÖN év → legitim.
   //  - Csak az a duplikáció, ha UGYANARRA AZ ÉVRE 2+ KÜLÖNBÖZŐ befizető-string kerül
   //    UGYANAHHOZ a taghoz (valódi téves dupla-hozzárendelés, pl. „Józsa Béla" + „Ifj. Józsa Béla").
+  // KÖNYVELÉSI ÉV (accounting year): a tényleges „Befizetett év" (XML-ből, fizetettevOverride),
+  // és csak ha az nincs, akkor a könyvelés dátumának éve. Egy 2024-12-31-én kelt, de a 2025-ös
+  // évre szóló befizetés (pl. 19. nyugta, Szőcs Endre) így helyesen 2025-nek számít.
+  const accYear = (p: { fizetettevOverride?: number | null; datum?: string | null }): string =>
+    p.fizetettevOverride != null ? String(p.fizetettevOverride) : (p.datum || '').slice(0, 4)
   const egyhfPaymentsOf = (raw: string) =>
     (paymentsByDonor.get(raw) || []).filter((p) => p.budgetCode === EGYHF_KOD)
   // kulcs: `${szemelyId}|${fizetettev}` → a hozzá tartozó KÜLÖNBÖZŐ befizető-stringek
@@ -153,7 +158,7 @@ export function ReviewStep({
     if (!pid) continue
     const years = new Set(
       egyhfPaymentsOf(d.raw)
-        .map((p) => (p.datum || '').slice(0, 4))
+        .map((p) => accYear(p))
         .filter(Boolean),
     )
     for (const y of years) {
@@ -185,19 +190,22 @@ export function ReviewStep({
   const duplicateEgyhfPersonIds = new Set(duplicateConflicts.map((c) => c.pid))
 
   // ── ÉV-ELTÉRÉS ŐR ──
-  // A könyvelés szabálya: az adott könyvelési évben nem könyvelhetsz MÁS évi (pl. előző évi)
-  // nyugtát. Megkeressük a túlnyomó évet (a tételek többségének éve), és jelezzük azokat a
-  // sorokat, amelyek dátuma ettől eltér (pl. 2024-12-31 · iratszám 19 a 2025-ös Kasszában).
+  // A KÖNYVELÉSI ÉV-et nézzük (Befizetett év, ha az XML megadta — különben a dátum éve).
+  // Megkeressük a túlnyomó évet, és jelezzük azokat a sorokat, amelyek dátuma ettől eltér,
+  // DE NINCS rájuk XML-ből származó „Befizetett év". Ha az XML kimondja az évet (pl. a
+  // 2024-12-31-én kelt, de 2025-re szóló 19. nyugta), az SZÁNDÉKOS → nem jelezzük hibának.
   const bookableRows = (analysis?.rows || []).filter((r) => r.kind !== 'skip' && r.datum)
   const yearCounts = new Map<string, number>()
   for (const r of bookableRows) {
-    const y = r.datum!.slice(0, 4)
-    yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
+    const y = accYear(r)
+    if (y) yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
   }
   const predominantYear =
     [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const yearMismatchRows = predominantYear
-    ? bookableRows.filter((r) => r.datum!.slice(0, 4) !== predominantYear)
+    ? bookableRows.filter(
+        (r) => r.fizetettevOverride == null && r.datum!.slice(0, 4) !== predominantYear,
+      )
     : []
   const companies = (donorResolutions || [])
     .filter((d) => d.status === 'company')
@@ -344,10 +352,14 @@ export function ReviewStep({
                 {yearMismatchRows.length} tétel NEM a(z) {predominantYear}. évre esik
               </p>
               <p className="mt-1 text-sm text-orange-800">
-                A könyvelési szabályok szerint az adott évben <strong>nem könyvelhetsz előző
-                (vagy más) évi nyugtát</strong>. Az alábbi tételek dátuma eltér a fájl
-                túlnyomó évétől ({predominantYear}) — ellenőrizd a forrásdokumentumban, és ha kell,
-                hagyd ki őket az importból (vagy a megfelelő évi Kasszába rögzítsd).
+                Az alábbi tételek <strong>dátuma</strong> eltér a fájl túlnyomó évétől
+                ({predominantYear}), és nincs hozzájuk a <strong>bevételek XML-ből</strong> származó
+                <strong> Befizetett év</strong> adat. Gyakori eset: egy <strong>év végén</strong> (pl.
+                dec. 31.) befizetett, de a <strong>következő évre</strong> szóló járulék. Ha ez a
+                helyzet, töltsd fel a
+                bevételek XML referenciát is — abból a rendszer a helyes évet veszi (a már egyértelmű
+                évűeket nem is jelzi). Ha tényleg más évről van szó, ellenőrizd a forrásban, és ha
+                kell, hagyd ki őket az importból.
               </p>
               <ul className="mt-2 space-y-1 text-xs text-orange-900">
                 {yearMismatchRows.slice(0, 12).map((r, i) => (

@@ -53,6 +53,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
   **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te
   dönthess. Így nem fordulhat elő, hogy az egyik kétszer fizetőnek, a másik elmaradottnak látszik.
+- **Helyes év az év végi befizetéseknél.** Ha valaki **december 31-én** fizetett, de a járulék a
+  **következő évre** szól (pl. a 19. nyugta: dec. 31-i dátum, de a 2025-ös évre), a rendszer eddig a
+  dátum alapján tévesen az előző évhez (2024) sorolta. Mostantól a **bevételek XML „Befizetett év"**
+  adatát veszi mérvadónak — ahogy a hivatalos könyvelés is. Ahol az XML egyértelműen megadja az évet,
+  ott már nem jelez fölösleges „nem ebbe az évbe tartozik" figyelmeztetést sem.
 
 ### 🎨 Fejlesztések
 
