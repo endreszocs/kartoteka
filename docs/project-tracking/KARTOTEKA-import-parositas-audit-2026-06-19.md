@@ -252,3 +252,40 @@ A `bevételek 2025.xml` „Befizetett év" (col 11) + „Megjegyzés" (col 12) m
 **JAVÍTÁS (elvégezve):** a `distributeEgyhfCandidates` **vak round-robin auto-elosztás eltávolítva**. Az arrears-modell miatt a több tétel ugyanannak a személynek a különböző évei → nem szabad emberek közt szétosztani. A genuin bizonytalan (azonos név+cím, pl. **apa-fia** — a user megerősítette, hogy előfordul) eseteket a rendszer **NEM tippeli**, hanem a párosító UI-ban kézi döntésre teszi. Ez közvetlenül megszünteti a „más fizet, más látszik elmaradottnak" hibát. (A `suggestedSzemelyId`/`autoDistributed` holt mezők + UI eltávolítva.)
 
 **Apa-fia (azonos név+cím):** a fizetési adatban nincs megkülönböztető (se szül.dátum, se mindig id./ifj.) → kötelezően kézi. A jövőbeli per-éves review (tartozás-nézet) itt segíthet: ha a tag már fizetett az adott évre, a másik azonos nevűhez javasolja a rendszer.
+
+---
+
+## 13. TELJES per-számadásicél elemzés (Adatok_2025.xlsx, minden kategória)
+
+A user kérésére nem csak az egyházfenntartás, hanem MINDEN számadási cél elemezve. Lapok: Monetar, Kassza, Kasszakonyv, A–F (bank), Hibak, Szamadas, Koltsegvetes. A `Szamadas` lap a kanonikus per-kategória összesítő.
+
+**Kassza/bank oszlopok** (sor4 fejléc): [4]Iratszám · [5]Irattip · [6]Név · **[7]Bev.Összeg / [8]Bev.cél** · **[9]Kiad.Összeg / [10]Kiad.cél** · [11]Megjegyzés · [13]kód.
+
+### Bevételek (1xx) — 2025 tény, személy-köthetőség
+| Kód | Cél | db | Összeg | Személy-köthető („Név - Cím") |
+|---|---|---|---|---|
+| 101.01 | Egyházfenntartói járulék | 358 | 47 015 | **358/358 (100%)** |
+| 101.03 | Perselypénz | 7 | 21 444 | kollektív → **NEM** |
+| 101.04 | Adományok hívektől | 104 | 19 012 | **69/104 (66%)** — 35 cég/anonim |
+| 101.06 | Sírhely | 1 | 600 | igen |
+| 102.06 | Legátum | 1 | 50 | igen |
+| 103.02 | Pályázat | 2 | 13 000 | NEM (JUDETUL COVASNA intézmény) |
+| 103.06 | Iratterjesztés | 1 | 1 193 | igen |
+| 103.08 | Számlavisszatérítés | 1 | 1 983 | igen |
+| 103.09 | Szponzor / adó 3,5% | 5 | 57 173 | NEM (KIACOM SRL cégek) |
+| 104.05 | Területek bérjövedelme | 6 | 23 709 | 5 kassza (Név-Cím) + 1 bank („MARK LASZLO") |
+
+### Kiadások (2xx) — a partner CÉG/intézmény vagy segélyezett
+201.01 fizetés (37 404), 201.02 közköltség (37 519), 201.08 irodaszer, 201.09, 201.10, 201.13 **karbantartás (138 125)**, 202.01/202.08 (segély: „Szász Alpár"), 203.x, 205.x. → A partnerek nagyrészt **cégek** (SRL/SA) vagy intézmények; néhány segélyezett magánszemély. **Tag-párosítás NEM kell** — a partner szöveges `forrasa`/`atvevo` mezőbe kerül (opcionális személy-link a segélynél).
+
+### Belső mozgás (3xx/4xx)
+300.01 / 301.01 / 400.01 / 401.01 — kassza↔bank átvezetés (≈87 855 RON). A `szamadasicel.belsotetel` jelöli. → **Se bevétel/kiadás, se személy-párosítás.**
+
+### XML (bevételek 2025.xml) lefedettsége
+Csak bevétel, de pontos „Befizetett év" + hivatalos iratszámmal: Egyházfenntartás (361/47 145), Perselypénz (7/21 444), Adományok (103/18 882), Bérjövedelmek (5/15 250), Visszatérítés, Iratterjesztés, Sírhely, Harangoztatás (1/130), Legátum.
+
+### Az importáló osztályozási szabálya (ebből)
+1. **Kód → kategória**: pontos egyezés a `szamadasicel`/`befizetescel`/`kiadascel` táblával (triviális, ~0 hiba).
+2. **Oldal**: [7]Bev>0 → befizetes; [9]Kiad>0 → kiadas; `belsotetel`/300-4xx → belső mozgás (kizárva).
+3. **Személy-párosítás CSAK a tag-bevétel kategóriákra** (101.01, 101.04, 104.05, 101.06, 102.06, 103.06, 103.08) — a kollektív (101.03) és cég-bevétel (103.02, 103.09) NEM. Kiadásnál partner-szöveg (opcionális link).
+4. **XML-enrich** a bevételekre: Befizetett év + hivatalos iratszám (kereszt-egyeztetés Nyugta⇆Iratszám).
