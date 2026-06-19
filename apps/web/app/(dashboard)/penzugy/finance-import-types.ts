@@ -102,6 +102,9 @@ export interface ClassifiedKasszaRow {
   fizetettevOverride?: number | null
   /** XML-overlay: a hivatalos (5-jegyű) iratszám (col 8) — stabil dedup-kulcs. */
   iratszamHivatalos?: string | null
+  /** Több-forrású (kötegelt) importnál: melyik bankszámlához tartozik a sor
+   *  (null = Kassza/készpénz). A sor a saját forrás-lapja szerint van megjelölve. */
+  bankszamlaId?: number | null
 }
 
 // ────────────────────────────────────────────────────────────────────────

@@ -165,7 +165,7 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
         megjegyzes: pasztoralisMegjegyzes,
         fizetettev,
         belsoMozgasXkey,
-        bankszamlaId,
+        bankszamlaId: row.bankszamlaId ?? bankszamlaId,
       })
       continue
     }
@@ -220,7 +220,7 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       irattipus: row.irattipus || '',
       megjegyzes: row.megjegyzes || '',
       fizetettev,
-      bankszamlaId,
+      bankszamlaId: row.bankszamlaId ?? bankszamlaId,
     })
   }
 

@@ -36,10 +36,11 @@ import type {
   FinanceImportResult,
   FinanceSheetPreview,
   BankszamlaOption,
+  ClassifiedKasszaRow,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
 
 import { WelcomeStep } from './steps/welcome-step'
-import { SourceSelectStep } from './steps/source-select-step'
+import { MultiSourceMapStep } from './steps/multi-source-map-step'
 import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
@@ -56,23 +57,30 @@ import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
 
 type WizardStage = 'welcome' | 'source' | 'review' | 'importing' | 'result'
 
+/** Egy beimportálandó főkönyvi forrás (Kassza vagy egy bankszámla-lap). */
+type LedgerUnit = {
+  sheetName: string
+  /** null = Kassza (készpénz); szám = bankszámla id. */
+  bankszamlaId: number | null
+  label: string
+  opening: number | null
+  closing: number | null
+  headers: string[]
+}
+
 export function PenzugyImportWizard() {
   const [stage, setStage] = useState<WizardStage>('welcome')
   const [file, setFile] = useState<File | null>(null)
   // Opcionális bevételek-XML referencia (Befizetett év + hivatalos iratszám).
   const [xmlFile, setXmlFile] = useState<File | null>(null)
-  // Forrás-választás (Kassza vs A–F bankszámla): a főkönyvi lapok + a választás.
+  // Több-forrású (kötegelt) import: a fájl főkönyvi lapjai + a bank-lap→bankszámla map.
   const [ledgerSheets, setLedgerSheets] = useState<FinanceSheetPreview[]>([])
   const [bankszamlak, setBankszamlak] = useState<BankszamlaOption[]>([])
-  const [selectedSheet, setSelectedSheet] = useState<string | null>(null)
-  const [selectedBankszamlaId, setSelectedBankszamlaId] = useState<number | null>(null)
+  const [sheetBankMap, setSheetBankMap] = useState<Record<string, number | null>>({})
+  // A ténylegesen beolvasott források (Kassza + a hozzárendelt bankszámlák).
+  const [units, setUnits] = useState<LedgerUnit[]>([])
   // A Kassza-lap fejlécei az oszlop-egyeztetés ellenőrző paneljéhez.
   const [kasszaHeaders, setKasszaHeaders] = useState<string[]>([])
-  // A lap tetejéről kiolvasott nyitó + év végi egyenleg (a hiteles egyenleg-levezetéshez).
-  const [kasszaBalances, setKasszaBalances] = useState<{
-    opening: number | null
-    closing: number | null
-  } | null>(null)
 
   // Review-step adatai
   const [kasszaAnalysis, setKasszaAnalysis] = useState<KasszaAnalysisResult | null>(null)
@@ -104,11 +112,10 @@ export function PenzugyImportWizard() {
     setFile(null)
     setXmlFile(null)
     setKasszaHeaders([])
-    setKasszaBalances(null)
     setLedgerSheets([])
     setBankszamlak([])
-    setSelectedSheet(null)
-    setSelectedBankszamlaId(null)
+    setSheetBankMap({})
+    setUnits([])
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -123,11 +130,10 @@ export function PenzugyImportWizard() {
     setFile(null)
     setXmlFile(null)
     setKasszaHeaders([])
-    setKasszaBalances(null)
     setLedgerSheets([])
     setBankszamlak([])
-    setSelectedSheet(null)
-    setSelectedBankszamlaId(null)
+    setSheetBankMap({})
+    setUnits([])
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -138,83 +144,108 @@ export function PenzugyImportWizard() {
     setImportResult(null)
   }, [])
 
-  // ─── doReview: a kiválasztott főkönyvi lapot (Kassza vagy A–F bank) elemzi ──
-  const doReview = useCallback(
-    (sheetName: string, bankszamlaId: number | null, sheetPreview: FinanceSheetPreview) => {
-      if (!file) return
-      setSelectedSheet(sheetName)
-      setSelectedBankszamlaId(bankszamlaId)
-      // Oszlop-egyeztetés ellenőrző panel + a lap tetejéről a nyitó/év végi egyenleg.
-      setKasszaHeaders(sheetPreview.headers || [])
-      setKasszaBalances({
-        opening: sheetPreview.openingBalance ?? null,
-        closing: sheetPreview.closingBalance ?? null,
-      })
+  // ─── doReviewAll: az ÖSSZES forrást (Kassza + a hozzárendelt bankszámlák) egyben elemzi ──
+  const doReviewAll = useCallback(
+    (unitsToProcess: LedgerUnit[]) => {
+      if (!file || unitsToProcess.length === 0) return
+      setUnits(unitsToProcess)
+      // Az oszlop-egyeztetés ellenőrző panelhez az első forrás fejlécei (mind azonos szerkezet).
+      setKasszaHeaders(unitsToProcess[0].headers || [])
       setStage('review')
 
       startLoadingReview(async () => {
-        const fd1 = new FormData()
-        fd1.append('file', file)
-        const fd2 = new FormData()
-        fd2.append('file', file)
-        const fd3 = new FormData()
-        fd3.append('file', file)
-
-        const [analysisRes, budgetRes, donorRes] = await Promise.all([
-          analyzeKasszaRows(fd1, sheetName),
-          resolveBudgetCodes(fd2, sheetName),
-          resolveDonors(fd3, sheetName),
-        ])
-
-        if (analysisRes.error) {
-          toast.error(analysisRes.error)
-          return
-        }
-        if (budgetRes.error) {
-          toast.error(budgetRes.error)
-          return
-        }
-        if (donorRes.error) {
-          toast.error(donorRes.error)
-          return
-        }
-
-        // XML-overlay: ha van bevételek-XML referencia, a bevétel-sorokra rávetítjük
-        // a PONTOS „Befizetett év"-et + hivatalos iratszámot (több-éves hátralék helyes
-        // besorolása). Csak pontosít — hiba esetén az import a fájl szerint megy tovább.
+        // Bevételek-XML referencia EGYSZER (ha van) — forrásonként a bevétel-sorokra vetítjük.
+        let xmlRows: Parameters<typeof applyXmlOverlay>[1] | null = null
         if (xmlFile) {
           const xmlFd = new FormData()
           xmlFd.append('xmlFile', xmlFile)
           const xmlRes = await parseXmlReference(xmlFd)
-          if (xmlRes.error) {
-            toast.warning(`XML-referencia kihagyva: ${xmlRes.error}`)
-          } else if (xmlRes.rows && analysisRes.rows) {
-            const incomeRows = analysisRes.rows.filter((r) => r.kind === 'income')
-            const overlay = applyXmlOverlay(incomeRows, xmlRes.rows)
-            for (const row of analysisRes.rows) {
+          if (xmlRes.error) toast.warning(`XML-referencia kihagyva: ${xmlRes.error}`)
+          else xmlRows = xmlRes.rows ?? null
+        }
+
+        const allRows: ClassifiedKasszaRow[] = []
+        const allBudget: BudgetCodeResolution[] = []
+        const allDonors: DonorResolution[] = []
+        let xmlMatched = 0
+
+        for (const u of unitsToProcess) {
+          const fd1 = new FormData()
+          fd1.append('file', file)
+          const fd2 = new FormData()
+          fd2.append('file', file)
+          const fd3 = new FormData()
+          fd3.append('file', file)
+          const [analysisRes, budgetRes, donorRes] = await Promise.all([
+            analyzeKasszaRows(fd1, u.sheetName),
+            resolveBudgetCodes(fd2, u.sheetName),
+            resolveDonors(fd3, u.sheetName),
+          ])
+          if (analysisRes.error || budgetRes.error || donorRes.error) {
+            toast.error(
+              `„${u.label}" elemzése sikertelen: ${analysisRes.error || budgetRes.error || donorRes.error}`,
+            )
+            return
+          }
+
+          const rows = analysisRes.rows || []
+          // XML-overlay erre a forrásra (a saját, lap-helyi rowIndex-ekkel).
+          if (xmlRows) {
+            const incomeRows = rows.filter((r) => r.kind === 'income')
+            const overlay = applyXmlOverlay(incomeRows, xmlRows)
+            for (const row of rows) {
               const m = overlay.byRowIndex.get(row.rowIndex)
               if (m) {
                 row.fizetettevOverride = m.fizetettev
                 row.iratszamHivatalos = m.iratszamHivatalos
               }
             }
-            toast.success(
-              `XML-referencia: ${overlay.matchedCount} bevétel pontosítva (Befizetett év + iratszám).`,
-            )
+            xmlMatched += overlay.matchedCount
           }
+          // Minden sort a SAJÁT forrásához kötünk + globálisan egyedi rowIndex.
+          for (const r of rows) {
+            r.bankszamlaId = u.bankszamlaId
+            r.rowIndex = allRows.length
+            allRows.push(r)
+          }
+          for (const b of budgetRes.resolutions || []) allBudget.push(b)
+          for (const d of donorRes.resolutions || []) allDonors.push(d)
         }
 
-        setKasszaAnalysis(analysisRes)
-        setBudgetCodeResolutions(budgetRes.resolutions || [])
-        const donorResolutions = donorRes.resolutions || []
+        if (xmlRows) toast.success(`XML-referencia: ${xmlMatched} bevétel pontosítva.`)
+
+        // Dedup: kód rawKod szerint, donor raw szerint (egy gyülekezetre azonos a feloldás).
+        const budgetMap = new Map<string, BudgetCodeResolution>()
+        for (const b of allBudget) if (!budgetMap.has(b.rawKod)) budgetMap.set(b.rawKod, b)
+        const donorMap = new Map<string, DonorResolution>()
+        for (const d of allDonors) if (!donorMap.has(d.raw)) donorMap.set(d.raw, d)
+        const donorResolutions = [...donorMap.values()]
+
+        // Kombinált statisztika (kind szerinti darabszámok).
+        const stats = {
+          income: 0,
+          expense: 0,
+          internalTransferIn: 0,
+          internalTransferOut: 0,
+          skip: 0,
+          total: allRows.length,
+        }
+        for (const r of allRows) {
+          if (r.kind === 'income') stats.income++
+          else if (r.kind === 'expense') stats.expense++
+          else if (r.kind === 'internal-transfer-in') stats.internalTransferIn++
+          else if (r.kind === 'internal-transfer-out') stats.internalTransferOut++
+          else stats.skip++
+        }
+
+        setKasszaAnalysis({ success: true, rows: allRows, stats })
+        setBudgetCodeResolutions([...budgetMap.values()])
         setDonorResolutions(donorResolutions)
 
-        // B1 — „1×/év" kizárásos auto-elosztás (bipartite matching elv): egy tag legfeljebb
-        // EGY egyházfenntartáshoz rendelhető. Kizárjuk a már egyértelműen feloldott (resolved)
-        // egyházfenntartás-befizetők személyeit is, hogy ne keletkezzen ütközés.
+        // B1 — „1×/év" auto-elosztás (egyházfenntartás) a kombinált donor-halmazon.
         const EGYHF = '101.01'
         const egyhfRaws = new Set<string>()
-        for (const r of analysisRes.rows || []) {
+        for (const r of allRows) {
           if (r.budgetCode === EGYHF && r.donorString) egyhfRaws.add(r.donorString)
         }
         const preTakenPersonIds = new Set<string>()
@@ -229,34 +260,30 @@ export function PenzugyImportWizard() {
           setAutoDistributedDonors(dist.autoSet)
         }
 
-        // Monetar (készpénz-leltár) diagnosztika — CSAK a Kassza (készpénz) lapnál.
-        // Bankszámla-importnál (bankszamlaId != null) nincs Monetar fül.
-        if (bankszamlaId == null) {
-          const totalIncome = (analysisRes.rows || [])
+        // Monetar (készpénz-leltár) diagnosztika — a Kassza (készpénz) sorokra.
+        if (unitsToProcess.some((u) => u.bankszamlaId == null)) {
+          const cashRows = allRows.filter((r) => r.bankszamlaId == null)
+          const totalIncome = cashRows
             .filter((r) => r.kind === 'income')
             .reduce((s, r) => s + (r.amount ?? 0), 0)
-          const totalExpense = (analysisRes.rows || [])
+          const totalExpense = cashRows
             .filter((r) => r.kind === 'expense')
             .reduce((s, r) => s + (r.amount ?? 0), 0)
-          const opening = (analysisRes.rows || []).find(
+          const opening = cashRows.find(
             (r) =>
               r.kind === 'skip' &&
               typeof r.donorString === 'string' &&
               /Előző évi/i.test(r.donorString),
           )
-          const nyitoEgyenleg = opening?.amount ?? 0
-
           const fdMon = new FormData()
           fdMon.append('file', file)
           const monetarRes = await getMonetarDiagnostic(
             fdMon,
             totalIncome,
             totalExpense,
-            nyitoEgyenleg,
+            opening?.amount ?? 0,
           )
-          if (monetarRes.diagnostic) {
-            setMonetarDiagnostic(monetarRes.diagnostic)
-          }
+          if (monetarRes.diagnostic) setMonetarDiagnostic(monetarRes.diagnostic)
         }
       })
     },
@@ -282,39 +309,67 @@ export function PenzugyImportWizard() {
       const kassza = allSheets.find((s) => s.isKasszaSheet)
       const banks = ledgers.filter((s) => s.isBankSheet)
 
-      // Ha van adatos bankszámla-lap (A–F), a felhasználó válasszon forrást.
+      // Ha van adatos bankszámla-lap (A–F), a felhasználó rendelje hozzá a számlákat.
       if (banks.length > 0) {
         setLedgerSheets(ledgers)
-        setSelectedSheet(kassza?.sheetName ?? ledgers[0]?.sheetName ?? null)
-        setSelectedBankszamlaId(null)
+        setSheetBankMap({})
         const bs = await listBankszamlakForImport()
         setBankszamlak(bs.data || [])
         setStage('source')
         return
       }
 
-      // Csak Kassza (nincs bank-lap adattal) → egyből áttekintés.
+      // Csak Kassza (nincs bank-lap adattal) → egyből áttekintés (egyetlen forrás).
       if (!kassza) {
         toast.error('A fájlban nincs "Kassza" nevű munkalap.')
         return
       }
-      doReview(kassza.sheetName, null, kassza)
+      doReviewAll([
+        {
+          sheetName: kassza.sheetName,
+          bankszamlaId: null,
+          label: 'Kassza (készpénz)',
+          opening: kassza.openingBalance ?? null,
+          closing: kassza.closingBalance ?? null,
+          headers: kassza.headers || [],
+        },
+      ])
     })
-  }, [file, doReview])
+  }, [file, doReviewAll])
 
-  // A forrás-választó „Tovább" gombja
+  // A forrás-hozzárendelő „Az összes beolvasása" gombja → kötegelt elemzés.
   const handleSourceContinue = useCallback(() => {
-    const sheet = ledgerSheets.find((s) => s.sheetName === selectedSheet)
-    if (!sheet) {
-      toast.error('Válassz egy forrást (Kassza vagy bankszámla).')
+    const kassza = ledgerSheets.find((s) => s.isKasszaSheet)
+    const units: LedgerUnit[] = []
+    if (kassza) {
+      units.push({
+        sheetName: kassza.sheetName,
+        bankszamlaId: null,
+        label: 'Kassza (készpénz)',
+        opening: kassza.openingBalance ?? null,
+        closing: kassza.closingBalance ?? null,
+        headers: kassza.headers || [],
+      })
+    }
+    for (const b of ledgerSheets.filter((s) => s.isBankSheet)) {
+      const bankId = sheetBankMap[b.sheetName] ?? null
+      if (bankId == null) continue // nincs hozzárendelve → kihagyjuk
+      const bankName = bankszamlak.find((x) => x.id === bankId)?.bank_neve ?? b.sheetName
+      units.push({
+        sheetName: b.sheetName,
+        bankszamlaId: bankId,
+        label: `Bank — ${bankName}`,
+        opening: b.openingBalance ?? null,
+        closing: b.closingBalance ?? null,
+        headers: b.headers || [],
+      })
+    }
+    if (units.length === 0) {
+      toast.error('Nincs beolvasható forrás.')
       return
     }
-    if (sheet.isBankSheet && selectedBankszamlaId == null) {
-      toast.error('Válaszd ki, melyik bankszámládhoz tartozik ez a lap.')
-      return
-    }
-    doReview(sheet.sheetName, sheet.isBankSheet ? selectedBankszamlaId : null, sheet)
-  }, [ledgerSheets, selectedSheet, selectedBankszamlaId, doReview])
+    doReviewAll(units)
+  }, [ledgerSheets, sheetBankMap, bankszamlak, doReviewAll])
 
   // ─── Felhasználói döntések ───────────────────────────────────────────
   const handleSkipCodeToggle = useCallback((rawKod: string) => {
@@ -344,8 +399,7 @@ export function PenzugyImportWizard() {
       donorResolutions,
       manualPersonSelections,
       skippedCodes,
-      // Bankszámla-import esetén a tételek a kiválasztott bankszámlához kötődnek.
-      bankszamlaId: selectedBankszamlaId,
+      // A bankszámla soronként van megjelölve (row.bankszamlaId) — kötegelt import.
     })
   }, [
     kasszaAnalysis,
@@ -353,41 +407,49 @@ export function PenzugyImportWizard() {
     donorResolutions,
     manualPersonSelections,
     skippedCodes,
-    selectedBankszamlaId,
   ])
 
-  // ─── Végösszegek a fájlból (a számla egyenlegével való összevetéshez) ──
-  // A kiválasztott forrás (Kassza vagy bankszámla) bevétel/kiadás összege,
-  // a belső mozgásokat is beleértve (a záró egyenleg ezekből jön ki).
-  const importTotals = useMemo(() => {
-    const sumRows = (rows: Array<{ kind: string; amount?: number }>) => {
+  // ─── Per-forrás összegzés (Kassza + minden bankszámla külön) ──────────
+  const perUnit = useMemo(() => {
+    const rows = kasszaAnalysis?.rows || []
+    return units.map((u) => {
+      const uRows = rows.filter((r) => (r.bankszamlaId ?? null) === u.bankszamlaId)
       let bev = 0
       let kia = 0
-      for (const r of rows) {
-        if (typeof r.amount !== 'number') continue
-        if (r.kind === 'income' || r.kind === 'internal-transfer-in') bev += r.amount
-        else if (r.kind === 'expense' || r.kind === 'internal-transfer-out') kia += r.amount
+      let internalIn = 0
+      let internalOut = 0
+      for (const r of uRows) {
+        const a = typeof r.amount === 'number' ? r.amount : 0
+        if (r.kind === 'income' || r.kind === 'internal-transfer-in') bev += a
+        else if (r.kind === 'expense' || r.kind === 'internal-transfer-out') kia += a
+        if (r.kind === 'internal-transfer-in') internalIn += a
+        else if (r.kind === 'internal-transfer-out') internalOut += a
       }
-      return { bev, kia }
-    }
-    const totals = kasszaAnalysis?.rows ? sumRows(kasszaAnalysis.rows) : { bev: 0, kia: 0 }
-    const bankName =
-      selectedBankszamlaId != null
-        ? bankszamlak.find((b) => b.id === selectedBankszamlaId)?.bank_neve
-        : null
-    const label =
-      selectedBankszamlaId != null
-        ? `Bankszámla${bankName ? ` — ${bankName}` : selectedSheet ? ` — „${selectedSheet}" lap` : ''}`
-        : 'Kassza (készpénz)'
-    const rows: SheetTotals[] = [{ label, ...totals }]
-    return { rows, grand: totals }
-  }, [kasszaAnalysis, selectedBankszamlaId, bankszamlak, selectedSheet])
+      return { unit: u, bev, kia, internalIn, internalOut }
+    })
+  }, [kasszaAnalysis, units])
 
-  // ─── Belső mozgások (kassza ↔ bank): láthatóság + „lemaradt jelzés" figyelmeztető ──
-  const internalMovements = useMemo(() => {
+  // ImportTotalsPanel: forrásonként egy sor + összesítés.
+  const importTotals = useMemo(() => {
+    const rows: SheetTotals[] = perUnit.map((p) => ({ label: p.unit.label, bev: p.bev, kia: p.kia }))
+    const grand = rows.reduce(
+      (g, r) => ({ bev: g.bev + r.bev, kia: g.kia + r.kia }),
+      { bev: 0, kia: 0 },
+    )
+    return { rows, grand }
+  }, [perUnit])
+
+  // ─── Belső mozgás KERESZT-ELLENŐRZÉS — a pénz nem veszhet el ──────────
+  // Az összes forráson Σ kimenő belső mozgás == Σ bejövő (minden átvezetés mindkét
+  // főkönyvben szerepel). Ha eltér → hiányzik az egyik fél (pl. nem importált bank-lap).
+  const internalCheck = useMemo(() => {
     const rows = kasszaAnalysis?.rows || []
     const transfersIn = rows.filter((r) => r.kind === 'internal-transfer-in')
     const transfersOut = rows.filter((r) => r.kind === 'internal-transfer-out')
+    const sumAmt = (rs: ClassifiedKasszaRow[]) => rs.reduce((s, r) => s + (r.amount ?? 0), 0)
+    const totalIn = sumAmt(transfersIn)
+    const totalOut = sumAmt(transfersOut)
+    const diff = Math.round((totalOut - totalIn) * 100) / 100
     // Belső mozgásnak TŰNŐ, de bevétel/kiadásként osztályozott sorok (hiányzó/téves kód).
     const suspected = rows.filter(
       (r) =>
@@ -396,15 +458,8 @@ export function PenzugyImportWizard() {
           looksLikeInternalMovement(r.celNev) ||
           looksLikeInternalMovement(r.megjegyzes)),
     )
-    return { transfersIn, transfersOut, suspected }
+    return { transfersIn, transfersOut, totalIn, totalOut, diff, balanced: Math.abs(diff) < 0.01, suspected }
   }, [kasszaAnalysis])
-
-  // A belső mozgás párját adó másik főkönyv (a fájl többi főkönyvi lapja).
-  const counterpartHint = useMemo(() => {
-    const others = ledgerSheets.filter((s) => s.sheetName !== selectedSheet)
-    if (others.length === 0) return null
-    return others.map((s) => (s.isBankSheet ? `Bank „${s.sheetName}"` : 'Kassza')).join(', ')
-  }, [ledgerSheets, selectedSheet])
 
   // ─── Lépés 2 → 3: import végrehajtása ─────────────────────────────────
   const handleConfirmImport = useCallback(() => {
@@ -424,27 +479,31 @@ export function PenzugyImportWizard() {
     }
     const topYear = [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
     const eve = topYear ? Number(topYear) : null
-    const opening = kasszaBalances?.opening ?? null
-    const isBankImport = selectedBankszamlaId != null
-    // KÉSZPÉNZ-importnál a készpénz-nyitót adjuk át az importnak; bank-importnál nem
-    // (a bank-nyitót külön, a bankszámla-nyitó táblába rögzítjük az import után).
+
+    // Készpénz (Kassza) nyitó — a Kassza forrás nyitója; bank nyitók külön táblába.
+    const cashUnit = units.find((u) => u.bankszamlaId == null)
     const keszpenzNyito =
-      !isBankImport && eve != null && opening != null ? { eve, nyito: opening } : null
+      eve != null && cashUnit?.opening != null ? { eve, nyito: cashUnit.opening } : null
+    const bankNyitok = units.filter((u) => u.bankszamlaId != null && u.opening != null)
 
     startImporting(async () => {
+      // Egyetlen RPC — a tételek a SAJÁT bankszamla_id-jükkel kerülnek a helyükre
+      // (Kassza = null, bankszámla = az adott id). Idempotens dedup védi a dupla-futást.
       const result = await executeFinanceImport(builtItems.items, fileName, keszpenzNyito)
 
-      // Bank-import: a bankszámla éves nyitó egyenlegének rögzítése (forrasa='import').
-      if (isBankImport && !result.error && eve != null && opening != null) {
-        try {
-          await upsertBankszamlaNyitoEgyenleg({
-            bankszamla_id: selectedBankszamlaId as number,
-            eve,
-            nyito_egyenleg_valuta: opening,
-            forrasa: 'import',
-          })
-        } catch {
-          // best-effort — az import attól még sikeres
+      // Minden importált bankszámla éves nyitójának rögzítése (forrasa='import').
+      if (!result.error && eve != null) {
+        for (const u of bankNyitok) {
+          try {
+            await upsertBankszamlaNyitoEgyenleg({
+              bankszamla_id: u.bankszamlaId as number,
+              eve,
+              nyito_egyenleg_valuta: u.opening as number,
+              forrasa: 'import',
+            })
+          } catch {
+            // best-effort — az import attól még sikeres
+          }
         }
       }
 
@@ -456,7 +515,7 @@ export function PenzugyImportWizard() {
         toast.success(`Sikeresen mentve: ${result.inserted} tétel.`)
       }
     })
-  }, [builtItems.items, file, kasszaAnalysis, kasszaBalances, selectedBankszamlaId])
+  }, [builtItems.items, file, kasszaAnalysis, units])
 
   const currentStep: 1 | 2 | 3 =
     stage === 'welcome' || stage === 'source' ? 1 : stage === 'result' ? 3 : 2
@@ -479,16 +538,13 @@ export function PenzugyImportWizard() {
       )}
 
       {stage === 'source' && (
-        <SourceSelectStep
+        <MultiSourceMapStep
           sheets={ledgerSheets}
           bankszamlak={bankszamlak}
-          selectedSheet={selectedSheet}
-          onSelectSheet={(name) => {
-            setSelectedSheet(name)
-            setSelectedBankszamlaId(null)
-          }}
-          selectedBankszamlaId={selectedBankszamlaId}
-          onSelectBankszamla={setSelectedBankszamlaId}
+          sheetBankMap={sheetBankMap}
+          onSetMapping={(name, id) =>
+            setSheetBankMap((prev) => ({ ...prev, [name]: id }))
+          }
           onContinue={handleSourceContinue}
           onBack={() => setStage('welcome')}
           isLoading={isLoadingReview}
@@ -503,22 +559,30 @@ export function PenzugyImportWizard() {
         <ImportTotalsPanel totals={importTotals.rows} grand={importTotals.grand} />
       )}
 
-      {stage === 'review' && !isLoadingReview && kasszaAnalysis && kasszaBalances && (
-        <BalanceSummaryCard
-          opening={kasszaBalances.opening}
-          closing={kasszaBalances.closing}
-          incoming={importTotals.grand.bev}
-          outgoing={importTotals.grand.kia}
-        />
-      )}
+      {stage === 'review' &&
+        !isLoadingReview &&
+        kasszaAnalysis &&
+        perUnit.map((p) => (
+          <BalanceSummaryCard
+            key={p.unit.bankszamlaId ?? 'kassza'}
+            title={`Egyenleg-levezetés — ${p.unit.label}`}
+            opening={p.unit.opening}
+            closing={p.unit.closing}
+            incoming={p.bev}
+            outgoing={p.kia}
+          />
+        ))}
 
       {stage === 'review' && !isLoadingReview && kasszaAnalysis && (
         <InternalMovementsPanel
-          transfersIn={internalMovements.transfersIn}
-          transfersOut={internalMovements.transfersOut}
-          suspected={internalMovements.suspected}
-          isBankSource={selectedBankszamlaId != null}
-          counterpartHint={counterpartHint}
+          transfersIn={internalCheck.transfersIn}
+          transfersOut={internalCheck.transfersOut}
+          suspected={internalCheck.suspected}
+          balanced={internalCheck.balanced}
+          diff={internalCheck.diff}
+          totalIn={internalCheck.totalIn}
+          totalOut={internalCheck.totalOut}
+          multiSource={units.length > 1}
         />
       )}
 

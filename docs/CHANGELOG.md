@@ -41,6 +41,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   (készpénz vagy bankszámla), és bankszámlánál megadod, **melyik számládhoz** tartozik a lap — a tételek
   (bevétel/kiadás) a megfelelő **bankszámlához** könyvelődnek, a bankszámla **nyitó egyenlegével** együtt.
   Ugyanaz az ellenőrzött oszlop-egyeztetés, párosítás és egyenleg-levezetés, mint a Kasszánál.
+- **Egylépéses kötegelt import: Kassza + az összes bankszámla egyszerre.** A fájl feltöltése után
+  hozzárendeled a bankszámla-lapokat a számláidhoz, és a rendszer **egyben beolvassa** a készpénzt és
+  minden bankszámlát. Az áttekintő **forrásonként** mutatja a végösszegeket és az egyenleg-levezetést,
+  majd egyetlen **„Import" gomb** mindent a helyére tesz (minden tétel a saját számlájára). A végén
+  **belső-mozgás kereszt-ellenőrzés**: a rendszer ellenőrzi, hogy a kassza↔bank átvezetések kimenő és
+  bejövő oldala pontosan egyezik-e (✓ a pénz nem veszett el / ⚠ ha hiányzik egy bankszámla párja).
 - **Belső mozgások (kassza ↔ bank) láthatósága + biztonsági figyelmeztetés.** Az áttekintő mostantól
   külön kiemeli a **belső pénzmozgásokat** (pl. készpénz bankba tétele, ATM-felvét), amelyek mindkét
   főkönyvben szerepelnek (kiadás az egyikben, bevétel a másikban). A rendszer emlékeztet: **a párját — a
