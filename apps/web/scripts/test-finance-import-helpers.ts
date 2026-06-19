@@ -28,6 +28,7 @@ import { shouldResolvePerson, personScope } from '../lib/import/person-scope-con
 import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xml-overlay'
 import { detectKasszaColumns } from '../components/finance/finance-import/helpers/kassza-column-mapping'
 import { dateToLocalIso, toLocalIsoDate } from '../lib/import/date-utils'
+import { normalizeForSearch, tokenize, personSearchScore } from '../lib/import/person-search-match'
 import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
 import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
@@ -563,6 +564,39 @@ console.log('\n=== 10. Dátum időzóna-biztosság ===\n')
   // string formátumok
   expect('string 2025/01/01 → 2025-01-01', toLocalIsoDate('2025/01/01'), '2025-01-01')
   expect('string 2025-01-01 → 2025-01-01', toLocalIsoDate('2025-01-01'), '2025-01-01')
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 11. Kézi tag-kereső illesztés (ékezet- és pozíció-független, lánykori/férjezett/cím)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 11. Kézi tag-kereső illesztés ===\n')
+
+{
+  // Ékezet-csupaszítás
+  expect('normalizeForSearch Tímea → timea', normalizeForSearch('Tímea'), 'timea')
+  expect('normalizeForSearch Kővári → kovari', normalizeForSearch('Kővári'), 'kovari')
+  expect('tokenize "Beder Csilla Timea"', tokenize('Beder  Csilla Timea'), ['beder', 'csilla', 'timea'])
+
+  // KULCS-ESET: a lány férjhez ment — Beder Csilla Tímea → Kovács Csilla Tímea (szül. Beder).
+  // A régi (lánykori) néven, ékezet nélkül beírt keresés is megtalálja.
+  const kovacs = {
+    nameParts: ['Kovács', 'Csilla Tímea', 'Beder', null], // csaladnev, k_nev, szcs_nev, ferjk_nev
+    addressParts: ['Templom', '235', 'tanár'],
+  }
+  expectTrue('"Beder Csilla Timea" (ékezet nélkül) → találat a lánykori néven', personSearchScore(kovacs, tokenize('Beder Csilla Timea')) !== null)
+  expectTrue('csak keresztnév "csilla" → találat', personSearchScore(kovacs, tokenize('csilla')) !== null)
+  expectTrue('csak lánykori "beder" → találat', personSearchScore(kovacs, tokenize('beder')) !== null)
+  expectTrue('férjezett vezetéknév "kovacs" → találat', personSearchScore(kovacs, tokenize('kovacs')) !== null)
+  expectTrue('ékezetes "tímea" → találat', personSearchScore(kovacs, tokenize('tímea')) !== null)
+  expectTrue('lakcím "templom 235" → találat', personSearchScore(kovacs, tokenize('templom 235')) !== null)
+  expectTrue('foglalkozás "tanár" → találat', personSearchScore(kovacs, tokenize('tanár')) !== null)
+  expect('nincs egyezés "xyz" → null', personSearchScore(kovacs, tokenize('xyz')), null)
+  expect('részleges "beder szabolcs" (szabolcs nincs) → null', personSearchScore(kovacs, tokenize('beder szabolcs')), null)
+
+  // A névtalálat többet ér a cím-találatnál (rendezéshez)
+  const sName = personSearchScore(kovacs, tokenize('beder')) ?? 0
+  const sAddr = personSearchScore(kovacs, tokenize('templom')) ?? 0
+  expectTrue('névtalálat pontszáma ≥ cím-találaté', sName >= sAddr)
 }
 
 // ════════════════════════════════════════════════════════════════════════

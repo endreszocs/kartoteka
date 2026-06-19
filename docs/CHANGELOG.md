@@ -40,9 +40,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
   így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet
   eltérő táblázata), feltűnő figyelmeztetést kapsz. Így a rendszer **soha nem dolgozik vakon rossz oszloppal**.
-- **Kézi tag-keresés az áttekintőben.** Ahol a rendszer nem találta meg a befizetőt (személy-köthető
-  kategóriában), vagy több azonos nevű illett rá, az áttekintőben **rákereshetsz** a tagra (családnév /
-  keresztnév / lánykori név) és egy kattintással összekötheted — nem kell vakon hagyni vagy találgatni.
+- **Kézi tag-keresés az áttekintőben — bármilyen névrésszel, ékezet nélkül is.** Ahol a rendszer nem
+  találta meg a befizetőt, vagy több azonos nevű illett rá, az áttekintőben **rákereshetsz** a tagra.
+  **Mindegy, mit írsz be:** keres a **keresztnévre, vezetéknévre, lánykori ÉS férjezett névre**, sőt a
+  **lakcímre** is — és **nem érzékeny az ékezetekre** (a „Timea" megtalálja a „Tímeát"). Így ha egy nő
+  férjhez ment és megváltozott a neve (pl. **Beder Csilla Tímea → Kovács Csilla Tímea**), a régi, lánykori
+  néven keresve is megtalálod. A találatoknál **kiemelve látszik a lánykori név** (pl. „szül. Beder"),
+  a lakcím, a születési dátum, az életkor és a foglalkozás — hogy biztosan a megfelelő tagot válaszd.
 - **Részletesebb egyeztetés.** Az egyeztető kártyákon mostantól látod az adott befizető **tételeit**
   is — melyik **évre** szól, mennyi, melyik nyugta, milyen kategória —, így teljes képből döntesz. A
   „kétszer fizetne" figyelmeztetés is áttekinthetőbb: minden ütköző befizető külön sorban, a **címével**.

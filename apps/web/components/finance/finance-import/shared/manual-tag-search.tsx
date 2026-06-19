@@ -31,7 +31,9 @@ interface ManualTagSearchProps {
 
 function personLabel(p: CandidatePerson): string {
   const base = [p.csaladnev, p.k_nev].filter(Boolean).join(' ').trim() || '(névtelen)'
-  const maiden = p.szcs_nev ? ` (sz: ${p.szcs_nev})` : ''
+  // A lánykori (születési) nevet csak akkor írjuk ki, ha eltér a jelenlegi vezetéknévtől
+  // (pl. férjhez ment: Kovács Csilla Tímea → szül. Beder).
+  const maiden = p.szcs_nev && p.szcs_nev !== p.csaladnev ? ` (szül. ${p.szcs_nev})` : ''
   return `${base}${maiden}`
 }
 
@@ -135,7 +137,7 @@ export function ManualTagSearch({ initialQuery, currentId, onPick, onClear }: Ma
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Keresés családnév, keresztnév, lánykori név alapján…"
+          placeholder="Keresés: bármilyen név (kereszt-, lánykori, férjezett) vagy lakcím…"
           className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-200"
           autoFocus
         />
@@ -176,12 +178,14 @@ export function ManualTagSearch({ initialQuery, currentId, onPick, onClear }: Ma
                     isCurrent ? 'bg-teal-50' : ''
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-xs">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                     <span className={isCurrent ? 'font-semibold text-teal-800' : 'font-medium text-slate-800'}>
                       {fullName}
                     </span>
-                    {p.szcs_nev && (
-                      <span className="text-[10px] text-slate-400">sz: {p.szcs_nev}</span>
+                    {p.szcs_nev && p.szcs_nev !== p.csaladnev && (
+                      <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                        szül. {p.szcs_nev}
+                      </span>
                     )}
                     {isCurrent && <Check className="ml-auto size-3.5 shrink-0 text-teal-600" />}
                   </span>
