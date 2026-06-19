@@ -41,6 +41,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   (készpénz vagy bankszámla), és bankszámlánál megadod, **melyik számládhoz** tartozik a lap — a tételek
   (bevétel/kiadás) a megfelelő **bankszámlához** könyvelődnek, a bankszámla **nyitó egyenlegével** együtt.
   Ugyanaz az ellenőrzött oszlop-egyeztetés, párosítás és egyenleg-levezetés, mint a Kasszánál.
+- **Év-választó a Pénzügy hero-ban — visszamenőleg is.** A Pénzügy fejlécében mostantól egy jól látható
+  **év-választóval** bármelyik (akár korábbi) évre válthatsz, és az **összes fül** (Áttekintés, Kassza,
+  Bank, Tranzakciók, Számadás…) **arra az évre** mutatja az adatokat. Így az importált korábbi évek
+  (pl. a 2025-ös könyvelés) azonnal láthatók — nem csak a tárgyév.
 - **Egylépéses kötegelt import: Kassza + az összes bankszámla egyszerre.** A fájl feltöltése után
   hozzárendeled a bankszámla-lapokat a számláidhoz, és a rendszer **egyben beolvassa** a készpénzt és
   minden bankszámlát. Az áttekintő **forrásonként** mutatja a végösszegeket és az egyenleg-levezetést,

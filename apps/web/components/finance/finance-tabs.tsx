@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, Building2, CalendarRange, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, Printer, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
+import { FinanceYearSelector } from './finance-year-selector'
 import { CashbookTab } from './cashbook-tab'
 import { BankTab } from './bank-tab'
 import { BudgetTab } from './budget-tab'
@@ -258,10 +259,7 @@ export function FinanceTabs({
                 <Building2 className="size-3.5 text-teal-600" />
                 {congregationName}
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
-                <CalendarRange className="size-3.5" />
-                {currentYear}. költségvetési év
-              </span>
+              <FinanceYearSelector currentYear={currentYear} />
               <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
                 <Wallet className="size-3.5" />
                 Tartozásszámítás: {debtModeLabel}

@@ -6,7 +6,11 @@ import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { ensureDioceseBealitasForYear } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 
-export default async function PenzugyPage() {
+export default async function PenzugyPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ year?: string }>
+}) {
   const access = await getEffectiveAccessContext()
   if (!access.user) return null
 
@@ -31,8 +35,16 @@ export default async function PenzugyPage() {
     })
   }
 
-  const currentYear = new Date().getFullYear()
-  let data = await initFinance(currentYear)
+  // A megjelenített év a `?year=` URL-paraméterből (hero-beli év-választó); ha nincs
+  // vagy érvénytelen, az aktuális év. Így visszamenőleg is megnézhető bármely év.
+  const params = (await searchParams) || {}
+  const realYear = new Date().getFullYear()
+  const parsedYear = Number(params.year)
+  const selectedYear =
+    Number.isInteger(parsedYear) && parsedYear >= 2000 && parsedYear <= realYear + 1
+      ? parsedYear
+      : realYear
+  let data = await initFinance(selectedYear)
 
   if (!data) {
     return (
@@ -48,7 +60,7 @@ export default async function PenzugyPage() {
       // Egyházmegyei módban NINCS éves egyházfenntartás beállítás!
       // Automatikusan létrehozunk egy üres `diocese_bealitas` sort az évre,
       // és azonnal újratöltünk — a lelkész nem lát külön dialógust.
-      const ensure = await ensureDioceseBealitasForYear(scopeId, currentYear)
+      const ensure = await ensureDioceseBealitasForYear(scopeId, selectedYear)
       if (ensure.error) {
         return (
           <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">
@@ -57,7 +69,7 @@ export default async function PenzugyPage() {
         )
       }
       // Újratöltjük az adatokat — most már van `settings`
-      data = await initFinance(currentYear)
+      data = await initFinance(selectedYear)
       if (!data || !data.settings) {
         return (
           <div className="bg-white rounded-xl border p-8 text-center text-muted-foreground">
@@ -78,9 +90,9 @@ export default async function PenzugyPage() {
       const deadline = congregationDefaults?.jarulek_hatarid || '07-01'
 
       if (yearlyFee > 0) {
-        const ensure = await createYearlySettings(currentYear, yearlyFee, deadline)
+        const ensure = await createYearlySettings(selectedYear, yearlyFee, deadline)
         if (!ensure.error) {
-          data = await initFinance(currentYear)
+          data = await initFinance(selectedYear)
         }
       }
 
@@ -88,7 +100,7 @@ export default async function PenzugyPage() {
         return (
           <div className="rounded-xl border bg-white p-8 text-center text-muted-foreground">
             <p className="text-lg font-medium text-slate-700">
-              A {currentYear}. évi pénzügyi beállítás nem hozható létre automatikusan.
+              A {selectedYear}. évi pénzügyi beállítás nem hozható létre automatikusan.
             </p>
             <p className="mt-2 text-sm">
               A welcome wizardban rögzített éves járulék vagy fizetési határidő hiányzik,
