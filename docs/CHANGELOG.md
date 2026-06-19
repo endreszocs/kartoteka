@@ -23,6 +23,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-19] — Pénzügyi importáló: pontosabb tag-párosítás, kézi kereső és adomány-előnézet
+<!-- key: 2026-06-19-import-parositas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+A rendszergazdai pénzügyi importálóban (előző évi könyvelés bevezetése) jelentősen javult, ahogyan a
+befizetéseket, adományokat a **már nyilvántartott személyekhez** kötjük. A leggyakoribb panasz az volt,
+hogy az automatikus párosítás nem talált rá a tagra, és nem lehetett kézzel sem javítani — ez most megoldódott.
+
+### ✨ Új funkciók
+
+- **Kézi tag-kereső, ha az automatika nem talál.** Ha egy befizetőhöz a rendszer nem találta meg a tagot
+  (vagy több illik rá), mostantól közvetlenül **rákereshetsz** a tagnyilvántartásban — családnév, keresztnév
+  vagy **lánykori név** alapján —, és egy kattintással összekötheted. (Egyházfenntartás és adomány import egyaránt.)
+- **Adomány-import: ellenőrző lépés a könyvelés előtt.** A saját Excel/CSV adományfájl beolvasásakor most egy
+  **áttekintő képernyő** mutatja, kihez párosult minden tétel — itt javíthatsz, kereshetsz vagy kihagyhatsz
+  sorokat, **mielőtt** bármi bekerülne a könyvelésbe. (Korábban a fel nem ismert befizetők némán, név nélkül kerültek be.)
+
+### 🎨 Fejlesztések — okosabb automatikus párosítás
+
+- **Becenevek felismerése.** Pista=István, Kati=Katalin, Jóska=József, Zsuzsi=Zsuzsanna és sok más gyakori
+  becenév: a becenéven szereplő befizetőt is megtaláljuk a tagok között.
+- **Elgépelés-tűrő javaslatok.** Ha a név csak kicsit tér el (elírás), a rendszer felkínálja a **hasonló nevű**
+  tagokat ellenőrzésre. Ezeket sosem köti össze magától — te döntesz, hogy stimmel-e.
+- **Rugalmasabb cím-egyezés.** A „Főút” és a „Fő út” (és hasonló írásmódbeli eltérések) mostantól ugyanannak
+  számítanak a párosításnál, így kevesebb a fölösleges kézi munka az azonos nevű, de eltérő című tagoknál.
+
+### 🐛 Javítások
+
+- **Nincs többé téves összekötés.** Az importáló nem köt össze befizetést rossz emberhez pusztán azonos
+  keresztnév és cím alapján. Ha bizonytalan, inkább rád bízza a döntést (a „Hasonló név” / „Több tag” jelzéssel).
+- **Tömbös nyugta: nincs adatvesztés.** Ha ugyanazon a nyugtán több személy fizetett **azonos összeget**, most
+  mindegyik tétel bekerül — korábban a második véletlenül „duplikátumként” kimaradhatott.
+
 ## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
 <!-- key: 2026-06-15-oblio-desktop-offline-pdf -->
 <!-- category: feature -->
