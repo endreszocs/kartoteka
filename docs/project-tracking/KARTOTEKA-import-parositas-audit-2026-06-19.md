@@ -191,3 +191,13 @@ A felhasználó „szerződések párosítása" panaszára, a választott **„E
 - **Helyes logika:** elsődleges az `id_szemely` egyezés; a `berlo_nev` csak **fallback**, ha a befizetésnek nincs `id_szemely`-je (vagy a szerződésnek nincs). Így egy befizetés legfeljebb **egyszer** számít. Konkrétan a `calculateRentalDebts` belső ciklusában a két forrás összeadása helyett: ha a befizetésnek van id_szemely-je → csak az id_szemely-ág számítson; különben a név-ág.
 - **FIGYELEM:** ez **megváltoztatja** a megjelenített hátralék-számokat ott, ahol eddig dupla-számítás volt (a hátralék **nőni fog** — pontosabb lesz). Éles váltás előtt érdemes egy **régi vs. új** összevetést mutatni és jóváhagyatni.
 - **Külön, terméki kérdés:** kell-e valódi **szerződés-import** (a 104.04/104.05 sorokból `berleti_szerzodes` létrehozása valódi `id_szemely`-vel)? Ez nagyobb funkció; a fenti dupla-szám fix attól függetlenül is hasznos és önállóan szállítható.
+
+---
+
+## 9. Empirikus eredmények — a diagnosztikai SQL-ek lefutása (2026-06-19, user)
+
+A „ne találgass, igazold az adatból" elv mentén; két tervezett fejlesztés ezáltal **elvetésre került** mint felesleges/kockázatos.
+
+- **Asszonynevek (spouse-bridge, P1-4) → ELVETVE.** 183 háztartásbeli nőből **125 (~68%) a férj családnevén** szerepel → a gyakori eset a mostani párosítással már megtalálható (férj-családnév + keresztnév); a maradékot a lánykori-fallback + a fuzzy réteg fedi. A spouse-bridge megépítése kis haszon, felesleges kockázat.
+- **Import-duplikátumok (idempotens UNIQUE index) → NEM AJÁNLOTT.** **0 ütközés** mindkét kulcson → az app-szintű, immár személy-tudatos dedup egészséges, az idempotencia gyakorlatilag megvan. Egy DB-szintű UNIQUE index marginális haszonért kockázatot vinne (adomány azonos-kulcs/eltérő-`forrasa`, ill. kézi rögzítés téves blokkolása). Marad az app-szintű védelem.
+- **300-as belső-mozgás kód → A JAVÍTÁS IGAZOLT (marad).** A `300.01` (`befizetescel` „Készpénzfelvétel ATM-ből vagy banki számláról a kasszába") **`belsotetel = "300.01"`** — azaz a mérvadó oszlop szerint belső mozgás (Bank→Kassza). A `splitKasszaRow` 30[01]-javítása (commit `eda5237a`) helyes. A prefix-heurisztika (`30[01]` + `4xx`) jelenleg LEFEDI mind az 5 kanonikus belső kódot (300.01/301.01/400.01/401.01/402.02). Opcionális robusztusság: a `belsotetel`-alapú felismerésre váltás (prefix helyett) jövőbeli kódokra is automatikus lenne.
