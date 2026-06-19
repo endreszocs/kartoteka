@@ -66,6 +66,7 @@ import type {
   ResolvedSzemelyCandidate,
   FinanceImportItem,
   FinanceImportResult,
+  BankszamlaOption,
 } from './finance-import-types'
 
 // ════════════════════════════════════════════════════════════════════════
@@ -188,11 +189,17 @@ export async function parseAndPreviewFinance(
 
   const sheets: FinanceSheetPreview[] = workbook.sheets.map((sheet) => {
     const isKasszaSheet = sheet.name.trim().toLowerCase() === 'kassza'
+    // Főkönyv-jellegű lap = van „Dátum" fejléce (a Kassza + az A–F bankszámlák).
+    const hasDateHeader = sheet.headers.some((h) => /d[áa]tum/i.test(h))
+    const isLedgerSheet = hasDateHeader && sheet.rowCount > 0
+    const isBankSheet = isLedgerSheet && !isKasszaSheet
     return {
       sheetName: sheet.name,
       headers: sheet.headers,
       rowCount: sheet.rowCount,
       isKasszaSheet,
+      isLedgerSheet,
+      isBankSheet,
       sampleRows: sheet.rows.slice(0, 5),
       openingBalance: sheet.openingBalance ?? null,
       closingBalance: sheet.closingBalance ?? null,
@@ -250,6 +257,7 @@ export async function parseXmlReference(formData: FormData): Promise<XmlReferenc
 
 export async function analyzeKasszaRows(
   formData: FormData,
+  sheetName?: string,
 ): Promise<KasszaAnalysisResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -258,15 +266,16 @@ export async function analyzeKasszaRows(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
-  // A Kassza sheet keresése
+  // A választott főkönyvi lap (Kassza vagy A–F bankszámla) keresése
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
   if (kasszaSheet.warning) {
-    return { error: `A Kassza fül problémás: ${kasszaSheet.warning}` }
+    return { error: `A(z) "${sheetName || 'Kassza'}" fül problémás: ${kasszaSheet.warning}` }
   }
 
   return analyzeKasszaSheet(kasszaSheet)
@@ -426,6 +435,7 @@ function analyzeKasszaSheet(kasszaSheet: ParsedSheet): KasszaAnalysisResult {
 
 export async function resolveBudgetCodes(
   formData: FormData,
+  sheetName?: string,
 ): Promise<BudgetCodeResolutionResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -434,11 +444,12 @@ export async function resolveBudgetCodes(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
 
   // Kódok kigyűjtése
@@ -519,6 +530,7 @@ export async function resolveBudgetCodes(
 
 export async function resolveDonors(
   formData: FormData,
+  sheetName?: string,
 ): Promise<DonorResolutionResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -527,11 +539,12 @@ export async function resolveDonors(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
 
   // Egyedi donor-stringek kigyűjtése + occurrence-szám
@@ -719,6 +732,26 @@ export async function getMonetarDiagnostic(
   )
 
   return { success: true, diagnostic }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 5b. listBankszamlakForImport — a gyülekezet aktív bankszámlái (forrás-választóhoz)
+// ════════════════════════════════════════════════════════════════════════
+
+export async function listBankszamlakForImport(): Promise<{
+  data?: BankszamlaOption[]
+  error?: string
+}> {
+  const auth = await requireFinanceImportAccess()
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await auth.access.supabase
+    .from('bankszamlak')
+    .select('id, bank_neve, iban, valuta')
+    .eq('congregation_id', auth.congregationId)
+    .eq('aktiv', true)
+    .order('bank_neve')
+  if (error) return { error: `Bankszámlák lekérése sikertelen: ${error.message}` }
+  return { data: (data || []) as BankszamlaOption[] }
 }
 
 // ════════════════════════════════════════════════════════════════════════

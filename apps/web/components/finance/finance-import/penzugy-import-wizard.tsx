@@ -26,15 +26,20 @@ import {
   resolveDonors,
   getMonetarDiagnostic,
   executeFinanceImport,
+  listBankszamlakForImport,
 } from '@/app/(dashboard)/penzugy/finance-import-actions'
+import { upsertBankszamlaNyitoEgyenleg } from '@/app/(dashboard)/penzugy/bank-nyito-egyenleg-actions'
 import type {
   KasszaAnalysisResult,
   BudgetCodeResolution,
   DonorResolution,
   FinanceImportResult,
+  FinanceSheetPreview,
+  BankszamlaOption,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
 
 import { WelcomeStep } from './steps/welcome-step'
+import { SourceSelectStep } from './steps/source-select-step'
 import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
@@ -47,13 +52,18 @@ import { applyXmlOverlay } from './helpers/xml-overlay'
 import { distributeAmbiguousDonors } from './helpers/donor-distribution'
 import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
 
-type WizardStage = 'welcome' | 'review' | 'importing' | 'result'
+type WizardStage = 'welcome' | 'source' | 'review' | 'importing' | 'result'
 
 export function PenzugyImportWizard() {
   const [stage, setStage] = useState<WizardStage>('welcome')
   const [file, setFile] = useState<File | null>(null)
   // Opcionális bevételek-XML referencia (Befizetett év + hivatalos iratszám).
   const [xmlFile, setXmlFile] = useState<File | null>(null)
+  // Forrás-választás (Kassza vs A–F bankszámla): a főkönyvi lapok + a választás.
+  const [ledgerSheets, setLedgerSheets] = useState<FinanceSheetPreview[]>([])
+  const [bankszamlak, setBankszamlak] = useState<BankszamlaOption[]>([])
+  const [selectedSheet, setSelectedSheet] = useState<string | null>(null)
+  const [selectedBankszamlaId, setSelectedBankszamlaId] = useState<number | null>(null)
   // A Kassza-lap fejlécei az oszlop-egyeztetés ellenőrző paneljéhez.
   const [kasszaHeaders, setKasszaHeaders] = useState<string[]>([])
   // A lap tetejéről kiolvasott nyitó + év végi egyenleg (a hiteles egyenleg-levezetéshez).
@@ -93,6 +103,10 @@ export function PenzugyImportWizard() {
     setXmlFile(null)
     setKasszaHeaders([])
     setKasszaBalances(null)
+    setLedgerSheets([])
+    setBankszamlak([])
+    setSelectedSheet(null)
+    setSelectedBankszamlaId(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -108,6 +122,10 @@ export function PenzugyImportWizard() {
     setXmlFile(null)
     setKasszaHeaders([])
     setKasszaBalances(null)
+    setLedgerSheets([])
+    setBankszamlak([])
+    setSelectedSheet(null)
+    setSelectedBankszamlaId(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -118,39 +136,20 @@ export function PenzugyImportWizard() {
     setImportResult(null)
   }, [])
 
-  // ─── Lépés 1 → 2: parse + analízis együtt ─────────────────────────────
-  const handleStartReview = useCallback(() => {
-    if (!file) {
-      toast.error('Először válassz egy fájlt.')
-      return
-    }
-    startParsing(async () => {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      // Parse — mert nélkül sem analíz, sem kód-, sem donor-feloldás
-      const parsed = await parseAndPreviewFinance(formData)
-      if (parsed.error) {
-        toast.error(parsed.error)
-        return
-      }
-      const kasszaSheet = (parsed.sheets || []).find((s) => s.isKasszaSheet)
-      if (!kasszaSheet) {
-        toast.error('A fájlban nincs "Kassza" nevű munkalap.')
-        return
-      }
-      // Az oszlop-egyeztetés ellenőrző paneljéhez (a felhasználó láthatja/ellenőrizheti).
-      setKasszaHeaders(kasszaSheet.headers || [])
-      // A lap tetejéről kiolvasott nyitó + év végi egyenleg (hiteles egyenleg-levezetés).
+  // ─── doReview: a kiválasztott főkönyvi lapot (Kassza vagy A–F bank) elemzi ──
+  const doReview = useCallback(
+    (sheetName: string, bankszamlaId: number | null, sheetPreview: FinanceSheetPreview) => {
+      if (!file) return
+      setSelectedSheet(sheetName)
+      setSelectedBankszamlaId(bankszamlaId)
+      // Oszlop-egyeztetés ellenőrző panel + a lap tetejéről a nyitó/év végi egyenleg.
+      setKasszaHeaders(sheetPreview.headers || [])
       setKasszaBalances({
-        opening: kasszaSheet.openingBalance ?? null,
-        closing: kasszaSheet.closingBalance ?? null,
+        opening: sheetPreview.openingBalance ?? null,
+        closing: sheetPreview.closingBalance ?? null,
       })
-
-      // Stage váltás review-re — innentől a review-step "isLoading" állapotban
       setStage('review')
 
-      // Loading háttérben — 3 párhuzamos action
       startLoadingReview(async () => {
         const fd1 = new FormData()
         fd1.append('file', file)
@@ -160,9 +159,9 @@ export function PenzugyImportWizard() {
         fd3.append('file', file)
 
         const [analysisRes, budgetRes, donorRes] = await Promise.all([
-          analyzeKasszaRows(fd1),
-          resolveBudgetCodes(fd2),
-          resolveDonors(fd3),
+          analyzeKasszaRows(fd1, sheetName),
+          resolveBudgetCodes(fd2, sheetName),
+          resolveDonors(fd3, sheetName),
         ])
 
         if (analysisRes.error) {
@@ -228,35 +227,92 @@ export function PenzugyImportWizard() {
           setAutoDistributedDonors(dist.autoSet)
         }
 
-        // Monetar diagnosztika — szekvenciálisan, mert a totalIncome/Expense kell
-        const totalIncome = (analysisRes.rows || [])
-          .filter((r) => r.kind === 'income')
-          .reduce((s, r) => s + (r.amount ?? 0), 0)
-        const totalExpense = (analysisRes.rows || [])
-          .filter((r) => r.kind === 'expense')
-          .reduce((s, r) => s + (r.amount ?? 0), 0)
-        const opening = (analysisRes.rows || []).find(
-          (r) =>
-            r.kind === 'skip' &&
-            typeof r.donorString === 'string' &&
-            /Előző évi/i.test(r.donorString),
-        )
-        const nyitoEgyenleg = opening?.amount ?? 0
+        // Monetar (készpénz-leltár) diagnosztika — CSAK a Kassza (készpénz) lapnál.
+        // Bankszámla-importnál (bankszamlaId != null) nincs Monetar fül.
+        if (bankszamlaId == null) {
+          const totalIncome = (analysisRes.rows || [])
+            .filter((r) => r.kind === 'income')
+            .reduce((s, r) => s + (r.amount ?? 0), 0)
+          const totalExpense = (analysisRes.rows || [])
+            .filter((r) => r.kind === 'expense')
+            .reduce((s, r) => s + (r.amount ?? 0), 0)
+          const opening = (analysisRes.rows || []).find(
+            (r) =>
+              r.kind === 'skip' &&
+              typeof r.donorString === 'string' &&
+              /Előző évi/i.test(r.donorString),
+          )
+          const nyitoEgyenleg = opening?.amount ?? 0
 
-        const fdMon = new FormData()
-        fdMon.append('file', file)
-        const monetarRes = await getMonetarDiagnostic(
-          fdMon,
-          totalIncome,
-          totalExpense,
-          nyitoEgyenleg,
-        )
-        if (monetarRes.diagnostic) {
-          setMonetarDiagnostic(monetarRes.diagnostic)
+          const fdMon = new FormData()
+          fdMon.append('file', file)
+          const monetarRes = await getMonetarDiagnostic(
+            fdMon,
+            totalIncome,
+            totalExpense,
+            nyitoEgyenleg,
+          )
+          if (monetarRes.diagnostic) {
+            setMonetarDiagnostic(monetarRes.diagnostic)
+          }
         }
       })
+    },
+    [file, xmlFile],
+  )
+
+  // ─── Lépés 1 → forrás/áttekintés: parse, majd döntés ──────────────────
+  const handleStartReview = useCallback(() => {
+    if (!file) {
+      toast.error('Először válassz egy fájlt.')
+      return
+    }
+    startParsing(async () => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const parsed = await parseAndPreviewFinance(formData)
+      if (parsed.error) {
+        toast.error(parsed.error)
+        return
+      }
+      const allSheets = parsed.sheets || []
+      const ledgers = allSheets.filter((s) => s.isLedgerSheet)
+      const kassza = allSheets.find((s) => s.isKasszaSheet)
+      const banks = ledgers.filter((s) => s.isBankSheet)
+
+      // Ha van adatos bankszámla-lap (A–F), a felhasználó válasszon forrást.
+      if (banks.length > 0) {
+        setLedgerSheets(ledgers)
+        setSelectedSheet(kassza?.sheetName ?? ledgers[0]?.sheetName ?? null)
+        setSelectedBankszamlaId(null)
+        const bs = await listBankszamlakForImport()
+        setBankszamlak(bs.data || [])
+        setStage('source')
+        return
+      }
+
+      // Csak Kassza (nincs bank-lap adattal) → egyből áttekintés.
+      if (!kassza) {
+        toast.error('A fájlban nincs "Kassza" nevű munkalap.')
+        return
+      }
+      doReview(kassza.sheetName, null, kassza)
     })
-  }, [file, xmlFile])
+  }, [file, doReview])
+
+  // A forrás-választó „Tovább" gombja
+  const handleSourceContinue = useCallback(() => {
+    const sheet = ledgerSheets.find((s) => s.sheetName === selectedSheet)
+    if (!sheet) {
+      toast.error('Válassz egy forrást (Kassza vagy bankszámla).')
+      return
+    }
+    if (sheet.isBankSheet && selectedBankszamlaId == null) {
+      toast.error('Válaszd ki, melyik bankszámládhoz tartozik ez a lap.')
+      return
+    }
+    doReview(sheet.sheetName, sheet.isBankSheet ? selectedBankszamlaId : null, sheet)
+  }, [ledgerSheets, selectedSheet, selectedBankszamlaId, doReview])
 
   // ─── Felhasználói döntések ───────────────────────────────────────────
   const handleSkipCodeToggle = useCallback((rawKod: string) => {
@@ -286,6 +342,8 @@ export function PenzugyImportWizard() {
       donorResolutions,
       manualPersonSelections,
       skippedCodes,
+      // Bankszámla-import esetén a tételek a kiválasztott bankszámlához kötődnek.
+      bankszamlaId: selectedBankszamlaId,
     })
   }, [
     kasszaAnalysis,
@@ -293,6 +351,7 @@ export function PenzugyImportWizard() {
     donorResolutions,
     manualPersonSelections,
     skippedCodes,
+    selectedBankszamlaId,
   ])
 
   // ─── Végösszegek a fájlból (a Kassza-egyenleggel való összevetéshez) ──
@@ -331,13 +390,31 @@ export function PenzugyImportWizard() {
       if (/^\d{4}$/.test(y)) yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
     }
     const topYear = [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+    const eve = topYear ? Number(topYear) : null
+    const opening = kasszaBalances?.opening ?? null
+    const isBankImport = selectedBankszamlaId != null
+    // KÉSZPÉNZ-importnál a készpénz-nyitót adjuk át az importnak; bank-importnál nem
+    // (a bank-nyitót külön, a bankszámla-nyitó táblába rögzítjük az import után).
     const keszpenzNyito =
-      topYear && kasszaBalances?.opening != null
-        ? { eve: Number(topYear), nyito: kasszaBalances.opening }
-        : null
+      !isBankImport && eve != null && opening != null ? { eve, nyito: opening } : null
 
     startImporting(async () => {
       const result = await executeFinanceImport(builtItems.items, fileName, keszpenzNyito)
+
+      // Bank-import: a bankszámla éves nyitó egyenlegének rögzítése (forrasa='import').
+      if (isBankImport && !result.error && eve != null && opening != null) {
+        try {
+          await upsertBankszamlaNyitoEgyenleg({
+            bankszamla_id: selectedBankszamlaId as number,
+            eve,
+            nyito_egyenleg_valuta: opening,
+            forrasa: 'import',
+          })
+        } catch {
+          // best-effort — az import attól még sikeres
+        }
+      }
+
       setImportResult(result)
       setStage('result')
       if (result.error) {
@@ -346,10 +423,10 @@ export function PenzugyImportWizard() {
         toast.success(`Sikeresen mentve: ${result.inserted} tétel.`)
       }
     })
-  }, [builtItems.items, file, kasszaAnalysis, kasszaBalances])
+  }, [builtItems.items, file, kasszaAnalysis, kasszaBalances, selectedBankszamlaId])
 
   const currentStep: 1 | 2 | 3 =
-    stage === 'welcome' ? 1 : stage === 'result' ? 3 : 2
+    stage === 'welcome' || stage === 'source' ? 1 : stage === 'result' ? 3 : 2
 
   return (
     <div className="space-y-5">
@@ -365,6 +442,23 @@ export function PenzugyImportWizard() {
           xmlFile={xmlFile}
           onXmlFileSelected={setXmlFile}
           onClearXmlFile={() => setXmlFile(null)}
+        />
+      )}
+
+      {stage === 'source' && (
+        <SourceSelectStep
+          sheets={ledgerSheets}
+          bankszamlak={bankszamlak}
+          selectedSheet={selectedSheet}
+          onSelectSheet={(name) => {
+            setSelectedSheet(name)
+            setSelectedBankszamlaId(null)
+          }}
+          selectedBankszamlaId={selectedBankszamlaId}
+          onSelectBankszamla={setSelectedBankszamlaId}
+          onContinue={handleSourceContinue}
+          onBack={() => setStage('welcome')}
+          isLoading={isLoadingReview}
         />
       )}
 

@@ -29,7 +29,7 @@ import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xm
 import { detectKasszaColumns } from '../components/finance/finance-import/helpers/kassza-column-mapping'
 import { dateToLocalIso, toLocalIsoDate } from '../lib/import/date-utils'
 import { normalizeForSearch, tokenize, personSearchScore } from '../lib/import/person-search-match'
-import { scanLedgerBalances } from '../components/finance/finance-import/helpers/kassza-sheet-parser'
+import { scanLedgerBalances, isLedgerSheetName } from '../components/finance/finance-import/helpers/kassza-sheet-parser'
 import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
 import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
@@ -636,6 +636,14 @@ console.log('\n=== 12. scanLedgerBalances ===\n')
   const bb = scanLedgerBalances(aoaBank, 4)
   expect('bank-lap záró = 5136.78', bb.closingBalance, 5136.78)
   expect('bank-lap nyitó = 107771.39', bb.openingBalance, 107771.39)
+
+  // isLedgerSheetName: Kassza + A–F főkönyvi lapok, a többi nem
+  expectTrue('isLedgerSheetName(Kassza)', isLedgerSheetName('Kassza'))
+  expectTrue('isLedgerSheetName(A)', isLedgerSheetName('A'))
+  expectTrue('isLedgerSheetName(F)', isLedgerSheetName('f'))
+  expect('isLedgerSheetName(Monetar) = false', isLedgerSheetName('Monetar'), false)
+  expect('isLedgerSheetName(Koltsegvetes) = false', isLedgerSheetName('Koltsegvetes'), false)
+  expect('isLedgerSheetName(G) = false', isLedgerSheetName('G'), false)
 }
 
 // ════════════════════════════════════════════════════════════════════════

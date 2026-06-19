@@ -28,6 +28,8 @@ export interface BuildItemsInput {
   donorResolutions: DonorResolution[]
   manualPersonSelections: Record<string, string>
   skippedCodes: Set<string>
+  /** Bankszámla-import esetén a tételek ehhez a bankszámlához kötődnek (különben null = készpénz). */
+  bankszamlaId?: number | null
 }
 
 export interface BuildItemsResult {
@@ -39,6 +41,7 @@ export interface BuildItemsResult {
 export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResult {
   const { rows, budgetCodeResolutions, donorResolutions, manualPersonSelections, skippedCodes } =
     input
+  const bankszamlaId = input.bankszamlaId ?? null
 
   // Lookup map-ek a gyors elérés érdekében
   const budgetByRaw = new Map<string, BudgetCodeResolution>()
@@ -162,6 +165,7 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
         megjegyzes: pasztoralisMegjegyzes,
         fizetettev,
         belsoMozgasXkey,
+        bankszamlaId,
       })
       continue
     }
@@ -216,6 +220,7 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       irattipus: row.irattipus || '',
       megjegyzes: row.megjegyzes || '',
       fizetettev,
+      bankszamlaId,
     })
   }
 

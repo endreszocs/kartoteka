@@ -36,6 +36,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   és átveszi a **pontos** adatokat: melyik **évre** szól a befizetés (így ha valaki több év hátralékát
   fizeti be egyszerre, az a megfelelő évekhez kerül — nem mind a tárgyévhez), valamint a hivatalos iratszám.
   Egy üzenet jelzi, hány bevétel pontosodott.
+- **Bankszámla-könyvelés importja a hivatalos Excelből.** Eddig csak a készpénzt (Kassza) lehetett
+  importálni; mostantól a fájl **bankszámla-lapjait (A–F)** is. A feltöltés után kiválasztod a **forrást**
+  (készpénz vagy bankszámla), és bankszámlánál megadod, **melyik számládhoz** tartozik a lap — a tételek
+  (bevétel/kiadás) a megfelelő **bankszámlához** könyvelődnek, a bankszámla **nyitó egyenlegével** együtt.
+  Ugyanaz az ellenőrzött oszlop-egyeztetés, párosítás és egyenleg-levezetés, mint a Kasszánál.
 - **Ellenőrizhető oszlop-egyeztetés.** Az importáló a fájl fejlécei alapján automatikusan felismeri, melyik
   oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
   így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet

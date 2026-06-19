@@ -207,20 +207,23 @@ export function reparseKasszaSheet(
  * A workbook Kassza-fülét lecseréli a javított verziójára (in-place).
  * Ha a buffer alapján találunk valódi Kassza fejlécet, felülírja.
  */
+/** Igaz, ha a lapnév főkönyv-jellegű: „Kassza" (készpénz) vagy „A"–„F" (bankszámlák). */
+export function isLedgerSheetName(name: string): boolean {
+  const t = name.trim().toLowerCase()
+  return t === 'kassza' || /^[a-f]$/.test(t)
+}
+
 export function applyKasszaFix(
   workbook: ParsedWorkbook,
   buffer: ArrayBuffer,
 ): ParsedWorkbook {
-  const kasszaIdx = workbook.sheets.findIndex(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
-  )
-  if (kasszaIdx === -1) return workbook
-
-  const fixed = reparseKasszaSheet(buffer, workbook.sheets[kasszaIdx].name)
-  if (fixed) {
-    const newSheets = [...workbook.sheets]
-    newSheets[kasszaIdx] = fixed
-    return { ...workbook, sheets: newSheets }
-  }
-  return workbook
+  // A Kassza ÉS az A–F bankszámla-lapok UGYANAZ a (Dátum-fejléces) szerkezet,
+  // amit a generikus fejléc-detektálás elront → mindet a reparseKasszaSheet-tel
+  // bontjuk újra. A nem-főkönyvi lapokat (Monetar, Hibak, Koltsegvetes…) érintetlenül hagyjuk.
+  const newSheets = workbook.sheets.map((s) => {
+    if (!isLedgerSheetName(s.name)) return s
+    const fixed = reparseKasszaSheet(buffer, s.name)
+    return fixed ?? s
+  })
+  return { ...workbook, sheets: newSheets }
 }

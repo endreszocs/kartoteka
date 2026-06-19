@@ -27,12 +27,24 @@ export interface FinanceSheetPreview {
   rowCount: number
   /** A `PROFILE_KASSZA` matchel-e? Igen, ha sheetName = 'Kassza' */
   isKasszaSheet: boolean
+  /** Főkönyv-jellegű lap (van „Dátum" fejléce + van adata): Kassza vagy A–F bankszámla. */
+  isLedgerSheet?: boolean
+  /** Bankszámla-főkönyv (A–F): főkönyvi lap, ami nem a Kassza. */
+  isBankSheet?: boolean
   /** Az első 5 minta-sor (oszlopnév → érték) */
   sampleRows: Array<Record<string, unknown>>
   /** Nyitó (előző évi) egyenleg a lap tetejéről — a hiteles év végi egyenleghez. */
   openingBalance?: number | null
   /** Év végi (záró) egyenleg a lap tetejéről (a hivatalos könyvelés fordulónapi értéke). */
   closingBalance?: number | null
+}
+
+/** A gyülekezet egy aktív bankszámlája — a bank-import forrás-választójához. */
+export interface BankszamlaOption {
+  id: number
+  bank_neve: string
+  iban: string | null
+  valuta: string | null
 }
 
 // ────────────────────────────────────────────────────────────────────────
