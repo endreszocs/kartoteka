@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-19] — Pénzügyi import: opcionális „bevételek XML" referencia (pontosabb évek, kevesebb hiba)
+<!-- key: 2026-06-19-import-xml-referencia -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Bevételek XML referencia feltöltése a hivatalos Excel mellé.** A Kassza-Excel mellé mostantól
+  opcionálisan feltöltheted az Adatkezelő-export bevételek-XML fájlját. A rendszer összeveti a kettőt,
+  és átveszi a **pontos** adatokat: melyik **évre** szól a befizetés (így ha valaki több év hátralékát
+  fizeti be egyszerre, az a megfelelő évekhez kerül — nem mind a tárgyévhez), valamint a hivatalos iratszám.
+  Egy üzenet jelzi, hány bevétel pontosodott.
+
+### 🎨 Fejlesztések
+
+- **Okosabb, kategóriánkénti személy-hozzárendelés.** Az importáló mostantól csak ott próbálja a befizetőt
+  taghoz kötni, ahol ez értelmes (egyházfenntartás, adományok, területbérlet, sírhely, legátum, iratterjesztés,
+  visszatérítés — és a kiadás-oldalon a segély átvevője). A **perselypénzt**, a **céges/pályázati** bevételeket
+  és a **belső átvezetéseket** nem köti személyhez — így kevesebb a fölösleges „nem található", és nincs téves
+  személy-párosítás ezeknél.
+
 ## [2026-06-19] — Pénzügyi importáló: pontosabb tag-párosítás, kézi kereső és adomány-előnézet
 <!-- key: 2026-06-19-import-parositas -->
 <!-- category: feature -->
