@@ -60,7 +60,11 @@ export function GeneralMatchStep({
     for (const r of preview.rows) {
       if (!r.valid) invalid.push(r)
       else if (r.person.matchMode === 'company') company.push(r)
-      else if (r.person.matchMode === 'multiple' || r.person.matchMode === 'not-found') review.push(r)
+      else if (
+        r.person.matchMode === 'multiple' ||
+        r.person.matchMode === 'fuzzy-name' ||
+        r.person.matchMode === 'not-found'
+      ) review.push(r)
       else sure.push(r)
     }
     return { review, sure, company, invalid }
@@ -202,9 +206,13 @@ function GeneralRowCard({
             <MatchBadge mode={mode} valid={row.valid} reason={row.invalidReason} />
           </div>
 
-          {row.valid && mode === 'multiple' && row.person.candidates.length > 0 && (
+          {row.valid && (mode === 'multiple' || mode === 'fuzzy-name') && row.person.candidates.length > 0 && (
             <div className="mt-2">
-              <label className="text-xs text-slate-600">Több tag illik — válassz egyet:</label>
+              <label className="text-xs text-slate-600">
+                {mode === 'fuzzy-name'
+                  ? 'Hasonló nevű tagok — ellenőrizd, és válassz, ha stimmel:'
+                  : 'Több tag illik — válassz egyet:'}
+              </label>
               <select
                 className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-xs"
                 value={manualId ?? ''}
@@ -227,7 +235,7 @@ function GeneralRowCard({
             </p>
           )}
 
-          {row.valid && (mode === 'not-found' || mode === 'multiple' || mode === 'company') && (
+          {row.valid && (mode === 'not-found' || mode === 'multiple' || mode === 'fuzzy-name' || mode === 'company') && (
             <ManualTagSearch
               initialQuery={nameQuery}
               currentId={manualId}
@@ -257,6 +265,7 @@ function MatchBadge({ mode, valid, reason }: { mode: string; valid: boolean; rea
   const map: Record<string, { label: string; cls: string }> = {
     exact: { label: '👤 Tag egyezés', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     multiple: { label: '👥 Több tag', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    'fuzzy-name': { label: '👤 Hasonló név', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
     'not-found': { label: '❓ Tag nincs', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
     company: { label: '🏢 Cég', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
   }

@@ -129,8 +129,8 @@ export function MatchStep({
         />
         <StatCard
           label="Tagnyilvántartás"
-          value={`${preview.stats.szemelyExactCount + preview.stats.szemelyFuzzyCount}`}
-          subtitle={`${preview.stats.szemelyNotFoundCount} nem található`}
+          value={`${preview.stats.szemelyExactCount}`}
+          subtitle={`${preview.stats.szemelyMultipleCount + preview.stats.szemelyFuzzyCount} ellenőrizendő · ${preview.stats.szemelyNotFoundCount} nincs`}
         />
       </div>
 
@@ -275,7 +275,7 @@ function groupByCategory(matched: PreviewMatchedRow[]): GroupedRows {
     const tagMode = row.szemely.matchMode
 
     // 'no-tag' priority: ha a tag-egyezés sikertelen vagy bizonytalan, oda kerül
-    if (tagMode === 'not-found' || tagMode === 'multiple') {
+    if (tagMode === 'not-found' || tagMode === 'multiple' || tagMode === 'fuzzy-name') {
       noTag.push(row)
       continue
     }
@@ -381,10 +381,12 @@ function RowCard({
             </p>
           )}
 
-          {tagMode === 'multiple' && row.szemely.candidates.length > 0 && (
+          {(tagMode === 'multiple' || tagMode === 'fuzzy-name') && row.szemely.candidates.length > 0 && (
             <div className="mt-2">
               <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                Több tag illik — válassz egyet:
+                {tagMode === 'fuzzy-name'
+                  ? 'Hasonló nevű tagok — ellenőrizd, és válassz, ha stimmel:'
+                  : 'Több tag illik — válassz egyet:'}
                 {row.szemely.autoDistributed && (
                   <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700">
                     🔄 Auto-elosztva (1×/év szabály — ellenőrizd)
@@ -414,13 +416,19 @@ function RowCard({
             </div>
           )}
 
-          {(tagMode === 'not-found' || tagMode === 'multiple') && (
+          {(tagMode === 'not-found' || tagMode === 'multiple' || tagMode === 'fuzzy-name') && (
             <>
               {tagMode === 'not-found' && (
                 <p className="mt-2 rounded-md border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs text-rose-900">
                   ❓ Nem találtunk hozzá tagot a tagnyilvántartásban. Keresd meg kézzel,
                   vagy a Skip gombbal hagyd ki — különben a befizetés{' '}
                   <strong>tag-kapcsolat nélkül</strong> kerül be.
+                </p>
+              )}
+              {tagMode === 'fuzzy-name' && (
+                <p className="mt-2 rounded-md border border-sky-200 bg-sky-50/60 px-2 py-1 text-xs text-sky-900">
+                  👤 Csak <strong>hasonló</strong> nevű tago(ka)t találtunk (lehet elgépelés).
+                  Ellenőrizd a fenti listát, vagy keress rá kézzel.
                 </p>
               )}
               {tagMode === 'multiple' && (

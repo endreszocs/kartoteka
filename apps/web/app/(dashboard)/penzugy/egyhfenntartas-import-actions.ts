@@ -759,7 +759,12 @@ function resolveSzemelyViaMaps(
     }
   })
 
-  return { szemelyId: null, csaladId: null, candidates, matchMode: 'multiple' }
+  return {
+    szemelyId: null,
+    csaladId: null,
+    candidates,
+    matchMode: lookup.approximate ? 'fuzzy-name' : 'multiple',
+  }
 }
 
 /**

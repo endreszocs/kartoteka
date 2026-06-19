@@ -28,6 +28,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toLocalIsoDate } from './date-utils'
 import { expandNickname } from './hungarian-nicknames'
+import { nameSimilarity } from './jaro-winkler'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -465,6 +466,44 @@ export async function buildAllPersonsLookupMap(
 }
 
 /**
+ * Fuzzy név-jelöltek (P2-1 kiterjesztés) — a determinisztikus lánc kimerülése után.
+ * Végigmegy a betöltött tagokon, és Jaro–Winkler hasonlósággal (≥ 0.88, a
+ * record-linkage „review" sáv) gyűjti a hasonló nevűeket. SOHA nem ad biztos
+ * találatot — csak emberi felülvizsgálatra szánt jelölteket (max 6, hasonlóság
+ * szerint csökkenő). A lánykori (szcs_nev) alakot is figyelembe veszi.
+ *
+ * Csak a NOT-FOUND ágon fut (a hívó már kimerítette az exact-láncot), így a
+ * költsége a párosítatlan sorok számára korlátozódik.
+ */
+function fuzzyNameCandidates(
+  familyNorm: string,
+  givenNorm: string,
+  ferfi: 'M' | 'F' | '?',
+  maps: PersonLookupMaps,
+): string[] {
+  // Megbízható fuzzyhoz mindkét névrész kell (csak keresztnévre túl sok a zaj).
+  if (!familyNorm || !givenNorm) return []
+  const donor = `${familyNorm} ${givenNorm}`
+  const scored: Array<{ id: string; sim: number }> = []
+  for (const [id, rec] of maps.byId) {
+    if (!rec) continue
+    // Nem-szűrés: ha mindkét oldalon ismert a nem és eltér → kihagyjuk.
+    const recFlag = ferfiToFlag(rec.ferfi)
+    if (ferfi !== '?' && recFlag !== '?' && recFlag !== ferfi) continue
+    const cand1 = `${rec.csaladnev ?? ''} ${rec.k_nev ?? ''}`.trim()
+    let sim = cand1 ? nameSimilarity(donor, cand1) : 0
+    if (rec.szcs_nev && rec.szcs_nev.trim()) {
+      const cand2 = `${rec.szcs_nev} ${rec.k_nev ?? ''}`.trim()
+      if (cand2) sim = Math.max(sim, nameSimilarity(donor, cand2))
+    }
+    if (sim >= 0.88) scored.push({ id, sim })
+  }
+  if (scored.length === 0) return []
+  scored.sort((a, b) => b.sim - a.sim)
+  return scored.slice(0, 6).map((s) => s.id)
+}
+
+/**
  * Quad-alapú személy-feloldás 6-lépéses fallback chain-nel.
  *
  * Public változata a finance-import-hoz — a sztring-alapú normalizálást
@@ -493,7 +532,7 @@ export function lookupPersonByQuadAttempt(
   maps: PersonLookupMaps,
   street?: string | null,
   houseNumber?: string | null,
-): { id: string } | { candidates: string[] } | null {
+): { id: string } | { candidates: string[]; approximate?: boolean } | null {
   /**
    * Utca-alapú szűrés: ha több jelölt jön, és van street/houseNumber
    * paraméterünk, akkor az utca+házszám kombinációval szűrünk.
@@ -636,10 +675,17 @@ export function lookupPersonByQuadAttempt(
     }
   }
 
-  // 6. Fail — visszaadjuk az utolsó nem-egyértelmű jelölt-listát is
+  // 6. Determinisztikus lánc kimerült — ha maradt nem-egyértelmű exact-jelölt, azt adjuk.
   if (lastCandidates && lastCandidates.length > 1) {
     return { candidates: lastCandidates }
   }
+
+  // 7. FUZZY fallback (P2-1): elgépelés / név-variáns. SOHA nem ad biztos {id}-t —
+  //    csak emberi felülvizsgálatra szánt jelölteket (a párosító UI „több tag"
+  //    csoportjában + a kézi keresőben jelennek meg).
+  const fuzzy = fuzzyNameCandidates(csNorm || szcsNorm, kNorm, ferfi, maps)
+  if (fuzzy.length > 0) return { candidates: fuzzy, approximate: true }
+
   return null
 }
 

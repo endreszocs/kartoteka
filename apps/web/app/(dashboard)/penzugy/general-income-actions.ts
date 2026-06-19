@@ -137,7 +137,7 @@ const EGYHF_KOD = '101.01'
 
 // ── Megosztott párosító-kontextus (preview + execute közös) ───────────────
 
-type PersonMatchMode = 'exact' | 'multiple' | 'not-found' | 'company'
+type PersonMatchMode = 'exact' | 'multiple' | 'fuzzy-name' | 'not-found' | 'company'
 
 export interface GeneralPersonInfo {
   szemelyId: number | null
@@ -174,7 +174,7 @@ function resolvePersonForRow(nev: string, maps: PersonLookupMaps): GeneralPerson
       cim,
     }
   })
-  return { szemelyId: null, candidates, matchMode: 'multiple' }
+  return { szemelyId: null, candidates, matchMode: lookup.approximate ? 'fuzzy-name' : 'multiple' }
 }
 
 type CategoryResolver = (catRaw: string) => { celId: number; kod: string | null } | null
@@ -303,7 +303,8 @@ export async function previewGeneralImport(payload: {
       else stats.other++
       switch (person.matchMode) {
         case 'exact': stats.personExact++; break
-        case 'multiple': stats.personMultiple++; break
+        case 'multiple':
+        case 'fuzzy-name': stats.personMultiple++; break
         case 'company': stats.personCompany++; break
         default: stats.personNotFound++; break
       }

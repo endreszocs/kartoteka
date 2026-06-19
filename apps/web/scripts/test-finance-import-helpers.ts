@@ -397,6 +397,20 @@ function describe(r: { id: string } | { candidates: string[] } | null): string {
   expect('P2-1 becenév Katalin→Kati → id:9', describe(r), 'id:9')
 }
 
+// P2-1 fuzzy: elgépelt vezeték- ÉS keresztnév → felülvizsgálati jelölt (SOHA nem auto {id})
+{
+  const maps = makeMaps([{ id: '10', cs: 'szilagyi', k: 'andras', flag: 'M', street: 'X', house: '1' }])
+  const r = lookupPersonByQuadAttempt('Szilagi', 'Andrs', null, null, 'M', maps)
+  expect('P2-1 fuzzy elgépelés → candidates:10', describe(r), 'candidates:10')
+}
+
+// Fuzzy: teljesen idegen név → nincs jelölt (null)
+{
+  const maps = makeMaps([{ id: '11', cs: 'szilagyi', k: 'andras', flag: 'M' }])
+  const r = lookupPersonByQuadAttempt('Habakuk', 'Zorzon', null, null, 'M', maps)
+  expect('Fuzzy: idegen név → null', describe(r), 'null')
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // 6. expandNickname (becenév-szótár)
 // ════════════════════════════════════════════════════════════════════════
