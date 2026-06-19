@@ -19,6 +19,18 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔵 DIAGNOSZTIKA — csak OLVAS (SELECT), 2026-06-19
+
+Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQL editorban,
+és az eredményt küldd vissza — ezek alapján döntünk a spouse-bridge-ről és az idempotencia-indexről.
+
+- [ ] **`2026-06-19-diag-asszonynevek-szcs-nev.sql`** — DIAGNOSZTIKA (csak olvas)
+       Férjes asszonyok név-tárolása + lánykori (szcs_nev) kitöltöttség → eldönti, kell-e spouse-bridge (P1-4).
+- [ ] **`2026-06-19-diag-import-duplikatumok.sql`** — DIAGNOSZTIKA (csak olvas)
+       Meglévő befizetés-duplikátumok kimutatása egy esetleges idempotens UNIQUE index ELŐTT.
+
+---
+
 ## 🔴 PENDING (futtatásra vár) — 2026-05-17
 
 ### Sorrend nem számít (mind független művelet)

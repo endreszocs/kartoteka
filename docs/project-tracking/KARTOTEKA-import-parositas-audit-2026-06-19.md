@@ -170,3 +170,24 @@ A jó implementáció már létezik → az egyházfenntartás- és adomány-ága
 - **Tisztítandó:** 2 (H-6, H-7).
 - **Komment/rejtett bug:** H-7.4 (a 300-as kód külön vizsgálandó).
 - **Missing-feature:** valódi félkész feature nincs; a `'fuzzy-name'` a régi Levenshtein-megközelítés maradványa.
+
+---
+
+## 8. Szerződés (bérleti) ↔ személy párosítás — diagnózis (2026-06-19)
+
+A felhasználó „szerződések párosítása" panaszára, a választott **„Előbb diagnózis"** alapján.
+
+### 8.1 Hogyan kötődik most szerződés a személyhez
+- A `berleti_szerzodes` rekordnak van **`id_szemely` FK**-ja ÉS egy **`berlo_nev` szabad szöveges** mezője.
+- **Szerződés-IMPORT NINCS.** A bérjövedelem (104.04/104.05) az importálóban sima befizetésként kerül be; a `berleti_szerzodes` táblát az import **sosem írja**. Szerződést csak kézzel lehet rögzíteni (`RentalContractDialog`).
+- A hátralék-számítás (`packages/ui-app/src/finance/rental-calculation.ts`) **futásidőben** köti a befizetéseket a szerződéshez, **duális** párosítással: `befizetes.id_szemely === contract.id_szemely` **VAGY** `befizetes.forrasa (trim/lower) === contract.berlo_nev (trim/lower)`.
+
+### 8.2 Megerősített hiba — dupla-számítás
+- Ha egy befizetés **mindkét** feltételnek megfelel (azonos személy ÉS egyező név), a `fizett` összegbe **kétszer** számolódik ([rental-calculation.ts:163-174](packages/ui-app/src/finance/rental-calculation.ts:163)). → a hátralék (`hatralek = elvárt − fizetett`) **alulbecsült** (a bérlő kevésbé tűnik tartozónak, akár 0, pedig tartozik).
+- Ez **dokumentált, szándékosan megtartott** Vanilla-JS viselkedés (a fájl 8-16. sori kommentje jelzi), a historikus számok konzisztenciája miatt.
+- Hatókör: a **Bérlet/Tartozás nézet** (RentalTab/DebtTab) megjelenített számai — **nem** az import.
+
+### 8.3 Javaslat
+- **Helyes logika:** elsődleges az `id_szemely` egyezés; a `berlo_nev` csak **fallback**, ha a befizetésnek nincs `id_szemely`-je (vagy a szerződésnek nincs). Így egy befizetés legfeljebb **egyszer** számít. Konkrétan a `calculateRentalDebts` belső ciklusában a két forrás összeadása helyett: ha a befizetésnek van id_szemely-je → csak az id_szemely-ág számítson; különben a név-ág.
+- **FIGYELEM:** ez **megváltoztatja** a megjelenített hátralék-számokat ott, ahol eddig dupla-számítás volt (a hátralék **nőni fog** — pontosabb lesz). Éles váltás előtt érdemes egy **régi vs. új** összevetést mutatni és jóváhagyatni.
+- **Külön, terméki kérdés:** kell-e valódi **szerződés-import** (a 104.04/104.05 sorokból `berleti_szerzodes` létrehozása valódi `id_szemely`-vel)? Ez nagyobb funkció; a fenti dupla-szám fix attól függetlenül is hasznos és önállóan szállítható.
