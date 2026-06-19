@@ -354,9 +354,9 @@ export function PenzugyImportWizard() {
     selectedBankszamlaId,
   ])
 
-  // ─── Végösszegek a fájlból (a Kassza-egyenleggel való összevetéshez) ──
-  // A banki tételeket a Bank fülön kell importálni (hivatalos kivonatból), ezért itt
-  // CSAK a Kassza (készpénz) várható összegeit mutatjuk.
+  // ─── Végösszegek a fájlból (a számla egyenlegével való összevetéshez) ──
+  // A kiválasztott forrás (Kassza vagy bankszámla) bevétel/kiadás összege,
+  // a belső mozgásokat is beleértve (a záró egyenleg ezekből jön ki).
   const importTotals = useMemo(() => {
     const sumRows = (rows: Array<{ kind: string; amount?: number }>) => {
       let bev = 0
@@ -368,10 +368,18 @@ export function PenzugyImportWizard() {
       }
       return { bev, kia }
     }
-    const kassza = kasszaAnalysis?.rows ? sumRows(kasszaAnalysis.rows) : { bev: 0, kia: 0 }
-    const rows: SheetTotals[] = [{ label: 'Kassza (készpénz)', ...kassza }]
-    return { rows, grand: kassza }
-  }, [kasszaAnalysis])
+    const totals = kasszaAnalysis?.rows ? sumRows(kasszaAnalysis.rows) : { bev: 0, kia: 0 }
+    const bankName =
+      selectedBankszamlaId != null
+        ? bankszamlak.find((b) => b.id === selectedBankszamlaId)?.bank_neve
+        : null
+    const label =
+      selectedBankszamlaId != null
+        ? `Bankszámla${bankName ? ` — ${bankName}` : selectedSheet ? ` — „${selectedSheet}" lap` : ''}`
+        : 'Kassza (készpénz)'
+    const rows: SheetTotals[] = [{ label, ...totals }]
+    return { rows, grand: totals }
+  }, [kasszaAnalysis, selectedBankszamlaId, bankszamlak, selectedSheet])
 
   // ─── Lépés 2 → 3: import végrehajtása ─────────────────────────────────
   const handleConfirmImport = useCallback(() => {
@@ -474,8 +482,8 @@ export function PenzugyImportWizard() {
         <BalanceSummaryCard
           opening={kasszaBalances.opening}
           closing={kasszaBalances.closing}
-          incoming={(kasszaAnalysis.stats?.income ?? 0) + (kasszaAnalysis.stats?.internalTransferIn ?? 0)}
-          outgoing={(kasszaAnalysis.stats?.expense ?? 0) + (kasszaAnalysis.stats?.internalTransferOut ?? 0)}
+          incoming={importTotals.grand.bev}
+          outgoing={importTotals.grand.kia}
         />
       )}
 

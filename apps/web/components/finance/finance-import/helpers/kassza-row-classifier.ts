@@ -57,7 +57,9 @@ const INTERNAL_TRANSFER_PATTERNS = [
 ]
 
 const INFO_LINE_PATTERNS = [
-  /Előző évi készpénzegyenleg/i,
+  // „Előző évi készpénzegyenleg" (Kassza) ÉS „Előző évi egyenleg" (A–F bankszámla-lapok).
+  // FONTOS: a nyitó egyenleg NEM tranzakció — különben bevételként importálódna.
+  /Előző évi.*egyenleg/i,
   /^Napi bevétel/i,
   /^Napi kiadás/i,
   /^Egyenleg:/i,

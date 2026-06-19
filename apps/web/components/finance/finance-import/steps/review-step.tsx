@@ -244,7 +244,7 @@ export function ReviewStep({
           Mit látunk a fájlban
         </p>
         <h2 className="relative mt-2 font-serif text-2xl text-foreground sm:text-[1.65rem]">
-          {analysis.rows!.length} sor a Kassza fülön — nézd át, és egy
+          {analysis.rows!.length} sor a kiválasztott lapon — nézd át, és egy
           gombnyomással mehet
         </h2>
         <p className="relative mt-2 text-sm text-muted-foreground">

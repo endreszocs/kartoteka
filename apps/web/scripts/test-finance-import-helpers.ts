@@ -644,6 +644,18 @@ console.log('\n=== 12. scanLedgerBalances ===\n')
   expect('isLedgerSheetName(Monetar) = false', isLedgerSheetName('Monetar'), false)
   expect('isLedgerSheetName(Koltsegvetes) = false', isLedgerSheetName('Koltsegvetes'), false)
   expect('isLedgerSheetName(G) = false', isLedgerSheetName('G'), false)
+
+  // A NYITÓ egyenleg sor mindkét lapfajtán SKIP (NEM bevétel — különben az importba kerülne)
+  expect(
+    'bank nyitó „Előző évi egyenleg" → skip',
+    splitKasszaRow({ _donor_string: 'Előző évi egyenleg:', _bev_osszeg: 107771.39 }).kind,
+    'skip',
+  )
+  expect(
+    'Kassza nyitó „Előző évi készpénzegyenleg" → skip',
+    splitKasszaRow({ _donor_string: 'Előző évi készpénzegyenleg:', _bev_osszeg: 12519.86 }).kind,
+    'skip',
+  )
 }
 
 // ════════════════════════════════════════════════════════════════════════
