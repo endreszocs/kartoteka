@@ -26,6 +26,7 @@ import { lookupPersonByQuadAttempt, type PersonLookupMaps } from '../lib/import/
 import { expandNickname } from '../lib/import/hungarian-nicknames'
 import { shouldResolvePerson, personScope } from '../lib/import/person-scope-config'
 import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xml-overlay'
+import { detectKasszaColumns } from '../components/finance/finance-import/helpers/kassza-column-mapping'
 import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
 import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
@@ -481,6 +482,35 @@ console.log('\n=== 8. xml-overlay ===\n')
   expect('row5 hivatalos iratszám = 115134', r.byRowIndex.get(5)?.iratszamHivatalos, '115134')
   expect('row6 fizetettev = 2024', r.byRowIndex.get(6)?.fizetettev, 2024)
   expect('onlyXml = 1 (Valaki Más)', r.onlyXml.length, 1)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 9. detectKasszaColumns (oszlop-egyeztetés — fejléc-alapú felismerés)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 9. detectKasszaColumns ===\n')
+
+{
+  // A hivatalos EREK Kassza fejlécsora (sor4)
+  const headers = [
+    'Dátum', 'Iratszám', 'Irattip.', 'Név', 'Bev. - Összeg',
+    ' Bevétel - Költ.vet. név', 'Kiad. - Összeg', ' Kiadás - költ.vet. név',
+    'Megjegyzés', 'Magyarázat', 'szám',
+  ]
+  const d = detectKasszaColumns(headers)
+  expect('hivatalos fejléc: 0 hiányzó kötelező', d.missingRequired.length, 0)
+  expect('datum → Dátum', d.mapping.datum, 'Dátum')
+  expect('nev → Név', d.mapping.nev, 'Név')
+  expect('bevOsszeg → Bev. - Összeg', d.mapping.bevOsszeg, 'Bev. - Összeg')
+  expect('kiaOsszeg → Kiad. - Összeg', d.mapping.kiaOsszeg, 'Kiad. - Összeg')
+  expect('kod → szám', d.mapping.kod, 'szám')
+  expect('bevCel → (szóközös) Bevétel - Költ.vet. név', d.mapping.bevCel, ' Bevétel - Költ.vet. név')
+}
+
+{
+  // Hibás / idegen fejléc — a kötelező mezők hiányoznak (figyelmeztetés)
+  const d = detectKasszaColumns(['A', 'B', 'C', 'D'])
+  expectTrue('hibás fejléc → ≥4 hiányzó kötelező', d.missingRequired.length >= 4)
+  expect('hibás fejléc: datum nincs', d.mapping.datum, null)
 }
 
 // ════════════════════════════════════════════════════════════════════════

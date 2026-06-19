@@ -39,6 +39,7 @@ import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
+import { ColumnMappingPanel } from './steps/column-mapping-panel'
 import { buildFinanceImportItems } from './helpers/item-builder'
 import { applyXmlOverlay } from './helpers/xml-overlay'
 import { distributeAmbiguousDonors } from './helpers/donor-distribution'
@@ -51,6 +52,8 @@ export function PenzugyImportWizard() {
   const [file, setFile] = useState<File | null>(null)
   // Opcionális bevételek-XML referencia (Befizetett év + hivatalos iratszám).
   const [xmlFile, setXmlFile] = useState<File | null>(null)
+  // A Kassza-lap fejlécei az oszlop-egyeztetés ellenőrző paneljéhez.
+  const [kasszaHeaders, setKasszaHeaders] = useState<string[]>([])
 
   // Review-step adatai
   const [kasszaAnalysis, setKasszaAnalysis] = useState<KasszaAnalysisResult | null>(null)
@@ -81,6 +84,7 @@ export function PenzugyImportWizard() {
     setStage('welcome')
     setFile(null)
     setXmlFile(null)
+    setKasszaHeaders([])
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -94,6 +98,7 @@ export function PenzugyImportWizard() {
   const handleClearFile = useCallback(() => {
     setFile(null)
     setXmlFile(null)
+    setKasszaHeaders([])
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -120,11 +125,13 @@ export function PenzugyImportWizard() {
         toast.error(parsed.error)
         return
       }
-      const hasKassza = (parsed.sheets || []).some((s) => s.isKasszaSheet)
-      if (!hasKassza) {
+      const kasszaSheet = (parsed.sheets || []).find((s) => s.isKasszaSheet)
+      if (!kasszaSheet) {
         toast.error('A fájlban nincs "Kassza" nevű munkalap.')
         return
       }
+      // Az oszlop-egyeztetés ellenőrző paneljéhez (a felhasználó láthatja/ellenőrizheti).
+      setKasszaHeaders(kasszaSheet.headers || [])
 
       // Stage váltás review-re — innentől a review-step "isLoading" állapotban
       setStage('review')
@@ -326,6 +333,10 @@ export function PenzugyImportWizard() {
           onXmlFileSelected={setXmlFile}
           onClearXmlFile={() => setXmlFile(null)}
         />
+      )}
+
+      {stage === 'review' && kasszaHeaders.length > 0 && (
+        <ColumnMappingPanel headers={kasszaHeaders} />
       )}
 
       {stage === 'review' && !isLoadingReview && kasszaAnalysis && (

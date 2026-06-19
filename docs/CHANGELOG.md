@@ -36,6 +36,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   és átveszi a **pontos** adatokat: melyik **évre** szól a befizetés (így ha valaki több év hátralékát
   fizeti be egyszerre, az a megfelelő évekhez kerül — nem mind a tárgyévhez), valamint a hivatalos iratszám.
   Egy üzenet jelzi, hány bevétel pontosodott.
+- **Ellenőrizhető oszlop-egyeztetés.** Az importáló a fájl fejlécei alapján automatikusan felismeri, melyik
+  oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
+  így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet
+  eltérő táblázata), feltűnő figyelmeztetést kapsz. Így a rendszer **soha nem dolgozik vakon rossz oszloppal**.
 
 ### 🎨 Fejlesztések
 

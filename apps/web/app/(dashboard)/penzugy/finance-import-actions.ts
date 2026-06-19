@@ -47,6 +47,10 @@ import {
   parseXmlBevetelek,
   type XmlBevetelekRow,
 } from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
+import {
+  detectKasszaColumns,
+  type KasszaFieldKey,
+} from '@/components/finance/finance-import/helpers/kassza-column-mapping'
 import { applyKasszaFix } from '@/components/finance/finance-import/helpers/kassza-sheet-parser'
 import { logImportRun } from '@/lib/import/import-log'
 import type {
@@ -149,51 +153,22 @@ function kasszaRowToRecord(
   row: Record<string, string | number | null>,
   headers: string[],
 ): Record<string, unknown> {
-  // A `parsedSheet.rows` egy { headerName: érték } map
-  // A header neveket a `import-profiles.ts:PROFILE_KASSZA` columnMap aliasai
-  // listázzák.
-  const findHeader = (candidates: string[]): string | undefined => {
-    for (const cand of candidates) {
-      const lower = cand.toLowerCase().replace(/\s+/g, '')
-      const found = headers.find(
-        (h) => h.toLowerCase().replace(/\s+/g, '') === lower,
-      )
-      if (found) return found
-    }
-    return undefined
-  }
-
-  const datumHeader = findHeader(['Dátum', 'Datum', 'datum'])
-  const iratszamHeader = findHeader(['Iratszám', 'Iratszam', 'iratszam'])
-  const irattipusHeader = findHeader(['Irattip.', 'Irattípus', 'irattipus', 'Irattip'])
-  const nevHeader = findHeader(['Név', 'Nev', 'Forrás', 'Befizető'])
-  const bevOsszegHeader = findHeader(['Bev. - Összeg', 'Bevétel - Összeg', 'Bevétel'])
-  const bevCelHeader = findHeader([
-    'Bevétel - Költ.vet. név',
-    'Bevétel - Költvet. név',
-    ' Bevétel - Költ.vet. név',
-    'Bev cél',
-  ])
-  const kiaOsszegHeader = findHeader(['Kiad. - Összeg', 'Kiadás - Összeg', 'Kiadás'])
-  const kiaCelHeader = findHeader([
-    'Kiadás - költ.vet. név',
-    ' Kiadás - költ.vet. név',
-    'Kiad cél',
-  ])
-  const megjHeader = findHeader(['Megjegyzés', 'Megjegyzes'])
-  const kodHeader = findHeader(['Költségvetési szám', 'szám', 'Költs. szám', 'KöltsSzám'])
+  // EGYETLEN FORRÁS: ugyanaz az oszlop-felismerés, amit az ellenőrző UI is mutat
+  // (`kassza-column-mapping.ts`) → amit a felhasználó lát, az a tényleges parsolás.
+  const { mapping } = detectKasszaColumns(headers)
+  const get = (k: KasszaFieldKey) => (mapping[k] ? row[mapping[k] as string] : null)
 
   return {
-    datum: datumHeader ? row[datumHeader] : null,
-    iratszam: iratszamHeader ? row[iratszamHeader] : null,
-    irattipus: irattipusHeader ? row[irattipusHeader] : null,
-    _donor_string: nevHeader ? row[nevHeader] : null,
-    _bev_osszeg: bevOsszegHeader ? row[bevOsszegHeader] : null,
-    _bev_cel_nev: bevCelHeader ? row[bevCelHeader] : null,
-    _kia_osszeg: kiaOsszegHeader ? row[kiaOsszegHeader] : null,
-    _kia_cel_nev: kiaCelHeader ? row[kiaCelHeader] : null,
-    megjegyzes: megjHeader ? row[megjHeader] : null,
-    _szamadasicel_kod: kodHeader ? row[kodHeader] : null,
+    datum: get('datum'),
+    iratszam: get('iratszam'),
+    irattipus: get('irattipus'),
+    _donor_string: get('nev'),
+    _bev_osszeg: get('bevOsszeg'),
+    _bev_cel_nev: get('bevCel'),
+    _kia_osszeg: get('kiaOsszeg'),
+    _kia_cel_nev: get('kiaCel'),
+    megjegyzes: get('megjegyzes'),
+    _szamadasicel_kod: get('kod'),
   }
 }
 
