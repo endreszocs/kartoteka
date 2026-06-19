@@ -71,24 +71,24 @@ WHERE ki.deleted = false
 -- ── 4) UTÓ-ellenőrzés: a rendszer számadása kategóriánként (vesd össze a Szamadas col6-tal) ──
 --    Bevétel (1xx) cél-kód szerint, az adott évre (datum alapú = a webes számadás elve).
 --    Cseréld a 2025-öt a kívánt évre.
-SELECT s.id AS kod, s.megnevezes, SUM(bf.osszeg) AS szamadas_bevetel
+SELECT s.id AS kod, s.nev, SUM(bf.osszeg) AS szamadas_bevetel
 FROM public.befizetes bf
 JOIN public.befizetescel b ON b.id = bf.id_befizetescel
 JOIN public.szamadasicel s ON s.id = b.id_szamadasicel
 WHERE bf.deleted = false
   AND bf.datum >= '2025-01-01' AND bf.datum <= '2025-12-31'
   AND s.id LIKE '1%'
-GROUP BY s.id, s.megnevezes
+GROUP BY s.id, s.nev
 ORDER BY s.id;
 
-SELECT s.id AS kod, s.megnevezes, SUM(ki.osszeg) AS szamadas_kiadas
+SELECT s.id AS kod, s.nev, SUM(ki.osszeg) AS szamadas_kiadas
 FROM public.kiadas ki
 JOIN public.kiadascel k ON k.id = ki.id_kiadascel
 JOIN public.szamadasicel s ON s.id = k.id_szamadasicel
 WHERE ki.deleted = false
   AND ki.datum >= '2025-01-01' AND ki.datum <= '2025-12-31'
   AND s.id LIKE '2%'
-GROUP BY s.id, s.megnevezes
+GROUP BY s.id, s.nev
 ORDER BY s.id;
 
 -- ════════════════════════════════════════════════════════════════════════
