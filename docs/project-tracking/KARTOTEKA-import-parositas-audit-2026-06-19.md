@@ -201,3 +201,15 @@ A „ne találgass, igazold az adatból" elv mentén; két tervezett fejlesztés
 - **Asszonynevek (spouse-bridge, P1-4) → ELVETVE.** 183 háztartásbeli nőből **125 (~68%) a férj családnevén** szerepel → a gyakori eset a mostani párosítással már megtalálható (férj-családnév + keresztnév); a maradékot a lánykori-fallback + a fuzzy réteg fedi. A spouse-bridge megépítése kis haszon, felesleges kockázat.
 - **Import-duplikátumok (idempotens UNIQUE index) → NEM AJÁNLOTT.** **0 ütközés** mindkét kulcson → az app-szintű, immár személy-tudatos dedup egészséges, az idempotencia gyakorlatilag megvan. Egy DB-szintű UNIQUE index marginális haszonért kockázatot vinne (adomány azonos-kulcs/eltérő-`forrasa`, ill. kézi rögzítés téves blokkolása). Marad az app-szintű védelem.
 - **300-as belső-mozgás kód → A JAVÍTÁS IGAZOLT (marad).** A `300.01` (`befizetescel` „Készpénzfelvétel ATM-ből vagy banki számláról a kasszába") **`belsotetel = "300.01"`** — azaz a mérvadó oszlop szerint belső mozgás (Bank→Kassza). A `splitKasszaRow` 30[01]-javítása (commit `eda5237a`) helyes. A prefix-heurisztika (`30[01]` + `4xx`) jelenleg LEFEDI mind az 5 kanonikus belső kódot (300.01/301.01/400.01/401.01/402.02). Opcionális robusztusság: a `belsotetel`-alapú felismerésre váltás (prefix helyett) jövőbeli kódokra is automatikus lenne.
+
+---
+
+## 10. Excel-elemzés — bérjövedelmek a 2025-ös valós könyvelésben (Adatok_2025.xlsx)
+
+A bérlet-fix megalapozásához (user kérésére, adatból):
+
+- **2025 bérjövedelem (104.05 „Területek bérjövedelme"): 23 709 RON** = **15 250 kassza** (5 befizetés) + **8 459 bank A** (1 befizetés). A 104.04 („Épületek bérjövedelme") 2025-ben **0**.
+- **Kassza-befizetők — „Név - Cím" formátum** (személy-azonosítható, a donor-parser kezeli): Bitai József - Híd 37 (1000), Csorja Albert - Iskola 203 (3750), Kádár Zoltán - Templom 235 (5250), Csorja József - Vasút 154 (750), Bedő János - Híd 47 (4500).
+- **Bank-befizető — nagybetűs név, CÍM NÉLKÜL**: „MARK LASZLO" (8459), banki kivonatból (`Extr`), megjegyzés „Arenda … teren agricol 2025".
+
+**Következtetés a dupla-számításra:** a duális párosítás dupla-számítása csak akkor üt be, ha a `forrasa` **pontosan** egyenlő a szerződés `berlo_nev`-jével ÉS a befizetésnek van a szerződéssel egyező `id_szemely`-je. Mivel a kassza-`forrasa` **címet is tartalmaz** („… - Híd 37"), egy cím nélküli `berlo_nev`-vel **nem fog pontosan egyezni** → a dupla-számítás a gyakorlatban valószínűleg **ritka**. A nagyobb kockázat fordított: a címes `forrasa` a **név-ágat is elronthatja** (alulpárosítás → hátralék túlbecsülve), ha a befizetésnek nincs `id_szemely`-je. A pontos képet a `2026-06-19-diag-berleti-dupla-szamitas.sql` adja a DB- adaton (szerződések `berlo_nev`/`id_szemely` formátuma + a tényleges dupla-/alul-párosítás).

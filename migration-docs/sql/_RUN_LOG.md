@@ -28,9 +28,15 @@ Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQ
        Férjes asszonyok név-tárolása + lánykori (szcs_nev) kitöltöttség → eldönti, kell-e spouse-bridge (P1-4).
 - [ ] **`2026-06-19-diag-import-duplikatumok.sql`** — DIAGNOSZTIKA (csak olvas)
        Meglévő befizetés-duplikátumok kimutatása egy esetleges idempotens UNIQUE index ELŐTT.
-- [ ] **`2026-06-19-diag-300-belso-mozgas.sql`** — DIAGNOSZTIKA (csak olvas)
-       A 300.xx kód jellemzése a mérvadó `szamadasicel.belsotetel` alapján → igazolja/cáfolja a 300-as
-       belső-mozgás javítást (commit eda5237a). Az 1)–2) eredmény dönt.
+- [x] 2026-06-19 — **`2026-06-19-diag-300-belso-mozgas.sql`** ✅ LEFUTOTT
+       Eredmény: 300.01 belsotetel="300.01" → valóban belső mozgás → a fix (eda5237a) IGAZOLT, marad.
+- [x] 2026-06-19 — **`2026-06-19-diag-asszonynevek-szcs-nev.sql`** ✅ LEFUTOTT
+       Eredmény: 125/183 (~68%) nő a férj nevén → spouse-bridge ELVETVE.
+- [x] 2026-06-19 — **`2026-06-19-diag-import-duplikatumok.sql`** ✅ LEFUTOTT
+       Eredmény: 0 ütközés → idempotens UNIQUE index NEM ajánlott (app-szintű dedup elég).
+- [ ] **`2026-06-19-diag-berleti-dupla-szamitas.sql`** — DIAGNOSZTIKA (csak olvas)
+       A bérleti hátralék duális-párosítás dupla-számításának kimutatása a VALÓS adaton
+       (befizetes 104.04/104.05 ⨯ berleti_szerzodes). A 2)–3) eredmény dönti el a fix szükségességét.
 
 ---
 
