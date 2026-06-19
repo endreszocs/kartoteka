@@ -39,6 +39,7 @@ import { ReviewStep } from './steps/review-step'
 import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
+import { BalanceSummaryCard } from './steps/balance-summary-card'
 import { ColumnMappingPanel } from './steps/column-mapping-panel'
 import { WizardSteps } from './steps/wizard-steps'
 import { buildFinanceImportItems } from './helpers/item-builder'
@@ -55,6 +56,11 @@ export function PenzugyImportWizard() {
   const [xmlFile, setXmlFile] = useState<File | null>(null)
   // A Kassza-lap fejlécei az oszlop-egyeztetés ellenőrző paneljéhez.
   const [kasszaHeaders, setKasszaHeaders] = useState<string[]>([])
+  // A lap tetejéről kiolvasott nyitó + év végi egyenleg (a hiteles egyenleg-levezetéshez).
+  const [kasszaBalances, setKasszaBalances] = useState<{
+    opening: number | null
+    closing: number | null
+  } | null>(null)
 
   // Review-step adatai
   const [kasszaAnalysis, setKasszaAnalysis] = useState<KasszaAnalysisResult | null>(null)
@@ -86,6 +92,7 @@ export function PenzugyImportWizard() {
     setFile(null)
     setXmlFile(null)
     setKasszaHeaders([])
+    setKasszaBalances(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -100,6 +107,7 @@ export function PenzugyImportWizard() {
     setFile(null)
     setXmlFile(null)
     setKasszaHeaders([])
+    setKasszaBalances(null)
     setKasszaAnalysis(null)
     setBudgetCodeResolutions(null)
     setDonorResolutions(null)
@@ -133,6 +141,11 @@ export function PenzugyImportWizard() {
       }
       // Az oszlop-egyeztetés ellenőrző paneljéhez (a felhasználó láthatja/ellenőrizheti).
       setKasszaHeaders(kasszaSheet.headers || [])
+      // A lap tetejéről kiolvasott nyitó + év végi egyenleg (hiteles egyenleg-levezetés).
+      setKasszaBalances({
+        opening: kasszaSheet.openingBalance ?? null,
+        closing: kasszaSheet.closingBalance ?? null,
+      })
 
       // Stage váltás review-re — innentől a review-step "isLoading" állapotban
       setStage('review')
@@ -347,6 +360,15 @@ export function PenzugyImportWizard() {
 
       {stage === 'review' && !isLoadingReview && kasszaAnalysis && (
         <ImportTotalsPanel totals={importTotals.rows} grand={importTotals.grand} />
+      )}
+
+      {stage === 'review' && !isLoadingReview && kasszaAnalysis && kasszaBalances && (
+        <BalanceSummaryCard
+          opening={kasszaBalances.opening}
+          closing={kasszaBalances.closing}
+          incoming={(kasszaAnalysis.stats?.income ?? 0) + (kasszaAnalysis.stats?.internalTransferIn ?? 0)}
+          outgoing={(kasszaAnalysis.stats?.expense ?? 0) + (kasszaAnalysis.stats?.internalTransferOut ?? 0)}
+        />
       )}
 
       {stage === 'review' && (

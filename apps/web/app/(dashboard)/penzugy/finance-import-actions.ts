@@ -194,6 +194,8 @@ export async function parseAndPreviewFinance(
       rowCount: sheet.rowCount,
       isKasszaSheet,
       sampleRows: sheet.rows.slice(0, 5),
+      openingBalance: sheet.openingBalance ?? null,
+      closingBalance: sheet.closingBalance ?? null,
     }
   })
 

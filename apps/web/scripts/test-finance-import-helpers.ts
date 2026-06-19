@@ -29,6 +29,7 @@ import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xm
 import { detectKasszaColumns } from '../components/finance/finance-import/helpers/kassza-column-mapping'
 import { dateToLocalIso, toLocalIsoDate } from '../lib/import/date-utils'
 import { normalizeForSearch, tokenize, personSearchScore } from '../lib/import/person-search-match'
+import { scanLedgerBalances } from '../components/finance/finance-import/helpers/kassza-sheet-parser'
 import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
 import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
@@ -597,6 +598,44 @@ console.log('\n=== 11. Kézi tag-kereső illesztés ===\n')
   const sName = personSearchScore(kovacs, tokenize('beder')) ?? 0
   const sAddr = personSearchScore(kovacs, tokenize('templom')) ?? 0
   expectTrue('névtalálat pontszáma ≥ cím-találaté', sName >= sAddr)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 12. scanLedgerBalances — nyitó + év végi egyenleg kiolvasása a lap tetejéről
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 12. scanLedgerBalances ===\n')
+
+{
+  // A valós EREK Kassza-lap tetejének szerkezete (header az 5. sorban = index 4):
+  const aoa: unknown[][] = [
+    [null, null, 45658, 'Barátosi Református Egyházközség', null, null, 'Napi bevétel: ', 0, null, 46022, null, null, null, 'A másolás...'],
+    [null, null, 46022, null, null, null, 'Napi kiadás: ', 1500, '', null, null, null, null, 'műveletek...'],
+    [null, null, 46022, 'Készpénz könyvelése', null, null, 'Egyenleg: ', 6463.74],
+    [null, null, null, ''],
+    [null, null, null, 'Dátum', 'Iratszám', 'Irattip.', 'Név', 'Bev. - Összeg'], // header (index 4)
+    ['q', null, null, null, null, null, 'Előző évi készpénzegyenleg: ', 12519.86],
+    ['q', 45658, 45658, '19', 'Chit.', 'Szőcs Endre - Parókia 214', 130],
+  ]
+  const b = scanLedgerBalances(aoa, 4)
+  expect('scanLedgerBalances záró (Egyenleg, fejléc fölött) = 6463.74', b.closingBalance, 6463.74)
+  expect('scanLedgerBalances nyitó (Előző évi, fejléc alatt) = 12519.86', b.openingBalance, 12519.86)
+
+  // Hitelesség-kontroll: nyitó + Σbev − Σkia = záró  (a valós EREK számokkal)
+  const calc = Math.round((12519.86 + 106747.0 - 112803.12) * 100) / 100
+  expect('hitelesség: nyitó + Σbev − Σkia = xlsx záró', calc, 6463.74)
+
+  // Bank-lap (A): „Előző évi egyenleg:" (nem „készpénz") is felismerhető
+  const aoaBank: unknown[][] = [
+    [null, null, 45658, 'Barátosi', null, null, 'Napi bevétel: ', 0],
+    [null, null, 46022, null, null, null, 'Napi kiadás: ', 93214.3],
+    [null, null, 46022, 'RON', null, null, 'Egyenleg: ', 5136.78],
+    [null, null, null, ''],
+    [null, null, null, 'Dátum', 'Iratszám'],
+    [null, null, null, null, null, null, 'Előző évi egyenleg: ', 107771.39],
+  ]
+  const bb = scanLedgerBalances(aoaBank, 4)
+  expect('bank-lap záró = 5136.78', bb.closingBalance, 5136.78)
+  expect('bank-lap nyitó = 107771.39', bb.openingBalance, 107771.39)
 }
 
 // ════════════════════════════════════════════════════════════════════════

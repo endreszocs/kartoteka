@@ -50,6 +50,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Részletesebb egyeztetés.** Az egyeztető kártyákon mostantól látod az adott befizető **tételeit**
   is — melyik **évre** szól, mennyi, melyik nyugta, milyen kategória —, így teljes képből döntesz. A
   „kétszer fizetne" figyelmeztetés is áttekinthetőbb: minden ütköző befizető külön sorban, a **címével**.
+- **Év végi egyenleg + hitelesség-ellenőrzés.** Az áttekintőben mostantól látható a fájl tetejéről
+  kiolvasott **nyitó (előző évi) egyenleg** és az **év végi (záró) egyenleg**, levezetve:
+  *nyitó + bevétel − kiadás = számított záró*. A rendszer ezt összeveti a hivatalos záró egyenleggel:
+  ha egyezik, a könyvelés hiteles (✓); ha eltér (pl. hiányzik a nyitó egyenleg), feltűnően jelzi.
 
 ### 🐛 Javítások
 

@@ -69,6 +69,48 @@ function normalizeCell(value: unknown): string | number | null {
 }
 
 /**
+ * Nyitó (előző évi) + záró (év végi) egyenleg kiolvasása a lap tetejéről.
+ *
+ * A hivatalos EREK Kassza/bank-lapok tetején (a fejléc körül) szerepel:
+ *   - „Egyenleg:" + érték  → ÉV VÉGI (záró) egyenleg (a fejléc FÖLÖTT, ezért a sima
+ *     parse eldobná — innen vesszük ki).
+ *   - „Előző évi (készpénz)egyenleg:" + érték → NYITÓ egyenleg (a fejléc ALATT).
+ * Ékezet-független címke-illesztés; a címke utáni első szám a sorban az érték.
+ */
+export function scanLedgerBalances(
+  aoa: unknown[][],
+  headerIndex: number,
+): { openingBalance: number | null; closingBalance: number | null } {
+  let openingBalance: number | null = null
+  let closingBalance: number | null = null
+  const lastRow = Math.min(headerIndex + 2, aoa.length - 1)
+  for (let i = 0; i <= lastRow; i++) {
+    const row = aoa[i]
+    if (!Array.isArray(row)) continue
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c]
+      if (typeof v !== 'string') continue
+      const label = v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      if (!label.includes('egyenleg')) continue
+      let num: number | null = null
+      for (let c2 = c + 1; c2 < row.length; c2++) {
+        if (typeof row[c2] === 'number') {
+          num = row[c2] as number
+          break
+        }
+      }
+      if (num == null) continue
+      if (label.includes('elozo')) {
+        if (openingBalance == null) openingBalance = num
+      } else if (closingBalance == null) {
+        closingBalance = num
+      }
+    }
+  }
+  return { openingBalance, closingBalance }
+}
+
+/**
  * Duplikált fejléc-nevek deduplikálása.
  */
 function dedupeHeaders(headers: string[]): string[] {
@@ -149,11 +191,15 @@ export function reparseKasszaSheet(
     rows.push(rowObj)
   }
 
+  const { openingBalance, closingBalance } = scanLedgerBalances(aoa, headerIndex)
+
   return {
     name: sheetName,
     headers,
     rows,
     rowCount: rows.length,
+    openingBalance,
+    closingBalance,
   }
 }
 

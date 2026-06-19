@@ -29,6 +29,10 @@ export interface FinanceSheetPreview {
   isKasszaSheet: boolean
   /** Az első 5 minta-sor (oszlopnév → érték) */
   sampleRows: Array<Record<string, unknown>>
+  /** Nyitó (előző évi) egyenleg a lap tetejéről — a hiteles év végi egyenleghez. */
+  openingBalance?: number | null
+  /** Év végi (záró) egyenleg a lap tetejéről (a hivatalos könyvelés fordulónapi értéke). */
+  closingBalance?: number | null
 }
 
 // ────────────────────────────────────────────────────────────────────────

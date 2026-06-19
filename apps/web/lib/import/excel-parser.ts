@@ -28,6 +28,10 @@ export interface ParsedSheet {
   rowCount: number
   /** Figyelmeztetés, ha a sheet üres vagy nem kezelhető */
   warning?: string
+  /** Nyitó (előző évi) egyenleg a lap tetejéről („Előző évi …egyenleg:") — Kassza/bank főkönyv. */
+  openingBalance?: number | null
+  /** Év végi (záró) egyenleg a lap tetejéről („Egyenleg:") — a hivatalos könyvelés fordulónapi értéke. */
+  closingBalance?: number | null
 }
 
 export interface ParsedWorkbook {
