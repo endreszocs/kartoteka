@@ -44,7 +44,7 @@ export async function searchPersonsForManualPickAction(
 
   const parts = trimmed.split(/\s+/).filter(Boolean)
   let q = supabase.from('szemely')
-    .select('id, csaladnev, k_nev, sz_datum, ferfi, szcs_nev')
+    .select('id, csaladnev, k_nev, sz_datum, ferfi, szcs_nev, foglalkozas, c_utcaid, c_szam')
     .eq('congregation_id', targetCongregationId)
     .eq('isvisible', true)
     .eq('meghalt', false)
@@ -70,16 +70,43 @@ export async function searchPersonsForManualPickAction(
   const { data, error } = await q.limit(15)
   if (error) return { error: `Keresési hiba: ${error.message}` }
 
-  const results: CandidatePerson[] = (data || []).map(p => ({
-    id: p.id,
-    csaladnev: p.csaladnev,
-    k_nev: p.k_nev,
-    sz_datum: p.sz_datum,
-    ferfi: p.ferfi,
-    szcs_nev: p.szcs_nev,
-    score: 0,
-    reasons: ['Manuális találat'],
-  }))
+  // Utcanevek feloldása (c_utcaid → adrstreet) egy batch-query-vel, a cím megjelenítéséhez.
+  const utcaIds = Array.from(
+    new Set(
+      (data || [])
+        .map((p) => (p as { c_utcaid?: number | null }).c_utcaid)
+        .filter((id): id is number => typeof id === 'number'),
+    ),
+  )
+  const utcaNevById = new Map<number, string>()
+  if (utcaIds.length > 0) {
+    const { data: utcaRows } = await supabase
+      .from('adrstreet')
+      .select('id, name, name_hu')
+      .in('id', utcaIds)
+    for (const u of utcaRows || []) {
+      const row = u as { id: number; name?: string | null; name_hu?: string | null }
+      utcaNevById.set(row.id, (row.name_hu || row.name || '') as string)
+    }
+  }
+
+  const results: CandidatePerson[] = (data || []).map((p) => {
+    const rec = p as typeof p & { foglalkozas?: string | null; c_utcaid?: number | null; c_szam?: string | null }
+    const utca = typeof rec.c_utcaid === 'number' ? utcaNevById.get(rec.c_utcaid) || '' : ''
+    const cim = [utca, rec.c_szam || ''].filter(Boolean).join(' ').trim() || null
+    return {
+      id: p.id,
+      csaladnev: p.csaladnev,
+      k_nev: p.k_nev,
+      sz_datum: p.sz_datum,
+      ferfi: p.ferfi,
+      szcs_nev: p.szcs_nev,
+      cim,
+      foglalkozas: rec.foglalkozas ?? null,
+      score: 0,
+      reasons: ['Manuális találat'],
+    }
+  })
 
   return { success: true, results }
 }

@@ -40,6 +40,7 @@ import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
 import { ColumnMappingPanel } from './steps/column-mapping-panel'
+import { WizardSteps } from './steps/wizard-steps'
 import { buildFinanceImportItems } from './helpers/item-builder'
 import { applyXmlOverlay } from './helpers/xml-overlay'
 import { distributeAmbiguousDonors } from './helpers/donor-distribution'
@@ -320,8 +321,13 @@ export function PenzugyImportWizard() {
     })
   }, [builtItems.items, file])
 
+  const currentStep: 1 | 2 | 3 =
+    stage === 'welcome' ? 1 : stage === 'result' ? 3 : 2
+
   return (
     <div className="space-y-5">
+      <WizardSteps current={currentStep} />
+
       {stage === 'welcome' && (
         <WelcomeStep
           selectedFile={file}

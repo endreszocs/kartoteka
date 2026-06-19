@@ -61,6 +61,9 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   visszatérítés — és a kiadás-oldalon a segély átvevője). A **perselypénzt**, a **céges/pályázati** bevételeket
   és a **belső átvezetéseket** nem köti személyhez — így kevesebb a fölösleges „nem található", és nincs téves
   személy-párosítás ezeknél.
+- **Modern, áttekinthető wizard + részletes tag-kereső.** Az importáló mostantól egyértelmű **lépés-jelzővel**
+  vezet végig (Feltöltés → Áttekintés és egyeztetés → Kész). A kézi tag-keresőben a név mellett a tag **lakcíme,
+  születési dátuma, életkora és foglalkozása** is látszik — így biztosan a megfelelő személyt választod.
 
 ## [2026-06-19] — Pénzügyi importáló: pontosabb tag-párosítás, kézi kereső és adomány-előnézet
 <!-- key: 2026-06-19-import-parositas -->

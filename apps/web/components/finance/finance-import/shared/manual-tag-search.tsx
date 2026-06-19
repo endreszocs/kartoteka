@@ -35,6 +35,22 @@ function personLabel(p: CandidatePerson): string {
   return `${base}${maiden}`
 }
 
+/** Életkor a születési dátumból (YYYY-MM-DD). Null, ha nem értelmezhető. */
+function ageFromBirth(sz: string | null | undefined): number | null {
+  if (!sz) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(sz.trim())
+  if (!m) return null
+  const by = Number(m[1])
+  const bm = Number(m[2])
+  const bd = Number(m[3])
+  const now = new Date()
+  let age = now.getFullYear() - by
+  const mo = now.getMonth() + 1
+  const da = now.getDate()
+  if (mo < bm || (mo === bm && da < bd)) age--
+  return age >= 0 && age < 130 ? age : null
+}
+
 export function ManualTagSearch({ initialQuery, currentId, onPick, onClear }: ManualTagSearchProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState(initialQuery)
@@ -141,10 +157,12 @@ export function ManualTagSearch({ initialQuery, currentId, onPick, onClear }: Ma
       )}
 
       {results.length > 0 && (
-        <ul className="mt-1.5 max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-md bg-white ring-1 ring-slate-100">
+        <ul className="mt-1.5 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-md bg-white ring-1 ring-slate-100">
           {results.map((p) => {
             const label = personLabel(p)
             const isCurrent = currentId === p.id
+            const fullName = [p.csaladnev, p.k_nev].filter(Boolean).join(' ') || '(névtelen)'
+            const age = ageFromBirth(p.sz_datum)
             return (
               <li key={p.id}>
                 <button
@@ -154,12 +172,27 @@ export function ManualTagSearch({ initialQuery, currentId, onPick, onClear }: Ma
                     setPickedLabel(label)
                     setOpen(false)
                   }}
-                  className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-teal-50 ${
-                    isCurrent ? 'bg-teal-50 font-semibold text-teal-800' : 'text-slate-700'
+                  className={`flex w-full flex-col gap-0.5 px-2.5 py-2 text-left hover:bg-teal-50 ${
+                    isCurrent ? 'bg-teal-50' : ''
                   }`}
                 >
-                  <span>{label}</span>
-                  {isCurrent && <Check className="size-3.5 shrink-0 text-teal-600" />}
+                  <span className="flex items-center gap-2 text-xs">
+                    <span className={isCurrent ? 'font-semibold text-teal-800' : 'font-medium text-slate-800'}>
+                      {fullName}
+                    </span>
+                    {p.szcs_nev && (
+                      <span className="text-[10px] text-slate-400">sz: {p.szcs_nev}</span>
+                    )}
+                    {isCurrent && <Check className="ml-auto size-3.5 shrink-0 text-teal-600" />}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500">
+                    {p.cim && <span>📍 {p.cim}</span>}
+                    {p.sz_datum && (
+                      <span>🎂 {p.sz_datum}{age != null ? ` (${age} é.)` : ''}</span>
+                    )}
+                    {p.foglalkozas && <span>💼 {p.foglalkozas}</span>}
+                    {p.ferfi != null && <span>{p.ferfi ? '♂' : '♀'}</span>}
+                  </span>
                 </button>
               </li>
             )

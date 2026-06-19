@@ -27,6 +27,7 @@ import {
   type GeneralMappedRow,
 } from '@/app/(dashboard)/penzugy/general-income-actions'
 import { GeneralMatchStep } from './general-match-step'
+import { WizardSteps } from '../steps/wizard-steps'
 
 type Stage = 'upload' | 'mapping' | 'match' | 'result'
 
@@ -220,8 +221,13 @@ export function GeneralIncomeImportWizard() {
   }
 
   // ── RENDER ──────────────────────────────────────────────────────────
+  const currentStep: 1 | 2 | 3 =
+    stage === 'upload' ? 1 : stage === 'result' ? 3 : 2
+
   return (
     <div className="space-y-5">
+      <WizardSteps current={currentStep} />
+
       {stage === 'upload' && (
         <div className="space-y-5">
           <header className="flex items-start gap-3">
