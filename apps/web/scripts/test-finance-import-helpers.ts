@@ -23,6 +23,7 @@ import { parseDonorString } from '../components/finance/finance-import/helpers/d
 import { splitKasszaRow } from '../components/finance/finance-import/helpers/kassza-row-classifier'
 import { normalizeBudgetCode } from '../components/finance/finance-import/helpers/budget-code-resolver'
 import { lookupPersonByQuadAttempt, type PersonLookupMaps } from '../lib/import/lookup-resolver'
+import { expandNickname } from '../lib/import/hungarian-nicknames'
 
 let passCount = 0
 let failCount = 0
@@ -318,11 +319,14 @@ function makeMaps(persons: TestPerson[]): PersonLookupMaps {
       sz_datum: null, ferfi: p.flag === 'M', szcs_nev: null,
     })
     addressById.set(p.id, { streetName: p.street ?? null, houseNumber: p.house ?? null })
-    // byTriple: a builder a saját flag ALATT és `|?` alatt is indexel
-    push(byTriple, `${p.cs}|${p.k}|${p.flag}`, p.id)
-    push(byTriple, `${p.cs}|${p.k}|?`, p.id)
-    // byKnameFerfi: a builder CSAK a saját flag alatt indexel
-    push(byKnameFerfi, `${p.k}|${p.flag}`, p.id)
+    // A valós builder a knevVariants-on át becenév-alakokkal is indexel — itt is.
+    for (const kv of expandNickname(p.k)) {
+      // byTriple: a saját flag ALATT és `|?` alatt is
+      push(byTriple, `${p.cs}|${kv}|${p.flag}`, p.id)
+      push(byTriple, `${p.cs}|${kv}|?`, p.id)
+      // byKnameFerfi: CSAK a saját flag alatt
+      push(byKnameFerfi, `${kv}|${p.flag}`, p.id)
+    }
   }
   return {
     byCnp: new Map(), byName: new Map(), byQuad: new Map(),
@@ -378,6 +382,31 @@ function describe(r: { id: string } | { candidates: string[] } | null): string {
   const r = lookupPersonByQuadAttempt('Tóth', 'Éva', null, null, 'F', maps)
   expect('Regresszió: triple egyezés → id:7', describe(r), 'id:7')
 }
+
+// P2-1: becenév — "Pista" befizető → "István" tag
+{
+  const maps = makeMaps([{ id: '8', cs: 'kovacs', k: 'istvan', flag: 'M', street: 'X', house: '1' }])
+  const r = lookupPersonByQuadAttempt('Kovács', 'Pista', null, null, 'M', maps)
+  expect('P2-1 becenév Pista→István → id:8', describe(r), 'id:8')
+}
+
+// P2-1: becenév fordítva — "Kati" tag, "Katalin" befizető
+{
+  const maps = makeMaps([{ id: '9', cs: 'nagy', k: 'kati', flag: 'F', street: 'X', house: '1' }])
+  const r = lookupPersonByQuadAttempt('Nagy', 'Katalin', null, null, 'F', maps)
+  expect('P2-1 becenév Katalin→Kati → id:9', describe(r), 'id:9')
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 6. expandNickname (becenév-szótár)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 6. expandNickname ===\n')
+
+expectTrue('pista → tartalmaz istvan', expandNickname('pista').includes('istvan'))
+expectTrue('istvan → tartalmaz pista (kétirányú)', expandNickname('istvan').includes('pista'))
+expectTrue('katalin → tartalmaz kati', expandNickname('katalin').includes('kati'))
+expectTrue('juli → tartalmaz julianna (több klaszter unió)', expandNickname('juli').includes('julianna'))
+expect('ismeretlen név önmaga', expandNickname('xyzqw'), ['xyzqw'])
 
 // ════════════════════════════════════════════════════════════════════════
 // Összesítés

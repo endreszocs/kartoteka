@@ -27,6 +27,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toLocalIsoDate } from './date-utils'
+import { expandNickname } from './hungarian-nicknames'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -172,6 +173,13 @@ function knevVariants(k_nev: string | null | undefined): string[] {
   // Külön darabok (egyszerű első/második név)
   for (const part of norm.split(/[-\s]+/).filter(Boolean)) {
     if (part.length >= 2) variants.add(part)
+  }
+  // Becenév-bővítés (P2-1): minden EGYTOKENES variánst kiegészítünk az ekvivalens
+  // alakjaival (pl. Pista↔István, Kati↔Katalin). Kétirányú: az index- ÉS a
+  // lekérdezés-oldal is ezt hívja, így bármelyik oldal használhat becenevet.
+  for (const v of Array.from(variants)) {
+    if (/[-\s]/.test(v)) continue
+    for (const alt of expandNickname(v)) variants.add(alt)
   }
   return Array.from(variants)
 }
