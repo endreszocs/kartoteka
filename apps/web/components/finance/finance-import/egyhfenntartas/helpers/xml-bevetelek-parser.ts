@@ -63,7 +63,15 @@ const EGYHF_KATEGORIA_KEYWORD = 'egyházfenntart'
 
 export async function parseXmlBevetelek(
   fileBuffer: ArrayBuffer | Uint8Array,
+  opts?: { categoryKeyword?: string | null },
 ): Promise<XmlBevetelekParseResult> {
+  // Kategória-szűrő: alapból csak egyházfenntartás (visszafelé kompatibilis az
+  // egyhf-wizarddal). `null` → NINCS szűrés (minden bevétel-kategória) — az
+  // egységes importáló XML-overlay-éhez. Konkrét string → arra szűr.
+  const categoryKeyword =
+    opts === undefined || opts.categoryKeyword === undefined
+      ? EGYHF_KATEGORIA_KEYWORD
+      : opts.categoryKeyword
   // Az XLSX library képes a Microsoft Excel 2003 XML (SpreadsheetML) formátumot olvasni.
   const workbook = XLSX.read(fileBuffer, { type: 'array', cellDates: true })
 
@@ -101,10 +109,10 @@ export async function parseXmlBevetelek(
     const row = rawRows[i]
     if (!Array.isArray(row)) continue
 
-    // Célja (col 1) — kategória szűrés
+    // Célja (col 1) — kategória szűrés (a categoryKeyword szerint; null → nincs szűrés)
     const celja = row[1]
     if (typeof celja !== 'string') continue
-    if (!celja.toLowerCase().includes(EGYHF_KATEGORIA_KEYWORD)) continue
+    if (categoryKeyword !== null && !celja.toLowerCase().includes(categoryKeyword)) continue
 
     // Forrása (col 0) — kötelező
     const forrasa = row[0]

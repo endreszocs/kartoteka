@@ -24,6 +24,10 @@ import { splitKasszaRow } from '../components/finance/finance-import/helpers/kas
 import { normalizeBudgetCode } from '../components/finance/finance-import/helpers/budget-code-resolver'
 import { lookupPersonByQuadAttempt, type PersonLookupMaps } from '../lib/import/lookup-resolver'
 import { expandNickname } from '../lib/import/hungarian-nicknames'
+import { shouldResolvePerson, personScope } from '../lib/import/person-scope-config'
+import { applyXmlOverlay } from '../components/finance/finance-import/helpers/xml-overlay'
+import type { ClassifiedKasszaRow } from '../app/(dashboard)/penzugy/finance-import-types'
+import type { XmlBevetelekRow } from '../components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 
 let passCount = 0
 let failCount = 0
@@ -432,6 +436,52 @@ expectTrue('istvan → tartalmaz pista (kétirányú)', expandNickname('istvan')
 expectTrue('katalin → tartalmaz kati', expandNickname('katalin').includes('kati'))
 expectTrue('juli → tartalmaz julianna (több klaszter unió)', expandNickname('juli').includes('julianna'))
 expect('ismeretlen név önmaga', expandNickname('xyzqw'), ['xyzqw'])
+
+// ════════════════════════════════════════════════════════════════════════
+// 7. person-scope-config (mely kódok kapnak személy-párosítást)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 7. person-scope-config ===\n')
+
+expectTrue('101.01 egyházf. → személy', shouldResolvePerson('101.01'))
+expectTrue('101,01 (vesszős) → személy', shouldResolvePerson('101,01'))
+expectTrue('101.04 adományok → személy', shouldResolvePerson('101.04'))
+expectTrue('202.08 segély → személy', shouldResolvePerson('202.08'))
+expectTrue('101.03 perselypénz → NEM', !shouldResolvePerson('101.03'))
+expectTrue('103.09 szponzor → NEM', !shouldResolvePerson('103.09'))
+expectTrue('201.01 fizetés (kiadás) → NEM', !shouldResolvePerson('201.01'))
+expectTrue('400.01 belső mozgás → NEM', !shouldResolvePerson('400.01'))
+expect('101.01 scope = required', personScope('101.01'), 'required')
+expect('101.03 scope = none', personScope('101.03'), 'none')
+
+// ════════════════════════════════════════════════════════════════════════
+// 8. xml-overlay (Befizetett év + hivatalos iratszám átvétele)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 8. xml-overlay ===\n')
+
+{
+  const income: ClassifiedKasszaRow[] = [
+    { rowIndex: 5, kind: 'income', amount: 85, donorString: 'Kádár Barna Zsolt - Vasút 183', iratszam: '134' },
+    { rowIndex: 6, kind: 'income', amount: 130, donorString: 'Szőcs Endre - Parókia 214', iratszam: '19' },
+  ]
+  const mkXml = (
+    rowIndex: number, rawForrasa: string, osszeg: number, nyugta: number,
+    iratszam: number, fizetettev: number,
+  ): XmlBevetelekRow => ({
+    rowIndex, rawForrasa, osszeg, datum: '2025-08-16', nyugta, iratszam,
+    irattipus: 'chitanta', ksz: '101.01', fizetettev, megjegyzes: null, letrehozva: null,
+  })
+  const xml: XmlBevetelekRow[] = [
+    mkXml(1, 'Kádár Barna Zsolt - Vasút 183', 85, 134, 115134, 2021), // arrears 2021
+    mkXml(2, 'Szőcs Endre - Parókia 214', 130, 19, 115019, 2024),
+    mkXml(3, 'Valaki Más - Fő 1', 50, 999, 115999, 2025), // nincs xlsx-pár
+  ]
+  const r = applyXmlOverlay(income, xml)
+  expect('overlay matched = 2', r.matchedCount, 2)
+  expect('row5 fizetettev = 2021 (arrears)', r.byRowIndex.get(5)?.fizetettev, 2021)
+  expect('row5 hivatalos iratszám = 115134', r.byRowIndex.get(5)?.iratszamHivatalos, '115134')
+  expect('row6 fizetettev = 2024', r.byRowIndex.get(6)?.fizetettev, 2024)
+  expect('onlyXml = 1 (Valaki Más)', r.onlyXml.length, 1)
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Összesítés

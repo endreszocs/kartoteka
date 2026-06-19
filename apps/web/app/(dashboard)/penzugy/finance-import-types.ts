@@ -80,6 +80,12 @@ export interface ClassifiedKasszaRow {
   irattipus?: string | null
   /** Megjegyzés szöveges */
   megjegyzes?: string | null
+  /** XML-overlay (bevételek xml referencia): a TÉNYLEGES befizetett év
+   *  (col 11 „Befizetett év") — a több-éves hátralék helyes besorolásához.
+   *  Ha nincs XML-pár, undefined → az item-builder a dátum évére esik vissza. */
+  fizetettevOverride?: number | null
+  /** XML-overlay: a hivatalos (5-jegyű) iratszám (col 8) — stabil dedup-kulcs. */
+  iratszamHivatalos?: string | null
 }
 
 // ────────────────────────────────────────────────────────────────────────
