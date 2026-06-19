@@ -56,6 +56,17 @@ const INTERNAL_TRANSFER_PATTERNS = [
   /Transfer\s+(?:între\s+)?conturi/i, // Bank-bank átvitel (402.xx)
 ]
 
+/**
+ * Igaz, ha a szöveg belső mozgásra UTAL (Készpénzletétel/-felvétel, Transfer
+ * conturi, Depunere/Retragere numerar). A „lemaradt belső mozgás" figyelmeztetőhöz:
+ * ha egy ilyen sor mégis sima bevétel/kiadásként osztályozódott (rossz/hiányzó kód),
+ * akkor jelezni kell — különben a pénz fél lába hiányozna a párból.
+ */
+export function looksLikeInternalMovement(text: string | null | undefined): boolean {
+  if (!text) return false
+  return INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(text))
+}
+
 const INFO_LINE_PATTERNS = [
   // „Előző évi készpénzegyenleg" (Kassza) ÉS „Előző évi egyenleg" (A–F bankszámla-lapok).
   // FONTOS: a nyitó egyenleg NEM tranzakció — különben bevételként importálódna.

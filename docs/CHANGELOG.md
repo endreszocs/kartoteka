@@ -41,6 +41,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   (készpénz vagy bankszámla), és bankszámlánál megadod, **melyik számládhoz** tartozik a lap — a tételek
   (bevétel/kiadás) a megfelelő **bankszámlához** könyvelődnek, a bankszámla **nyitó egyenlegével** együtt.
   Ugyanaz az ellenőrzött oszlop-egyeztetés, párosítás és egyenleg-levezetés, mint a Kasszánál.
+- **Belső mozgások (kassza ↔ bank) láthatósága + biztonsági figyelmeztetés.** Az áttekintő mostantól
+  külön kiemeli a **belső pénzmozgásokat** (pl. készpénz bankba tétele, ATM-felvét), amelyek mindkét
+  főkönyvben szerepelnek (kiadás az egyikben, bevétel a másikban). A rendszer emlékeztet: **a párját — a
+  másik főkönyvet — is importálni kell**, különben a pénzmozgás fele hiányozna. Ráadásul **figyelmeztet**,
+  ha egy sor belső mozgásnak tűnik (pl. „Készpénzletétel"), de hiányzó/téves kód miatt nem annak ismerte fel.
 - **Ellenőrizhető oszlop-egyeztetés.** Az importáló a fájl fejlécei alapján automatikusan felismeri, melyik
   oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
   így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet

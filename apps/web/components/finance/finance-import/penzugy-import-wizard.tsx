@@ -45,9 +45,11 @@ import { ImportingStep } from './steps/importing-step'
 import { ResultStep } from './steps/result-step'
 import { ImportTotalsPanel, type SheetTotals } from './steps/import-totals-panel'
 import { BalanceSummaryCard } from './steps/balance-summary-card'
+import { InternalMovementsPanel } from './steps/internal-movements-panel'
 import { ColumnMappingPanel } from './steps/column-mapping-panel'
 import { WizardSteps } from './steps/wizard-steps'
 import { buildFinanceImportItems } from './helpers/item-builder'
+import { looksLikeInternalMovement } from './helpers/kassza-row-classifier'
 import { applyXmlOverlay } from './helpers/xml-overlay'
 import { distributeAmbiguousDonors } from './helpers/donor-distribution'
 import type { MonetarDiagnostic } from './helpers/monetar-diagnostic'
@@ -381,6 +383,29 @@ export function PenzugyImportWizard() {
     return { rows, grand: totals }
   }, [kasszaAnalysis, selectedBankszamlaId, bankszamlak, selectedSheet])
 
+  // ─── Belső mozgások (kassza ↔ bank): láthatóság + „lemaradt jelzés" figyelmeztető ──
+  const internalMovements = useMemo(() => {
+    const rows = kasszaAnalysis?.rows || []
+    const transfersIn = rows.filter((r) => r.kind === 'internal-transfer-in')
+    const transfersOut = rows.filter((r) => r.kind === 'internal-transfer-out')
+    // Belső mozgásnak TŰNŐ, de bevétel/kiadásként osztályozott sorok (hiányzó/téves kód).
+    const suspected = rows.filter(
+      (r) =>
+        (r.kind === 'income' || r.kind === 'expense') &&
+        (looksLikeInternalMovement(r.donorString) ||
+          looksLikeInternalMovement(r.celNev) ||
+          looksLikeInternalMovement(r.megjegyzes)),
+    )
+    return { transfersIn, transfersOut, suspected }
+  }, [kasszaAnalysis])
+
+  // A belső mozgás párját adó másik főkönyv (a fájl többi főkönyvi lapja).
+  const counterpartHint = useMemo(() => {
+    const others = ledgerSheets.filter((s) => s.sheetName !== selectedSheet)
+    if (others.length === 0) return null
+    return others.map((s) => (s.isBankSheet ? `Bank „${s.sheetName}"` : 'Kassza')).join(', ')
+  }, [ledgerSheets, selectedSheet])
+
   // ─── Lépés 2 → 3: import végrehajtása ─────────────────────────────────
   const handleConfirmImport = useCallback(() => {
     if (builtItems.items.length === 0) {
@@ -484,6 +509,16 @@ export function PenzugyImportWizard() {
           closing={kasszaBalances.closing}
           incoming={importTotals.grand.bev}
           outgoing={importTotals.grand.kia}
+        />
+      )}
+
+      {stage === 'review' && !isLoadingReview && kasszaAnalysis && (
+        <InternalMovementsPanel
+          transfersIn={internalMovements.transfersIn}
+          transfersOut={internalMovements.transfersOut}
+          suspected={internalMovements.suspected}
+          isBankSource={selectedBankszamlaId != null}
+          counterpartHint={counterpartHint}
         />
       )}
 

@@ -20,7 +20,7 @@
 
 import { detectCompany } from '../components/finance/finance-import/helpers/company-detector'
 import { parseDonorString } from '../components/finance/finance-import/helpers/donor-string-parser'
-import { splitKasszaRow } from '../components/finance/finance-import/helpers/kassza-row-classifier'
+import { splitKasszaRow, looksLikeInternalMovement } from '../components/finance/finance-import/helpers/kassza-row-classifier'
 import { normalizeBudgetCode } from '../components/finance/finance-import/helpers/budget-code-resolver'
 import { lookupPersonByQuadAttempt, type PersonLookupMaps } from '../lib/import/lookup-resolver'
 import { expandNickname } from '../lib/import/hungarian-nicknames'
@@ -656,6 +656,32 @@ console.log('\n=== 12. scanLedgerBalances ===\n')
     splitKasszaRow({ _donor_string: 'Előző évi készpénzegyenleg:', _bev_osszeg: 12519.86 }).kind,
     'skip',
   )
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 13. Belső mozgások (kassza ↔ bank) — a valós Adatok_2025.xlsx kódjaival
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n=== 13. Belső mozgások ===\n')
+
+{
+  const mk = (kod: string, bev: number, kia: number, donor: string) =>
+    splitKasszaRow({ _donor_string: donor, _bev_osszeg: bev || null, _kia_osszeg: kia || null, _szamadasicel_kod: kod }).kind
+
+  // Kassza-oldal
+  expect('Kassza 400.01 kiadás → internal-transfer-out (kassza→bank)', mk('400.01', 0, 87855, 'Referinta 250108'), 'internal-transfer-out')
+  expect('Kassza 300.01 bevétel → internal-transfer-in (bank→kassza)', mk('300.01', 200, 0, 'ATM'), 'internal-transfer-in')
+  // Bank-oldal (a pár másik fele)
+  expect('Bank 301.01 bevétel → internal-transfer-in (kasszából bankba)', mk('301.01', 87855, 0, 'Készpénzletétel a kasszából'), 'internal-transfer-in')
+  expect('Bank 401.01 kiadás → internal-transfer-out (bankból kasszába)', mk('401.01', 0, 200, 'Készpénzfelvétel a kasszába'), 'internal-transfer-out')
+  // 402.xx bank-bank
+  expect('402.02 → belső mozgás (nem sima bevétel)', mk('402.02', 500, 0, 'Transfer între conturi'), 'internal-transfer-in')
+
+  // „Lemaradt jelzés" felismerő
+  expectTrue('looksLikeInternalMovement(Készpénzletétel a kasszából)', looksLikeInternalMovement('Készpénzletétel a kasszából - 250108'))
+  expectTrue('looksLikeInternalMovement(Transfer între conturi)', looksLikeInternalMovement('Transfer între conturi proprii'))
+  expect('looksLikeInternalMovement(rendes név) = false', looksLikeInternalMovement('Szőcs Endre - Parókia 214'), false)
+  // ha egy „Készpénzletétel" sor KÓD nélkül sima kiadásként jönne → a suspected-szűrő elkapja
+  expect('kód nélküli Készpénzletétel → expense (a panel suspected-ként jelzi)', mk('', 0, 5000, 'Készpénzletétel a bankba'), 'expense')
 }
 
 // ════════════════════════════════════════════════════════════════════════
