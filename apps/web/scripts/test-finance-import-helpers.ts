@@ -305,7 +305,7 @@ interface TestPerson {
 function makeMaps(persons: TestPerson[]): PersonLookupMaps {
   const byTriple = new Map<string, string[]>()
   const byKnameFerfi = new Map<string, string[]>()
-  const byId = new Map<string, ReturnType<PersonLookupMaps['byId']['get']>>()
+  const byId: PersonLookupMaps['byId'] = new Map()
   const addressById = new Map<string, { streetName: string | null; houseNumber: string | null }>()
   const push = (m: Map<string, string[]>, key: string, id: string) => {
     const arr = m.get(key) || []

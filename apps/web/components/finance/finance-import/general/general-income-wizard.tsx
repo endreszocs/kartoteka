@@ -19,12 +19,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   parseGeneralPreview,
+  previewGeneralImport,
   executeGeneralImport,
   type GeneralSheetPreview,
   type GeneralImportResult,
+  type GeneralPreviewResult,
+  type GeneralMappedRow,
 } from '@/app/(dashboard)/penzugy/general-income-actions'
+import { GeneralMatchStep } from './general-match-step'
 
-type Stage = 'upload' | 'mapping' | 'result'
+type Stage = 'upload' | 'mapping' | 'match' | 'result'
 
 /** A cél-mezők, amikhez a fájl oszlopait rendelni kell. */
 const TARGET_FIELDS = [
@@ -62,13 +66,37 @@ export function GeneralIncomeImportWizard() {
   })
 
   const [result, setResult] = useState<GeneralImportResult | null>(null)
+
+  // Párosítás-előnézet (match lépés) állapota
+  const [mappedRows, setMappedRows] = useState<GeneralMappedRow[]>([])
+  const [preview, setPreview] = useState<GeneralPreviewResult | null>(null)
+  const [matchSkipped, setMatchSkipped] = useState<Set<string>>(new Set())
+  const [matchManual, setMatchManual] = useState<Record<string, number>>({})
+
   const [isParsing, startParsing] = useTransition()
+  const [isPreviewing, startPreviewing] = useTransition()
   const [isImporting, startImporting] = useTransition()
 
   const sheet = useMemo(
     () => sheets.find((s) => s.name === activeSheet) ?? sheets[0],
     [sheets, activeSheet],
   )
+
+  const autoMap = useCallback((s: GeneralSheetPreview | undefined) => {
+    if (!s) return
+    const find = (cands: string[]) =>
+      s.headers.find((h) => cands.some((c) => h.toLowerCase().replace(/\s+/g, '').includes(c))) ?? NONE
+    setMapping({
+      nev: find(['forrás', 'forras', 'név', 'nev', 'befizet']),
+      osszeg: find(['összeg', 'osszeg', 'amount']),
+      datum: find(['dátum', 'datum', 'date']),
+      kategoria: find(['célja', 'celja', 'kategória', 'kategoria', 'költsszám', 'koltsszam', 'kód', 'kod', 'category']),
+      iratszam: find(['iratszám', 'iratszam']),
+      nyugta: find(['nyugta', 'chitanta']),
+      fizetettev: find(['befizetettév', 'befizetettev', 'fizetettév', 'fizetettev']),
+      megjegyzes: find(['megjegyzés', 'megjegyzes', 'note']),
+    })
+  }, [])
 
   const handleParse = useCallback(() => {
     if (!file) {
@@ -89,25 +117,9 @@ export function GeneralIncomeImportWizard() {
       autoMap(res.sheets[0])
       setStage('mapping')
     })
-  }, [file])
+  }, [file, autoMap])
 
-  function autoMap(s: GeneralSheetPreview | undefined) {
-    if (!s) return
-    const find = (cands: string[]) =>
-      s.headers.find((h) => cands.some((c) => h.toLowerCase().replace(/\s+/g, '').includes(c))) ?? NONE
-    setMapping({
-      nev: find(['forrás', 'forras', 'név', 'nev', 'befizet']),
-      osszeg: find(['összeg', 'osszeg', 'amount']),
-      datum: find(['dátum', 'datum', 'date']),
-      kategoria: find(['célja', 'celja', 'kategória', 'kategoria', 'költsszám', 'koltsszam', 'kód', 'kod', 'category']),
-      iratszam: find(['iratszám', 'iratszam']),
-      nyugta: find(['nyugta', 'chitanta']),
-      fizetettev: find(['befizetettév', 'befizetettev', 'fizetettév', 'fizetettev']),
-      megjegyzes: find(['megjegyzés', 'megjegyzes', 'note']),
-    })
-  }
-
-  const handleImport = useCallback(() => {
+  const handleToPreview = useCallback(() => {
     if (!sheet) return
     if (
       mapping.nev === NONE ||
@@ -118,7 +130,7 @@ export function GeneralIncomeImportWizard() {
       toast.error('A Név, Összeg, Dátum és Kategória mezőt kötelező párosítani.')
       return
     }
-    const rows = sheet.rows
+    const rows: GeneralMappedRow[] = sheet.rows
       .map((row) => {
         const get = (k: FieldKey) => (mapping[k] !== NONE ? row[mapping[k]] : null)
         const fevRaw = get('fizetettev')
@@ -146,20 +158,65 @@ export function GeneralIncomeImportWizard() {
       return
     }
 
+    setMappedRows(rows)
+    startPreviewing(async () => {
+      const res = await previewGeneralImport({ rows, year })
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      setPreview(res)
+      setMatchSkipped(new Set())
+      setMatchManual({})
+      setStage('match')
+    })
+  }, [sheet, mapping, year])
+
+  const handleSkipToggle = useCallback((clientKey: string) => {
+    setMatchSkipped((prev) => {
+      const next = new Set(prev)
+      if (next.has(clientKey)) next.delete(clientKey)
+      else next.add(clientKey)
+      return next
+    })
+  }, [])
+
+  const handleManualChange = useCallback((clientKey: string, szemelyId: number) => {
+    setMatchManual((prev) => {
+      if (Number.isNaN(szemelyId)) {
+        const next = { ...prev }
+        delete next[clientKey]
+        return next
+      }
+      return { ...prev, [clientKey]: szemelyId }
+    })
+  }, [])
+
+  const handleConfirm = useCallback(() => {
+    if (mappedRows.length === 0) return
     startImporting(async () => {
-      const res = await executeGeneralImport({ rows, year })
+      const res = await executeGeneralImport({
+        rows: mappedRows,
+        year,
+        manualSelections: matchManual,
+        skipped: [...matchSkipped],
+      })
       setResult(res)
       setStage('result')
       if (res.error) toast.error(res.error)
       else toast.success(`Beszúrva: ${res.inserted} tétel.`)
     })
-  }, [sheet, mapping, year])
+  }, [mappedRows, year, matchManual, matchSkipped])
 
   function reset() {
     setStage('upload')
     setFile(null)
     setSheets([])
     setResult(null)
+    setMappedRows([])
+    setPreview(null)
+    setMatchSkipped(new Set())
+    setMatchManual({})
   }
 
   // ── RENDER ──────────────────────────────────────────────────────────
@@ -185,7 +242,7 @@ export function GeneralIncomeImportWizard() {
           <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-sm text-sky-900">
             <strong>Automatikus kategória-felismerés:</strong> nem kell cél-kategóriát választani.
             A következő lépésben kiválasztod, melyik oszlop tartalmazza a kategóriát (kód, pl.
-            „101.01", vagy név, pl. „Egyházfenntartói járulék"), és a rendszer soronként
+            101.01, vagy név, pl. Egyházfenntartói járulék), és a rendszer soronként
             felismeri, hogy egyházfenntartás vagy más bevétel, majd a könyveléssel egyezteti.
           </div>
 
@@ -233,7 +290,7 @@ export function GeneralIncomeImportWizard() {
             <h2 className="font-heading text-2xl text-slate-800">Oszlop-párosítás</h2>
             <p className="mt-1 text-sm text-slate-600">
               Rendeld a fájl oszlopait a cél-mezőkhöz. A Név, Összeg és Dátum kötelező.
-              ({sheet.rowCount} sor a(z) „{sheet.name}" lapon.)
+              ({sheet.rowCount} sor a(z) {sheet.name} lapon.)
             </p>
           </header>
 
@@ -313,12 +370,26 @@ export function GeneralIncomeImportWizard() {
               <ArrowLeft className="size-4" />
               Vissza
             </Button>
-            <Button onClick={handleImport} disabled={isImporting} className="gap-2 rounded-xl">
-              {isImporting ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
-              Importálás
+            <Button onClick={handleToPreview} disabled={isPreviewing} className="gap-2 rounded-xl">
+              {isPreviewing ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+              Tovább a párosításhoz
             </Button>
           </div>
         </div>
+      )}
+
+      {stage === 'match' && preview && (
+        <GeneralMatchStep
+          preview={preview}
+          year={year}
+          skipped={matchSkipped}
+          onSkipToggle={handleSkipToggle}
+          manualSelections={matchManual}
+          onManualSelectionChange={handleManualChange}
+          onBack={() => setStage('mapping')}
+          onConfirm={handleConfirm}
+          isImporting={isImporting}
+        />
       )}
 
       {stage === 'result' && result && (
@@ -328,6 +399,7 @@ export function GeneralIncomeImportWizard() {
             <p className="mt-1 text-sm text-emerald-800">
               {result.inserted} tétel beszúrva
               {result.skippedDuplicates ? `, ${result.skippedDuplicates} duplikátum kihagyva` : ''}
+              {result.skippedByUser ? `, ${result.skippedByUser} kézzel kihagyva` : ''}
               {result.skippedNoCategory ? `, ${result.skippedNoCategory} ismeretlen kategória` : ''}
               {result.skippedInvalid ? `, ${result.skippedInvalid} érvénytelen sor` : ''}.
             </p>
