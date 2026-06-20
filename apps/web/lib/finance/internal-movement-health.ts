@@ -42,8 +42,11 @@ export interface InternalMovementHealth {
 }
 
 function key(datum: string, osszeg: number): string {
+  // A dátumot a NAPRA normalizáljuk (első 10 karakter): a `kiadas.datum` időbélyeg
+  // („2025-12-29T00:00:00"), a `befizetes.datum` viszont dátum típusú („2025-12-29").
+  // Normalizálás nélkül a belső mozgás két fele külön kulcsra esne → tévesen párosítatlan.
   // Az összeget centre kerekítjük a lebegőpontos eltérések elkerülésére.
-  return `${datum}|${Math.round(osszeg * 100)}`
+  return `${(datum || '').slice(0, 10)}|${Math.round(osszeg * 100)}`
 }
 
 /**
