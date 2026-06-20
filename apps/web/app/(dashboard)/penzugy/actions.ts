@@ -308,7 +308,8 @@ async function insertExpenseRecord(params: {
     osszeg: input.osszeg,
     datum: input.datum,
     id_kiadascel: input.id_kiadascel,
-    kedvezmenyzett: input.kedvezmenyzett || null,
+    // A partner/kedvezményezett a `atvevo` oszlopba kerül (lent) — a `kiadas` táblában
+    // NINCS `kedvezmenyzett` oszlop, ezért azt nem szabad beszúrni (column-does-not-exist).
     id_szemely: 'id_szemely' in input ? input.id_szemely || null : null,
     iratszam: documentNumber,
     irattipus: input.irattipus,
@@ -2472,7 +2473,8 @@ export async function saveFxRevaluation(raw: FxRevaluationInput) {
           id_kiadascel: celRow.id,
           osszeg,
           datum: evVegeDate,
-          kedvezmenyzett: `Árfolyam-veszteség: ${bank.bank_neve}`,
+          // A `kiadas` táblában a partner oszlopa `atvevo` (NINCS `kedvezmenyzett`).
+          atvevo: `Árfolyam-veszteség: ${bank.bank_neve}`,
           irattipus: 'Banki',
           iratszam: `ÁRF/${d.ev}/${bank.id}`,
           megjegyzes,
