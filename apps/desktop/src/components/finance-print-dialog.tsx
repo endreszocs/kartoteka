@@ -189,6 +189,7 @@ export function DesktopFinancePrintDialog({
                 bevCelMap,
                 kiaCelMap,
                 congregationName,
+                congregationNameRo,
                 carryoverCash,
                 carryoverBank,
                 nyugtatombok:

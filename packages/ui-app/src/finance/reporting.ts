@@ -206,6 +206,9 @@ export interface FinanceReportData {
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") — a hivatalos
+   *  (román) nyomtatványok fejlécében ez jelenik meg a magyar név helyett. */
+  congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
   /** Nyugtatömb kimutatás soradatai — csak a `nyugtatomb_kimutatas` típushoz kötelező. */
@@ -312,7 +315,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU CASA</div></div>
       <div class="header-right"><div>LUNA ${monthRo}</div><div>Anul: ${f.year}</div></div>
     </div>
@@ -329,8 +332,9 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Intocmit - K&eacute;sz&iacute;tette</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat - Ellen&odblac;rizte</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -382,7 +386,7 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU BANCA</div><div style="font-size:11px;margin-top:2px">${esc(bankLabel)}</div></div>
       <div class="header-right"><div>LUNA ${monthRo} Anul: ${f.year}</div><div>Operatiuni prin RON</div></div>
     </div>
@@ -399,8 +403,9 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Intocmit - K&eacute;sz&iacute;tette</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat - Ellen&odblac;rizte</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -498,7 +503,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationName)}</div></div>
+      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div></div>
       <div class="header-center"><div class="title">REGISTRUL-JURNAL DE INCASARI SI PLATI</div></div>
       <div class="header-right"><div>LUNA ${monthRo} ANUL ${f.year}</div></div>
     </div>
@@ -517,9 +522,9 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Conducatorul unitatii</div></div>
-      <div class="footer-item"><div class="footer-line">Intocmit</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -875,7 +880,7 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
 
   const content = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">Registru grupat pe capitole</div><div style="font-size:12px;font-weight:normal">Csoportnapló — jogcímenkénti tétellista</div></div>
       <div class="header-right"><div>${periodLabel}</div><div>${periodLabelHu}</div></div>
     </div>
@@ -894,6 +899,7 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     </div>`
     }
     <div class="footer">
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
       <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
       <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>

@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Hivatalos nyomtatványok: román gyülekezetnév + egységes aláírások
+<!-- key: 2026-06-20-nyomtatvanyok-roman-nev-alairas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Hivatalos (román) nyomtatványok fejlécében a román gyülekezetnév.** A Registru Casa, Registru
+  Banca, Registrul-Jurnal és a Csoportnapló fejlécében mostantól a **hivatalos román név**
+  (pl. „Parohia Reformată Brateș", a Gyülekezet adatlap `nev_ro` mezőjéből) jelenik meg a magyar
+  név helyett — ahogy a hivatalos dokumentumoknál elvárt.
+- **Egységes aláírás-sávok.** Minden hivatalos nyomtatványon (Casa/Banca/Jurnal/Csoportnapló)
+  egységesen **három, kétnyelvű aláírás-sáv**: „Conducătorul unității — Lelkész/Gondnok",
+  „Întocmit — Készítette", „Verificat — Ellenőrizte".
+- A nyomtatási **előnézet** mostantól minden nyomtatványnál a **teljes, A4-arányos** dokumentumot
+  mutatja (görgethetően) — pontosan azt, ami nyomtatáskor készül (lásd az előző bejegyzést).
+
+---
+
 ## [2026-06-20] — Nyomtatási előnézet: teljes dokumentum + Csoportnapló jogcím-választó
 <!-- key: 2026-06-20-elonezet-teljes-csoportnaplo-valaszto -->
 <!-- category: improvement -->
