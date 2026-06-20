@@ -79,7 +79,9 @@ export async function listCashTransactionsForDispozitie(
     .eq('congregation_id', ctx.scopeId)
     .eq('deleted', false)
     .is('dispozitie_id', null)
-    .ilike('irattipus', '%észpénz%')
+    // Készpénzes tétel = nincs bankszámlához kötve (bankszamla_id NULL) — NEM az irattípus
+    // alapján, mert az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz").
+    .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
     .order('datum', { ascending: false })

@@ -90,6 +90,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Dispoziție de plată / încasare: megtalálja az importált készpénzes tételeket + a kiválasztott
+  évre nyit.** A „meglévő készpénzes tételből generálás" lista eddig **üres** volt importált
+  adatnál, két okból: (1) a készpénzes tételeket az **irattípus** alapján kereste, de az
+  importált sorok irattípusa „Chit." (nem „Készpénz"); (2) a dátum a **mai évre** (folyó) állt,
+  így a korábbi év (pl. 2025) tételeit nem listázta. Mostantól a készpénz a **bankszámla**
+  szerint szűr (nincs bankszámla = kassza), és a dialógus a **kiválasztott költségvetési évre**
+  nyit — így a 2025-ben rögzített tételekhez is kiállítható a rendelvény.
 - **Belső mozgás párosítás-állapota a tételsoroknál (zöld/piros), beégetett szöveg helyett.** A kassza↔bank belső mozgásoknál (pl. készpénzletét) a sor mostantól DINAMIKUSAN mutatja, hogy a banki párja megvan-e: zöld **„✓ párosítva"**, ha a másik oldal (pl. a banki jóváírás) is rögzítve van; **PIROS „⚠ nincs banki párja"**, ha hiányzik. Korábban a beégetett „⏳ Várakozik banki egyeztetésre" szöveg akkor is ott maradt, ha a pár már létezett — ami félrevezető volt, a hiányzó párt pedig nem emelte ki pirossal.
 
 - **Az „Éves egyenleg" a tényleges év végi egyenleget mutatja (nem a túlköltekezést).** Korábban a

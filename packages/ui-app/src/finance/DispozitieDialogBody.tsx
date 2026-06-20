@@ -59,6 +59,9 @@ export interface DispozitieDialogBodyProps {
   onSaveDispozitie: (input: DispozitieSaveInput) => Promise<{ success?: true; sorszam?: number; error?: string }>
   onPrint: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
   onToast: DispozitieToastFn
+  /** Alapértelmezett dátum (yyyy-mm-dd) — a kiválasztott költségvetési évre állítja a nyitó dátumot,
+   *  így korábbi év (pl. 2025) egyeztetésénél a meglévő készpénzes tételek listája is arra szűr. */
+  defaultDate?: string
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -76,10 +79,11 @@ export function DispozitieDialogBody({
   onSaveDispozitie,
   onPrint,
   onToast,
+  defaultDate,
 }: DispozitieDialogBodyProps) {
   const [tipus, setTipus] = useState<DispozitieTipus>('plata')
   const [fromExisting, setFromExisting] = useState(false)
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(defaultDate || todayIso())
   const [name, setName] = useState('')
   const [tisztseg, setTisztseg] = useState('')
   const [amount, setAmount] = useState('')

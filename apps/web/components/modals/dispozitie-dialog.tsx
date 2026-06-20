@@ -33,9 +33,11 @@ interface Props {
   congregationName: string
   incomeCategories: DispozitieCategoryOption[]
   expenseCategories: DispozitieCategoryOption[]
+  /** A kiválasztott költségvetési évre álló alapértelmezett dátum (yyyy-mm-dd). */
+  defaultDate?: string
 }
 
-export function DispozitieDialog({ open, onOpenChange, congregationName, incomeCategories, expenseCategories }: Props) {
+export function DispozitieDialog({ open, onOpenChange, congregationName, incomeCategories, expenseCategories, defaultDate }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -63,6 +65,7 @@ export function DispozitieDialog({ open, onOpenChange, congregationName, incomeC
             congregationName={congregationName}
             incomeCategories={incomeCategories}
             expenseCategories={expenseCategories}
+            defaultDate={defaultDate}
             onGetNextNumber={getNextDispozitieNumber}
             onListCashTransactions={listCashTransactionsForDispozitie}
             onSaveDispozitie={saveDispozitie}

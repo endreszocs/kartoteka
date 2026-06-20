@@ -600,6 +600,13 @@ export function FinanceTabs({
         congregationName={congregationName}
         incomeCategories={incomeCategories}
         expenseCategories={expenseCategories}
+        // A kiválasztott (nem folyó) évre álló alapértelmezett dátum, hogy a Dispoziție a
+        // megfelelő év készpénzes tételeit listázza + sorszámozzon (pl. 2025 egyeztetésekor).
+        defaultDate={
+          currentYear === new Date().getFullYear()
+            ? undefined
+            : `${currentYear}-${new Date().toISOString().slice(5, 10)}`
+        }
       />
 
       <BudgetPrintDialog
