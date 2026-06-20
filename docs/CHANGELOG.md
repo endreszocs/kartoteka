@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: gyorsabb bevitel (dátum, irattípus, Enter, átnevezés)
+<!-- key: 2026-06-21-tetel-gyorsabb-bevitel -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Rugalmasabb dátumbevitel.** A dátumot szinte bárhogy beírhatod — a rendszer érti az
+  elválasztó nélküli (`20260620`), a rövid (`260620`), az év nélküli (`06.20` → idei év) és a
+  hónapneves (`június 20`) formákat is.
+- **Irattípus gépelhető.** Az irattípus mezőbe már írhatsz is — **egy betűre felajánlja** az
+  illeszkedő típusokat (pl. „C" → Chitanță); kiválaszthatod vagy sajátot is beírhatsz.
+- **Enter → következő mező.** A sorban az **Enter** a következő mezőre ugrik — gyorsabb a
+  billentyűzetes, tömeges rögzítés.
+- **„Gyül. sz." → „Irat sz."** átnevezés a megszokott megnevezésre (a kerületi szám mellett).
+
+---
+
 ## [2026-06-21] — Chitanță-számozás a nyugtatömbből + Kerületi oszlop csak ha kell
 <!-- key: 2026-06-21-chitanta-tomb-szamozas -->
 <!-- category: bugfix -->

@@ -14,7 +14,7 @@
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Save, Trash2, ArrowLeftRight, Users } from 'lucide-react'
 import { formatRon } from './ron-in-words'
@@ -281,7 +281,7 @@ export function CombinedEntryBody({
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
   const partnerLabel = tab === 'income' ? 'Befizető / forrás' : 'Kedvezményezett'
-  // #1 (Endre): a Kerületi sz. + Gyül. sz. OSZLOP csak akkor látszik (bevétel), ha legalább
+  // #1 (Endre): a Kerületi sz. + Irat sz. OSZLOP csak akkor látszik (bevétel), ha legalább
   // egy sorban Chitanță az irattípus — különben teljesen eltűnik (nem csak „—").
   const showIncomeReceiptCols = tab === 'income' && rows.some((r) => r.docType === 'Chitanță')
 
@@ -641,8 +641,30 @@ export function CombinedEntryBody({
     )
   }
 
+  // #3: Enter → a sor KÖVETKEZŐ mezőjére ugrik (gyorsabb tömeges bevitel). A naptár-választót
+  // (type=date) és a textareát kihagyjuk; csak a soron belüli látható input/select mezők számítanak.
+  function focusNextField(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== 'Enter') return
+    const target = e.target as HTMLElement
+    if (target.tagName === 'TEXTAREA') return
+    const container = target.closest('tr, [data-entry-card]')
+    if (!container) return
+    const fields = Array.from(
+      container.querySelectorAll<HTMLElement>('input:not([disabled]):not([type="date"]), select:not([disabled])'),
+    ).filter((el) => el.offsetWidth > 0 || el.offsetHeight > 0)
+    const idx = fields.indexOf(target)
+    if (idx >= 0 && idx < fields.length - 1) {
+      e.preventDefault()
+      fields[idx + 1].focus()
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {/* #2: irattípus-autocomplete — egy betűre is felajánlja az alternatívákat (gépelhető). */}
+      <datalist id="combined-doctypes">
+        {DOC_TYPES.map((t) => (<option key={t} value={t} />))}
+      </datalist>
       {/* Kiemelt fülek */}
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
         <button type="button" onClick={() => setTab('income')}
@@ -683,7 +705,7 @@ export function CombinedEntryBody({
               {(tab === 'expense' || showIncomeReceiptCols) && (
                 <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
               )}
-              {showIncomeReceiptCols && <th className="px-2 py-2 text-left">Gyül. sz.</th>}
+              {showIncomeReceiptCols && <th className="px-2 py-2 text-left">Irat sz.</th>}
               <th className="px-2 py-2 text-left">{partnerLabel}</th>
               <th className="px-2 py-2 text-left">Jogcím</th>
               {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
@@ -700,16 +722,20 @@ export function CombinedEntryBody({
               // #1: a kerületi + gyülekezeti szám-mező CSAK Chitanță (nyugta) esetén jelenik meg.
               const isChitanta = r.docType === 'Chitanță'
               return (
-                <tr key={r.id} className="border-t border-slate-100 align-top">
+                <tr key={r.id} className="border-t border-slate-100 align-top" onKeyDown={focusNextField}>
                   <td className="px-2 py-1.5 w-[160px]">
                     {renderDateField(r)}
                     {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
                   </td>
                   <td className="px-2 py-1.5 w-[130px]">
-                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => void handleDocTypeChange(r, e.target.value)}>
-                      <option value="">—</option>
-                      {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                    </select>
+                    <input
+                      className={inputClass}
+                      list="combined-doctypes"
+                      value={r.docType}
+                      disabled={!!dir}
+                      placeholder="írd vagy válaszd"
+                      onChange={(e) => void handleDocTypeChange(r, e.target.value)}
+                    />
                   </td>
                   {(tab === 'expense' || showIncomeReceiptCols) && (
                     <td className="px-2 py-1.5 w-[100px]">
@@ -807,7 +833,7 @@ export function CombinedEntryBody({
           const rWarn = receiptWarning(r)
           const isChitanta = r.docType === 'Chitanță'
           return (
-            <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3">
+            <div key={r.id} data-entry-card className="rounded-xl border border-slate-200 bg-white p-3" onKeyDown={focusNextField}>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-400">{i + 1}. tétel</span>
                 <button type="button" aria-label="Sor törlése" className="text-slate-400 hover:text-red-500" onClick={() => removeRow(r.id)}><Trash2 className="size-4" /></button>
@@ -856,10 +882,13 @@ export function CombinedEntryBody({
                       />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
-                      <select className={inputClass} value={r.docType} onChange={(e) => void handleDocTypeChange(r, e.target.value)}>
-                        <option value="">—</option>
-                        {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                      </select>
+                      <input
+                        className={inputClass}
+                        list="combined-doctypes"
+                        value={r.docType}
+                        placeholder="írd vagy válaszd"
+                        onChange={(e) => void handleDocTypeChange(r, e.target.value)}
+                      />
                     </label>
                     {(tab === 'expense' || isChitanta) && (
                       <label className="text-xs text-slate-500">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}
@@ -873,7 +902,7 @@ export function CombinedEntryBody({
                       </label>
                     )}
                     {tab === 'income' && isChitanta && (
-                      <label className="text-xs text-slate-500">Gyül. sz.
+                      <label className="text-xs text-slate-500">Irat sz.
                         <input className={inputClass} value={r.gyulekezetiSzam} onChange={(e) => updateRow(r.id, { gyulekezetiSzam: e.target.value })} />
                       </label>
                     )}
@@ -931,7 +960,7 @@ export function CombinedEntryBody({
           ? [
               tmpl.datum && `Dátum: ${tmpl.datum}`,
               tmpl.iratszam && `Kerületi sz.: ${tmpl.iratszam}`,
-              tmpl.gyulekezetiSzam && `Gyül. sz.: ${tmpl.gyulekezetiSzam}`,
+              tmpl.gyulekezetiSzam && `Irat sz.: ${tmpl.gyulekezetiSzam}`,
             ].filter(Boolean).join(' · ')
           : ''
         return (

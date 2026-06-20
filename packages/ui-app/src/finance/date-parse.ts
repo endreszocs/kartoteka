@@ -52,7 +52,15 @@ export function parseFlexibleDate(input: string): string | null {
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw)
   if (iso) return build(+iso[1], +iso[2], +iso[3])
 
+  // Elválasztó nélküli, csak számjegyek: 8 jegyű YYYYMMDD vagy 6 jegyű YYMMDD.
+  const digitsOnly = raw.replace(/\D/g, '')
+  if (/^\d+$/.test(raw)) {
+    if (digitsOnly.length === 8) return build(+digitsOnly.slice(0, 4), +digitsOnly.slice(4, 6), +digitsOnly.slice(6, 8))
+    if (digitsOnly.length === 6) return build(+digitsOnly.slice(0, 2), +digitsOnly.slice(2, 4), +digitsOnly.slice(4, 6))
+  }
+
   const s = strip(raw)
+  const thisYear = new Date().getFullYear()
 
   // Hónapnévvel: keressük a hónap-tokent
   const tokens = s.split(/[\s.,/-]+/).filter(Boolean)
@@ -65,8 +73,11 @@ export function parseFlexibleDate(input: string): string | null {
     if (key) monthFromName = MONTHS[key]
   }
 
-  if (monthFromName != null && numbers.length >= 2) {
-    const year = numbers.find((n) => n >= 1000) ?? numbers.find((n) => n > 31) ?? numbers[numbers.length - 1]
+  if (monthFromName != null && numbers.length >= 1) {
+    const year =
+      numbers.find((n) => n >= 1000) ??
+      numbers.find((n) => n > 31) ??
+      (numbers.length >= 2 ? numbers[numbers.length - 1] : thisYear)
     const day = numbers.find((n) => n !== year && n >= 1 && n <= 31) ?? numbers[0]
     return build(year, monthFromName, day)
   }
@@ -81,6 +92,13 @@ export function parseFlexibleDate(input: string): string | null {
     if (c >= 1000 || c > 31) return build(c, b, a)
     // minden 2 jegyű → feltételezzük Y.M.D (magyar szokás), 2 jegyű év → 20xx
     return build(a, b, c)
+  }
+  // Két szám, év nélkül → IDEI év. Ha az egyik > 12, az a NAP; különben hó.nap (magyar szokás).
+  if (nums.length === 2) {
+    const [a, b] = nums
+    if (a > 12 && b <= 12) return build(thisYear, b, a) // nap.hó
+    if (b > 12 && a <= 12) return build(thisYear, a, b) // hó.nap
+    return build(thisYear, a, b) // kétértelmű → hó.nap
   }
 
   return null
