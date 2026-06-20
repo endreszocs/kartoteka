@@ -28,6 +28,8 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   Ban,
+  ChevronDown,
+  ChevronUp,
   Pencil,
   Printer,
   RotateCcw,
@@ -242,6 +244,8 @@ export function CashbookTab({
   const [silentPrintChitantaId, setSilentPrintChitantaId] = useState<string | null>(null)
   const [autoIssuingFor, setAutoIssuingFor] = useState<number | null>(null)
   const [tombRefreshKey, setTombRefreshKey] = useState(0)
+  /** A Nyugtatömbök panel kinyitva van-e (az 5. KPI-kártyáról nyitható). */
+  const [tombokExpanded, setTombokExpanded] = useState(false)
 
   const [tombRequiredOpen, setTombRequiredOpen] = useState(false)
   const [pendingBefizetesId, setPendingBefizetesId] = useState<number | null>(null)
@@ -573,7 +577,11 @@ export function CashbookTab({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div
+        className={`grid grid-cols-2 gap-3 ${
+          chitantaTombokPanelSlot ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-4'
+        }`}
+      >
         <MiniKpi
           label="Nyitó egyenleg"
           value={formatCurrency(openingBalance)}
@@ -599,9 +607,40 @@ export function CashbookTab({
           icon={<Wallet className="w-4 h-4" />}
           highlight
         />
+        {/* 5. kártya: Nyugtatömbök — kinyitja/becsukja a teljes panelt alatta. */}
+        {chitantaTombokPanelSlot && (
+          <button
+            type="button"
+            onClick={() => setTombokExpanded((v) => !v)}
+            aria-expanded={tombokExpanded}
+            className={`card-raised p-3.5 text-left transition hover:ring-1 hover:ring-emerald-300 ${
+              tombokExpanded ? 'ring-1 ring-emerald-300' : ''
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-slate-400">
+                <Printer className="w-4 h-4" />
+              </span>
+              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                Nyugtatömbök
+              </span>
+            </div>
+            <p className="text-sm font-bold text-emerald-600 inline-flex items-center gap-1">
+              {tombokExpanded ? (
+                <>
+                  <ChevronUp className="w-4 h-4" /> Bezárás
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4" /> Megnyitás
+                </>
+              )}
+            </p>
+          </button>
+        )}
       </div>
 
-      {chitantaTombokPanelSlot && (
+      {chitantaTombokPanelSlot && tombokExpanded && (
         <div className="card-raised p-4">
           {chitantaTombokPanelSlot({ refreshKey: tombRefreshKey })}
         </div>
