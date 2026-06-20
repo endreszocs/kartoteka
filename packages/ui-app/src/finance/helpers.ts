@@ -196,17 +196,23 @@ export function calculateBalances(
   let totalIn = 0
   let totalEx = 0
 
+  // Kassza vs bank a `bankszamla_id` szerint (NULL = kassza) — NEM az irattípus alapján,
+  // mert az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz"/„Banki").
+  // A kassza/bank EGYENLEGBE a belső mozgás is beleszámít (a letét csökkenti a kasszát,
+  // növeli a bankot). A BEVÉTEL/KIADÁS összegből viszont KIZÁRJUK a belső mozgást
+  // (`belso_mozgas_xkey`), hiszen az nem valós bevétel/kiadás, csak átvezetés — így az
+  // éves egyenleg a valós működési eredményt mutatja, a számadással egyezően.
   income.forEach((r) => {
     const amt = Number(r.osszeg) || 0
-    totalIn += amt
-    if (r.irattipus === 'Készpénz') cashBal += amt
+    if (!r.belso_mozgas_xkey) totalIn += amt
+    if (!r.bankszamla_id) cashBal += amt
     else bankBal += amt
   })
 
   expense.forEach((r) => {
     const amt = Number(r.osszeg) || 0
-    totalEx += amt
-    if (r.irattipus === 'Készpénz') cashBal -= amt
+    if (!r.belso_mozgas_xkey) totalEx += amt
+    if (!r.bankszamla_id) cashBal -= amt
     else bankBal -= amt
   })
 

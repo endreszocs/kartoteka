@@ -81,6 +81,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Helyes egyenlegek a Pénzügy áttekintőn (negatív bank/éves egyenleg javítva).** Az áttekintő
+  Kassza/Bank egyenleg-kártyái eddig az **irattípus** alapján válogatták szét a tételeket — az
+  importált sorok („Chit."/„Extr") így mind a **bankhoz** kerültek, ezért a Bank-kártya torz,
+  **negatív** egyenleget mutatott, a Kassza-kártya pedig csak a nyitót. Mostantól a szétválasztás
+  a **bankszámla** szerint megy (nincs bankszámla = kassza). Ráadásul az **éves egyenleg** mostantól
+  a **belső mozgásokat kizárva** a valós működési eredményt mutatja (a számadással egyezően), nem az
+  átvezetésekkel felfújva.
 - **A Tranzakciók fülről nem lehet törölni (könyvelési szabály).** A Tranzakciók fül a **hiteles
   napló** — innen tételt törölni nem lehet (sem visszamenőlegesen). Ha javítani kell, azt a
   **Kassza / Bank** fülön, **storno**-val teheted meg (és csak a számadás beküldéséig). Így a
