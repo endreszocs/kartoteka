@@ -167,6 +167,8 @@ export function CombinedEntryBody({
   const [familyModalOpen, setFamilyModalOpen] = useState(false)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
+  /** #2 (Endre): az utolsó automatikus mentés időpontja (null = nincs mentendő tartalom). */
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
 
   // #3 auto-vázlat: van-e értelmes tartalom (üres sorokat nem mentünk).
   const rowHasContent = (r: EntryRow) =>
@@ -177,6 +179,7 @@ export function CombinedEntryBody({
     if (draftStorageKey && typeof window !== 'undefined') {
       try { window.localStorage.removeItem(draftStorageKey) } catch { /* ignore */ }
     }
+    setLastSavedAt(null)
   }
 
   // Vázlat VISSZAÁLLÍTÁSA a dialóg megnyitásakor (ha van mentett, nem üres vázlat).
@@ -205,12 +208,15 @@ export function CombinedEntryBody({
     if (!draftStorageKey || typeof window === 'undefined') return
     try {
       if (anyContent(incomeRows) || anyContent(expenseRows)) {
+        const savedAt = new Date().toISOString()
         window.localStorage.setItem(
           draftStorageKey,
-          JSON.stringify({ incomeRows, expenseRows, tab, savedAt: new Date().toISOString() }),
+          JSON.stringify({ incomeRows, expenseRows, tab, savedAt }),
         )
+        setLastSavedAt(savedAt) // #2: a lábléc kijelzi az utolsó mentés idejét
       } else {
         window.localStorage.removeItem(draftStorageKey)
+        setLastSavedAt(null) // #2: nincs mentendő adat
       }
     } catch { /* tárhely tele / letiltva — csendben kihagyjuk */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -649,9 +655,23 @@ export function CombinedEntryBody({
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
         {draftStorageKey && (
-          <span className="mr-auto text-[11px] text-slate-400" title="A bevitt adatok gépelés közben automatikusan mentődnek — áramszünet vagy véletlen bezárás esetén sem vesznek el.">
-            💾 Automatikus vázlatmentés bekapcsolva
-          </span>
+          lastSavedAt ? (
+            <span
+              className="mr-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600"
+              title="A bevitt adatok gépelés közben automatikusan mentődnek — áramszünet vagy véletlen bezárás esetén sem vesznek el."
+            >
+              <span className="inline-block size-2 animate-pulse rounded-full bg-emerald-500" />
+              💾 Vázlat mentve: {new Date(lastSavedAt).toLocaleTimeString('hu-HU')}
+            </span>
+          ) : (
+            <span
+              className="mr-auto inline-flex items-center gap-1.5 text-[11px] text-slate-400"
+              title="Amint adatot írsz be, automatikusan mentődik a böngészőben."
+            >
+              <span className="inline-block size-2 rounded-full bg-slate-300" />
+              💾 Automatikus mentés bekapcsolva — még nincs mentendő adat
+            </span>
+          )
         )}
         <button type="button" className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" onClick={onClose} disabled={busy}>Mégse</button>
         <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50" onClick={() => void handleSave()} disabled={busy}>
@@ -713,7 +733,15 @@ function PartnerCell({
 
   const measure = () => {
     const el = inputRef.current
-    if (!el) return
+    // FONTOS: ugyanahhoz a sorhoz a táblázat (lg:block) ÉS a mobil-kártya (lg:hidden)
+    // is renderel egy PartnerCell-t — az egyik mindig CSS-sel REJTETT. A rejtett input
+    // getBoundingClientRect-je 0,0 → fantom legördülő ugrana a bal-felső sarokba (a
+    // felhasználó „kétszer jelennek meg, aztán eltűnnek" panasza). offsetParent === null
+    // ⇒ valamelyik ős display:none → ne nyissunk legördülőt ehhez a cellához.
+    if (!el || el.offsetParent === null) {
+      setDropRect(null)
+      return
+    }
     const r = el.getBoundingClientRect()
     setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
   }
@@ -745,6 +773,9 @@ function PartnerCell({
     }
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
+      // A párhuzamosan renderelt REJTETT cella (táblázat ⇄ mobil) ne keressen és ne
+      // nyisson legördülőt — csak a ténylegesen látható cella (offsetParent != null).
+      if (!inputRef.current || inputRef.current.offsetParent === null) return
       const p: Promise<CombinedMemberHit[]> =
         mode === 'income'
           ? (onSearchMembers ? onSearchMembers(q) : Promise.resolve([]))

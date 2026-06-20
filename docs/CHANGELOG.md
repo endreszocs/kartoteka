@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: kereső-javítás + vázlat-állapot kijelzés
+<!-- key: 2026-06-21-tetel-kereso-vazlat-allapot -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Befizető-kereső: a dupla / eltűnő találati lista javítva.** Eddig a keresőben a találatok
+  „kétszer" jelentek meg, majd eltűntek és nem lehetett kiválasztani semmit — egy láthatatlanul
+  renderelt (mobil) másolat egy fantom legördülőt ugratott a sarokba. Mostantól **egyetlen, jól
+  kiválasztható lista** jelenik meg.
+
+### 🎨 UX javítások
+
+- **Automatikus vázlatmentés: látszik, mikor van mentve.** A lábléc mostantól a tényleges állapotot
+  mutatja: „💾 **Vázlat mentve: ÓÓ:PP:SS**" (zöld, az utolsó mentés idejével, gépelés közben élőben
+  frissül), vagy „még nincs mentendő adat", ha üres a rögzítő.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: Családi nyugta (egy nyugta, több névvel)
 <!-- key: 2026-06-21-tetel-csaladi-nyugta -->
 <!-- category: feature -->
