@@ -1683,9 +1683,9 @@ export async function searchMembersForFinance(query: string) {
   if (query.trim().length < 2) return []
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return []
-  // B2 javítás: diakritika-normalizálás
-  const normalized = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const parts = normalized.trim().split(/\s+/)
+  // ekezet-javitas: a raw (ekezetes) query-vel keresunk - az ilike NEM ekezet-erzeketlen,
+  // ezert a strippelt query (pl. Kovacs) sosem talalna meg az ekezetes DB-nevet (Kovacs).
+  const parts = query.trim().split(/\s+/)
   let q = supabase.from('szemely')
     .select('id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
     .eq('congregation_id', congregationId).eq('isvisible', true).eq('meghalt', false)
@@ -1771,8 +1771,8 @@ export async function searchFamilies(
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return []
 
-  const normalized = term.normalize('NFD').replace(/[̀-ͯ]/g, '')
-  const parts = normalized.split(/\s+/).filter(Boolean)
+  // ekezet-javitas: raw (ekezetes) query (lasd searchMembersForFinance)
+  const parts = term.split(/\s+/).filter(Boolean)
 
   // 1) Találó személyek (vezeték-/keresztnévre)
   let pq = supabase.from('szemely').select('id').eq('congregation_id', congregationId).eq('isvisible', true)

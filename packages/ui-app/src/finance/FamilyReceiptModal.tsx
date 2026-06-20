@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Users, Search, X, Plus } from 'lucide-react'
 
 /** Család-találat a kereséshez. */
@@ -107,8 +108,11 @@ export function FamilyReceiptModal({
     onConfirm(chosen)
   }
 
-  return (
-    <div className="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
+  // FONTOS: a modalt a document.body-ba PORTÁLJUK. A „Tétel rögzítése" dialóg (Base UI) egy
+  // `transform: translate(-50%,-50%)` + `overflow-y-auto` konténer, amin belül a `fixed inset-0`
+  // a transzformált ősre igazodna és LEVÁGÓDNA. Portállal a teljes képernyőre nyílik.
+  const node = (
+    <div className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
         {/* Fejléc */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
@@ -220,4 +224,6 @@ export function FamilyReceiptModal({
       </div>
     </div>
   )
+
+  return typeof document !== 'undefined' ? createPortal(node, document.body) : null
 }

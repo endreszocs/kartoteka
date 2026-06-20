@@ -43,9 +43,8 @@ export async function searchMembersForFinanceUseCase(
   }
   const { congregationId, query, limit } = parsed.data
 
-  // Diakritika-normalizálás — 'Kovács' és 'Kovacs' egyformán található
-  const normalized = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const parts = normalized.trim().split(/\s+/)
+  // ekezet-javitas: raw (ekezetes) query - az ilike nem ekezet-erzeketlen.
+  const parts = query.trim().split(/\s+/)
 
   try {
     let q = ctx.supabase

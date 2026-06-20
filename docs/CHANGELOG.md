@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Befizető-kereső: ékezetes nevek + a családablak már nem vágódik le
+<!-- key: 2026-06-21-kereso-ekezet-csalad-portal -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A befizető-kereső mostantól megtalálja az ékezetes magyar neveket.** Eddig a kereső a beírt szó
+  ékezeteit „lecsupaszította" (pl. „Kovács" → „Kovacs"), de a nyilvántartásban ékezetes nevek vannak,
+  így sosem talált egyezést. Mostantól az **ékezetes névre** (pl. „Kovács", „Tóth Ödön") is rendesen
+  keres — a tag- és a család-keresőben egyaránt.
+- **A „Családi nyugta" ablak már nem vágódik le.** Eddig a Tétel rögzítése ablakon belül nyílt, ami
+  levágta; mostantól a **teljes képernyőn**, középre igazítva jelenik meg.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: több személy egy nyugtára vesszővel
 <!-- key: 2026-06-21-tetel-vesszos-felbontas -->
 <!-- category: feature -->
