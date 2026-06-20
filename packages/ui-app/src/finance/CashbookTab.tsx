@@ -331,7 +331,9 @@ export function CashbookTab({
   const cashIncomeIds = useMemo(
     () =>
       incomeRecords
-        .filter((r) => r.irattipus && r.irattipus.toLowerCase().includes('készpénz'))
+        // Kassza = nincs bankszámlához kötve (bankszamla_id NULL). Az irattípus
+        // (Készpénz / Chit. / stb.) nem megbízható megkülönböztető — importnál „Chit." jön.
+        .filter((r) => !r.bankszamla_id)
         .map((r) => r.id),
     [incomeRecords],
   )
@@ -360,7 +362,7 @@ export function CashbookTab({
   const cashRows: CashRow[] = useMemo(() => {
     const rows: CashRow[] = []
     incomeRecords.forEach((r) => {
-      if (!r.irattipus || !r.irattipus.toLowerCase().includes('készpénz')) return
+      if (r.bankszamla_id) return // csak kassza (bankszamla_id NULL); a bank a BankTab-on
       rows.push({
         id: r.id,
         type: 'income',
@@ -381,7 +383,7 @@ export function CashbookTab({
       })
     })
     expenseRecords.forEach((r) => {
-      if (!r.irattipus || !r.irattipus.toLowerCase().includes('készpénz')) return
+      if (r.bankszamla_id) return // csak kassza (bankszamla_id NULL)
       rows.push({
         id: r.id,
         type: 'expense',

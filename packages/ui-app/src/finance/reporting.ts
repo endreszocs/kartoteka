@@ -215,13 +215,16 @@ function filterByMonth<T extends { datum: string; deleted: boolean }>(
     .sort((a, b) => (a.datum || '').localeCompare(b.datum || ''))
 }
 
+// Kassza vs bank szétválasztás a `bankszamla_id` alapján (NULL = kassza), NEM az irattípus
+// alapján — az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz"/„Banki"), így az
+// irattípus-szűrés kihagyta őket. A `bankszamla_id` a kézi ÉS az importált adatra is helyes.
 function filterCash<T extends { irattipus: string | null; bankszamla_id?: number | null }>(rows: T[]): T[] {
-  return rows.filter((r) => r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id))
+  return rows.filter((r) => !r.bankszamla_id)
 }
 
 function filterBank<T extends { irattipus: string | null; bankszamla_id?: number | null }>(rows: T[], bankId?: number | null): T[] {
   if (bankId) return rows.filter((r) => r.bankszamla_id === bankId)
-  return rows.filter((r) => r.irattipus === 'Banki')
+  return rows.filter((r) => !!r.bankszamla_id)
 }
 
 /** Korábbi hónapok összegyenlegének kiszámítása */

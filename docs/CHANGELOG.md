@@ -81,6 +81,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Évre szűrés a Pénzügyben — most már tényleg az adott év adatait mutatja.** A hero-beli
+  év-választóval másik évre (pl. egy korábbi, importált évre) váltva a **Kassza / Bank /
+  Tranzakciók** fül **üres maradt** (a forgalom nem frissült a kiválasztott évre), a Bank fül
+  pedig a **mai évre** kérdezte a nyitó egyenleget („nincs rögzítve a 2026. évre"). Mostantól az
+  év-váltás **újratölti a tételeket**, a Bank a **kiválasztott év** nyitóját mutatja, és a
+  kassza/bank szétválasztás a **bankszámla szerint** megy (nem az irattípus alapján) — így a
+  hivatalos fájlból importált tételek (irattípus „Chit."/„Extr") is a **helyes fülön, helyes
+  összeggel** jelennek meg.
 - **Helyes bank- és kassza-nyitó egyenleg (áthozat).** A Pénzügy áttekintő/Bank/Kassza nyitó egyenlege
   eddig **csak az előző évi forgalmat** vette számításba, a **rögzített nyitó (előző évről áthozott)
   egyenleget nem** — ezért hibás, akár **negatív** nyitót mutatott (pl. a banknál). Mostantól a nyitó

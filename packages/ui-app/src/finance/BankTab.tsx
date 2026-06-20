@@ -102,13 +102,6 @@ interface BankTransactionRow {
   bankszamlaId: number | null
 }
 
-function isCashTransactionType(value: string | null | undefined): boolean {
-  const normalized = value
-    ?.toLocaleLowerCase('hu-HU')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-  return normalized?.includes('keszpenz') ?? false
-}
 
 type BankSortBy = 'datum' | 'jogcim' | 'iratszam' | 'partner' | 'osszeg'
 type BankSortDir = 'asc' | 'desc'
@@ -360,7 +353,7 @@ export function BankTab({
     const rows: BankTransactionRow[] = []
 
     incomeRecords.forEach((record) => {
-      if (isCashTransactionType(record.irattipus)) return
+      if (!record.bankszamla_id) return // csak banki tételek (bankszamla_id kitöltve); a kassza a CashbookTab-on
 
       const cellId = bevCelMap[record.id_befizetescel || 0]
       const cellKod = cellId || ''
@@ -401,7 +394,7 @@ export function BankTab({
     })
 
     expenseRecords.forEach((record) => {
-      if (isCashTransactionType(record.irattipus)) return
+      if (!record.bankszamla_id) return // csak banki tételek (bankszamla_id kitöltve); a kassza a CashbookTab-on
 
       const cellId = kiaCelMap[record.id_kiadascel || 0]
 

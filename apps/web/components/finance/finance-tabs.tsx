@@ -454,6 +454,7 @@ export function FinanceTabs({
 
         <TabsContent value="bank" className="mt-4">
           <BankTab
+            currentYear={currentYear}
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverBank={carryoverBank}

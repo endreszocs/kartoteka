@@ -125,6 +125,10 @@ export default async function PenzugyPage({
   return (
     <div className="space-y-4">
       <FinanceTabs
+        // Év-váltáskor (hero-beli év-választó → ?year=) a kliens-komponens újratöltése,
+        // hogy a tételek (useState-ben tárolt initialIncome/Expense) a kiválasztott
+        // ÉV adatára frissüljenek — különben a régi (alapértelmezett évi) sorok ragadnának bent.
+        key={selectedYear}
         settings={data.settings}
         szamadasiCellek={data.szamadasiCellek}
         bevCelMap={data.bevCelMap}
