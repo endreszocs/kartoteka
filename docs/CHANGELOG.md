@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Súgó: részletes leírás a „Tétel rögzítése" ablakról
+<!-- key: 2026-06-21-sugo-tetel-rogzitese -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 📖 Súgó-bővítés
+
+- A **Pénzügy → Súgó → Napi munka** alatt új, részletes téma: **„Tétel rögzítése"**. Lépésről
+  lépésre elmagyarázza a központi beviteli ablakot: tömeges bevitel, befizető-keresés (ékezetes
+  névre is), automatikus chitanta-nyugtaszám (kerületi + gyülekezeti), „melyik évre", automatikus
+  vázlatmentés, beviteli őrök (duplikátum/dátum), családi nyugta, vesszős felbontás, kiadás-
+  kiegészítés és belső mozgás — tippekkel, gyakori hibákkal és életszerű példákkal.
+
+---
+
 ## [2026-06-21] — Befizető-kereső: ékezetes nevek + a családablak már nem vágódik le
 <!-- key: 2026-06-21-kereso-ekezet-csalad-portal -->
 <!-- category: bugfix -->
