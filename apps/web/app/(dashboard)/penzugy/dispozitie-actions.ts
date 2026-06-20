@@ -71,7 +71,8 @@ export async function listCashTransactionsForDispozitie(
   if ('error' in ctx || ctx.scope !== 'congregation') return []
 
   const table = tipus === 'plata' ? 'kiadas' : 'befizetes'
-  const partnerCol = tipus === 'plata' ? 'kedvezmenyzett' : 'forrasa'
+  // FONTOS: a kiadas táblában a partner oszlopa `atvevo` (NINCS `kedvezmenyzett` oszlop!).
+  const partnerCol = tipus === 'plata' ? 'atvevo' : 'forrasa'
 
   const { data } = await ctx.supabase
     .from(table)
@@ -171,25 +172,10 @@ export interface DispozitieReprintOption {
   data: DispozitieReprintData
 }
 
-/** Mentett dispozitiók teljes adata + címke a Nyomtatási központ újranyomtatásához. */
-/** Egy beágyazott cél (befizetescel/kiadascel → szamadasicel) nevének kibontása. */
-function celNevOf(cel: unknown): string {
-  const node = Array.isArray(cel) ? cel[0] : cel
-  const sz = (node as { szamadasicel?: unknown } | null)?.szamadasicel
-  const szNode = Array.isArray(sz) ? sz[0] : sz
-  return String((szNode as { nev?: string } | null)?.nev || '')
-}
-
+/** Mentett + importált dispozíciók a Nyomtatási központ újranyomtatásához. */
 export async function listDispozitieReprint(year: number): Promise<DispozitieReprintOption[]> {
   const ctx = await getFinanceScopeContext()
-  // IDEIGLENES DIAGNOSZTIKA (Endre: a lista üres maradt) — a felületen megjelenő sor.
-  const diag = (msg: string): DispozitieReprintOption => ({
-    id: 'DIAG',
-    label: `🔍 ${msg}`,
-    data: { tipus: 'plata', sorszam: 0, date: '', name: '', tisztseg: '', amount: 0, cel: '', ciTipus: '', ciSerie: '', ciNr: '' },
-  })
-  if ('error' in ctx) return [diag(`scope-error: ${ctx.error}`)]
-  if (ctx.scope !== 'congregation') return [diag(`scope=${ctx.scope} (nem congregation)`)]
+  if ('error' in ctx || ctx.scope !== 'congregation') return []
 
   // 1) Kézzel mentett dispozíciók (a `dispozitie` táblából).
   const { data } = await ctx.supabase
@@ -225,7 +211,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
   const [kiaImp, bevImp] = await Promise.all([
     ctx.supabase
       .from('kiadas')
-      .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes')
+      .select('id, datum, osszeg, iratszam, atvevo, megjegyzes')
       .eq('congregation_id', ctx.scopeId)
       .eq('deleted', false)
       .is('dispozitie_id', null)
@@ -246,7 +232,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
   const imported: DispozitieReprintOption[] = []
   for (const r of (kiaImp.data || []) as Record<string, unknown>[]) {
     const datum = String(r.datum).slice(0, 10)
-    const name = String(r.kedvezmenyzett || r.atvevo || '—')
+    const name = String(r.atvevo || '—')
     const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
     imported.push({
       id: `imp-k-${r.id}`,
@@ -258,7 +244,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
         name,
         tisztseg: '',
         amount: Number(r.osszeg) || 0,
-        cel: celNevOf(r.kiadascel) || String(r.megjegyzes || ''),
+        cel: String(r.megjegyzes || ''),
         ciTipus: '',
         ciSerie: '',
         ciNr: '',
@@ -279,7 +265,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
         name,
         tisztseg: '',
         amount: Number(r.osszeg) || 0,
-        cel: celNevOf(r.befizetescel) || String(r.megjegyzes || ''),
+        cel: String(r.megjegyzes || ''),
         ciTipus: '',
         ciSerie: '',
         ciNr: '',
@@ -287,13 +273,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
     })
   }
 
-  return [
-    ...saved,
-    ...imported,
-    diag(
-      `cid=${String(ctx.scopeId).slice(0, 8)} ev=${year} kia=${(kiaImp.data || []).length} kiaErr=${kiaImp.error?.message || '-'} bev=${(bevImp.data || []).length} bevErr=${bevImp.error?.message || '-'} saved=${saved.length} imp=${imported.length}`,
-    ),
-  ]
+  return [...saved, ...imported]
 }
 
 export async function saveDispozitie(input: SaveDispozitieInput): Promise<
@@ -379,7 +359,6 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
       osszeg: Number(input.amount),
       datum: input.date,
       id_kiadascel: input.categoryId,
-      kedvezmenyzett: input.name.trim(),
       iratszam: docNum,
       irattipus: 'Készpénz',
       megjegyzes: `Dispoziție de plată #${sorszam}/${year} — ${input.cel || ''}`.trim(),
