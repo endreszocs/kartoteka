@@ -90,6 +90,12 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Az importált dispozíciók és decontok megjelennek a Nyomtatási központban.** A hivatalos fájlból
+  importált **„disp. de plata" / „Disp. Plata" / „Decont."** tételek (amelyek kiadás/befizetés
+  sorként kerültek be, nem külön bizonylatként) mostantól **megjelennek** a Nyomtatási központ
+  **Dispoziție** és **Decont** újranyomtatás-listájában (az „importált" jelzéssel) — a
+  dátum / név / összeg / jogcím / sorszám adatokkal, így **újranyomtathatók**. (A személyi
+  szám / CI nincs a tranzakcióban, ezért az üresen marad az újranyomtatott bizonylaton.)
 - **Dispoziție de plată / încasare: megtalálja az importált készpénzes tételeket + a kiválasztott
   évre nyit.** A „meglévő készpénzes tételből generálás" lista eddig **üres** volt importált
   adatnál, két okból: (1) a készpénzes tételeket az **irattípus** alapján kereste, de az

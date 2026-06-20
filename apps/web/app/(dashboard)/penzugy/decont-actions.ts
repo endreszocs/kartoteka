@@ -141,7 +141,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
     .eq('ev', year)
     .eq('deleted', false)
     .order('sorszam', { ascending: true })
-  return ((data || []) as Record<string, unknown>[]).map((r) => {
+  const saved: DecontReprintOption[] = ((data || []) as Record<string, unknown>[]).map((r) => {
     const tetelek = Array.isArray(r.tetelek) ? (r.tetelek as Record<string, unknown>[]) : []
     const datum = String(r.datum).slice(0, 10)
     return {
@@ -165,6 +165,52 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
       },
     }
   })
+
+  // IMPORTÁLT decont-típusú tételek (irattípus „decont…") — külön decont rekord nélkül,
+  // egy 1-soros elszámolásként megjelenítve/újranyomtatva.
+  const { data: kiaDec } = await ctx.supabase
+    .from('kiadas')
+    .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes, kiadascel(szamadasicel(nev))')
+    .eq('congregation_id', ctx.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%decont%')
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+    .order('datum', { ascending: true })
+  const imported: DecontReprintOption[] = ((kiaDec || []) as Record<string, unknown>[]).map((r) => {
+    const datum = String(r.datum).slice(0, 10)
+    const name = String(r.kedvezmenyzett || r.atvevo || '—')
+    const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
+    const szNode = Array.isArray(r.kiadascel) ? r.kiadascel[0] : r.kiadascel
+    const sz = (szNode as { szamadasicel?: unknown } | null)?.szamadasicel
+    const szLeaf = Array.isArray(sz) ? sz[0] : sz
+    const explanation =
+      String((szLeaf as { nev?: string } | null)?.nev || '') || String(r.megjegyzes || '')
+    return {
+      id: `imp-k-${r.id}`,
+      label: `#${sorszam || '—'} · ${datum} · ${name} · importált`,
+      data: {
+        sorszam,
+        date: datum,
+        personName: name,
+        jelleg: '',
+        approvedBy: '',
+        advance: 0,
+        items: [
+          {
+            actNr: String(r.iratszam || ''),
+            actType: 'Decont',
+            actDate: datum,
+            issuer: name,
+            explanation,
+            amount: Number(r.osszeg) || 0,
+          },
+        ],
+      },
+    }
+  })
+
+  return [...saved, ...imported]
 }
 
 export async function saveDecont(input: SaveDecontInput): Promise<
