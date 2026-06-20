@@ -89,6 +89,10 @@ interface BankTransactionRow {
   partner: string
   celNev: string
   iratszam: string
+  /** Irattípus (pl. Extr / Chit. / Banki). */
+  irattipus: string
+  /** Melyik évre szól a bevétel (egyházfenntartás hátralék) — kiadásnál null. */
+  fizetettev: number | null
   isBm: boolean
   /** A korábbi „Párosítás" fül hiányosság-jelzései */
   hasMissingPerson: boolean
@@ -380,6 +384,8 @@ export function BankTab({
         partner: record.forrasa || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',
+        irattipus: record.irattipus || '',
+        fizetettev: record.fizetettev ?? null,
         isBm: !!record.belso_mozgas_xkey,
         hasMissingPerson,
         hasMissingCategory: !record.id_befizetescel,
@@ -406,6 +412,8 @@ export function BankTab({
         partner: getExpensePartnerName(record) || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',
+        irattipus: record.irattipus || '',
+        fizetettev: null,
         isBm: !!record.belso_mozgas_xkey,
         hasMissingPerson: false, // kiadásnál nem kötelező személy
         hasMissingCategory: !record.id_kiadascel,
@@ -813,14 +821,9 @@ export function BankTab({
                         >
                           Dátum
                         </BankSortableTh>
-                        <BankSortableTh
-                          col="jogcim"
-                          sortBy={sortBy}
-                          sortDir={sortDir}
-                          onClick={() => toggleSort('jogcim')}
-                        >
-                          Jogcím
-                        </BankSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
+                          Irattípus
+                        </th>
                         <BankSortableTh
                           col="iratszam"
                           sortBy={sortBy}
@@ -838,6 +841,20 @@ export function BankTab({
                         >
                           Partner
                         </BankSortableTh>
+                        <BankSortableTh
+                          col="jogcim"
+                          sortBy={sortBy}
+                          sortDir={sortDir}
+                          onClick={() => toggleSort('jogcim')}
+                        >
+                          Jogcím
+                        </BankSortableTh>
+                        <th
+                          className="p-2.5 text-center text-xs font-medium text-slate-500 hidden lg:table-cell"
+                          title="Melyik évre szól (egyházfenntartói járulék)"
+                        >
+                          Évre
+                        </th>
                         <BankSortableTh
                           col="osszeg"
                           sortBy={sortBy}
@@ -897,6 +914,26 @@ export function BankTab({
                             >
                               {row.datum?.split('T')[0]}
                             </td>
+                            <td
+                              className={`hidden p-2.5 text-xs text-slate-400 lg:table-cell ${textStorno}`}
+                            >
+                              {row.irattipus || '—'}
+                            </td>
+                            <td
+                              className={`hidden p-2.5 text-xs text-slate-400 md:table-cell ${textStorno}`}
+                            >
+                              {row.iratszam || '—'}
+                            </td>
+                            <td className="p-2.5 text-xs font-medium">
+                              <span
+                                className={`${
+                                  textStorno ||
+                                  (row.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
+                                }`}
+                              >
+                                {row.hasMissingPerson ? `⚠ ${row.partner}` : row.partner}
+                              </span>
+                            </td>
                             <td className="p-2.5">
                               <div className="flex items-center gap-1.5">
                                 {row.stornozott && (
@@ -933,19 +970,9 @@ export function BankTab({
                               )}
                             </td>
                             <td
-                              className={`hidden p-2.5 text-xs text-slate-400 md:table-cell ${textStorno}`}
+                              className={`p-2.5 text-center text-xs text-slate-500 hidden lg:table-cell ${textStorno}`}
                             >
-                              {row.iratszam || '—'}
-                            </td>
-                            <td className="p-2.5 text-xs font-medium">
-                              <span
-                                className={`${
-                                  textStorno ||
-                                  (row.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
-                                }`}
-                              >
-                                {row.hasMissingPerson ? `⚠ ${row.partner}` : row.partner}
-                              </span>
+                              {row.type === 'income' && row.fizetettev ? row.fizetettev : '—'}
                             </td>
                             <td
                               className={`p-2.5 text-right font-bold text-emerald-600 ${textStorno}`}
