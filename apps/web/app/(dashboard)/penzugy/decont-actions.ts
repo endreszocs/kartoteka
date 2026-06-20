@@ -170,7 +170,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
   // egy 1-soros elszámolásként megjelenítve/újranyomtatva.
   const { data: kiaDec } = await ctx.supabase
     .from('kiadas')
-    .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes, kiadascel(szamadasicel(nev))')
+    .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes')
     .eq('congregation_id', ctx.scopeId)
     .eq('deleted', false)
     .ilike('irattipus', '%decont%')
@@ -181,11 +181,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
     const datum = String(r.datum).slice(0, 10)
     const name = String(r.kedvezmenyzett || r.atvevo || '—')
     const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
-    const szNode = Array.isArray(r.kiadascel) ? r.kiadascel[0] : r.kiadascel
-    const sz = (szNode as { szamadasicel?: unknown } | null)?.szamadasicel
-    const szLeaf = Array.isArray(sz) ? sz[0] : sz
-    const explanation =
-      String((szLeaf as { nev?: string } | null)?.nev || '') || String(r.megjegyzes || '')
+    const explanation = String(r.megjegyzes || '')
     return {
       id: `imp-k-${r.id}`,
       label: `#${sorszam || '—'} · ${datum} · ${name} · importált`,

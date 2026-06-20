@@ -218,7 +218,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
   const [kiaImp, bevImp] = await Promise.all([
     ctx.supabase
       .from('kiadas')
-      .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes, kiadascel(szamadasicel(nev))')
+      .select('id, datum, osszeg, iratszam, kedvezmenyzett, atvevo, megjegyzes')
       .eq('congregation_id', ctx.scopeId)
       .eq('deleted', false)
       .is('dispozitie_id', null)
@@ -227,7 +227,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
       .lte('datum', `${year}-12-31`),
     ctx.supabase
       .from('befizetes')
-      .select('id, datum, osszeg, iratszam, forrasa, megjegyzes, befizetescel(szamadasicel(nev))')
+      .select('id, datum, osszeg, iratszam, forrasa, megjegyzes')
       .eq('congregation_id', ctx.scopeId)
       .eq('deleted', false)
       .is('dispozitie_id', null)
