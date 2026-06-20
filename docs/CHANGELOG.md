@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: több befizető egy nyugtára (chipekkel)
+<!-- key: 2026-06-21-tetel-tobb-befizeto-chip -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Több személy egy nyugtára — a Befizető mezőn belül, egymás mellett.** Mostantól a befizetőnél
+  **több személyt is kiválaszthatsz** a tagnyilvántartásból (a korábbi „egy után nem enged többet"
+  hiba megszűnt) — a kiválasztottak **chipekként** jelennek meg egymás mellett a mezőben. A
+  **„Család keresése"** gomb a család tagjait **ugyanígy a mezőbe teszi** (chipek). Amikor kész vagy,
+  a **„✂ Felbontás N külön sorra"** gomb minden taghoz **külön sort** készít egy **közös
+  nyugtaszámon**, és tagonként beírod az összeget a táblázatban. Egy chip az × gombbal eltávolítható.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: gyorsabb bevitel (dátum, irattípus, Enter, átnevezés)
 <!-- key: 2026-06-21-tetel-gyorsabb-bevitel -->
 <!-- category: improvement -->

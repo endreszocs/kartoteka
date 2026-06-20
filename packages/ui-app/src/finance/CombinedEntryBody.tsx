@@ -157,17 +157,20 @@ type EntryRow = {
   /** #1 (Endre): melyik évre szól a befizetés — alap az aktuális év, de visszamenőleges
    *  egyházfenntartói járulék is rögzíthető (csak bevételnél). */
   evre: string
-  /** B1: a kiválasztott tag (kölcsönösen kizáró a csaladId-vel). */
-  szemelyId: number | null
-  /** B1: családi befizetésnél a család azonosítója. */
-  csaladId: number | null
+  /** #4 (Endre, 2026-06-21): a befizetőhöz rendelt szemely(ek) — TÖBB is lehet egy nyugtán.
+   *  Egy elem → sima egyszemélyes sor. Több elem → a „Felbontás" tagonként KÜLÖN sort készít
+   *  (közös nyugtaszám, /N), tagonként saját összeggel. id=null = szabad szöveges (nem regisztrált). */
+  people: Array<{ id: number | null; name: string }>
+  /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
+  szemelyId?: number | null
+  csaladId?: number | null
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const newRow = (year?: number): EntryRow => ({
   id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', gyulekezetiSzam: '', amount: '', megjegyzes: '', bankId: '',
   evre: year != null ? String(year) : '',
-  szemelyId: null, csaladId: null,
+  people: [],
 })
 
 const inputClass =
@@ -187,7 +190,7 @@ function isElementVisible(el: HTMLElement | null): boolean {
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
-  onSearchMembers, onResolveFamilyId, onSearchExpensePartners,
+  onSearchMembers, onSearchExpensePartners,
   onSearchFamilies, onGetFamilyMembers, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey,
 }: CombinedEntryBodyProps) {
@@ -220,7 +223,7 @@ export function CombinedEntryBody({
 
   // #3 auto-vázlat: van-e értelmes tartalom (üres sorokat nem mentünk).
   const rowHasContent = (r: EntryRow) =>
-    !!(r.amount.trim() || r.partner.trim() || r.categoryId !== '' || r.iratszam.trim() || r.megjegyzes.trim())
+    !!(r.amount.trim() || r.partner.trim() || (r.people && r.people.length > 0) || r.categoryId !== '' || r.iratszam.trim() || r.megjegyzes.trim())
   const anyContent = (rs: EntryRow[]) => rs.some(rowHasContent)
 
   function clearDraft() {
@@ -239,8 +242,15 @@ export function CombinedEntryBody({
       const d = JSON.parse(raw) as {
         incomeRows?: EntryRow[]; expenseRows?: EntryRow[]; tab?: 'income' | 'expense'; savedAt?: string
       }
-      const inc = Array.isArray(d.incomeRows) ? d.incomeRows : []
-      const exp = Array.isArray(d.expenseRows) ? d.expenseRows : []
+      // #4 migráció: régi vázlat (szemelyId/csaladId, nincs people[]) → people[] feltöltése.
+      const migrate = (rs: EntryRow[]): EntryRow[] =>
+        rs.map((r) => {
+          if (Array.isArray(r.people)) return r
+          const people = r.szemelyId != null ? [{ id: r.szemelyId, name: r.partner }] : []
+          return { ...r, people }
+        })
+      const inc = migrate(Array.isArray(d.incomeRows) ? d.incomeRows : [])
+      const exp = migrate(Array.isArray(d.expenseRows) ? d.expenseRows : [])
       if (anyContent(inc) || anyContent(exp)) {
         if (inc.length) setIncomeRows(inc)
         if (exp.length) setExpenseRows(exp)
@@ -295,6 +305,8 @@ export function CombinedEntryBody({
   const belsoDir = (r: EntryRow) => dirFor(tab, r) // aktuális fül — a megjelenítéshez
 
   function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
+    // #4: több személy egy sorban (még nem felbontva) → előbb „Felbontás" kell (tagonkénti összeg).
+    if (tabName === 'income' && r.people && r.people.length >= 2) return false
     if (!(Number(r.amount) > 0 && r.categoryId !== '' && parseFlexibleDate(r.datum) != null)) return false
     if (dirFor(tabName, r) && r.bankId === '') return false // belső mozgáshoz bankszámla kell
     return true
@@ -495,9 +507,9 @@ export function CombinedEntryBody({
         evre: tmpl.evre,
         iratszam: base ? (multi ? `${base}/${i + 1}` : base) : '',
         gyulekezetiSzam: tmpl.gyulekezetiSzam,
+        // #4: minden generált sor EGY-személyes (people=[egy]); a partner-szöveg display+forrás.
+        people: [{ id: e.szemelyId, name: e.name }],
         partner: e.name,
-        szemelyId: e.szemelyId,
-        csaladId: null,
         megjegyzes: tmpl.megjegyzes,
       }))
       return [...cur.slice(0, idx), ...generated, ...cur.slice(idx + 1)]
@@ -505,22 +517,33 @@ export function CombinedEntryBody({
     setTab('income')
   }
 
+  // #4: a Családi nyugta tagjait a sor people[] listájához FŰZZÜK (chipek egymás mellett a
+  // mezőben) — innen a „Felbontás" gomb bontja tagonként külön sorra (közös nyugtaszámon).
   function handleFamilyConfirm(members: CombinedFamilyMember[]) {
     const rowId = familyPickerRowId
     setFamilyPickerRowId(null)
     if (!rowId || members.length === 0) return
-    generateRowsFromTemplate(rowId, members.map((m) => ({ name: m.name, szemelyId: m.id })))
-    onToast('success', `${members.length} családtag hozzáadva — töltsd ki az összegeket.`)
+    setIncomeRows((cur) =>
+      cur.map((r) =>
+        r.id === rowId
+          ? { ...r, people: [...r.people, ...members.map((m) => ({ id: m.id, name: m.name }))], partner: '' }
+          : r,
+      ),
+    )
+    onToast('success', `${members.length} családtag hozzáadva — a „Felbontás" gombbal külön sorra bonthatod.`)
   }
 
-  // #6 (Endre): a Befizető mezőben VESSZŐVEL elválasztott nevek → személyenként külön sor,
-  // egy nyugtán (közös szám + /N). Szabad szövegként rögzít (nincs tag-kapcsolás — aki nem
-  // egy regisztrált család, így is felvehető egy nyugtára).
-  function handleSplitPartners(rowId: string, names: string[]) {
-    const clean = names.map((n) => n.trim()).filter(Boolean)
-    if (clean.length < 2) return
-    generateRowsFromTemplate(rowId, clean.map((name) => ({ name, szemelyId: null })))
-    onToast('success', `${clean.length} személy külön sorba bontva — töltsd ki az összegeket.`)
+  // #4: a sor people[] listáját (vagy a vesszős partner-szöveget) tagonként KÜLÖN sorra bontja.
+  function handleExpandRow(rowId: string) {
+    const src = incomeRows.find((x) => x.id === rowId)
+    if (!src) return
+    const entries =
+      src.people.length >= 1
+        ? src.people.map((p) => ({ name: p.name, szemelyId: p.id }))
+        : src.partner.split(',').map((s) => s.trim()).filter(Boolean).map((name) => ({ name, szemelyId: null }))
+    if (entries.length < 2) return
+    generateRowsFromTemplate(rowId, entries)
+    onToast('success', `${entries.length} sorra bontva — töltsd ki az összegeket tagonként.`)
   }
 
   async function handleSave() {
@@ -547,16 +570,19 @@ export function CombinedEntryBody({
       const datum = parseFlexibleDate(r.datum)!
       const dir = dirFor('income', r)
       if (dir) { pushTransfer(dir, datum, r); continue }
+      // #4: egyszemélyes sor → people[0] (a több-személyes sort a Felbontás már sorokra bontotta).
+      const person = r.people && r.people.length === 1 ? r.people[0] : null
       incomeBatch.push({
-        datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
+        datum, id_befizetescel: Number(r.categoryId),
+        forrasa: person ? person.name : (r.partner.trim() || null),
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
         // #3: a gyülekezeti saját sorszám (a kerületi = iratszam mellett) → befizetes.nyugta
         nyugta: r.gyulekezetiSzam.trim() || null,
         // #1: a kézzel megadott „melyik évre" (visszamenőleges járulék); ha üres, a dátum éve / aktuális év.
         fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
-        // B1: tag- vagy család-kapcsolat (kölcsönösen kizáró)
-        id_szemely: r.csaladId ? null : r.szemelyId,
-        id_csalad: r.csaladId,
+        // #4: a kiválasztott tag (egyszemélyes sor); család-szintű kapcsolat már nincs.
+        id_szemely: person ? person.id : null,
+        id_csalad: null,
       })
     }
     for (const r of expenseRows) {
@@ -778,14 +804,13 @@ export function CombinedEntryBody({
                         mode={tab}
                         searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
-                        onResolveFamilyId={onResolveFamilyId}
                         onSearchExpense={onSearchExpensePartners}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => setFamilyPickerRowId(r.id)
                             : undefined
                         }
-                        onSplitPartners={tab === 'income' ? (names) => handleSplitPartners(r.id, names) : undefined}
+                        onExpandRow={tab === 'income' ? () => handleExpandRow(r.id) : undefined}
                         updateRow={updateRow}
                       />
                     )}
@@ -811,7 +836,10 @@ export function CombinedEntryBody({
                       )}
                     </td>
                   )}
-                  <td className="px-2 py-1.5 w-[110px]"><input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 w-[110px]">
+                    <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && (r.people?.length ?? 0) >= 2} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                    {tab === 'income' && (r.people?.length ?? 0) >= 2 && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">Bontsd szét (✂)</div>}
+                  </td>
                   <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
                   <td className="px-2 py-1.5 text-right">
                     <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
@@ -855,7 +883,8 @@ export function CombinedEntryBody({
                   {dWarn && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">⚠ {dWarn}</span>}
                 </label>
                 <label className="text-xs text-slate-500">Összeg
-                  <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                  <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && (r.people?.length ?? 0) >= 2} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                  {tab === 'income' && (r.people?.length ?? 0) >= 2 && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">Bontsd szét (✂) az összegekhez</span>}
                 </label>
                 {tab === 'income' && !dir && (
                   <label className="text-xs text-slate-500">Melyik évre
@@ -870,14 +899,13 @@ export function CombinedEntryBody({
                         mode={tab}
                         searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
-                        onResolveFamilyId={onResolveFamilyId}
                         onSearchExpense={onSearchExpensePartners}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
                             ? () => setFamilyPickerRowId(r.id)
                             : undefined
                         }
-                        onSplitPartners={tab === 'income' ? (names) => handleSplitPartners(r.id, names) : undefined}
+                        onExpandRow={tab === 'income' ? () => handleExpandRow(r.id) : undefined}
                         updateRow={updateRow}
                       />
                     </label>
@@ -993,27 +1021,24 @@ function PartnerCell({
   mode,
   searchable,
   onSearchMembers,
-  onResolveFamilyId,
   onSearchExpense,
   onOpenFamily,
-  onSplitPartners,
+  onExpandRow,
   updateRow,
 }: {
   row: EntryRow
   mode: 'income' | 'expense'
   searchable: boolean
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
-  onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
   onSearchExpense?: (query: string) => Promise<string[]>
-  /** #5: ha megadva (bevétel), a partner-mezőnél „Család" gomb — tag-választó az adott sorhoz. */
+  /** #5: ha megadva (bevétel), „Család keresése" gomb — a tagokat a mező people[] listájához fűzi. */
   onOpenFamily?: () => void
-  /** #6: vesszővel elválasztott nevek felbontása külön sorokra (egy nyugtán). */
-  onSplitPartners?: (names: string[]) => void
+  /** #4: a több személyt (people[] chipek vagy vesszős szöveg) tagonként KÜLÖN sorra bontja. */
+  onExpandRow?: () => void
   updateRow: (id: string, patch: Partial<EntryRow>) => void
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
   const [open, setOpen] = useState(false)
-  const [familyNote, setFamilyNote] = useState<string | null>(null)
   const debounceRef = useRef<number | null>(null)
   // 2026-06-12 (Endre #2): a találati lista PORTÁLBAN, fix pozícióval nyílik —
   // a dialógus overflow-y-auto-ja korábban levágta (a felhasználó nem látta).
@@ -1054,7 +1079,7 @@ function PartnerCell({
   // Bevételnél tag-keresés (onSearchMembers), kiadásnál korábbi-partner autocomplete
   // (onSearchExpense → névlista, amit a közös találat-formára képezünk).
   useEffect(() => {
-    if (!searchable || row.szemelyId != null) return
+    if (!searchable) return
     const q = row.partner.trim()
     if (q.length < 2) {
       setHits([])
@@ -1086,7 +1111,7 @@ function PartnerCell({
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.partner, row.szemelyId, searchable, mode])
+  }, [row.partner, searchable, mode])
 
   if (!searchable) {
     return (
@@ -1098,103 +1123,71 @@ function PartnerCell({
     )
   }
 
-  // Kiválasztott tag/család — chip nézet
-  if (row.szemelyId != null || row.csaladId != null) {
-    return (
-      <div className="space-y-1">
-        <div className="flex h-9 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50/70 px-2 text-sm text-emerald-900">
-          <span className="min-w-0 flex-1 truncate" title={row.partner}>
-            {row.partner}
-            {row.csaladId != null && (
-              <span className="ml-1 rounded bg-emerald-200/70 px-1 text-[10px] font-semibold uppercase">családi</span>
-            )}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100"
-            title="Kapcsolat leválasztása (a név szövegként megmarad)"
-            onClick={() => {
-              updateRow(row.id, { szemelyId: null, csaladId: null })
-              setFamilyNote(null)
-            }}
-          >
-            ×
-          </button>
-        </div>
-        {onResolveFamilyId && row.csaladId == null && (
-          <label className="flex items-center gap-1 text-[11px] text-slate-500">
-            <input
-              type="checkbox"
-              className="size-3"
-              checked={false}
-              onChange={() => {
-                const szemelyId = row.szemelyId
-                if (szemelyId == null) return
-                void onResolveFamilyId(szemelyId)
-                  .then((familyId) => {
-                    if (familyId != null) {
-                      updateRow(row.id, { csaladId: familyId })
-                      setFamilyNote(null)
-                    } else {
-                      setFamilyNote('Ehhez a taghoz nincs család rögzítve.')
-                    }
-                  })
-                  .catch(() => setFamilyNote('A család feloldása nem sikerült.'))
-              }}
-            />
-            Családi befizetés
-          </label>
-        )}
-        {row.csaladId != null && (
-          <button
-            type="button"
-            className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
-            onClick={() => updateRow(row.id, { csaladId: null })}
-          >
-            Vissza tag-szintűre
-          </button>
-        )}
-        {familyNote && <p className="text-[11px] text-amber-700">{familyNote}</p>}
-      </div>
-    )
-  }
-
-  // Gépelés + találati lista (a lista PORTÁLBAN — sosem vágja le a dialógus)
-  // #6: vesszővel elválasztott nevek darabolása (egy nyugtára több személy).
+  // #4: a kiválasztott személyek CHIPEKKÉNT, egymás mellett a mezőn belül (bevétel). A kereső
+  // input megmarad → KÖZBEN is hozzáadható még valaki. A „Felbontás" tagonként külön sorra bont.
+  const people = row.people || []
   const partnerParts = row.partner.split(',').map((s) => s.trim()).filter(Boolean)
+  const canExpand = people.length >= 2 || (people.length === 0 && partnerParts.length >= 2)
+
   return (
-    <div className="relative">
+    <div className="relative space-y-1">
+      {mode === 'income' && people.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {people.map((p, i) => (
+            <span
+              key={`${p.id ?? 'free'}-${i}`}
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-900"
+            >
+              {p.name}
+              <button
+                type="button"
+                className="shrink-0 rounded text-emerald-700 hover:bg-emerald-200/60"
+                title="Eltávolítás"
+                onClick={() => updateRow(row.id, { people: people.filter((_, idx) => idx !== i) })}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <input
         ref={inputRef}
         className={inputClass}
         value={row.partner}
-        placeholder={mode === 'income' ? 'Név (keresés a tagok közt) — több név vesszővel is' : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'}
+        placeholder={
+          mode === 'income'
+            ? people.length > 0
+              ? 'Még valaki… (keresés a tagok közt)'
+              : 'Név (keresés a tagok közt) vagy szabad szöveg'
+            : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'
+        }
         onChange={(e) => updateRow(row.id, { partner: e.target.value })}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
-      {(onOpenFamily || (onSplitPartners && partnerParts.length > 1)) && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      {(onOpenFamily || (onExpandRow && canExpand)) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
           {onOpenFamily && (
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={onOpenFamily}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-              title="Családi nyugta — több családtag egy nyugtán (a sor adataival)"
+              title="Családi nyugta — a család tagjai a mezőbe kerülnek (chipek), majd a Felbontás bontja sorra"
             >
               <Users className="size-3" /> Család keresése
             </button>
           )}
-          {onSplitPartners && partnerParts.length > 1 && (
+          {onExpandRow && canExpand && (
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSplitPartners(partnerParts)}
+              onClick={onExpandRow}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
-              title="A vesszővel elválasztott neveket külön sorokra bontja — egy nyugtán (közös szám), tagonként saját összeggel"
+              title="Minden személyt külön sorra bont — egy nyugtán (közös szám), tagonként saját összeggel"
             >
-              ✂ Felbontás {partnerParts.length} külön sorra
+              ✂ Felbontás {people.length >= 2 ? people.length : partnerParts.length} külön sorra
             </button>
           )}
         </div>
@@ -1212,8 +1205,13 @@ function PartnerCell({
                 className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  if (mode === 'income') updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
-                  else updateRow(row.id, { partner: h.name })
+                  // #4: bevételnél a kiválasztott tagot a people[] CHIP-listához fűzzük (a buffer ürül);
+                  // kiadásnál sima szöveg (egy partner).
+                  if (mode === 'income') {
+                    updateRow(row.id, { people: [...(row.people || []), { id: h.id, name: h.name }], partner: '' })
+                  } else {
+                    updateRow(row.id, { partner: h.name })
+                  }
                   setHits([])
                   setOpen(false)
                 }}
