@@ -1602,21 +1602,6 @@ export async function getNextReceiptNumbers(
   if (!scope) return { keruleti: '', gyulekezeti: '' }
   const { supabase, T } = scope
 
-  // FONTOS: az egyediségi index (congregation_id, fizetettev, iratszam) és a mentés is
-  // `fizetettev`-alapú — ezért a következő-szám lookup is `fizetettev`-re szűr (NEM datumra),
-  // különben visszamenőleges (pótlás) befizetésnél hézag vagy 23505-ütközés keletkezne.
-  let q = supabase.from(T.befizetes)
-    .select('iratszam, nyugta')
-    .eq(T.scopeCol, scope.scopeId)
-    .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
-    .eq('fizetettev', year)
-  if (scope.scope === 'congregation') {
-    q = q.is('belso_mozgas_xkey', null)
-  }
-  const { data } = await q
-  const rows = (data || []) as Array<{ iratszam: string | null; nyugta: string | null }>
-
   // Egy számsorozat következő tagja: max(numerikus) + 1, a max értékhez tartozó
   // számjegy-csoport szélességére nullázva (vezető nullák megőrzése: „0115301" → „0115302").
   function nextOf(values: Array<string | null>, fallback: string): string {
@@ -1632,14 +1617,42 @@ export async function getNextReceiptNumbers(
     return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
   }
 
-  // Kerületi (nyomdai): az iratszam-sorozatból (ez az egyediség-indexelt szám). Feltételezzük,
-  // hogy a kerülettől kapott tömbök növekvő sorrendben kerülnek használatba. Nincs előzmény →
-  // üres (a felhasználó írja be a tömb első számát).
-  const keruleti = nextOf(rows.map((r) => r.iratszam), '')
-  // Gyülekezeti: CSAK a valódi (nem tükrözött) sorokból — a régi/import adat, ahol nyugta=iratszam,
-  // egy kerületi-méretű számot tartalmazna, ami elrontaná a gyülekezeti sorozatot. Nincs valódi → „1".
+  // KERÜLETI (nyomdai) szám: GLOBÁLISAN folytonos — a kerülettől kapott tömbök év végén nem
+  // indulnak újra, ezért az ÖSSZES készpénzes chitanta-iratszám maximuma + 1 (évfordulón is
+  // folytatja a tömböt). NEM `fizetettev`-re szűrünk, mert a nyugtaszám a fizikai kiállításhoz
+  // (datum) kötődik, nem ahhoz, melyik ÉVRE szól a befizetés.
+  let allQ = supabase.from(T.befizetes)
+    .select('iratszam')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+  if (scope.scope === 'congregation') {
+    allQ = allQ.is('belso_mozgas_xkey', null)
+  }
+  const { data: allData } = await allQ
+
+  // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → csak az adott NAPTÁRI év (datum) tételei;
+  // és CSAK a valódi (nem tükrözött nyugta=iratszam) sorok, hogy a régi/import adat ne rontsa el.
+  let yearQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (scope.scope === 'congregation') {
+    yearQ = yearQ.is('belso_mozgas_xkey', null)
+  }
+  const { data: yearData } = await yearQ
+
+  const keruleti = nextOf(
+    ((allData || []) as Array<{ iratszam: string | null }>).map((r) => r.iratszam),
+    '',
+  )
   const gyulekezeti = nextOf(
-    rows.filter((r) => r.nyugta && r.nyugta !== r.iratszam).map((r) => r.nyugta),
+    ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
+      .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
+      .map((r) => r.nyugta),
     '1',
   )
 

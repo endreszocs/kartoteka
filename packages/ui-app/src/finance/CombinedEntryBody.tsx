@@ -340,7 +340,15 @@ export function CombinedEntryBody({
   function updateRow(id: string, patch: Partial<EntryRow>) {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
-  function addRow() { setRows((cur) => [...cur, newRow(currentYear)]) }
+  function addRow() {
+    // #4 (Endre): az új sor az ELŐZŐ sor dátumát örökli (tömeges rögzítésnél kényelmesebb).
+    setRows((cur) => {
+      const prev = cur[cur.length - 1]
+      const r = newRow(currentYear)
+      if (prev?.datum) r.datum = prev.datum
+      return [...cur, r]
+    })
+  }
   function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? [newRow(currentYear)] : cur.filter((r) => r.id !== id))) }
 
   function combinedIratszam(r: EntryRow): string | null {
@@ -404,7 +412,8 @@ export function CombinedEntryBody({
     const needsFill = !r.iratszam.trim() || !r.gyulekezetiSzam.trim()
     // Auto-szám CSAK a Bevétel fülön, Chitanță-nál, ha van üres kitöltendő mező.
     if (tab === 'income' && value === 'Chitanță' && onGetNextReceiptNumbers && needsFill) {
-      const year = Number(r.evre) || Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
+      // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
+      const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
       void onGetNextReceiptNumbers(year)
         .then((next) => {
           if (!next) return
@@ -621,6 +630,8 @@ export function CombinedEntryBody({
               const dir = belsoDir(r)
               const dWarn = dateWarning(r)
               const rWarn = receiptWarning(r)
+              // #1: a kerületi + gyülekezeti szám-mező CSAK Chitanță (nyugta) esetén jelenik meg.
+              const isChitanta = r.docType === 'Chitanță'
               return (
                 <tr key={r.id} className="border-t border-slate-100 align-top">
                   <td className="px-2 py-1.5 w-[160px]">
@@ -634,19 +645,24 @@ export function CombinedEntryBody({
                     </select>
                   </td>
                   <td className="px-2 py-1.5 w-[100px]">
-                    <input
-                      className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
-                      value={r.iratszam}
-                      disabled={!!dir}
-                      title={tab === 'income' ? 'Kerületi (nyomdai) szám — Chitanță esetén a kerülettől kapott szám' : undefined}
-                      onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
-                      onBlur={() => checkRowDuplicate(r)}
-                    />
-                    {rWarn && <div className="mt-0.5 text-[10px] leading-tight text-red-600">⚠ {rWarn}</div>}
+                    {dir || (tab === 'income' && !isChitanta) ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : (
+                      <>
+                        <input
+                          className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
+                          value={r.iratszam}
+                          title={tab === 'income' ? 'Kerületi (nyomdai) szám — a kerülettől kapott szám' : undefined}
+                          onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
+                          onBlur={() => checkRowDuplicate(r)}
+                        />
+                        {rWarn && <div className="mt-0.5 text-[10px] leading-tight text-red-600">⚠ {rWarn}</div>}
+                      </>
+                    )}
                   </td>
                   {tab === 'income' && (
                     <td className="px-2 py-1.5 w-[100px]">
-                      {dir ? (
+                      {dir || !isChitanta ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
                         <input
@@ -714,6 +730,7 @@ export function CombinedEntryBody({
           const dir = belsoDir(r)
           const dWarn = dateWarning(r)
           const rWarn = receiptWarning(r)
+          const isChitanta = r.docType === 'Chitanță'
           return (
             <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -763,16 +780,18 @@ export function CombinedEntryBody({
                         {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                       </select>
                     </label>
-                    <label className="text-xs text-slate-500">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}
-                      <input
-                        className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
-                        value={r.iratszam}
-                        onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
-                        onBlur={() => checkRowDuplicate(r)}
-                      />
-                      {rWarn && <span className="mt-0.5 block text-[10px] leading-tight text-red-600">⚠ {rWarn}</span>}
-                    </label>
-                    {tab === 'income' && (
+                    {(tab === 'expense' || isChitanta) && (
+                      <label className="text-xs text-slate-500">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}
+                        <input
+                          className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
+                          value={r.iratszam}
+                          onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
+                          onBlur={() => checkRowDuplicate(r)}
+                        />
+                        {rWarn && <span className="mt-0.5 block text-[10px] leading-tight text-red-600">⚠ {rWarn}</span>}
+                      </label>
+                    )}
+                    {tab === 'income' && isChitanta && (
                       <label className="text-xs text-slate-500">Gyül. sz.
                         <input className={inputClass} value={r.gyulekezetiSzam} onChange={(e) => updateRow(r.id, { gyulekezetiSzam: e.target.value })} />
                       </label>

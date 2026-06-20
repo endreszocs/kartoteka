@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: nyugtaszám-finomítások + új sor dátuma
+<!-- key: 2026-06-21-tetel-nyugta-finomitasok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások / 🐛 Javítások
+
+- **A Kerületi sz. és Gyül. sz. mező csak Chitanță (nyugta) esetén jelenik meg.** Más irattípusnál
+  (pl. Factură) nem zavarnak feleslegesen — ott „—" látszik.
+- **A Chitanță automatikus következő-szám mostantól megbízhatóan kitölt.** A **kerületi szám az
+  összes eddigi nyugtából folytatódik** (év végén sem indul újra, a tömböt folytatja), a
+  **gyülekezeti szám pedig naptári évente 1-től**. (Korábban a „melyik évre" évéhez kötöttük, ezért
+  visszamenőleges tételnél nem jelent meg a következő szám.)
+- **Új sor az előző sor dátumával.** Tömeges rögzítésnél az „Új sor" gomb mostantól az **előző sor
+  dátumát** veszi át alapértelmezetten — nem kell minden sornál újra beírni.
+
+---
+
 ## [2026-06-21] — Oldalsáv: az almenü nem csukódik be a főpontra kattintva
 <!-- key: 2026-06-21-sidebar-almenu-fix -->
 <!-- category: bugfix -->
