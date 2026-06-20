@@ -38,7 +38,6 @@ import {
   type CombinedInternalTransferPayload,
 } from '@kartoteka/ui-app'
 import {
-  getFamilyIdForPersonUseCase,
   saveExpenseUseCase,
   saveIncomeUseCase,
   searchMembersForFinanceUseCase,
@@ -264,13 +263,6 @@ export function DesktopCombinedEntryDialog({
                 id: m.id,
                 name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
               }))
-            }}
-            onResolveFamilyId={async (szemelyId) => {
-              const res = await getFamilyIdForPersonUseCase(
-                { congregationId, personId: szemelyId },
-                { supabase: getDesktopSupabase(), runtime: 'desktop' },
-              )
-              return res.success ? res.familyId : null
             }}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}

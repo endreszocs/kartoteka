@@ -21,7 +21,6 @@ import {
   saveExpenseBatch,
   saveInternalTransfer,
   searchMembersForFinance,
-  getFamilyIdForPerson,
   searchExpensePartners,
   searchFamilies,
   getFamilyMembers,
@@ -96,7 +95,6 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
                 return { id: m.id as number, name, detail: detail || undefined }
               })
             }}
-            onResolveFamilyId={async (szemelyId) => await getFamilyIdForPerson(szemelyId)}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
             onSearchFamilies={async (query) => await searchFamilies(query)}
             onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}

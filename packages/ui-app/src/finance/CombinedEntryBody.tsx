@@ -94,11 +94,6 @@ export interface CombinedEntryBodyProps {
    */
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
   /**
-   * Családi befizetéshez: a kiválasztott tag családjának feloldása.
-   * Null = nincs család (a sor tag-szintű marad).
-   */
-  onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
-  /**
    * #5 (Endre, 2026-06-21): kiadás-partner autocomplete — a korábban már rögzített
    * átvevők (cég/személy) közül ajánl a kiadás fülön gépelés közben; kiválasztáskor
    * a nevet kitölti. Ha nincs megadva, a kiadás-partner sima szövegmező marad.
@@ -172,6 +167,24 @@ const newRow = (year?: number): EntryRow => ({
   evre: year != null ? String(year) : '',
   people: [],
 })
+
+// #4 review-fix: a sor TÖBB személyt tartalmaz, ami még nincs külön sorra bontva → mentéskor
+// csendben adatvesztés lenne. Három eset: (a) 2+ chip, (b) 1 chip + félig begépelt buffer,
+// (c) chip nélkül vesszős több név. Ilyenkor a sor érvénytelen + az összeg zárolt, amíg fel
+// nem bontják / be nem fejezik a kiválasztást.
+const commaNameCount = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean).length
+function rowNeedsSplit(r: EntryRow): boolean {
+  const ppl = r.people?.length ?? 0
+  if (ppl >= 2) return true
+  if (ppl === 1 && r.partner.trim() !== '') return true
+  if (ppl === 0 && commaNameCount(r.partner) >= 2) return true
+  return false
+}
+function splitHint(r: EntryRow): string {
+  const ppl = r.people?.length ?? 0
+  if (ppl === 1 && r.partner.trim() !== '') return 'Fejezd be a beírt nevet (válaszd ki) vagy töröld'
+  return 'Több név — bontsd szét (✂)'
+}
 
 const inputClass =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm ' +
@@ -305,8 +318,9 @@ export function CombinedEntryBody({
   const belsoDir = (r: EntryRow) => dirFor(tab, r) // aktuális fül — a megjelenítéshez
 
   function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
-    // #4: több személy egy sorban (még nem felbontva) → előbb „Felbontás" kell (tagonkénti összeg).
-    if (tabName === 'income' && r.people && r.people.length >= 2) return false
+    // #4: több személy egy sorban (még nem felbontva / be nem fejezve) → előbb „Felbontás"
+    // vagy a kiválasztás befejezése kell (tagonkénti összeg) — különben csendes adatvesztés.
+    if (tabName === 'income' && rowNeedsSplit(r)) return false
     if (!(Number(r.amount) > 0 && r.categoryId !== '' && parseFlexibleDate(r.datum) != null)) return false
     if (dirFor(tabName, r) && r.bankId === '') return false // belső mozgáshoz bankszámla kell
     return true
@@ -523,14 +537,18 @@ export function CombinedEntryBody({
     const rowId = familyPickerRowId
     setFamilyPickerRowId(null)
     if (!rowId || members.length === 0) return
+    let added = 0
     setIncomeRows((cur) =>
-      cur.map((r) =>
-        r.id === rowId
-          ? { ...r, people: [...r.people, ...members.map((m) => ({ id: m.id, name: m.name }))], partner: '' }
-          : r,
-      ),
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        // M3: dedup — ugyanazt a tagot (id) ne vegyük fel kétszer.
+        const existing = new Set(r.people.filter((p) => p.id != null).map((p) => p.id))
+        const add = members.filter((m) => !existing.has(m.id)).map((m) => ({ id: m.id, name: m.name }))
+        added = add.length
+        return { ...r, people: [...r.people, ...add], partner: '' }
+      }),
     )
-    onToast('success', `${members.length} családtag hozzáadva — a „Felbontás" gombbal külön sorra bonthatod.`)
+    onToast('success', `${added} családtag hozzáadva — a „Felbontás" gombbal külön sorra bonthatod.`)
   }
 
   // #4: a sor people[] listáját (vagy a vesszős partner-szöveget) tagonként KÜLÖN sorra bontja.
@@ -837,8 +855,8 @@ export function CombinedEntryBody({
                     </td>
                   )}
                   <td className="px-2 py-1.5 w-[110px]">
-                    <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && (r.people?.length ?? 0) >= 2} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
-                    {tab === 'income' && (r.people?.length ?? 0) >= 2 && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">Bontsd szét (✂)</div>}
+                    <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && rowNeedsSplit(r)} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                    {tab === 'income' && rowNeedsSplit(r) && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">{splitHint(r)}</div>}
                   </td>
                   <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
                   <td className="px-2 py-1.5 text-right">
@@ -883,8 +901,8 @@ export function CombinedEntryBody({
                   {dWarn && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">⚠ {dWarn}</span>}
                 </label>
                 <label className="text-xs text-slate-500">Összeg
-                  <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && (r.people?.length ?? 0) >= 2} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
-                  {tab === 'income' && (r.people?.length ?? 0) >= 2 && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">Bontsd szét (✂) az összegekhez</span>}
+                  <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} disabled={tab === 'income' && rowNeedsSplit(r)} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
+                  {tab === 'income' && rowNeedsSplit(r) && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">{splitHint(r)}</span>}
                 </label>
                 {tab === 'income' && !dir && (
                   <label className="text-xs text-slate-500">Melyik évre
@@ -1206,9 +1224,11 @@ function PartnerCell({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   // #4: bevételnél a kiválasztott tagot a people[] CHIP-listához fűzzük (a buffer ürül);
-                  // kiadásnál sima szöveg (egy partner).
+                  // kiadásnál sima szöveg (egy partner). M3: ugyanazt a tagot (id) ne kétszer.
                   if (mode === 'income') {
-                    updateRow(row.id, { people: [...(row.people || []), { id: h.id, name: h.name }], partner: '' })
+                    const curPeople = row.people || []
+                    const dup = h.id != null && curPeople.some((p) => p.id === h.id)
+                    updateRow(row.id, { people: dup ? curPeople : [...curPeople, { id: h.id, name: h.name }], partner: '' })
                   } else {
                     updateRow(row.id, { partner: h.name })
                   }
