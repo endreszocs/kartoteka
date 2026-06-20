@@ -52,9 +52,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   saját oszlopuk alatt találhatók (a cella szélességével) — így egyértelmű, melyik oszlopra
   vonatkozik a szűrés. (A korábbi külön szűrő-kártya megszűnt; felül már csak a találatszám, a
   „Szűrők törlése" és az „Export" gomb van.)
-- **Export előnézet.** Az **„Export (Excel)"** gomb mostantól **nem tölt le egyből**, hanem
-  **előnézetet** nyit: a hivatalos oszloprend, egy rövid magyarázat és a sorok mintája. A letöltés
-  külön **„Letöltés (Excel)"** gombbal indul — így előbb ellenőrizhető, mi kerül a fájlba.
+- **Export előnézet — teljes lista + nyomtatás.** Az **„Export (Excel)"** gomb mostantól **nem tölt
+  le egyből**, hanem **előnézetet** nyit: a hivatalos oszloprend, egy rövid magyarázat és **a (szűrt)
+  sorok TELJES listája** (görgethető). Innen **Letöltés (Excel)** vagy **Nyomtatás** (A4 fekvő,
+  ismétlődő fejléc) — így előbb ellenőrizhető, mi kerül a fájlba/papírra.
 
 ---
 
