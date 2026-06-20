@@ -1620,6 +1620,35 @@ export async function searchMembersForFinance(query: string) {
   return data || []
 }
 
+// ── #5 (Endre): kiadás-partner autocomplete ──────────────────
+// A korábban már rögzített kiadás-partnerek (atvevo) közül ajánl, gépelés közben.
+export async function searchExpensePartners(query: string): Promise<string[]> {
+  const term = query.trim()
+  if (term.length < 2) return []
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  const { data } = await supabase
+    .from('kiadas')
+    .select('atvevo, datum')
+    .eq('congregation_id', congregationId)
+    .eq('deleted', false)
+    .ilike('atvevo', `%${term}%`)
+    .order('datum', { ascending: false })
+    .limit(60)
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const r of (data || []) as { atvevo: string | null }[]) {
+    const n = (r.atvevo || '').trim()
+    const key = n.toLowerCase()
+    if (n && !seen.has(key)) {
+      seen.add(key)
+      names.push(n)
+      if (names.length >= 8) break
+    }
+  }
+  return names
+}
+
 // ── B1 javítás: Személy → család ID meghatározás ─────────────
 
 export async function getFamilyIdForPerson(personId: number): Promise<number | null> {

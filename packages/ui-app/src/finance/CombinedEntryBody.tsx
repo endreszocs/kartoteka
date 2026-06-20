@@ -94,6 +94,12 @@ export interface CombinedEntryBodyProps {
    */
   onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
   /**
+   * #5 (Endre, 2026-06-21): kiadás-partner autocomplete — a korábban már rögzített
+   * átvevők (cég/személy) közül ajánl a kiadás fülön gépelés közben; kiválasztáskor
+   * a nevet kitölti. Ha nincs megadva, a kiadás-partner sima szövegmező marad.
+   */
+  onSearchExpensePartners?: (query: string) => Promise<string[]>
+  /**
    * #3 (Endre, 2026-06-21): auto-vázlatmentés kulcsa (pl. `combined-entry:<congregationId>`).
    * Ha megadva, a bevitt sorok GÉPELÉS KÖZBEN azonnal a böngésző localStorage-ába
    * mentődnek, és a dialóg újranyitásakor visszaállnak — így áramszünet / véletlen
@@ -136,7 +142,7 @@ const inputClass =
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
-  onSearchMembers, onResolveFamilyId, draftStorageKey,
+  onSearchMembers, onResolveFamilyId, onSearchExpensePartners, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
@@ -458,9 +464,11 @@ export function CombinedEntryBody({
                     ) : (
                       <PartnerCell
                         row={r}
-                        searchable={tab === 'income' && !!onSearchMembers}
+                        mode={tab}
+                        searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
                         onResolveFamilyId={onResolveFamilyId}
+                        onSearchExpense={onSearchExpensePartners}
                         updateRow={updateRow}
                       />
                     )}
@@ -538,9 +546,11 @@ export function CombinedEntryBody({
                     <label className="col-span-2 text-xs text-slate-500">{partnerLabel}
                       <PartnerCell
                         row={r}
-                        searchable={tab === 'income' && !!onSearchMembers}
+                        mode={tab}
+                        searchable={tab === 'income' ? !!onSearchMembers : !!onSearchExpensePartners}
                         onSearchMembers={onSearchMembers}
                         onResolveFamilyId={onResolveFamilyId}
+                        onSearchExpense={onSearchExpensePartners}
                         updateRow={updateRow}
                       />
                     </label>
@@ -602,15 +612,19 @@ export function CombinedEntryBody({
 
 function PartnerCell({
   row,
+  mode,
   searchable,
   onSearchMembers,
   onResolveFamilyId,
+  onSearchExpense,
   updateRow,
 }: {
   row: EntryRow
+  mode: 'income' | 'expense'
   searchable: boolean
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
   onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
+  onSearchExpense?: (query: string) => Promise<string[]>
   updateRow: (id: string, patch: Partial<EntryRow>) => void
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
@@ -643,9 +657,11 @@ function PartnerCell({
     }
   }, [open])
 
-  // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt)
+  // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt).
+  // Bevételnél tag-keresés (onSearchMembers), kiadásnál korábbi-partner autocomplete
+  // (onSearchExpense → névlista, amit a közös találat-formára képezünk).
   useEffect(() => {
-    if (!searchable || !onSearchMembers || row.szemelyId != null) return
+    if (!searchable || row.szemelyId != null) return
     const q = row.partner.trim()
     if (q.length < 2) {
       setHits([])
@@ -654,7 +670,13 @@ function PartnerCell({
     }
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
-      void onSearchMembers(q)
+      const p: Promise<CombinedMemberHit[]> =
+        mode === 'income'
+          ? (onSearchMembers ? onSearchMembers(q) : Promise.resolve([]))
+          : onSearchExpense
+            ? onSearchExpense(q).then((names) => names.map((n, i) => ({ id: -1 - i, name: n })))
+            : Promise.resolve([])
+      void p
         .then((res) => {
           setHits(res.slice(0, 8))
           setOpen(res.length > 0)
@@ -668,7 +690,7 @@ function PartnerCell({
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.partner, row.szemelyId, searchable])
+  }, [row.partner, row.szemelyId, searchable, mode])
 
   if (!searchable) {
     return (
@@ -748,7 +770,7 @@ function PartnerCell({
         ref={inputRef}
         className={inputClass}
         value={row.partner}
-        placeholder="Név (keresés a tagok közt) vagy szabad szöveg"
+        placeholder={mode === 'income' ? 'Név (keresés a tagok közt) vagy szabad szöveg' : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'}
         onChange={(e) => updateRow(row.id, { partner: e.target.value })}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
@@ -766,7 +788,8 @@ function PartnerCell({
                 className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
+                  if (mode === 'income') updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
+                  else updateRow(row.id, { partner: h.name })
                   setHits([])
                   setOpen(false)
                 }}

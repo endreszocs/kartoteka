@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: kiadás-partner automatikus kiegészítés
+<!-- key: 2026-06-21-tetel-kiadas-autocomplete -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Kiadás-partner automatikus kiegészítés.** A kiadás rögzítésénél, ahogy elkezded beírni a
+  **kedvezményezett** (cég vagy személy) nevét, a rendszer **felajánlja a korábban már rögzített
+  partnereket** — egy kattintással kitölthető a név, nem kell újra begépelni. (A korábbi átvevők
+  közül keres, a legutóbbiakat előre sorolva.)
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: „Melyik évre" mező + egységes oszlop-sorrend
 <!-- key: 2026-06-21-tetel-evre-oszlopsorrend -->
 <!-- category: improvement -->

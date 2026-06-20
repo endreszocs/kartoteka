@@ -22,6 +22,7 @@ import {
   saveInternalTransfer,
   searchMembersForFinance,
   getFamilyIdForPerson,
+  searchExpensePartners,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -91,6 +92,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               })
             }}
             onResolveFamilyId={async (szemelyId) => await getFamilyIdForPerson(szemelyId)}
+            onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)
