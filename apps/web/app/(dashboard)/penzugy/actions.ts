@@ -602,6 +602,52 @@ async function insertLinkedInventoryFromIncome(params: {
  * gyülekezeti logika változatlanul — ez biztosítja a zéró regressziós
  * kockázatot a meglévő gyülekezeti felhasználóknak.
  */
+/**
+ * A hero-beli év-választóhoz: CSAK azok az évek, amelyekhez tartozik pénzügyi adat
+ * (befizetés/kiadás dátum-éve), kiegészítve a folyó évvel (abban mindig lehet dolgozni).
+ * Így a választó nem egy fix 2019–2027 listát mutat, hanem a ténylegesen használt éveket.
+ * (Endre kérése, 2026-06-20.)
+ */
+export async function listFinanceYears(): Promise<number[]> {
+  const access = await getEffectiveAccessContext()
+  const realYear = new Date().getFullYear()
+  if (!access.user) return [realYear]
+
+  const years = new Set<number>([realYear])
+  const addYears = (rows: { datum: string | null }[] | null) => {
+    for (const r of rows || []) {
+      const y = Number(String(r.datum || '').slice(0, 4))
+      if (Number.isInteger(y) && y >= 2000 && y <= realYear + 1) years.add(y)
+    }
+  }
+
+  const isDiocese =
+    access.activeProfileRole?.scope === 'diocese' && !!access.activeProfileRole.scopeId
+  try {
+    if (isDiocese) {
+      const did = access.activeProfileRole!.scopeId as string
+      const [bev, kia] = await Promise.all([
+        access.supabase.from('diocese_befizetes').select('datum').eq('diocese_id', did).eq('deleted', false),
+        access.supabase.from('diocese_kiadas').select('datum').eq('diocese_id', did).eq('deleted', false),
+      ])
+      addYears((bev.data || []) as { datum: string | null }[])
+      addYears((kia.data || []) as { datum: string | null }[])
+    } else if (access.effectiveCongregationId) {
+      const cid = access.effectiveCongregationId
+      const [bev, kia] = await Promise.all([
+        access.supabase.from('befizetes').select('datum').eq('congregation_id', cid).eq('deleted', false),
+        access.supabase.from('kiadas').select('datum').eq('congregation_id', cid).eq('deleted', false),
+      ])
+      addYears((bev.data || []) as { datum: string | null }[])
+      addYears((kia.data || []) as { datum: string | null }[])
+    }
+  } catch {
+    /* csendes — legalább a folyó év mindig elérhető marad */
+  }
+
+  return Array.from(years).sort((a, b) => b - a)
+}
+
 export async function initFinance(year: number) {
   const scope = await getFinanceScope()
   if (!scope) return null

@@ -12,17 +12,22 @@
 import { useRouter, usePathname } from 'next/navigation'
 import { CalendarRange, ChevronDown } from 'lucide-react'
 
-export function FinanceYearSelector({ currentYear }: { currentYear: number }) {
+export function FinanceYearSelector({
+  currentYear,
+  availableYears,
+}: {
+  currentYear: number
+  /** A felkínált évek (csak adattal bíró évek + folyó év). Ha üres, a folyó évre esünk vissza. */
+  availableYears?: number[]
+}) {
   const router = useRouter()
   const pathname = usePathname()
 
   const realYear = new Date().getFullYear()
-  const years: number[] = []
-  for (let y = realYear + 1; y >= realYear - 7; y--) years.push(y)
-  if (!years.includes(currentYear)) {
-    years.push(currentYear)
-    years.sort((a, b) => b - a)
-  }
+  // Csak az adattal bíró évek (a szerver `listFinanceYears` adja) — NEM fix 2019–2027 lista.
+  // A kiválasztott év mindig szerepel, hogy URL-ből megnyitva is látszódjon a hero-ban.
+  const base = availableYears && availableYears.length > 0 ? availableYears : [realYear]
+  const years = Array.from(new Set([...base, currentYear])).sort((a, b) => b - a)
 
   return (
     <label

@@ -66,6 +66,8 @@ interface FinanceTabsProps {
   debtRows: DebtRow[]
   receiptHealth: ReceiptHealth
   currentYear: number
+  /** A hero év-választóban felkínált évek (csak adattal bíró évek + folyó év). */
+  availableYears?: number[]
   isGodMode: boolean
   /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
    *  Diocese módban a tag-szintű fülek (debt, monetary, rental, oblio) el vannak rejtve. */
@@ -82,7 +84,7 @@ export function FinanceTabs({
   settings, szamadasiCellek, bevCelMap, kiaCelMap,
   bankAccounts, internalTransfers, initialIncome, initialExpense,
   carryoverCash, carryoverBank, congregationName, congregationId,
-  currentYear, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
+  currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   showAdminImport = false,
 }: FinanceTabsProps) {
@@ -259,7 +261,7 @@ export function FinanceTabs({
                 <Building2 className="size-3.5 text-teal-600" />
                 {congregationName}
               </span>
-              <FinanceYearSelector currentYear={currentYear} />
+              <FinanceYearSelector currentYear={currentYear} availableYears={availableYears} />
               <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
                 <Wallet className="size-3.5" />
                 Tartozásszámítás: {debtModeLabel}

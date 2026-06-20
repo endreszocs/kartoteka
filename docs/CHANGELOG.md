@@ -81,6 +81,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **A hero év-választó csak a valós éveket kínálja.** Korábban egy fix 2019–2027 listát mutatott;
+  mostantól **csak azokat az éveket** sorolja fel, amelyekhez **tartozik pénzügyi adat**
+  (befizetés/kiadás), kiegészítve a **folyó évvel** (abban mindig lehet dolgozni). Így nem lehet
+  véletlenül egy üres, „el nem kezdett" évre váltani.
 - **Helyes egyenlegek a Pénzügy áttekintőn (negatív bank/éves egyenleg javítva).** Az áttekintő
   Kassza/Bank egyenleg-kártyái eddig az **irattípus** alapján válogatták szét a tételeket — az
   importált sorok („Chit."/„Extr") így mind a **bankhoz** kerültek, ezért a Bank-kártya torz,

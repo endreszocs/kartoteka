@@ -1,4 +1,4 @@
-import { createYearlySettings, initFinance } from './actions'
+import { createYearlySettings, initFinance, listFinanceYears } from './actions'
 import { checkOblioDeadline } from './oblio-ellenorzes-actions'
 import { FinanceTabs } from '@/components/finance/finance-tabs'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
@@ -45,6 +45,8 @@ export default async function PenzugyPage({
       ? parsedYear
       : realYear
   let data = await initFinance(selectedYear)
+  // A hero év-választóhoz: csak az adattal bíró évek (+ folyó év).
+  const availableYears = await listFinanceYears()
 
   if (!data) {
     return (
@@ -148,6 +150,7 @@ export default async function PenzugyPage({
         debtRows={data.debtRows}
         receiptHealth={data.receiptHealth}
         currentYear={data.currentYear}
+        availableYears={availableYears}
         isGodMode={godMode.active}
         scope={scope}
         showAdminImport={showAdminImport}
