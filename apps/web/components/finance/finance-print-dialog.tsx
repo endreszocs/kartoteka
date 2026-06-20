@@ -198,8 +198,8 @@ export function FinancePrintDialog({
           }}
           onLoadSavedDocs={async (year): Promise<SavedDocOption[]> => {
             const [deconts, dispozitiok] = await Promise.all([
-              listDecontReprint(year),
-              listDispozitieReprint(year),
+              listDecontReprint(year).catch(() => []),
+              listDispozitieReprint(year).catch(() => []),
             ])
             return [
               ...deconts.map((d) => ({ id: d.id, label: d.label, kind: 'decont' as const, data: d.data })),

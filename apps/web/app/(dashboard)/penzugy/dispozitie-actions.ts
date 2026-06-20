@@ -182,7 +182,14 @@ function celNevOf(cel: unknown): string {
 
 export async function listDispozitieReprint(year: number): Promise<DispozitieReprintOption[]> {
   const ctx = await getFinanceScopeContext()
-  if ('error' in ctx || ctx.scope !== 'congregation') return []
+  // IDEIGLENES DIAGNOSZTIKA (Endre: a lista üres maradt) — a felületen megjelenő sor.
+  const diag = (msg: string): DispozitieReprintOption => ({
+    id: 'DIAG',
+    label: `🔍 ${msg}`,
+    data: { tipus: 'plata', sorszam: 0, date: '', name: '', tisztseg: '', amount: 0, cel: '', ciTipus: '', ciSerie: '', ciNr: '' },
+  })
+  if ('error' in ctx) return [diag(`scope-error: ${ctx.error}`)]
+  if (ctx.scope !== 'congregation') return [diag(`scope=${ctx.scope} (nem congregation)`)]
 
   // 1) Kézzel mentett dispozíciók (a `dispozitie` táblából).
   const { data } = await ctx.supabase
@@ -280,7 +287,13 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
     })
   }
 
-  return [...saved, ...imported]
+  return [
+    ...saved,
+    ...imported,
+    diag(
+      `cid=${String(ctx.scopeId).slice(0, 8)} ev=${year} kia=${(kiaImp.data || []).length} kiaErr=${kiaImp.error?.message || '-'} bev=${(bevImp.data || []).length} bevErr=${bevImp.error?.message || '-'} saved=${saved.length} imp=${imported.length}`,
+    ),
+  ]
 }
 
 export async function saveDispozitie(input: SaveDispozitieInput): Promise<
