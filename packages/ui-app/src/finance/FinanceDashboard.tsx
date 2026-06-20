@@ -51,7 +51,10 @@ export function FinanceDashboard({
   expenseRecords,
   tvaPlafonSlot,
 }: FinanceDashboardProps) {
-  const netBalance = balances.totalIncome - balances.totalExpense
+  // „Éves egyenleg" = a tényleges ÉV VÉGI EGYENLEG (kassza + bank záró) — ez a rendelkezésre
+  // álló pénz, NEM a bevétel−kiadás különbség (az a működési eredmény / esetleges túlköltekezés,
+  // amit a Bevétel/Kiadás kártyák már mutatnak). Korábban a deficitet írta ki „egyenleg"-ként.
+  const netBalance = balances.cashBalance + balances.bankBalance
 
   const recent = [
     ...incomeRecords.slice(0, 20).map((r) => ({

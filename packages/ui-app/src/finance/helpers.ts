@@ -190,6 +190,10 @@ export function calculateBalances(
   expense: KiadasRow[],
   carryoverCash: number,
   carryoverBank: number,
+  /** Belső-mozgás cél-azonosítók (befizetescel/kiadascel id-k, amelyek 3xx/4xx kódra mutatnak).
+   *  Ezeket a tételeket a BEVÉTEL/KIADÁS összegből kizárjuk akkor is, ha nincs belso_mozgas_xkey-ük
+   *  (egyes importált belső sorok kód szerint belső mozgások, de nincs xkey-párjuk). */
+  opts?: { internalIncomeCelIds?: Set<number>; internalExpenseCelIds?: Set<number> },
 ): FinanceBalances {
   let cashBal = carryoverCash
   let bankBal = carryoverBank
@@ -199,19 +203,25 @@ export function calculateBalances(
   // Kassza vs bank a `bankszamla_id` szerint (NULL = kassza) — NEM az irattípus alapján,
   // mert az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz"/„Banki").
   // A kassza/bank EGYENLEGBE a belső mozgás is beleszámít (a letét csökkenti a kasszát,
-  // növeli a bankot). A BEVÉTEL/KIADÁS összegből viszont KIZÁRJUK a belső mozgást
-  // (`belso_mozgas_xkey`), hiszen az nem valós bevétel/kiadás, csak átvezetés — így az
-  // éves egyenleg a valós működési eredményt mutatja, a számadással egyezően.
+  // növeli a bankot). A BEVÉTEL/KIADÁS összegből viszont KIZÁRJUK a belső mozgást — vagy a
+  // `belso_mozgas_xkey`, vagy a belső CÉL-KÓD (3xx/4xx) alapján —, hiszen az nem valós
+  // bevétel/kiadás, csak átvezetés; így az összegek a számadással egyeznek.
   income.forEach((r) => {
     const amt = Number(r.osszeg) || 0
-    if (!r.belso_mozgas_xkey) totalIn += amt
+    const internal =
+      !!r.belso_mozgas_xkey ||
+      (r.id_befizetescel != null && !!opts?.internalIncomeCelIds?.has(r.id_befizetescel))
+    if (!internal) totalIn += amt
     if (!r.bankszamla_id) cashBal += amt
     else bankBal += amt
   })
 
   expense.forEach((r) => {
     const amt = Number(r.osszeg) || 0
-    if (!r.belso_mozgas_xkey) totalEx += amt
+    const internal =
+      !!r.belso_mozgas_xkey ||
+      (r.id_kiadascel != null && !!opts?.internalExpenseCelIds?.has(r.id_kiadascel))
+    if (!internal) totalEx += amt
     if (!r.bankszamla_id) cashBal -= amt
     else bankBal -= amt
   })

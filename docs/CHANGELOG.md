@@ -86,6 +86,13 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Az „Éves egyenleg" a tényleges év végi egyenleget mutatja (nem a túlköltekezést).** Korábban a
+  bevétel − kiadás **különbséget** írta ki „Éves egyenleg"-ként — ez egy hiányos évnél nagy **negatív**
+  szám (a túlköltekezés/deficit), ami félrevezető „egyenleg"-ként. Mostantól a kártya a **tényleges év
+  végi egyenleget** (kassza záró + bank záró) mutatja — a rendelkezésre álló pénzt. A működési
+  eredmény (bevétel kontra kiadás) a két KPI-kártyából látszik. Ráadásul a **Kiadás (idén)** kártya a
+  belső mozgásokat **cél-kód szerint** is kizárja (nem csak a belső-mozgás jelölés alapján), így a
+  hivatalos számadás kiadásával egyezik.
 - **A hero év-választó csak a valós éveket kínálja.** Korábban egy fix 2019–2027 listát mutatott;
   mostantól **csak azokat az éveket** sorolja fel, amelyekhez **tartozik pénzügyi adat**
   (befizetés/kiadás), kiegészítve a **folyó évvel** (abban mindig lehet dolgozni). Így nem lehet

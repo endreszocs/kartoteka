@@ -101,9 +101,24 @@ export function FinanceTabs({
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
 
+  // Belső-mozgás cél-azonosítók: azok a befizetescel/kiadascel id-k, amelyek 3xx/4xx
+  // számadási kódra mutatnak (300.01/301.01/400.01/401.01/402.02). Ezeket a bevétel/kiadás
+  // ÖSSZEGBŐL kizárjuk (mint a számadás), akkor is, ha a soron nincs belso_mozgas_xkey.
+  const internalCelIds = useMemo(() => {
+    const internalIncomeCelIds = new Set<number>()
+    const internalExpenseCelIds = new Set<number>()
+    for (const [id, kod] of Object.entries(bevCelMap)) {
+      if (/^[34]/.test(String(kod))) internalIncomeCelIds.add(Number(id))
+    }
+    for (const [id, kod] of Object.entries(kiaCelMap)) {
+      if (/^[34]/.test(String(kod))) internalExpenseCelIds.add(Number(id))
+    }
+    return { internalIncomeCelIds, internalExpenseCelIds }
+  }, [bevCelMap, kiaCelMap])
+
   const balances = useMemo(() =>
-    calculateBalances(incomeRecords, expenseRecords, carryoverCash, carryoverBank),
-    [incomeRecords, expenseRecords, carryoverCash, carryoverBank]
+    calculateBalances(incomeRecords, expenseRecords, carryoverCash, carryoverBank, internalCelIds),
+    [incomeRecords, expenseRecords, carryoverCash, carryoverBank, internalCelIds]
   )
 
   // Bérleti szerződések + hátralék betöltése (lazy, client-oldalon)
