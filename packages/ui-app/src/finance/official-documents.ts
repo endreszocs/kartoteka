@@ -11,7 +11,7 @@
  * Tiszta függvények — web és desktop egyaránt használja (élő előnézet + PDF).
  */
 
-import { formatRon, ronInWords, ronInWordsDispozitie } from './ron-in-words'
+import { formatRon, ronInWordsDispozitie } from './ron-in-words'
 
 function esc(value: unknown): string {
   return String(value ?? '')
