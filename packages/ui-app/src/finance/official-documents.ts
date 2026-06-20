@@ -11,7 +11,7 @@
  * Tiszta függvények — web és desktop egyaránt használja (élő előnézet + PDF).
  */
 
-import { formatRon, ronInWords } from './ron-in-words'
+import { formatRon, ronInWords, ronInWordsDispozitie } from './ron-in-words'
 
 function esc(value: unknown): string {
   return String(value ?? '')
@@ -205,8 +205,8 @@ export interface DispozitieDocData {
 
 function dispozitieCopy(d: DispozitieDocData): string {
   const isPlata = d.tipus === 'plata'
-  const titlu = isPlata ? 'Dispoziție de plată către caserie' : 'Dispoziție de încasare către caserie'
-  const words = ronInWords(Number(d.amount) || 0)
+  const titlu = isPlata ? 'Dispoziție de plată' : 'Dispoziție de încasare'
+  const words = ronInWordsDispozitie(Number(d.amount) || 0)
   const sumStr = formatRon(Number(d.amount) || 0)
   const fill = (v: string | undefined, w = 140) =>
     v && v.trim() ? esc(v) : `<span class="line" style="min-width:${w}px">&nbsp;</span>`
@@ -260,11 +260,12 @@ export function buildDispozitieHtml(d: DispozitieDocData): string {
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8"/>
   <style>
     @page { size: A4 portrait; margin: 10mm; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 13px; margin: 0; }
     @media screen { body { padding: 10mm; } }
-    .wrap { display: flex; flex-direction: column; gap: 8mm; }
-    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 10mm 12mm; min-height: 130mm; position: relative; }
+    /* Két A5 példány EGY A4 oldalon: a magasságok úgy hangolva, hogy ne csússzon 2. oldalra. */
+    .wrap { display: flex; flex-direction: column; gap: 6mm; }
+    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 8mm 12mm; min-height: 100mm; position: relative; break-inside: avoid; }
     .exno { position: absolute; top: 4mm; right: 5mm; font-size: 10px; color: #94a3b8; }
     .dp-head { text-align: center; font-weight: bold; font-size: 14px; }
     .dp-head-hu { text-align: center; font-weight: normal; font-size: 12px; color: #475569; margin-top: 1px; }

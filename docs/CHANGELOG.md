@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Dispoziție nyomtatvány: tisztább cím, betűvel-kiírás, 1 oldalas elrendezés, élesebb PDF
+<!-- key: 2026-06-20-dispozitie-nyomtatas-finomitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Rövidebb cím.** A rendelvény fejléce mostantól csak „Dispoziție de plată" ill.
+  „Dispoziție de încasare" (a fölösleges „către caserie" utótag nélkül).
+- **Tömör összeg betűvel.** A „(în litere)" sor a hivatalos rendelvény-formát követi:
+  a szám-szavak egybeírva (pl. **„Optsutecincizeci de lei"**), és 0 bani esetén a
+  „și 00 bani" rész elmarad — letisztultabb, kevésbé zsúfolt.
+- **Egy oldalra fér.** A két példány (caserie + cotor) mostantól **egyetlen A4 oldalra**
+  kerül — korábban átcsúszhatott a 2. oldalra.
+- **Élesebb PDF.** A „PDF-be mentés" mostantól veszteségmentes, nagyobb felbontású
+  képet készít (a korábbi elmosódott, „fapados" eredmény helyett), és a színek/szegélyek
+  hűen nyomtatódnak.
+
+---
+
 ## [2026-06-20] — Dispoziție de plată / încasare: működő újranyomtatás + letisztult nyomtatvány
 <!-- key: 2026-06-20-dispozitie-javitas -->
 <!-- category: bugfix -->
