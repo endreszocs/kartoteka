@@ -16,8 +16,21 @@ import {
 } from '@kartoteka/ui-app'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ListPlus } from 'lucide-react'
-import { saveIncomeBatch, saveExpenseBatch, saveInternalTransfer } from '@/app/(dashboard)/penzugy/actions'
+import {
+  saveIncomeBatch,
+  saveExpenseBatch,
+  saveInternalTransfer,
+  searchMembersForFinance,
+  getFamilyIdForPerson,
+} from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
+
+/** Beágyazott Supabase to-one mező nevének kibontása (objektum vagy 1-elemű tömb). */
+function relName(v: unknown): string {
+  if (!v) return ''
+  const node = Array.isArray(v) ? v[0] : v
+  return (node as { name?: string } | null)?.name || ''
+}
 
 interface Props {
   open: boolean
@@ -66,6 +79,18 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               const res = await saveInternalTransfer(payload)
               return { error: 'error' in res ? res.error ?? null : null }
             }}
+            onSearchMembers={async (query) => {
+              const rows = (await searchMembersForFinance(query)) as Array<Record<string, unknown>>
+              return rows.map((m) => {
+                const name = `${(m.csaladnev as string) ?? ''} ${(m.k_nev as string) ?? ''}`.trim() || `#${m.id}`
+                const year = m.sz_datum ? String(m.sz_datum).slice(0, 4) : ''
+                const detail = [year, relName(m.adrlocality), relName(m.adrstreet), m.c_szam]
+                  .filter(Boolean)
+                  .join(' · ')
+                return { id: m.id as number, name, detail: detail || undefined }
+              })
+            }}
+            onResolveFamilyId={async (szemelyId) => await getFamilyIdForPerson(szemelyId)}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)

@@ -67,6 +67,8 @@ export interface CombinedInternalTransferPayload {
 export interface CombinedMemberHit {
   id: number
   name: string
+  /** Részletes másodlagos sor a találati listában (pl. „1980 · Brateș · Fő u. 12"). */
+  detail?: string
 }
 
 export interface CombinedEntryBodyProps {
@@ -733,7 +735,7 @@ function PartnerCell({
               <button
                 key={h.id}
                 type="button"
-                className="block w-full px-2 py-1.5 text-left text-sm hover:bg-emerald-50"
+                className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   updateRow(row.id, { partner: h.name, szemelyId: h.id, csaladId: null })
@@ -741,7 +743,8 @@ function PartnerCell({
                   setOpen(false)
                 }}
               >
-                {h.name}
+                <div className="text-sm font-medium text-slate-800">{h.name}</div>
+                {h.detail && <div className="text-[11px] text-slate-400">{h.detail}</div>}
               </button>
             ))}
           </div>,

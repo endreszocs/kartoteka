@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: működő befizető-keresés, részletes találatokkal
+<!-- key: 2026-06-21-tetel-befizeto-kereses -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A „Befizető / forrás" mező mostantól keres.** A Tétel rögzítésénél (bevétel) ahogy gépeled a
+  nevet, a rendszer **azonnal keres a tagnyilvántartásban**, és **részletes találatokat** mutat —
+  név mellett a **születési év · helység · utca · házszám** is —, hogy egyértelműen kiválaszd a
+  megfelelő személyt. A kiválasztott tag a befizetéshez kapcsolódik (a tiszta név kerül a mezőbe).
+  (Eddig a web-en a keresés nem volt bekötve; az asztali alkalmazásban már működött.)
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: automatikus vázlatmentés (nem vész el a munkád)
 <!-- key: 2026-06-21-tetel-auto-vazlat -->
 <!-- category: feature -->
