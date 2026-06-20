@@ -20,6 +20,7 @@
  */
 
 export interface InternalMovementRow {
+  id: number
   osszeg: number
   datum: string | null
   belso_mozgas_xkey: string | null
@@ -39,6 +40,9 @@ export interface UnpairedMovement {
 export interface InternalMovementHealth {
   unpairedCount: number
   items: UnpairedMovement[]
+  /** A párosítatlan belső-mozgás sorok azonosítói (befizetes/kiadas id) — a táblában a piros
+   *  „nincs banki párja" jelzéshez. Ami NINCS benne, az párosítva van (nem „várakozik"). */
+  unpairedIds: Set<number>
 }
 
 /** Két dátum-string (nap) közti különbség napokban; NaN/üres → végtelen (nem párosít). */
@@ -68,13 +72,13 @@ export function computeInternalMovementHealth(
   const isActive = (r: InternalMovementRow) =>
     !!r.belso_mozgas_xkey && !r.deleted && !r.stornozott && !!r.datum
 
-  type Half = { datum: string; cents: number; osszeg: number; matched: boolean }
+  type Half = { id: number; datum: string; cents: number; osszeg: number; matched: boolean }
   const incomes: Half[] = income
     .filter(isActive)
-    .map((r) => ({ datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
+    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
   const expenses: Half[] = expense
     .filter(isActive)
-    .map((r) => ({ datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
+    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
 
   for (const e of expenses) {
     let best = -1
@@ -94,9 +98,11 @@ export function computeInternalMovementHealth(
     }
   }
 
+  const unpairedIds = new Set<number>()
   const items: UnpairedMovement[] = []
   for (const e of expenses) {
     if (e.matched) continue
+    unpairedIds.add(e.id)
     items.push({
       datum: e.datum.slice(0, 10),
       osszeg: e.osszeg,
@@ -107,6 +113,7 @@ export function computeInternalMovementHealth(
   }
   for (const inc of incomes) {
     if (inc.matched) continue
+    unpairedIds.add(inc.id)
     items.push({
       datum: inc.datum.slice(0, 10),
       osszeg: inc.osszeg,
@@ -119,5 +126,5 @@ export function computeInternalMovementHealth(
   // Rendezés: legújabb dátum elöl
   items.sort((a, b) => (a.datum < b.datum ? 1 : a.datum > b.datum ? -1 : 0))
 
-  return { unpairedCount: items.length, items }
+  return { unpairedCount: items.length, items, unpairedIds }
 }

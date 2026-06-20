@@ -90,6 +90,8 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Belső mozgás párosítás-állapota a tételsoroknál (zöld/piros), beégetett szöveg helyett.** A kassza↔bank belső mozgásoknál (pl. készpénzletét) a sor mostantól DINAMIKUSAN mutatja, hogy a banki párja megvan-e: zöld **„✓ párosítva"**, ha a másik oldal (pl. a banki jóváírás) is rögzítve van; **PIROS „⚠ nincs banki párja"**, ha hiányzik. Korábban a beégetett „⏳ Várakozik banki egyeztetésre" szöveg akkor is ott maradt, ha a pár már létezett — ami félrevezető volt, a hiányzó párt pedig nem emelte ki pirossal.
+
 - **Az „Éves egyenleg" a tényleges év végi egyenleget mutatja (nem a túlköltekezést).** Korábban a
   bevétel − kiadás **különbséget** írta ki „Éves egyenleg"-ként — ez egy hiányos évnél nagy **negatív**
   szám (a túlköltekezés/deficit), ami félrevezető „egyenleg"-ként. Mostantól a kártya a **tényleges év

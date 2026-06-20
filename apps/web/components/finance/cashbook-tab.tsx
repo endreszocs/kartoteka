@@ -26,6 +26,7 @@ type WebCashbookTabProps = Pick<
   CashbookTabProps,
   | 'incomeRecords'
   | 'expenseRecords'
+  | 'unpairedInternalIds'
   | 'carryoverCash'
   | 'bevCelMap'
   | 'kiaCelMap'

@@ -456,6 +456,7 @@ export function FinanceTabs({
 
         <TabsContent value="cashbook" className="mt-4">
           <CashbookTab
+            unpairedInternalIds={internalMovementHealth.unpairedIds}
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverCash={carryoverCash}
@@ -472,6 +473,7 @@ export function FinanceTabs({
         <TabsContent value="bank" className="mt-4">
           <BankTab
             currentYear={currentYear}
+            unpairedInternalIds={internalMovementHealth.unpairedIds}
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverBank={carryoverBank}

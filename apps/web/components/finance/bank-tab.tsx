@@ -28,6 +28,7 @@ import { getBankszamlaNyitoEgyenleg } from '@/app/(dashboard)/penzugy/bank-nyito
 type WebBankTabProps = Pick<
   BankTabProps,
   | 'currentYear'
+  | 'unpairedInternalIds'
   | 'incomeRecords'
   | 'expenseRecords'
   | 'carryoverBank'

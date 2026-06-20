@@ -72,6 +72,8 @@ interface CashRow {
   /** Melyik évre szól a befizetés (egyházfenntartói járulék hátralék) — kiadásnál null. */
   fizetettev: number | null
   isBm: boolean
+  /** Belső mozgás, aminek NINCS banki párja (piros jelzés); ha isBm és !unpaired → párosítva. */
+  unpaired?: boolean
   megjegyzes?: string
   hasMissingPerson: boolean
   hasMissingCategory: boolean
@@ -103,6 +105,9 @@ export interface AutoIssueChitantaResult {
 export interface CashbookTabProps {
   incomeRecords: BefitetesRow[]
   expenseRecords: KiadasRow[]
+  /** Párosítatlan belső-mozgás sor-azonosítók (a kiadas/befizetes id-k, amelyeknek nincs banki
+   *  párjuk). Ami NINCS benne, az párosítva van — nem „várakozik". */
+  unpairedInternalIds?: Set<number>
   carryoverCash: number
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
@@ -177,6 +182,7 @@ export interface CashbookTabProps {
 export function CashbookTab({
   incomeRecords,
   expenseRecords,
+  unpairedInternalIds,
   carryoverCash,
   bevCelMap,
   kiaCelMap,
@@ -380,6 +386,7 @@ export function CashbookTab({
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
@@ -403,6 +410,7 @@ export function CashbookTab({
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,
@@ -413,7 +421,7 @@ export function CashbookTab({
     })
     return rows.sort((a, b) => a.datum.localeCompare(b.datum))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomeRecords, expenseRecords])
+  }, [incomeRecords, expenseRecords, unpairedInternalIds])
 
   const { displayRows, openingBalance, monthIncome, monthExpense, closingBalance } =
     useMemo(() => {
@@ -803,9 +811,13 @@ function CashRow({
         >
           {r.hasMissingPerson ? `⚠ ${r.partner}` : r.partner}
         </span>
-        {r.isBm && r.megjegyzes && (
-          <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
-            {r.megjegyzes}
+        {r.isBm && (
+          <p className="text-[10px] mt-0.5 truncate max-w-[180px]">
+            {r.unpaired ? (
+              <span className="font-semibold text-red-600">⚠ Nincs banki párja!</span>
+            ) : (
+              <span className="text-emerald-600">✓ Banki párja megvan</span>
+            )}
           </p>
         )}
       </td>
@@ -851,10 +863,18 @@ function CashRow({
         {r.type === 'expense' ? formatCurrency(r.osszeg) : ''}
       </td>
       <td
-        className={`p-2.5 text-xs text-slate-500 hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
+        className={`p-2.5 text-xs hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
         title={r.megjegyzes || ''}
       >
-        {r.megjegyzes || '—'}
+        {r.isBm ? (
+          r.unpaired ? (
+            <span className="font-semibold text-red-600">⚠ nincs banki párja</span>
+          ) : (
+            <span className="text-emerald-600">✓ párosítva</span>
+          )
+        ) : (
+          <span className="text-slate-500">{r.megjegyzes || '—'}</span>
+        )}
       </td>
       <td className="p-2.5">
         <div className="flex items-center justify-end gap-1">

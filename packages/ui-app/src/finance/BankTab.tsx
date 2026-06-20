@@ -94,6 +94,8 @@ interface BankTransactionRow {
   /** Melyik évre szól a bevétel (egyházfenntartás hátralék) — kiadásnál null. */
   fizetettev: number | null
   isBm: boolean
+  /** Belső mozgás banki pár nélkül (piros jelzés). */
+  unpaired?: boolean
   /** A korábbi „Párosítás" fül hiányosság-jelzései */
   hasMissingPerson: boolean
   hasMissingCategory: boolean
@@ -126,6 +128,8 @@ export interface BankTabProps {
   congregationId?: string
   /** Az aktuális év a nyitó egyenleg cache-hez. Default: új Date(). */
   currentYear?: number
+  /** Párosítatlan belső-mozgás sor-azonosítók (banki pár nélkül) — piros jelzéshez. */
+  unpairedInternalIds?: Set<number>
 
   // ── Server-action callback-ek (Promise-alapú) ──────────────
   onUndoStorno?: (args: {
@@ -215,6 +219,7 @@ export function BankTab({
   expenseCategories = [],
   congregationId,
   currentYear: currentYearProp,
+  unpairedInternalIds,
   onUndoStorno,
   onLoadNyitoEgyenleg,
   onTransactionChanged,
@@ -387,6 +392,7 @@ export function BankTab({
         irattipus: record.irattipus || '',
         fizetettev: record.fizetettev ?? null,
         isBm: !!record.belso_mozgas_xkey,
+        unpaired: !!record.belso_mozgas_xkey && !!unpairedInternalIds?.has(record.id),
         hasMissingPerson,
         hasMissingCategory: !record.id_befizetescel,
         stornozott: record.stornozott === true,
@@ -415,6 +421,7 @@ export function BankTab({
         irattipus: record.irattipus || '',
         fizetettev: null,
         isBm: !!record.belso_mozgas_xkey,
+        unpaired: !!record.belso_mozgas_xkey && !!unpairedInternalIds?.has(record.id),
         hasMissingPerson: false, // kiadásnál nem kötelező személy
         hasMissingCategory: !record.id_kiadascel,
         stornozott: record.stornozott === true,
@@ -428,7 +435,7 @@ export function BankTab({
     })
 
     return rows.sort((left, right) => left.datum.localeCompare(right.datum))
-  }, [incomeRecords, expenseRecords, bevCelMap, kiaCelMap, cellNameMap])
+  }, [incomeRecords, expenseRecords, bevCelMap, kiaCelMap, cellNameMap, unpairedInternalIds])
 
   // Bankszámla-szintű szűrés
   const filteredBankRows = useMemo(() => {
@@ -988,10 +995,18 @@ export function BankTab({
                               {row.type === 'expense' ? formatCurrency(row.osszeg) : ''}
                             </td>
                             <td
-                              className={`p-2.5 text-xs text-slate-500 hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
+                              className={`p-2.5 text-xs hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
                               title={row.megjegyzes || ''}
                             >
-                              {row.megjegyzes || '—'}
+                              {row.isBm ? (
+                                row.unpaired ? (
+                                  <span className="font-semibold text-red-600">⚠ nincs banki párja</span>
+                                ) : (
+                                  <span className="text-emerald-600">✓ párosítva</span>
+                                )
+                              ) : (
+                                <span className="text-slate-500">{row.megjegyzes || '—'}</span>
+                              )}
                             </td>
                             <td className="p-2.5">
                               <div className="flex items-center justify-end gap-1">
