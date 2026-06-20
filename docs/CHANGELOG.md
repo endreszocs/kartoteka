@@ -89,14 +89,16 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   irattípus alapján), így az importált tételeknél is pontos.
 - **A Pénzügy oldal többé nem omlik össze beállítás nélküli évnél** (a korábbi évre váltáskor jelentkező
   `revalidatePath` hiba megszüntetve).
-- **Hiányzó hátralékos befizetések importkor (duplikáció-szűrő finomítás).** Az import
-  duplikáció-szűrője eddig a **bizonylatszámot (nyugta)** és a **Befizetett évet** nem vette
-  figyelembe — ezért a **hátralékos egyházfenntartás** (ugyanaz a nyugta, de más évre) és az
-  **azonos összegű, külön nyugtás** befizetések (más személy, ugyanaz a nap/összeg) tévesen
-  duplikátumnak látszottak és **kimaradtak** a könyvelésből (egy valós importnál 1 240 RON
-  egyházfenntartás + egy banki díj hiányzott). Mostantól a **nyugta és a Befizetett év is az
-  azonosító kulcs része** — minden tétel bekerül, miközben ugyanazon fájl újraimportja továbbra
-  sem duplikál. *(Adatbázis-frissítés szükséges; utána a fájlt újra kell importálni a pótláshoz.)*
+- **Hiányzó befizetések importkor (pontos darabszám-egyezés).** Az import duplikáció-szűrője
+  eddig a valóban **külön, de azonos adatú** tételeket tévesen **összevonta**, ezért azok
+  kimaradtak a könyvelésből. Tipikus esetek: a **hátralékos egyházfenntartás** (ugyanaz a nyugta,
+  de más évre könyvelve), **egy nyugtán két házastárs** ugyanakkora járuléka (pl. Beder Árpád +
+  Beder Zsuzsanna, 130–130 RON), illetve az **ugyanaznap többször levont, azonos összegű banki
+  díj** (pl. 0,51 RON háromszor). Egy valós importnál így ~1 244 RON hiányzott. Mostantól a
+  szűrő **darabszám-alapú**: minden tétel **annyi példányban** kerül be, **ahányszor a fájlban
+  szerepel** (a jogos ismétlések megmaradnak), miközben ugyanazon fájl újraimportja **továbbra
+  sem duplikál**, és egy hiányos import **automatikusan kiegészül** a hiányzó tételekkel.
+  *(Adatbázis-frissítés szükséges; utána a fájlt újra kell importálni a pótláshoz.)*
 - **Eltérő cím = külön személy.** Ha egy névhez csak egyetlen, de **más utcában lakó** tag illett (pl.
   „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
   **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te
