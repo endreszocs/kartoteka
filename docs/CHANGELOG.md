@@ -31,6 +31,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### ✨ Új funkciók
 
+- **Befizető (tag) átkötése a tétel-szerkesztőben.** A bevétel gyors-szerkesztőjében mostantól
+  **látod, melyik taghoz van rendelve** a befizetés (vagy hogy nincs hozzárendelve), és egy
+  **ékezet-független keresővel** (kereszt-, lánykori vagy férjezett néven is) **áthozhatod /
+  hozzárendelheted** a megfelelő taghoz — storno és újrarögzítés nélkül. Így a hibásan vagy nem
+  párosított befizetések egyetlen kattintással javíthatók.
 - **Bevételek XML referencia feltöltése a hivatalos Excel mellé.** A Kassza-Excel mellé mostantól
   opcionálisan feltöltheted az Adatkezelő-export bevételek-XML fájlját. A rendszer összeveti a kettőt,
   és átveszi a **pontos** adatokat: melyik **évre** szól a befizetés (így ha valaki több év hátralékát

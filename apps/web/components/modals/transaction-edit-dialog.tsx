@@ -27,10 +27,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { ModalField } from '@/components/ui/modal-field'
 import { SearchableCategorySelect } from '@/components/ui/searchable-category-select'
 import {
+  getTransactionPersonInfo,
   isLastTransactionOfType,
   updateTransactionBasic,
   type TransactionType,
 } from '@/app/(dashboard)/penzugy/edit-storno-actions'
+import { ManualTagSearch } from '@/components/finance/finance-import/shared/manual-tag-search'
 
 type Category = {
   id: number
@@ -74,6 +76,31 @@ export function TransactionEditDialog({
    *  (azonos típusú) tétel. Egyéb esetben elrejtjük / lezárjuk. */
   const [dateEditable, setDateEditable] = useState(false)
   const [checkingLast, setCheckingLast] = useState(false)
+  // Befizető (tag) — jelenlegi hozzárendelés + új választás.
+  // `pendingPerson`: undefined = nincs változás; { id } = új (id) vagy törlés (null).
+  const [personNev, setPersonNev] = useState<string | null>(null)
+  const [personForrasa, setPersonForrasa] = useState<string | null>(null)
+  const [currentSzemelyId, setCurrentSzemelyId] = useState<number | null>(null)
+  const [pendingPerson, setPendingPerson] = useState<{ id: number | null } | undefined>(undefined)
+
+  // A jelenlegi tag-hozzárendelés betöltése (csak bevételnél).
+  useEffect(() => {
+    setPersonNev(null)
+    setPersonForrasa(null)
+    setCurrentSzemelyId(null)
+    setPendingPerson(undefined)
+    if (!open || id == null || type !== 'befizetes') return
+    let cancelled = false
+    void getTransactionPersonInfo({ type, id }).then((res) => {
+      if (cancelled) return
+      setPersonNev(res.nev ?? null)
+      setPersonForrasa(res.forrasa ?? null)
+      setCurrentSzemelyId(res.id_szemely ?? null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, id, type])
 
   useEffect(() => {
     if (!open || !initial) return
@@ -121,6 +148,10 @@ export function TransactionEditDialog({
         id_cel: idCel,
         iratszam: iratszam.trim() || null,
         megjegyzes: megjegyzes.trim() || null,
+        // Tag-hozzárendelés (csak bevételnél, és csak ha a felhasználó módosította).
+        ...(type === 'befizetes' && pendingPerson !== undefined
+          ? { id_szemely: pendingPerson.id, id_csalad: null }
+          : {}),
       })
       if (res.error) {
         toast.error(res.error)
@@ -162,8 +193,9 @@ export function TransactionEditDialog({
 
         <div className="px-6 pb-6 pt-4 space-y-4">
           <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 leading-relaxed">
-            Ez egy gyors szerkesztő. Ha partnerrel (személy/család) kapcsolatos
-            adatot akarsz módosítani, stornózd a tételt és rögzítsd újra.
+            {type === 'befizetes'
+              ? 'A befizetőt (tagot) lent átkötheted vagy hozzárendelheted. Egyéb partner-adat módosításához stornózd a tételt és rögzítsd újra.'
+              : 'Ez egy gyors szerkesztő. Ha partnerrel kapcsolatos adatot akarsz módosítani, stornózd a tételt és rögzítsd újra.'}
           </div>
 
           <ModalField
@@ -217,6 +249,40 @@ export function TransactionEditDialog({
               placeholder="Válassz jogcímet..."
             />
           </ModalField>
+
+          {type === 'befizetes' && (
+            <ModalField
+              label="Befizető (tag)"
+              hint="Keresd meg és rendeld hozzá a tagot — ékezet nélkül, kereszt-, lánykori vagy férjezett néven is."
+            >
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2">
+                <p className="text-xs text-slate-600">
+                  Jelenleg:{' '}
+                  {pendingPerson !== undefined ? (
+                    pendingPerson.id ? (
+                      <span className="font-medium text-emerald-700">új tag kiválasztva (mentésre vár)</span>
+                    ) : (
+                      <span className="italic text-slate-400">hozzárendelés törölve (mentésre vár)</span>
+                    )
+                  ) : personNev ? (
+                    <span className="font-medium text-slate-800">{personNev}</span>
+                  ) : personForrasa ? (
+                    <span className="text-slate-700">
+                      {personForrasa} <span className="text-slate-400">(szabad szöveg)</span>
+                    </span>
+                  ) : (
+                    <span className="text-amber-700">nincs tag hozzárendelve</span>
+                  )}
+                </p>
+                <ManualTagSearch
+                  initialQuery={personNev || personForrasa || ''}
+                  currentId={(pendingPerson !== undefined ? pendingPerson.id : currentSzemelyId) ?? undefined}
+                  onPick={(szemelyId) => setPendingPerson({ id: szemelyId })}
+                  onClear={() => setPendingPerson({ id: null })}
+                />
+              </div>
+            </ModalField>
+          )}
 
           <ModalField label="Iratszám">
             <Input

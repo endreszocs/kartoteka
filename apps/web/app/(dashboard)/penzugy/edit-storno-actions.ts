@@ -72,6 +72,43 @@ export async function isLastTransactionOfType(args: {
   return { isLast: !later || later.length === 0 }
 }
 
+/**
+ * Egy befizetés jelenlegi tag-hozzárendelésének lekérdezése a szerkesztő dialóghoz
+ * (ki van/nincs hozzárendelve). Csak congregation scope + befizetés esetén értelmes.
+ */
+export async function getTransactionPersonInfo(args: {
+  type: TransactionType
+  id: number
+}): Promise<{ id_szemely?: number | null; id_csalad?: number | null; nev?: string | null; forrasa?: string | null; error?: string }> {
+  const ctx = await getFinanceScopeContext()
+  if ('error' in ctx) return { error: ctx.error }
+  if (ctx.scope !== 'congregation' || args.type !== 'befizetes') return {}
+  const T = tablesFor(ctx.scope)
+
+  const { data } = await ctx.supabase
+    .from(T.befizetes)
+    .select('id_szemely, id_csalad, forrasa')
+    .eq('id', args.id)
+    .eq(T.scopeCol, ctx.scopeId)
+    .maybeSingle()
+  if (!data) return {}
+  const row = data as { id_szemely: number | null; id_csalad: number | null; forrasa: string | null }
+
+  let nev: string | null = null
+  if (row.id_szemely) {
+    const { data: sz } = await ctx.supabase
+      .from('szemely')
+      .select('csaladnev, k_nev')
+      .eq('id', row.id_szemely)
+      .maybeSingle()
+    if (sz) {
+      const s = sz as { csaladnev: string | null; k_nev: string | null }
+      nev = [s.csaladnev, s.k_nev].filter(Boolean).join(' ').trim() || null
+    }
+  }
+  return { id_szemely: row.id_szemely, id_csalad: row.id_csalad, nev, forrasa: row.forrasa }
+}
+
 export interface UpdateTransactionInput {
   type: TransactionType
   id: number
