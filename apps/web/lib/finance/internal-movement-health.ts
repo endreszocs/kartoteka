@@ -41,17 +41,25 @@ export interface InternalMovementHealth {
   items: UnpairedMovement[]
 }
 
-function key(datum: string, osszeg: number): string {
-  // A dátumot a NAPRA normalizáljuk (első 10 karakter): a `kiadas.datum` időbélyeg
-  // („2025-12-29T00:00:00"), a `befizetes.datum` viszont dátum típusú („2025-12-29").
-  // Normalizálás nélkül a belső mozgás két fele külön kulcsra esne → tévesen párosítatlan.
-  // Az összeget centre kerekítjük a lebegőpontos eltérések elkerülésére.
-  return `${(datum || '').slice(0, 10)}|${Math.round(osszeg * 100)}`
+/** Két dátum-string (nap) közti különbség napokban; NaN/üres → végtelen (nem párosít). */
+function dayDiff(a: string, b: string): number {
+  const ta = Date.parse((a || '').slice(0, 10))
+  const tb = Date.parse((b || '').slice(0, 10))
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return Number.POSITIVE_INFINITY
+  return Math.abs(ta - tb) / 86_400_000
 }
+
+/** Azonos összegű ellenoldal keresésekor megengedett dátumeltérés (nap). A banki jóváírás
+ *  gyakran 1-2 nappal a kasszai letét után/előtt jelenik meg — ettől még EGY mozgás párja. */
+const PAIRING_WINDOW_DAYS = 7
 
 /**
  * Kiszámolja a párosítatlan belső mozgásokat a befizetés + kiadás listából.
  * Csak a `belso_mozgas_xkey != null`, nem törölt, nem sztornózott sorok számítanak.
+ *
+ * Párosítás: minden KIADÁS-félhez megkeressük a legközelebbi, AZONOS ÖSSZEGŰ, még szabad
+ * BEVÉTEL-felet, ha a dátumeltérés a `PAIRING_WINDOW_DAYS`-en belül van (a két fél dátuma
+ * eltérhet a banki átfutás miatt). A párba nem állók maradnak „párosítatlan"-ként.
  */
 export function computeInternalMovementHealth(
   income: InternalMovementRow[],
@@ -60,52 +68,52 @@ export function computeInternalMovementHealth(
   const isActive = (r: InternalMovementRow) =>
     !!r.belso_mozgas_xkey && !r.deleted && !r.stornozott && !!r.datum
 
-  // (dátum, összeg) → { income: n, expense: n }
-  const groups = new Map<string, { income: number; expense: number; datum: string; osszeg: number }>()
+  type Half = { datum: string; cents: number; osszeg: number; matched: boolean }
+  const incomes: Half[] = income
+    .filter(isActive)
+    .map((r) => ({ datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
+  const expenses: Half[] = expense
+    .filter(isActive)
+    .map((r) => ({ datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
 
-  for (const r of income) {
-    if (!isActive(r)) continue
-    const k = key(r.datum!, r.osszeg)
-    const g = groups.get(k) ?? { income: 0, expense: 0, datum: r.datum!, osszeg: r.osszeg }
-    g.income++
-    groups.set(k, g)
-  }
-  for (const r of expense) {
-    if (!isActive(r)) continue
-    const k = key(r.datum!, r.osszeg)
-    const g = groups.get(k) ?? { income: 0, expense: 0, datum: r.datum!, osszeg: r.osszeg }
-    g.expense++
-    groups.set(k, g)
+  for (const e of expenses) {
+    let best = -1
+    let bestDist = Number.POSITIVE_INFINITY
+    for (let i = 0; i < incomes.length; i++) {
+      const inc = incomes[i]
+      if (inc.matched || inc.cents !== e.cents) continue
+      const dist = dayDiff(e.datum, inc.datum)
+      if (dist <= PAIRING_WINDOW_DAYS && dist < bestDist) {
+        best = i
+        bestDist = dist
+      }
+    }
+    if (best >= 0) {
+      incomes[best].matched = true
+      e.matched = true
+    }
   }
 
   const items: UnpairedMovement[] = []
-  for (const g of groups.values()) {
-    const diff = g.income - g.expense
-    if (diff === 0) continue
-    const count = Math.abs(diff)
-    if (diff > 0) {
-      // Több befizetés-oldal, mint kiadás-oldal → a KIADÁS-oldali párok hiányoznak
-      for (let i = 0; i < count; i++) {
-        items.push({
-          datum: g.datum,
-          osszeg: g.osszeg,
-          side: 'income',
-          description:
-            'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',
-        })
-      }
-    } else {
-      // Több kiadás-oldal → a BEFIZETÉS-oldali párok hiányoznak (pl. kasszai letétel, bank nincs)
-      for (let i = 0; i < count; i++) {
-        items.push({
-          datum: g.datum,
-          osszeg: g.osszeg,
-          side: 'expense',
-          description:
-            'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
-        })
-      }
-    }
+  for (const e of expenses) {
+    if (e.matched) continue
+    items.push({
+      datum: e.datum.slice(0, 10),
+      osszeg: e.osszeg,
+      side: 'expense',
+      description:
+        'Belső mozgás kiadás-oldala rögzítve (pl. kasszai letétel a bankba), de a fogadó oldal (banki jóváírás) még nincs egyeztetve — importáld a banki kivonatot.',
+    })
+  }
+  for (const inc of incomes) {
+    if (inc.matched) continue
+    items.push({
+      datum: inc.datum.slice(0, 10),
+      osszeg: inc.osszeg,
+      side: 'income',
+      description:
+        'Belső mozgás befizetés-oldala rögzítve, de a kiadás-oldali párja (honnan érkezett a pénz) még hiányzik — importáld/egyeztesd a másik számlát.',
+    })
   }
 
   // Rendezés: legújabb dátum elöl

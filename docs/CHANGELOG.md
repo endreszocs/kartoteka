@@ -89,8 +89,9 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   (pl. készpénzletét) két fele a `(dátum, összeg)` páros alapján talál egymásra. A kiadás-oldal
   dátuma időbélyeggel (`2025-12-29T00:00:00`), a befizetés-oldalé dátumként (`2025-12-29`) érkezett,
   így a két fél külön kulcsra esett, és a rendszer **tévesen párosítatlannak** jelezte mindkettőt
-  (pl. „32 párosítatlan", pedig mindkét oldal megvolt). Mostantól a párosítás a **napra** nézi a
-  dátumot — a meglévő párok összetalálnak, a jelzés csak a tényleg hiányzó oldalaknál marad.
+  (pl. „32 párosítatlan", pedig mindkét oldal megvolt). Mostantól a párosítás **összeg-alapú,
+  ±7 napos időablakkal** — a banki jóváírás akár 1-2 nappal a kasszai letét után/előtt is
+  történhet, a párok így is összetalálnak; a jelzés csak a **tényleg hiányzó** oldalaknál marad.
 - **Évre szűrés a Pénzügyben — most már tényleg az adott év adatait mutatja.** A hero-beli
   év-választóval másik évre (pl. egy korábbi, importált évre) váltva a **Kassza / Bank /
   Tranzakciók** fül **üres maradt** (a forgalom nem frissült a kiválasztott évre), a Bank fül
