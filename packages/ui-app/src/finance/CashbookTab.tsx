@@ -67,6 +67,10 @@ interface CashRow {
   partner: string
   celNev: string
   iratszam: string
+  /** Irattípus (pl. Készpénz / Chit. / Extr). */
+  irattipus: string
+  /** Melyik évre szól a befizetés (egyházfenntartói járulék hátralék) — kiadásnál null. */
+  fizetettev: number | null
   isBm: boolean
   megjegyzes?: string
   hasMissingPerson: boolean
@@ -368,6 +372,8 @@ export function CashbookTab({
         type: 'income',
         datum: r.datum,
         osszeg: r.osszeg,
+        irattipus: r.irattipus || '',
+        fizetettev: r.fizetettev ?? null,
         partner: r.forrasa || 'Gyülekezeti tag',
         celNev: bevCelMap[r.id_befizetescel || 0]
           ? getCelName(bevCelMap[r.id_befizetescel || 0])
@@ -389,6 +395,8 @@ export function CashbookTab({
         type: 'expense',
         datum: r.datum,
         osszeg: r.osszeg,
+        irattipus: r.irattipus || '',
+        fizetettev: null,
         partner: getExpensePartnerName(r) || '—',
         celNev: kiaCelMap[r.id_kiadascel || 0]
           ? getCelName(kiaCelMap[r.id_kiadascel || 0])
@@ -580,14 +588,9 @@ export function CashbookTab({
                         >
                           Dátum
                         </CashSortableTh>
-                        <CashSortableTh
-                          col="jogcim"
-                          sortBy={sortBy}
-                          sortDir={sortDir}
-                          onClick={() => toggleSort('jogcim')}
-                        >
-                          Jogcím
-                        </CashSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
+                          Irattípus
+                        </th>
                         <CashSortableTh
                           col="iratszam"
                           sortBy={sortBy}
@@ -605,6 +608,20 @@ export function CashbookTab({
                         >
                           Partner
                         </CashSortableTh>
+                        <CashSortableTh
+                          col="jogcim"
+                          sortBy={sortBy}
+                          sortDir={sortDir}
+                          onClick={() => toggleSort('jogcim')}
+                        >
+                          Jogcím
+                        </CashSortableTh>
+                        <th
+                          className="p-2.5 text-center text-xs font-medium text-slate-500 hidden lg:table-cell"
+                          title="Melyik évre szól (egyházfenntartói járulék)"
+                        >
+                          Évre
+                        </th>
                         <CashSortableTh
                           col="osszeg"
                           sortBy={sortBy}
@@ -769,6 +786,26 @@ function CashRow({
       <td className={`p-2.5 text-slate-500 text-xs whitespace-nowrap ${textStorno}`}>
         {r.datum?.split('T')[0]}
       </td>
+      <td className={`p-2.5 text-slate-400 text-xs hidden lg:table-cell ${textStorno}`}>
+        {r.irattipus || '—'}
+      </td>
+      <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
+        {r.iratszam || '—'}
+      </td>
+      <td className="p-2.5">
+        <span
+          className={`font-medium text-xs ${
+            textStorno || (r.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
+          }`}
+        >
+          {r.hasMissingPerson ? `⚠ ${r.partner}` : r.partner}
+        </span>
+        {r.isBm && r.megjegyzes && (
+          <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
+            {r.megjegyzes}
+          </p>
+        )}
+      </td>
       <td className="p-2.5">
         <div className="flex items-center gap-1.5">
           {r.stornozott && (
@@ -801,22 +838,8 @@ function CashRow({
           </p>
         )}
       </td>
-      <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
-        {r.iratszam || '—'}
-      </td>
-      <td className="p-2.5">
-        <span
-          className={`font-medium text-xs ${
-            textStorno || (r.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
-          }`}
-        >
-          {r.hasMissingPerson ? `⚠ ${r.partner}` : r.partner}
-        </span>
-        {r.isBm && r.megjegyzes && (
-          <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
-            {r.megjegyzes}
-          </p>
-        )}
+      <td className={`p-2.5 text-center text-xs text-slate-500 hidden lg:table-cell ${textStorno}`}>
+        {r.type === 'income' && r.fizetettev ? r.fizetettev : '—'}
       </td>
       <td className={`p-2.5 text-right font-bold text-emerald-600 ${textStorno}`}>
         {r.type === 'income' ? formatCurrency(r.osszeg) : ''}
