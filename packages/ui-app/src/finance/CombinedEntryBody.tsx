@@ -438,35 +438,52 @@ export function CombinedEntryBody({
   // irattípus, melyik évre, megjegyzés). A kerületi iratszám soronként `/N` utótagot kap (a
   // készpénzes iratszámra UNIQUE index van → azonos szám ütközne), a gyülekezeti szám közös
   // (egy nyugta). Az ÖSSZEGEKET a felhasználó a táblázatban tölti ki tagonként.
-  function handleFamilyConfirm(members: CombinedFamilyMember[]) {
-    const rowId = familyPickerRowId
-    setFamilyPickerRowId(null)
-    if (!rowId || members.length === 0) return
+  // Közös sor-generátor: a sablon-sorból (rowId) személyenként KÜLÖN bevétel-sort készít.
+  // Egy nyugta: közös kerületi alapszám + /N (a készpénzes iratszámra UNIQUE index van),
+  // közös gyülekezeti szám; az összegeket a felhasználó tölti tagonként. A sablon-sort
+  // helyben lecseréljük a generált sorokra.
+  function generateRowsFromTemplate(rowId: string, entries: Array<{ name: string; szemelyId: number | null }>) {
+    if (!entries.length) return
     setIncomeRows((cur) => {
       const idx = cur.findIndex((r) => r.id === rowId)
       if (idx < 0) return cur
       const tmpl = cur[idx]
-      const multi = members.length > 1
+      const multi = entries.length > 1
       const base = tmpl.iratszam.trim()
-      const generated: EntryRow[] = members.map((m, i) => ({
+      const generated: EntryRow[] = entries.map((e, i) => ({
         ...newRow(currentYear),
         datum: tmpl.datum,
         categoryId: tmpl.categoryId,
         docType: tmpl.docType,
         evre: tmpl.evre,
-        // Egy nyugta: közös kerületi alapszám + /N (DB-egyediség); a gyülekezeti szám közös.
         iratszam: base ? (multi ? `${base}/${i + 1}` : base) : '',
         gyulekezetiSzam: tmpl.gyulekezetiSzam,
-        partner: m.name,
-        szemelyId: m.id,
+        partner: e.name,
+        szemelyId: e.szemelyId,
         csaladId: null,
         megjegyzes: tmpl.megjegyzes,
       }))
-      // A sablon-sort lecseréljük a generált tag-sorokra (helyben).
       return [...cur.slice(0, idx), ...generated, ...cur.slice(idx + 1)]
     })
     setTab('income')
+  }
+
+  function handleFamilyConfirm(members: CombinedFamilyMember[]) {
+    const rowId = familyPickerRowId
+    setFamilyPickerRowId(null)
+    if (!rowId || members.length === 0) return
+    generateRowsFromTemplate(rowId, members.map((m) => ({ name: m.name, szemelyId: m.id })))
     onToast('success', `${members.length} családtag hozzáadva — töltsd ki az összegeket.`)
+  }
+
+  // #6 (Endre): a Befizető mezőben VESSZŐVEL elválasztott nevek → személyenként külön sor,
+  // egy nyugtán (közös szám + /N). Szabad szövegként rögzít (nincs tag-kapcsolás — aki nem
+  // egy regisztrált család, így is felvehető egy nyugtára).
+  function handleSplitPartners(rowId: string, names: string[]) {
+    const clean = names.map((n) => n.trim()).filter(Boolean)
+    if (clean.length < 2) return
+    generateRowsFromTemplate(rowId, clean.map((name) => ({ name, szemelyId: null })))
+    onToast('success', `${clean.length} személy külön sorba bontva — töltsd ki az összegeket.`)
   }
 
   async function handleSave() {
@@ -701,6 +718,7 @@ export function CombinedEntryBody({
                             ? () => setFamilyPickerRowId(r.id)
                             : undefined
                         }
+                        onSplitPartners={tab === 'income' ? (names) => handleSplitPartners(r.id, names) : undefined}
                         updateRow={updateRow}
                       />
                     )}
@@ -792,6 +810,7 @@ export function CombinedEntryBody({
                             ? () => setFamilyPickerRowId(r.id)
                             : undefined
                         }
+                        onSplitPartners={tab === 'income' ? (names) => handleSplitPartners(r.id, names) : undefined}
                         updateRow={updateRow}
                       />
                     </label>
@@ -907,6 +926,7 @@ function PartnerCell({
   onResolveFamilyId,
   onSearchExpense,
   onOpenFamily,
+  onSplitPartners,
   updateRow,
 }: {
   row: EntryRow
@@ -917,6 +937,8 @@ function PartnerCell({
   onSearchExpense?: (query: string) => Promise<string[]>
   /** #5: ha megadva (bevétel), a partner-mezőnél „Család" gomb — tag-választó az adott sorhoz. */
   onOpenFamily?: () => void
+  /** #6: vesszővel elválasztott nevek felbontása külön sorokra (egy nyugtán). */
+  onSplitPartners?: (names: string[]) => void
   updateRow: (id: string, patch: Partial<EntryRow>) => void
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
@@ -1068,27 +1090,44 @@ function PartnerCell({
   }
 
   // Gépelés + találati lista (a lista PORTÁLBAN — sosem vágja le a dialógus)
+  // #6: vesszővel elválasztott nevek darabolása (egy nyugtára több személy).
+  const partnerParts = row.partner.split(',').map((s) => s.trim()).filter(Boolean)
   return (
     <div className="relative">
       <input
         ref={inputRef}
         className={inputClass}
         value={row.partner}
-        placeholder={mode === 'income' ? 'Név (keresés a tagok közt) vagy szabad szöveg' : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'}
+        placeholder={mode === 'income' ? 'Név (keresés a tagok közt) — több név vesszővel is' : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'}
         onChange={(e) => updateRow(row.id, { partner: e.target.value })}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
-      {onOpenFamily && (
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onOpenFamily}
-          className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-          title="Családi nyugta — több családtag egy nyugtán (a sor adataival)"
-        >
-          <Users className="size-3" /> Család keresése
-        </button>
+      {(onOpenFamily || (onSplitPartners && partnerParts.length > 1)) && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          {onOpenFamily && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenFamily}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+              title="Családi nyugta — több családtag egy nyugtán (a sor adataival)"
+            >
+              <Users className="size-3" /> Család keresése
+            </button>
+          )}
+          {onSplitPartners && partnerParts.length > 1 && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onSplitPartners(partnerParts)}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+              title="A vesszővel elválasztott neveket külön sorokra bontja — egy nyugtán (közös szám), tagonként saját összeggel"
+            >
+              ✂ Felbontás {partnerParts.length} külön sorra
+            </button>
+          )}
+        </div>
       )}
       {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
         createPortal(

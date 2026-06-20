@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: több személy egy nyugtára vesszővel
+<!-- key: 2026-06-21-tetel-vesszos-felbontas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Több személy egy nyugtára — vesszővel.** A Befizető mezőbe **vesszővel elválasztva** több nevet
+  is beírhatsz (pl. „Kovács János, Nagy Péter, Szabó Anna"); ekkor megjelenik a **„✂ Felbontás N
+  külön sorra"** gomb, ami minden névhez **külön bevétel-sort** készít az adott sor adataival (közös
+  nyugtaszám, `/1`, `/2`… utótaggal) — utána csak az összegeket töltöd ki tagonként. Így a nem
+  regisztrált családként összetartozó befizetők is gyorsan egy nyugtára vehetők.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: működő befizető-kereső + egyszerűbb családi nyugta
 <!-- key: 2026-06-21-tetel-kereso-csalad-v2 -->
 <!-- category: bugfix -->
