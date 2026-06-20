@@ -63,6 +63,8 @@ export interface FinancePrintFilters {
   selectedDoc: SavedDocOption | null
   /** Költségvetés/számadás típusoknál a betöltött költségvetési sorok (a wrapper értelmezi). */
   budgetRows: Record<string, unknown> | null
+  /** Csoportnaplónál a kiválasztott jogcím kódja (null = összes jogcím). */
+  selectedCategoryKod: string | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -72,6 +74,10 @@ export interface FinancePrintDialogBodyProps {
 
   /** Bankszámlák listája — a Registru Banca választóhoz. */
   bankAccounts: { id: number; bank_neve: string; iban: string | null }[]
+
+  /** Költségvetési jogcímek (számadási célok) — a Csoportnapló jogcím-választójához.
+   *  Belső mozgások (3xx/4xx) nélkül, kód szerint rendezve ajánlott. */
+  categories?: { kod: string; nev: string; type: 'B' | 'K' }[]
 
   /** Aktuális év (tipikusan `new Date().getFullYear()`). */
   currentYear: number
@@ -113,6 +119,7 @@ export interface FinancePrintDialogBodyProps {
 export function FinancePrintDialogBody({
   printableTypes,
   bankAccounts,
+  categories = [],
   currentYear,
   buildReport,
   onLoadNyugtatombok,
@@ -139,7 +146,10 @@ export function FinancePrintDialogBody({
   const [savedDocs, setSavedDocs] = useState<SavedDocOption[]>([])
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [budgetRows, setBudgetRows] = useState<Record<string, unknown> | null>(null)
+  /** Csoportnapló: a kiválasztott jogcím kódja ('' = mind). */
+  const [selectedCategoryKod, setSelectedCategoryKod] = useState<string>('')
 
+  const isCsoportNaploMode = printType === 'csoport_naplo'
   const isBudgetMode =
     printType === 'koltsegvetes' || printType === 'koltsegvetes_modositas' || printType === 'szamadas'
   const showBankSelector = printType === 'registru_banca'
@@ -196,6 +206,18 @@ export function FinancePrintDialogBody({
     return () => ro.disconnect()
   }, [])
 
+  // A TELJES dokumentum megjelenítése: az iframe tartalmának valódi magasságát
+  // megmérjük (betöltéskor), így a (kicsinyített) lap teljesen látszik és
+  // függőlegesen görgethető — pixelhűen ugyanaz, ami nyomtatáskor készül.
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [contentH, setContentH] = useState(PREVIEW_BOX_H)
+  const measurePreview = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    if (h > 0) setContentH(h)
+  }
+
   // Nyugtatömb adatok lazy-load — csak amikor a felhasználó erre a típusra vált
   useEffect(() => {
     if (!open || !isNyugtatombMode || !onLoadNyugtatombok) return
@@ -225,8 +247,9 @@ export function FinancePrintDialogBody({
       nyugtatombok: isNyugtatombMode ? nyugtatombok : [],
       selectedDoc: isReprintMode ? selectedDoc : null,
       budgetRows: isBudgetMode ? budgetRows : null,
+      selectedCategoryKod: isCsoportNaploMode && selectedCategoryKod ? selectedCategoryKod : null,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows, isCsoportNaploMode, selectedCategoryKod],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])
@@ -236,7 +259,8 @@ export function FinancePrintDialogBody({
   // legyen levegő a szélén (ne lógjon ki a széléig).
   const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
   const scale = Math.min(1, targetW / docW)
-  const iframeH = Math.round(PREVIEW_BOX_H / scale)
+  const scaledW = Math.round(docW * scale)
+  const scaledH = Math.round(contentH * scale)
 
   async function handlePdf() {
     if (!onPrintToPdf) {
@@ -390,6 +414,38 @@ export function FinancePrintDialogBody({
             </label>
           )}
 
+          {/* Csoportnapló — jogcím-választó: a kiválasztott jogcím összes tétele az adott évben */}
+          {isCsoportNaploMode && categories.length > 0 && (
+            <label className="block text-sm font-medium text-slate-700">
+              Költségvetési jogcím
+              <select
+                value={selectedCategoryKod}
+                onChange={(e) => setSelectedCategoryKod(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Mind — összes jogcím</option>
+                <optgroup label="Bevételek">
+                  {categories
+                    .filter((c) => c.type === 'B')
+                    .map((c) => (
+                      <option key={`B-${c.kod}`} value={c.kod}>
+                        {c.kod} — {c.nev}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="Kiadások">
+                  {categories
+                    .filter((c) => c.type === 'K')
+                    .map((c) => (
+                      <option key={`K-${c.kod}`} value={c.kod}>
+                        {c.kod} — {c.nev}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+            </label>
+          )}
+
           <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
             <div>
               <span className="font-semibold text-slate-800">Időszak:</span>{' '}
@@ -449,16 +505,18 @@ export function FinancePrintDialogBody({
       {/* ── Jobb oldal: élő előnézet (teljes szélességre kicsinyítve) ── */}
       <div
         ref={previewRef}
-        className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
-        style={{ height: PREVIEW_BOX_H + 40 }}
+        className="overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+        style={{ maxHeight: PREVIEW_BOX_H + 40 }}
       >
-        <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: Math.round(docW * scale), height: PREVIEW_BOX_H }}>
+        <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: scaledW, height: scaledH }}>
           <iframe
+            ref={iframeRef}
+            onLoad={measurePreview}
             title={report.title}
             srcDoc={report.html}
             style={{
               width: docW,
-              height: iframeH,
+              height: contentH,
               border: '0',
               transform: `scale(${scale})`,
               transformOrigin: 'top left',

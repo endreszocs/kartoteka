@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Nyomtatási előnézet: teljes dokumentum + Csoportnapló jogcím-választó
+<!-- key: 2026-06-20-elonezet-teljes-csoportnaplo-valaszto -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A nyomtatási előnézet a TELJES dokumentumot mutatja.** Eddig a hosszabb nyomtatványok (pl. a
+  Csoportnapló) alja levágódott az előnézetben („nem jelenik meg mindegyik"). Mostantól az előnézet
+  a teljes, **A4-arányos** dokumentumot mutatja, **függőlegesen görgethetően** — pontosan azt, ami
+  nyomtatáskor készül.
+
+### ✨ Új funkciók
+
+- **Csoportnapló — jogcím-választó.** A Csoportnaplónál bal oldalon mostantól **kiválasztható egy
+  konkrét költségvetési jogcím** (bevétel/kiadás csoportokba rendezve), és a rendszer **csak annak
+  a jogcímnek** az összes tételét listázza az adott évre — nyomtatható formában. Az alapértelmezett
+  a „Mind — összes jogcím".
+
+---
+
 ## [2026-06-20] — Új nyomtatvány: Csoportnapló (jogcímenkénti tétellista)
 <!-- key: 2026-06-20-csoportnaplo -->
 <!-- category: feature -->

@@ -117,6 +117,10 @@ export function DesktopFinancePrintDialog({
               bank_neve: b.bank_neve,
               iban: b.iban,
             }))}
+            categories={cellek
+              .filter((c) => c.kod && !/^[34]/.test(c.kod) && (c.type === 'B' || c.type === 'K'))
+              .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
+              .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))}
             currentYear={currentYear}
             buildReport={(filters: FinancePrintFilters): PrintReport => {
               // Korábbi bizonylatok újranyomtatása (a mentett pillanatképből)
@@ -196,6 +200,7 @@ export function DesktopFinancePrintDialog({
                 year: filters.selectedYear,
                 month: filters.selectedMonth,
                 bankAccountId: filters.selectedBankId,
+                categoryKod: filters.selectedCategoryKod,
               })
             }}
             // Nyugtatömb-kimutatás — a web `getChitantaTombokReport` tükre

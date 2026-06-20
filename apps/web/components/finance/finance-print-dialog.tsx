@@ -95,6 +95,13 @@ export function FinancePrintDialog({
     ...budgetTypes,
   ]
 
+  // Csoportnapló jogcím-választó opciói: a számadási célok (belső mozgások — 3xx/4xx — nélkül),
+  // kód szerint numerikusan rendezve.
+  const categoryOptions = cellek
+    .filter((c) => c.kod && !/^[34]/.test(c.kod) && (c.type === 'B' || c.type === 'K'))
+    .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
+    .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
@@ -111,6 +118,7 @@ export function FinancePrintDialog({
             bank_neve: b.bank_neve,
             iban: b.iban,
           }))}
+          categories={categoryOptions}
           currentYear={currentYear}
           buildReport={(filters: FinancePrintFilters): PrintReport => {
             // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
@@ -190,6 +198,7 @@ export function FinancePrintDialog({
               year: filters.selectedYear,
               month: filters.selectedMonth,
               bankAccountId: filters.selectedBankId,
+              categoryKod: filters.selectedCategoryKod,
             })
           }}
           onLoadNyugtatombok={async (year) => {

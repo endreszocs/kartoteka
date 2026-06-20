@@ -194,6 +194,8 @@ export interface FinanceReportFilters {
   year: number
   month: number | null // 1-12, null = teljes év (hónaponként külön oldal)
   bankAccountId?: number | null
+  /** Csoportnaplónál: csak erre a jogcím-kódra szűr (null/undefined = összes jogcím). */
+  categoryKod?: string | null
 }
 
 export interface FinanceReportData {
@@ -789,8 +791,12 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     return [...map.values()].sort((a, b) => sortCells(a.kod, b.kod))
   }
 
-  const bevGroups = buildGroups(data.income, data.bevCelMap, 'B', true)
-  const kiaGroups = buildGroups(data.expense, data.kiaCelMap, 'K', false)
+  const catKod = filters.categoryKod || null
+  const bevGroupsAll = buildGroups(data.income, data.bevCelMap, 'B', true)
+  const kiaGroupsAll = buildGroups(data.expense, data.kiaCelMap, 'K', false)
+  // Jogcím-választó: ha egy konkrét jogcímet kértek, csak azt listázzuk.
+  const bevGroups = catKod ? bevGroupsAll.filter((g) => g.kod === catKod) : bevGroupsAll
+  const kiaGroups = catKod ? kiaGroupsAll.filter((g) => g.kod === catKod) : kiaGroupsAll
 
   const renderSection = (
     titleRo: string,
