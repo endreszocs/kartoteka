@@ -210,7 +210,11 @@ function SidebarItem({
             //  középső kattintás / új lapon megnyitás továbbra is a linkre megy.)
             if (hasChildren && !collapsed) {
               e.preventDefault()
-              onToggle()
+              // Csak NYITUNK a fő-pontra kattintva. Ha az almenü MÁR nyitva van (pl. mert
+              // ezen az oldalon vagyunk → az auto-expand kinyitotta), a kattintás NE csukja be
+              // — a becsukás a chevron gomb dolga. (Regresszió-javítás 2026-06-20: a toggle
+              // azonnal becsukta a már nyitott almenüt, ezért tűnt úgy, hogy „nem működik".)
+              if (!expanded) onToggle()
               return
             }
             onNavigate?.()

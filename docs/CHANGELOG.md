@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Oldalsáv: az almenü nem csukódik be a főpontra kattintva
+<!-- key: 2026-06-21-sidebar-almenu-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros, admin -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Az oldalsávban a bal oldali főmenüpontra (pl. „Pénzügy") kattintva az almenü nem csukódik be
+  váratlanul.** Eddig azon az oldalon, ahol épp jártál (ott az almenü automatikusan nyitva van), a
+  főpontra kattintás **azonnal becsukta** az almenüt — emiatt tűnt úgy, hogy „nem működik". Mostantól
+  a főpontra kattintás **mindig nyitva tartja** az almenüt; a becsukás a sor végi nyíl (chevron)
+  gombbal történik.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: beviteli őrök (duplikátum + dátum-figyelés)
 <!-- key: 2026-06-21-tetel-beviteli-orok -->
 <!-- category: feature -->
