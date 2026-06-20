@@ -113,6 +113,9 @@ type EntryRow = {
   amount: string
   megjegyzes: string
   bankId: number | ''
+  /** #1 (Endre): melyik évre szól a befizetés — alap az aktuális év, de visszamenőleges
+   *  egyházfenntartói járulék is rögzíthető (csak bevételnél). */
+  evre: string
   /** B1: a kiválasztott tag (kölcsönösen kizáró a csaladId-vel). */
   szemelyId: number | null
   /** B1: családi befizetésnél a család azonosítója. */
@@ -120,8 +123,9 @@ type EntryRow = {
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
-const newRow = (): EntryRow => ({
+const newRow = (year?: number): EntryRow => ({
   id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', amount: '', megjegyzes: '', bankId: '',
+  evre: year != null ? String(year) : '',
   szemelyId: null, csaladId: null,
 })
 
@@ -135,8 +139,8 @@ export function CombinedEntryBody({
   onSearchMembers, onResolveFamilyId, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
-  const [incomeRows, setIncomeRows] = useState<EntryRow[]>([newRow()])
-  const [expenseRows, setExpenseRows] = useState<EntryRow[]>([newRow()])
+  const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
+  const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
@@ -190,8 +194,8 @@ export function CombinedEntryBody({
   }, [draftStorageKey, incomeRows, expenseRows, tab])
 
   function discardDraft() {
-    setIncomeRows([newRow()])
-    setExpenseRows([newRow()])
+    setIncomeRows([newRow(currentYear)])
+    setExpenseRows([newRow(currentYear)])
     setTab('income')
     setDraftRestoredAt(null)
     clearDraft()
@@ -261,8 +265,8 @@ export function CombinedEntryBody({
   function updateRow(id: string, patch: Partial<EntryRow>) {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
-  function addRow() { setRows((cur) => [...cur, newRow()]) }
-  function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? [newRow()] : cur.filter((r) => r.id !== id))) }
+  function addRow() { setRows((cur) => [...cur, newRow(currentYear)]) }
+  function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? [newRow(currentYear)] : cur.filter((r) => r.id !== id))) }
 
   function combinedIratszam(r: EntryRow): string | null {
     const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
@@ -296,7 +300,8 @@ export function CombinedEntryBody({
       incomeBatch.push({
         datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
-        fizetettev: Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
+        // #1: a kézzel megadott „melyik évre" (visszamenőleges járulék); ha üres, a dátum éve / aktuális év.
+        fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
         // B1: tag- vagy család-kapcsolat (kölcsönösen kizáró)
         id_szemely: r.csaladId ? null : r.szemelyId,
         id_csalad: r.csaladId,
@@ -422,10 +427,11 @@ export function CombinedEntryBody({
           <thead className="bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="px-2 py-2 text-left">Dátum</th>
-              <th className="px-2 py-2 text-left">Kategória</th>
-              <th className="px-2 py-2 text-left">{partnerLabel}</th>
               <th className="px-2 py-2 text-left">Irattípus</th>
               <th className="px-2 py-2 text-left">Irat sz.</th>
+              <th className="px-2 py-2 text-left">{partnerLabel}</th>
+              <th className="px-2 py-2 text-left">Jogcím</th>
+              {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
               <th className="px-2 py-2 text-right">Összeg</th>
               <th className="px-2 py-2 text-left">Megjegyzés</th>
               <th className="px-2 py-2"></th>
@@ -439,10 +445,13 @@ export function CombinedEntryBody({
                   <td className="px-2 py-1.5 w-[160px]">
                     {renderDateField(r)}
                   </td>
-                  <td className="px-2 py-1.5 min-w-[180px]">
-                    <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
-                    {renderBankSelect(r)}
+                  <td className="px-2 py-1.5 w-[130px]">
+                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
+                      <option value="">—</option>
+                      {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+                    </select>
                   </td>
+                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
                   <td className="px-2 py-1.5">
                     {dir ? (
                       <span className="text-xs text-slate-400">—</span>
@@ -456,13 +465,27 @@ export function CombinedEntryBody({
                       />
                     )}
                   </td>
-                  <td className="px-2 py-1.5 w-[130px]">
-                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
-                      <option value="">—</option>
-                      {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-                    </select>
+                  <td className="px-2 py-1.5 min-w-[180px]">
+                    <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
+                    {renderBankSelect(r)}
                   </td>
-                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
+                  {tab === 'income' && (
+                    <td className="px-2 py-1.5 w-[90px]">
+                      {dir ? (
+                        <span className="text-xs text-slate-400">—</span>
+                      ) : (
+                        <input
+                          className={inputClass + ' text-center'}
+                          type="number"
+                          inputMode="numeric"
+                          value={r.evre ?? ''}
+                          placeholder={String(currentYear)}
+                          title="Melyik évre szól a befizetés (visszamenőleges járulék is)"
+                          onChange={(e) => updateRow(r.id, { evre: e.target.value })}
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-2 py-1.5 w-[110px]"><input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
                   <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
                   <td className="px-2 py-1.5 text-right">
@@ -505,6 +528,11 @@ export function CombinedEntryBody({
                 <label className="text-xs text-slate-500">Összeg
                   <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
                 </label>
+                {tab === 'income' && !dir && (
+                  <label className="text-xs text-slate-500">Melyik évre
+                    <input className={inputClass} type="number" inputMode="numeric" value={r.evre ?? ''} placeholder={String(currentYear)} onChange={(e) => updateRow(r.id, { evre: e.target.value })} />
+                  </label>
+                )}
                 {!dir && (
                   <>
                     <label className="col-span-2 text-xs text-slate-500">{partnerLabel}

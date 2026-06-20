@@ -23,7 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-21] — Tétel rögzítése: működő befizető-keresés, részletes találatokkal
+## [2026-06-21] — Tétel rögzítése: „Melyik évre" mező + egységes oszlop-sorrend
+<!-- key: 2026-06-21-tetel-evre-oszlopsorrend -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók / 🎨 UX javítások
+
+- **„Melyik évre" mező** a bevétel rögzítésénél. Alapértelmezetten az **aktuális (kiválasztott) év**,
+  de ha valaki **visszamenőleg** fizeti az elmaradt egyházfenntartói járulékát, beírható a megfelelő
+  korábbi év — így a befizetés a **helyes évhez** kerül (nem feltétlenül a fizetés dátumának évéhez).
+- **Egységes oszlop-sorrend.** A Tétel rögzítése táblázata mostantól a Kassza/Bank/Tranzakciók
+  megszokott sorrendjét követi: **Dátum · Irattípus · Iratszám · Partner · Jogcím · Melyik évre ·
+  Összeg · Megjegyzés**.
 <!-- key: 2026-06-21-tetel-befizeto-kereses -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, penztaros -->
