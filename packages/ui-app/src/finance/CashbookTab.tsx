@@ -640,6 +640,9 @@ export function CashbookTab({
                         >
                           Kiadás
                         </CashSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden xl:table-cell">
+                          Megjegyzés
+                        </th>
                         <th
                           className="p-2.5 w-12 text-center text-xs font-medium text-slate-500"
                           title="Nyugta"
@@ -847,6 +850,12 @@ function CashRow({
       <td className={`p-2.5 text-right font-bold text-red-500 ${textStorno}`}>
         {r.type === 'expense' ? formatCurrency(r.osszeg) : ''}
       </td>
+      <td
+        className={`p-2.5 text-xs text-slate-500 hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
+        title={r.megjegyzes || ''}
+      >
+        {r.megjegyzes || '—'}
+      </td>
       <td className="p-2.5">
         <div className="flex items-center justify-end gap-1">
           {canEdit && !r.stornozott && !r.isBm && (
@@ -859,27 +868,6 @@ function CashRow({
               <Pencil className="size-3.5" />
             </button>
           )}
-          {r.stornozott
-            ? canUndoStorno && (
-                <button
-                  type="button"
-                  title="Stornó visszavonása"
-                  onClick={() => void onUndoStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                >
-                  <RotateCcw className="size-3.5" />
-                </button>
-              )
-            : canStorno && (
-                <button
-                  type="button"
-                  title="Stornózás"
-                  onClick={() => onStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  <Ban className="size-3.5" />
-                </button>
-              )}
           {canChitanta && r.type === 'income' && !r.isBm && !r.stornozott ? (
             chitantakByBefizetes[r.id] ? (
               <button
@@ -904,6 +892,28 @@ function CashRow({
               </button>
             )
           ) : null}
+          {/* Storno mindig az UTOLSÓ ikon (egységesen a Kassza/Bank fülön). */}
+          {r.stornozott
+            ? canUndoStorno && (
+                <button
+                  type="button"
+                  title="Stornó visszavonása"
+                  onClick={() => void onUndoStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                >
+                  <RotateCcw className="size-3.5" />
+                </button>
+              )
+            : canStorno && (
+                <button
+                  type="button"
+                  title="Stornózás"
+                  onClick={() => onStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Ban className="size-3.5" />
+                </button>
+              )}
         </div>
       </td>
     </tr>

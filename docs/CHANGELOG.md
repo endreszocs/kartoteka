@@ -84,6 +84,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   maradványból** indul — ez teszi hitelessé az év végi egyenleget, és korábbi évek importjánál is helyes
   marad (az egyik év nyitója a másik év zárójához igazodik). *(Egyszeri adatbázis-bővítés szükséges hozzá.)*
 
+### 🎨 Fejlesztések
+
+- **Megjegyzés oszlop + egységes storno-gomb (Kassza/Bank).** A tételtáblákban mostantól látszik a **Megjegyzés** oszlop (a Bevétel/Kiadás után, a nyugta-ikon előtt), és a **storno mindig az utolsó** művelet-ikon — egységesen.
+
 ### 🐛 Javítások
 
 - **Az „Éves egyenleg" a tényleges év végi egyenleget mutatja (nem a túlköltekezést).** Korábban a

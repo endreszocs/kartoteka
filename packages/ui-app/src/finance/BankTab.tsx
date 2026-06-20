@@ -873,6 +873,9 @@ export function BankTab({
                         >
                           Kiadás
                         </BankSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden xl:table-cell">
+                          Megjegyzés
+                        </th>
                         <th className="p-2.5 text-right text-xs font-medium text-slate-500 w-20">
                           Művelet
                         </th>
@@ -983,6 +986,12 @@ export function BankTab({
                               className={`p-2.5 text-right font-bold text-red-500 ${textStorno}`}
                             >
                               {row.type === 'expense' ? formatCurrency(row.osszeg) : ''}
+                            </td>
+                            <td
+                              className={`p-2.5 text-xs text-slate-500 hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
+                              title={row.megjegyzes || ''}
+                            >
+                              {row.megjegyzes || '—'}
                             </td>
                             <td className="p-2.5">
                               <div className="flex items-center justify-end gap-1">
