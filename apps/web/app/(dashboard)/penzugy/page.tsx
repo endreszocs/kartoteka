@@ -90,7 +90,10 @@ export default async function PenzugyPage({
       const deadline = congregationDefaults?.jarulek_hatarid || '07-01'
 
       if (yearlyFee > 0) {
-        const ensure = await createYearlySettings(selectedYear, yearlyFee, deadline)
+        // Render közben NEM revalidálunk (Next 16); az alábbi initFinance úgyis újratölt.
+        const ensure = await createYearlySettings(selectedYear, yearlyFee, deadline, {
+          revalidate: false,
+        })
         if (!ensure.error) {
           data = await initFinance(selectedYear)
         }

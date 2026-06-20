@@ -1589,7 +1589,14 @@ export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> 
 
 // ── H7 javítás: Éves beállítás létrehozás ────────────────────
 
-export async function createYearlySettings(year: number, evesJarulek: number, jarulekHatarid: string) {
+export async function createYearlySettings(
+  year: number,
+  evesJarulek: number,
+  jarulekHatarid: string,
+  // A render-útvonal (page.tsx) NEM hívhat revalidatePath-ot renderelés közben (Next 16
+  // hiba). Onnan revalidate:false-szal hívjuk; a kliens-modalból marad az alapértelmezett true.
+  opts?: { revalidate?: boolean },
+) {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
@@ -1672,7 +1679,7 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
   }
 
   if (error) return { error: `Hiba: ${error.message}` }
-  revalidatePath('/penzugy')
+  if (opts?.revalidate !== false) revalidatePath('/penzugy')
   return { success: true }
 }
 
