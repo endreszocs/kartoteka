@@ -658,12 +658,12 @@ export function BankTab({
       )}
 
       {bankAccounts.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="flex gap-3 overflow-x-auto pb-1">
           {/* Összesítő — alapértelmezett szűrő (az összes bankszámla együtt). */}
           <button
             type="button"
             onClick={() => setSelectedBankFilter('all')}
-            className={`card-raised flex items-start gap-3 p-4 text-left transition ${
+            className={`card-raised flex min-w-[15rem] flex-1 items-start gap-3 p-4 text-left transition ${
               selectedBankFilter === 'all'
                 ? 'ring-2 ring-violet-400'
                 : 'hover:ring-1 hover:ring-violet-200'
@@ -692,7 +692,7 @@ export function BankTab({
             return (
               <div
                 key={account.id}
-                className={`card-raised flex flex-col overflow-hidden p-0 transition ${
+                className={`card-raised flex min-w-[15rem] flex-1 flex-col overflow-hidden p-0 transition ${
                   selected ? 'ring-2 ring-violet-400' : ''
                 }`}
               >
@@ -770,7 +770,7 @@ export function BankTab({
                 setEditingAccount(null)
                 setBankDialogOpen(true)
               }}
-              className="card-raised flex min-h-[7rem] flex-col items-center justify-center gap-1.5 border-2 border-dashed border-slate-200 p-4 text-slate-400 transition hover:border-emerald-300 hover:text-emerald-600"
+              className="card-raised flex min-w-[12rem] flex-1 flex-col items-center justify-center gap-1.5 border-2 border-dashed border-slate-200 p-4 text-slate-400 transition hover:border-emerald-300 hover:text-emerald-600"
             >
               <Plus className="size-6" />
               <span className="text-sm font-medium">Új bankszámla</span>
