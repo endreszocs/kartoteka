@@ -367,16 +367,24 @@ export function CombinedEntryBody({
     return null
   }
 
-  // In-batch: ugyanaz a kerületi iratszám szerepel-e MÁSIK sorban is (még mentés előtt).
+  // In-batch: ugyanaz a kerületi iratSZÁM szerepel-e MÁSIK sorban is (még mentés előtt).
+  // FONTOS: csak a ténylegesen kitöltött iratszám számít — az ÜRES mező (csak az irattípus)
+  // NEM duplikátum (különben több üres Chitanță-sor hamisan ütközne).
   function inBatchDuplicate(r: EntryRow): boolean {
+    if (!r.iratszam.trim()) return false
     const v = combinedIratszam(r)
     if (!v) return false
-    return rows.filter((x) => combinedIratszam(x) === v).length > 1
+    return rows.filter((x) => x.iratszam.trim() && combinedIratszam(x) === v).length > 1
   }
 
   // P0: a kerületi iratszám DB-duplikátum-ellenőrzése a mező elhagyásakor (csak bevétel).
   function checkRowDuplicate(r: EntryRow) {
     if (tab !== 'income' || !onCheckReceiptDuplicate) return
+    // Üres iratszámot ne ellenőrizzünk (nem duplikátum).
+    if (!r.iratszam.trim()) {
+      setDupRowIds((s) => { if (!s.has(r.id)) return s; const n = new Set(s); n.delete(r.id); return n })
+      return
+    }
     const v = combinedIratszam(r)
     if (!v) {
       setDupRowIds((s) => { if (!s.has(r.id)) return s; const n = new Set(s); n.delete(r.id); return n })
@@ -419,15 +427,34 @@ export function CombinedEntryBody({
           if (!next) return
           // ÉLŐ állapot alapján töltünk (nem a befagyott `r`-ből): a lekérés alatt kézzel
           // átírt mezőt nem írunk felül, és ha közben más irattípusra váltottak, nem stempelünk.
-          setIncomeRows((cur) =>
-            cur.map((row) => {
+          setIncomeRows((cur) => {
+            // KÖTEGEN-BELÜLI növekmény: a DB nem tud a még nem mentett sorokról, ezért a
+            // következő számot a köteg többi sorához is igazítjuk (1,2,3… ne legyen mind 1).
+            // A `next` a DB szerinti következő; ha a kötegben már van magasabb szám, azt léptetjük.
+            const nextOf = (field: 'iratszam' | 'gyulekezetiSzam', dbVal: string): string => {
+              let maxNum = 0
+              let width = 0
+              for (const x of cur) {
+                if (x.id === r.id) continue
+                const m = String(x[field] || '').match(/(\d+)/)
+                if (m) {
+                  const n = parseInt(m[1], 10)
+                  if (n >= maxNum) { maxNum = n; width = m[1].length }
+                }
+              }
+              if (maxNum > 0) return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
+              return dbVal // nincs köteg-előzmény → a DB szerinti következő (vagy üres)
+            }
+            const ker = nextOf('iratszam', next.keruleti)
+            const gyul = nextOf('gyulekezetiSzam', next.gyulekezeti)
+            return cur.map((row) => {
               if (row.id !== r.id || row.docType !== 'Chitanță') return row
               const patch: Partial<EntryRow> = {}
-              if (next.keruleti && !row.iratszam.trim()) patch.iratszam = next.keruleti
-              if (next.gyulekezeti && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = next.gyulekezeti
+              if (ker && !row.iratszam.trim()) patch.iratszam = ker
+              if (gyul && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = gyul
               return Object.keys(patch).length ? { ...row, ...patch } : row
-            }),
-          )
+            })
+          })
         })
         .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
     }
