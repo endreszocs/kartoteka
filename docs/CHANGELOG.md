@@ -23,6 +23,29 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: működő befizető-kereső + egyszerűbb családi nyugta
+<!-- key: 2026-06-21-tetel-kereso-csalad-v2 -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A „Befizető / forrás" kereső végre megbízhatóan működik.** A találati lista eddig egy túl szigorú
+  láthatóság-ellenőrzés miatt (a modális ablak elrendezése félrevezette) néha el sem indult vagy nem
+  jelent meg. Mostantól gépelve **azonnal megjelennek a tagok**, és kiválaszthatók.
+
+### ✨ Új / átalakított funkció
+
+- **Egyszerűbb családi nyugta.** A „Család" gomb mostantól a **Befizető mezőnél** van (soronként):
+  kitöltöd a sort (dátum, jogcím, melyik évre, nyugtaszámok), majd a „Család keresése" gombbal
+  kiválasztod a családot és **csak a neveket** pipálod ki. A rendszer minden kiválasztott taghoz
+  **külön sort** készít az **adott sor adataival** (közös nyugtaszám, /1, /2… utótaggal), és már csak
+  az **összegeket** kell tagonként beírnod a táblázatban. (Nem kell külön ablakban újra megadni
+  minden adatot.)
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: nyugtaszám-finomítások + új sor dátuma
 <!-- key: 2026-06-21-tetel-nyugta-finomitasok -->
 <!-- category: improvement -->

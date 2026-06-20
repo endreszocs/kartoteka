@@ -24,7 +24,6 @@ import {
   FamilyReceiptModal,
   type CombinedFamilyHit,
   type CombinedFamilyMember,
-  type FamilyReceiptResult,
 } from './FamilyReceiptModal'
 import type { IncomeCategory, SaveIncomeBatchRow } from './IncomeDialogBody'
 import type { ExpenseCategory, SaveExpenseBatchRow } from './ExpenseDialogBody'
@@ -175,6 +174,16 @@ const inputClass =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm ' +
   'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
+// Megbízhatóbb „tényleg látható-e" mint az offsetParent===null: a display:none-t (és a
+// 0-méretű, másik-breakpointon rejtett cellát) a getClientRects/offset-méret méri — viszont
+// NEM bukik a Base UI dialóg `transform: translate(-50%,-50%)` + `position:fixed` edge-case-ein,
+// ahol a LÁTHATÓ input offsetParent-je is `null` lehet (ez fojtotta el korábban a keresőt).
+function isElementVisible(el: HTMLElement | null): boolean {
+  if (!el) return false
+  if (el.getClientRects().length === 0) return false // display:none vagy nincs a DOM-ban
+  return el.offsetWidth > 0 || el.offsetHeight > 0
+}
+
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
@@ -186,8 +195,8 @@ export function CombinedEntryBody({
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
-  /** #4b: a Családi nyugta modal nyitva van-e. */
-  const [familyModalOpen, setFamilyModalOpen] = useState(false)
+  /** #5: a Családi nyugta tag-választó melyik SORHOZ van nyitva (null = zárva). */
+  const [familyPickerRowId, setFamilyPickerRowId] = useState<string | null>(null)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
   /** #2 (Endre): az utolsó automatikus mentés időpontja (null = nincs mentendő tartalom). */
@@ -328,15 +337,6 @@ export function CombinedEntryBody({
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
-  // #4b: a Családi nyugta jogcím-listája — valódi bevétel-jogcímek (belső mozgás nélkül).
-  const familyCategoryOptions = useMemo(
-    () =>
-      incomeCategories
-        .filter((c) => !BANKBANK_KODS.has(c.kod) && !dirOfKod(c.kod))
-        .map((c) => ({ id: c.id, label: c.nev })),
-    [incomeCategories],
-  )
-
   function updateRow(id: string, patch: Partial<EntryRow>) {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
@@ -433,29 +433,40 @@ export function CombinedEntryBody({
     }
   }
 
-  // #4b: a Családi nyugta modal megerősítése — személyenként KÜLÖN bevétel-sor.
-  // Egy nyugta, több név: közös alapszám, soronként `/N` utótaggal (a készpénzes
-  // iratszámra UNIQUE index van → azonos szám ütközne). Egyetlen tagnál nincs utótag.
-  // A sorokat a meglévő bevétel-listához fűzzük; a felhasználó ellenőrizhet, majd Mentés.
-  function handleFamilyConfirm(res: FamilyReceiptResult) {
-    const multi = res.lines.length > 1
-    const generated: EntryRow[] = res.lines.map((l, i) => ({
-      ...newRow(currentYear),
-      datum: res.datum,
-      categoryId: res.categoryId,
-      docType: res.docType,
-      evre: res.evre,
-      iratszam: multi ? `${res.baseIratszam}/${i + 1}` : res.baseIratszam,
-      partner: l.name,
-      szemelyId: l.szemelyId,
-      csaladId: null,
-      amount: l.amount,
-      megjegyzes: res.megjegyzes || `Családi nyugta: ${res.baseIratszam}`,
-    }))
-    setIncomeRows((cur) => (cur.length === 1 && !rowHasContent(cur[0]) ? generated : [...cur, ...generated]))
+  // #5: a Családi nyugta tag-választó megerősítése — a SABLON-SORBÓL (ahonnan a „Család"
+  // gombot nyomták) készít személyenként KÜLÖN bevétel-sort, a sor adataival (dátum, jogcím,
+  // irattípus, melyik évre, megjegyzés). A kerületi iratszám soronként `/N` utótagot kap (a
+  // készpénzes iratszámra UNIQUE index van → azonos szám ütközne), a gyülekezeti szám közös
+  // (egy nyugta). Az ÖSSZEGEKET a felhasználó a táblázatban tölti ki tagonként.
+  function handleFamilyConfirm(members: CombinedFamilyMember[]) {
+    const rowId = familyPickerRowId
+    setFamilyPickerRowId(null)
+    if (!rowId || members.length === 0) return
+    setIncomeRows((cur) => {
+      const idx = cur.findIndex((r) => r.id === rowId)
+      if (idx < 0) return cur
+      const tmpl = cur[idx]
+      const multi = members.length > 1
+      const base = tmpl.iratszam.trim()
+      const generated: EntryRow[] = members.map((m, i) => ({
+        ...newRow(currentYear),
+        datum: tmpl.datum,
+        categoryId: tmpl.categoryId,
+        docType: tmpl.docType,
+        evre: tmpl.evre,
+        // Egy nyugta: közös kerületi alapszám + /N (DB-egyediség); a gyülekezeti szám közös.
+        iratszam: base ? (multi ? `${base}/${i + 1}` : base) : '',
+        gyulekezetiSzam: tmpl.gyulekezetiSzam,
+        partner: m.name,
+        szemelyId: m.id,
+        csaladId: null,
+        megjegyzes: tmpl.megjegyzes,
+      }))
+      // A sablon-sort lecseréljük a generált tag-sorokra (helyben).
+      return [...cur.slice(0, idx), ...generated, ...cur.slice(idx + 1)]
+    })
     setTab('income')
-    setFamilyModalOpen(false)
-    onToast('success', `${generated.length} családtag hozzáadva (nyugta: ${res.baseIratszam}). Ellenőrizd, majd Mentés.`)
+    onToast('success', `${members.length} családtag hozzáadva — töltsd ki az összegeket.`)
   }
 
   async function handleSave() {
@@ -685,6 +696,11 @@ export function CombinedEntryBody({
                         onSearchMembers={onSearchMembers}
                         onResolveFamilyId={onResolveFamilyId}
                         onSearchExpense={onSearchExpensePartners}
+                        onOpenFamily={
+                          tab === 'income' && onSearchFamilies && onGetFamilyMembers
+                            ? () => setFamilyPickerRowId(r.id)
+                            : undefined
+                        }
                         updateRow={updateRow}
                       />
                     )}
@@ -771,6 +787,11 @@ export function CombinedEntryBody({
                         onSearchMembers={onSearchMembers}
                         onResolveFamilyId={onResolveFamilyId}
                         onSearchExpense={onSearchExpensePartners}
+                        onOpenFamily={
+                          tab === 'income' && onSearchFamilies && onGetFamilyMembers
+                            ? () => setFamilyPickerRowId(r.id)
+                            : undefined
+                        }
                         updateRow={updateRow}
                       />
                     </label>
@@ -808,21 +829,9 @@ export function CombinedEntryBody({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
-            <Plus className="size-4" /> Új sor
-          </button>
-          {tab === 'income' && onSearchFamilies && onGetFamilyMembers && (
-            <button
-              type="button"
-              onClick={() => setFamilyModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100"
-              title="Egy nyugta, több családtag — mindenki külön sorban, közös nyugtaszámon"
-            >
-              <Users className="size-4" /> Család
-            </button>
-          )}
-        </div>
+        <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
+          <Plus className="size-4" /> Új sor
+        </button>
         <div className="text-sm">
           <span className="text-slate-500">{tab === 'income' ? 'Bevételek' : 'Kiadások'} összege:</span>{' '}
           <strong className={tab === 'income' ? 'text-emerald-600' : 'text-red-500'}>{formatRon(tabTotal)} RON</strong>
@@ -855,17 +864,26 @@ export function CombinedEntryBody({
         </button>
       </div>
 
-      {/* #4b — Családi nyugta modal */}
-      {familyModalOpen && onSearchFamilies && onGetFamilyMembers && (
-        <FamilyReceiptModal
-          categoryOptions={familyCategoryOptions}
-          currentYear={currentYear}
-          onSearchFamilies={onSearchFamilies}
-          onGetFamilyMembers={onGetFamilyMembers}
-          onConfirm={handleFamilyConfirm}
-          onClose={() => setFamilyModalOpen(false)}
-        />
-      )}
+      {/* #5 — Családi nyugta: tag-választó az adott sorhoz (a sor adataival generál sorokat) */}
+      {familyPickerRowId !== null && onSearchFamilies && onGetFamilyMembers && (() => {
+        const tmpl = incomeRows.find((r) => r.id === familyPickerRowId)
+        const ctx = tmpl
+          ? [
+              tmpl.datum && `Dátum: ${tmpl.datum}`,
+              tmpl.iratszam && `Kerületi sz.: ${tmpl.iratszam}`,
+              tmpl.gyulekezetiSzam && `Gyül. sz.: ${tmpl.gyulekezetiSzam}`,
+            ].filter(Boolean).join(' · ')
+          : ''
+        return (
+          <FamilyReceiptModal
+            contextInfo={ctx || undefined}
+            onSearchFamilies={onSearchFamilies}
+            onGetFamilyMembers={onGetFamilyMembers}
+            onConfirm={handleFamilyConfirm}
+            onClose={() => setFamilyPickerRowId(null)}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -888,6 +906,7 @@ function PartnerCell({
   onSearchMembers,
   onResolveFamilyId,
   onSearchExpense,
+  onOpenFamily,
   updateRow,
 }: {
   row: EntryRow
@@ -896,6 +915,8 @@ function PartnerCell({
   onSearchMembers?: (query: string) => Promise<CombinedMemberHit[]>
   onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
   onSearchExpense?: (query: string) => Promise<string[]>
+  /** #5: ha megadva (bevétel), a partner-mezőnél „Család" gomb — tag-választó az adott sorhoz. */
+  onOpenFamily?: () => void
   updateRow: (id: string, patch: Partial<EntryRow>) => void
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
@@ -909,16 +930,14 @@ function PartnerCell({
 
   const measure = () => {
     const el = inputRef.current
-    // FONTOS: ugyanahhoz a sorhoz a táblázat (lg:block) ÉS a mobil-kártya (lg:hidden)
-    // is renderel egy PartnerCell-t — az egyik mindig CSS-sel REJTETT. A rejtett input
-    // getBoundingClientRect-je 0,0 → fantom legördülő ugrana a bal-felső sarokba (a
-    // felhasználó „kétszer jelennek meg, aztán eltűnnek" panasza). offsetParent === null
-    // ⇒ valamelyik ős display:none → ne nyissunk legördülőt ehhez a cellához.
-    if (!el || el.offsetParent === null) {
+    // A párhuzamosan renderelt REJTETT cella (táblázat lg:block ⇄ mobil-kártya lg:hidden)
+    // inputja display:none-os ősben van → isElementVisible=false → ne nyíljon fantom legördülő.
+    // (NEM offsetParent: a Base UI dialóg transformja a látható cellán is null-t adhatna.)
+    if (!isElementVisible(el)) {
       setDropRect(null)
       return
     }
-    const r = el.getBoundingClientRect()
+    const r = el!.getBoundingClientRect()
     setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
   }
 
@@ -934,7 +953,10 @@ function PartnerCell({
       window.removeEventListener('scroll', onMove, true)
       window.removeEventListener('resize', onMove)
     }
-  }, [open])
+    // `hits`-re is újramérünk: ha a dialóg-animáció miatt a mérés korábban null-t adott,
+    // a találatok beérkezésekor újrapozícionálunk (különben a lista nem nyílna ki).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hits])
 
   // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt).
   // Bevételnél tag-keresés (onSearchMembers), kiadásnál korábbi-partner autocomplete
@@ -949,9 +971,9 @@ function PartnerCell({
     }
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
-      // A párhuzamosan renderelt REJTETT cella (táblázat ⇄ mobil) ne keressen és ne
-      // nyisson legördülőt — csak a ténylegesen látható cella (offsetParent != null).
-      if (!inputRef.current || inputRef.current.offsetParent === null) return
+      // Csak a TÉNYLEGESEN látható cella keressen — a rejtett (másik breakpoint) ne.
+      // (isElementVisible, NEM offsetParent — lásd a helper kommentjét.)
+      if (!isElementVisible(inputRef.current)) return
       const p: Promise<CombinedMemberHit[]> =
         mode === 'income'
           ? (onSearchMembers ? onSearchMembers(q) : Promise.resolve([]))
@@ -1057,6 +1079,17 @@ function PartnerCell({
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
+      {onOpenFamily && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onOpenFamily}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+          title="Családi nyugta — több családtag egy nyugtán (a sor adataival)"
+        >
+          <Users className="size-3" /> Család keresése
+        </button>
+      )}
       {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
         createPortal(
           <div
