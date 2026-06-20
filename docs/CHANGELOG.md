@@ -23,7 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-20] — Oldalsáv: az almenü egy kattintásra nyílik, letisztultabb megjelenés
+## [2026-06-20] — Új nyomtatvány: Csoportnapló (jogcímenkénti tétellista)
+<!-- key: 2026-06-20-csoportnaplo -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Csoportnapló a Pénzügyi nyomtatási központban.** Minden **költségvetési jogcím** (számadási
+  cél) alatt a hozzá tartozó tételek listája — **dátum · irat · iratszám · partner · megjegyzés ·
+  összeg** —, **jogcímenkénti részösszeggel**, a bevételek és kiadások külön szekcióban, a végén
+  bevétel/kiadás/egyenleg összesítéssel.
+- **Román + magyar** felirat (Registru grupat pe capitole — Csoportnapló), **oldalszámozva**,
+  letisztult, nyomtatásra szerkesztett elrendezés (A4 fekvő, ismétlődő fejléc).
+- Az időszak a kiválasztott **hónap**, vagy „Teljes év" esetén **az egész év** (jogcímenként
+  összegyűjtve, nem hónapokra bontva). A **belső átvezetések** (3xx/4xx) automatikusan kimaradnak.
 <!-- key: 2026-06-20-oldalsav-almenu -->
 <!-- category: improvement -->
 <!-- targets: lelkesz, gondnok, penztaros, mindenki -->

@@ -396,6 +396,7 @@ export type FinancePrintType =
   | 'registru_casa'
   | 'registru_banca'
   | 'registru_jurnal'
+  | 'csoport_naplo'
   | 'nyugtatomb_kimutatas'
   | 'kiadasi_kiseroiv'
   | 'decont_reprint'
