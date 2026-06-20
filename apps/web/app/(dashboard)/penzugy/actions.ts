@@ -43,6 +43,7 @@ import type {
   FxRevaluationRow,
 } from '@/lib/constants/finance'
 import { getEffectiveCongregationContext, getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getActiveChitantaTombStatus } from './chitanta-tombok-actions'
 import { inventoryItemSchema } from '@/lib/validations/inventory'
 import { INVENTORY_CATEGORY_PREFIXES, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
@@ -1597,42 +1598,34 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
 // gyülekezeti sorozatot az első valódi tétel után (önjavító).
 export async function getNextReceiptNumbers(
   year: number,
-): Promise<{ keruleti: string; gyulekezeti: string }> {
+): Promise<{ keruleti: string; gyulekezeti: string; warning?: string }> {
   const scope = await getFinanceScope()
   if (!scope) return { keruleti: '', gyulekezeti: '' }
   const { supabase, T } = scope
 
-  // Egy számsorozat következő tagja: max(numerikus) + 1, a max értékhez tartozó
-  // számjegy-csoport szélességére nullázva (vezető nullák megőrzése: „0115301" → „0115302").
-  function nextOf(values: Array<string | null>, fallback: string): string {
-    let maxNum = 0
+  // Egy számsorozat maximuma (numerikus) + a max értékhez tartozó számjegy-szélesség.
+  function maxNumOf(values: Array<string | null>): { num: number; width: number } {
+    let num = 0
     let width = 0
     for (const v of values) {
       const m = String(v || '').match(/(\d+)/)
       if (!m) continue
       const n = parseInt(m[1], 10)
-      if (n > maxNum) { maxNum = n; width = m[1].length }
+      if (n > num) { num = n; width = m[1].length }
     }
-    if (maxNum === 0) return fallback
-    return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
+    return { num, width }
   }
+  const pad = (n: number, width: number) => (width > 0 ? String(n).padStart(width, '0') : String(n))
 
-  // KERÜLETI (nyomdai) szám: GLOBÁLISAN folytonos — a kerülettől kapott tömbök év végén nem
-  // indulnak újra, ezért az ÖSSZES készpénzes chitanta-iratszám maximuma + 1 (évfordulón is
-  // folytatja a tömböt). NEM `fizetettev`-re szűrünk, mert a nyugtaszám a fizikai kiállításhoz
-  // (datum) kötődik, nem ahhoz, melyik ÉVRE szól a befizetés.
+  // Az ÖSSZES készpénzes chitanta-iratszám (kerületi) + az adott NAPTÁRI év nyugta-számai (gyül.).
   let allQ = supabase.from(T.befizetes)
     .select('iratszam')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
     .ilike('irattipus', '%észpénz%')
-  if (scope.scope === 'congregation') {
-    allQ = allQ.is('belso_mozgas_xkey', null)
-  }
+  if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
   const { data: allData } = await allQ
 
-  // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → csak az adott NAPTÁRI év (datum) tételei;
-  // és CSAK a valódi (nem tükrözött nyugta=iratszam) sorok, hogy a régi/import adat ne rontsa el.
   let yearQ = supabase.from(T.befizetes)
     .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
@@ -1640,23 +1633,43 @@ export async function getNextReceiptNumbers(
     .ilike('irattipus', '%észpénz%')
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
-  if (scope.scope === 'congregation') {
-    yearQ = yearQ.is('belso_mozgas_xkey', null)
-  }
+  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
   const { data: yearData } = await yearQ
 
-  const keruleti = nextOf(
-    ((allData || []) as Array<{ iratszam: string | null }>).map((r) => r.iratszam),
-    '',
-  )
-  const gyulekezeti = nextOf(
+  // KERÜLETI (nyomdai) szám — HIBRID forrás:
+  //   (1) a regisztrált NYUGTATÖMB következő száma (a kerülettől kapott tömb alapja), és
+  //   (2) a befizetes.iratszam max+1 (ami mentésenként folytonosan nő).
+  // A kettő MAXIMUMA: üres befizetes-előzménynél a tömbből indul, mentés után pedig
+  // automatikusan tovább nő — így a tömböt NEM kell „fogyasztani" (race-mentes).
+  const befMax = maxNumOf(((allData || []) as Array<{ iratszam: string | null }>).map((r) => r.iratszam))
+  let tombNext = 0
+  let tombWidth = 0
+  let warning: string | undefined
+  if (scope.scope === 'congregation') {
+    try {
+      const tomb = await getActiveChitantaTombStatus()
+      if (tomb.active) {
+        tombNext = tomb.active.kovetkezo_szam
+        tombWidth = String(tomb.active.szam_veg).length
+      } else if (befMax.num === 0) {
+        warning = 'Nincs aktív nyugtatömb — rögzíts egyet a Nyugtatömbök panelen, vagy írd be a kerületi számot kézzel.'
+      }
+    } catch { /* a tömb-lekérdezés hibája ne törje a számozást */ }
+  }
+  const befNext = befMax.num > 0 ? befMax.num + 1 : 0
+  const keruletiNum = Math.max(befNext, tombNext)
+  const keruleti = keruletiNum > 0 ? pad(keruletiNum, Math.max(tombWidth, befMax.width)) : ''
+
+  // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → csak az adott NAPTÁRI év tételei,
+  // és CSAK a valódi (nem tükrözött nyugta=iratszam) sorok (a régi/import adat ne rontsa el).
+  const gyul = maxNumOf(
     ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
       .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
       .map((r) => r.nyugta),
-    '1',
   )
+  const gyulekezeti = gyul.num > 0 ? pad(gyul.num + 1, gyul.width) : '1'
 
-  return { keruleti, gyulekezeti }
+  return { keruleti, gyulekezeti, warning }
 }
 
 // ── Utolsó rögzített dátum ───────────────────────────────────

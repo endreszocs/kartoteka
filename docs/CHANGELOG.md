@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Chitanță-számozás a nyugtatömbből + Kerületi oszlop csak ha kell
+<!-- key: 2026-06-21-chitanta-tomb-szamozas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A Chitanță kerületi száma mostantól a regisztrált nyugtatömbből töltődik ki.** Eddig a rendszer
+  csak a korábbi befizetésekből próbálta kitalálni a következő számot — ha még nem volt rögzített
+  nyugta, üresen maradt. Mostantól az **aktív nyugtatömb** következő száma jelenik meg (a kerülettől
+  kapott tömb alapján), és mentésenként automatikusan tovább lép. Ha nincs aktív tömb, a rendszer
+  jelzi, hogy regisztrálj egyet a Nyugtatömbök panelen (vagy írd be kézzel).
+- **A Kerületi sz. és Gyül. sz. oszlop teljesen eltűnik**, ha egyetlen sorban sincs Chitanță
+  kiválasztva — más irattípusnál nem zavar feleslegesen.
+- **A „több azonos szám" téves jelzés megszűnt** üres iratszámnál, és tömeges bevitelnél a számok
+  most már **1, 2, 3, 4…** sorrendben nőnek (nem mind „1").
+
+---
+
 ## [2026-06-21] — Súgó: részletes leírás a „Tétel rögzítése" ablakról
 <!-- key: 2026-06-21-sugo-tetel-rogzitese -->
 <!-- category: improvement -->

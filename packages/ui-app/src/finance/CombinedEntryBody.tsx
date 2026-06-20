@@ -118,7 +118,7 @@ export interface CombinedEntryBodyProps {
    * nyugta). Mindkettő +1-gyel lép az utolsó nyugtához képest, hézag nélkül. Ha nincs
    * megadva, nincs automatikus kitöltés (a felhasználó kézzel ír mindkettőt).
    */
-  onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string }>
+  onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string; warning?: string }>
   /**
    * Beviteli őr P0 (Endre, 2026-06-20): a kerületi iratszám DUPLIKÁTUM-ellenőrzése mentés ELŐTT
    * (gépelés/elhagyás után). Igaz = már létezik ilyen iratszám a gyülekezetben. Csak bevételnél
@@ -205,6 +205,8 @@ export function CombinedEntryBody({
   const [lastRecordedDate, setLastRecordedDate] = useState<string | null>(null)
   /** Beviteli őr P0: azon sorok id-jai, ahol a kerületi iratszám már létezik a DB-ben. */
   const [dupRowIds, setDupRowIds] = useState<Set<string>>(() => new Set())
+  /** „Nincs aktív nyugtatömb" figyelmeztetés — dialógusonként egyszer (ne legyen toast-spam). */
+  const tombWarnedRef = useRef(false)
 
   // Beviteli őr P1: a legutóbb rögzített dátum egyszeri betöltése (figyelmeztetés alapja).
   useEffect(() => {
@@ -279,6 +281,9 @@ export function CombinedEntryBody({
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
   const partnerLabel = tab === 'income' ? 'Befizető / forrás' : 'Kedvezményezett'
+  // #1 (Endre): a Kerületi sz. + Gyül. sz. OSZLOP csak akkor látszik (bevétel), ha legalább
+  // egy sorban Chitanță az irattípus — különben teljesen eltűnik (nem csak „—").
+  const showIncomeReceiptCols = tab === 'income' && rows.some((r) => r.docType === 'Chitanță')
 
   // Kód-lookup mindkét fülre (a belső mozgás iránya független a fültől).
   const incomeKod = useMemo(() => new Map<number, string>(incomeCategories.map((c) => [c.id, c.kod] as [number, string])), [incomeCategories])
@@ -425,6 +430,11 @@ export function CombinedEntryBody({
       void onGetNextReceiptNumbers(year)
         .then((next) => {
           if (!next) return
+          // Ha nincs aktív nyugtatömb (és a kerületi üres), egyszer jelezzük.
+          if (next.warning && !next.keruleti && !tombWarnedRef.current) {
+            tombWarnedRef.current = true
+            onToast('error', next.warning)
+          }
           // ÉLŐ állapot alapján töltünk (nem a befagyott `r`-ből): a lekérés alatt kézzel
           // átírt mezőt nem írunk felül, és ha közben más irattípusra váltottak, nem stempelünk.
           setIncomeRows((cur) => {
@@ -670,8 +680,10 @@ export function CombinedEntryBody({
             <tr>
               <th className="px-2 py-2 text-left">Dátum</th>
               <th className="px-2 py-2 text-left">Irattípus</th>
-              <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
-              {tab === 'income' && <th className="px-2 py-2 text-left">Gyül. sz.</th>}
+              {(tab === 'expense' || showIncomeReceiptCols) && (
+                <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
+              )}
+              {showIncomeReceiptCols && <th className="px-2 py-2 text-left">Gyül. sz.</th>}
               <th className="px-2 py-2 text-left">{partnerLabel}</th>
               <th className="px-2 py-2 text-left">Jogcím</th>
               {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
@@ -699,23 +711,25 @@ export function CombinedEntryBody({
                       {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                     </select>
                   </td>
-                  <td className="px-2 py-1.5 w-[100px]">
-                    {dir || (tab === 'income' && !isChitanta) ? (
-                      <span className="text-xs text-slate-400">—</span>
-                    ) : (
-                      <>
-                        <input
-                          className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
-                          value={r.iratszam}
-                          title={tab === 'income' ? 'Kerületi (nyomdai) szám — a kerülettől kapott szám' : undefined}
-                          onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
-                          onBlur={() => checkRowDuplicate(r)}
-                        />
-                        {rWarn && <div className="mt-0.5 text-[10px] leading-tight text-red-600">⚠ {rWarn}</div>}
-                      </>
-                    )}
-                  </td>
-                  {tab === 'income' && (
+                  {(tab === 'expense' || showIncomeReceiptCols) && (
+                    <td className="px-2 py-1.5 w-[100px]">
+                      {dir || (tab === 'income' && !isChitanta) ? (
+                        <span className="text-xs text-slate-400">—</span>
+                      ) : (
+                        <>
+                          <input
+                            className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
+                            value={r.iratszam}
+                            title={tab === 'income' ? 'Kerületi (nyomdai) szám — a kerülettől kapott szám' : undefined}
+                            onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
+                            onBlur={() => checkRowDuplicate(r)}
+                          />
+                          {rWarn && <div className="mt-0.5 text-[10px] leading-tight text-red-600">⚠ {rWarn}</div>}
+                        </>
+                      )}
+                    </td>
+                  )}
+                  {showIncomeReceiptCols && (
                     <td className="px-2 py-1.5 w-[100px]">
                       {dir || !isChitanta ? (
                         <span className="text-xs text-slate-400">—</span>
