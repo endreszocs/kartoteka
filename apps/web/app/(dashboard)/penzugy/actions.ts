@@ -265,7 +265,9 @@ async function insertIncomeRecord(params: {
   const legacyCompatiblePayload = {
     ...modernPayload,
     xkey: randomUUID().replace(/-/g, '').slice(0, 20),
-    nyugta: documentNumber,
+    // #3 (Endre): a `nyugta` a GYÜLEKEZETI saját sorszám (a kerületi = iratszam mellett).
+    // Ha nincs megadva, a régi viselkedés szerint az iratszámmal egyezik (a NOT NULL miatt is).
+    nyugta: input.nyugta?.trim() || documentNumber,
     csalad: Boolean(input.id_csalad),
     forrasa: input.forrasa || 'Kézi rögzítés',
     userid: userId,
@@ -1583,6 +1585,65 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
     if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1])
   })
   return maxNum + 1
+}
+
+// ── #3 (Endre): következő nyugtaszámok — kerületi (nyomdai) + gyülekezeti ──
+// A nyugtán KÉT szám van: a kerületi (a kerülettől kapott, előre nyomtatott szám —
+// `befizetes.iratszam`) és a gyülekezeti (a gyülekezet saját sorszáma — `befizetes.nyugta`).
+// Mindkettő FOLYAMATOS (hézagmentes): a következő = az UTOLSÓ nyugta számai + 1.
+// „Utolsó" = a legnagyobb kerületi számú sor — ennek a sornak vesszük MINDKÉT számát,
+// és léptetjük +1-gyel (lépésben), a vezető nullák megőrzésével (pl. „0115301" → „0115302").
+// Így a két szám együtt lép, és a régi (tükrözött nyugta=iratszam) adat sem rontja el a
+// gyülekezeti sorozatot az első valódi tétel után (önjavító).
+export async function getNextReceiptNumbers(
+  year: number,
+): Promise<{ keruleti: string; gyulekezeti: string }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { keruleti: '', gyulekezeti: '' }
+  const { supabase, T } = scope
+
+  // FONTOS: az egyediségi index (congregation_id, fizetettev, iratszam) és a mentés is
+  // `fizetettev`-alapú — ezért a következő-szám lookup is `fizetettev`-re szűr (NEM datumra),
+  // különben visszamenőleges (pótlás) befizetésnél hézag vagy 23505-ütközés keletkezne.
+  let q = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+    .eq('fizetettev', year)
+  if (scope.scope === 'congregation') {
+    q = q.is('belso_mozgas_xkey', null)
+  }
+  const { data } = await q
+  const rows = (data || []) as Array<{ iratszam: string | null; nyugta: string | null }>
+
+  // Egy számsorozat következő tagja: max(numerikus) + 1, a max értékhez tartozó
+  // számjegy-csoport szélességére nullázva (vezető nullák megőrzése: „0115301" → „0115302").
+  function nextOf(values: Array<string | null>, fallback: string): string {
+    let maxNum = 0
+    let width = 0
+    for (const v of values) {
+      const m = String(v || '').match(/(\d+)/)
+      if (!m) continue
+      const n = parseInt(m[1], 10)
+      if (n > maxNum) { maxNum = n; width = m[1].length }
+    }
+    if (maxNum === 0) return fallback
+    return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
+  }
+
+  // Kerületi (nyomdai): az iratszam-sorozatból (ez az egyediség-indexelt szám). Feltételezzük,
+  // hogy a kerülettől kapott tömbök növekvő sorrendben kerülnek használatba. Nincs előzmény →
+  // üres (a felhasználó írja be a tömb első számát).
+  const keruleti = nextOf(rows.map((r) => r.iratszam), '')
+  // Gyülekezeti: CSAK a valódi (nem tükrözött) sorokból — a régi/import adat, ahol nyugta=iratszam,
+  // egy kerületi-méretű számot tartalmazna, ami elrontaná a gyülekezeti sorozatot. Nincs valódi → „1".
+  const gyulekezeti = nextOf(
+    rows.filter((r) => r.nyugta && r.nyugta !== r.iratszam).map((r) => r.nyugta),
+    '1',
+  )
+
+  return { keruleti, gyulekezeti }
 }
 
 // ── Utolsó rögzített dátum ───────────────────────────────────

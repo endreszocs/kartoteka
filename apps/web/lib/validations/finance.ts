@@ -21,6 +21,8 @@ export const incomeSchema = z.object({
   id_csalad: z.number().nullable().optional(),
   forrasa: z.string().nullable().optional(),
   iratszam: z.string().nullable().optional(),
+  // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
+  nyugta: z.string().nullable().optional(),
   irattipus: z.enum(RECEIPT_TYPES),
   fizetettev: z.number().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
@@ -64,6 +66,8 @@ export const incomeBatchRowSchema = z.object({
   forrasa: z.string().nullable().optional(),
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
   iratszam: z.string().nullable().optional(),
+  // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
+  nyugta: z.string().nullable().optional(),
   irattipus: z.enum(RECEIPT_TYPES),
   fizetettev: z.number().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),

@@ -105,6 +105,8 @@ export function DesktopCombinedEntryDialog({
             forrasa: row.forrasa,
             // Offline-ban a backend a tárcából választ iratszámot.
             iratszam: isOnline ? row.iratszam : null,
+            // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi mellett).
+            nyugta: row.nyugta ?? null,
             irattipus: row.irattipus,
             fizetettev: row.fizetettev,
             megjegyzes: row.megjegyzes,

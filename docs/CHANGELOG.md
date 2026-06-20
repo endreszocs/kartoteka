@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Nyugta: kerületi + gyülekezeti szám, automatikus következő-szám
+<!-- key: 2026-06-21-nyugta-ketszam-autoszam -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **A nyugtán mostantól KÉT szám szerepel: a kerületi és a gyülekezeti.** A bevétel rögzítésénél a
+  „Kerületi sz." (a kerülettől kapott, előre nyomtatott szám) mellett külön mező a „Gyül. sz."
+  (a gyülekezet saját sorszáma). Mindkettő külön tárolódik és **megjelenik a pénztári napló
+  (Registru Casa) nyomtatásban is** (külön „Nr. ker." és „Nr. gyül." oszlop).
+- **Chitanță (nyugta) választásakor automatikus következő-szám.** Amikor a bevételnél a Chitanță
+  irattípust választod, a rendszer **mindkét számot kitölti a következő szabad sorszámmal** — az
+  utolsó nyugtához képest **+1, hézag nélkül** (pl. kerületi `0115301` → `0115302`, gyülekezeti
+  `86` → `87`, a vezető nullák megőrzésével). A számok kézzel felülírhatók.
+
+### 🐛 Háttér-javítás
+
+- A Tétel rögzítője által küldött gyülekezeti szám (`nyugta`) eddig nem volt külön tárolva
+  (az iratszámmal megegyezően mentődött); mostantól a kettő külön kezelhető.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: kereső-javítás + vázlat-állapot kijelzés
 <!-- key: 2026-06-21-tetel-kereso-vazlat-allapot -->
 <!-- category: bugfix -->

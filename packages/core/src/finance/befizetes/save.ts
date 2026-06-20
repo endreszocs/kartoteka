@@ -274,7 +274,7 @@ export async function saveIncomeUseCase(
   const legacyCompatiblePayload: Record<string, unknown> = {
     ...modernPayload,
     xkey: generateXkey(),
-    nyugta: documentNumber,
+    nyugta: clean.nyugta?.trim() || documentNumber,
     csalad: Boolean(clean.id_csalad),
     forrasa: clean.forrasa || 'Kézi rögzítés',
     userid: ctx.userId,
@@ -427,7 +427,7 @@ async function saveIncomeOfflineBranch(
         id_csalad: clean.id_csalad ?? null,
         forrasa: clean.forrasa || 'Desktop offline rögzítés',
         iratszam: documentNumber,
-        nyugta: documentNumber,
+        nyugta: clean.nyugta?.trim() || documentNumber,
         irattipus: clean.irattipus,
         fizetettev: year,
         megjegyzes: clean.megjegyzes || null,

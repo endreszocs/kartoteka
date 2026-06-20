@@ -114,6 +114,13 @@ export interface CombinedEntryBodyProps {
   onSearchFamilies?: (query: string) => Promise<CombinedFamilyHit[]>
   onGetFamilyMembers?: (familyId: number) => Promise<CombinedFamilyMember[]>
   /**
+   * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
+   * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
+   * nyugta). Mindkettő +1-gyel lép az utolsó nyugtához képest, hézag nélkül. Ha nincs
+   * megadva, nincs automatikus kitöltés (a felhasználó kézzel ír mindkettőt).
+   */
+  onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string }>
+  /**
    * #3 (Endre, 2026-06-21): auto-vázlatmentés kulcsa (pl. `combined-entry:<congregationId>`).
    * Ha megadva, a bevitt sorok GÉPELÉS KÖZBEN azonnal a böngésző localStorage-ába
    * mentődnek, és a dialóg újranyitásakor visszaállnak — így áramszünet / véletlen
@@ -129,7 +136,10 @@ type EntryRow = {
   categoryId: number | ''
   partner: string
   docType: string
+  /** #3 (Endre): a kerületi (nyomdai) szám — Chitanță esetén a kerülettől kapott szám (befizetes.iratszam). */
   iratszam: string
+  /** #3 (Endre): a gyülekezeti saját sorszám — Chitanță esetén külön szám (befizetes.nyugta). */
+  gyulekezetiSzam: string
   amount: string
   megjegyzes: string
   bankId: number | ''
@@ -144,7 +154,7 @@ type EntryRow = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const newRow = (year?: number): EntryRow => ({
-  id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', amount: '', megjegyzes: '', bankId: '',
+  id: crypto.randomUUID(), datum: todayIso(), categoryId: '', partner: '', docType: '', iratszam: '', gyulekezetiSzam: '', amount: '', megjegyzes: '', bankId: '',
   evre: year != null ? String(year) : '',
   szemelyId: null, csaladId: null,
 })
@@ -157,7 +167,7 @@ export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
   onSearchMembers, onResolveFamilyId, onSearchExpensePartners,
-  onSearchFamilies, onGetFamilyMembers, draftStorageKey,
+  onSearchFamilies, onGetFamilyMembers, onGetNextReceiptNumbers, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
@@ -311,6 +321,36 @@ export function CombinedEntryBody({
     return parts.length ? parts.join(' ') : null
   }
 
+  // #3: irattípus-váltás — Chitanță (nyugta) választásakor a KÖVETKEZŐ nyugtaszámok
+  // automatikus kitöltése: kerületi (iratszam) + gyülekezeti (nyugta), mindkettő +1.
+  // Csak üres mezőt tölt (a kézzel beírtat nem írja felül).
+  function handleDocTypeChange(r: EntryRow, value: string) {
+    // Az irattípust AZONNAL beállítjuk (a vezérelt select ne ugorjon vissza a hálózati
+    // lekérés alatt), a nyugtaszámokat utána, aszinkron töltjük.
+    updateRow(r.id, { docType: value })
+    const needsFill = !r.iratszam.trim() || !r.gyulekezetiSzam.trim()
+    // Auto-szám CSAK a Bevétel fülön, Chitanță-nál, ha van üres kitöltendő mező.
+    if (tab === 'income' && value === 'Chitanță' && onGetNextReceiptNumbers && needsFill) {
+      const year = Number(r.evre) || Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
+      void onGetNextReceiptNumbers(year)
+        .then((next) => {
+          if (!next) return
+          // ÉLŐ állapot alapján töltünk (nem a befagyott `r`-ből): a lekérés alatt kézzel
+          // átírt mezőt nem írunk felül, és ha közben más irattípusra váltottak, nem stempelünk.
+          setIncomeRows((cur) =>
+            cur.map((row) => {
+              if (row.id !== r.id || row.docType !== 'Chitanță') return row
+              const patch: Partial<EntryRow> = {}
+              if (next.keruleti && !row.iratszam.trim()) patch.iratszam = next.keruleti
+              if (next.gyulekezeti && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = next.gyulekezeti
+              return Object.keys(patch).length ? { ...row, ...patch } : row
+            }),
+          )
+        })
+        .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
+    }
+  }
+
   // #4b: a Családi nyugta modal megerősítése — személyenként KÜLÖN bevétel-sor.
   // Egy nyugta, több név: közös alapszám, soronként `/N` utótaggal (a készpénzes
   // iratszámra UNIQUE index van → azonos szám ütközne). Egyetlen tagnál nincs utótag.
@@ -363,6 +403,8 @@ export function CombinedEntryBody({
       incomeBatch.push({
         datum, id_befizetescel: Number(r.categoryId), forrasa: r.partner.trim() || null,
         osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+        // #3: a gyülekezeti saját sorszám (a kerületi = iratszam mellett) → befizetes.nyugta
+        nyugta: r.gyulekezetiSzam.trim() || null,
         // #1: a kézzel megadott „melyik évre" (visszamenőleges járulék); ha üres, a dátum éve / aktuális év.
         fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear, megjegyzes: r.megjegyzes.trim() || null,
         // B1: tag- vagy család-kapcsolat (kölcsönösen kizáró)
@@ -491,7 +533,8 @@ export function CombinedEntryBody({
             <tr>
               <th className="px-2 py-2 text-left">Dátum</th>
               <th className="px-2 py-2 text-left">Irattípus</th>
-              <th className="px-2 py-2 text-left">Irat sz.</th>
+              <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
+              {tab === 'income' && <th className="px-2 py-2 text-left">Gyül. sz.</th>}
               <th className="px-2 py-2 text-left">{partnerLabel}</th>
               <th className="px-2 py-2 text-left">Jogcím</th>
               {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
@@ -509,12 +552,26 @@ export function CombinedEntryBody({
                     {renderDateField(r)}
                   </td>
                   <td className="px-2 py-1.5 w-[130px]">
-                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
+                    <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => void handleDocTypeChange(r, e.target.value)}>
                       <option value="">—</option>
                       {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                     </select>
                   </td>
-                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} title={tab === 'income' ? 'Kerületi (nyomdai) szám — Chitanță esetén a kerülettől kapott szám' : undefined} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
+                  {tab === 'income' && (
+                    <td className="px-2 py-1.5 w-[100px]">
+                      {dir ? (
+                        <span className="text-xs text-slate-400">—</span>
+                      ) : (
+                        <input
+                          className={inputClass}
+                          value={r.gyulekezetiSzam}
+                          title="Gyülekezeti saját sorszám (a nyugtán a kerületi szám mellett)"
+                          onChange={(e) => updateRow(r.id, { gyulekezetiSzam: e.target.value })}
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-2 py-1.5">
                     {dir ? (
                       <span className="text-xs text-slate-400">—</span>
@@ -612,14 +669,19 @@ export function CombinedEntryBody({
                       />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
-                      <select className={inputClass} value={r.docType} onChange={(e) => updateRow(r.id, { docType: e.target.value })}>
+                      <select className={inputClass} value={r.docType} onChange={(e) => void handleDocTypeChange(r, e.target.value)}>
                         <option value="">—</option>
                         {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                       </select>
                     </label>
-                    <label className="text-xs text-slate-500">Irat sz.
+                    <label className="text-xs text-slate-500">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}
                       <input className={inputClass} value={r.iratszam} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} />
                     </label>
+                    {tab === 'income' && (
+                      <label className="text-xs text-slate-500">Gyül. sz.
+                        <input className={inputClass} value={r.gyulekezetiSzam} onChange={(e) => updateRow(r.id, { gyulekezetiSzam: e.target.value })} />
+                      </label>
+                    )}
                   </>
                 )}
                 <label className="col-span-2 text-xs text-slate-500">Megjegyzés

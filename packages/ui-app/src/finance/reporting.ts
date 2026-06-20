@@ -127,6 +127,12 @@ function getDocNumber(row: BefitetesRow | KiadasRow): string {
   return ('iratszam' in row ? row.iratszam : null) || ('nyugta' in row ? row.nyugta : null) || ('bizonylatszam' in row ? (row as KiadasRow).bizonylatszam : null) || ''
 }
 
+// #3 (Endre): a GYÜLEKEZETI saját sorszám (befizetes.nyugta) — a kerületi (iratszam) mellett.
+// Csak bevételnél értelmezett; kiadásnál üres.
+function getCongregationNumber(row: BefitetesRow | KiadasRow): string {
+  return ('nyugta' in row ? (row as BefitetesRow).nyugta : null) || ''
+}
+
 function getCategoryCode(row: BefitetesRow | KiadasRow, bevCelMap: Record<number, string>, kiaCelMap: Record<number, string>): string {
   if ('id_befizetescel' in row && row.id_befizetescel) return bevCelMap[row.id_befizetescel] || ''
   if ('id_kiadascel' in row && (row as KiadasRow).id_kiadascel) return kiaCelMap[(row as KiadasRow).id_kiadascel!] || ''
@@ -273,12 +279,15 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   const carry = computeCarryover(data.income, data.expense, f.year, f.month, filterCash, data.carryoverCash)
 
   // Összes tranzakció egyesítve, dátum szerint rendezve
-  type Row = { date: string; docType: string; docNum: string; desc: string; income: number; expense: number; code: string }
+  type Row = { date: string; docType: string; docNum: string; congNum: string; desc: string; income: number; expense: number; code: string }
   const rows: Row[] = []
 
   for (const r of mIncome) {
+    // #3: a gyülekezeti szám (nyugta) — ha megegyezik a kerületivel (régi, tükrözött adat), ne ismételjük.
+    const dn = getDocNumber(r)
+    const cn = getCongregationNumber(r)
     rows.push({
-      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
+      date: fmtDate(r.datum), docType: getDocType(r), docNum: dn, congNum: cn && cn !== dn ? cn : '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
       income: Number(r.osszeg || 0), expense: 0,
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
@@ -286,7 +295,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   }
   for (const r of mExpense) {
     rows.push({
-      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
+      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r), congNum: '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
       income: 0, expense: Number(r.osszeg || 0),
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
@@ -307,6 +316,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
       <td class="text-center">${r.date}</td>
       <td class="text-center">${esc(r.docType)}</td>
       <td class="text-center">${esc(r.docNum)}</td>
+      <td class="text-center">${esc(r.congNum)}</td>
       <td>${esc(r.desc)}</td>
       <td class="text-right">${r.income ? fmtNum(r.income) : ''}</td>
       <td class="text-right">${r.expense ? fmtNum(r.expense) : ''}</td>
@@ -324,14 +334,14 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
     </div>
     <table>
       <thead>
-        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
-        <tr><th>Fel</th><th>Numar</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="3">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
+        <tr><th>Fel</th><th>Nr. ker.</th><th>Nr. gyül.</th><th>Incasate</th><th>Platite</th></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
       </thead>
       <tbody>
-        <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
+        <tr class="carry"><td colspan="6" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
         ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
+        <tr class="totals"><td colspan="6" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
       </tbody>
     </table>
     <div class="footer">

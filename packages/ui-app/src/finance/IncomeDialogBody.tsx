@@ -74,6 +74,8 @@ export interface SaveIncomeBatchRow {
   irattipus: (typeof RECEIPT_TYPES)[number]
   fizetettev: number | null
   megjegyzes: string | null
+  /** #3 (2026-06-20): gyülekezeti saját sorszám (a kerületi = iratszam mellett) → befizetes.nyugta. */
+  nyugta?: string | null
   /** B1 (2026-06-11): a befizetés tag-kapcsolata (kölcsönösen kizáró a családdal). */
   id_szemely?: number | null
   /** B1: családi befizetésnél a család azonosítója. */
