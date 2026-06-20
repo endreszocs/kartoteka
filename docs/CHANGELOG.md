@@ -81,6 +81,14 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **Helyes bank- és kassza-nyitó egyenleg (áthozat).** A Pénzügy áttekintő/Bank/Kassza nyitó egyenlege
+  eddig **csak az előző évi forgalmat** vette számításba, a **rögzített nyitó (előző évről áthozott)
+  egyenleget nem** — ezért hibás, akár **negatív** nyitót mutatott (pl. a banknál). Mostantól a nyitó
+  helyesen az **adott évre rögzített nyitó egyenleg**, vagy ha az nincs, az **előző év zárója** (előző
+  nyitó + forgalom). Ráadásul a kassza/bank szétválasztás már a **számla** szerint megy (nem az
+  irattípus alapján), így az importált tételeknél is pontos.
+- **A Pénzügy oldal többé nem omlik össze beállítás nélküli évnél** (a korábbi évre váltáskor jelentkező
+  `revalidatePath` hiba megszüntetve).
 - **Eltérő cím = külön személy.** Ha egy névhez csak egyetlen, de **más utcában lakó** tag illett (pl.
   „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
   **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te

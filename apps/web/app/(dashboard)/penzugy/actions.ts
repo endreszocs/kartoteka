@@ -636,9 +636,9 @@ export async function initFinance(year: number) {
     supabase.from('bankszamlak').select('*').eq('congregation_id', congregationId).eq('aktiv', true),
     supabase.from('befizetes').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     supabase.from('kiadas').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    // Előző évi adatok az átviteli egyenleghez
-    supabase.from('befizetes').select('osszeg, irattipus').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, irattipus').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
+    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     supabase
       .from('szemely')
@@ -818,16 +818,38 @@ export async function initFinance(year: number) {
     if (kod === '100.02') bmKiaBanki = Number(id)
   }
 
-  // Átviteli egyenleg
-  let carryoverCash = 0, carryoverBank = 0
-  ;(prevBevRes.data || []).forEach((r: { osszeg: number; irattipus: string }) => {
-    if (r.irattipus === 'Készpénz') carryoverCash += Number(r.osszeg) || 0
-    else carryoverBank += Number(r.osszeg) || 0
+  // Átviteli (nyitó) egyenleg. A nyitó = az ÉVRE RÖGZÍTETT nyitó egyenleg (keszpenz_nyito_egyenleg /
+  // bankszamla_nyito_egyenleg, pl. importból), ha van; KÜLÖNBEN az előző év ZÁRÓJA
+  // (= előző évi rögzített nyitó + előző évi nettó forgalom). Korábban CSAK az előző évi nettó
+  // forgalmat számolta → a rögzített nyitó kimaradt, ezért a bank/kassza nyitó hibás (akár negatív) lett.
+  const [cashNyitoRes, bankNyitoRes] = await Promise.all([
+    supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+  ])
+  let recCashCur = 0, recCashPrev = 0, hasCashCur = false
+  for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+    if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
+    else recCashPrev += Number(r.nyito_egyenleg) || 0
+  }
+  let recBankCur = 0, recBankPrev = 0, hasBankCur = false
+  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
+    if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
+    else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+  }
+  // Előző évi NETTÓ forgalom — bankszamla_id szerint szétválasztva (NULL=kassza, egyébként bank).
+  let carryoverCashNet = 0, carryoverBankNet = 0
+  ;(prevBevRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg) || 0
+    else carryoverBankNet += Number(r.osszeg) || 0
   })
-  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; irattipus: string }) => {
-    if (r.irattipus === 'Készpénz') carryoverCash -= Number(r.osszeg) || 0
-    else carryoverBank -= Number(r.osszeg) || 0
+  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg) || 0
+    else carryoverBankNet -= Number(r.osszeg) || 0
   })
+  const carryoverCash = hasCashCur ? recCashCur : recCashPrev + carryoverCashNet
+  const carryoverBank = hasBankCur ? recBankCur : recBankPrev + carryoverBankNet
 
   // Évenkénti járulék
   const yearlyFees: Record<number, number> = {}
