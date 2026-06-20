@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Dispoziție de plată / încasare: működő újranyomtatás + letisztult nyomtatvány
+<!-- key: 2026-06-20-dispozitie-javitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A Dispoziție de plată / încasare ismét működik.** A nyomtatási központban mostantól
+  **megjelennek a 2025-ben (importból) rögzített rendelvények**, és újra is nyomtathatók.
+  Korábban a lista üres maradt egy belső adatbázis-hiba miatt (a rendszer egy nem létező
+  oszlopot keresett). Ugyanez a hiba okozta, hogy **új Dispoziție létrehozása**, a **manuális
+  kiadás rögzítése** és az **évvégi árfolyam-veszteség** könyvelése is elakadhatott — mindezek
+  szintén javítva.
+
+### 🎨 UX javítások
+
+- **Helyes fejléc a rendelvényen.** A Dispoziție tetején mostantól a **hivatalos román név**
+  (pl. „Parohia Reformată Brateș") áll felül, alatta pedig a **magyar név** (pl. „Barátosi
+  Református Egyházközség") — szépen, két sorban. A román nevet a Gyülekezet adatlapjáról veszi.
+- **Kitöltött „Scopul plății" (a fizetés célja).** Az importált rendelvényeknél a cél mezőbe
+  automatikusan bekerül a **kiadás/bevétel jogcíme** (a kategória neve).
+- **Letisztult űrlap.** A rendelvényről **elhagytuk a fölösleges aláírás-rovatot**
+  (Conducătorul unităţii / Viza de control financiar-preventiv / Compartimentul financiar-contabil),
+  így átláthatóbb és kevesebb a nyomtatási hely.
+
+---
+
 ## [2026-06-19] — Pénzügyi import: opcionális „bevételek XML" referencia (pontosabb évek, kevesebb hiba)
 <!-- key: 2026-06-19-import-xml-referencia -->
 <!-- category: feature -->

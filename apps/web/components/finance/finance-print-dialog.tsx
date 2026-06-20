@@ -54,6 +54,8 @@ interface FinancePrintDialogProps {
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
+  congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
   currentYear: number
@@ -79,6 +81,7 @@ export function FinancePrintDialog({
   bevCelMap,
   kiaCelMap,
   congregationName,
+  congregationNameRo,
   carryoverCash,
   carryoverBank,
   currentYear,
@@ -127,7 +130,7 @@ export function FinancePrintDialog({
               if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
               const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
               return {
-                html: buildDispozitieHtml({ congregationName: `Parohia Reformată ${congregationName}`, ...data }),
+                html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
                 title: `Dispoziție #${data.sorszam}`,
                 filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
                 orientation: 'portrait',

@@ -60,6 +60,8 @@ interface FinanceTabsProps {
   carryoverCash: number
   carryoverBank: number
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
+  congregationNameRo?: string
   congregationId: string
   debtCalcMode: DebtCalcMode
   yearlyFees: Record<number, number>
@@ -83,7 +85,7 @@ interface FinanceTabsProps {
 export function FinanceTabs({
   settings, szamadasiCellek, bevCelMap, kiaCelMap,
   bankAccounts, internalTransfers, initialIncome, initialExpense,
-  carryoverCash, carryoverBank, congregationName, congregationId,
+  carryoverCash, carryoverBank, congregationName, congregationNameRo, congregationId,
   currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   showAdminImport = false,
@@ -598,6 +600,7 @@ export function FinanceTabs({
         open={dispozitieOpen}
         onOpenChange={(open) => { setDispozitieOpen(open); if (!open) refreshData() }}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         incomeCategories={incomeCategories}
         expenseCategories={expenseCategories}
         // A kiválasztott (nem folyó) évre álló alapértelmezett dátum, hogy a Dispoziție a
@@ -634,6 +637,7 @@ export function FinanceTabs({
         bevCelMap={bevCelMap}
         kiaCelMap={kiaCelMap}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}

@@ -727,24 +727,27 @@ export async function initFinance(year: number) {
   }
 
   let congregationName = ''
+  let congregationNameRo = '' // hivatalos román név (pl. „Parohia Reformată Brateș") a nyomtatványokhoz
   let debtCalcMode: 'akkori' | 'aktualis' = 'akkori'
 
   const congRes = await supabase
     .from('congregations')
-    .select('nev_hu, name, tartozas_szamitas_mod')
+    .select('nev_hu, nev_ro, name, tartozas_szamitas_mod')
     .eq('id', congregationId)
     .single()
 
   if (congRes.error?.message?.includes('tartozas_szamitas_mod')) {
     const fallbackRes = await supabase
       .from('congregations')
-      .select('nev_hu, name')
+      .select('nev_hu, nev_ro, name')
       .eq('id', congregationId)
       .single()
 
     congregationName = fallbackRes.data?.nev_hu || fallbackRes.data?.name || ''
+    congregationNameRo = (fallbackRes.data?.nev_ro as string | null) || ''
   } else {
     congregationName = congRes.data?.nev_hu || congRes.data?.name || ''
+    congregationNameRo = (congRes.data?.nev_ro as string | null) || ''
     debtCalcMode = normalizeDebtCalcMode(congRes.data?.tartozas_szamitas_mod)
   }
 
@@ -1029,6 +1032,7 @@ export async function initFinance(year: number) {
     carryoverBank,
     internalTransfers,
     congregationName,
+    congregationNameRo,
     debtCalcMode,
     yearlyFees,
     debtRows,
@@ -1215,6 +1219,7 @@ async function initFinanceDiocese(
     carryoverBank,
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: dioceseName, // UI label, diocese módban a diocese neve
+    congregationNameRo: '', // diocese módban nincs külön román gyülekezetnév
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
     yearlyFees: {} as Record<number, number>, // diocese-nél nincs tag-járulék
     debtRows: [] as DebtRow[], // tag-szintű adósság diocese-ben nincs

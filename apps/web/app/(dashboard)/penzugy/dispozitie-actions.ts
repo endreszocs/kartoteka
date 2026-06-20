@@ -211,7 +211,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
   const [kiaImp, bevImp] = await Promise.all([
     ctx.supabase
       .from('kiadas')
-      .select('id, datum, osszeg, iratszam, atvevo, megjegyzes')
+      .select('id, datum, osszeg, iratszam, atvevo, megjegyzes, id_kiadascel')
       .eq('congregation_id', ctx.scopeId)
       .eq('deleted', false)
       .is('dispozitie_id', null)
@@ -220,7 +220,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
       .lte('datum', `${year}-12-31`),
     ctx.supabase
       .from('befizetes')
-      .select('id, datum, osszeg, iratszam, forrasa, megjegyzes')
+      .select('id, datum, osszeg, iratszam, forrasa, megjegyzes, id_befizetescel')
       .eq('congregation_id', ctx.scopeId)
       .eq('deleted', false)
       .is('dispozitie_id', null)
@@ -228,6 +228,25 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
       .gte('datum', `${year}-01-01`)
       .lte('datum', `${year}-12-31`),
   ])
+
+  // A „Scopul plății" (cél) kitöltéséhez feloldjuk a kategória nevét (jogcím).
+  // Külön lekérdezésekkel (NEM beágyazott join — az korábban hibázott):
+  // kiadascel/befizetescel.id_szamadasicel (= kód) → szamadasicel.nev.
+  const celNameByKia = new Map<number, string>()
+  const celNameByBev = new Map<number, string>()
+  const kiaCelIds = [...new Set((kiaImp.data || []).map((r) => (r as { id_kiadascel?: number }).id_kiadascel).filter(Boolean) as number[])]
+  const bevCelIds = [...new Set((bevImp.data || []).map((r) => (r as { id_befizetescel?: number }).id_befizetescel).filter(Boolean) as number[])]
+  if (kiaCelIds.length || bevCelIds.length) {
+    const [kiaCelRows, bevCelRows] = await Promise.all([
+      kiaCelIds.length ? ctx.supabase.from('kiadascel').select('id, id_szamadasicel').in('id', kiaCelIds) : Promise.resolve({ data: [] as { id: number; id_szamadasicel: string }[] }),
+      bevCelIds.length ? ctx.supabase.from('befizetescel').select('id, id_szamadasicel').in('id', bevCelIds) : Promise.resolve({ data: [] as { id: number; id_szamadasicel: string }[] }),
+    ])
+    const codes = [...new Set([...(kiaCelRows.data || []), ...(bevCelRows.data || [])].map((r) => r.id_szamadasicel).filter(Boolean))]
+    const szRows = codes.length ? await ctx.supabase.from('szamadasicel').select('id, nev').in('id', codes) : { data: [] as { id: string; nev: string }[] }
+    const nameByCode = new Map((szRows.data || []).map((r) => [String(r.id), String(r.nev || '')]))
+    ;(kiaCelRows.data || []).forEach((r) => celNameByKia.set(r.id, nameByCode.get(String(r.id_szamadasicel)) || ''))
+    ;(bevCelRows.data || []).forEach((r) => celNameByBev.set(r.id, nameByCode.get(String(r.id_szamadasicel)) || ''))
+  }
 
   const imported: DispozitieReprintOption[] = []
   for (const r of (kiaImp.data || []) as Record<string, unknown>[]) {
@@ -244,7 +263,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
         name,
         tisztseg: '',
         amount: Number(r.osszeg) || 0,
-        cel: String(r.megjegyzes || ''),
+        cel: celNameByKia.get(Number(r.id_kiadascel)) || String(r.megjegyzes || ''),
         ciTipus: '',
         ciSerie: '',
         ciNr: '',
@@ -265,7 +284,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
         name,
         tisztseg: '',
         amount: Number(r.osszeg) || 0,
-        cel: String(r.megjegyzes || ''),
+        cel: celNameByBev.get(Number(r.id_befizetescel)) || String(r.megjegyzes || ''),
         ciTipus: '',
         ciSerie: '',
         ciNr: '',

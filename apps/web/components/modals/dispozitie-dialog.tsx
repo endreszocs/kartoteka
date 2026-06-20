@@ -31,13 +31,15 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványhoz. */
+  congregationNameRo?: string
   incomeCategories: DispozitieCategoryOption[]
   expenseCategories: DispozitieCategoryOption[]
   /** A kiválasztott költségvetési évre álló alapértelmezett dátum (yyyy-mm-dd). */
   defaultDate?: string
 }
 
-export function DispozitieDialog({ open, onOpenChange, congregationName, incomeCategories, expenseCategories, defaultDate }: Props) {
+export function DispozitieDialog({ open, onOpenChange, congregationName, congregationNameRo, incomeCategories, expenseCategories, defaultDate }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -63,6 +65,7 @@ export function DispozitieDialog({ open, onOpenChange, congregationName, incomeC
         <div className="flex-1 overflow-y-auto px-6 py-4 sm:px-8 sm:py-5">
           <DispozitieDialogBody
             congregationName={congregationName}
+            congregationNameRo={congregationNameRo}
             incomeCategories={incomeCategories}
             expenseCategories={expenseCategories}
             defaultDate={defaultDate}

@@ -52,6 +52,8 @@ export interface DispozitieSaveInput {
 
 export interface DispozitieDialogBodyProps {
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") — a fejléc 1. sora. */
+  congregationNameRo?: string
   incomeCategories: DispozitieCategoryOption[]
   expenseCategories: DispozitieCategoryOption[]
   onGetNextNumber: (tipus: DispozitieTipus, year: number) => Promise<number>
@@ -72,6 +74,7 @@ const inputClass =
 
 export function DispozitieDialogBody({
   congregationName,
+  congregationNameRo,
   incomeCategories,
   expenseCategories,
   onGetNextNumber,
@@ -120,7 +123,8 @@ export function DispozitieDialogBody({
   const previewHtml = useMemo(
     () =>
       buildDispozitieHtml({
-        congregationName: `Parohia Reformată ${congregationName}`,
+        congregationName,
+        congregationNameRo,
         tipus,
         sorszam: sorszam ?? '—',
         date,
@@ -132,7 +136,7 @@ export function DispozitieDialogBody({
         ciSerie,
         ciNr,
       }),
-    [congregationName, tipus, sorszam, date, name, tisztseg, amountNum, cel, ciTipus, ciSerie, ciNr],
+    [congregationName, congregationNameRo, tipus, sorszam, date, name, tisztseg, amountNum, cel, ciTipus, ciSerie, ciNr],
   )
 
   function applyKasszaSelection(id: number) {
