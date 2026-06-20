@@ -23,6 +23,29 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: beviteli őrök (duplikátum + dátum-figyelés)
+<!-- key: 2026-06-21-tetel-beviteli-orok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók — nyugta-figyelés MÁR A BEVITELKOR
+
+- **Duplikált iratszám figyelés.** A bevétel rögzítésénél, amint kitöltöd a kerületi iratszámot,
+  a rendszer **azonnal jelzi, ha az a szám már létezik** (piros keret + „Ez az iratszám már
+  létezik"), illetve ha **ugyanazt a számot kétszer** írtad be a listában („Ismétlődő iratszám
+  ebben a listában"). Így a hibát még mentés előtt látod, nem a DB hibaüzenetéből utólag.
+- **Dátum-figyelés.** A rögzítő **figyelmeztet, ha a tétel dátuma jövőbeli**, vagy **korábbi, mint
+  a legutóbb rögzített tétel** („⚠ Korábbi, mint az utolsó rögzített (…)") — hogy ne maradjon ki
+  vagy ne csússzon el véletlenül a könyvelés. (Nem tiltó: a szándékos visszamenőleges rögzítés
+  továbbra is lehetséges, csak láthatóvá válik.)
+
+> Megjegyzés: ezek a beviteli őrök eddig csak a régi (már nem használt) rögzítő-ablakban éltek;
+> mostantól a jelenlegi „Tétel rögzítése" dialógusban is működnek. (Web; az asztali alkalmazásban
+> ezek bekötése következő lépés.)
+
+---
+
 ## [2026-06-21] — Nyugta: kerületi + gyülekezeti szám, automatikus következő-szám
 <!-- key: 2026-06-21-nyugta-ketszam-autoszam -->
 <!-- category: feature -->

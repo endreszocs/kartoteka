@@ -121,6 +121,18 @@ export interface CombinedEntryBodyProps {
    */
   onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string }>
   /**
+   * Beviteli őr P0 (Endre, 2026-06-20): a kerületi iratszám DUPLIKÁTUM-ellenőrzése mentés ELŐTT
+   * (gépelés/elhagyás után). Igaz = már létezik ilyen iratszám a gyülekezetben. Csak bevételnél
+   * (befizetés) hívjuk. Ha nincs megadva, nincs duplikátum-figyelmeztetés.
+   */
+  onCheckReceiptDuplicate?: (iratszam: string) => Promise<boolean>
+  /**
+   * Beviteli őr P1 (Endre, 2026-06-20): a legutóbb rögzített dátum lekérése — a rögzítő
+   * figyelmeztet, ha az új tétel KORÁBBI (visszamenőleges) vagy JÖVŐBELI dátumú, hogy ne
+   * maradjon ki / ne csússzon el a könyvelés. Ha nincs megadva, nincs dátum-figyelmeztetés.
+   */
+  onGetLastRecordedDate?: () => Promise<string | null>
+  /**
    * #3 (Endre, 2026-06-21): auto-vázlatmentés kulcsa (pl. `combined-entry:<congregationId>`).
    * Ha megadva, a bevitt sorok GÉPELÉS KÖZBEN azonnal a böngésző localStorage-ába
    * mentődnek, és a dialóg újranyitásakor visszaállnak — így áramszünet / véletlen
@@ -167,7 +179,8 @@ export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
   onSearchMembers, onResolveFamilyId, onSearchExpensePartners,
-  onSearchFamilies, onGetFamilyMembers, onGetNextReceiptNumbers, draftStorageKey,
+  onSearchFamilies, onGetFamilyMembers, onGetNextReceiptNumbers,
+  onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
@@ -179,6 +192,20 @@ export function CombinedEntryBody({
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
   /** #2 (Endre): az utolsó automatikus mentés időpontja (null = nincs mentendő tartalom). */
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  /** Beviteli őr P1: a legutóbb rögzített dátum (ISO) — a korábbi/jövőbeli figyelmeztetéshez. */
+  const [lastRecordedDate, setLastRecordedDate] = useState<string | null>(null)
+  /** Beviteli őr P0: azon sorok id-jai, ahol a kerületi iratszám már létezik a DB-ben. */
+  const [dupRowIds, setDupRowIds] = useState<Set<string>>(() => new Set())
+
+  // Beviteli őr P1: a legutóbb rögzített dátum egyszeri betöltése (figyelmeztetés alapja).
+  useEffect(() => {
+    if (!onGetLastRecordedDate) return
+    let cancelled = false
+    void onGetLastRecordedDate()
+      .then((d) => { if (!cancelled) setLastRecordedDate(d) })
+      .catch(() => { /* nincs hálózat — a figyelmeztetés egyszerűen kimarad */ })
+    return () => { cancelled = true }
+  }, [onGetLastRecordedDate])
 
   // #3 auto-vázlat: van-e értelmes tartalom (üres sorokat nem mentünk).
   const rowHasContent = (r: EntryRow) =>
@@ -319,6 +346,52 @@ export function CombinedEntryBody({
   function combinedIratszam(r: EntryRow): string | null {
     const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
     return parts.length ? parts.join(' ') : null
+  }
+
+  // ── Beviteli őrök (P0 duplikátum + P1 dátum-sorrend) ─────────────────────
+  // P1: a sor dátuma jövőbeli, vagy korábbi mint az utolsó rögzített → figyelmeztetés
+  // (NEM blokkol — a visszamenőleges rögzítés jogos lehet, csak nehogy VÉLETLEN legyen).
+  function dateWarning(r: EntryRow): string | null {
+    const iso = parseFlexibleDate(r.datum)
+    if (!iso) return null
+    if (iso > todayIso()) return 'Jövőbeli dátum'
+    if (lastRecordedDate && iso < lastRecordedDate) return `Korábbi, mint az utolsó rögzített (${lastRecordedDate})`
+    return null
+  }
+
+  // In-batch: ugyanaz a kerületi iratszám szerepel-e MÁSIK sorban is (még mentés előtt).
+  function inBatchDuplicate(r: EntryRow): boolean {
+    const v = combinedIratszam(r)
+    if (!v) return false
+    return rows.filter((x) => combinedIratszam(x) === v).length > 1
+  }
+
+  // P0: a kerületi iratszám DB-duplikátum-ellenőrzése a mező elhagyásakor (csak bevétel).
+  function checkRowDuplicate(r: EntryRow) {
+    if (tab !== 'income' || !onCheckReceiptDuplicate) return
+    const v = combinedIratszam(r)
+    if (!v) {
+      setDupRowIds((s) => { if (!s.has(r.id)) return s; const n = new Set(s); n.delete(r.id); return n })
+      return
+    }
+    void onCheckReceiptDuplicate(v)
+      .then((isDup) => {
+        setDupRowIds((s) => {
+          if (isDup === s.has(r.id)) return s
+          const n = new Set(s)
+          if (isDup) n.add(r.id); else n.delete(r.id)
+          return n
+        })
+      })
+      .catch(() => { /* hálózat nélkül a DB UNIQUE index úgyis véd mentéskor */ })
+  }
+
+  // Egy sor iratszám-figyelmeztetése (DB-duplikátum vagy in-batch ismétlődés).
+  function receiptWarning(r: EntryRow): string | null {
+    if (tab !== 'income') return null
+    if (inBatchDuplicate(r)) return 'Ismétlődő iratszám ebben a listában'
+    if (dupRowIds.has(r.id)) return 'Ez az iratszám már létezik'
+    return null
   }
 
   // #3: irattípus-váltás — Chitanță (nyugta) választásakor a KÖVETKEZŐ nyugtaszámok
@@ -546,10 +619,13 @@ export function CombinedEntryBody({
           <tbody>
             {rows.map((r) => {
               const dir = belsoDir(r)
+              const dWarn = dateWarning(r)
+              const rWarn = receiptWarning(r)
               return (
                 <tr key={r.id} className="border-t border-slate-100 align-top">
                   <td className="px-2 py-1.5 w-[160px]">
                     {renderDateField(r)}
+                    {dWarn && <div className="mt-0.5 text-[10px] leading-tight text-amber-600">⚠ {dWarn}</div>}
                   </td>
                   <td className="px-2 py-1.5 w-[130px]">
                     <select className={inputClass} value={r.docType} disabled={!!dir} onChange={(e) => void handleDocTypeChange(r, e.target.value)}>
@@ -557,7 +633,17 @@ export function CombinedEntryBody({
                       {DOC_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
                     </select>
                   </td>
-                  <td className="px-2 py-1.5 w-[100px]"><input className={inputClass} value={r.iratszam} disabled={!!dir} title={tab === 'income' ? 'Kerületi (nyomdai) szám — Chitanță esetén a kerülettől kapott szám' : undefined} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} /></td>
+                  <td className="px-2 py-1.5 w-[100px]">
+                    <input
+                      className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
+                      value={r.iratszam}
+                      disabled={!!dir}
+                      title={tab === 'income' ? 'Kerületi (nyomdai) szám — Chitanță esetén a kerülettől kapott szám' : undefined}
+                      onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
+                      onBlur={() => checkRowDuplicate(r)}
+                    />
+                    {rWarn && <div className="mt-0.5 text-[10px] leading-tight text-red-600">⚠ {rWarn}</div>}
+                  </td>
                   {tab === 'income' && (
                     <td className="px-2 py-1.5 w-[100px]">
                       {dir ? (
@@ -626,6 +712,8 @@ export function CombinedEntryBody({
       <div className="space-y-3 lg:hidden">
         {rows.map((r, i) => {
           const dir = belsoDir(r)
+          const dWarn = dateWarning(r)
+          const rWarn = receiptWarning(r)
           return (
             <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -646,6 +734,7 @@ export function CombinedEntryBody({
                 )}
                 <label className="text-xs text-slate-500">Dátum
                   {renderDateField(r)}
+                  {dWarn && <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">⚠ {dWarn}</span>}
                 </label>
                 <label className="text-xs text-slate-500">Összeg
                   <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} />
@@ -675,7 +764,13 @@ export function CombinedEntryBody({
                       </select>
                     </label>
                     <label className="text-xs text-slate-500">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}
-                      <input className={inputClass} value={r.iratszam} onChange={(e) => updateRow(r.id, { iratszam: e.target.value })} />
+                      <input
+                        className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
+                        value={r.iratszam}
+                        onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
+                        onBlur={() => checkRowDuplicate(r)}
+                      />
+                      {rWarn && <span className="mt-0.5 block text-[10px] leading-tight text-red-600">⚠ {rWarn}</span>}
                     </label>
                     {tab === 'income' && (
                       <label className="text-xs text-slate-500">Gyül. sz.

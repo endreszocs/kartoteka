@@ -26,6 +26,8 @@ import {
   searchFamilies,
   getFamilyMembers,
   getNextReceiptNumbers,
+  checkReceiptDuplicate,
+  getLastRecordedDate,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -99,6 +101,8 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             onSearchFamilies={async (query) => await searchFamilies(query)}
             onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}
             onGetNextReceiptNumbers={async (year) => await getNextReceiptNumbers(year)}
+            onCheckReceiptDuplicate={async (iratszam) => await checkReceiptDuplicate(iratszam)}
+            onGetLastRecordedDate={async () => await getLastRecordedDate()}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)
