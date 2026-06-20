@@ -81,6 +81,10 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🐛 Javítások
 
+- **A Tranzakciók fülről nem lehet törölni (könyvelési szabály).** A Tranzakciók fül a **hiteles
+  napló** — innen tételt törölni nem lehet (sem visszamenőlegesen). Ha javítani kell, azt a
+  **Kassza / Bank** fülön, **storno**-val teheted meg (és csak a számadás beküldéséig). Így a
+  könyvelés nyoma megmarad, ahogy az előírások megkövetelik.
 - **Téves „párosítatlan belső mozgás" jelzés importált adatnál.** A kassza↔bank belső mozgások
   (pl. készpénzletét) két fele a `(dátum, összeg)` páros alapján talál egymásra. A kiadás-oldal
   dátuma időbélyeggel (`2025-12-29T00:00:00`), a befizetés-oldalé dátumként (`2025-12-29`) érkezett,

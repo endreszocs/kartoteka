@@ -442,7 +442,7 @@ export function TransactionsTab({
                           <span className="sr-only">Oblio</span>
                           <span aria-hidden>🧾</span>
                         </th>
-                        <th className="p-2.5 w-20" />
+                        {onDeleteTransaction && <th className="p-2.5 w-20" />}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/60">
@@ -558,16 +558,18 @@ export function TransactionsTab({
                                       },
                                     })}
                               </td>
-                              <td className="p-2.5">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0 text-slate-400 hover:text-red-500"
-                                  onClick={() => handleDelete(r.type, r.id)}
-                                >
-                                  {'✕'}
-                                </Button>
-                              </td>
+                              {onDeleteTransaction && (
+                                <td className="p-2.5">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0 text-slate-400 hover:text-red-500"
+                                    onClick={() => handleDelete(r.type, r.id)}
+                                  >
+                                    {'✕'}
+                                  </Button>
+                                </td>
+                              )}
                             </tr>
                           </Fragment>
                         )
