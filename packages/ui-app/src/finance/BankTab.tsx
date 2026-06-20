@@ -187,6 +187,8 @@ export interface BankTabProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     bankAccounts: BankAccount[]
+    /** Per-számla import: a wizard erre a számlára legyen előre beállítva. */
+    defaultBankAccountId?: number | null
     incomeCategories: { id: number; kod: string; nev: string }[]
     expenseCategories: { id: number; kod: string; nev: string }[]
     onImported: () => void | Promise<void>
@@ -264,6 +266,8 @@ export function BankTab({
   /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [bcrImportOpen, setBcrImportOpen] = useState(false)
+  /** Melyik bankszámlára importálunk épp (per-számla import a kártyáról). */
+  const [importTargetId, setImportTargetId] = useState<number | null>(null)
   const [bankDialogOpen, setBankDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null)
   /** Éves nyitó egyenleg minden bankszámlához (a bankszamla_nyito_egyenleg táblából). */
@@ -271,14 +275,8 @@ export function BankTab({
   /** Bankszámla-szintű szűrő: melyik számla forgalmát látjuk. 'all' = összes. */
   const [selectedBankFilter, setSelectedBankFilter] = useState<number | 'all'>('all')
 
-  // Ha épp 1 aktív bankszámla van, automatikusan arra szűrjünk (tisztább nézet)
-  useEffect(() => {
-    const aktivak = bankAccounts.filter((b) => b.aktiv !== false)
-    if (aktivak.length === 1 && selectedBankFilter === 'all') {
-      setSelectedBankFilter(aktivak[0].id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankAccounts.length])
+  // Alapértelmezetten az „Összesítő" (selectedBankFilter='all') van kijelölve — a
+  // bankszámla-kártyákra kattintva lehet egy adott számlára szűrni.
 
   // Év eleji nyitó egyenleg lekérdezése minden bankszámlához (aktuális év)
   useEffect(() => {
@@ -367,6 +365,11 @@ export function BankTab({
     }
     onToast?.('Stornó visszavonva.', 'success')
     if (onTransactionChanged) await onTransactionChanged()
+  }
+
+  function handleImportForAccount(accountId: number) {
+    setImportTargetId(accountId)
+    setBcrImportOpen(true)
   }
 
   function toggleSort(col: BankSortBy) {
@@ -628,33 +631,6 @@ export function BankTab({
 
   return (
     <div className="space-y-4">
-      {/* Akció gombok — új bankszámla + Excel import */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {congregationId && (
-          <button
-            type="button"
-            onClick={() => {
-              setEditingAccount(null)
-              setBankDialogOpen(true)
-            }}
-            className="inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white transition-colors disabled:pointer-events-none disabled:opacity-50 rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-          >
-            <Plus className="mr-1.5 size-3.5" />
-            Új bankszámla
-          </button>
-        )}
-        {bankAccounts.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setBcrImportOpen(true)}
-            className="inline-flex items-center justify-center whitespace-nowrap h-9 px-3 text-sm font-medium border bg-white transition-colors disabled:pointer-events-none disabled:opacity-50 rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50"
-          >
-            <FileSpreadsheet className="mr-1.5 size-3.5" />
-            Banki kivonat importálása (Excel)
-          </button>
-        )}
-      </div>
-
       {bankAccounts.length === 0 && congregationId && (
         <div className="card-raised p-6 sm:p-8 text-center border-2 border-dashed border-slate-200 bg-gradient-to-br from-white to-emerald-50/30">
           <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 mb-3">
@@ -682,122 +658,124 @@ export function BankTab({
       )}
 
       {bankAccounts.length > 0 && (
-        <div className="space-y-3">
-          {/* Bankszámla-szintű szűrő — ha több van */}
-          {bankAccounts.length > 1 && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
-              <span className="text-xs font-semibold text-violet-800">Szűrő:</span>
-              <button
-                type="button"
-                onClick={() => setSelectedBankFilter('all')}
-                className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
-                  selectedBankFilter === 'all'
-                    ? 'bg-violet-600 text-white shadow-sm'
-                    : 'bg-white text-slate-600 hover:bg-violet-100 border border-slate-200'
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Összesítő — alapértelmezett szűrő (az összes bankszámla együtt). */}
+          <button
+            type="button"
+            onClick={() => setSelectedBankFilter('all')}
+            className={`card-raised flex items-start gap-3 p-4 text-left transition ${
+              selectedBankFilter === 'all'
+                ? 'ring-2 ring-violet-400'
+                : 'hover:ring-1 hover:ring-violet-200'
+            }`}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100">
+              <Landmark className="h-5 w-5 text-violet-700" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700">Összesítő</p>
+              <p className="text-[11px] text-slate-400">
+                Az összes bankszámla együtt ({bankAccounts.length})
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium text-slate-600">
+                {currentYear}. január 1. nyitó: {formatCurrency(carryoverBank)} RON
+              </p>
+            </div>
+          </button>
+
+          {/* Bankszámla-kártyák — kattintásra szűrnek; saját import + szerkesztés gombbal. */}
+          {bankAccounts.map((account) => {
+            const selected = selectedBankFilter === account.id
+            const ny = nyitoMap[account.id]
+            const valuta = account.valuta || 'RON'
+            const isRon = valuta === 'RON'
+            return (
+              <div
+                key={account.id}
+                className={`card-raised flex flex-col overflow-hidden p-0 transition ${
+                  selected ? 'ring-2 ring-violet-400' : ''
                 }`}
               >
-                Összes ({bankAccounts.length})
-              </button>
-              {bankAccounts.map((account) => (
                 <button
-                  key={account.id}
                   type="button"
                   onClick={() => setSelectedBankFilter(account.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
-                    selectedBankFilter === account.id
-                      ? 'bg-violet-600 text-white shadow-sm'
-                      : 'bg-white text-slate-600 hover:bg-violet-100 border border-slate-200'
-                  }`}
+                  className="flex items-start gap-3 p-4 text-left transition hover:bg-violet-50/40"
                 >
-                  <span
-                    className="inline-block size-2.5 rounded-full"
-                    style={{ backgroundColor: account.szin || '#6366f1' }}
-                  />
-                  {account.bank_neve}
-                  {account.valuta && account.valuta !== 'RON' && (
-                    <span className="ml-0.5 opacity-75">·{account.valuta}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {bankAccounts.map((account) => {
-              return (
-                <div
-                  key={account.id}
-                  className="card-raised flex flex-col gap-2 p-4 group"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                      style={{ backgroundColor: `${account.szin || '#6366f1'}15` }}
-                    >
-                      <Building2
-                        className="h-5 w-5"
-                        style={{ color: account.szin || '#6366f1' }}
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="truncate text-sm font-semibold text-slate-700">
-                          {account.bank_neve}
-                        </p>
-                        {congregationId && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingAccount(account)
-                              setBankDialogOpen(true)
-                            }}
-                            title="Bankszámla szerkesztése"
-                            className="shrink-0 inline-flex size-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Pencil className="size-3" />
-                          </button>
-                        )}
-                      </div>
-                      <p className="truncate text-[11px] text-slate-400">
-                        {account.iban || 'Nincs IBAN'} · {account.valuta || 'RON'}
-                      </p>
-                      {(() => {
-                        const ny = nyitoMap[account.id]
-                        if (ny) {
-                          const valuta = account.valuta || 'RON'
-                          const isRon = valuta === 'RON'
-                          return (
-                            <p className="text-[11px] text-slate-600 leading-snug">
-                              <span className="font-medium text-slate-700">
-                                {currentYear} január 1. nyitó:
-                              </span>{' '}
-                              {formatCurrency(Number(ny.nyito_egyenleg_valuta))} {valuta}
-                              {!isRon && (
-                                <span className="text-slate-500">
-                                  {' '}
-                                  ({formatCurrency(Number(ny.nyito_egyenleg_ron))} RON)
-                                </span>
-                              )}
-                            </p>
-                          )
-                        }
-                        return (
-                          <p className="text-[11px] text-amber-700 italic">
-                            Az év eleji nyitó egyenleg még nincs rögzítve a {currentYear}.
-                            évre — tölts be egy banki Excel-t.
-                          </p>
-                        )
-                      })()}
-                    </div>
+                  <div
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                    style={{ backgroundColor: `${account.szin || '#6366f1'}15` }}
+                  >
+                    <Building2 className="h-5 w-5" style={{ color: account.szin || '#6366f1' }} />
                   </div>
-                  {/* Az évvégi átértékelés gombot a Számadás véglegesítő wizard kezeli
-                      (auto FX revaluation check + redirect), ezért itt már nincs szükség rá. */}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-700">
+                      {account.bank_neve}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {account.iban || 'Nincs IBAN'} · {valuta}
+                    </p>
+                    {ny ? (
+                      <p className="text-[11px] text-slate-600 leading-snug">
+                        <span className="font-medium text-slate-700">
+                          {currentYear}. január 1. nyitó:
+                        </span>{' '}
+                        {formatCurrency(Number(ny.nyito_egyenleg_valuta))} {valuta}
+                        {!isRon && (
+                          <span className="text-slate-500">
+                            {' '}
+                            ({formatCurrency(Number(ny.nyito_egyenleg_ron))} RON)
+                          </span>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-amber-700 italic">
+                        Nyitó egyenleg még nincs rögzítve {currentYear}-re — importálj egy kivonatot.
+                      </p>
+                    )}
+                  </div>
+                </button>
+                <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => handleImportForAccount(account.id)}
+                    title={`Banki kivonat importálása ide: ${account.bank_neve}`}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100"
+                  >
+                    <FileSpreadsheet className="size-3.5" />
+                    Kivonat importálása
+                  </button>
+                  {congregationId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAccount(account)
+                        setBankDialogOpen(true)
+                      }}
+                      title="Bankszámla szerkesztése"
+                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  )}
                 </div>
-              )
-            })}
-          </div>
+              </div>
+            )
+          })}
 
-          {/* A forgalom 2026-04-18-tól számla-szintű bontásban fut (lásd a szűrőt fent). */}
+          {/* „+" kártya — új bankszámla hozzáadása a számlák sorának végén. */}
+          {congregationId && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingAccount(null)
+                setBankDialogOpen(true)
+              }}
+              className="card-raised flex min-h-[7rem] flex-col items-center justify-center gap-1.5 border-2 border-dashed border-slate-200 p-4 text-slate-400 transition hover:border-emerald-300 hover:text-emerald-600"
+            >
+              <Plus className="size-6" />
+              <span className="text-sm font-medium">Új bankszámla</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1161,8 +1139,12 @@ export function BankTab({
           kategorizálása → batch import a DB-be (kassza-bank átvezetés is). */}
       {bcrImportWizardDialogSlot?.({
         open: bcrImportOpen,
-        onOpenChange: setBcrImportOpen,
+        onOpenChange: (open) => {
+          setBcrImportOpen(open)
+          if (!open) setImportTargetId(null)
+        },
         bankAccounts,
+        defaultBankAccountId: importTargetId,
         incomeCategories,
         expenseCategories,
         onImported: async () => {

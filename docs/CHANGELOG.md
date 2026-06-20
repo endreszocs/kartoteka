@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Bank fül: kártyás számlaválasztó + per-számla import; Kassza: Nyugtatömbök 5. kártya
+<!-- key: 2026-06-20-bank-kartyas-valaszto -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Bank — a számlakártyák egyben szűrők.** A bankszámla-kártyára kattintva mostantól
+  arra a számlára szűrsz. Az **első kártya az „Összesítő"** (alapértelmezett — minden számla
+  együtt), utána az egyes bankszámlák. A kijelölt kártya kerettel kiemelve. (A külön szűrő-gombsor
+  megszűnt.)
+- **Bank — per-számla import.** Minden bankszámla-kártyán külön **„Kivonat importálása"** gomb,
+  amely kifejezetten **arra a számlára** importál (a wizard előre arra a számlára áll be) — így nem
+  lehet véletlenül rossz számlára tölteni.
+- **Bank — „+" kártya.** A számlák sorának végén egy **„+ Új bankszámla"** kártya az új számla
+  hozzáadásához.
+- **Kassza — Nyugtatömbök az 5. kártyán.** A Nyugtatömbök panel mostantól egy kompakt 5. kártyáról
+  (a nyitó/bevétel/kiadás/záró egyenleg mellett) nyitható ki és csukható be — kevésbé zsúfolt nézet.
+
+---
+
 ## [2026-06-20] — Pénzügyi táblák: oszloponkénti szűrés + Excel-export (Kassza / Bank / Tranzakciók)
 <!-- key: 2026-06-20-penzugy-szuro-export -->
 <!-- category: feature -->

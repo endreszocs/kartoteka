@@ -78,6 +78,7 @@ export function BankTab(props: WebBankTabProps) {
         open,
         onOpenChange,
         bankAccounts,
+        defaultBankAccountId,
         incomeCategories,
         expenseCategories,
         onImported,
@@ -86,6 +87,7 @@ export function BankTab(props: WebBankTabProps) {
           open={open}
           onOpenChange={onOpenChange}
           bankAccounts={bankAccounts}
+          defaultBankAccountId={defaultBankAccountId}
           incomeCategories={incomeCategories}
           expenseCategories={expenseCategories}
           onImported={onImported}
