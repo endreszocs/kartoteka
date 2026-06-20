@@ -42,9 +42,9 @@ import {
   getTransactionDocumentNumber,
 } from './helpers'
 import {
+  ColumnFilterInput,
   FinanceTableToolbar,
   matchesColumnFilters,
-  type FinanceFilterField,
 } from './FinanceTableToolbar'
 import {
   buildFinanceExportAoa,
@@ -52,16 +52,6 @@ import {
   type FinanceExportLine,
 } from './finance-export'
 import type { BefitetesRow, KiadasRow } from './types'
-
-/** A Kassza/Bank fülön szűrhető oszlopok (azonos elrendezés). */
-const CASH_FILTER_FIELDS: FinanceFilterField[] = [
-  { key: 'datum', label: 'Dátum' },
-  { key: 'irattipus', label: 'Irattípus' },
-  { key: 'iratszam', label: 'Iratszám' },
-  { key: 'partner', label: 'Partner' },
-  { key: 'jogcim', label: 'Jogcím' },
-  { key: 'megjegyzes', label: 'Megjegyzés' },
-]
 
 const HU_MONTHS = [
   'Január',
@@ -232,6 +222,8 @@ export function CashbookTab({
   const [sortDir, setSortDir] = useState<CashSortDir>('desc')
   /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const setColFilter = (key: string, value: string) =>
+    setColFilters((s) => ({ ...s, [key]: value }))
 
   function toggleSort(col: CashSortBy) {
     if (sortBy === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -542,8 +534,7 @@ export function CashbookTab({
     return best || 'export'
   }, [cashRows])
 
-  function handleExport() {
-    if (!onExportXlsx) return
+  function buildExport() {
     const lines: FinanceExportLine[] = filteredRows.map((r) => ({
       datum: r.datum,
       iratszam: r.iratszam,
@@ -554,7 +545,10 @@ export function CashbookTab({
       celNev: r.celNev,
       megjegyzes: r.megjegyzes || '',
     }))
-    onExportXlsx(buildFinanceExportAoa(lines), financeExportFilename('Kassza', exportYear))
+    return {
+      aoa: buildFinanceExportAoa(lines),
+      filename: financeExportFilename('Kassza', exportYear),
+    }
   }
 
   const groupedByMonth = useMemo(() => {
@@ -675,11 +669,10 @@ export function CashbookTab({
       ) : (
         <div className="space-y-4">
           <FinanceTableToolbar
-            fields={CASH_FILTER_FIELDS}
             values={colFilters}
-            onChange={(k, v) => setColFilters((s) => ({ ...s, [k]: v }))}
             onClear={() => setColFilters({})}
-            onExport={onExportXlsx ? handleExport : undefined}
+            buildExport={onExportXlsx ? buildExport : undefined}
+            onDownload={onExportXlsx}
             totalCount={displayRows.length}
             filteredCount={filteredRows.length}
           />
@@ -783,6 +776,31 @@ export function CashbookTab({
                         >
                           🧾
                         </th>
+                      </tr>
+                      {/* Oszlop-igazított szűrősor — minden mező a saját oszlopa alatt. */}
+                      <tr className="border-b border-slate-100 bg-white/70">
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.datum || ''} onChange={(v) => setColFilter('datum', v)} ariaLabel="Dátum szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden lg:table-cell">
+                          <ColumnFilterInput value={colFilters.irattipus || ''} onChange={(v) => setColFilter('irattipus', v)} ariaLabel="Irattípus szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden md:table-cell">
+                          <ColumnFilterInput value={colFilters.iratszam || ''} onChange={(v) => setColFilter('iratszam', v)} ariaLabel="Iratszám szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.partner || ''} onChange={(v) => setColFilter('partner', v)} ariaLabel="Partner szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.jogcim || ''} onChange={(v) => setColFilter('jogcim', v)} ariaLabel="Jogcím szűrő" />
+                        </th>
+                        <th className="p-1.5 hidden lg:table-cell" />
+                        <th className="p-1.5" />
+                        <th className="p-1.5" />
+                        <th className="p-1.5 align-top hidden xl:table-cell">
+                          <ColumnFilterInput value={colFilters.megjegyzes || ''} onChange={(v) => setColFilter('megjegyzes', v)} ariaLabel="Megjegyzés szűrő" />
+                        </th>
+                        <th className="p-1.5" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">

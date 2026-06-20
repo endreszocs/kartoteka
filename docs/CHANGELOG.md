@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Oszlopba ágyazott szűrő + export-előnézet (Kassza / Bank / Tranzakciók)
+<!-- key: 2026-06-20-oszlop-szuro-export-elonezet -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Oszlop-igazított szűrő.** A szűrő-mezők mostantól **a táblázat fejlécében**, közvetlenül a
+  saját oszlopuk alatt találhatók (a cella szélességével) — így egyértelmű, melyik oszlopra
+  vonatkozik a szűrés. (A korábbi külön szűrő-kártya megszűnt; felül már csak a találatszám, a
+  „Szűrők törlése" és az „Export" gomb van.)
+- **Export előnézet.** Az **„Export (Excel)"** gomb mostantól **nem tölt le egyből**, hanem
+  **előnézetet** nyit: a hivatalos oszloprend, egy rövid magyarázat és a sorok mintája. A letöltés
+  külön **„Letöltés (Excel)"** gombbal indul — így előbb ellenőrizhető, mi kerül a fájlba.
+
+---
+
 ## [2026-06-20] — Bank fül: kártyás számlaválasztó + per-számla import; Kassza: Nyugtatömbök 5. kártya
 <!-- key: 2026-06-20-bank-kartyas-valaszto -->
 <!-- category: improvement -->

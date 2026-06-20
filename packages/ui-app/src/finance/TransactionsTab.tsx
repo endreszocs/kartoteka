@@ -34,9 +34,9 @@ import {
   getTransactionDocumentNumber,
 } from './helpers'
 import {
+  ColumnFilterInput,
   FinanceTableToolbar,
   matchesColumnFilters,
-  type FinanceFilterField,
 } from './FinanceTableToolbar'
 import {
   buildFinanceExportAoa,
@@ -50,16 +50,6 @@ import {
   type RentalContractRow,
   type SzamadasiCel,
 } from './types'
-
-/** A Tranzakciók fülön szűrhető oszlopok. */
-const TXN_FILTER_FIELDS: FinanceFilterField[] = [
-  { key: 'datum', label: 'Dátum' },
-  { key: 'irattipus', label: 'Irattípus' },
-  { key: 'iratszam', label: 'Iratszám' },
-  { key: 'partner', label: 'Partner' },
-  { key: 'kategoria', label: 'Kategória' },
-  { key: 'megjegyzes', label: 'Megjegyzés' },
-]
 
 const HU_MONTHS = [
   'Január',
@@ -181,6 +171,8 @@ export function TransactionsTab({
   const [monthFilter, setMonthFilter] = useState<number | ''>('')
   /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const setColFilter = (key: string, value: string) =>
+    setColFilters((s) => ({ ...s, [key]: value }))
   const [kiseroivDate, setKiseroivDate] = useState<string | null>(null)
   const [invoiceContract, setInvoiceContract] = useState<RentalContractRow | null>(null)
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
@@ -341,8 +333,7 @@ export function TransactionsTab({
     [rows, colFilters],
   )
 
-  function handleExport() {
-    if (!onExportXlsx) return
+  function buildExport() {
     const lines: FinanceExportLine[] = filteredRows.map((r) => ({
       datum: r.datum,
       iratszam: r.iratszam === '—' ? '' : r.iratszam,
@@ -353,7 +344,10 @@ export function TransactionsTab({
       celNev: r.category === '—' ? '' : r.category,
       megjegyzes: r.megjegyzes,
     }))
-    onExportXlsx(buildFinanceExportAoa(lines), financeExportFilename('Tranzakciok', dominantYear))
+    return {
+      aoa: buildFinanceExportAoa(lines),
+      filename: financeExportFilename('Tranzakciok', dominantYear),
+    }
   }
 
   const expenseDayPageMap = useMemo(() => {
@@ -457,11 +451,10 @@ export function TransactionsTab({
       ) : (
         <div className="space-y-4">
           <FinanceTableToolbar
-            fields={TXN_FILTER_FIELDS}
             values={colFilters}
-            onChange={(k, v) => setColFilters((s) => ({ ...s, [k]: v }))}
             onClear={() => setColFilters({})}
-            onExport={onExportXlsx ? handleExport : undefined}
+            buildExport={onExportXlsx ? buildExport : undefined}
+            onDownload={onExportXlsx}
             totalCount={rows.length}
             filteredCount={filteredRows.length}
           />
@@ -519,6 +512,24 @@ export function TransactionsTab({
                           <span aria-hidden>🧾</span>
                         </th>
                         {onDeleteTransaction && <th className="p-2.5 w-20" />}
+                      </tr>
+                      {/* Oszlop-igazított szűrősor — minden mező a saját oszlopa alatt. */}
+                      <tr>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.datum || ''} onChange={(v) => setColFilter('datum', v)} ariaLabel="Dátum szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.partner || ''} onChange={(v) => setColFilter('partner', v)} ariaLabel="Partner szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden md:table-cell">
+                          <ColumnFilterInput value={colFilters.kategoria || ''} onChange={(v) => setColFilter('kategoria', v)} ariaLabel="Kategória szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden lg:table-cell">
+                          <ColumnFilterInput value={colFilters.iratszam || ''} onChange={(v) => setColFilter('iratszam', v)} ariaLabel="Iratszám szűrő" />
+                        </th>
+                        <th className="p-1.5" />
+                        <th className="p-1.5" />
+                        {onDeleteTransaction && <th className="p-1.5" />}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/60">
