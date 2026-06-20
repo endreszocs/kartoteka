@@ -34,12 +34,32 @@ import {
   getTransactionDocumentNumber,
 } from './helpers'
 import {
+  FinanceTableToolbar,
+  matchesColumnFilters,
+  type FinanceFilterField,
+} from './FinanceTableToolbar'
+import {
+  buildFinanceExportAoa,
+  financeExportFilename,
+  type FinanceExportLine,
+} from './finance-export'
+import {
   RENTAL_SZAMADASICEL_CODES,
   type BefitetesRow,
   type KiadasRow,
   type RentalContractRow,
   type SzamadasiCel,
 } from './types'
+
+/** A Tranzakciók fülön szűrhető oszlopok. */
+const TXN_FILTER_FIELDS: FinanceFilterField[] = [
+  { key: 'datum', label: 'Dátum' },
+  { key: 'irattipus', label: 'Irattípus' },
+  { key: 'iratszam', label: 'Iratszám' },
+  { key: 'partner', label: 'Partner' },
+  { key: 'kategoria', label: 'Kategória' },
+  { key: 'megjegyzes', label: 'Megjegyzés' },
+]
 
 const HU_MONTHS = [
   'Január',
@@ -80,6 +100,9 @@ export interface TransactionsTabProps {
 
   /** UI-feedback. */
   onToast?: (message: string, kind: TransactionsToastKind) => void
+
+  /** (Szűrt) sorok exportja Excelbe — a web köti be (SheetJS aoa → .xlsx letöltés). */
+  onExportXlsx?: (aoa: (string | number)[][], filename: string) => void
 
   /** Tab-váltás (régi `window.dispatchEvent('finance-tab-switch')` helyett). */
   onSwitchTab?: (tabKey: string) => void
@@ -129,6 +152,7 @@ type UnifiedRow = {
   category: string
   iratszam: string
   irattipus: string
+  megjegyzes: string
   isBm: boolean
   hasMissingPerson: boolean
   hasMissingCategory: boolean
@@ -147,6 +171,7 @@ export function TransactionsTab({
   onDeleteTransaction,
   loadOblioMatchedExpenseIds,
   onToast,
+  onExportXlsx,
   onSwitchTab,
   oblioStatusIconSlot,
   oblioExpenseStatusIconSlot,
@@ -154,6 +179,8 @@ export function TransactionsTab({
   oblioInvoiceDialogSlot,
 }: TransactionsTabProps) {
   const [monthFilter, setMonthFilter] = useState<number | ''>('')
+  /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [kiseroivDate, setKiseroivDate] = useState<string | null>(null)
   const [invoiceContract, setInvoiceContract] = useState<RentalContractRow | null>(null)
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
@@ -262,6 +289,7 @@ export function TransactionsTab({
           : '—',
         iratszam: getTransactionDocumentNumber(r) || '—',
         irattipus: r.irattipus || '—',
+        megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
@@ -277,6 +305,7 @@ export function TransactionsTab({
           : '—',
         iratszam: getTransactionDocumentNumber(r) || '—',
         irattipus: r.irattipus || '—',
+        megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,
@@ -295,6 +324,37 @@ export function TransactionsTab({
     return filtered.sort((a, b) => b.datum.localeCompare(a.datum))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomeRecords, expenseRecords, monthFilter, bevCelMap, kiaCelMap])
+
+  // Oszloponkénti szabad-szöveges szűrés.
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((r) =>
+        matchesColumnFilters(colFilters, {
+          datum: (r.datum || '').slice(0, 10),
+          irattipus: r.irattipus,
+          iratszam: r.iratszam,
+          partner: r.label,
+          kategoria: r.category,
+          megjegyzes: r.megjegyzes,
+        }),
+      ),
+    [rows, colFilters],
+  )
+
+  function handleExport() {
+    if (!onExportXlsx) return
+    const lines: FinanceExportLine[] = filteredRows.map((r) => ({
+      datum: r.datum,
+      iratszam: r.iratszam === '—' ? '' : r.iratszam,
+      irattipus: r.irattipus === '—' ? '' : r.irattipus,
+      nev: r.label === '—' ? '' : r.label,
+      type: r.type,
+      osszeg: r.osszeg,
+      celNev: r.category === '—' ? '' : r.category,
+      megjegyzes: r.megjegyzes,
+    }))
+    onExportXlsx(buildFinanceExportAoa(lines), financeExportFilename('Tranzakciok', dominantYear))
+  }
 
   const expenseDayPageMap = useMemo(() => {
     const days = new Set<string>()
@@ -348,7 +408,7 @@ export function TransactionsTab({
       { label: string; rows: typeof rows; monthInc: number; monthExp: number }
     >()
 
-    for (const r of rows) {
+    for (const r of filteredRows) {
       const m = new Date(r.datum).getMonth()
       if (!groups.has(m)) {
         groups.set(m, { label: HU_MONTHS[m], rows: [], monthInc: 0, monthExp: 0 })
@@ -360,7 +420,7 @@ export function TransactionsTab({
     }
 
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
-  }, [rows])
+  }, [filteredRows])
 
   const expenseDates = useMemo(() => {
     const dates = new Set<string>()
@@ -395,8 +455,24 @@ export function TransactionsTab({
           <p className="text-slate-500">Nincs tranzakció ebben az időszakban.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {groupedByMonth.map(([monthIdx, group]) => (
+        <div className="space-y-4">
+          <FinanceTableToolbar
+            fields={TXN_FILTER_FIELDS}
+            values={colFilters}
+            onChange={(k, v) => setColFilters((s) => ({ ...s, [k]: v }))}
+            onClear={() => setColFilters({})}
+            onExport={onExportXlsx ? handleExport : undefined}
+            totalCount={rows.length}
+            filteredCount={filteredRows.length}
+          />
+
+          {filteredRows.length === 0 ? (
+            <div className="card-raised p-8 text-center">
+              <p className="text-sm text-slate-400">Nincs a szűrésnek megfelelő tétel.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
               <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -580,6 +656,8 @@ export function TransactionsTab({
               </div>
             </div>
           ))}
+            </div>
+          )}
         </div>
       )}
 

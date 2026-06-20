@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 
 import { TransactionsTab, type TransactionsTabProps } from '@kartoteka/ui-app'
 
+import { exportAoaToXlsx } from '@/lib/finance/finance-xlsx-export'
 import { listOblioMatchesAndKiadasok } from '@/app/(dashboard)/penzugy/oblio-ellenorzes-actions'
 import { KiseroivPrintDialog } from '@/components/finance/kiseroiv-print-dialog'
 import { OblioExpenseStatusIcon } from '@/components/finance/oblio-expense-status-icon'
@@ -50,6 +51,7 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
         else if (kind === 'success') toast.success(msg)
         else toast(msg)
       }}
+      onExportXlsx={(aoa, filename) => exportAoaToXlsx(aoa, filename)}
       onSwitchTab={(tabKey) => {
         window.dispatchEvent(
           new CustomEvent('finance-tab-switch', { detail: tabKey }),

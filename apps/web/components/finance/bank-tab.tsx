@@ -18,6 +18,8 @@ import { useRouter } from 'next/navigation'
 
 import { BankTab as SharedBankTab, type BankTabProps } from '@kartoteka/ui-app'
 
+import { exportAoaToXlsx } from '@/lib/finance/finance-xlsx-export'
+
 import { BcrImportWizardDialog } from '@/components/modals/bcr-import-wizard-dialog'
 import { BankAccountDialog } from '@/components/modals/bank-account-dialog'
 import { StornoConfirmDialog } from '@/components/modals/storno-confirm-dialog'
@@ -71,6 +73,7 @@ export function BankTab(props: WebBankTabProps) {
         router.refresh()
         if (props.onTransactionChanged) await props.onTransactionChanged()
       }}
+      onExportXlsx={(aoa, filename) => exportAoaToXlsx(aoa, filename)}
       bcrImportWizardDialogSlot={({
         open,
         onOpenChange,

@@ -42,6 +42,7 @@ export * from './ron-in-words'
 export * from './date-parse'
 export * from './official-documents'
 export * from './finance-export'
+export * from './FinanceTableToolbar'
 export * from './SearchableSelect'
 // 2026-06-12 (Endre #4 bank-import): a webes BCR-import wizard közös törzse +
 // a kereshető kategória-választó — a desktop bank-import oldal innen importálja.

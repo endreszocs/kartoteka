@@ -56,12 +56,32 @@ import {
   getExpensePartnerName,
   getTransactionDocumentNumber,
 } from './helpers'
+import {
+  FinanceTableToolbar,
+  matchesColumnFilters,
+  type FinanceFilterField,
+} from './FinanceTableToolbar'
+import {
+  buildFinanceExportAoa,
+  financeExportFilename,
+  type FinanceExportLine,
+} from './finance-export'
 import type {
   BankAccount,
   BefitetesRow,
   KiadasRow,
   NyitoEgyenlegRow,
 } from './types'
+
+/** A Bank fülön szűrhető oszlopok. */
+const BANK_FILTER_FIELDS: FinanceFilterField[] = [
+  { key: 'datum', label: 'Dátum' },
+  { key: 'irattipus', label: 'Irattípus' },
+  { key: 'iratszam', label: 'Iratszám' },
+  { key: 'partner', label: 'Partner' },
+  { key: 'jogcim', label: 'Jogcím' },
+  { key: 'megjegyzes', label: 'Megjegyzés' },
+]
 
 const HU_MONTHS = [
   'Január',
@@ -149,6 +169,9 @@ export interface BankTabProps {
   // ── UI-feedback callback ───────────────────────────────────
   onToast?: (message: string, kind: BankToastKind) => void
 
+  /** (Szűrt) sorok exportja Excelbe — a web köti be (SheetJS aoa → .xlsx letöltés). */
+  onExportXlsx?: (aoa: (string | number)[][], filename: string) => void
+
   /**
    * Megerősítő dialógus override — opcionális. Ha a hívó átad egy callback-et,
    * az használódik a `window.confirm` helyett (iOS-en natív alert-controller,
@@ -226,6 +249,7 @@ export function BankTab({
   onBankImported,
   onBankAccountSaved,
   onToast,
+  onExportXlsx,
   onConfirm,
   bcrImportWizardDialogSlot,
   bankAccountDialogSlot,
@@ -237,6 +261,8 @@ export function BankTab({
   const [monthFilter, setMonthFilter] = useState<number | 'all'>('all')
   const [sortBy, setSortBy] = useState<BankSortBy>('datum')
   const [sortDir, setSortDir] = useState<BankSortDir>('desc')
+  /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [bcrImportOpen, setBcrImportOpen] = useState(false)
   const [bankDialogOpen, setBankDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null)
@@ -532,6 +558,50 @@ export function BankTab({
       nyitoMap,
     ])
 
+  // Oszlop-szűrés a megjelenített sorokon (a KPI-k a havi adatból számolnak).
+  const filteredDisplayRows = useMemo(
+    () =>
+      displayRows.filter((r) =>
+        matchesColumnFilters(colFilters, {
+          datum: (r.datum || '').slice(0, 10),
+          irattipus: r.irattipus,
+          iratszam: r.iratszam,
+          partner: r.partner,
+          jogcim: r.celNev,
+          megjegyzes: r.megjegyzes || '',
+        }),
+      ),
+    [displayRows, colFilters],
+  )
+
+  // Export-fájlnévhez: a sorok domináns éve.
+  const exportYear = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const r of bankRows) {
+      const y = new Date(r.datum).getFullYear()
+      if (Number.isFinite(y)) counts.set(y, (counts.get(y) || 0) + 1)
+    }
+    let best = ''
+    let bestN = 0
+    for (const [y, n] of counts) if (n > bestN) { best = String(y); bestN = n }
+    return best || 'export'
+  }, [bankRows])
+
+  function handleExport() {
+    if (!onExportXlsx) return
+    const lines: FinanceExportLine[] = filteredDisplayRows.map((r) => ({
+      datum: r.datum,
+      iratszam: r.iratszam,
+      irattipus: r.irattipus,
+      nev: r.partner,
+      type: r.type,
+      osszeg: r.osszeg,
+      celNev: r.celNev,
+      megjegyzes: r.megjegyzes || '',
+    }))
+    onExportXlsx(buildFinanceExportAoa(lines), financeExportFilename('Bank', exportYear))
+  }
+
   // Havi csoportosítás — a tranzakciók fülhöz hasonlóan
   const groupedByMonth = useMemo(() => {
     const groups = new Map<
@@ -543,7 +613,7 @@ export function BankTab({
         monthExp: number
       }
     >()
-    for (const r of displayRows) {
+    for (const r of filteredDisplayRows) {
       const m = new Date(r.datum).getMonth()
       if (!groups.has(m)) {
         groups.set(m, { label: HU_MONTHS[m], rows: [], monthInc: 0, monthExp: 0 })
@@ -554,7 +624,7 @@ export function BankTab({
       else g.monthExp += r.osszeg
     }
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
-  }, [displayRows])
+  }, [filteredDisplayRows])
 
   return (
     <div className="space-y-4">
@@ -793,8 +863,24 @@ export function BankTab({
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {groupedByMonth.map(([monthIdx, group]) => (
+        <div className="space-y-4">
+          <FinanceTableToolbar
+            fields={BANK_FILTER_FIELDS}
+            values={colFilters}
+            onChange={(k, v) => setColFilters((s) => ({ ...s, [k]: v }))}
+            onClear={() => setColFilters({})}
+            onExport={onExportXlsx ? handleExport : undefined}
+            totalCount={displayRows.length}
+            filteredCount={filteredDisplayRows.length}
+          />
+
+          {filteredDisplayRows.length === 0 ? (
+            <div className="card-raised p-8 text-center">
+              <p className="text-sm text-slate-400">Nincs a szűrésnek megfelelő tétel.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
               {/* Havi elválasztó fejléc */}
               <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
@@ -1063,6 +1149,8 @@ export function BankTab({
               </span>
             </div>
           </div>
+            </div>
+          )}
         </div>
       )}
 

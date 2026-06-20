@@ -435,6 +435,42 @@ const SECTIONS: Section[] = [
           },
         ],
       },
+      {
+        key: 'szuro-export',
+        label: 'Szűrés és Excel-export',
+        icon: FileSpreadsheet,
+        color: 'emerald',
+        shortDescription: 'Oszloponkénti szűrés + a (szűrt) adatok letöltése Excelbe',
+        intro:
+          'A Kassza, Bank és Tranzakciók fülön a táblázat felett egy szűrő-sáv található: minden oszlophoz tartozik egy beviteli mező, és a (szűrt) sorok egyetlen kattintással letölthetők Excelbe — a hivatalos Adatok_2025 oszloprendben, így vissza is importálható.',
+        whenNeeded:
+          'Egy adott partnert, jogcímet vagy bizonylatot keresel a sok tétel között; vagy egy szűrt lista adatait szeretnéd kimenteni Excelbe.',
+        whatItDoes:
+          'A szűrő-sáv mezői: Dátum, Irattípus, Iratszám, Partner, Jogcím és Megjegyzés. Gépelj bármelyikbe — a lista azonnal szűkül (ékezet-független, „tartalmazza" keresés). Az „Export (Excel)" gomb a SZŰRT sorokat tölti le .xlsx-ként.',
+        howItWorks: [
+          {
+            text: 'Írj a megfelelő oszlop szűrő-mezőjébe — több mező egyszerre is használható (ÉS-kapcsolat).',
+          },
+          {
+            text: 'A találatszám a sáv alján látszik (pl. „12 / 480 tétel (szűrve)").',
+            hint: 'A nyitó/záró egyenleg-kártyák a teljes havi adatból számolnak — a szöveges szűrő csak a listát és az exportot szűkíti, az egyenleget nem.',
+          },
+          { text: 'A „Szűrők törlése" gomb egy kattintással visszaállítja a teljes listát.' },
+          {
+            text: 'Az „Export (Excel)" gomb letölt egy fájlt (pl. Kassza_2025.xlsx) a hivatalos oszloprenddel: Dátum | Iratszám | Irattíp. | Név | Bev. Összeg | Bevétel költségvetési név | Kiad. Összeg | Kiadás költségvetési név | Megjegyzés.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Az export a hivatalos Adatok_2025.xlsx elrendezését követi — ugyanúgy vissza is olvasható/importálható.',
+          },
+          {
+            kind: 'tip',
+            text: 'Ha nincs szűrő beállítva, a teljes (a hónap-választóval kiválasztott) lista exportálódik.',
+          },
+        ],
+      },
     ],
   },
 

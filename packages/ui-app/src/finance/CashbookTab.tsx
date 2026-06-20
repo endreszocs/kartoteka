@@ -39,7 +39,27 @@ import {
   getExpensePartnerName,
   getTransactionDocumentNumber,
 } from './helpers'
+import {
+  FinanceTableToolbar,
+  matchesColumnFilters,
+  type FinanceFilterField,
+} from './FinanceTableToolbar'
+import {
+  buildFinanceExportAoa,
+  financeExportFilename,
+  type FinanceExportLine,
+} from './finance-export'
 import type { BefitetesRow, KiadasRow } from './types'
+
+/** A Kassza/Bank fülön szűrhető oszlopok (azonos elrendezés). */
+const CASH_FILTER_FIELDS: FinanceFilterField[] = [
+  { key: 'datum', label: 'Dátum' },
+  { key: 'irattipus', label: 'Irattípus' },
+  { key: 'iratszam', label: 'Iratszám' },
+  { key: 'partner', label: 'Partner' },
+  { key: 'jogcim', label: 'Jogcím' },
+  { key: 'megjegyzes', label: 'Megjegyzés' },
+]
 
 const HU_MONTHS = [
   'Január',
@@ -134,6 +154,9 @@ export interface CashbookTabProps {
 
   onToast?: (message: string, kind: CashbookToastKind) => void
 
+  /** (Szűrt) sorok exportja Excelbe — a web köti be (SheetJS aoa → .xlsx letöltés). */
+  onExportXlsx?: (aoa: (string | number)[][], filename: string) => void
+
   /** ChitantaTombokPanel — aktív tömb státusz + menedzsment. */
   chitantaTombokPanelSlot?: (params: { refreshKey: number }) => ReactNode
 
@@ -195,6 +218,7 @@ export function CashbookTab({
   loadChitantakForBefizetesek,
   onUndoStorno,
   onToast,
+  onExportXlsx,
   chitantaTombokPanelSlot,
   chitantaSilentPrintSlot,
   chitantaTombRequiredDialogSlot,
@@ -204,6 +228,8 @@ export function CashbookTab({
   const [monthFilter, setMonthFilter] = useState<number | 'all'>('all')
   const [sortBy, setSortBy] = useState<CashSortBy>('datum')
   const [sortDir, setSortDir] = useState<CashSortDir>('desc')
+  /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
 
   function toggleSort(col: CashSortBy) {
     if (sortBy === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -482,12 +508,57 @@ export function CashbookTab({
       }
     }, [cashRows, monthFilter, carryoverCash, sortBy, sortDir])
 
+  // Oszlop-szűrés a megjelenített (havi + rendezett) sorokon. A KPI-k (nyitó/záró)
+  // a havi adatból számolnak — a szöveges szűrő csak a listát/exportot szűkíti.
+  const filteredRows = useMemo(
+    () =>
+      displayRows.filter((r) =>
+        matchesColumnFilters(colFilters, {
+          datum: (r.datum || '').slice(0, 10),
+          irattipus: r.irattipus,
+          iratszam: r.iratszam,
+          partner: r.partner,
+          jogcim: r.celNev,
+          megjegyzes: r.megjegyzes || '',
+        }),
+      ),
+    [displayRows, colFilters],
+  )
+
+  // Export-fájlnévhez: a sorok domináns éve.
+  const exportYear = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const r of cashRows) {
+      const y = new Date(r.datum).getFullYear()
+      if (Number.isFinite(y)) counts.set(y, (counts.get(y) || 0) + 1)
+    }
+    let best = ''
+    let bestN = 0
+    for (const [y, n] of counts) if (n > bestN) { best = String(y); bestN = n }
+    return best || 'export'
+  }, [cashRows])
+
+  function handleExport() {
+    if (!onExportXlsx) return
+    const lines: FinanceExportLine[] = filteredRows.map((r) => ({
+      datum: r.datum,
+      iratszam: r.iratszam,
+      irattipus: r.irattipus,
+      nev: r.partner,
+      type: r.type,
+      osszeg: r.osszeg,
+      celNev: r.celNev,
+      megjegyzes: r.megjegyzes || '',
+    }))
+    onExportXlsx(buildFinanceExportAoa(lines), financeExportFilename('Kassza', exportYear))
+  }
+
   const groupedByMonth = useMemo(() => {
     const groups = new Map<
       number,
       { label: string; rows: typeof displayRows; monthInc: number; monthExp: number }
     >()
-    for (const r of displayRows) {
+    for (const r of filteredRows) {
       const m = new Date(r.datum).getMonth()
       if (!groups.has(m)) {
         groups.set(m, { label: HU_MONTHS[m], rows: [], monthInc: 0, monthExp: 0 })
@@ -498,7 +569,7 @@ export function CashbookTab({
       else g.monthExp += r.osszeg
     }
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
-  }, [displayRows])
+  }, [filteredRows])
 
   return (
     <div className="space-y-4">
@@ -563,8 +634,24 @@ export function CashbookTab({
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {groupedByMonth.map(([monthIdx, group]) => (
+        <div className="space-y-4">
+          <FinanceTableToolbar
+            fields={CASH_FILTER_FIELDS}
+            values={colFilters}
+            onChange={(k, v) => setColFilters((s) => ({ ...s, [k]: v }))}
+            onClear={() => setColFilters({})}
+            onExport={onExportXlsx ? handleExport : undefined}
+            totalCount={displayRows.length}
+            filteredCount={filteredRows.length}
+          />
+
+          {filteredRows.length === 0 ? (
+            <div className="card-raised p-8 text-center">
+              <p className="text-sm text-slate-400">Nincs a szűrésnek megfelelő tétel.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
               <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -696,6 +783,8 @@ export function CashbookTab({
               <span className="text-red-500 font-bold">−{formatCurrency(monthExpense)}</span>
             </div>
           </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Pénzügyi táblák: oszloponkénti szűrés + Excel-export (Kassza / Bank / Tranzakciók)
+<!-- key: 2026-06-20-penzugy-szuro-export -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Oszloponkénti szűrés.** A **Kassza, Bank és Tranzakciók** fülön a táblázat felett
+  mostantól szűrő-sáv található — Dátum, Irattípus, Iratszám, Partner, Jogcím és Megjegyzés
+  szerint kereshetsz a saját szövegeddel (ékezet-független, „tartalmazza" keresés). Több
+  mező egyszerre is használható, a találatszám rögtön látszik.
+- **Excel-export.** A szűrő-sáv **„Export (Excel)"** gombja a (szűrt) sorokat letölti
+  `.xlsx`-ként — a **hivatalos Adatok_2025.xlsx oszloprendben** (Dátum | Iratszám | Irattíp. |
+  Név | Bevétel összeg/jogcím | Kiadás összeg/jogcím | Megjegyzés), így **vissza is
+  importálható**. Ha nincs szűrő, a teljes (kiválasztott havi) lista exportálódik.
+- A Súgóba új téma került erről („Szűrés és Excel-export").
+
+---
+
 ## [2026-06-20] — Dispoziție nyomtatvány: tisztább cím, betűvel-kiírás, 1 oldalas elrendezés, élesebb PDF
 <!-- key: 2026-06-20-dispozitie-nyomtatas-finomitas -->
 <!-- category: improvement -->
