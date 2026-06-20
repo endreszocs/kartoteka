@@ -26,9 +26,11 @@ interface Props {
   expenseCategories: ExpenseCategory[]
   bankAccounts: CombinedBankAccount[]
   currentYear: number
+  /** Az aktív gyülekezet — az auto-vázlatmentés kulcsához (gyülekezet-specifikus). */
+  congregationId?: string
 }
 
-export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear }: Props) {
+export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-5xl xl:max-w-[90vw] 2xl:max-w-[84vw]">
@@ -69,6 +71,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               if (type === 'success') toast.success(message)
               else toast.error(message)
             }}
+            draftStorageKey={`kartoteka:combined-entry-draft:${congregationId || 'default'}`}
           />
         </div>
       </DialogContent>

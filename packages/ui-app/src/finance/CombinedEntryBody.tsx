@@ -91,6 +91,14 @@ export interface CombinedEntryBodyProps {
    * Null = nincs család (a sor tag-szintű marad).
    */
   onResolveFamilyId?: (szemelyId: number) => Promise<number | null>
+  /**
+   * #3 (Endre, 2026-06-21): auto-vázlatmentés kulcsa (pl. `combined-entry:<congregationId>`).
+   * Ha megadva, a bevitt sorok GÉPELÉS KÖZBEN azonnal a böngésző localStorage-ába
+   * mentődnek, és a dialóg újranyitásakor visszaállnak — így áramszünet / véletlen
+   * bezárás / összeomlás esetén SEM vész el a (akár több száz) bevitt tétel.
+   * Sikeres mentéskor vagy a vázlat elvetésekor törlődik. Ha nincs megadva, nincs mentés.
+   */
+  draftStorageKey?: string
 }
 
 type EntryRow = {
@@ -122,12 +130,70 @@ const inputClass =
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
-  onSearchMembers, onResolveFamilyId,
+  onSearchMembers, onResolveFamilyId, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>([newRow()])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>([newRow()])
   const [busy, setBusy] = useState(false)
+  /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
+  const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
+
+  // #3 auto-vázlat: van-e értelmes tartalom (üres sorokat nem mentünk).
+  const rowHasContent = (r: EntryRow) =>
+    !!(r.amount.trim() || r.partner.trim() || r.categoryId !== '' || r.iratszam.trim() || r.megjegyzes.trim())
+  const anyContent = (rs: EntryRow[]) => rs.some(rowHasContent)
+
+  function clearDraft() {
+    if (draftStorageKey && typeof window !== 'undefined') {
+      try { window.localStorage.removeItem(draftStorageKey) } catch { /* ignore */ }
+    }
+  }
+
+  // Vázlat VISSZAÁLLÍTÁSA a dialóg megnyitásakor (ha van mentett, nem üres vázlat).
+  useEffect(() => {
+    if (!draftStorageKey || typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey)
+      if (!raw) return
+      const d = JSON.parse(raw) as {
+        incomeRows?: EntryRow[]; expenseRows?: EntryRow[]; tab?: 'income' | 'expense'; savedAt?: string
+      }
+      const inc = Array.isArray(d.incomeRows) ? d.incomeRows : []
+      const exp = Array.isArray(d.expenseRows) ? d.expenseRows : []
+      if (anyContent(inc) || anyContent(exp)) {
+        if (inc.length) setIncomeRows(inc)
+        if (exp.length) setExpenseRows(exp)
+        if (d.tab === 'income' || d.tab === 'expense') setTab(d.tab)
+        setDraftRestoredAt(d.savedAt || '')
+      }
+    } catch { /* sérült vázlat — kihagyjuk */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey])
+
+  // Vázlat MENTÉSE minden változáskor (gépelés közben azonnal). Üres állapotnál törlünk.
+  useEffect(() => {
+    if (!draftStorageKey || typeof window === 'undefined') return
+    try {
+      if (anyContent(incomeRows) || anyContent(expenseRows)) {
+        window.localStorage.setItem(
+          draftStorageKey,
+          JSON.stringify({ incomeRows, expenseRows, tab, savedAt: new Date().toISOString() }),
+        )
+      } else {
+        window.localStorage.removeItem(draftStorageKey)
+      }
+    } catch { /* tárhely tele / letiltva — csendben kihagyjuk */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey, incomeRows, expenseRows, tab])
+
+  function discardDraft() {
+    setIncomeRows([newRow()])
+    setExpenseRows([newRow()])
+    setTab('income')
+    setDraftRestoredAt(null)
+    clearDraft()
+  }
 
   const rows = tab === 'income' ? incomeRows : expenseRows
   const setRows = tab === 'income' ? setIncomeRows : setExpenseRows
@@ -268,6 +334,7 @@ export function CombinedEntryBody({
       if (expenseBatch.length) parts.push(`${expenseBatch.length} kiadás`)
       if (transfers.length) parts.push(`${transfers.length} belső mozgás`)
       onToast('success', `Mentve: ${parts.join(', ')} — dátum szerint rendezve.`)
+      clearDraft() // #3: sikeres mentés után a vázlat törlődik
       onClose()
     } catch (e) {
       onToast('error', e instanceof Error ? e.message : 'A mentés nem sikerült.')
@@ -329,6 +396,23 @@ export function CombinedEntryBody({
         </button>
       </div>
       <p className="text-xs text-slate-400">Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Készpénzfelvétel/-letétel esetén válaszd ki a bankszámlát is.</p>
+
+      {/* #3 — visszaállított vázlat jelzése */}
+      {draftRestoredAt !== null && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span>
+            📝 <strong>Félbehagyott vázlat visszaállítva</strong>
+            {draftRestoredAt ? ` (mentve: ${new Date(draftRestoredAt).toLocaleString('hu-HU')})` : ''} — folytathatod, ahol abbahagytad.
+          </span>
+          <button
+            type="button"
+            onClick={discardDraft}
+            className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-800 transition hover:bg-amber-100"
+          >
+            Vázlat elvetése
+          </button>
+        </div>
+      )}
 
       {/* Nagy képernyő: táblázat */}
       <div className="hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
@@ -461,6 +545,11 @@ export function CombinedEntryBody({
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
+        {draftStorageKey && (
+          <span className="mr-auto text-[11px] text-slate-400" title="A bevitt adatok gépelés közben automatikusan mentődnek — áramszünet vagy véletlen bezárás esetén sem vesznek el.">
+            💾 Automatikus vázlatmentés bekapcsolva
+          </span>
+        )}
         <button type="button" className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" onClick={onClose} disabled={busy}>Mégse</button>
         <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50" onClick={() => void handleSave()} disabled={busy}>
           <Save className="size-4" /> Mentés ({incomeValid + expenseValid} tétel)

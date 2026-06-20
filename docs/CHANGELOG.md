@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: automatikus vázlatmentés (nem vész el a munkád)
+<!-- key: 2026-06-21-tetel-auto-vazlat -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Automatikus vázlatmentés a Tétel rögzítésénél.** Amint elkezded beírni az adatokat, a rendszer
+  **gépelés közben azonnal, automatikusan menti** azokat (a böngészőben). Ha **áramszünet** van,
+  véletlenül bezárod az ablakot, vagy bármi miatt félbe kell hagynod a munkát, **semmi nem vész el** —
+  a dialóg újranyitásakor a félbehagyott tételek **visszaállnak**, és ott folytathatod, ahol abbahagytad.
+  (Több száz tétel rögzítésénél ez a legnagyobb biztonság.)
+- A visszaállított vázlatnál egy jelzés mutatja a mentés időpontját, és egy kattintással **el is
+  vetheted** (tiszta lappal kezdesz). Sikeres mentés után a vázlat automatikusan törlődik.
+
+---
+
 ## [2026-06-20] — Nyomtatás: az előnézet és a nyomtatott kép mostantól megegyezik (WYSIWYG)
 <!-- key: 2026-06-20-nyomtatas-wysiwyg -->
 <!-- category: bugfix -->

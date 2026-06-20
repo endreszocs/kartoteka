@@ -585,6 +585,7 @@ export function FinanceTabs({
         expenseCategories={expenseCategories}
         bankAccounts={bankAccounts}
         currentYear={currentYear}
+        congregationId={congregationId}
       />
 
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}

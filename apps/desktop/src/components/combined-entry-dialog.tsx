@@ -277,6 +277,7 @@ export function DesktopCombinedEntryDialog({
             onToast={(type, message) =>
               setToast({ kind: type === 'success' ? 'success' : 'error', msg: message })
             }
+            draftStorageKey={`kartoteka:combined-entry-draft:${congregationId}`}
           />
         </div>
       </DialogContent>
