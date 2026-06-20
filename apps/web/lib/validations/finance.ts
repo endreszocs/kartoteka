@@ -67,6 +67,11 @@ export const incomeBatchRowSchema = z.object({
   irattipus: z.enum(RECEIPT_TYPES),
   fizetettev: z.number().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
+  // #4b / B1 (Endre): a befizetés személyhez vagy családhoz kapcsolása (kölcsönösen
+  // kizáró). A Tétel rögzítője küldi (tag-kereső / Családi nyugta); a séma eddig
+  // kistrippelte, ezért a kapcsolás nem mentődött — most átengedjük.
+  id_szemely: z.number().int().positive().nullable().optional(),
+  id_csalad: z.number().int().positive().nullable().optional(),
 }).refine(
   data => data.datum <= today(),
   { message: 'Jövőbeli dátum nem engedélyezett', path: ['datum'] }

@@ -1450,13 +1450,16 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
           supabase: scope.supabase,
           dioceseId: scope.scopeId,
           userId: user.id,
+          // Egyházmegyei bevételnek nincs tag/család-kapcsolata.
           input: { ...row, id_szemely: null, id_csalad: null },
         })
       : await insertIncomeRecord({
           supabase: scope.supabase,
           congregationId: scope.scopeId,
           userId: user.id,
-          input: { ...row, id_szemely: null, id_csalad: null },
+          // #4b / B1: a Tétel rögzítője által küldött tag-/család-kapcsolat MEGŐRZÉSE
+          // (kölcsönösen kizáró — a komponens már gondoskodik róla).
+          input: { ...row, id_szemely: row.id_szemely ?? null, id_csalad: row.id_csalad ?? null },
         })
 
     if ('error' in result) {
@@ -1677,6 +1680,120 @@ export async function getFamilyIdForPerson(personId: number): Promise<number | n
     .select('id_csalad').eq('id_szemely', personId).limit(1)
   if (asChild?.[0]) return asChild[0].id_csalad
   return null
+}
+
+// ── #4b (Endre): Családi nyugta — család-keresés + tagok ──────
+// Egy nyugta, több név: a felhasználó kikeresi a családot (a tagok nevére/címére),
+// majd a tagok mellé összeget ír. A keresés a SZEMÉLY-találatokat családokká
+// csoportosítja (legacy csalad.id); a tagok a családfők + gyerekek + a hibrid
+// haztartas_tag tagok alapján. (A csalad táblának nincs congregation_id-je — a
+// gyülekezet-szűrés a kiinduló személyeknél történik.)
+
+export async function searchFamilies(
+  query: string,
+): Promise<Array<{ id: number; name: string; detail?: string }>> {
+  const term = query.trim()
+  if (term.length < 2) return []
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+
+  const normalized = term.normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const parts = normalized.split(/\s+/).filter(Boolean)
+
+  // 1) Találó személyek (vezeték-/keresztnévre)
+  let pq = supabase.from('szemely').select('id').eq('congregation_id', congregationId).eq('isvisible', true)
+  if (parts.length === 1) pq = pq.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
+  else pq = pq.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
+  const { data: persons } = await pq.limit(40)
+  const personIds = (persons || []).map((p) => (p as { id: number }).id)
+  if (!personIds.length) return []
+  const idList = personIds.join(',')
+
+  // 2) E személyek családjai (családfő / gyerek / hibrid háztartás-tag)
+  const familyIds = new Set<number>()
+  const { data: asHead } = await supabase.from('csalad')
+    .select('id').or(`id_ferfi.in.(${idList}),id_no.in.(${idList})`).limit(40)
+  for (const r of (asHead || []) as Array<{ id: number }>) familyIds.add(r.id)
+  const { data: asChild } = await supabase.from('gyerek')
+    .select('id_csalad').in('id_szemely', personIds).limit(80)
+  for (const r of (asChild || []) as Array<{ id_csalad: number | null }>) if (r.id_csalad) familyIds.add(r.id_csalad)
+  const { data: asTag } = await supabase.from('haztartas_tag')
+    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id)').in('id_szemely', personIds).is('ervenyes_ig', null).limit(80)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (asTag || []) as any[]) {
+    const h = Array.isArray(r.haztartas) ? r.haztartas[0] : r.haztartas
+    if (h?.legacy_csalad_id) familyIds.add(h.legacy_csalad_id as number)
+  }
+  if (!familyIds.size) return []
+
+  // 3) Család-részletek (családfők + cím)
+  const ids = [...familyIds].slice(0, 12)
+  const { data: fams } = await supabase.from('csalad')
+    .select(
+      'id, c_szam, ferfi:szemely!csalad_id_ferfi_fk(csaladnev, k_nev), no:szemely!csalad_id_no_fk(csaladnev, k_nev), utca:adrstreet!csalad_c_utcaid_fk(name)',
+    )
+    .in('id', ids)
+  const nameOf = (p: { csaladnev?: string | null; k_nev?: string | null } | null | undefined) =>
+    p ? `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() : ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((fams || []) as any[]).map((f) => {
+    const ferfi = Array.isArray(f.ferfi) ? f.ferfi[0] : f.ferfi
+    const no = Array.isArray(f.no) ? f.no[0] : f.no
+    const utca = Array.isArray(f.utca) ? f.utca[0] : f.utca
+    const heads = [nameOf(ferfi), nameOf(no)].filter(Boolean).join(' & ') || `Család #${f.id}`
+    const addr = [utca?.name, f.c_szam].filter(Boolean).join(' ')
+    return { id: f.id as number, name: heads, detail: addr || undefined }
+  })
+}
+
+export async function getFamilyMembers(
+  familyId: number,
+): Promise<Array<{ id: number; name: string; role?: string }>> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  const members = new Map<number, { id: number; name: string; role?: string }>()
+  const nameOf = (p: { id: number; csaladnev?: string | null; k_nev?: string | null }) =>
+    `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
+
+  // Családfők
+  const { data: fam } = await supabase.from('csalad')
+    .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev)')
+    .eq('id', familyId).maybeSingle()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const famAny = fam as any
+  if (famAny) {
+    const ferfi = Array.isArray(famAny.ferfi) ? famAny.ferfi[0] : famAny.ferfi
+    const no = Array.isArray(famAny.no) ? famAny.no[0] : famAny.no
+    if (ferfi?.id) members.set(ferfi.id, { id: ferfi.id, name: nameOf(ferfi), role: 'családfő' })
+    if (no?.id) members.set(no.id, { id: no.id, name: nameOf(no), role: 'házastárs' })
+  }
+
+  // Gyermekek
+  const { data: kids } = await supabase.from('gyerek')
+    .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev)').eq('id_csalad', familyId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const k of (kids || []) as any[]) {
+    const s = Array.isArray(k.szemely) ? k.szemely[0] : k.szemely
+    if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: 'gyermek' })
+  }
+
+  // Hibrid háztartás-tagok (legacy_csalad_id alapján) — pl. lakótárs, nagyszülő
+  if (congregationId) {
+    const { data: hh } = await supabase.from('haztartas')
+      .select('id').eq('congregation_id', congregationId).eq('legacy_csalad_id', familyId).limit(1)
+    const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
+    if (haztartasId) {
+      const { data: tags } = await supabase.from('haztartas_tag')
+        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
+        .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const t of (tags || []) as any[]) {
+        const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
+        if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag' })
+      }
+    }
+  }
+
+  return [...members.values()]
 }
 
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────

@@ -16,10 +16,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { SearchableSelect } from './SearchableSelect'
+import {
+  FamilyReceiptModal,
+  type CombinedFamilyHit,
+  type CombinedFamilyMember,
+  type FamilyReceiptResult,
+} from './FamilyReceiptModal'
 import type { IncomeCategory, SaveIncomeBatchRow } from './IncomeDialogBody'
 import type { ExpenseCategory, SaveExpenseBatchRow } from './ExpenseDialogBody'
 
@@ -100,6 +106,14 @@ export interface CombinedEntryBodyProps {
    */
   onSearchExpensePartners?: (query: string) => Promise<string[]>
   /**
+   * #4b (Endre, 2026-06-20): családi nyugta. Ha MINDKETTŐ megadva, a Bevétel
+   * fülön megjelenik a „Család" gomb → közös nyugtaszám + a család tagjainak
+   * összegei → személyenként KÜLÖN bevétel-sor (közös alapszám + `/N` utótag,
+   * mert a készpénzes iratszámra UNIQUE index van). Ha hiányzik, a gomb nem látszik.
+   */
+  onSearchFamilies?: (query: string) => Promise<CombinedFamilyHit[]>
+  onGetFamilyMembers?: (familyId: number) => Promise<CombinedFamilyMember[]>
+  /**
    * #3 (Endre, 2026-06-21): auto-vázlatmentés kulcsa (pl. `combined-entry:<congregationId>`).
    * Ha megadva, a bevitt sorok GÉPELÉS KÖZBEN azonnal a böngésző localStorage-ába
    * mentődnek, és a dialóg újranyitásakor visszaállnak — így áramszünet / véletlen
@@ -142,12 +156,15 @@ const inputClass =
 export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
-  onSearchMembers, onResolveFamilyId, onSearchExpensePartners, draftStorageKey,
+  onSearchMembers, onResolveFamilyId, onSearchExpensePartners,
+  onSearchFamilies, onGetFamilyMembers, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
   const [incomeRows, setIncomeRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [expenseRows, setExpenseRows] = useState<EntryRow[]>(() => [newRow(currentYear)])
   const [busy, setBusy] = useState(false)
+  /** #4b: a Családi nyugta modal nyitva van-e. */
+  const [familyModalOpen, setFamilyModalOpen] = useState(false)
   /** #3 auto-vázlat: ha visszaállítottunk egy mentett vázlatot, ennek időpontja. */
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null)
 
@@ -268,6 +285,15 @@ export function CombinedEntryBody({
 
   const tabTotal = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
 
+  // #4b: a Családi nyugta jogcím-listája — valódi bevétel-jogcímek (belső mozgás nélkül).
+  const familyCategoryOptions = useMemo(
+    () =>
+      incomeCategories
+        .filter((c) => !BANKBANK_KODS.has(c.kod) && !dirOfKod(c.kod))
+        .map((c) => ({ id: c.id, label: c.nev })),
+    [incomeCategories],
+  )
+
   function updateRow(id: string, patch: Partial<EntryRow>) {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
@@ -277,6 +303,31 @@ export function CombinedEntryBody({
   function combinedIratszam(r: EntryRow): string | null {
     const parts = [r.docType.trim(), r.iratszam.trim()].filter(Boolean)
     return parts.length ? parts.join(' ') : null
+  }
+
+  // #4b: a Családi nyugta modal megerősítése — személyenként KÜLÖN bevétel-sor.
+  // Egy nyugta, több név: közös alapszám, soronként `/N` utótaggal (a készpénzes
+  // iratszámra UNIQUE index van → azonos szám ütközne). Egyetlen tagnál nincs utótag.
+  // A sorokat a meglévő bevétel-listához fűzzük; a felhasználó ellenőrizhet, majd Mentés.
+  function handleFamilyConfirm(res: FamilyReceiptResult) {
+    const multi = res.lines.length > 1
+    const generated: EntryRow[] = res.lines.map((l, i) => ({
+      ...newRow(currentYear),
+      datum: res.datum,
+      categoryId: res.categoryId,
+      docType: res.docType,
+      evre: res.evre,
+      iratszam: multi ? `${res.baseIratszam}/${i + 1}` : res.baseIratszam,
+      partner: l.name,
+      szemelyId: l.szemelyId,
+      csaladId: null,
+      amount: l.amount,
+      megjegyzes: res.megjegyzes || `Családi nyugta: ${res.baseIratszam}`,
+    }))
+    setIncomeRows((cur) => (cur.length === 1 && !rowHasContent(cur[0]) ? generated : [...cur, ...generated]))
+    setTab('income')
+    setFamilyModalOpen(false)
+    onToast('success', `${generated.length} családtag hozzáadva (nyugta: ${res.baseIratszam}). Ellenőrizd, majd Mentés.`)
   }
 
   async function handleSave() {
@@ -575,9 +626,21 @@ export function CombinedEntryBody({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
-          <Plus className="size-4" /> Új sor
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
+            <Plus className="size-4" /> Új sor
+          </button>
+          {tab === 'income' && onSearchFamilies && onGetFamilyMembers && (
+            <button
+              type="button"
+              onClick={() => setFamilyModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100"
+              title="Egy nyugta, több családtag — mindenki külön sorban, közös nyugtaszámon"
+            >
+              <Users className="size-4" /> Család
+            </button>
+          )}
+        </div>
         <div className="text-sm">
           <span className="text-slate-500">{tab === 'income' ? 'Bevételek' : 'Kiadások'} összege:</span>{' '}
           <strong className={tab === 'income' ? 'text-emerald-600' : 'text-red-500'}>{formatRon(tabTotal)} RON</strong>
@@ -595,6 +658,18 @@ export function CombinedEntryBody({
           <Save className="size-4" /> Mentés ({incomeValid + expenseValid} tétel)
         </button>
       </div>
+
+      {/* #4b — Családi nyugta modal */}
+      {familyModalOpen && onSearchFamilies && onGetFamilyMembers && (
+        <FamilyReceiptModal
+          categoryOptions={familyCategoryOptions}
+          currentYear={currentYear}
+          onSearchFamilies={onSearchFamilies}
+          onGetFamilyMembers={onGetFamilyMembers}
+          onConfirm={handleFamilyConfirm}
+          onClose={() => setFamilyModalOpen(false)}
+        />
+      )}
     </div>
   )
 }

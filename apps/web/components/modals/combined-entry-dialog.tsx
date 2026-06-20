@@ -23,6 +23,8 @@ import {
   searchMembersForFinance,
   getFamilyIdForPerson,
   searchExpensePartners,
+  searchFamilies,
+  getFamilyMembers,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -93,6 +95,8 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             }}
             onResolveFamilyId={async (szemelyId) => await getFamilyIdForPerson(szemelyId)}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
+            onSearchFamilies={async (query) => await searchFamilies(query)}
+            onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)

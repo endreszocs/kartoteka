@@ -23,6 +23,31 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: Családi nyugta (egy nyugta, több névvel)
+<!-- key: 2026-06-21-tetel-csaladi-nyugta -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Családi nyugta.** A bevétel rögzítésénél új **„Család"** gomb: egyetlen nyugtán több
+  családtag befizetése rögzíthető. Megadsz **egy közös nyugtaszámot** (+ dátum, jogcím, év),
+  kikeresed a családot **név vagy cím szerint**, majd a megjelenő tagok mellé beírod, **ki mennyit
+  fizet**. A „Hozzáadás" gomb minden taghoz **külön bevétel-sort** készít (mindenki a saját
+  járulékával, a saját nevéhez kötve), amit a táblázatban még ellenőrizhetsz a Mentés előtt.
+- A közös nyugtaszám alatt a sorok automatikusan `/1`, `/2`… utótagot kapnak (pl. `45/1`, `45/2`),
+  mert a készpénzes nyugtaszámok egyediek kell legyenek — így egy nyugta, mégis tagonként követhető.
+
+### 🐛 Fontos javítás
+
+- **A befizetés mostantól tényleg a kiválasztott személyhez/családhoz kötődik.** Eddig a Tétel
+  rögzítőjében hiába választottál ki egy tagot (vagy családi módot), a webes mentés **eldobta** a
+  kapcsolatot — a befizetés név nélkül, csak szövegként került be. Ez javítva: a tag- és
+  család-kapcsolás megőrződik (egyéni járulék-nyilvántartás).
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: kiadás-partner automatikus kiegészítés
 <!-- key: 2026-06-21-tetel-kiadas-autocomplete -->
 <!-- category: feature -->
