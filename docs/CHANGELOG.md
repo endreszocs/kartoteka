@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-20] — Oldalsáv: az almenü egy kattintásra nyílik, letisztultabb megjelenés
+<!-- key: 2026-06-20-oldalsav-almenu -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, mindenki -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Almenü egy kattintásra.** Ha egy fő menüpontnak van almenüje (pl. **Pénzügy, Tagnyilvántartás,
+  Anyakönyv**), a rákattintás mostantól **nem ugrik egyből az oldalra**, hanem **kinyitja az
+  almenüt** — onnan választod ki, hová szeretnél továbblépni. (Az áttekintő oldal az almenü első
+  eleméből — pl. „Áttekintés" — érhető el; új lapon megnyitás továbbra is működik.)
+- **Szebb, könnyebben kattintható almenük.** Nagyobb, levegősebb sorok, tisztább kijelölés és
+  rámutatás — kényelmesebb használat egérrel és érintőképernyőn is.
+
+---
+
 ## [2026-06-20] — Oszlopba ágyazott szűrő + export-előnézet (Kassza / Bank / Tranzakciók)
 <!-- key: 2026-06-20-oszlop-szuro-export-elonezet -->
 <!-- category: improvement -->
