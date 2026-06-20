@@ -23,7 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-20] — Hivatalos nyomtatványok: román gyülekezetnév + egységes aláírások
+## [2026-06-20] — Nyomtatás: az előnézet és a nyomtatott kép mostantól megegyezik (WYSIWYG)
+<!-- key: 2026-06-20-nyomtatas-wysiwyg -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Az előnézet és a tényleges nyomtatás megegyezik.** Eddig a kettő eltérhetett, mert a lapmargó
+  duplán számítódott (a nyomtató `@page` margója + a dokumentum belső margója összeadódott), így a
+  nyomtatott tartalom keskenyebb lett, mint az előnézetben. Mostantól a margót egyetlen helyen (a
+  dokumentum belső `padding`-je) adjuk, a `@page` margó 0 — így a képernyős előnézet, a böngészős
+  nyomtatás és a PDF **ugyanazt** az elrendezést adja.
+- Tipp: a böngésző nyomtatási ablakában a „Margók" beállítás maradjon **Alapértelmezett** (vagy
+  „Nincs") — így pontosan az előnézet szerinti kép nyomtatódik.
 <!-- key: 2026-06-20-nyomtatvanyok-roman-nev-alairas -->
 <!-- category: improvement -->
 <!-- targets: lelkesz, gondnok, penztaros -->

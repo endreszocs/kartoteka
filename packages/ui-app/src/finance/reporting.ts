@@ -147,8 +147,11 @@ function getDescription(row: BefitetesRow | KiadasRow, bevCelMap: Record<number,
 
 function styles() {
   return `
-    @page { size: A4 landscape; margin: 10mm; }
-    * { box-sizing: border-box; }
+    /* WYSIWYG: @page margó 0 — a margót a .page paddingje (10mm) adja, így a
+       képernyős előnézet ÉS a nyomtatás AZONOS tartalom-szélességet kap
+       (különben a @page margó + a padding összeadódna → eltérő tördelés). */
+    @page { size: A4 landscape; margin: 0; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #eef1f5; padding: 18px 0; }
     .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 10mm; break-after: page; position: relative; }
     .page:last-child { break-after: auto; }

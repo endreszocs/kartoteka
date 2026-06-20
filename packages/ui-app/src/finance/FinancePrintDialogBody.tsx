@@ -270,8 +270,10 @@ export function FinancePrintDialogBody({
     setPrinting(true)
     try {
       await onPrintToPdf(report.html, report.filename, {
+        // Margó 0: a margót a dokumentum .page paddingje (10mm) adja, így a PDF
+        // ugyanazt a tartalom-szélességet kapja, mint az előnézet/nyomtatás (WYSIWYG).
         orientation: report.orientation,
-        margin: [8, 8],
+        margin: [0, 0],
         format: 'a4',
       })
       onToast?.(`${report.title} PDF elkészült.`, 'success')
