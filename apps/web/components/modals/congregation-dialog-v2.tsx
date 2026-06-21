@@ -45,6 +45,7 @@ import {
   deleteAnnualFee,
   saveAnnualFee,
 } from '@/app/(dashboard)/penzugy/tartozas-actions'
+import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -197,11 +198,20 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   })
   const [form, setForm] = useState({
     id: '',
+    nev: '',
     nevHu: '',
     nevRo: '',
     nevEn: '',
     adoszam: '',
     cim: '',
+    megye: '',
+    varos: '',
+    iranyitoszam: '',
+    hazszam: '',
+    country: 'Románia',
+    adrlocality_id: null as number | null,
+    adrstreet_id: null as number | null,
+    isForeign: false,
     email: '',
     telefon: '',
     web: '',
@@ -261,11 +271,20 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
       })
       setForm({
         id: congregation.id,
+        nev: congregation.name || '',
         nevHu: congregation.nev_hu || congregation.name || '',
         nevRo: congregation.nev_ro || '',
         nevEn: congregation.nev_en || '',
         adoszam: congregation.adoszam || '',
         cim: congregation.cim || '',
+        megye: (congregation.megye as string | null) || '',
+        varos: (congregation.varos as string | null) || '',
+        iranyitoszam: (congregation.iranyitoszam as string | null) || '',
+        hazszam: (congregation.hazszam as string | null) || '',
+        country: (congregation.country as string | null) || 'Románia',
+        adrlocality_id: (congregation.adrlocality_id as number | null) ?? null,
+        adrstreet_id: (congregation.adrstreet_id as number | null) ?? null,
+        isForeign: false,
         email: congregation.email || '',
         telefon: congregation.telefon || '',
         web: congregation.web || '',
@@ -838,14 +857,14 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Panel title="Megnevezések">
-                    <Field label="Magyar név"><Input value={form.nevHu} onChange={(event) => update('nevHu', event.target.value)} required /></Field>
+                    <Field label="Hivatalos név"><Input value={form.nev} onChange={(event) => update('nev', event.target.value)} placeholder="pl. Barátosi Református Egyházközség" /></Field>
+                    <Field label="Magyar név (rövid)"><Input value={form.nevHu} onChange={(event) => update('nevHu', event.target.value)} required /></Field>
                     <Field label="Román név"><Input value={form.nevRo} onChange={(event) => update('nevRo', event.target.value)} /></Field>
                     <Field label="Angol név"><Input value={form.nevEn} onChange={(event) => update('nevEn', event.target.value)} /></Field>
-                    <Field label="Adószám"><Input value={form.adoszam} onChange={(event) => update('adoszam', event.target.value)} /></Field>
+                    <Field label="Adószám (CUI)"><Input value={form.adoszam} onChange={(event) => update('adoszam', event.target.value)} /></Field>
                   </Panel>
 
                   <Panel title="Kapcsolati adatok">
-                    <Field label="Cím"><Input value={form.cim} onChange={(event) => update('cim', event.target.value)} /></Field>
                     <Field label="E-mail"><Input value={form.email} onChange={(event) => update('email', event.target.value)} type="email" /></Field>
                     <Field label="Telefon"><Input value={form.telefon} onChange={(event) => update('telefon', event.target.value)} /></Field>
                     <Field label="Weboldal">
@@ -876,6 +895,45 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                     </Field>
                   </Panel>
                 </div>
+
+                <Panel title="Hivatalos cím">
+                  <p className="text-xs text-slate-500">
+                    A megye és helység a hivatalos romániai adatbázisból választható; az irányítószám
+                    automatikusan kitöltődik az utca alapján. Ez a cím jelenik meg a hivatalos iratokon —
+                    ha az alapadatok-varázslóban valami kimaradt, itt utólag is pótolható.
+                  </p>
+                  <div className="mt-3">
+                    <AddressForm
+                      value={{
+                        countyId: null,
+                        localityId: form.adrlocality_id,
+                        streetId: form.adrstreet_id,
+                        country: form.country || 'Románia',
+                        county: form.megye || '',
+                        locality: form.varos || '',
+                        street: form.cim || '',
+                        houseNumber: form.hazszam || '',
+                        postalcode: form.iranyitoszam || '',
+                        isForeign: form.isForeign || false,
+                      }}
+                      onChange={(v: AddressValue) =>
+                        setForm((f) => ({
+                          ...f,
+                          country: v.country,
+                          megye: v.county,
+                          varos: v.locality,
+                          cim: v.street,
+                          hazszam: v.houseNumber,
+                          iranyitoszam: v.postalcode,
+                          adrlocality_id: v.localityId,
+                          adrstreet_id: v.streetId,
+                          isForeign: v.isForeign,
+                        }))
+                      }
+                      lang="hu"
+                    />
+                  </div>
+                </Panel>
 
                 <Panel title="Szervezeti hovatartozás">
                   <div className="grid gap-3 md:grid-cols-2">

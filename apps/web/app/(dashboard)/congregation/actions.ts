@@ -16,11 +16,22 @@ import { logAuditEvent } from '@/lib/audit/log'
 
 const congregationSchema = z.object({
   id: z.string().uuid(),
+  // 2026-06-21: a welcome-varázsló „Hivatalos név" mezője (a `name` oszlopba) — eddig csak a
+  // varázslóban volt szerkeszthető, a Beállítások felülírta `nevHu`-val. Mostantól itt is állítható.
+  nev: z.string().optional(),
   nevHu: z.string().min(2, 'A magyar név kötelező.'),
   nevRo: z.string().optional(),
   nevEn: z.string().optional(),
   adoszam: z.string().optional(),
   cim: z.string().optional(),
+  // 2026-06-21: strukturált hivatalos cím (a welcome-varázslóból) — utólag is szerkeszthető.
+  megye: z.string().max(200).optional(),
+  varos: z.string().max(200).optional(),
+  iranyitoszam: z.string().max(20).optional(),
+  hazszam: z.string().max(50).optional(),
+  country: z.string().max(100).optional(),
+  adrlocality_id: z.number().int().positive().nullable().optional(),
+  adrstreet_id: z.number().int().positive().nullable().optional(),
   email: z.string().email().optional().or(z.literal('')),
   telefon: z.string().optional(),
   web: z.string().optional(),
@@ -175,12 +186,22 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
 
   const { supabase } = permission.access
   const updates: Record<string, unknown> = {
-    name: parsed.data.nevHu,
+    // A hivatalos `name` a dedikált „Hivatalos név" mezőből; ha üres VAGY csak whitespace, a magyar
+    // (rövid) névre esünk vissza, hogy a `name` soha ne ürüljön ki / ne legyen csupa szóköz (eddig a
+    // Beállítások mindig nevHu-val írta felül).
+    name: parsed.data.nev?.trim() || parsed.data.nevHu,
     nev_hu: parsed.data.nevHu,
     nev_ro: parsed.data.nevRo || null,
     nev_en: parsed.data.nevEn || null,
     adoszam: parsed.data.adoszam || null,
     cim: parsed.data.cim || null,
+    megye: parsed.data.megye || null,
+    varos: parsed.data.varos || null,
+    iranyitoszam: parsed.data.iranyitoszam || null,
+    hazszam: parsed.data.hazszam || null,
+    country: parsed.data.country || null,
+    adrlocality_id: parsed.data.adrlocality_id ?? null,
+    adrstreet_id: parsed.data.adrstreet_id ?? null,
     email: parsed.data.email || null,
     telefon: parsed.data.telefon || null,
     web: parsed.data.web || null,
