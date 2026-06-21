@@ -18,7 +18,7 @@
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  AlertCircle, Banknote, Church, FileText, Image as ImageIcon,
+  Banknote, Check, Church, FileText, Image as ImageIcon,
   Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -54,6 +54,8 @@ interface Props {
 }
 
 interface SetupFormState {
+  /** Hivatalos név (→ congregations.name); a magyar rövid név külön a nev_hu. */
+  nev: string
   nev_hu: string
   nev_ro: string
   nev_en: string
@@ -146,8 +148,10 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [isPending, startTransition] = useTransition()
   const [loading, setLoading] = useState(true)
 
+  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank'>('attekintes')
+
   const [form, setForm] = useState<SetupFormState>({
-    nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
+    nev: '', nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
     megye: '', varos: '', cim: '', email: '', telefon: '', web: '',
     bank: '', iban: '', iranyitoszam: '', hazszam: '', country: 'Románia',
     adrlocality_id: null, adrstreet_id: null, isForeign: false,
@@ -183,6 +187,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
         if (res.data) {
           const d = res.data
           setForm({
+            nev: d.name || '',
             nev_hu: d.nev_hu || '', nev_ro: d.nev_ro || '', nev_en: d.nev_en || '',
             adoszam: d.adoszam || '', cimer_url: d.cimer_url || '',
             megye: d.megye || '', varos: d.varos || '', cim: d.cim || '',
@@ -266,27 +271,37 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   // A fő (alapértelmezett) számla — a legacy congregations.bank/iban mezőkhöz.
   const primaryBank = bankAccounts.find((b) => b.is_default) || bankAccounts[0] || null
 
-  // "Mentésre kész" feltétel (a gomb engedélyezéséhez). A szerver továbbra is
-  // szigorúan validál; a hiányzó mezőket fieldErrors-ban jelezzük.
-  //
-  // 2026-06-12 (Endre #2 — gyülekezet-beállítás ellenőrzés): a `cim` (utca) és
-  // a `cimer_url` EDDIG hiányzott innen, pedig a szerver-oldali
-  // congregationSetupSchema kötelezően kéri őket → a gomb aktív volt, de a
-  // mentés hibával elhasalt. Most a kliens-feltétel tükrözi a szervert, és a
-  // hiányzó mezőket fel is soroljuk a gomb mellett.
-  const missingRequired: string[] = []
-  if (form.nev_hu.trim().length < 2) missingRequired.push('magyar név')
-  if (!form.adoszam.trim()) missingRequired.push('adószám')
-  if (!form.megye.trim()) missingRequired.push('megye')
-  if (!form.varos.trim()) missingRequired.push('helység')
-  if (!form.cim.trim()) missingRequired.push('utca/cím')
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) missingRequired.push('e-mail')
-  if (!form.telefon.trim()) missingRequired.push('telefon')
-  if (!form.cimer_url.trim()) missingRequired.push('címer')
-  if (!primaryBank || !primaryBank.bank_neve.trim() || !primaryBank.iban.trim()) missingRequired.push('fő bankszámla (név + IBAN)')
-  const canSave = missingRequired.length === 0
+  // Készültség kategóriánként (Tier-1 kötelező mezők). A szerver továbbra is szigorúan validál; a
+  // hiányzó mezőket panelenként jelezzük (oldalsáv-státusz + készültség-jelző). A `cim` (utca) és a
+  // `cimer_url` is itt van — különben a gomb aktív lenne, de a szerver-mentés elbukna.
+  const paneMissing: Record<'attekintes' | 'cim' | 'bank', string[]> = { attekintes: [], cim: [], bank: [] }
+  if (form.nev_hu.trim().length < 2) paneMissing.attekintes.push('magyar név')
+  if (!form.adoszam.trim()) paneMissing.attekintes.push('adószám')
+  if (!form.cimer_url.trim()) paneMissing.attekintes.push('címer')
+  if (!form.megye.trim()) paneMissing.cim.push('megye')
+  if (!form.varos.trim()) paneMissing.cim.push('helység')
+  if (!form.cim.trim()) paneMissing.cim.push('utca/cím')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) paneMissing.cim.push('e-mail')
+  if (!form.telefon.trim()) paneMissing.cim.push('telefon')
+  if (!primaryBank || !primaryBank.bank_neve.trim() || !primaryBank.iban.trim()) paneMissing.bank.push('fő bankszámla (név + IBAN)')
+
+  const PANES = [
+    { key: 'attekintes' as const, label: 'Áttekintés és alapadatok', icon: Church, chipBg: 'bg-teal-50', chipText: 'text-teal-600' },
+    { key: 'cim' as const, label: 'Cím és elérhetőség', icon: MapPin, chipBg: 'bg-sky-50', chipText: 'text-sky-600' },
+    { key: 'bank' as const, label: 'Bankszámlák', icon: Banknote, chipBg: 'bg-indigo-50', chipText: 'text-indigo-600' },
+  ]
+  const doneCount = PANES.filter((p) => paneMissing[p.key].length === 0).length
+  const allMissing = [...paneMissing.attekintes, ...paneMissing.cim, ...paneMissing.bank]
 
   function handleSave() {
+    // Soft-gate: a Mentés mindig kattintható; ha kötelező adat hiányzik, az első hiányos panelra
+    // ugrunk és jelezzük, mit kell pótolni (a szerver úgyis szigorúan validál).
+    if (allMissing.length > 0) {
+      const firstIncomplete = PANES.find((p) => paneMissing[p.key].length > 0)
+      if (firstIncomplete) setActivePane(firstIncomplete.key)
+      toast.error(`A mentéshez még hiányzik: ${allMissing.join(', ')}`)
+      return
+    }
     setFieldErrors({})
     startTransition(async () => {
       // 2026-06-12 (Endre #2): SORREND-CSERE — előbb a szigorúan validált
@@ -347,7 +362,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="
-          !w-[96vw] !max-w-[96vw] sm:!max-w-[min(900px,96vw)]
+          !w-[96vw] !max-w-[96vw] sm:!max-w-[min(1040px,96vw)]
           !h-[92vh] !max-h-[92vh]
           overflow-hidden p-0 gap-0
           border border-teal-200 bg-gradient-to-br from-white via-white to-teal-50/20
@@ -368,86 +383,138 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading ? (
-            <div className="py-12 text-center text-sm text-slate-400">
-              <Loader2 className="inline-block size-6 animate-spin mb-2" />
-              <p>Betöltés…</p>
-            </div>
-          ) : (
-            <div className="mx-auto max-w-2xl space-y-8">
-              <SectionBasics
-                form={form}
-                setForm={setForm}
-                onCimerUpload={handleCimerUpload}
-                uploading={uploading}
-                fieldErrors={fieldErrors}
-                dioceseName={context.dioceseName}
-                districtName={context.districtName}
-              />
-              <SectionAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />
-              <SectionContact form={form} setForm={setForm} fieldErrors={fieldErrors} />
-              <SectionBanks
-                accounts={bankAccounts}
-                onAdd={addBank}
-                onRemove={removeBank}
-                onUpdate={updateBank}
-                onSetDefault={setDefaultBank}
-                fieldErrors={fieldErrors}
-              />
+        {loading ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-12 text-sm text-slate-400">
+            <Loader2 className="size-6 animate-spin mb-2" />
+            <p>Betöltés…</p>
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+            {/* Bal oldali kategória-sáv */}
+            <nav className="shrink-0 border-b border-slate-100 bg-white/60 p-2.5 md:w-60 md:border-b-0 md:border-r md:overflow-y-auto">
+              <div className="flex gap-1.5 overflow-x-auto md:flex-col md:gap-1 md:overflow-visible">
+                {PANES.map((p) => {
+                  const Icon = p.icon
+                  const miss = paneMissing[p.key]
+                  const active = activePane === p.key
+                  return (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => setActivePane(p.key)}
+                      className={`flex shrink-0 items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition md:w-full ${active ? 'bg-slate-100 ring-1 ring-slate-200' : 'hover:bg-slate-50'}`}
+                    >
+                      <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${p.chipBg}`}>
+                        <Icon className={`size-4 ${p.chipText}`} />
+                      </span>
+                      <span className="hidden flex-1 min-w-0 text-[13px] font-medium leading-tight text-slate-700 sm:block">
+                        {p.label}
+                      </span>
+                      {miss.length === 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+                          <Check className="size-3" />
+                          <span className="hidden sm:inline">Kész</span>
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                          {miss.length}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </nav>
 
-              <div className="card-raised p-3 bg-amber-50/40 border-amber-200">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="size-4 text-amber-700 shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-900">
-                    <strong>Mentés után:</strong> a gyülekezeti alapadatok elmentődnek, és a
-                    teljes rendszer (pénzügy, tagnyilvántartás, anyakönyv) készen áll a használatra.
-                    Az itteni adatok bármikor módosíthatók.
-                  </p>
-                </div>
+            {/* Jobb oldali tartalom */}
+            <div className="flex-1 min-w-0 overflow-y-auto px-5 py-5 md:px-7">
+              <div className="mx-auto max-w-2xl space-y-7">
+                {activePane === 'attekintes' && (
+                  <>
+                    <div className="card-raised p-4">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-800">A beállítás állapota</p>
+                        <span className="text-xs text-slate-500">{doneCount} / {PANES.length} szakasz kész</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${Math.round((doneCount / PANES.length) * 100)}%` }}
+                        />
+                      </div>
+                      {allMissing.length > 0 && (
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          Még hiányzik: <strong className="text-slate-700">{allMissing.join(', ')}</strong>
+                        </p>
+                      )}
+                    </div>
+                    <SectionBasics
+                      form={form}
+                      setForm={setForm}
+                      onCimerUpload={handleCimerUpload}
+                      uploading={uploading}
+                      fieldErrors={fieldErrors}
+                      dioceseName={context.dioceseName}
+                      districtName={context.districtName}
+                    />
+                  </>
+                )}
+
+                {activePane === 'cim' && (
+                  <>
+                    <SectionAddress form={form} setForm={setForm} fieldErrors={fieldErrors} />
+                    <SectionContact form={form} setForm={setForm} fieldErrors={fieldErrors} />
+                  </>
+                )}
+
+                {activePane === 'bank' && (
+                  <SectionBanks
+                    accounts={bankAccounts}
+                    onAdd={addBank}
+                    onRemove={removeBank}
+                    onUpdate={updateBank}
+                    onSetDefault={setDefaultBank}
+                    fieldErrors={fieldErrors}
+                  />
+                )}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* 2026-06-12 (Endre #2): ha a Mentés gomb inaktív, mutassuk meg MIÉRT —
-            a hiányzó kötelező mezők felsorolása. */}
-        {!loading && !canSave && (
-          <div className="shrink-0 border-t border-amber-100 bg-amber-50/60 px-6 py-2">
-            <p className="text-xs text-amber-800">
-              <AlertCircle className="mr-1 inline size-3.5 align-[-2px]" />
-              A mentéshez még hiányzik: <strong>{missingRequired.join(', ')}</strong>
-            </p>
           </div>
         )}
 
-        {/* Lábléc gombok */}
-        <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3 flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={isPending}
-            className="rounded-xl"
-            title="Most kihagyom — 24 óra múlva újra emlékeztetjük a hiányzó adatokra"
-          >
-            <X className="mr-1 size-4" />
-            Később
-          </Button>
-
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending || !canSave}
-            className="rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700"
-          >
-            {isPending ? (
-              <Loader2 className="mr-1 size-4 animate-spin" />
+        {/* Lábléc: mentés-sáv */}
+        <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/60 px-6 py-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-slate-500">
+            {allMissing.length === 0 ? (
+              <span className="inline-flex items-center gap-1 text-emerald-700">
+                <Check className="size-3.5" /> Minden kötelező adat kész
+              </span>
             ) : (
-              <Save className="mr-1 size-4" />
+              <>Még <strong className="text-amber-700">{allMissing.length}</strong> kötelező adat hiányzik</>
             )}
-            Mentés és befejezés
-          </Button>
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+              disabled={isPending}
+              className="rounded-xl"
+              title="Most kihagyom — 24 óra múlva újra emlékeztetjük a hiányzó adatokra"
+            >
+              <X className="mr-1 size-4" />
+              Később
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={isPending}
+              className="rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700"
+            >
+              {isPending ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Save className="mr-1 size-4" />}
+              Mentés
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -516,11 +583,20 @@ function SectionBasics({
         </div>
       </div>
 
-      <ModalField label="Magyar név *">
+      <ModalField label="Hivatalos név">
+        <Input
+          value={form.nev}
+          onChange={(e) => setForm({ ...form, nev: e.target.value })}
+          placeholder="A teljes hivatalos név — ez jelenik meg a hivatalos iratokon"
+          className={FIELD_INPUT_CLASS}
+        />
+      </ModalField>
+
+      <ModalField label="Magyar név (rövid) *">
         <Input
           value={form.nev_hu}
           onChange={(e) => setForm({ ...form, nev_hu: e.target.value })}
-          placeholder="Pl. Barátosi Református Egyházközség"
+          placeholder="Pl. Barátosi Református"
           className={FIELD_INPUT_CLASS}
         />
         {fieldErrors.nev_hu && <p className="text-xs text-rose-600 mt-1">{fieldErrors.nev_hu}</p>}

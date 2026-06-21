@@ -16,11 +16,22 @@ import { logAuditEvent } from '@/lib/audit/log'
 
 const congregationSchema = z.object({
   id: z.string().uuid(),
+  // 2026-06-21: a welcome-varázsló „Hivatalos név" mezője (a `name` oszlopba) — eddig csak a
+  // varázslóban volt szerkeszthető, a Beállítások felülírta `nevHu`-val. Mostantól itt is állítható.
+  nev: z.string().optional(),
   nevHu: z.string().min(2, 'A magyar név kötelező.'),
   nevRo: z.string().optional(),
   nevEn: z.string().optional(),
   adoszam: z.string().optional(),
   cim: z.string().optional(),
+  // 2026-06-21: strukturált hivatalos cím (a welcome-varázslóból) — utólag is szerkeszthető.
+  megye: z.string().max(200).optional(),
+  varos: z.string().max(200).optional(),
+  iranyitoszam: z.string().max(20).optional(),
+  hazszam: z.string().max(50).optional(),
+  country: z.string().max(100).optional(),
+  adrlocality_id: z.number().int().positive().nullable().optional(),
+  adrstreet_id: z.number().int().positive().nullable().optional(),
   email: z.string().email().optional().or(z.literal('')),
   telefon: z.string().optional(),
   web: z.string().optional(),
@@ -175,12 +186,22 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
 
   const { supabase } = permission.access
   const updates: Record<string, unknown> = {
-    name: parsed.data.nevHu,
+    // A hivatalos `name` a dedikált „Hivatalos név" mezőből; ha üres VAGY csak whitespace, a magyar
+    // (rövid) névre esünk vissza, hogy a `name` soha ne ürüljön ki / ne legyen csupa szóköz (eddig a
+    // Beállítások mindig nevHu-val írta felül).
+    name: parsed.data.nev?.trim() || parsed.data.nevHu,
     nev_hu: parsed.data.nevHu,
     nev_ro: parsed.data.nevRo || null,
     nev_en: parsed.data.nevEn || null,
     adoszam: parsed.data.adoszam || null,
     cim: parsed.data.cim || null,
+    megye: parsed.data.megye || null,
+    varos: parsed.data.varos || null,
+    iranyitoszam: parsed.data.iranyitoszam || null,
+    hazszam: parsed.data.hazszam || null,
+    country: parsed.data.country || null,
+    adrlocality_id: parsed.data.adrlocality_id ?? null,
+    adrstreet_id: parsed.data.adrstreet_id ?? null,
     email: parsed.data.email || null,
     telefon: parsed.data.telefon || null,
     web: parsed.data.web || null,
@@ -1101,6 +1122,8 @@ export async function checkCongregationSetupStatus(
  */
 const congregationSetupSchema = z.object({
   id: z.string().uuid(),
+  // Hivatalos név (→ congregations.name). Opcionális: ha üres, a magyar (rövid) névre esünk vissza.
+  nev: z.string().optional().or(z.literal('')),
   nev_hu: z.string().min(2, 'A magyar név kötelező.'),
   nev_ro: z.string().optional().or(z.literal('')),
   nev_en: z.string().optional().or(z.literal('')),
@@ -1147,8 +1170,10 @@ export async function saveCongregationSetup(
   if (!canManage) return { error: 'Nincs jogosultság a gyülekezet szerkesztéséhez.' }
 
   const payload = {
-    // A `name` (NOT NULL) és `nev_hu` szinkronban legyen
-    name: parsed.data.nev_hu,
+    // A hivatalos `name` a dedikált „Hivatalos név" mezőből; ha üres VAGY csak whitespace, a magyar
+    // (rövid) névre esünk vissza, hogy a NOT NULL `name` soha ne ürüljön ki. (Eddig a setup MINDIG
+    // nev_hu-val írta felül a hivatalos nevet — ez clobbolta a Beállításokban megadott hivatalos nevet.)
+    name: parsed.data.nev?.trim() || parsed.data.nev_hu,
     nev_hu: parsed.data.nev_hu,
     nev_ro: parsed.data.nev_ro || null,
     nev_en: parsed.data.nev_en || null,
@@ -1192,6 +1217,7 @@ export async function saveCongregationSetup(
 
 const congregationSetupPartialSchema = z.object({
   id: z.string().uuid(),
+  nev: z.string().optional(),
   nev_hu: z.string().optional(),
   nev_ro: z.string().nullable().optional(),
   nev_en: z.string().nullable().optional(),
@@ -1240,12 +1266,15 @@ export async function saveCongregationSetupStep(
   const d = parsed.data
   const patch: Record<string, unknown> = {}
 
+  // A hivatalos `name` a dedikált „Hivatalos név" (nev) mezőből; a rövid magyar nevet (nev_hu) külön
+  // tartjuk, hogy a setup NE írja felül a hivatalos nevet (eddig nev_hu-val clobbolta).
+  if (d.nev !== undefined) {
+    const trimmed = d.nev.trim()
+    if (trimmed.length > 0) patch.name = trimmed
+  }
   if (d.nev_hu !== undefined) {
     const trimmed = d.nev_hu.trim()
-    if (trimmed.length > 0) {
-      patch.nev_hu = trimmed
-      patch.name = trimmed
-    }
+    if (trimmed.length > 0) patch.nev_hu = trimmed
   }
   if (d.nev_ro !== undefined) patch.nev_ro = d.nev_ro?.trim() || null
   if (d.nev_en !== undefined) patch.nev_en = d.nev_en?.trim() || null
@@ -1346,6 +1375,7 @@ export async function getCongregationForSetup(
 ): Promise<{
   data?: {
     id: string
+    name: string | null
     nev_hu: string
     nev_ro: string | null
     nev_en: string | null
@@ -1447,6 +1477,7 @@ export async function getCongregationForSetup(
   return {
     data: {
       id: row.id as string,
+      name: (row.name as string | null) || null,
       nev_hu: (row.nev_hu as string | null) || (row.name as string | null) || '',
       nev_ro: row.nev_ro as string | null,
       nev_en: row.nev_en as string | null,
