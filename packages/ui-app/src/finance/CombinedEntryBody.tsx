@@ -113,7 +113,7 @@ export interface CombinedEntryBodyProps {
    * nyugta). Mindkettő +1-gyel lép az utolsó nyugtához képest, hézag nélkül. Ha nincs
    * megadva, nincs automatikus kitöltés (a felhasználó kézzel ír mindkettőt).
    */
-  onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string; warning?: string }>
+  onGetNextReceiptNumbers?: (year: number) => Promise<{ keruleti: string; gyulekezeti: string; ujEv?: boolean; tavalyiUtolso?: string; tavalyiEv?: number }>
   /**
    * Beviteli őr P0 (Endre, 2026-06-20): a kerületi iratszám DUPLIKÁTUM-ellenőrzése mentés ELŐTT
    * (gépelés/elhagyás után). Igaz = már létezik ilyen iratszám a gyülekezetben. Csak bevételnél
@@ -210,6 +210,13 @@ export function CombinedEntryBody({
   const [lastRecordedDate, setLastRecordedDate] = useState<string | null>(null)
   /** Beviteli őr P0: azon sorok id-jai, ahol a kerületi iratszám már létezik a DB-ben. */
   const [dupRowIds, setDupRowIds] = useState<Set<string>>(() => new Set())
+  /** #2 (Endre): az ELDÖNTÖTT gyülekezeti kezdőszám az adott naptári évre (új-évi kérdés után) —
+   *  erről nő tovább a kötegen belüli léptetés; null = még nincs döntés erre az évre. */
+  const gyulStartRef = useRef<{ year: number; start: number; width: number } | null>(null)
+  /** #2: az új-évi kérdés-panel állapota (null = nincs kérdés). */
+  const [newYearPrompt, setNewYearPrompt] = useState<{ year: number; rowId: string; tavalyiEv?: number; tavalyiUtolso: string; ajanlott: string } | null>(null)
+  /** #2: a „saját számtól" opció beviteli mezeje. */
+  const [customStart, setCustomStart] = useState('')
 
   // Beviteli őr P1: a legutóbb rögzített dátum egyszeri betöltése (figyelmeztetés alapja).
   useEffect(() => {
@@ -509,57 +516,81 @@ export function CombinedEntryBody({
     return null
   }
 
-  // #3: irattípus-váltás — Chitanță (nyugta) választásakor a KÖVETKEZŐ nyugtaszámok
-  // automatikus kitöltése: kerületi (iratszam) + gyülekezeti (nyugta), mindkettő +1.
-  // Csak üres mezőt tölt (a kézzel beírtat nem írja felül).
+  // #3/#2: irattípus-váltás — Chitanță választásakor a KÖVETKEZŐ nyugtaszámok automatikus kitöltése:
+  // kerületi (iratszam) + gyülekezeti (nyugta) = az UTOLSÓ + 1. Új évnél a gyülekezeti számra
+  // RÁKÉRDEZÜNK (1-től / folytatás / saját szám). Csak üres mezőt tölt (a kézit nem írja felül).
+  function fillReceiptNumbers(
+    rowId: string,
+    year: number,
+    next: { keruleti: string; gyulekezeti: string },
+    onlyKeruleti: boolean,
+  ) {
+    setIncomeRows((cur) => {
+      // KÖTEGEN-BELÜLI növekmény: a DB nem tud a még nem mentett sorokról, ezért a következő
+      // számot a köteg többi sorához is igazítjuk (1,2,3… ne legyen mind ugyanaz).
+      const nextOf = (field: 'iratszam' | 'gyulekezetiSzam', dbVal: string): string => {
+        let maxNum = 0
+        let width = 0
+        for (const x of cur) {
+          if (x.id === rowId) continue
+          const m = String(x[field] || '').match(/(\d+)/)
+          if (m) { const n = parseInt(m[1], 10); if (n >= maxNum) { maxNum = n; width = m[1].length } }
+        }
+        if (maxNum > 0) return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
+        return dbVal // nincs köteg-előzmény → a DB szerinti következő (vagy üres)
+      }
+      const ker = nextOf('iratszam', next.keruleti)
+      // Gyülekezeti alap: ha erre az évre már döntöttünk (gyulStartRef), abból; különben a DB szerinti.
+      const decided = gyulStartRef.current?.year === year ? gyulStartRef.current : null
+      const gyulBase = decided ? String(decided.start).padStart(decided.width, '0') : next.gyulekezeti
+      const gyul = nextOf('gyulekezetiSzam', gyulBase)
+      return cur.map((row) => {
+        if (row.id !== rowId || row.docType !== 'Chitanță') return row
+        const patch: Partial<EntryRow> = {}
+        if (ker && !row.iratszam.trim()) patch.iratszam = ker
+        if (!onlyKeruleti && gyul && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = gyul
+        return Object.keys(patch).length ? { ...row, ...patch } : row
+      })
+    })
+  }
+
   function handleDocTypeChange(r: EntryRow, value: string) {
-    // Az irattípust AZONNAL beállítjuk (a vezérelt select ne ugorjon vissza a hálózati
-    // lekérés alatt), a nyugtaszámokat utána, aszinkron töltjük.
+    // Az irattípust AZONNAL beállítjuk (a vezérelt select ne ugorjon vissza a hálózati lekérés alatt).
     updateRow(r.id, { docType: value })
     const needsFill = !r.iratszam.trim() || !r.gyulekezetiSzam.trim()
-    // Auto-szám CSAK a Bevétel fülön, Chitanță-nál, ha van üres kitöltendő mező.
     if (tab === 'income' && value === 'Chitanță' && onGetNextReceiptNumbers && needsFill) {
       // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
       const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
       void onGetNextReceiptNumbers(year)
         .then((next) => {
           if (!next) return
-          // Nincs „nincs aktív nyugtatömb" figyelmeztetés: a TÉTEL rögzítéséhez nem kell tömb
-          // (az csak a nyugta NYOMTATÁSÁHOZ kell). Ha van aktív tömb, abból jön a kerületi
-          // szám; ha nincs, a mező üres marad, és kézzel beírható — figyelmeztetés nélkül.
-          // ÉLŐ állapot alapján töltünk (nem a befagyott `r`-ből): a lekérés alatt kézzel
-          // átírt mezőt nem írunk felül, és ha közben más irattípusra váltottak, nem stempelünk.
-          setIncomeRows((cur) => {
-            // KÖTEGEN-BELÜLI növekmény: a DB nem tud a még nem mentett sorokról, ezért a
-            // következő számot a köteg többi sorához is igazítjuk (1,2,3… ne legyen mind 1).
-            // A `next` a DB szerinti következő; ha a kötegben már van magasabb szám, azt léptetjük.
-            const nextOf = (field: 'iratszam' | 'gyulekezetiSzam', dbVal: string): string => {
-              let maxNum = 0
-              let width = 0
-              for (const x of cur) {
-                if (x.id === r.id) continue
-                const m = String(x[field] || '').match(/(\d+)/)
-                if (m) {
-                  const n = parseInt(m[1], 10)
-                  if (n >= maxNum) { maxNum = n; width = m[1].length }
-                }
-              }
-              if (maxNum > 0) return width > 0 ? String(maxNum + 1).padStart(width, '0') : String(maxNum + 1)
-              return dbVal // nincs köteg-előzmény → a DB szerinti következő (vagy üres)
-            }
-            const ker = nextOf('iratszam', next.keruleti)
-            const gyul = nextOf('gyulekezetiSzam', next.gyulekezeti)
-            return cur.map((row) => {
-              if (row.id !== r.id || row.docType !== 'Chitanță') return row
-              const patch: Partial<EntryRow> = {}
-              if (ker && !row.iratszam.trim()) patch.iratszam = ker
-              if (gyul && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = gyul
-              return Object.keys(patch).length ? { ...row, ...patch } : row
-            })
-          })
+          const decided = gyulStartRef.current?.year === year
+          // ÚJ ÉV + még nincs döntés → felugró kérdés; a gyülekezetit EGYELŐRE nem töltjük (csak a kerületit).
+          if (next.ujEv && !decided) {
+            setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
+            fillReceiptNumbers(r.id, year, next, true)
+            return
+          }
+          fillReceiptNumbers(r.id, year, next, false)
         })
         .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
     }
+  }
+
+  // #2: az új-évi kérdésre adott válasz — beállítja a gyülekezeti kezdőszámot erre az évre,
+  // kitölti a kiváltó sort; a további Chitanță-sorok ebből nőnek tovább (nextOf).
+  function decideNewYear(start: number, width: number) {
+    const p = newYearPrompt
+    if (!p || !(start > 0)) return
+    gyulStartRef.current = { year: p.year, start, width }
+    const filled = String(start).padStart(width, '0')
+    setIncomeRows((cur) => cur.map((row) =>
+      row.id === p.rowId && row.docType === 'Chitanță' && !row.gyulekezetiSzam.trim()
+        ? { ...row, gyulekezetiSzam: filled }
+        : row,
+    ))
+    setNewYearPrompt(null)
+    setCustomStart('')
   }
 
   // #4: a Családi nyugta tagjait a sor befizető-almenüjéhez (people[]) FŰZZÜK — EGY nyugta,
@@ -772,6 +803,53 @@ export function CombinedEntryBody({
           >
             Vázlat elvetése
           </button>
+        </div>
+      )}
+
+      {/* #2 — Új-évi nyugtaszám kérdés (a Chitanță első nyugtájánál, ha új naptári év indul) */}
+      {newYearPrompt && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-900">
+          <div className="font-semibold">
+            Új év ({newYearPrompt.year}) — hogyan induljon a gyülekezeti nyugtaszám?
+          </div>
+          {newYearPrompt.tavalyiEv && newYearPrompt.tavalyiUtolso !== '0' && (
+            <div className="mt-0.5 text-xs text-sky-700/80">
+              {newYearPrompt.tavalyiEv}-ben az utolsó gyülekezeti szám: <strong>{newYearPrompt.tavalyiUtolso}</strong>
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => decideNewYear(1, 1)}
+              className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100"
+            >
+              1-től induljon
+            </button>
+            <button
+              type="button"
+              onClick={() => decideNewYear(Number(newYearPrompt.ajanlott.replace(/\D/g, '')) || 1, newYearPrompt.ajanlott.replace(/\D/g, '').length || 1)}
+              className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-sky-700"
+            >
+              Folytatás — {newYearPrompt.ajanlott}-tól
+            </button>
+            <span className="text-xs text-sky-700/80">vagy saját számtól:</span>
+            <input
+              type="number"
+              min={1}
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              placeholder="szám"
+              className="h-8 w-24 rounded-md border border-sky-300 bg-white px-2 text-sm text-sky-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400"
+            />
+            <button
+              type="button"
+              onClick={() => { const t = customStart.trim(); const n = Number(t); if (n > 0) decideNewYear(n, t.length) }}
+              disabled={!(Number(customStart) > 0)}
+              className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-40"
+            >
+              OK
+            </button>
+          </div>
         </div>
       )}
 

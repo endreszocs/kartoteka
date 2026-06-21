@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: Chitanță automatikus sorszámozás + új-évi kérdés
+<!-- key: 2026-06-21-chitanta-szamozas-ujev -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás / új funkció
+
+- **A Chitanță automatikus sorszámozása mostantól egyszerűen az „utolsó + 1".** A rendszer
+  megnézi az **utolsó kerületi** és **gyülekezeti** számot, és **eggyel lépteti** — nincs többé
+  nyugtatömb-függőség (az csak a nyomtatáshoz kell). Több sor rögzítésekor a számok a kötegen belül
+  is helyesen nőnek (1, 2, 3…), nem maradnak ki.
+- **Év-váltási kérdés.** Amikor az **új év első** Chitanță-nyugtáját rögzíted, felugró kérdés
+  jelenik meg a **gyülekezeti** számra: **„1-től induljon"**, **„Folytatás (a tavalyi utolsó + 1)"**
+  vagy **„Saját számtól"** (beírod). A választást a rögzítő **megjegyzi**, így a további nyugták abból
+  nőnek tovább. A **kerületi** szám folytonos (mindig az utolsó + 1).
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: több befizető egy nyugtára (lenyitható almenüvel)
 <!-- key: 2026-06-21-tetel-tobb-befizeto-almenu -->
 <!-- category: feature -->
