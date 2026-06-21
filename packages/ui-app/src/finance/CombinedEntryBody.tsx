@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, Search } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { SearchableSelect } from './SearchableSelect'
@@ -1215,26 +1215,6 @@ function PartnerCell({
   const subId = `payers-${row.id}`
   const sum = people.reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
 
-  // A „befizető-kereső" input — közös elem (üres/egyszemélyes módban a fősor mezője, többfizetős
-  // módban az almenü „új befizető" sora). Mindig az inputRef-hez kötjük (a portál-dropdown ehhez igazodik).
-  const searchInput = (
-    <input
-      ref={inputRef}
-      className={inputClass}
-      value={row.partner}
-      placeholder={
-        mode === 'income'
-          ? people.length > 0
-            ? 'Még egy befizető… (tag keresése)'
-            : 'Név (keresés a tagok közt) vagy szabad szöveg'
-          : 'Cég/személy (keresés a korábbiak közt) vagy szabad szöveg'
-      }
-      onChange={(e) => updateRow(row.id, { partner: e.target.value })}
-      onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-      onFocus={() => hits.length > 0 && setOpen(true)}
-    />
-  )
-
   const dropdown =
     open && hits.length > 0 && dropRect && typeof document !== 'undefined'
       ? createPortal(
@@ -1266,116 +1246,112 @@ function PartnerCell({
         )
       : null
 
-  // ── Többfizetős mód (bevétel, 2+ befizető): lenyitható almenü ──────────────
-  if (mode === 'income' && people.length >= 2) {
-    const preview =
-      people.slice(0, 2).map((p) => p.name || '—').join(', ') + (people.length > 2 ? ` +${people.length - 2}` : '')
-    const missing = people.some((p) => !(Number(p.osszeg) > 0))
-    return (
-      <div className="relative space-y-1">
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          aria-expanded={expanded}
-          aria-controls={subId}
-          className="flex w-full items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50/60 px-2 py-1 text-left text-xs hover:bg-emerald-50"
-        >
-          <ChevronRight className={`size-4 shrink-0 text-emerald-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-          <span className="font-semibold text-emerald-800">{people.length} befizető</span>
-          <span className="truncate text-emerald-700/70">· {preview}</span>
-        </button>
-        {expanded && (
-          <div id={subId} className="space-y-1 rounded-r-md border-l-2 border-emerald-200 bg-emerald-50/30 py-1.5 pl-2 pr-1">
-            <div className="hidden grid-cols-[1fr_5.5rem_4rem_1.5rem] gap-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 sm:grid">
-              <span>Név</span>
-              <span className="text-right">Összeg</span>
-              <span className="text-center">Év</span>
-              <span></span>
-            </div>
-            {people.map((p, i) => (
-              <div key={`${p.id ?? 'free'}-${i}`} className="grid grid-cols-[1fr_5.5rem_4rem_1.5rem] items-center gap-1">
-                {p.id == null ? (
-                  <input
-                    className={inputClass + ' h-8'}
-                    value={p.name}
-                    placeholder="Név"
-                    onChange={(e) => updatePayer(row.id, i, { name: e.target.value })}
-                  />
-                ) : (
-                  <span className="truncate text-xs font-medium text-slate-700" title={p.name}>
-                    {p.name}
-                  </span>
-                )}
-                <input
-                  className={inputClass + ' h-8 text-right tabular-nums'}
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={p.osszeg}
-                  placeholder="0"
-                  onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
-                />
-                <input
-                  className={inputClass + ' h-8 px-1 text-center'}
-                  type="number"
-                  inputMode="numeric"
-                  value={p.evre}
-                  onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
-                />
-                <button
-                  type="button"
-                  aria-label="Befizető törlése"
-                  className="flex h-8 w-6 items-center justify-center rounded text-slate-400 hover:text-rose-600"
-                  onClick={() => removePayer(row.id, i)}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            ))}
-            <div className="relative pt-0.5">{searchInput}</div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addEmptyPayer(row.id)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
-              >
-                <Plus className="size-3" /> Üres befizető-sor
-              </button>
-              {onOpenFamily && (
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={onOpenFamily}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-                >
-                  <Users className="size-3" /> Család csatolása
-                </button>
-              )}
-              <span
-                className={`ml-auto text-xs font-semibold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
-                title={missing ? 'Van befizető összeg nélkül' : undefined}
-              >
-                Összesen: {formatRon(sum)} RON
-              </span>
-            </div>
-          </div>
-        )}
-        {dropdown}
-      </div>
-    )
-  }
+  // ── Egységes render ───────────────────────────────────────────────────────
+  // A kereső-mező STABIL pozícióban van (mindig ugyanaz a React-elem, key="payer-search") →
+  // a single↔multi váltáskor SEM mountol újra, így a kereső megbízhatóan működik (ez volt a hiba).
+  // Felette: többfizetős (2+) → kártyás lenyitható almenü; egyszemélyes (1) → chip.
+  const isMulti = mode === 'income' && people.length >= 2
+  const isSingle = mode === 'income' && people.length === 1
+  const preview =
+    people.slice(0, 2).map((p) => p.name || '—').join(', ') + (people.length > 2 ? ` +${people.length - 2}` : '')
+  const missing = people.some((p) => !(Number(p.osszeg) > 0))
 
-  // ── Üres / egyszemélyes mód (bevétel ≤1, vagy kiadás): klasszikus mező ───────
   return (
-    <div className="relative space-y-1">
-      {mode === 'income' && people.length === 1 && (
-        <div className="flex flex-wrap gap-1">
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-900">
+    <div className="relative space-y-1.5">
+      {/* Többfizetős: összegző fej + kártyás lenyitható almenü */}
+      {isMulti && (
+        <div key="multi" className="space-y-1">
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={expanded}
+            aria-controls={subId}
+            className="flex w-full items-center gap-2 rounded-lg border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50/60 px-2.5 py-1.5 text-left text-xs shadow-sm transition hover:from-emerald-100"
+          >
+            <ChevronRight className={`size-4 shrink-0 text-emerald-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            <Users className="size-3.5 shrink-0 text-emerald-600" />
+            <span className="shrink-0 font-semibold text-emerald-900">{people.length} befizető</span>
+            <span className="truncate text-emerald-700/60">{preview}</span>
+            <span className="ml-auto shrink-0 font-semibold tabular-nums text-emerald-900">{formatRon(sum)} RON</span>
+          </button>
+          {expanded && (
+            <div id={subId} className="overflow-hidden rounded-lg border border-emerald-200 bg-white shadow-sm">
+              <div className="grid grid-cols-[1fr_6rem_4.5rem_2rem] gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
+                <span>Befizető</span>
+                <span className="text-right">Összeg</span>
+                <span className="text-center">Év</span>
+                <span></span>
+              </div>
+              {people.map((p, i) => {
+                const zero = !(Number(p.osszeg) > 0)
+                return (
+                  <div
+                    key={`${p.id ?? 'free'}-${i}`}
+                    className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2 border-b border-slate-50 px-2.5 py-1 last:border-b-0 hover:bg-emerald-50/30"
+                  >
+                    {p.id == null ? (
+                      <input
+                        className={inputClass + ' h-8'}
+                        value={p.name}
+                        placeholder="Név (szabad szöveg)"
+                        onChange={(e) => updatePayer(row.id, i, { name: e.target.value })}
+                      />
+                    ) : (
+                      <span className="flex items-center gap-1.5 truncate text-xs font-medium text-slate-700" title={p.name}>
+                        <span className="inline-block size-1.5 shrink-0 rounded-full bg-emerald-400" />
+                        {p.name}
+                      </span>
+                    )}
+                    <input
+                      className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={p.osszeg}
+                      placeholder="0"
+                      onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
+                    />
+                    <input
+                      className={inputClass + ' h-8 px-1 text-center'}
+                      type="number"
+                      inputMode="numeric"
+                      value={p.evre}
+                      onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      aria-label="Befizető törlése"
+                      className="flex h-8 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                      onClick={() => removePayer(row.id, i)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
+              <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-2.5 py-1.5">
+                <span className="text-[11px] text-slate-400">{people.length} befizető — egy nyugta</span>
+                <span
+                  className={`text-xs font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
+                  title={missing ? 'Van befizető összeg nélkül — az nem mentődik' : undefined}
+                >
+                  Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Egyszemélyes: chip */}
+      {isSingle && (
+        <div key="single" className="flex flex-wrap gap-1">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900">
+            <span className="inline-block size-1.5 rounded-full bg-emerald-400" />
             {people[0].name || <span className="italic text-emerald-700/60">(név nélkül)</span>}
             <button
               type="button"
-              className="shrink-0 rounded text-emerald-700 hover:bg-emerald-200/60"
+              className="shrink-0 rounded text-emerald-700 hover:text-rose-600"
               title="Eltávolítás"
               onClick={() => removePayer(row.id, 0)}
             >
@@ -1384,16 +1360,37 @@ function PartnerCell({
           </span>
         </div>
       )}
-      {searchInput}
+
+      {/* Kereső — STABIL pozíció (key) + kereső-ikon; ez adja hozzá a befizetőket */}
+      <div key="payer-search" className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <input
+          ref={inputRef}
+          className={inputClass + ' pl-8'}
+          value={row.partner}
+          placeholder={
+            mode === 'income'
+              ? people.length >= 1
+                ? 'Még egy befizető hozzáadása… (tag keresése)'
+                : 'Befizető neve — keresés a tagok közt vagy szabad szöveg'
+              : 'Cég/személy — keresés a korábbiak közt vagy szabad szöveg'
+          }
+          onChange={(e) => updateRow(row.id, { partner: e.target.value })}
+          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+          onFocus={() => hits.length > 0 && setOpen(true)}
+        />
+      </div>
+
+      {/* Műveletek: Család csatolása + Üres befizető-sor */}
       {mode === 'income' && (onOpenFamily || people.length >= 1) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <div key="actions" className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
           {onOpenFamily && (
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={onOpenFamily}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-              title="Családi nyugta — a család tagjai a befizető-almenübe kerülnek (tagonként összeg)"
+              title="A kiválasztott személy családtagjai a befizető-almenübe kerülnek (tagonként összeg)"
             >
               <Users className="size-3" /> Család csatolása
             </button>
@@ -1404,9 +1401,9 @@ function PartnerCell({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => addEmptyPayer(row.id)}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
-              title="Több befizető ugyanarra a nyugtára — lenyitható almenü, tagonként saját összeggel"
+              title="Üres befizető-sor (szabad szöveges név) hozzáadása az almenühöz"
             >
-              <Plus className="size-3" /> Több befizető
+              <Plus className="size-3" /> Üres befizető-sor
             </button>
           )}
         </div>
