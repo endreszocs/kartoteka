@@ -114,6 +114,14 @@ export interface CombinedEntryBodyProps {
    */
   onGetFamilyMembersForPerson?: (personId: number) => Promise<CombinedFamilyMember[]>
   /**
+   * (B) Egyházfenntartói járulék auto-összeg (Endre, 2026-06-21): ha a sor jogcíme egyházfenntartói
+   * járulék (kód 101.01*) ÉS a befizető regisztrált tag (id != null) ÉS van „melyik évre" év, a rögzítő
+   * lekéri a tag adott évi {expected, paid, debt} értékét, és — ha az összeg MÉG ÜRES — beírja a `debt`-et
+   * (a még fizetendőt, kedvezményekkel/felmentéssel). A kézzel beírt összeget SOHA nem írja felül. Ha
+   * nincs megadva (pl. desktop), nincs automatikus kitöltés.
+   */
+  onGetExpectedJarulek?: (personId: number, year: number) => Promise<{ expected: number; paid: number; debt: number } | null>
+  /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
    * nyugta). Mindkettő +1-gyel lép az utolsó nyugtához képest, hézag nélkül. Ha nincs
@@ -199,7 +207,7 @@ export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
   onSearchMembers, onSearchExpensePartners,
-  onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetNextReceiptNumbers,
+  onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetExpectedJarulek, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
@@ -328,6 +336,51 @@ export function CombinedEntryBody({
     return dirOfKod((tabName === 'income' ? incomeKod : expenseKod).get(Number(r.categoryId)))
   }
   const belsoDir = (r: EntryRow) => dirFor(tab, r) // aktuális fül — a megjelenítéshez
+  // (B) egyházfenntartói járulék jogcím-e (kód 101.01*) — az auto-összeghez (a szerveroldali
+  // isChurchMaintenanceCode-dal egyezően).
+  const isChurchMaintenance = (categoryId: number | ''): boolean => {
+    if (categoryId === '') return false
+    const kod = incomeKod.get(Number(categoryId))
+    return typeof kod === 'string' && kod.startsWith('101.01')
+  }
+
+  // (B) AUTO-ÖSSZEG: ha egy bevétel-sor jogcíme egyházfenntartói járulék ÉS a befizető regisztrált
+  // tag ÉS van év ÉS az összeg MÉG ÜRES → lekérjük a tag adott évi `debt`-jét és beírjuk. Effekt-alapú
+  // (mindig a FRISS incomeRows-ból dolgozik); a per-befizető `reqKey`-guard megakadályozza az
+  // ismételt/loop-os lekérést és tiszteletben tartja a kézi összeget.
+  const jarulekReqRef = useRef<Map<string, string>>(new Map()) // payer.uid → `${id}:${year}` (már lekérve)
+  useEffect(() => {
+    if (tab !== 'income' || !onGetExpectedJarulek) return
+    for (const row of incomeRows) {
+      if (!isChurchMaintenance(row.categoryId)) continue
+      for (const p of row.people ?? []) {
+        if (p.id == null) continue // csak regisztrált tag
+        if ((p.osszeg ?? '').trim() !== '') continue // a kézi/meglévő összeget NE bántsuk
+        const year = Number(p.evre || row.evre)
+        if (!Number.isFinite(year) || year < 1900) continue
+        const reqKey = `${p.id}:${year}`
+        if (jarulekReqRef.current.get(p.uid) === reqKey) continue // ezt a (tag,év)-et már lekértük
+        jarulekReqRef.current.set(p.uid, reqKey)
+        const rowId = row.id
+        const payerUid = p.uid
+        const payerId = p.id
+        void onGetExpectedJarulek(payerId, year)
+          .then((res) => {
+            if (!res || !(res.debt > 0)) return // felmentett/rendezve → nem írunk 0-t
+            if (jarulekReqRef.current.get(payerUid) !== reqKey) return // közben változott a tag/év
+            const amount = String(res.debt)
+            setIncomeRows((cur) => cur.map((r) => (r.id !== rowId ? r : {
+              ...r,
+              people: (r.people ?? []).map((q) =>
+                q.uid === payerUid && q.id === payerId && (q.osszeg ?? '').trim() === '' ? { ...q, osszeg: amount } : q,
+              ),
+            })))
+          })
+          .catch(() => { /* hálózat nélkül nincs auto-kitöltés */ })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomeRows, tab, onGetExpectedJarulek])
 
   function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
     // #4: ha vannak befizetők (people[]), a sor összege a tagok összegeinek summája (per-tag

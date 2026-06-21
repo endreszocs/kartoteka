@@ -1907,6 +1907,87 @@ export async function getFamilyMembersForPerson(
   return getFamilyMembers(familyId)
 }
 
+// (B) Egyházfenntartói járulék AUTO-ÖSSZEG (Endre, 2026-06-21): EGY tag adott évi járuléka a
+// Tétel-rögzítő automatikus kitöltéséhez. A meglévő computeJarulekForMemberYear motort használja
+// (single-source-of-truth a Tartozások-listával) — single-person szűréssel. `currentYear: year`,
+// hogy az eredmény BIT-AZONOS legyen az aggregát Tartozások-listával (lásd a nagy initFinance fv-t).
+// Visszaad {expected, paid, debt} | null (null = nincs scope / ismeretlen tag / hiba → nincs auto-kitöltés).
+export async function getExpectedJarulek(
+  personId: number,
+  year: number,
+): Promise<{ expected: number; paid: number; debt: number } | null> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return null
+
+  // 1. fázis: tag + beállítás + kedvezmények + felmentések + család + számítási mód (párhuzamosan).
+  const [memberRes, bealitasRes, discRes, exRes, famRes, congRes] = await Promise.all([
+    supabase.from('szemely').select('id, sz_datum, foglalkozas').eq('id', personId).eq('congregation_id', congregationId).maybeSingle(),
+    supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(year)).maybeSingle(),
+    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
+    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
+    supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
+    supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
+  ])
+
+  const member = memberRes.data as { id: number; sz_datum: string | null; foglalkozas: string | null } | null
+  if (!member) return null // ismeretlen tag a gyülekezetben → nincs auto-kitöltés
+
+  // Család (legacy_csalad_id): aktív háztartás-tagság alapján (mint az aggregát 940-944).
+  let familyId: number | null = null
+  for (const row of (famRes.data || []) as Array<{ haztartas: { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null } | { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null }[] | null }>) {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) { familyId = h.legacy_csalad_id; break }
+  }
+
+  // 2. fázis: a tag (és családja) egyházfenntartás-befizetései az adott ÉVRE (fizetettev=year).
+  let payQ = supabase.from('befizetes')
+    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
+    .eq('congregation_id', congregationId)
+    .eq('fizetettev', year)
+    .or('deleted.eq.false,deleted.is.null')
+  // FONTOS: id_csalad.eq.null tilos Supabase-ben — ha nincs család, csak személyre szűrünk.
+  payQ = familyId != null ? payQ.or(`id_szemely.eq.${personId},id_csalad.eq.${familyId}`) : payQ.eq('id_szemely', personId)
+  const { data: payData } = await payQ
+  const maintenancePayments = ((payData || []) as Array<{
+    id_szemely: number | null; id_csalad: number | null; datum: string | null; fizetettev: number | null; osszeg: number; befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
+  }>).filter((p) => isChurchMaintenanceCode(getPaymentGoalCode(p.befizetescel)))
+
+  // Az aggregáttal AZONOS normalizálás (a Number()-konverziók KÖTELEZŐK).
+  const yearSettings: Record<number, JarulekYearSetting> = {}
+  const b = bealitasRes.data as { id: string; eves_jarulek: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null } | null
+  if (b) {
+    yearSettings[Number(b.id)] = {
+      year: Number(b.id),
+      eves_jarulek: Number(b.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: b.jarulek_kedvezmenyes == null ? null : Number(b.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: b.jarulek_hatarid || null,
+    }
+  }
+  const discounts = ((discRes.data || []) as JarulekDiscountRule[]).map((row) => ({
+    ...row,
+    ev: Number(row.ev),
+    aktiv: row.aktiv !== false,
+    kedv_osszeg: row.kedv_osszeg == null ? null : Number(row.kedv_osszeg) || 0,
+    kor_tol: row.kor_tol == null ? null : Number(row.kor_tol) || 0,
+    szazalek: row.szazalek == null ? null : Number(row.szazalek) || 0,
+    fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
+  }))
+  const exemptions = (exRes.data || []) as JarulekExemption[]
+  const debtCalcMode = normalizeDebtCalcMode(congRes.error ? null : (congRes.data as { tartozas_szamitas_mod?: unknown } | null)?.tartozas_szamitas_mod)
+
+  const result = computeJarulekForMemberYear({
+    member: { id: member.id, sz_datum: member.sz_datum, familyId, foglalkozas: member.foglalkozas },
+    year,
+    currentYear: year, // D2: bit-azonos a Tartozások-listával
+    debtCalcMode,
+    yearSettings,
+    discounts,
+    exemptions,
+    payments: maintenancePayments,
+  })
+  return { expected: result.expected, paid: result.paid, debt: result.debt }
+}
+
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────
 
 export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> {

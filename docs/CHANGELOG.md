@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: egyházfenntartói járulék automatikus összeg
+<!-- key: 2026-06-21-jarulek-auto-osszeg -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Egyházfenntartói járuléknál az összeg automatikusan kitöltődik.** Ha a jogcím **egyházfenntartói
+  járulék** (kód 101.01*) és a befizető **regisztrált gyülekezeti tag**, az app a tag **adott évi még
+  fizetendő** járulékát írja be az összeg-mezőbe — **a kedvezményeket, felmentést és a családi
+  befizetéseket is figyelembe véve**, pontosan úgy, ahogy a **Tartozások-lista** számol. Részben fizetett
+  tagnál a **maradékot** ajánlja; ha a tag már rendezett vagy felmentett, az összeg üresen marad. A
+  **kézzel beírt összeget soha nem írja felül**. (Az érték a tag és a „melyik évre" mező alapján számol,
+  így visszamenőleges járulékhoz is helyes.)
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: okos „Család csatolása"
 <!-- key: 2026-06-21-okos-csalad -->
 <!-- category: improvement -->
