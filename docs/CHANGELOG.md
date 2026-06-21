@@ -23,7 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-21] — Desktop: a Tétel rögzítő okosításai online elérhetők
+## [2026-06-21] — Tétel rögzítése: számozás megbízhatóbb + járulék-kedvezmény figyelembevétele
+<!-- key: 2026-06-21-szamozas-jarulek-kedvezmeny-fix -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Chitanță nyugtaszám-kitöltés megbízhatóbb.** Új évnél a **gyülekezeti** szám is azonnal
+  kitöltődik az ajánlott folytatással (eddig üresen maradhatott, amíg nem döntöttél), a kérdés-panel
+  már csak felülírásra szolgál, és a további sorok nem kérdeznek újra. Megszűnt egy ritka, „néma"
+  eset is, amikor a kitöltés gyors kattintásnál kimaradt. **Az első nyugtánál** (nincs előzmény) a
+  kerületi mező jelzi, hogy oda a kezdő (kerülettől kapott) számot kell beírni — onnantól magától lép.
+- **Az egyházfenntartói járulék auto-összeg most figyelembe veszi a kedvezményeket befizetéskor.**
+  A korai-fizetési / időszaki kedvezmény eddig csak akkor csökkentette az ajánlott összeget, ha a tag
+  **már befizetett** — de a rögzítéskor épp a *még be nem rögzített* befizetést írod be, ezért a teljes
+  díj jelent meg. Mostantól a rendszer a **befizetés dátuma** alapján számol: ha a határidőn belül
+  rögzíted, a **kedvezményes** összeget ajánlja. A Tartozások-lista számítása változatlan.
 <!-- key: 2026-06-21-desktop-tetel-bekotes -->
 <!-- category: feature -->
 <!-- targets: lelkesz, gondnok, penztaros -->

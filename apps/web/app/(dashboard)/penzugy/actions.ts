@@ -1915,6 +1915,10 @@ export async function getFamilyMembersForPerson(
 export async function getExpectedJarulek(
   personId: number,
   year: number,
+  // (B/J6): a beírni kívánt befizetés dátuma (ISO) — a korai-fizetés/időszaki kedvezmény
+  // PROSPEKTÍV alkalmazásához (a dátum a határidő előtt van-e), hogy az auto-összeg a kedvezményes
+  // célt ajánlja. A Tartozás-lista NEM adja meg → ott a retrospektív (bit-azonos) viselkedés marad.
+  prospectiveDateIso?: string,
 ): Promise<{ expected: number; paid: number; debt: number } | null> {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return null
@@ -1975,6 +1979,7 @@ export async function getExpectedJarulek(
   const exemptions = (exRes.data || []) as JarulekExemption[]
   const debtCalcMode = normalizeDebtCalcMode(congRes.error ? null : (congRes.data as { tartozas_szamitas_mod?: unknown } | null)?.tartozas_szamitas_mod)
 
+  const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
   const result = computeJarulekForMemberYear({
     member: { id: member.id, sz_datum: member.sz_datum, familyId, foglalkozas: member.foglalkozas },
     year,
@@ -1984,6 +1989,7 @@ export async function getExpectedJarulek(
     discounts,
     exemptions,
     payments: maintenancePayments,
+    prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
   return { expected: result.expected, paid: result.paid, debt: result.debt }
 }

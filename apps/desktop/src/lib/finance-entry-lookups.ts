@@ -223,6 +223,7 @@ export async function expectedJarulekOnline(
   congregationId: string,
   personId: number,
   year: number,
+  prospectiveDateIso?: string, // (B/J6) a befizetés dátuma a korai-fizetés kedvezmény prospektív alkalmazásához
 ): Promise<{ expected: number; paid: number; debt: number } | null> {
   if (!(await isOnlineWithSession())) return null
   const supabase = getDesktopSupabase()
@@ -273,6 +274,7 @@ export async function expectedJarulekOnline(
   }))
   const exemptions = (exRes.data || []) as JarulekExemption[]
   const debtCalcMode: DebtCalcMode = 'akkori' // currentYear:year mellett irreleváns (web-azonos)
+  const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
 
   const result = computeJarulekForMemberYear({
     member: { id: member.id, sz_datum: member.sz_datum, familyId, foglalkozas: member.foglalkozas },
@@ -283,6 +285,7 @@ export async function expectedJarulekOnline(
     discounts,
     exemptions,
     payments: maintenancePayments,
+    prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
   return { expected: result.expected, paid: result.paid, debt: result.debt }
 }

@@ -120,7 +120,7 @@ export interface CombinedEntryBodyProps {
    * (a még fizetendőt, kedvezményekkel/felmentéssel). A kézzel beírt összeget SOHA nem írja felül. Ha
    * nincs megadva (pl. desktop), nincs automatikus kitöltés.
    */
-  onGetExpectedJarulek?: (personId: number, year: number) => Promise<{ expected: number; paid: number; debt: number } | null>
+  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number } | null>
   /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
@@ -365,7 +365,10 @@ export function CombinedEntryBody({
         const payerUid = p.uid
         const payerId = p.id
         const payerName = p.name
-        void onGetExpectedJarulek(payerId, year)
+        // J6: a befizetés DÁTUMA (a sor datum-ja) → a korai-fizetés/időszaki kedvezmény prospektív
+        // alkalmazásához (ha a befizetés a határidő előtt van, a kedvezményes összeget ajánljuk).
+        const prospectiveDateIso = parseFlexibleDate(row.datum) || undefined
+        void onGetExpectedJarulek(payerId, year, prospectiveDateIso)
           .then((res) => {
             if (!res) return
             if (jarulekReqRef.current.get(payerUid) !== reqKey) return // közben változott a tag/év
@@ -616,7 +619,9 @@ export function CombinedEntryBody({
       const gyulBase = decided ? String(decided.start).padStart(decided.width, '0') : next.gyulekezeti
       const gyul = nextOf('gyulekezetiSzam', gyulBase)
       return cur.map((row) => {
-        if (row.id !== rowId || row.docType !== 'Chitanță') return row
+        // J3: NEM ellenőrizzük újra a docType-ot (a handleDocTypeChange már value==='Chitanță'-val
+        // hívott) — a `cur.docType` async-versenyhelyzete némán eldobta a fill-t. Csak az id számít.
+        if (row.id !== rowId) return row
         const patch: Partial<EntryRow> = {}
         if (ker && !row.iratszam.trim()) patch.iratszam = ker
         if (!onlyKeruleti && gyul && !row.gyulekezetiSzam.trim()) patch.gyulekezetiSzam = gyul
@@ -636,10 +641,14 @@ export function CombinedEntryBody({
         .then((next) => {
           if (!next) return
           const decided = gyulStartRef.current?.year === year
-          // ÚJ ÉV + még nincs döntés → felugró kérdés; a gyülekezetit EGYELŐRE nem töltjük (csak a kerületit).
+          // ÚJ ÉV + még nincs döntés → felugró kérdés a gyülekezeti kezdetről. J2: a gyülekezetit
+          // MOST IS kitöltjük az ajánlott folytatással (ne maradjon üres), és beállítjuk a
+          // gyulStartRef-et, hogy a TÖBBI sor ne kérdezzen újra — a panel csak FELÜLÍRÁSRA szolgál.
           if (next.ujEv && !decided) {
             setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
-            fillReceiptNumbers(r.id, year, next, true)
+            const digits = (next.gyulekezeti || '').replace(/\D/g, '')
+            gyulStartRef.current = { year, start: Number(digits) || 1, width: digits.length || 1 }
+            fillReceiptNumbers(r.id, year, next, false)
             return
           }
           fillReceiptNumbers(r.id, year, next, false)
@@ -655,10 +664,10 @@ export function CombinedEntryBody({
     if (!p || !(start > 0)) return
     gyulStartRef.current = { year: p.year, start, width }
     const filled = String(start).padStart(width, '0')
+    // FELÜLÍRJUK a kiváltó sor gyülekezeti számát (a J2 már beírta az ajánlott folytatást; a
+    // felhasználó most explicit mást választhat — pl. „1-től"), ezért nem nézzük az ürességet.
     setIncomeRows((cur) => cur.map((row) =>
-      row.id === p.rowId && row.docType === 'Chitanță' && !row.gyulekezetiSzam.trim()
-        ? { ...row, gyulekezetiSzam: filled }
-        : row,
+      row.id === p.rowId ? { ...row, gyulekezetiSzam: filled } : row,
     ))
     setNewYearPrompt(null)
     setCustomStart('')
@@ -1008,7 +1017,8 @@ export function CombinedEntryBody({
                           <input
                             className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
                             value={r.iratszam}
-                            title={tab === 'income' ? 'Kerületi (nyomdai) szám — a kerülettől kapott szám' : undefined}
+                            placeholder={tab === 'income' ? 'auto — 1. nyugtánál írd be' : undefined}
+                            title={tab === 'income' ? 'Kerületi (nyomdai) szám — a kerülettől kapott szám. Automatikusan az utolsó + 1; az ELSŐ nyugtánál (nincs előzmény) írd be a kezdő számot, utána magától lép.' : undefined}
                             onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
                             onBlur={() => checkRowDuplicate(r)}
                           />
@@ -1179,6 +1189,7 @@ export function CombinedEntryBody({
                         <input
                           className={`${inputClass} ${rWarn ? 'border-red-400' : ''}`}
                           value={r.iratszam}
+                          placeholder={tab === 'income' ? 'auto — 1. nyugtánál írd be' : undefined}
                           onChange={(e) => updateRow(r.id, { iratszam: e.target.value })}
                           onBlur={() => checkRowDuplicate(r)}
                         />
