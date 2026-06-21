@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   Coins,
+  GraduationCap,
   HandCoins,
   Landmark,
   PiggyBank,
@@ -85,7 +86,7 @@ interface BankAccountRow {
 interface FeeDiscountRow {
   id: string
   ev: number
-  tipus: 'idoszak' | 'kor' | 'jovedelem'
+  tipus: 'idoszak' | 'kor' | 'jovedelem' | 'foglalkozas'
   sorrend: number
   aktiv: boolean
   kezdet: string | null
@@ -129,7 +130,7 @@ function getEmptyDiscountForm(defaultYear: number) {
   return {
     id: undefined as string | undefined,
     ev: defaultYear,
-    tipus: 'idoszak' as 'idoszak' | 'kor' | 'jovedelem',
+    tipus: 'idoszak' as 'idoszak' | 'kor' | 'jovedelem' | 'foglalkozas',
     sorrend: 0,
     aktiv: true,
     kezdet: '01-01',
@@ -1154,7 +1155,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                     {/* 3 kártyás típus-választó */}
                     <div className="mb-4">
                       <p className="mb-2 text-xs text-slate-500">1. lépés — válaszd ki a kedvezmény típusát:</p>
-                      <div className="grid gap-3 md:grid-cols-3">
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                         <DiscountTypeCard
                           icon={<CalendarDays className="size-5" />}
                           title="Korai fizetés"
@@ -1170,6 +1171,14 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                           example="65+ éves tag 50%-ot kap — 75 RON-t fizet a 150 helyett."
                           selected={discountForm.tipus === 'kor'}
                           onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'kor' }))}
+                        />
+                        <DiscountTypeCard
+                          icon={<GraduationCap className="size-5" />}
+                          title="Foglalkozás"
+                          description="A tag foglalkozása alapján (pl. tanuló, diák)."
+                          example="Tanuló / diák tag 0 RON-t fizet."
+                          selected={discountForm.tipus === 'foglalkozas'}
+                          onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' }))}
                         />
                         <DiscountTypeCard
                           icon={<Coins className="size-5" />}
@@ -1245,6 +1254,22 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
                               <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. Tartós betegség presbitériumi döntés alapján" />
                             </Field>
                           </div>
+                        </div>
+                      )}
+
+                      {discountForm.tipus === 'foglalkozas' && (
+                        <div className="rounded-[1rem] border border-indigo-100 bg-indigo-50/40 p-3">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <Field label="Foglalkozás-kulcsszavak (vesszővel)">
+                              <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. tanuló, diák, egyetemista" />
+                            </Field>
+                            <Field label="Fizetendő összeg (RON) — 0 = mentesül">
+                              <Input type="number" min={0} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
+                            </Field>
+                          </div>
+                          <p className="mt-2 text-[11px] text-slate-500">
+                            A tag <strong>foglalkozás</strong> mezőjéhez illeszt (ékezet/kisbetű-érzéketlen, teljes szóra). Aki egyezik, a megadott <strong>fizetendő összeg</strong>et fizeti (0 = teljesen mentesül). Több kulcsszó vesszővel.
+                          </p>
                         </div>
                       )}
 
@@ -1901,14 +1926,16 @@ function DiscountCard({
       ? `Időablak: ${discount.kezdet || '—'}–${discount.hatarid || '—'} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
       : discount.tipus === 'kor'
         ? `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
-        : `${discount.szazalek || 0}% vagy ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON · ${discount.jov_leiras || 'Szociális kedvezmény'}`
+        : discount.tipus === 'foglalkozas'
+          ? `Foglalkozás: ${discount.jov_leiras || '—'} · Fizetendő: ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON`
+          : `${discount.szazalek || 0}% vagy ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON · ${discount.jov_leiras || 'Szociális kedvezmény'}`
 
   return (
     <div className="rounded-[1.2rem] border border-slate-200/70 bg-white/92 p-4 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.16)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            {discount.ev}. év · {discount.tipus === 'idoszak' ? 'Kedvezményes időszak' : discount.tipus === 'kor' ? 'Fizetés / nyugdíj alapú' : 'Szociális alapú'}
+            {discount.ev}. év · {discount.tipus === 'idoszak' ? 'Kedvezményes időszak' : discount.tipus === 'kor' ? 'Fizetés / nyugdíj alapú' : discount.tipus === 'foglalkozas' ? 'Foglalkozás-alapú' : 'Szociális alapú'}
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-800">{description}</p>
           <p className="mt-2 text-xs text-slate-500">{discount.aktiv ? 'Aktív szabály' : 'Inaktív szabály'}</p>
