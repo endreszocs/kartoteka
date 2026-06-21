@@ -65,7 +65,18 @@ export async function pullDebtData(congregationId: string): Promise<PullDebtResu
         .eq('congregation_id', congregationId),
     ])
     if (felmRes.error) return { success: false, error: felmRes.error.message }
-    if (kedvRes.error) return { success: false, error: kedvRes.error.message }
+    // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés hibázott, újra `kezdet` nélkül —
+    // különben az EGÉSZ tartozás-szinkron elbukna egy hiányzó oszloptól. Web-azonos a getExpectedJarulek/
+    // initFinance ellenállóságával (commit 535c33fc); a kezdet ekkor null (nyitott ablak).
+    let kedvData = kedvRes.data as Array<Record<string, unknown>> | null
+    if (kedvRes.error) {
+      const retry = await supabase
+        .from('jarulek_kedvezmeny')
+        .select('id, congregation_id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+        .eq('congregation_id', congregationId)
+      if (retry.error) return { success: false, error: retry.error.message }
+      kedvData = retry.data as Array<Record<string, unknown>> | null
+    }
 
     for (const row of felmRes.data || []) {
       const r = row as Record<string, unknown>
@@ -87,7 +98,7 @@ export async function pullDebtData(congregationId: string): Promise<PullDebtResu
       )
     }
 
-    for (const row of kedvRes.data || []) {
+    for (const row of kedvData || []) {
       const r = row as Record<string, unknown>
       await dbExecute(
         `INSERT INTO jarulek_kedvezmeny_local (

@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Járulék-kedvezmények: a mentett kedvezmények biztosan érvényesülnek
+<!-- key: 2026-06-21-jarulek-kedvezmeny-ellenallosag -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A beállított járulék-kedvezmények mostantól mindenhol érvényesülnek.** Egyes (régebbi)
+  adatbázisokból hiányzott egy mező (az időszaki kedvezmény **kezdő dátuma**), és emiatt a rendszer
+  bizonyos esetekben **némán figyelmen kívül hagyhatta az összes beállított kedvezményt** (kor-,
+  foglalkozás- és időszaki kedvezményt egyaránt) — a **Tartozások-listán**, a **tagnyilvántartásban**
+  és a **befizetés auto-összegénél** is. Ezért fordulhatott elő, hogy „be van állítva a kedvezmény,
+  mégis a teljes díj jelenik meg". Mostantól a hiányzó mező **nem okoz kedvezmény-kiesést**: a
+  kedvezmények a megszokott módon működnek (a hiányzó kezdő dátum esetén nyitott időablakkal). A
+  végleges megoldás a mező pótlása az adatbázisban — ezt a rendszergazda egy lépésben elvégzi.
+- **A varázsló (és a Beállítások) kedvezmény-mentése sem veszik el egy hiányzó mező miatt.** Korábban
+  egyetlen hiányzó adatbázis-oszlop az **egész** kedvezmény-csomag mentését meghiúsíthatta (üresen
+  maradt a kedvezmény-tábla). Mostantól a mentés ilyenkor is sikeresen lefut.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: számozás megbízhatóbb + járulék-kedvezmény figyelembevétele
 <!-- key: 2026-06-21-szamozas-jarulek-kedvezmeny-fix -->
 <!-- category: fix -->

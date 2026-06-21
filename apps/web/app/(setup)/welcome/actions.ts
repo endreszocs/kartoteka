@@ -990,7 +990,30 @@ export async function completeWizard(): Promise<
           .from('jarulek_kedvezmeny')
           .insert(discountRows)
         if (error) {
-          console.error('[completeWizard] jarulek_kedvezmeny insert:', error)
+          // Ellenálló a `kezdet` oszlop hiányára (régi séma): CSAK ha pont a hiányzó oszlop a hiba,
+          // próbáljuk újra `kezdet` nélkül — így EGY hiányzó oszlop NE buktassa el az EGÉSZ batch-et
+          // (időszaki+kor+foglalkozás), különben a kedvezmény-tábla üresen marad, és a varázslóban
+          // megadott kedvezmények némán elvesznek. Genuine hibát (NOT NULL, FK) NEM nyelünk el — az
+          // a logban marad.
+          const msg = error.message || ''
+          const isMissingColumn =
+            error.code === '42703' ||
+            error.code === 'PGRST204' ||
+            /column|schema cache|could not find/i.test(msg)
+          if (isMissingColumn) {
+            console.warn('[completeWizard] jarulek_kedvezmeny insert hibázott, újrapróba kezdet nélkül:', msg)
+            const rowsWithoutKezdet = discountRows.map((row) => {
+              const rest = { ...row }
+              delete rest.kezdet
+              return rest
+            })
+            const retry = await writeClient.from('jarulek_kedvezmeny').insert(rowsWithoutKezdet)
+            if (retry.error) {
+              console.error('[completeWizard] jarulek_kedvezmeny insert (retry kezdet nélkül) is hibázott:', retry.error)
+            }
+          } else {
+            console.error('[completeWizard] jarulek_kedvezmeny insert:', error)
+          }
         }
       }
     }
