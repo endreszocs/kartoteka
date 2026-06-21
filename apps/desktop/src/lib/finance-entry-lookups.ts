@@ -65,8 +65,10 @@ export async function nextReceiptNumbersOnline(
     .select('iratszam, nyugta')
     .eq('congregation_id', congregationId).eq('deleted', false)
     .ilike('irattipus', '%észpénz%').is('belso_mozgas_xkey', null)
+  // A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk a kerületire (kiejtette a régi/import
+  // előzményt); csak az AUTO- auto-iratszámot zárjuk ki. (Web-azonos, lásd getNextReceiptNumbers.)
   const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
-    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam) && r.nyugta !== r.iratszam)
+    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam))
     .map((r) => r.iratszam)
   const befMax = maxNumOf(keruletiVals)
   const keruleti = befMax.num > 0 ? pad(befMax.num + 1, befMax.width) : ''

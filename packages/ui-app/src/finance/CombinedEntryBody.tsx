@@ -977,8 +977,8 @@ export function CombinedEntryBody({
                 <th className="px-2 py-2 text-left">{tab === 'income' ? 'Kerületi sz.' : 'Irat sz.'}</th>
               )}
               {showIncomeReceiptCols && <th className="px-2 py-2 text-left">Irat sz.</th>}
-              <th className="px-2 py-2 text-left">{partnerLabel}</th>
               <th className="px-2 py-2 text-left">Jogcím</th>
+              <th className="px-2 py-2 text-left">{partnerLabel}</th>
               {tab === 'income' && <th className="px-2 py-2 text-left">Melyik évre</th>}
               <th className="px-2 py-2 text-right">Összeg</th>
               <th className="px-2 py-2 text-left">Megjegyzés</th>
@@ -1041,6 +1041,10 @@ export function CombinedEntryBody({
                       )}
                     </td>
                   )}
+                  <td className="px-2 py-1.5 min-w-[180px]">
+                    <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
+                    {renderBankSelect(r)}
+                  </td>
                   <td className="px-2 py-1.5">
                     {dir ? (
                       <span className="text-xs text-slate-400">—</span>
@@ -1065,10 +1069,6 @@ export function CombinedEntryBody({
                         removePayer={removePayer}
                       />
                     )}
-                  </td>
-                  <td className="px-2 py-1.5 min-w-[180px]">
-                    <SearchableSelect options={categoryOptions} value={r.categoryId} onChange={(id) => updateRow(r.id, { categoryId: id })} />
-                    {renderBankSelect(r)}
                   </td>
                   {tab === 'income' && (
                     <td className="px-2 py-1.5 w-[90px]">

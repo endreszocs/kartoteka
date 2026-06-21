@@ -1625,11 +1625,12 @@ export async function getNextReceiptNumbers(
     .ilike('irattipus', '%észpénz%')
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
   const { data: allData } = await allQ
-  // CSAK a valódi kerületi Chitanță-iratszámok: kizárjuk az „AUTO-…" auto-generált iratszámot
-  // (üres iratszámú készpénz-tételnél keletkezik) és a tükrözött sort (nyugta === iratszam) —
-  // különben az „AUTO-20260621-…" dátumszerű számjegyei az égbe húznák a kerületi következőt.
+  // CSAK a valódi kerületi iratszámokat nézzük: kizárjuk az „AUTO-…" auto-generált iratszámot
+  // (üres iratszámú készpénz-tételnél keletkezik — dátumszerű számjegyei az égbe húznák a kerületi
+  // következőt). A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk: az kiejtette a régi/
+  // import kerületi előzményt is, így a mező üresen maradt — a max úgyis a legnagyobb valódi számot veszi.
   const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
-    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam) && r.nyugta !== r.iratszam)
+    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam))
     .map((r) => r.iratszam)
   const befMax = maxNumOf(keruletiVals)
   const keruleti = befMax.num > 0 ? pad(befMax.num + 1, befMax.width) : ''
