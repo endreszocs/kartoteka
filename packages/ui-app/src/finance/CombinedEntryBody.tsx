@@ -158,7 +158,7 @@ type EntryRow = {
    *  1 elem → egy regisztrált befizető (a fősor `amount`/`evre` az ő `osszeg`/`evre` mezőjét szerkeszti).
    *  2+ elem → lenyitható almenü, befizetőnként összeg+év; a fősor összege read-only summa.
    *  id=null = szabad szöveges (nem regisztrált) befizető. */
-  people: Array<{ id: number | null; name: string; osszeg: string; evre: string }>
+  people: Array<{ uid: string; id: number | null; name: string; osszeg: string; evre: string }>
   /** Legacy (B1) — már a people[] váltja ki; csak régi vázlat visszaállításához tartjuk meg. */
   szemelyId?: number | null
   csaladId?: number | null
@@ -223,7 +223,10 @@ export function CombinedEntryBody({
     if (!onGetLastRecordedDate) return
     let cancelled = false
     void onGetLastRecordedDate()
-      .then((d) => { if (!cancelled) setLastRecordedDate(d) })
+      // FONTOS: csak a DÁTUM-részt tartjuk meg (a DB időbélyeget adhat: „2025-12-31T00:00:00").
+      // Időbélyeggel a „2025-12-31" < „2025-12-31T00:00:00" szöveg-összehasonlítás IGAZ lenne,
+      // és hamisan „Korábbi, mint az utolsó rögzített" figyelmeztetést adna UGYANARRA a napra.
+      .then((d) => { if (!cancelled) setLastRecordedDate(d ? d.slice(0, 10) : null) })
       .catch(() => { /* nincs hálózat — a figyelmeztetés egyszerűen kimarad */ })
     return () => { cancelled = true }
   }, [onGetLastRecordedDate])
@@ -257,6 +260,7 @@ export function CombinedEntryBody({
             ? r.people
             : (r.szemelyId != null ? [{ id: r.szemelyId, name: r.partner }] : [])
           const people = arr.map((p) => ({
+            uid: typeof (p as { uid?: unknown }).uid === 'string' ? (p as { uid: string }).uid : crypto.randomUUID(),
             id: p.id ?? null,
             name: p.name ?? '',
             osszeg: typeof (p as { osszeg?: unknown }).osszeg === 'string' ? (p as { osszeg: string }).osszeg : '',
@@ -400,7 +404,7 @@ export function CombinedEntryBody({
         const seed = curPeople.length === 0 ? (r.amount.trim() || '') : ''
         const newPeople = [
           ...curPeople,
-          ...add.map((a, i) => ({ id: a.id, name: a.name, osszeg: i === 0 ? seed : '', evre: evreDefault })),
+          ...add.map((a, i) => ({ uid: crypto.randomUUID(), id: a.id, name: a.name, osszeg: i === 0 ? seed : '', evre: evreDefault })),
         ]
         return { ...r, people: newPeople, partner: '', ...(curPeople.length === 0 ? { amount: '' } : {}) }
       }),
@@ -848,6 +852,14 @@ export function CombinedEntryBody({
               className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-40"
             >
               OK
+            </button>
+            <button
+              type="button"
+              onClick={() => { setNewYearPrompt(null); setCustomStart('') }}
+              className="ml-auto rounded-lg px-2 py-1.5 text-xs font-medium text-sky-700/70 transition hover:bg-sky-100"
+              title="Most nem döntök — kézzel beírom a gyülekezeti számot"
+            >
+              Később
             </button>
           </div>
         </div>
@@ -1326,7 +1338,7 @@ function PartnerCell({
             const zero = !(Number(p.osszeg) > 0)
             return (
               <div
-                key={`${p.id ?? 'free'}-${i}`}
+                key={p.uid}
                 className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2 border-b border-slate-50 px-2.5 py-1 last:border-b-0"
               >
                 <PayerNameSearch
@@ -1428,6 +1440,9 @@ function PayerNameSearch({
   const [open, setOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const debounceRef = useRef<number | null>(null)
+  // #3-fix: a kiválasztás (onPick) után a value a kiválasztott névre vált — ez NE indítson
+  // azonnal új keresést (különben a lista visszanyílna, főleg kiadásnál, ahol nincs `linked`).
+  const justPickedRef = useRef(false)
   const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
 
   const measure = () => {
@@ -1453,6 +1468,7 @@ function PayerNameSearch({
   // Keresés gépeléskor — kiválasztott (linked) tagnál NEM keresünk (az már beillesztve).
   useEffect(() => {
     if (linked) { setHits([]); setOpen(false); return }
+    if (justPickedRef.current) { justPickedRef.current = false; return } // friss kiválasztás → ne nyisson vissza
     const q = value.trim()
     if (q.length < 2) { setHits([]); setOpen(false); return }
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
@@ -1495,7 +1511,7 @@ function PayerNameSearch({
                 type="button"
                 className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { onPick(h); setHits([]); setOpen(false) }}
+                onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
               >
                 <div className="text-sm font-medium text-slate-800">{h.name}</div>
                 {h.detail && <div className="text-[11px] text-slate-400">{h.detail}</div>}

@@ -1619,13 +1619,19 @@ export async function getNextReceiptNumbers(
   // KERÜLETI (nyomdai) szám — EGYSZERŰ: az ÖSSZES készpénz-iratszám MAX + 1 (folytonos, év-független).
   // NINCS nyugtatömb-függőség (a tömb csak a NYOMTATÁSHOZ kell, a rögzítéshez nem).
   let allQ = supabase.from(T.befizetes)
-    .select('iratszam')
+    .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
     .ilike('irattipus', '%észpénz%')
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
   const { data: allData } = await allQ
-  const befMax = maxNumOf(((allData || []) as Array<{ iratszam: string | null }>).map((r) => r.iratszam))
+  // CSAK a valódi kerületi Chitanță-iratszámok: kizárjuk az „AUTO-…" auto-generált iratszámot
+  // (üres iratszámú készpénz-tételnél keletkezik) és a tükrözött sort (nyugta === iratszam) —
+  // különben az „AUTO-20260621-…" dátumszerű számjegyei az égbe húznák a kerületi következőt.
+  const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
+    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam) && r.nyugta !== r.iratszam)
+    .map((r) => r.iratszam)
+  const befMax = maxNumOf(keruletiVals)
   const keruleti = befMax.num > 0 ? pad(befMax.num + 1, befMax.width) : ''
 
   // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → az adott NAPTÁRI év valódi nyugta-számai
