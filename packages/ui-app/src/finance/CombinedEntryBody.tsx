@@ -221,8 +221,6 @@ export function CombinedEntryBody({
   const [lastRecordedDate, setLastRecordedDate] = useState<string | null>(null)
   /** Beviteli őr P0: azon sorok id-jai, ahol a kerületi iratszám már létezik a DB-ben. */
   const [dupRowIds, setDupRowIds] = useState<Set<string>>(() => new Set())
-  /** „Nincs aktív nyugtatömb" figyelmeztetés — dialógusonként egyszer (ne legyen toast-spam). */
-  const tombWarnedRef = useRef(false)
 
   // Beviteli őr P1: a legutóbb rögzített dátum egyszeri betöltése (figyelmeztetés alapja).
   useEffect(() => {
@@ -456,11 +454,9 @@ export function CombinedEntryBody({
       void onGetNextReceiptNumbers(year)
         .then((next) => {
           if (!next) return
-          // Ha nincs aktív nyugtatömb (és a kerületi üres), egyszer jelezzük.
-          if (next.warning && !next.keruleti && !tombWarnedRef.current) {
-            tombWarnedRef.current = true
-            onToast('error', next.warning)
-          }
+          // Nincs „nincs aktív nyugtatömb" figyelmeztetés: a TÉTEL rögzítéséhez nem kell tömb
+          // (az csak a nyugta NYOMTATÁSÁHOZ kell). Ha van aktív tömb, abból jön a kerületi
+          // szám; ha nincs, a mező üres marad, és kézzel beírható — figyelmeztetés nélkül.
           // ÉLŐ állapot alapján töltünk (nem a befagyott `r`-ből): a lekérés alatt kézzel
           // átírt mezőt nem írunk felül, és ha közben más irattípusra váltottak, nem stempelünk.
           setIncomeRows((cur) => {
