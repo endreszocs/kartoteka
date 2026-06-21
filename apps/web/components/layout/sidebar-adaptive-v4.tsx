@@ -203,24 +203,19 @@ function SidebarItem({
         <Link
           href={item.href}
           onClick={(e) => {
-            // 2026-06-02 bug fix: a fő-menüpontra kattintáskor MANUÁLISAN
-            // szinkronizáljuk az `expandedHref`-et. Eddig csak a useEffect
-            // figyelte a pathname-et, és ha a router prefetch+routing
-            // valamiért késleltette a pathname-frissítést, az akkordeon
-            // becsavar. Most a klikk azonnal nyitja a saját menüt
-            // (és csukja a többit), a useEffect csak biztonsági fallback.
-            if (hasChildren) {
-              // Egy mikrotaszk késleltetés: hogy a Link navigáció után
-              // (ami onClick után fut le) a state-update ne ütközzön az
-              // useEffect-tel, ami a pathname-változásra reagál.
-              queueMicrotask(() => {
-                if (typeof window !== 'undefined') {
-                  // Az event delegation a szülőre megy fel — a SidebarItem
-                  // egyébként a `onToggle`-t a chevron-on használja. Itt
-                  // dispatch-elunk egy custom eventet, amit a parent figyel.
-                  window.dispatchEvent(new CustomEvent('sidebar-expand-href', { detail: item.href }))
-                }
-              })
+            // 2026-06-21 (Endre kérése): ha a fő-menüpontnak van almenüje és a sáv
+            // ki van bontva, a rákattintás NEM navigál — csak KINYITJA / becsukja
+            // az almenüt, és onnan választ a felhasználó, hová lép tovább.
+            // (Az áttekintő oldal az almenü első eleméből (pl. „Áttekintés") érhető el;
+            //  középső kattintás / új lapon megnyitás továbbra is a linkre megy.)
+            if (hasChildren && !collapsed) {
+              e.preventDefault()
+              // Csak NYITUNK a fő-pontra kattintva. Ha az almenü MÁR nyitva van (pl. mert
+              // ezen az oldalon vagyunk → az auto-expand kinyitotta), a kattintás NE csukja be
+              // — a becsukás a chevron gomb dolga. (Regresszió-javítás 2026-06-20: a toggle
+              // azonnal becsukta a már nyitott almenüt, ezért tűnt úgy, hogy „nem működik".)
+              if (!expanded) onToggle()
+              return
             }
             onNavigate?.()
           }}
@@ -311,7 +306,7 @@ function SidebarItem({
           <div className="overflow-hidden">
             <div
               className={cn(
-                'relative ml-[18px] mt-1 mb-0.5 space-y-0.5 rounded-[10px] bg-gradient-to-b from-white/[0.04] to-transparent px-2 py-1.5 backdrop-blur-[1px]',
+                'relative ml-[18px] mt-1.5 mb-1 space-y-1 rounded-[12px] bg-gradient-to-b from-white/[0.06] to-white/[0.01] px-2 py-2 backdrop-blur-[1px]',
                 // bal vonal — animáltan rajzolódik amikor kibontunk
                 'before:absolute before:bottom-2 before:left-0 before:top-2 before:w-px before:bg-gradient-to-b before:from-white/30 before:via-white/20 before:to-white/5 before:transition-opacity before:duration-500',
                 expanded ? 'before:opacity-100' : 'before:opacity-0',
@@ -361,13 +356,13 @@ function SidebarItem({
                       transitionDelay: expanded ? `${idx * 35}ms` : '0ms',
                     }}
                     className={cn(
-                      'group/child relative flex w-full items-center gap-2 rounded-[8px] pl-3 pr-2.5 py-1.5 text-[12.5px] transition-all duration-300 ease-out [@media(max-height:820px)]:py-1 [@media(max-height:820px)]:text-[11.5px]',
+                      'group/child relative flex w-full items-center gap-2.5 rounded-[10px] pl-3.5 pr-3 py-2 text-[13px] transition-all duration-200 ease-out [@media(max-height:820px)]:py-1.5 [@media(max-height:820px)]:text-[12px]',
                       expanded
                         ? 'translate-x-0 opacity-100'
                         : 'translate-x-1 opacity-0',
                       isChildActive
-                        ? 'bg-white/12 text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
-                        : 'text-white/65 hover:bg-white/6 hover:text-white hover:translate-x-[2px]',
+                        ? 'bg-white/[0.14] text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10'
+                        : 'text-white/70 hover:bg-white/[0.09] hover:text-white active:bg-white/[0.13]',
                     )}
                   >
                     {/* Bal kapcsolódási stub-vonal — child→fő-vonal */}
@@ -382,7 +377,7 @@ function SidebarItem({
                     <span
                       aria-hidden
                       className={cn(
-                        'relative inline-block size-1.5 shrink-0 rounded-full transition-all duration-300',
+                        'relative inline-block size-2 shrink-0 rounded-full transition-all duration-300',
                         isChildActive ? '' : 'bg-white/30 group-hover/child:bg-white/55',
                       )}
                       style={

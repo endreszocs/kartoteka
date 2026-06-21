@@ -31,10 +31,17 @@ interface WelcomeStepProps {
   onClearFile: () => void
   onContinue: () => void
   isParsing: boolean
+  /** Opcionális bevételek-XML referencia (Adatkezelő-export) — pontosítja a
+   *  bevételeket (Befizetett év + hivatalos iratszám). */
+  xmlFile?: File | null
+  onXmlFileSelected?: (file: File) => void
+  onClearXmlFile?: () => void
 }
 
 const ACCEPTED_EXTS = ['xlsx', 'xls']
+const ACCEPTED_XML_EXTS = ['xml']
 const MAX_BYTES = 10 * 1024 * 1024
+const MAX_XML_BYTES = 50 * 1024 * 1024
 
 function getExt(name: string): string {
   return name.toLowerCase().split('.').pop() || ''
@@ -52,8 +59,12 @@ export function WelcomeStep({
   onClearFile,
   onContinue,
   isParsing,
+  xmlFile,
+  onXmlFileSelected,
+  onClearXmlFile,
 }: WelcomeStepProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const xmlInputRef = useRef<HTMLInputElement | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
   const validateAndAccept = useCallback(
@@ -70,6 +81,21 @@ export function WelcomeStep({
       onFileSelected(file)
     },
     [onFileSelected],
+  )
+
+  const validateAndAcceptXml = useCallback(
+    (file: File) => {
+      if (!ACCEPTED_XML_EXTS.includes(getExt(file.name))) {
+        toast.error('A referencia-fájl csak .xml lehet (bevételek YYYY.xml).')
+        return
+      }
+      if (file.size > MAX_XML_BYTES) {
+        toast.error('Az XML-referencia mérete meghaladja az 50 MB-ot.')
+        return
+      }
+      onXmlFileSelected?.(file)
+    },
+    [onXmlFileSelected],
   )
 
   return (
@@ -170,6 +196,63 @@ export function WelcomeStep({
           <span className="font-mono text-xs">.xls</span> · maximum 10 MB
         </p>
       </div>
+
+      {/* Opcionális: bevételek XML referencia (pontosítás) */}
+      {onXmlFileSelected && (
+        <div className="rounded-[1.5rem] bg-card p-4 ring-1 ring-sky-100">
+          <input
+            ref={xmlInputRef}
+            type="file"
+            accept=".xml"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) validateAndAcceptXml(f)
+              e.target.value = ''
+            }}
+          />
+          {!xmlFile ? (
+            <button
+              type="button"
+              onClick={() => xmlInputRef.current?.click()}
+              className="flex w-full items-center gap-3 text-left"
+            >
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                <FileSpreadsheet className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  Opcionális: bevételek XML referencia <span className="text-sky-600">(pontosítás)</span>
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  Az Adatkezelő-export bevételek-XML fájlja a bevételeket pontosítja: a tényleges{' '}
+                  <strong>befizetett évet</strong> (több-éves hátralék) és a hivatalos iratszámot is átveszi.
+                </p>
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                <FileSpreadsheet className="size-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{xmlFile.name}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  XML referencia · {formatBytes(xmlFile.size)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClearXmlFile}
+                className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                aria-label="XML referencia eltávolítása"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Kiválasztott fájl-kártya + Tovább gomb */}
       {selectedFile && (

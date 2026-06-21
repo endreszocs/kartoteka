@@ -27,6 +27,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toLocalIsoDate } from './date-utils'
+import { expandNickname } from './hungarian-nicknames'
+import { nameSimilarity } from './jaro-winkler'
 
 // ─────────────────────────────────────────────────────────────────
 // Típusok
@@ -88,6 +90,16 @@ function normalizeNameForQuad(s: string | null | undefined): string {
     .toLowerCase()
     .trim()
     .replace(/\s+/g, ' ')
+}
+
+/**
+ * Utca-név normalizálás cím-egyeztetéshez (P2-5). A `normalizeNameForQuad`-nál
+ * szigorúbb: a szóközöket, pontokat és kötőjeleket is ELTÁVOLÍTJA, hogy a
+ * "Főút" == "Fő út" == "Fő-út" == "Fő u." egységesüljön. Csak az utca-szűréshez
+ * használjuk — a házszámot NEM lazítjuk (az pontosan egyezzen).
+ */
+function normalizeStreetForMatch(s: string | null | undefined): string {
+  return normalizeNameForQuad(s).replace(/[\s.\-]/g, '')
 }
 
 /**
@@ -162,6 +174,13 @@ function knevVariants(k_nev: string | null | undefined): string[] {
   // Külön darabok (egyszerű első/második név)
   for (const part of norm.split(/[-\s]+/).filter(Boolean)) {
     if (part.length >= 2) variants.add(part)
+  }
+  // Becenév-bővítés (P2-1): minden EGYTOKENES variánst kiegészítünk az ekvivalens
+  // alakjaival (pl. Pista↔István, Kati↔Katalin). Kétirányú: az index- ÉS a
+  // lekérdezés-oldal is ezt hívja, így bármelyik oldal használhat becenevet.
+  for (const v of Array.from(variants)) {
+    if (/[-\s]/.test(v)) continue
+    for (const alt of expandNickname(v)) variants.add(alt)
   }
   return Array.from(variants)
 }
@@ -447,6 +466,44 @@ export async function buildAllPersonsLookupMap(
 }
 
 /**
+ * Fuzzy név-jelöltek (P2-1 kiterjesztés) — a determinisztikus lánc kimerülése után.
+ * Végigmegy a betöltött tagokon, és Jaro–Winkler hasonlósággal (≥ 0.88, a
+ * record-linkage „review" sáv) gyűjti a hasonló nevűeket. SOHA nem ad biztos
+ * találatot — csak emberi felülvizsgálatra szánt jelölteket (max 6, hasonlóság
+ * szerint csökkenő). A lánykori (szcs_nev) alakot is figyelembe veszi.
+ *
+ * Csak a NOT-FOUND ágon fut (a hívó már kimerítette az exact-láncot), így a
+ * költsége a párosítatlan sorok számára korlátozódik.
+ */
+function fuzzyNameCandidates(
+  familyNorm: string,
+  givenNorm: string,
+  ferfi: 'M' | 'F' | '?',
+  maps: PersonLookupMaps,
+): string[] {
+  // Megbízható fuzzyhoz mindkét névrész kell (csak keresztnévre túl sok a zaj).
+  if (!familyNorm || !givenNorm) return []
+  const donor = `${familyNorm} ${givenNorm}`
+  const scored: Array<{ id: string; sim: number }> = []
+  for (const [id, rec] of maps.byId) {
+    if (!rec) continue
+    // Nem-szűrés: ha mindkét oldalon ismert a nem és eltér → kihagyjuk.
+    const recFlag = ferfiToFlag(rec.ferfi)
+    if (ferfi !== '?' && recFlag !== '?' && recFlag !== ferfi) continue
+    const cand1 = `${rec.csaladnev ?? ''} ${rec.k_nev ?? ''}`.trim()
+    let sim = cand1 ? nameSimilarity(donor, cand1) : 0
+    if (rec.szcs_nev && rec.szcs_nev.trim()) {
+      const cand2 = `${rec.szcs_nev} ${rec.k_nev ?? ''}`.trim()
+      if (cand2) sim = Math.max(sim, nameSimilarity(donor, cand2))
+    }
+    if (sim >= 0.88) scored.push({ id, sim })
+  }
+  if (scored.length === 0) return []
+  scored.sort((a, b) => b.sim - a.sim)
+  return scored.slice(0, 6).map((s) => s.id)
+}
+
+/**
  * Quad-alapú személy-feloldás 6-lépéses fallback chain-nel.
  *
  * Public változata a finance-import-hoz — a sztring-alapú normalizálást
@@ -475,7 +532,7 @@ export function lookupPersonByQuadAttempt(
   maps: PersonLookupMaps,
   street?: string | null,
   houseNumber?: string | null,
-): { id: string } | { candidates: string[] } | null {
+): { id: string } | { candidates: string[]; approximate?: boolean } | null {
   /**
    * Utca-alapú szűrés: ha több jelölt jön, és van street/houseNumber
    * paraméterünk, akkor az utca+házszám kombinációval szűrünk.
@@ -486,14 +543,14 @@ export function lookupPersonByQuadAttempt(
    */
   function filterByAddress(candidates: string[]): string[] {
     if (!street || candidates.length <= 1) return candidates
-    const streetNorm = normalizeNameForQuad(street)
+    const streetNorm = normalizeStreetForMatch(street)
     const houseNorm = (houseNumber || '').trim().toLowerCase()
 
     // 1. utca + házszám pontos egyezés
     const exactMatches = candidates.filter((id) => {
       const addr = maps.addressById.get(id)
       if (!addr || !addr.streetName) return false
-      const dbStreet = normalizeNameForQuad(addr.streetName)
+      const dbStreet = normalizeStreetForMatch(addr.streetName)
       const dbHouse = (addr.houseNumber || '').trim().toLowerCase()
       return dbStreet === streetNorm && dbHouse === houseNorm
     })
@@ -503,7 +560,7 @@ export function lookupPersonByQuadAttempt(
     const streetMatches = candidates.filter((id) => {
       const addr = maps.addressById.get(id)
       if (!addr || !addr.streetName) return false
-      const dbStreet = normalizeNameForQuad(addr.streetName)
+      const dbStreet = normalizeStreetForMatch(addr.streetName)
       return dbStreet === streetNorm
     })
     if (streetMatches.length > 0) return streetMatches
@@ -512,10 +569,35 @@ export function lookupPersonByQuadAttempt(
   }
 
   /**
-   * Egy candidate-listát visszaad: 1 elemnél `{ id }`, többnél utca-szűréssel.
+   * CÍM-ŐR (2026-06-19): igaz, ha a befizetőnek van HATÁROZOTT utcája ÉS a jelölt
+   * tagnyilvántartási utcája is határozott, de a kettő EGYÉRTELMŰEN ELTÉR. Ekkor
+   * két KÜLÖN személyről van szó (pl. „Beder Timea - Asztalos 160" vs a
+   * nyilvántartásbeli „Beder Csilla Timea - Templom 235"), ezért nem szabad
+   * automatikusan összerendelni — még akkor sem, ha ez az egyetlen név-jelölt.
+   * Csak az UTCÁRA néz (a házszám-eltérés gyengébb jel: költözés, családtag).
+   */
+  function clearStreetMismatch(id: string): boolean {
+    if (!street) return false
+    const donorStreet = normalizeStreetForMatch(street)
+    if (!donorStreet) return false
+    const addr = maps.addressById.get(id)
+    if (!addr || !addr.streetName) return false
+    const dbStreet = normalizeStreetForMatch(addr.streetName)
+    if (!dbStreet) return false
+    return dbStreet !== donorStreet
+  }
+
+  /**
+   * Egy candidate-listát visszaad: 1 elemnél `{ id }` (kivéve ha a cím-őr egyértelmű
+   * eltérést jelez → felülvizsgálatra `{ candidates }`), többnél utca-szűréssel.
    */
   function resolveCandidates(candidates: string[]): { id: string } | { candidates: string[] } {
-    if (candidates.length === 1) return { id: candidates[0] }
+    if (candidates.length === 1) {
+      // Cím-őr: egyetlen jelölt, de a befizető utcája egyértelműen MÁS → ne tippeljünk,
+      // hagyjuk felülvizsgálatra (a UI mutatja a jelölt címét + kézi kereső).
+      if (clearStreetMismatch(candidates[0])) return { candidates }
+      return { id: candidates[0] }
+    }
     const filtered = filterByAddress(candidates)
     if (filtered.length === 1) return { id: filtered[0] }
     return { candidates: filtered }
@@ -590,21 +672,61 @@ export function lookupPersonByQuadAttempt(
     }
   }
 
-  // 5. K-nev + ferfi (utolsó esély — utca-szűréssel itt is mehet)
+  // 5. K-nev + ferfi (UTOLSÓ ESÉLY — a kulcsban NINCS vezetéknév!)
+  //    P2-2: itt TILOS cím-szűréssel egyetlen {id}-vé kollapszálni, mert a
+  //    jelöltek ELTÉRŐ VEZETÉKNEVŰEK lehetnek (a donor vezetékneve az 1–4.
+  //    szinten senkire nem illett). A `filterByAddress` egyetlen, más
+  //    vezetéknevű taghoz redukálhatna → magabiztos téves párosítás. Ezért itt
+  //    csak akkor adunk biztos {id}-t, ha az egész gyülekezetben PONTOSAN EGY
+  //    ilyen keresztnevű + nemű tag van; több jelöltnél emberi döntésre bízzuk
+  //    ({candidates}). Ez összhangban van a `resolvePersonByQuad` szigorával.
   for (const knVar of knVariants) {
     const knFerfiKey = `${knVar}|${ferfi}`
     const candidates = maps.byKnameFerfi.get(knFerfiKey)
-    if (candidates && candidates.length > 0) {
-      const r = resolveCandidates(candidates)
-      if ('id' in r) return r
-      lastCandidates = r.candidates
+    if (candidates && candidates.length === 1) {
+      // Cím-őr az utolsó esélynél is: eltérő utca → ne tippelj, hagyd felülvizsgálatra.
+      if (clearStreetMismatch(candidates[0])) {
+        if (!lastCandidates) lastCandidates = candidates
+      } else {
+        return { id: candidates[0] }
+      }
+    } else if (candidates && candidates.length > 1 && !lastCandidates) {
+      lastCandidates = candidates
     }
   }
 
-  // 6. Fail — visszaadjuk az utolsó nem-egyértelmű jelölt-listát is
-  if (lastCandidates && lastCandidates.length > 1) {
+  // 5b. P2-6: nem-agnosztikus fallback. Ha a tagnyilvántartásban a `ferfi` mező
+  //     nincs kitöltve, az illető a `|?` index alatt van — a flagges (M/F) kulcs
+  //     nem találja meg. Ilyenkor a `|?` variánst is próbáljuk, ugyanúgy csak
+  //     egyértelmű (1 jelölt) esetben adva {id}-t (a cím-őrrel).
+  if (ferfi !== '?') {
+    for (const knVar of knVariants) {
+      const knAnyKey = `${knVar}|?`
+      const candidates = maps.byKnameFerfi.get(knAnyKey)
+      if (candidates && candidates.length === 1) {
+        if (clearStreetMismatch(candidates[0])) {
+          if (!lastCandidates) lastCandidates = candidates
+        } else {
+          return { id: candidates[0] }
+        }
+      } else if (candidates && candidates.length > 1 && !lastCandidates) {
+        lastCandidates = candidates
+      }
+    }
+  }
+
+  // 6. Determinisztikus lánc kimerült — ha maradt nem-egyértelmű (vagy a cím-őr által
+  //    elvetett) exact-jelölt, azt felülvizsgálatra adjuk (a UI mutatja a címét).
+  if (lastCandidates && lastCandidates.length >= 1) {
     return { candidates: lastCandidates }
   }
+
+  // 7. FUZZY fallback (P2-1): elgépelés / név-variáns. SOHA nem ad biztos {id}-t —
+  //    csak emberi felülvizsgálatra szánt jelölteket (a párosító UI „több tag"
+  //    csoportjában + a kézi keresőben jelennek meg).
+  const fuzzy = fuzzyNameCandidates(csNorm || szcsNorm, kNorm, ferfi, maps)
+  if (fuzzy.length > 0) return { candidates: fuzzy, approximate: true }
+
   return null
 }
 

@@ -230,6 +230,93 @@ const SECTIONS: Section[] = [
     icon: Wallet,
     topics: [
       {
+        key: 'tetel-rogzitese',
+        label: 'Tétel rögzítése',
+        icon: ClipboardList,
+        color: 'teal',
+        shortDescription: 'A fő beviteli ablak — bevételek és kiadások egyszerre, tömegesen',
+        intro:
+          'A Pénzügy fejléc „+ Tétel rögzítése" gombja nyitja meg — ez a központi beviteli ablak. Két füle van (Bevétel / Kiadás), és egyszerre AKÁR TÖBB tételt is rögzíthetsz egy listában. A Mentés mindkét fül sorait dátum szerint rendezi és a helyére teszi.',
+        whenNeeded:
+          'Vasárnap több befizetést kaptál, vagy egyszerre több kiadást kell rögzítened — itt gyorsan, egymás után beviheted mind.',
+        flow: [
+          { label: '+ Tétel rögzítése', sub: 'a Pénzügy fejlécében' },
+          { label: 'Bevétel / Kiadás fül', sub: 'a kettő egyszerre is megy' },
+          { label: 'Sorok kitöltése', sub: '„Új sor" gombbal annyi, ahány kell' },
+          { label: 'Mentés', sub: 'dátum szerint rendez, a helyére tesz' },
+        ],
+        whatItDoes:
+          'Csak KÉSZPÉNZES tételek (a bankiakat banki kivonatból importáljuk). Tömeges bevitel, automatikus vázlatmentés, befizető-keresés, automatikus nyugtaszám, családi nyugta, és beépített ellenőrzések (duplikátum, dátum).',
+        howItWorks: [
+          {
+            text: 'Oszlopok sorrendje (a Kassza/Bank/Tranzakciók nézettel egyező): Dátum · Irattípus · (Chitanță esetén) Kerületi sz. + Gyül. sz. · Befizető/Kedvezményezett · Jogcím · Melyik évre · Összeg · Megjegyzés.',
+          },
+          {
+            text: 'Befizető keresése: a „Befizető / forrás" mezőbe gépelve a rendszer azonnal keres a tagnyilvántartásban — ékezetes névre is (pl. „Kovács", „Tóth Ödön"). A találat a név mellett a születési évet, helységet, utcát is mutatja, hogy egyértelmű legyen, kit választasz. A kiválasztott tag a befizetéshez kötődik (így a Tartozások fülön is számolódik).',
+            hint: 'Ha valaki nincs a nyilvántartásban, szabad szövegként is beírhatod a nevet.',
+          },
+          {
+            text: 'Automatikus nyugtaszám: ha az Irattípusnál a „Chitanță"-t választod, megjelenik a Kerületi sz. (a kerülettől kapott, előre nyomtatott szám) és a Gyül. sz. (a gyülekezet saját sorszáma) mező, és a rendszer mindkettőt kitölti a következő szabad számmal — az utolsó nyugtához képest +1, hézag nélkül (a vezető nullák megőrzésével, pl. 0115301 → 0115302).',
+            hint: 'A legelső nyugtánál a kerületi számot a tömbről egyszer kézzel beírod; onnantól minden következőnél automatikus. A számok kézzel felülírhatók.',
+          },
+          {
+            text: 'Melyik évre: a befizetésnél megadhatod, melyik évre szól — pl. visszamenőleg az elmaradt egyházfenntartói járulékot a megfelelő korábbi évhez. Alapból az aktuális év.',
+          },
+          {
+            text: 'Új sor: az „Új sor" gomb hozzáad egy sort, ami az előző sor dátumát örökli — tömeges, egynapos bevitelnél nem kell minden sorba újra beírni a dátumot.',
+          },
+          {
+            text: 'Automatikus vázlatmentés: amit beírsz, gépelés közben azonnal mentődik a böngészőben. Ha áramszünet van, véletlenül bezárod, vagy bármi miatt félbe kell hagynod, az ablak újranyitásakor a sorok visszaállnak. A lábléc mutatja, mikor mentett utoljára.',
+          },
+          {
+            text: 'Mentés: a „Mentés" gomb egyszerre rögzíti a bevétel- és kiadás-sorokat (és a belső mozgásokat), dátum szerint rendezve a helyükre.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Egy nyugtára több személy (családi nyugta): töltsd ki a sort, majd a Befizető mezőnél a „Család keresése" gombbal válaszd ki a családot, és csak a neveket pipáld ki — minden tag külön sorba kerül, közös nyugtaszámon (/1, /2…), a sor adataival; utána már csak az összegeket írod be tagonként.',
+          },
+          {
+            kind: 'tip',
+            text: 'Több személy gyorsan, vesszővel: a Befizető mezőbe írj több nevet vesszővel elválasztva (pl. „Nagy Péter, Szabó Anna"), és nyomd a megjelenő „✂ Felbontás N külön sorra" gombot — egy nyugtán, külön sorokban.',
+          },
+          {
+            kind: 'tip',
+            text: 'Kiadásnál a kedvezményezett nevét gépelve a rendszer felajánlja a korábban már rögzített partnereket — egy kattintással kitölthető.',
+          },
+          {
+            kind: 'warning',
+            text: 'Beviteli őrök: ha a kerületi iratszám már létezik (vagy kétszer szerepel a listában), piros jelzést kapsz még mentés előtt. Ha a tétel dátuma jövőbeli, vagy korábbi mint a legutóbb rögzített, a rendszer figyelmeztet — így nem marad ki és nem csúszik el a könyvelés.',
+          },
+          {
+            kind: 'warning',
+            text: 'Belső mozgás (készpénz a bankba / bankból ki): ha ilyen jogcímet választasz, megjelenik a bankszámla-választó, és a tétel belső mozgásként könyvelődik — nem bevételként vagy kiadásként.',
+          },
+        ],
+        commonMistakes: [
+          'A Kerületi sz. és Gyül. sz. mező CSAK Chitanță (nyugta) esetén jelenik meg — más irattípusnál „—" látszik, ez normális.',
+          'Az ELSŐ chitanánál a kerületi szám nem töltődik ki magától (nincs előzmény) — a tömbről egyszer beírod, onnantól automatikus.',
+          'Banki (átutalásos) tételt ne itt rögzíts — az a banki kivonat-importtal érkezik a Bank lapra.',
+        ],
+        examples: [
+          {
+            situation: 'Egy család (apa, anya, két gyermek) egyben fizet egyházfenntartást, egy nyugtára.',
+            solution:
+              'Bevétel-sor (Chitanță → kitöltődnek a nyugtaszámok) → „Család keresése" → válaszd a családot → pipáld a neveket → minden taghoz külön sor jön közös nyugtaszámon; töltsd ki az összegeket.',
+          },
+          {
+            situation: 'Két szomszéd együtt hoz be perselypénzt, de nem egy regisztrált család.',
+            solution:
+              'A Befizető mezőbe: „Nagy Péter, Szabó Anna" → „✂ Felbontás 2 külön sorra" → töltsd ki az összegeket.',
+          },
+          {
+            situation: 'Valaki most fizeti a tavalyi elmaradt egyházfenntartói járulékát.',
+            solution: 'Bevétel-sor → „Melyik évre": az előző év → a befizetés a helyes évhez kerül.',
+          },
+        ],
+      },
+      {
         key: 'kassza',
         label: 'Kassza',
         icon: Wallet,
@@ -432,6 +519,42 @@ const SECTIONS: Section[] = [
           {
             kind: 'warning',
             text: 'Véglegesített év esetén (számadás lezárva) stornó / szerkesztés nem lehetséges — előbb kérj javítási engedélyt az egyházmegyétől.',
+          },
+        ],
+      },
+      {
+        key: 'szuro-export',
+        label: 'Szűrés és Excel-export',
+        icon: FileSpreadsheet,
+        color: 'emerald',
+        shortDescription: 'Oszloponkénti szűrés + a (szűrt) adatok letöltése Excelbe',
+        intro:
+          'A Kassza, Bank és Tranzakciók fülön a táblázat felett egy szűrő-sáv található: minden oszlophoz tartozik egy beviteli mező, és a (szűrt) sorok egyetlen kattintással letölthetők Excelbe — a hivatalos Adatok_2025 oszloprendben, így vissza is importálható.',
+        whenNeeded:
+          'Egy adott partnert, jogcímet vagy bizonylatot keresel a sok tétel között; vagy egy szűrt lista adatait szeretnéd kimenteni Excelbe.',
+        whatItDoes:
+          'A szűrő-sáv mezői: Dátum, Irattípus, Iratszám, Partner, Jogcím és Megjegyzés. Gépelj bármelyikbe — a lista azonnal szűkül (ékezet-független, „tartalmazza" keresés). Az „Export (Excel)" gomb a SZŰRT sorokat tölti le .xlsx-ként.',
+        howItWorks: [
+          {
+            text: 'Írj a megfelelő oszlop szűrő-mezőjébe — több mező egyszerre is használható (ÉS-kapcsolat).',
+          },
+          {
+            text: 'A találatszám a sáv alján látszik (pl. „12 / 480 tétel (szűrve)").',
+            hint: 'A nyitó/záró egyenleg-kártyák a teljes havi adatból számolnak — a szöveges szűrő csak a listát és az exportot szűkíti, az egyenleget nem.',
+          },
+          { text: 'A „Szűrők törlése" gomb egy kattintással visszaállítja a teljes listát.' },
+          {
+            text: 'Az „Export (Excel)" gomb letölt egy fájlt (pl. Kassza_2025.xlsx) a hivatalos oszloprenddel: Dátum | Iratszám | Irattíp. | Név | Bev. Összeg | Bevétel költségvetési név | Kiad. Összeg | Kiadás költségvetési név | Megjegyzés.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Az export a hivatalos Adatok_2025.xlsx elrendezését követi — ugyanúgy vissza is olvasható/importálható.',
+          },
+          {
+            kind: 'tip',
+            text: 'Ha nincs szűrő beállítva, a teljes (a hónap-választóval kiválasztott) lista exportálódik.',
           },
         ],
       },

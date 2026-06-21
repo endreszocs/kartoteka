@@ -11,7 +11,7 @@
  * Tiszta függvények — web és desktop egyaránt használja (élő előnézet + PDF).
  */
 
-import { formatRon, ronInWords } from './ron-in-words'
+import { formatRon, ronInWordsDispozitie } from './ron-in-words'
 
 function esc(value: unknown): string {
   return String(value ?? '')
@@ -189,6 +189,8 @@ export function buildDecontHtml(d: DecontDocData): string {
 
 export interface DispozitieDocData {
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") — a fejléc 1. sora. */
+  congregationNameRo?: string
   tipus: 'plata' | 'incasare'
   sorszam: number | string
   date: string // yyyy-mm-dd
@@ -203,8 +205,8 @@ export interface DispozitieDocData {
 
 function dispozitieCopy(d: DispozitieDocData): string {
   const isPlata = d.tipus === 'plata'
-  const titlu = isPlata ? 'Dispoziție de plată către caserie' : 'Dispoziție de încasare către caserie'
-  const words = ronInWords(Number(d.amount) || 0)
+  const titlu = isPlata ? 'Dispoziție de plată' : 'Dispoziție de încasare'
+  const words = ronInWordsDispozitie(Number(d.amount) || 0)
   const sumStr = formatRon(Number(d.amount) || 0)
   const fill = (v: string | undefined, w = 140) =>
     v && v.trim() ? esc(v) : `<span class="line" style="min-width:${w}px">&nbsp;</span>`
@@ -221,8 +223,15 @@ function dispozitieCopy(d: DispozitieDocData): string {
 
   const casierLine = isPlata ? 'Plătit suma de: ' : 'Incasat suma de: '
 
+  // Fejléc: a hivatalos román név (pl. „Parohia Reformată Brateș") felül, a magyar név alatta.
+  const hasRo = !!(d.congregationNameRo && d.congregationNameRo.trim())
+  const head = hasRo
+    ? `<div class="dp-head">${esc(d.congregationNameRo as string)}</div>
+       <div class="dp-head-hu">${esc(d.congregationName)}</div>`
+    : `<div class="dp-head">${esc(d.congregationName)}</div>`
+
   return `<div class="dp">
-    <div class="dp-head">${esc(d.congregationName)}</div>
+    ${head}
     <div class="dp-title">${titlu}</div>
     <div class="dp-nr">nr. ${esc(d.sorszam)} din ${huDate(d.date)}</div>
 
@@ -231,12 +240,6 @@ function dispozitieCopy(d: DispozitieDocData): string {
     <div class="row">Suma: <b>${sumStr}</b> lei &nbsp;<span class="muted">(în cifre)</span></div>
     <div class="row">(în litere): ${esc(words)}</div>
     <div class="row">Scopul ${isPlata ? 'plății' : 'încasării'}: ${fill(d.cel, 240)}</div>
-
-    <div class="viz">
-      <div class="viz-col">Semnătura<br/>Conducătorul<br/>unităţii<br/><span class="line">&nbsp;</span></div>
-      <div class="viz-col">Viza de control<br/>financiar-preventiv<br/>&nbsp;<br/><span class="line">&nbsp;</span></div>
-      <div class="viz-col">Compartimentul<br/>financiar-contabil<br/>&nbsp;<br/><span class="line">&nbsp;</span></div>
-    </div>
 
     ${beneficiar}
 
@@ -257,20 +260,20 @@ export function buildDispozitieHtml(d: DispozitieDocData): string {
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8"/>
   <style>
     @page { size: A4 portrait; margin: 10mm; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 13px; margin: 0; }
     @media screen { body { padding: 10mm; } }
-    .wrap { display: flex; flex-direction: column; gap: 8mm; }
-    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 10mm 12mm; min-height: 130mm; position: relative; }
+    /* Két A5 példány EGY A4 oldalon: a magasságok úgy hangolva, hogy ne csússzon 2. oldalra. */
+    .wrap { display: flex; flex-direction: column; gap: 6mm; }
+    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 8mm 12mm; min-height: 100mm; position: relative; break-inside: avoid; }
     .exno { position: absolute; top: 4mm; right: 5mm; font-size: 10px; color: #94a3b8; }
     .dp-head { text-align: center; font-weight: bold; font-size: 14px; }
+    .dp-head-hu { text-align: center; font-weight: normal; font-size: 12px; color: #475569; margin-top: 1px; }
     .dp-title { text-align: center; font-weight: bold; font-size: 15px; margin-top: 6px; }
     .dp-nr { text-align: center; font-size: 12px; color: #475569; margin-bottom: 16px; }
     .row { margin-bottom: 11px; line-height: 1.7; }
     .muted { color: #64748b; font-size: 11px; }
     .line { display: inline-block; border-bottom: 1px solid #14213d; min-width: 150px; }
-    .viz { display: flex; justify-content: space-between; gap: 12px; margin: 20px 0; text-align: center; font-size: 11px; }
-    .viz-col { width: 32%; }
     .block { border-top: 1px dashed #94a3b8; margin-top: 14px; padding-top: 12px; }
     .block-title { font-weight: bold; font-size: 11px; margin-bottom: 9px; }
     .block div { margin-bottom: 9px; }

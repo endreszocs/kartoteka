@@ -235,6 +235,11 @@ function getEarlyPaymentAdjustedFee(
   yearSetting: JarulekYearSetting | null,
   discounts: JarulekDiscountRule[],
   relevantPayments: JarulekPaymentLike[],
+  // (B/J6, Endre 2026-06-21) PROSPEKTÍV mód: ha megadva (a Tétel-rögzítő auto-összegénél a beírni
+  // kívánt befizetés DÁTUMA), a korai-fizetés/időszaki kedvezmény NEM a már befizetett összeghez,
+  // hanem ahhoz kötődik, hogy a befizetés dátuma a határidő/ablak ELŐTT van-e. Ha null/undefined
+  // (Tartozás-lista, retrospektív), a régi „csak megfizetve jár" viselkedés marad — bit-azonos.
+  prospectiveDate?: Date | null,
 ) {
   let bestAmount = baseFee
   const labels: string[] = []
@@ -242,8 +247,10 @@ function getEarlyPaymentAdjustedFee(
   const defaultDiscountAmount = normalizeAmount(yearSetting?.jarulek_kedvezmenyes)
   const defaultDeadline = parseMonthDay(year, yearSetting?.jarulek_hatarid)
   if (defaultDiscountAmount > 0 && defaultDeadline) {
-    const paidByDeadline = sumPaymentsUntil(relevantPayments, defaultDeadline)
-    if (paidByDeadline >= defaultDiscountAmount && defaultDiscountAmount < bestAmount) {
+    const earlyOk = prospectiveDate
+      ? prospectiveDate.getTime() <= defaultDeadline.getTime() + 24 * 60 * 60 * 1000 - 1 // a határidő napja is jár
+      : sumPaymentsUntil(relevantPayments, defaultDeadline) >= defaultDiscountAmount
+    if (earlyOk && defaultDiscountAmount < bestAmount) {
       bestAmount = defaultDiscountAmount
       labels.length = 0
       labels.push(`Kedvezményes határidő (${yearSetting?.jarulek_hatarid})`)
@@ -272,8 +279,10 @@ function getEarlyPaymentAdjustedFee(
 
       if (candidate <= 0) return
 
-      const paidInWindow = sumPaymentsInRange(relevantPayments, windowStart, windowEnd)
-      if (paidInWindow >= candidate && candidate < bestAmount) {
+      const inWindow = prospectiveDate
+        ? (windowStart ? prospectiveDate >= windowStart : true) && prospectiveDate <= windowEnd
+        : sumPaymentsInRange(relevantPayments, windowStart, windowEnd) >= candidate
+      if (inWindow && candidate < bestAmount) {
         bestAmount = candidate
         labels.length = 0
         labels.push(
@@ -296,8 +305,12 @@ export function computeJarulekForMemberYear(params: {
   discounts: JarulekDiscountRule[]
   exemptions: JarulekExemption[]
   payments: JarulekPaymentLike[]
+  // (B/J6) PROSPEKTÍV mód a Tétel-rögzítő auto-összegéhez: a beírni kívánt befizetés dátuma. Ha
+  // megadva, a korai-fizetés/időszaki kedvezmény a dátum alapján jár (nem a már befizetett alapján).
+  // A Tartozás-lista NE adja meg → ott bit-azonos marad a viselkedés.
+  prospectiveDate?: Date | null
 }) {
-  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions, payments } = params
+  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions, payments, prospectiveDate } = params
 
   if (isExemptForYear(member.id, member.familyId, exemptions, year)) {
     return {
@@ -330,7 +343,7 @@ export function computeJarulekForMemberYear(params: {
   // A kor- és foglalkozás-alapú kedvezmény közül a kedvezőbb (kisebb) megy
   // tovább az időszaki (early-payment) számításba.
   const bestBeforeEarly = Math.min(ageAdjusted.amount, occupationAdjusted.amount)
-  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, bestBeforeEarly, setting, activeDiscounts, relevantPayments)
+  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, bestBeforeEarly, setting, activeDiscounts, relevantPayments, prospectiveDate)
 
   const expected = Math.min(baseFee, ageAdjusted.amount, occupationAdjusted.amount, earlyAdjusted.amount)
   const appliedRules = [...ageAdjusted.labels, ...occupationAdjusted.labels, ...earlyAdjusted.labels]

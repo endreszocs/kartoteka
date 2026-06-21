@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 
 import { TransactionsTab, type TransactionsTabProps } from '@kartoteka/ui-app'
 
-import { deleteTransaction } from '@/app/(dashboard)/penzugy/actions'
+import { exportAoaToXlsx } from '@/lib/finance/finance-xlsx-export'
 import { listOblioMatchesAndKiadasok } from '@/app/(dashboard)/penzugy/oblio-ellenorzes-actions'
 import { KiseroivPrintDialog } from '@/components/finance/kiseroiv-print-dialog'
 import { OblioExpenseStatusIcon } from '@/components/finance/oblio-expense-status-icon'
@@ -35,13 +35,10 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
   return (
     <TransactionsTab
       {...props}
-      onDeleteTransaction={async (type, id) => {
-        const result = await deleteTransaction(
-          type === 'income' ? 'befizetes' : 'kiadas',
-          id,
-        )
-        return { error: 'error' in result ? result.error : null }
-      }}
+      // 2026-06-20 (Endre, könyvelési szabály): a Tranzakciók fül a HITELES napló —
+      // innen TÖRÖLNI nem lehet (sem visszamenőlegesen). A javítás a Kassza/Bank fülön
+      // történik storno-val (és csak a számadás beküldéséig). Ezért NEM adunk át
+      // `onDeleteTransaction`-t → a törlés gomb nem jelenik meg.
       loadOblioMatchedExpenseIds={async (year) => {
         const res = await listOblioMatchesAndKiadasok(year)
         if (res.matches) {
@@ -54,6 +51,7 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
         else if (kind === 'success') toast.success(msg)
         else toast(msg)
       }}
+      onExportXlsx={(aoa, filename) => exportAoaToXlsx(aoa, filename)}
       onSwitchTab={(tabKey) => {
         window.dispatchEvent(
           new CustomEvent('finance-tab-switch', { detail: tabKey }),

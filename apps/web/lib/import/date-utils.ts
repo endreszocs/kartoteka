@@ -1,27 +1,37 @@
 /**
  * Import dátum-normalizálás — időzóna-csúszás NÉLKÜL.
  *
- * **A javított hiba (2026-06-09):** a korábbi parserek `Date.toISOString().slice(0,10)`-et
- * használtak, ami UTC-re konvertál. A SheetJS `cellDates:true` Date-objektumai HELYI időben
- * vannak; egy helyi éjfél-közeli dátum UTC-ben ±1 napot csúszhat (pl. Románia GMT+2/+3-ban
- * egy `00:30` helyi dátum az előző naptári napra esik UTC-ben). A pénzügyi importnál ez
- * elfogadhatatlan (rossz év/hónap a befizetésen).
+ * **A javított hiba (2026-06-19):** a SheetJS `cellDates:true` a dátum-serial → `Date`
+ * konverziónál apró (≈ pár másodperces) hibát ejt, ÉS pozitív időzóna-eltolásnál (pl.
+ * Románia UTC+2/+3) az eredmény az ELŐZŐ naptári nap 23:59:xx-ére esik
+ * (pl. a 2025-01-01 → `2024-12-31 23:59:36`). Ezért a korábbi „helyi komponens"-olvasás
+ * (`getFullYear/getMonth/getDate`) is egy napot csúszott — a valós EREK Kassza-fülön
+ * MIND az 563 dátum −1 napra (rossz év/hónap a befizetésen!). A felhőben (UTC) viszont
+ * helyes volt, ezért nem bukott ki korábban — csak helyi gépen / asztali appban.
  *
- * Megoldás: a Date-objektumokból HELYI naptári komponenseket olvasunk
- * (`getFullYear/getMonth/getDate`), az Excel-serial számokat pedig UTC-epoch-matekkal
- * konvertáljuk (ahol nincs időzóna), így mindkét ág stabil.
+ * **Megoldás:** mivel ezek dátum-cellák (idő nélkül), a Date-et a LEGKÖZELEBBI helyi naphoz
+ * kerekítjük (`+12 óra`, majd helyi komponens). Ez minden időzónában (UTC és UTC+2/+3 is)
+ * a helyes naptári napot adja — empirikusan igazolva: 563/563. Az Excel-serial számokat
+ * továbbra is UTC-epoch-matekkal konvertáljuk (`excelSerialToLocalIso`), ami szintén helyes.
  *
  * A felhasználó kiemelt elvárása: „a dátumokat bármilyen formában is vezetik be, értelmezhető
  * legyen" — ezért a string-ág elfogad ISO-t, magyar (`2025.01.07`) és fordított magyar
  * (`07.01.2025`) formátumot is.
  */
 
-/** `Date` → `'YYYY-MM-DD'` HELYI naptári komponensekből (nincs UTC-eltolás). */
+/**
+ * Excel dátum-cella (`Date`, SheetJS `cellDates:true`) → `'YYYY-MM-DD'`.
+ *
+ * A SheetJS pozitív időzónában az előző nap 23:59:xx-ére csúsztatja a dátum-serialt;
+ * mivel idő nélküli NAPOT jelöl, a legközelebbi helyi naphoz kerekítünk (+12 óra).
+ * Így UTC alatt is helyes marad (00:00 → +12 ó = aznap dél → aznap).
+ */
 export function dateToLocalIso(d: Date): string | null {
   if (Number.isNaN(d.getTime())) return null
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const rounded = new Date(d.getTime() + 12 * 60 * 60 * 1000)
+  const y = rounded.getFullYear()
+  const m = String(rounded.getMonth() + 1).padStart(2, '0')
+  const day = String(rounded.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 

@@ -22,6 +22,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
+import { ManualTagSearch } from '@/components/finance/finance-import/shared/manual-tag-search'
 import type { ParsePreviewResult, PreviewMatchedRow } from '@/app/(dashboard)/penzugy/egyhfenntartas-import-actions'
 import type { ReconcileResult } from '@/components/finance/finance-import/egyhfenntartas/helpers/books-reconciler'
 
@@ -104,7 +105,7 @@ export function MatchStep({
         </h2>
         <p className="mt-1 text-sm text-slate-600">
           A két fájlt összevetettük és minden sort párosítottunk a tagnyilvántartással.
-          Az alábbi 4 csoportban kell végigmenned. Ha "Skip"-eled, az adott sor nem
+          Az alábbi 4 csoportban kell végigmenned. A Skip gombbal kihagyott sor nem
           kerül a könyvelésbe.
         </p>
       </header>
@@ -128,8 +129,8 @@ export function MatchStep({
         />
         <StatCard
           label="Tagnyilvántartás"
-          value={`${preview.stats.szemelyExactCount + preview.stats.szemelyFuzzyCount}`}
-          subtitle={`${preview.stats.szemelyNotFoundCount} nem található`}
+          value={`${preview.stats.szemelyExactCount}`}
+          subtitle={`${preview.stats.szemelyMultipleCount + preview.stats.szemelyFuzzyCount} ellenőrizendő · ${preview.stats.szemelyNotFoundCount} nincs`}
         />
       </div>
 
@@ -274,7 +275,7 @@ function groupByCategory(matched: PreviewMatchedRow[]): GroupedRows {
     const tagMode = row.szemely.matchMode
 
     // 'no-tag' priority: ha a tag-egyezés sikertelen vagy bizonytalan, oda kerül
-    if (tagMode === 'not-found' || tagMode === 'multiple') {
+    if (tagMode === 'not-found' || tagMode === 'multiple' || tagMode === 'fuzzy-name') {
       noTag.push(row)
       continue
     }
@@ -348,6 +349,8 @@ function RowCard({
   const fr = row.finalRow
   const sourceKind = row.source.kind
   const tagMode = row.szemely.matchMode
+  // A kézi keresőhöz a befizető neve (a " - cím" rész levágásával) az alap keresőszó.
+  const nameQuery = (fr.forrasa.split(/\s+[-–—]\s+/)[0] || fr.forrasa).trim()
 
   return (
     <div
@@ -378,22 +381,18 @@ function RowCard({
             </p>
           )}
 
-          {tagMode === 'multiple' && row.szemely.candidates.length > 0 && (
+          {(tagMode === 'multiple' || tagMode === 'fuzzy-name') && row.szemely.candidates.length > 0 && (
             <div className="mt-2">
               <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                Több tag illik — válassz egyet:
-                {row.szemely.autoDistributed && (
-                  <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700">
-                    🔄 Auto-elosztva (1×/év szabály — ellenőrizd)
-                  </span>
-                )}
+                {tagMode === 'fuzzy-name'
+                  ? 'Hasonló nevű tagok — ellenőrizd, és válassz, ha stimmel:'
+                  : 'Több azonos nevű tag — válaszd ki a cím alapján a megfelelőt:'}
               </label>
-              {row.szemely.autoDistributed && (
+              {tagMode === 'multiple' && (
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Egyházfenntartást egy személy évente egyszer fizet. Ezen a címen több tag van,
-                  ezért minden befizetést külön taghoz rendeltünk, hogy senkinek ne látsszon
-                  elmaradása. A fenti befizetés-részletek (dátum, összeg, iratszám) alapján
-                  felülbírálhatod.
+                  Több azonos nevű személy van (a cím nem döntött egyértelműen — pl. azonos név
+                  azonos címen, apa-fia). A rendszer szándékosan NEM tippel — válaszd ki kézzel,
+                  ki fizette ezt a tételt (a dátum, összeg, iratszám segít).
                 </p>
               )}
               <select
@@ -409,6 +408,34 @@ function RowCard({
                 ))}
               </select>
             </div>
+          )}
+
+          {(tagMode === 'not-found' || tagMode === 'multiple' || tagMode === 'fuzzy-name') && (
+            <>
+              {tagMode === 'not-found' && (
+                <p className="mt-2 rounded-md border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs text-rose-900">
+                  ❓ Nem találtunk hozzá tagot a tagnyilvántartásban. Keresd meg kézzel,
+                  vagy a Skip gombbal hagyd ki — különben a befizetés{' '}
+                  <strong>tag-kapcsolat nélkül</strong> kerül be.
+                </p>
+              )}
+              {tagMode === 'fuzzy-name' && (
+                <p className="mt-2 rounded-md border border-sky-200 bg-sky-50/60 px-2 py-1 text-xs text-sky-900">
+                  👤 Csak <strong>hasonló</strong> nevű tago(ka)t találtunk (lehet elgépelés).
+                  Ellenőrizd a fenti listát, vagy keress rá kézzel.
+                </p>
+              )}
+              {tagMode === 'multiple' && (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Ha a helyes tag nincs a fenti listában, keresd meg kézzel:
+                </p>
+              )}
+              <ManualTagSearch
+                initialQuery={nameQuery}
+                currentId={manualId}
+                onPick={(id) => onManualChange(id)}
+              />
+            </>
           )}
         </div>
 

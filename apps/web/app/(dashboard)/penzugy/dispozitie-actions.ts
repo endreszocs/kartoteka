@@ -71,7 +71,8 @@ export async function listCashTransactionsForDispozitie(
   if ('error' in ctx || ctx.scope !== 'congregation') return []
 
   const table = tipus === 'plata' ? 'kiadas' : 'befizetes'
-  const partnerCol = tipus === 'plata' ? 'kedvezmenyzett' : 'forrasa'
+  // FONTOS: a kiadas táblában a partner oszlopa `atvevo` (NINCS `kedvezmenyzett` oszlop!).
+  const partnerCol = tipus === 'plata' ? 'atvevo' : 'forrasa'
 
   const { data } = await ctx.supabase
     .from(table)
@@ -79,7 +80,9 @@ export async function listCashTransactionsForDispozitie(
     .eq('congregation_id', ctx.scopeId)
     .eq('deleted', false)
     .is('dispozitie_id', null)
-    .ilike('irattipus', '%észpénz%')
+    // Készpénzes tétel = nincs bankszámlához kötve (bankszamla_id NULL) — NEM az irattípus
+    // alapján, mert az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz").
+    .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
     .order('datum', { ascending: false })
@@ -169,10 +172,12 @@ export interface DispozitieReprintOption {
   data: DispozitieReprintData
 }
 
-/** Mentett dispozitiók teljes adata + címke a Nyomtatási központ újranyomtatásához. */
+/** Mentett + importált dispozíciók a Nyomtatási központ újranyomtatásához. */
 export async function listDispozitieReprint(year: number): Promise<DispozitieReprintOption[]> {
   const ctx = await getFinanceScopeContext()
   if ('error' in ctx || ctx.scope !== 'congregation') return []
+
+  // 1) Kézzel mentett dispozíciók (a `dispozitie` táblából).
   const { data } = await ctx.supabase
     .from('dispozitie')
     .select('id, tipus, sorszam, datum, nev, tisztseg, osszeg, cel, ci_tipus, ci_serie, ci_nr')
@@ -180,7 +185,7 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
     .eq('ev', year)
     .eq('deleted', false)
     .order('datum', { ascending: true })
-  return ((data || []) as Record<string, unknown>[]).map((r) => {
+  const saved: DispozitieReprintOption[] = ((data || []) as Record<string, unknown>[]).map((r) => {
     const datum = String(r.datum).slice(0, 10)
     const tipus = r.tipus as DispozitieTipus
     return {
@@ -200,6 +205,94 @@ export async function listDispozitieReprint(year: number): Promise<DispozitieRep
       },
     }
   })
+
+  // 2) IMPORTÁLT dispozíció-típusú tételek (irattípus „disp…"), amelyekhez még nincs külön
+  //    dispozitie rekord — a Kassza-sorból építve, hogy újranyomtathatóan megjelenjenek.
+  const [kiaImp, bevImp] = await Promise.all([
+    ctx.supabase
+      .from('kiadas')
+      .select('id, datum, osszeg, iratszam, atvevo, megjegyzes, id_kiadascel')
+      .eq('congregation_id', ctx.scopeId)
+      .eq('deleted', false)
+      .is('dispozitie_id', null)
+      .ilike('irattipus', '%disp%')
+      .gte('datum', `${year}-01-01`)
+      .lte('datum', `${year}-12-31`),
+    ctx.supabase
+      .from('befizetes')
+      .select('id, datum, osszeg, iratszam, forrasa, megjegyzes, id_befizetescel')
+      .eq('congregation_id', ctx.scopeId)
+      .eq('deleted', false)
+      .is('dispozitie_id', null)
+      .ilike('irattipus', '%disp%')
+      .gte('datum', `${year}-01-01`)
+      .lte('datum', `${year}-12-31`),
+  ])
+
+  // A „Scopul plății" (cél) kitöltéséhez feloldjuk a kategória nevét (jogcím).
+  // Külön lekérdezésekkel (NEM beágyazott join — az korábban hibázott):
+  // kiadascel/befizetescel.id_szamadasicel (= kód) → szamadasicel.nev.
+  const celNameByKia = new Map<number, string>()
+  const celNameByBev = new Map<number, string>()
+  const kiaCelIds = [...new Set((kiaImp.data || []).map((r) => (r as { id_kiadascel?: number }).id_kiadascel).filter(Boolean) as number[])]
+  const bevCelIds = [...new Set((bevImp.data || []).map((r) => (r as { id_befizetescel?: number }).id_befizetescel).filter(Boolean) as number[])]
+  if (kiaCelIds.length || bevCelIds.length) {
+    const [kiaCelRows, bevCelRows] = await Promise.all([
+      kiaCelIds.length ? ctx.supabase.from('kiadascel').select('id, id_szamadasicel').in('id', kiaCelIds) : Promise.resolve({ data: [] as { id: number; id_szamadasicel: string }[] }),
+      bevCelIds.length ? ctx.supabase.from('befizetescel').select('id, id_szamadasicel').in('id', bevCelIds) : Promise.resolve({ data: [] as { id: number; id_szamadasicel: string }[] }),
+    ])
+    const codes = [...new Set([...(kiaCelRows.data || []), ...(bevCelRows.data || [])].map((r) => r.id_szamadasicel).filter(Boolean))]
+    const szRows = codes.length ? await ctx.supabase.from('szamadasicel').select('id, nev').in('id', codes) : { data: [] as { id: string; nev: string }[] }
+    const nameByCode = new Map((szRows.data || []).map((r) => [String(r.id), String(r.nev || '')]))
+    ;(kiaCelRows.data || []).forEach((r) => celNameByKia.set(r.id, nameByCode.get(String(r.id_szamadasicel)) || ''))
+    ;(bevCelRows.data || []).forEach((r) => celNameByBev.set(r.id, nameByCode.get(String(r.id_szamadasicel)) || ''))
+  }
+
+  const imported: DispozitieReprintOption[] = []
+  for (const r of (kiaImp.data || []) as Record<string, unknown>[]) {
+    const datum = String(r.datum).slice(0, 10)
+    const name = String(r.atvevo || '—')
+    const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
+    imported.push({
+      id: `imp-k-${r.id}`,
+      label: `Plată #${sorszam || '—'} · ${datum} · ${name} · importált`,
+      data: {
+        tipus: 'plata',
+        sorszam,
+        date: datum,
+        name,
+        tisztseg: '',
+        amount: Number(r.osszeg) || 0,
+        cel: celNameByKia.get(Number(r.id_kiadascel)) || String(r.megjegyzes || ''),
+        ciTipus: '',
+        ciSerie: '',
+        ciNr: '',
+      },
+    })
+  }
+  for (const r of (bevImp.data || []) as Record<string, unknown>[]) {
+    const datum = String(r.datum).slice(0, 10)
+    const name = String(r.forrasa || '—')
+    const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
+    imported.push({
+      id: `imp-b-${r.id}`,
+      label: `Încasare #${sorszam || '—'} · ${datum} · ${name} · importált`,
+      data: {
+        tipus: 'incasare',
+        sorszam,
+        date: datum,
+        name,
+        tisztseg: '',
+        amount: Number(r.osszeg) || 0,
+        cel: celNameByBev.get(Number(r.id_befizetescel)) || String(r.megjegyzes || ''),
+        ciTipus: '',
+        ciSerie: '',
+        ciNr: '',
+      },
+    })
+  }
+
+  return [...saved, ...imported]
 }
 
 export async function saveDispozitie(input: SaveDispozitieInput): Promise<
@@ -285,7 +378,6 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
       osszeg: Number(input.amount),
       datum: input.date,
       id_kiadascel: input.categoryId,
-      kedvezmenyzett: input.name.trim(),
       iratszam: docNum,
       irattipus: 'Készpénz',
       megjegyzes: `Dispoziție de plată #${sorszam}/${year} — ${input.cel || ''}`.trim(),

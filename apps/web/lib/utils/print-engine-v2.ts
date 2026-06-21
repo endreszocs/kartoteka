@@ -51,12 +51,20 @@ export async function printToPdf(
   const opt = {
     margin: options?.margin || [0, 0],
     filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
+    // PNG (veszteségmentes) + nagyobb felbontás → éles szöveg, JPEG-artefaktok nélkül.
+    // (A korábbi JPEG/scale:2 adott „fapados", elmosódott eredményt.)
+    image: { type: 'png' },
+    html2canvas: {
+      scale: 3,
+      useCORS: true,
+      letterRendering: true,
+      backgroundColor: '#ffffff',
+    },
     jsPDF: {
       unit: 'mm',
       format: options?.format || 'a4',
       orientation: options?.orientation || 'portrait',
+      compress: true,
     },
     // A CSS oldaltörések (.page / break-after / break-inside:avoid) tiszteletben
     // tartása — így a sorok nem csúsznak ketté az oldalhatáron.

@@ -56,8 +56,21 @@ const INTERNAL_TRANSFER_PATTERNS = [
   /Transfer\s+(?:între\s+)?conturi/i, // Bank-bank átvitel (402.xx)
 ]
 
+/**
+ * Igaz, ha a szöveg belső mozgásra UTAL (Készpénzletétel/-felvétel, Transfer
+ * conturi, Depunere/Retragere numerar). A „lemaradt belső mozgás" figyelmeztetőhöz:
+ * ha egy ilyen sor mégis sima bevétel/kiadásként osztályozódott (rossz/hiányzó kód),
+ * akkor jelezni kell — különben a pénz fél lába hiányozna a párból.
+ */
+export function looksLikeInternalMovement(text: string | null | undefined): boolean {
+  if (!text) return false
+  return INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(text))
+}
+
 const INFO_LINE_PATTERNS = [
-  /Előző évi készpénzegyenleg/i,
+  // „Előző évi készpénzegyenleg" (Kassza) ÉS „Előző évi egyenleg" (A–F bankszámla-lapok).
+  // FONTOS: a nyitó egyenleg NEM tranzakció — különben bevételként importálódna.
+  /Előző évi.*egyenleg/i,
   /^Napi bevétel/i,
   /^Napi kiadás/i,
   /^Egyenleg:/i,
@@ -93,18 +106,24 @@ export function splitKasszaRow(row: Record<string, unknown>): KasszaRowKind {
     return { kind: 'skip', reason: 'tájékoztató/összesítő sor' }
   }
 
-  // 3. Belső mozgás detektálás — a 4xx vagy 301.xx kód-prefix VAGY az
+  // 3. Belső mozgás detektálás — a 4xx vagy 30x.xx kód-prefix VAGY az
   //    "Készpénzletétel/-felvétel / Transfer între conturi" kifejezés.
   //
-  // Belső pénzmozgás-kódok az EREK könyvelési számhalomban:
+  // Belső pénzmozgás-kódok az EREK könyvelési számhalomban (a kanonikus készlet:
+  // 300.01 / 301.01 / 400.01 / 401.01 / 402.02):
   //   - 400.xx — Kassza→Bank letétel       (Kassza fül kiadás-oldal)
   //   - 401.xx — Bank→Kassza felvét        (Kassza fül BEVÉTEL / Bank KIADÁS)
   //   - 402.xx — Bank→Bank átvitel         (Bank fülek; v2)
-  //   - 301.xx — Bank-oldali bevétel       (Bank fülek; v2)
+  //   - 300.xx / 301.xx — Bank-oldali belső mozgás (Bank fülek; v2)
+  //
+  // FONTOS: ennek konzisztensnek kell lennie a `budget-code-resolver.resolveBudgetCode`
+  // belső-mozgás logikájával (az `startsWith('4') || '301' || '300'`-at néz). Korábban
+  // a 300.xx itt KIMARADT, így egy 300-as átvezetés tévesen bevételként/kiadásként
+  // könyvelődhetett volna.
   const kodNormalized = kod !== null ? String(kod).replace(/,/, '.') : ''
   const isInternalCode =
     kodNormalized.length > 0 &&
-    (/^4\d{2}\b/.test(kodNormalized) || /^301\b/.test(kodNormalized))
+    (/^4\d{2}\b/.test(kodNormalized) || /^30[01]\b/.test(kodNormalized))
   const bevCelIsInternal = bevCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(bevCel)) : false
   const kiaCelIsInternal = kiaCel ? INTERNAL_TRANSFER_PATTERNS.some((p) => p.test(kiaCel)) : false
 

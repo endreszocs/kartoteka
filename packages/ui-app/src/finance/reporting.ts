@@ -60,6 +60,12 @@ export const FINANCE_PRINT_TYPES: Array<{
     description: 'Havi összesített kassza és banki naplókönyv, egyetlen kimutatásban.',
   },
   {
+    id: 'csoport_naplo',
+    title: 'Csoportnapló',
+    subtitle: 'Jogcímenkénti tétellista',
+    description: 'Minden költségvetési jogcím (számadási cél) alatt a hozzá tartozó tételek listája, jogcímenkénti részösszeggel és végösszeggel. Román + magyar, oldalszámozva.',
+  },
+  {
     id: 'kiadasi_kiseroiv',
     title: 'Kiadási kísérőív',
     subtitle: 'Napi kiadás bizonylat',
@@ -121,6 +127,12 @@ function getDocNumber(row: BefitetesRow | KiadasRow): string {
   return ('iratszam' in row ? row.iratszam : null) || ('nyugta' in row ? row.nyugta : null) || ('bizonylatszam' in row ? (row as KiadasRow).bizonylatszam : null) || ''
 }
 
+// #3 (Endre): a GYÜLEKEZETI saját sorszám (befizetes.nyugta) — a kerületi (iratszam) mellett.
+// Csak bevételnél értelmezett; kiadásnál üres.
+function getCongregationNumber(row: BefitetesRow | KiadasRow): string {
+  return ('nyugta' in row ? (row as BefitetesRow).nyugta : null) || ''
+}
+
 function getCategoryCode(row: BefitetesRow | KiadasRow, bevCelMap: Record<number, string>, kiaCelMap: Record<number, string>): string {
   if ('id_befizetescel' in row && row.id_befizetescel) return bevCelMap[row.id_befizetescel] || ''
   if ('id_kiadascel' in row && (row as KiadasRow).id_kiadascel) return kiaCelMap[(row as KiadasRow).id_kiadascel!] || ''
@@ -141,8 +153,11 @@ function getDescription(row: BefitetesRow | KiadasRow, bevCelMap: Record<number,
 
 function styles() {
   return `
-    @page { size: A4 landscape; margin: 10mm; }
-    * { box-sizing: border-box; }
+    /* WYSIWYG: @page margó 0 — a margót a .page paddingje (10mm) adja, így a
+       képernyős előnézet ÉS a nyomtatás AZONOS tartalom-szélességet kap
+       (különben a @page margó + a padding összeadódna → eltérő tördelés). */
+    @page { size: A4 landscape; margin: 0; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #eef1f5; padding: 18px 0; }
     .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 10mm; break-after: page; position: relative; }
     .page:last-child { break-after: auto; }
@@ -188,6 +203,8 @@ export interface FinanceReportFilters {
   year: number
   month: number | null // 1-12, null = teljes év (hónaponként külön oldal)
   bankAccountId?: number | null
+  /** Csoportnaplónál: csak erre a jogcím-kódra szűr (null/undefined = összes jogcím). */
+  categoryKod?: string | null
 }
 
 export interface FinanceReportData {
@@ -198,6 +215,9 @@ export interface FinanceReportData {
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") — a hivatalos
+   *  (román) nyomtatványok fejlécében ez jelenik meg a magyar név helyett. */
+  congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
   /** Nyugtatömb kimutatás soradatai — csak a `nyugtatomb_kimutatas` típushoz kötelező. */
@@ -215,13 +235,16 @@ function filterByMonth<T extends { datum: string; deleted: boolean }>(
     .sort((a, b) => (a.datum || '').localeCompare(b.datum || ''))
 }
 
+// Kassza vs bank szétválasztás a `bankszamla_id` alapján (NULL = kassza), NEM az irattípus
+// alapján — az importált tételek irattípusa „Chit."/„Extr" (nem „Készpénz"/„Banki"), így az
+// irattípus-szűrés kihagyta őket. A `bankszamla_id` a kézi ÉS az importált adatra is helyes.
 function filterCash<T extends { irattipus: string | null; bankszamla_id?: number | null }>(rows: T[]): T[] {
-  return rows.filter((r) => r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id))
+  return rows.filter((r) => !r.bankszamla_id)
 }
 
 function filterBank<T extends { irattipus: string | null; bankszamla_id?: number | null }>(rows: T[], bankId?: number | null): T[] {
   if (bankId) return rows.filter((r) => r.bankszamla_id === bankId)
-  return rows.filter((r) => r.irattipus === 'Banki')
+  return rows.filter((r) => !!r.bankszamla_id)
 }
 
 /** Korábbi hónapok összegyenlegének kiszámítása */
@@ -256,12 +279,15 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   const carry = computeCarryover(data.income, data.expense, f.year, f.month, filterCash, data.carryoverCash)
 
   // Összes tranzakció egyesítve, dátum szerint rendezve
-  type Row = { date: string; docType: string; docNum: string; desc: string; income: number; expense: number; code: string }
+  type Row = { date: string; docType: string; docNum: string; congNum: string; desc: string; income: number; expense: number; code: string }
   const rows: Row[] = []
 
   for (const r of mIncome) {
+    // #3: a gyülekezeti szám (nyugta) — ha megegyezik a kerületivel (régi, tükrözött adat), ne ismételjük.
+    const dn = getDocNumber(r)
+    const cn = getCongregationNumber(r)
     rows.push({
-      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
+      date: fmtDate(r.datum), docType: getDocType(r), docNum: dn, congNum: cn && cn !== dn ? cn : '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
       income: Number(r.osszeg || 0), expense: 0,
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
@@ -269,7 +295,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   }
   for (const r of mExpense) {
     rows.push({
-      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
+      date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r), congNum: '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
       income: 0, expense: Number(r.osszeg || 0),
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
@@ -290,6 +316,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
       <td class="text-center">${r.date}</td>
       <td class="text-center">${esc(r.docType)}</td>
       <td class="text-center">${esc(r.docNum)}</td>
+      <td class="text-center">${esc(r.congNum)}</td>
       <td>${esc(r.desc)}</td>
       <td class="text-right">${r.income ? fmtNum(r.income) : ''}</td>
       <td class="text-right">${r.expense ? fmtNum(r.expense) : ''}</td>
@@ -301,25 +328,26 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU CASA</div></div>
       <div class="header-right"><div>LUNA ${monthRo}</div><div>Anul: ${f.year}</div></div>
     </div>
     <table>
       <thead>
-        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
-        <tr><th>Fel</th><th>Numar</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="3">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
+        <tr><th>Fel</th><th>Nr. ker.</th><th>Nr. gyül.</th><th>Incasate</th><th>Platite</th></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
       </thead>
       <tbody>
-        <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
+        <tr class="carry"><td colspan="6" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
         ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
+        <tr class="totals"><td colspan="6" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Intocmit - K&eacute;sz&iacute;tette</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat - Ellen&odblac;rizte</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -371,7 +399,7 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div class="entity">${esc(data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
       <div class="header-center"><div class="title">REGISTRU BANCA</div><div style="font-size:11px;margin-top:2px">${esc(bankLabel)}</div></div>
       <div class="header-right"><div>LUNA ${monthRo} Anul: ${f.year}</div><div>Operatiuni prin RON</div></div>
     </div>
@@ -388,8 +416,9 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Intocmit - K&eacute;sz&iacute;tette</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat - Ellen&odblac;rizte</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -487,7 +516,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
   const monthRo = MONTH_NAMES_RO[f.month - 1]
   const html = `<div class="page">
     <div class="header">
-      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationName)}</div></div>
+      <div class="header-left"><div>Unitate:</div><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div></div>
       <div class="header-center"><div class="title">REGISTRUL-JURNAL DE INCASARI SI PLATI</div></div>
       <div class="header-right"><div>LUNA ${monthRo} ANUL ${f.year}</div></div>
     </div>
@@ -506,9 +535,9 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
       </tbody>
     </table>
     <div class="footer">
-      <div class="footer-item"><div class="footer-line">Conducatorul unitatii</div></div>
-      <div class="footer-item"><div class="footer-line">Intocmit</div></div>
-      <div class="footer-item"><div class="footer-line">Verificat</div></div>
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
     </div>
     <div class="page-num">pg. 1</div>
   </div>`
@@ -713,6 +742,190 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
   }
 }
 
+// ---------------------------------------------------------------------------
+// CSOPORTNAPLÓ — jogcímenkénti (számadási cél) tétellista, román + magyar
+// ---------------------------------------------------------------------------
+
+/** Számadásicél-kódok hierarchikus rendezése (101.01 < 101.02 < 104.04). */
+function sortCells(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const va = pa[i] ?? 0
+    const vb = pb[i] ?? 0
+    if (va !== vb) return va - vb
+  }
+  return 0
+}
+
+/**
+ * Csoportnapló: minden költségvetési jogcím (számadási cél) alatt a hozzá tartozó
+ * tételek listája, jogcímenkénti részösszeggel és végösszeggel. Bevétel + kiadás
+ * külön szekcióban, román + magyar felirattal. Az időszak: a kiválasztott hónap,
+ * vagy (ha nincs) a TELJES év (NEM hónaponként bontva — jogcím szerint összegyűjtve).
+ * A belső mozgások (3xx/4xx kód vagy belső-mozgás kulcs) kimaradnak.
+ */
+function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilters): FinancePrintResult {
+  const { year, month } = filters
+  const prefix = month ? `${year}-${String(month).padStart(2, '0')}` : `${year}-`
+  const inPeriod = <T extends { datum: string; deleted: boolean }>(rows: T[]): T[] =>
+    rows.filter((r) => !r.deleted && (r.datum || '').startsWith(prefix))
+
+  const isInternal = (code: string, xkey: unknown) => !!xkey || /^[34]/.test(code)
+
+  type Item = { datum: string; docType: string; docNum: string; partner: string; megjegyzes: string; osszeg: number }
+  type Group = { kod: string; nev: string; items: Item[]; total: number }
+
+  const buildGroups = (
+    rows: (IncomeRow | ExpenseRow)[],
+    celMap: Record<number, string>,
+    celType: 'B' | 'K',
+    isIncome: boolean,
+  ): Group[] => {
+    const map = new Map<string, Group>()
+    for (const r of inPeriod(rows)) {
+      const id = isIncome ? (r as IncomeRow).id_befizetescel : (r as ExpenseRow).id_kiadascel
+      const code = id ? celMap[id] || '' : ''
+      if (!code) continue
+      if (isInternal(code, (r as { belso_mozgas_xkey?: unknown }).belso_mozgas_xkey)) continue
+      const cel = data.cellek.find((c) => c.kod === code && c.type === celType)
+      if (!map.has(code)) map.set(code, { kod: code, nev: cel?.nev || code, items: [], total: 0 })
+      const g = map.get(code)!
+      const amt = Number(r.osszeg || 0)
+      g.total += amt
+      const partner = isIncome
+        ? (r as IncomeRow).forrasa || '—'
+        : (r as ExpenseRow).kedvezmenyzett || (r as ExpenseRow).atvevo || '—'
+      g.items.push({
+        datum: fmtDate(r.datum),
+        docType: getDocType(r),
+        docNum: getDocNumber(r),
+        partner: String(partner),
+        megjegyzes: r.megjegyzes || '',
+        osszeg: amt,
+      })
+    }
+    for (const g of map.values()) g.items.sort((a, b) => a.datum.localeCompare(b.datum))
+    return [...map.values()].sort((a, b) => sortCells(a.kod, b.kod))
+  }
+
+  const catKod = filters.categoryKod || null
+  const bevGroupsAll = buildGroups(data.income, data.bevCelMap, 'B', true)
+  const kiaGroupsAll = buildGroups(data.expense, data.kiaCelMap, 'K', false)
+  // Jogcím-választó: ha egy konkrét jogcímet kértek, csak azt listázzuk.
+  const bevGroups = catKod ? bevGroupsAll.filter((g) => g.kod === catKod) : bevGroupsAll
+  const kiaGroups = catKod ? kiaGroupsAll.filter((g) => g.kod === catKod) : kiaGroupsAll
+
+  const renderSection = (
+    titleRo: string,
+    titleHu: string,
+    groups: Group[],
+    partnerRo: string,
+    partnerHu: string,
+    totalRo: string,
+    totalHu: string,
+  ): { html: string; total: number } => {
+    if (groups.length === 0) return { html: '', total: 0 }
+    let rowNo = 0
+    let sectionTotal = 0
+    const blocks = groups
+      .map((g) => {
+        sectionTotal += g.total
+        const itemRows = g.items
+          .map((it) => {
+            rowNo += 1
+            return `<tr>
+              <td class="text-center">${rowNo}</td>
+              <td class="text-center">${it.datum}</td>
+              <td class="text-center">${esc(it.docType)}</td>
+              <td class="text-center">${esc(it.docNum)}</td>
+              <td>${esc(it.partner)}</td>
+              <td>${esc(it.megjegyzes)}</td>
+              <td class="text-right">${fmtNum(it.osszeg)}</td>
+            </tr>`
+          })
+          .join('')
+        return `<tbody class="cat-block">
+          <tr class="cat-head"><td colspan="7"><strong>${esc(g.kod)}</strong> — ${esc(g.nev)} <span class="cat-count">(${g.items.length} tétel)</span></td></tr>
+          ${itemRows}
+          <tr class="carry"><td colspan="6" class="text-right">Total capitol — Jogcím összesen:</td><td class="text-right">${fmtNum(g.total)}</td></tr>
+        </tbody>`
+      })
+      .join('')
+
+    const html = `
+      <h2 class="section-title">${titleRo} — ${titleHu}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Nr.<br>Sorsz.</th>
+            <th>Data<br>Dátum</th>
+            <th>Fel<br>Irat</th>
+            <th>Nr. doc.<br>Iratszám</th>
+            <th>${partnerRo}<br>${partnerHu}</th>
+            <th>Observații<br>Megjegyzés</th>
+            <th>Suma (lei)<br>Összeg</th>
+          </tr>
+        </thead>
+        ${blocks}
+        <tbody><tr class="totals"><td colspan="6" class="text-right">${totalRo} — ${totalHu}:</td><td class="text-right">${fmtNum(sectionTotal)}</td></tr></tbody>
+      </table>`
+    return { html, total: sectionTotal }
+  }
+
+  const bev = renderSection('I. VENITURI', 'BEVÉTELEK', bevGroups, 'Sursa / Partener', 'Forrás / Partner', 'TOTAL VENITURI', 'BEVÉTELEK ÖSSZESEN')
+  const kia = renderSection('II. CHELTUIELI', 'KIADÁSOK', kiaGroups, 'Beneficiar', 'Kedvezményezett', 'TOTAL CHELTUIELI', 'KIADÁSOK ÖSSZESEN')
+
+  const periodLabel = month ? `LUNA ${MONTH_NAMES_RO[month - 1]} ${year}` : `ANUL ${year}`
+  const periodLabelHu = month ? `${year}. ${month}. hónap` : `${year}. teljes év`
+  const balance = bev.total - kia.total
+  const empty = bevGroups.length === 0 && kiaGroups.length === 0
+
+  const extra = `<style>
+    @page { @bottom-right { content: "pg. " counter(page) " / " counter(pages); font-size: 9px; color: #64748b; } }
+    .section-title { font-size: 13px; font-weight: bold; margin: 16px 0 2px; text-transform: uppercase; border-bottom: 2px solid #334155; padding-bottom: 2px; }
+    .cat-head td { font-weight: bold; font-size: 10.5px; border-top: 1.5px solid #334155; padding: 5px 5px 3px; }
+    .cat-head .cat-count { font-weight: normal; font-style: italic; color: #64748b; font-size: 9px; }
+    .cat-block { break-inside: auto; }
+    .grand { margin-top: 14px; border-top: 2px solid #334155; padding-top: 8px; display: flex; justify-content: flex-end; gap: 28px; font-size: 12px; font-weight: bold; }
+    .grand .lbl { color: #475569; font-weight: normal; }
+  </style>`
+
+  const content = `<div class="page">
+    <div class="header">
+      <div class="header-left"><div class="entity">${esc(data.congregationNameRo || data.congregationName)}</div><div>Unitate</div></div>
+      <div class="header-center"><div class="title">Registru grupat pe capitole</div><div style="font-size:12px;font-weight:normal">Csoportnapló — jogcímenkénti tétellista</div></div>
+      <div class="header-right"><div>${periodLabel}</div><div>${periodLabelHu}</div></div>
+    </div>
+    ${
+      empty
+        ? '<p style="text-align:center;margin-top:40px;color:#64748b">Nincs könyvelt tétel ebben az időszakban. / Nu există înregistrări în această perioadă.</p>'
+        : bev.html + kia.html
+    }
+    ${
+      empty
+        ? ''
+        : `<div class="grand">
+      <div><span class="lbl">Total venituri / Bevétel:</span> ${fmtNum(bev.total)}</div>
+      <div><span class="lbl">Total cheltuieli / Kiadás:</span> ${fmtNum(kia.total)}</div>
+      <div><span class="lbl">Rezultat / Egyenleg:</span> ${fmtNum(balance)}</div>
+    </div>`
+    }
+    <div class="footer">
+      <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>
+      <div class="footer-item"><div class="footer-line">Întocmit — Készítette</div></div>
+      <div class="footer-item"><div class="footer-line">Verificat — Ellenőrizte</div></div>
+    </div>
+  </div>`
+
+  return {
+    title: `Csoportnapló — ${periodLabelHu}`,
+    filename: `Csoportnaplo_${year}${month ? '_' + String(month).padStart(2, '0') : '_teljes_ev'}.pdf`,
+    orientation: 'landscape',
+    html: wrap(`Csoportnapló — ${periodLabelHu}`, content, extra),
+  }
+}
+
 /**
  * Fő belépési pont.
  * Ha `filters.month` null → teljes éves nyomtatvány: minden hónapra külön oldal,
@@ -732,6 +945,11 @@ export function buildFinancePrintDocument(
   if (type === 'kiadasi_kiseroiv') {
     const monthToUse = filters.month || new Date().getMonth() + 1
     return buildRegistruCasa(data, { ...filters, month: monthToUse })
+  }
+
+  // Csoportnapló — jogcímenként, az EGÉSZ időszakra csoportosítva (NEM hónaponként iterálva)
+  if (type === 'csoport_naplo') {
+    return buildCsoportNaplo(data, filters)
   }
 
   const builder = type === 'registru_casa' ? buildRegistruCasa

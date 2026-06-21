@@ -279,7 +279,7 @@ export function normalizeBudgetCode(input: string | number | null | undefined): 
  *   altDecimalForm('101.01') → null   (egyértelmű, nem rövidíthető)
  *   altDecimalForm('400')    → null   (nincs tizedes)
  */
-export function altDecimalForm(normalized: string): string | null {
+function altDecimalForm(normalized: string): string | null {
   const m = normalized.match(/^(\d+)\.(\d+)$/)
   if (!m) return null
   const intPart = m[1]

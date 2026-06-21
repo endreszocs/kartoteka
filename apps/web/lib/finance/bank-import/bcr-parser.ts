@@ -14,6 +14,8 @@
  * A kiszélesedett formátumokhoz fuzzy matchinget használunk.
  */
 
+import { dateToLocalIso } from '@/lib/import/date-utils'
+
 export type BcrTransaction = {
   /** Az Excel sor indexe (1-től). */
   rowIndex: number
@@ -129,24 +131,10 @@ function parseDateValue(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
   // Excel dátum: lehet Date objektum (ha xlsx cellDates: true), vagy string
   if (value instanceof Date) {
-    const d = value
-    // Az Excel Date objektumok timestamp-et tartalmaznak (pl. 2026-01-05T21:59:36Z).
-    // A BCR export szándéka szerint ez egy nap (idő nélkül), ezért a helyi
-    // időzónában értelmezve torzítana. Használjuk a kisebb torzulással járó
-    // kerekítés stratégiát: ha a helyi-nap és UTC-nap eltér, és a helyi 23 óra
-    // után vagyunk, akkor inkább az UTC napot adjuk vissza.
-    const localY = d.getFullYear()
-    const localM = d.getMonth() + 1
-    const localD = d.getDate()
-    const utcY = d.getUTCFullYear()
-    const utcM = d.getUTCMonth() + 1
-    const utcD = d.getUTCDate()
-    // BCR: a dátumok gyakran 21:59 vagy 22:00 UTC időpontban vannak —
-    // ez a román +2-es zóna éjfél előtti ideje, tehát a helyi nap a jó.
-    // Ha azonban a dátum 00:00 UTC, akkor ott az UTC napot használjuk.
-    const useUtc = d.getUTCHours() < 12
-    const [y, m, day] = useUtc ? [utcY, utcM, utcD] : [localY, localM, localD]
-    return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    // A SheetJS cellDates Date-je dátum-cellánál pozitív időzónában egy nappal
+    // korábbra csúszik (≈23:59:36); a megosztott helper a legközelebbi helyi naphoz
+    // kerekít, így minden időzónában (UTC és UTC+2/+3) a helyes napot adja.
+    return dateToLocalIso(value)
   }
   if (typeof value === 'number') {
     // Excel serial szám

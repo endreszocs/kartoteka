@@ -11,6 +11,8 @@ import { toast } from 'sonner'
 
 import { CashbookTab as SharedCashbookTab, type CashbookTabProps } from '@kartoteka/ui-app'
 
+import { exportAoaToXlsx } from '@/lib/finance/finance-xlsx-export'
+
 import { ChitantaSilentPrint } from '@/components/finance/chitanta-silent-print'
 import { ChitantaTombokPanel } from '@/components/finance/chitanta-tombok-panel'
 import { ChitantaTombRequiredDialog } from '@/components/modals/chitanta-tomb-required-dialog'
@@ -26,6 +28,7 @@ type WebCashbookTabProps = Pick<
   CashbookTabProps,
   | 'incomeRecords'
   | 'expenseRecords'
+  | 'unpairedInternalIds'
   | 'carryoverCash'
   | 'bevCelMap'
   | 'kiaCelMap'
@@ -65,6 +68,7 @@ export function CashbookTab(props: WebCashbookTabProps) {
         else if (kind === 'warning') toast.warning(msg)
         else toast(msg)
       }}
+      onExportXlsx={(aoa, filename) => exportAoaToXlsx(aoa, filename)}
       chitantaTombokPanelSlot={({ refreshKey }) => (
         <ChitantaTombokPanel
           congregationName={props.congregationName || ''}

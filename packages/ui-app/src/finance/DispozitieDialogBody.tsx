@@ -52,6 +52,8 @@ export interface DispozitieSaveInput {
 
 export interface DispozitieDialogBodyProps {
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") — a fejléc 1. sora. */
+  congregationNameRo?: string
   incomeCategories: DispozitieCategoryOption[]
   expenseCategories: DispozitieCategoryOption[]
   onGetNextNumber: (tipus: DispozitieTipus, year: number) => Promise<number>
@@ -59,6 +61,9 @@ export interface DispozitieDialogBodyProps {
   onSaveDispozitie: (input: DispozitieSaveInput) => Promise<{ success?: true; sorszam?: number; error?: string }>
   onPrint: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
   onToast: DispozitieToastFn
+  /** Alapértelmezett dátum (yyyy-mm-dd) — a kiválasztott költségvetési évre állítja a nyitó dátumot,
+   *  így korábbi év (pl. 2025) egyeztetésénél a meglévő készpénzes tételek listája is arra szűr. */
+  defaultDate?: string
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -69,6 +74,7 @@ const inputClass =
 
 export function DispozitieDialogBody({
   congregationName,
+  congregationNameRo,
   incomeCategories,
   expenseCategories,
   onGetNextNumber,
@@ -76,10 +82,11 @@ export function DispozitieDialogBody({
   onSaveDispozitie,
   onPrint,
   onToast,
+  defaultDate,
 }: DispozitieDialogBodyProps) {
   const [tipus, setTipus] = useState<DispozitieTipus>('plata')
   const [fromExisting, setFromExisting] = useState(false)
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(defaultDate || todayIso())
   const [name, setName] = useState('')
   const [tisztseg, setTisztseg] = useState('')
   const [amount, setAmount] = useState('')
@@ -116,7 +123,8 @@ export function DispozitieDialogBody({
   const previewHtml = useMemo(
     () =>
       buildDispozitieHtml({
-        congregationName: `Parohia Reformată ${congregationName}`,
+        congregationName,
+        congregationNameRo,
         tipus,
         sorszam: sorszam ?? '—',
         date,
@@ -128,7 +136,7 @@ export function DispozitieDialogBody({
         ciSerie,
         ciNr,
       }),
-    [congregationName, tipus, sorszam, date, name, tisztseg, amountNum, cel, ciTipus, ciSerie, ciNr],
+    [congregationName, congregationNameRo, tipus, sorszam, date, name, tisztseg, amountNum, cel, ciTipus, ciSerie, ciNr],
   )
 
   function applyKasszaSelection(id: number) {

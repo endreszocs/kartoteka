@@ -19,6 +19,29 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔵 DIAGNOSZTIKA — csak OLVAS (SELECT), 2026-06-19
+
+Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQL editorban,
+és az eredményt küldd vissza — ezek alapján döntünk a spouse-bridge-ről és az idempotencia-indexről.
+
+- [ ] **`2026-06-19-diag-asszonynevek-szcs-nev.sql`** — DIAGNOSZTIKA (csak olvas)
+       Férjes asszonyok név-tárolása + lánykori (szcs_nev) kitöltöttség → eldönti, kell-e spouse-bridge (P1-4).
+- [ ] **`2026-06-19-diag-import-duplikatumok.sql`** — DIAGNOSZTIKA (csak olvas)
+       Meglévő befizetés-duplikátumok kimutatása egy esetleges idempotens UNIQUE index ELŐTT.
+- [x] 2026-06-19 — **`2026-06-19-diag-300-belso-mozgas.sql`** ✅ LEFUTOTT
+       Eredmény: 300.01 belsotetel="300.01" → valóban belső mozgás → a fix (eda5237a) IGAZOLT, marad.
+- [x] 2026-06-19 — **`2026-06-19-diag-asszonynevek-szcs-nev.sql`** ✅ LEFUTOTT
+       Eredmény: 125/183 (~68%) nő a férj nevén → spouse-bridge ELVETVE.
+- [x] 2026-06-19 — **`2026-06-19-diag-import-duplikatumok.sql`** ✅ LEFUTOTT
+       Eredmény: 0 ütközés → idempotens UNIQUE index NEM ajánlott (app-szintű dedup elég).
+- [x] 2026-06-19 — **`2026-06-19-diag-berleti-dupla-szamitas.sql`** ✅ LEFUTOTT
+       Eredmény: szerzodes_db=0 → NINCS bérleti szerződés → a dupla-számítás jelenleg nem fordulhat elő.
+- [ ] **`2026-06-19-diag-azonos-nevu-szemelyek.sql`** — DIAGNOSZTIKA (csak olvas)
+       Azonos nevű személyek a tagnyilvántartásban + a cím feloldja-e őket (egyházfenntartás-import
+       duplikáció-kockázat). Az A)–C) eredmény kell a robusztus párosítás-tervhez.
+
+---
+
 ## 🔴 PENDING (futtatásra vár) — 2026-05-17
 
 ### Sorrend nem számít (mind független művelet)

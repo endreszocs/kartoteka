@@ -137,6 +137,7 @@ export function PenzugyPage() {
   const [debtRows, setDebtRows] = useState<DebtRow[]>([])
   const [yearlyFees, setYearlyFees] = useState<Record<number, number>>({})
   const [congregationName, setCongregationName] = useState('')
+  const [congregationNameRo, setCongregationNameRo] = useState('') // hivatalos román név a nyomtatványhoz
 
   // C-hullám C1 — írási út: a „+ Tétel rögzítése" összevont bevitelhez kell a
   // gyülekezet-uuid + user-id (a saveIncome/saveExpense use-case ctx-éhez).
@@ -201,6 +202,7 @@ export function PenzugyPage() {
 
       const cong = await getLocalOwnCongregation(user.id)
       setCongregationName(cong?.nev_hu || cong?.name || '')
+      setCongregationNameRo((cong as { nev_ro?: string | null } | null)?.nev_ro || '')
 
       const [
         befLocal, kiaLocal, prevBefLocal, prevKiaLocal,
@@ -671,6 +673,7 @@ export function PenzugyPage() {
           bevCelMap={bevCelMap}
           kiaCelMap={kiaCelMap}
           congregationName={congregationName}
+          congregationNameRo={congregationNameRo}
           carryoverCash={carryoverCash}
           carryoverBank={carryoverBank}
           currentYear={year}

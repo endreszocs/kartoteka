@@ -25,6 +25,8 @@
 
 import * as XLSX from 'xlsx'
 
+import { toLocalIsoDate } from '@/lib/import/date-utils'
+
 export interface XlsxEgyhfRow {
   /** Sor a fájlban (1-indexelt, debugging-hoz) */
   rowIndex: number
@@ -212,36 +214,12 @@ function parseInteger(value: unknown): number | null {
   return null
 }
 
+// A dátum-konverzió a megosztott, időzóna-biztos helperen megy keresztül
+// (Date-cella → legközelebbi helyi nap; Excel-serial → UTC-epoch; string → ISO/magyar).
+// Korábban itt `value.toISOString().slice(0,10)` volt, ami a SheetJS cellDates Date-jét
+// pozitív időzónában egy nappal korábbra csúsztatta (pl. 2025-01-01 → 2024-12-31).
 function parseDateToISO(value: unknown): string | null {
-  if (value === null || value === undefined) return null
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null
-    return value.toISOString().slice(0, 10)
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return null
-    // ISO format detect (2025-01-08T00:00:00 vagy 2025-01-08)
-    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
-    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
-    // YYYY/MM/DD
-    const slashMatch = trimmed.match(/^(\d{4})\/(\d{2})\/(\d{2})/)
-    if (slashMatch) return `${slashMatch[1]}-${slashMatch[2]}-${slashMatch[3]}`
-    // DD.MM.YYYY
-    const huMatch = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
-    if (huMatch) return `${huMatch[3]}-${huMatch[2]}-${huMatch[1]}`
-  }
-  if (typeof value === 'number') {
-    // Excel serial date (days since 1900-01-01)
-    const d = XLSX.SSF.parse_date_code(value)
-    if (d) {
-      const yyyy = String(d.y).padStart(4, '0')
-      const mm = String(d.m).padStart(2, '0')
-      const dd = String(d.d).padStart(2, '0')
-      return `${yyyy}-${mm}-${dd}`
-    }
-  }
-  return null
+  return toLocalIsoDate(value)
 }
 
 function normalizeIrattipus(value: string): string {

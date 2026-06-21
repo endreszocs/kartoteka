@@ -16,7 +16,7 @@
  * 2026-05-03 (átdolgozott v2 — felhasználói visszajelzés alapján).
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -26,7 +26,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  HandCoins,
   HelpCircle,
   Loader2,
   PlayCircle,
@@ -44,6 +43,8 @@ import type {
   KasszaAnalysisResult,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
 import type { MonetarDiagnostic } from '../helpers/monetar-diagnostic'
+import { ManualTagSearch } from '@/components/finance/finance-import/shared/manual-tag-search'
+import { shouldResolvePerson } from '@/lib/import/person-scope-config'
 
 interface ReviewStepProps {
   fileName: string
@@ -143,6 +144,11 @@ export function ReviewStep({
   //    az idei járulékot is fizeti, az KÉT KÜLÖN év → legitim.
   //  - Csak az a duplikáció, ha UGYANARRA AZ ÉVRE 2+ KÜLÖNBÖZŐ befizető-string kerül
   //    UGYANAHHOZ a taghoz (valódi téves dupla-hozzárendelés, pl. „Józsa Béla" + „Ifj. Józsa Béla").
+  // KÖNYVELÉSI ÉV (accounting year): a tényleges „Befizetett év" (XML-ből, fizetettevOverride),
+  // és csak ha az nincs, akkor a könyvelés dátumának éve. Egy 2024-12-31-én kelt, de a 2025-ös
+  // évre szóló befizetés (pl. 19. nyugta, Szőcs Endre) így helyesen 2025-nek számít.
+  const accYear = (p: { fizetettevOverride?: number | null; datum?: string | null }): string =>
+    p.fizetettevOverride != null ? String(p.fizetettevOverride) : (p.datum || '').slice(0, 4)
   const egyhfPaymentsOf = (raw: string) =>
     (paymentsByDonor.get(raw) || []).filter((p) => p.budgetCode === EGYHF_KOD)
   // kulcs: `${szemelyId}|${fizetettev}` → a hozzá tartozó KÜLÖNBÖZŐ befizető-stringek
@@ -152,7 +158,7 @@ export function ReviewStep({
     if (!pid) continue
     const years = new Set(
       egyhfPaymentsOf(d.raw)
-        .map((p) => (p.datum || '').slice(0, 4))
+        .map((p) => accYear(p))
         .filter(Boolean),
     )
     for (const y of years) {
@@ -184,24 +190,36 @@ export function ReviewStep({
   const duplicateEgyhfPersonIds = new Set(duplicateConflicts.map((c) => c.pid))
 
   // ── ÉV-ELTÉRÉS ŐR ──
-  // A könyvelés szabálya: az adott könyvelési évben nem könyvelhetsz MÁS évi (pl. előző évi)
-  // nyugtát. Megkeressük a túlnyomó évet (a tételek többségének éve), és jelezzük azokat a
-  // sorokat, amelyek dátuma ettől eltér (pl. 2024-12-31 · iratszám 19 a 2025-ös Kasszában).
+  // A KÖNYVELÉSI ÉV-et nézzük (Befizetett év, ha az XML megadta — különben a dátum éve).
+  // Megkeressük a túlnyomó évet, és jelezzük azokat a sorokat, amelyek dátuma ettől eltér,
+  // DE NINCS rájuk XML-ből származó „Befizetett év". Ha az XML kimondja az évet (pl. a
+  // 2024-12-31-én kelt, de 2025-re szóló 19. nyugta), az SZÁNDÉKOS → nem jelezzük hibának.
   const bookableRows = (analysis?.rows || []).filter((r) => r.kind !== 'skip' && r.datum)
   const yearCounts = new Map<string, number>()
   for (const r of bookableRows) {
-    const y = r.datum!.slice(0, 4)
-    yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
+    const y = accYear(r)
+    if (y) yearCounts.set(y, (yearCounts.get(y) || 0) + 1)
   }
   const predominantYear =
     [...yearCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const yearMismatchRows = predominantYear
-    ? bookableRows.filter((r) => r.datum!.slice(0, 4) !== predominantYear)
+    ? bookableRows.filter(
+        (r) => r.fizetettevOverride == null && r.datum!.slice(0, 4) !== predominantYear,
+      )
     : []
   const companies = (donorResolutions || [])
     .filter((d) => d.status === 'company')
     .sort((a, b) => b.occurrenceCount - a.occurrenceCount)
   const unknownCodes = (budgetCodeResolutions || []).filter((r) => r.kind === 'unknown')
+
+  // FÁZIS 2b — „Tag nem található", DE személy-köthető kategóriában (egyházfenntartás,
+  // adomány, bérlet stb.): a felhasználó KÉZZEL párosíthatja (szabad-szöveges kereső).
+  // A cég / kollektív / nem-scope sorok ide NEM kerülnek (nincs fölösleges zaj).
+  const notFoundScopeDonors = (donorResolutions || []).filter((d) => {
+    if (d.status !== 'not-found' && d.status !== 'unparsed') return false
+    const rows = paymentsByDonor.get(d.raw) || []
+    return rows.some((r) => r.kind === 'income' && shouldResolvePerson(r.budgetCode))
+  })
 
   const allAmbiguousResolved = ambiguous.every((a) => manualPersonSelections[a.raw])
   const allUnknownHandled = unknownCodes.every((c) => skippedCodes.has(c.rawKod))
@@ -226,7 +244,7 @@ export function ReviewStep({
           Mit látunk a fájlban
         </p>
         <h2 className="relative mt-2 font-serif text-2xl text-foreground sm:text-[1.65rem]">
-          {analysis.rows!.length} sor a Kassza fülön — nézd át, és egy
+          {analysis.rows!.length} sor a kiválasztott lapon — nézd át, és egy
           gombnyomással mehet
         </h2>
         <p className="relative mt-2 text-sm text-muted-foreground">
@@ -334,10 +352,14 @@ export function ReviewStep({
                 {yearMismatchRows.length} tétel NEM a(z) {predominantYear}. évre esik
               </p>
               <p className="mt-1 text-sm text-orange-800">
-                A könyvelési szabályok szerint az adott évben <strong>nem könyvelhetsz előző
-                (vagy más) évi nyugtát</strong>. Az alábbi tételek dátuma eltér a fájl
-                túlnyomó évétől ({predominantYear}) — ellenőrizd a forrásdokumentumban, és ha kell,
-                hagyd ki őket az importból (vagy a megfelelő évi Kasszába rögzítsd).
+                Az alábbi tételek <strong>dátuma</strong> eltér a fájl túlnyomó évétől
+                ({predominantYear}), és nincs hozzájuk a <strong>bevételek XML-ből</strong> származó
+                <strong> Befizetett év</strong> adat. Gyakori eset: egy <strong>év végén</strong> (pl.
+                dec. 31.) befizetett, de a <strong>következő évre</strong> szóló járulék. Ha ez a
+                helyzet, töltsd fel a
+                bevételek XML referenciát is — abból a rendszer a helyes évet veszi (a már egyértelmű
+                évűeket nem is jelzi). Ha tényleg más évről van szó, ellenőrizd a forrásban, és ha
+                kell, hagyd ki őket az importból.
               </p>
               <ul className="mt-2 space-y-1 text-xs text-orange-900">
                 {yearMismatchRows.slice(0, 12).map((r, i) => (
@@ -371,18 +393,46 @@ export function ReviewStep({
               <p className="mt-1 text-sm text-red-700">
                 Egy személy évente egyszer fizet egyházfenntartást. Az alábbi befizetők
                 <strong> ugyanahhoz a taghoz</strong> lettek rendelve. <strong>Nézd meg a
-                neveknél a CÍMET:</strong> ha a két befizető máshol lakik (pl. „… - Asztalos 160"
-                és „… - Templom 235"), akkor szinte biztosan KÉT KÜLÖN személyről van szó — ilyenkor
+                neveknél a CÍMET:</strong> ha a két befizető máshol lakik (pl. „… - Asztalos 160&rdquo;
+                és „… - Templom 235&rdquo;), akkor szinte biztosan KÉT KÜLÖN személyről van szó — ilyenkor
                 az egyiket rendeld másik (a saját címén lakó) taghoz, vagy hagyd tag nélkül, ha még
-                nincs a nyilvántartásban. Ugyanazon a címen+néven (pl. „Józsa Béla" / „Ifj. Józsa
-                Béla") lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
+                nincs a nyilvántartásban. Ugyanazon a címen+néven (pl. „Józsa Béla&rdquo; / „Ifj. Józsa
+                Béla&rdquo;) lehet apa/fiú is. <em>A részletfizetés és az előző évi (hátralék) befizetés
                 ugyanazon a néven NEM számít duplikációnak.</em>
               </p>
-              <ul className="mt-2 space-y-1 text-xs text-red-800">
+              <ul className="mt-3 space-y-2 text-xs text-red-800">
                 {duplicateConflicts.slice(0, 10).map((c) => (
-                  <li key={`${c.pid}-${c.year}`}>
-                    <strong>{c.personName}</strong> ({c.year}) ←{' '}
-                    {c.raws.join('  +  ')}
+                  <li
+                    key={`${c.pid}-${c.year}`}
+                    className="rounded-lg bg-white/70 p-2.5 ring-1 ring-red-100"
+                  >
+                    <p className="font-semibold text-red-900">
+                      ⚠ <strong>{c.personName}</strong> — {c.year}. évre {c.raws.length} befizető van
+                      hozzárendelve:
+                    </p>
+                    <ul className="mt-1.5 space-y-1">
+                      {c.raws.map((raw) => {
+                        const parts = raw.split(/\s+[-–—]\s+/)
+                        const name = parts[0]?.trim() || raw
+                        const cim = parts.length > 1 ? parts.slice(1).join(' - ').trim() : null
+                        return (
+                          <li key={raw} className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium text-slate-800">{name}</span>
+                            {cim ? (
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
+                                📍 {cim}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">(nincs cím)</span>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                    <p className="mt-1.5 text-[11px] text-red-600">
+                      Ha a címek eltérnek → két külön személy: rendeld az egyiket a saját címén lakó
+                      taghoz (lentebb a Tag nem található / Több tag résznél), vagy hagyd tag nélkül.
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -403,7 +453,7 @@ export function ReviewStep({
                 Erre a {manualAmbiguous.length} befizetőre kézi döntés kell
               </p>
               <p className="mt-1 text-sm text-amber-800">
-                Ezeket az „1×/év" automatikus elosztás nem tudta egyértelműen feloldani (minden
+                Ezeket az „1×/év&rdquo; automatikus elosztás nem tudta egyértelműen feloldani (minden
                 lehetséges tagjuk már más befizetéshez került, vagy nincs megkülönböztető adat).
                 Válaszd ki a megfelelő tagnyilvántartási rekordot — a 📍 cím és a befizetés
                 részletei segítenek.
@@ -419,11 +469,55 @@ export function ReviewStep({
               <AmbiguousCard
                 key={d.raw}
                 resolution={d}
+                payments={paymentsByDonor.get(d.raw) || []}
                 selected={manualPersonSelections[d.raw] || null}
                 onSelect={(id) => onManualPersonSelectionChange(d.raw, id)}
                 autoDistributed={false}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* TAG NEM TALÁLHATÓ — kézi párosítás (FÁZIS 2b)                      */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {notFoundScopeDonors.length > 0 && (
+        <div className="rounded-[1.75rem] border border-rose-200 bg-rose-50/40 p-5">
+          <div className="flex items-start gap-3">
+            <UserX className="mt-0.5 size-5 shrink-0 text-rose-600" />
+            <div className="flex-1">
+              <p className="font-serif text-lg text-rose-900">
+                {notFoundScopeDonors.length} befizetőhöz nem találtunk tagot
+              </p>
+              <p className="mt-1 text-sm text-rose-800">
+                Ezek a befizetők személy-köthető kategóriában vannak (pl. egyházfenntartás, adomány),
+                de a tagnyilvántartásban nem találtuk meg őket. Keresd meg kézzel — vagy hagyd üresen,
+                ekkor a befizetés tag-kapcsolat nélkül kerül be.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {notFoundScopeDonors.map((d) => {
+              const payments = paymentsByDonor.get(d.raw) || []
+              const nameQuery = (d.raw.split(/\s+[-–—]\s+/)[0] || d.raw).trim()
+              const picked = manualPersonSelections[d.raw]
+              return (
+                <div key={d.raw} className="rounded-xl bg-card p-4 ring-1 ring-rose-100">
+                  <p className="text-sm font-medium text-foreground">{d.raw}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {payments.length} tétel a Kasszában
+                    {picked ? ' · ✓ kézzel párosítva' : ''}
+                  </p>
+                  <DonorPayments payments={payments} />
+                  <ManualTagSearch
+                    initialQuery={nameQuery}
+                    currentId={picked ? Number(picked) : undefined}
+                    onPick={(id) => onManualPersonSelectionChange(d.raw, String(id))}
+                  />
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -445,7 +539,7 @@ export function ReviewStep({
               </p>
               <p className="mt-1 text-sm text-teal-800">
                 Ahol egy címen/néven több tag is illett, a befizetéseket a „egy személy évente
-                egyszer fizet" szabály + cím-egyezés alapján KÜLÖN-KÜLÖN taghoz rendeltük, így
+                egyszer fizet&rdquo; szabály + cím-egyezés alapján KÜLÖN-KÜLÖN taghoz rendeltük, így
                 senkinek nem látszik elmaradása. Ezekkel nem kell egyesével foglalkoznod —
                 {showAutoAssigned ? ' csukd be, ha rendben.' : ' kattints az ellenőrzéshez.'}
               </p>
@@ -625,7 +719,7 @@ export function ReviewStep({
               {items.length} tétel mehet a könyvelésbe
             </p>
             <p className="mt-1 text-sm text-emerald-800">
-              Ha minden rendben van, kattints az "Importálom" gombra. A
+              Ha minden rendben van, kattints az „Importálom&rdquo; gombra. A
               műveletet **nem lehet a wizardon belül visszavonni** — később
               csak egyenként, a tranzakciók fülön sztornózhatod.
             </p>
@@ -746,6 +840,48 @@ function ExplainStep({ number, tone, icon, title, description }: ExplainStepProp
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// DonorPayments — egy befizető tételei (év / összeg / nyugta / kategória)
+// Az egyeztetéshez: a felhasználó lássa, mit köt épp egy taghoz.
+// ════════════════════════════════════════════════════════════════════════
+
+function DonorPayments({ payments }: { payments: ClassifiedKasszaRow[] }) {
+  if (!payments || payments.length === 0) return null
+  return (
+    <ul className="mt-2 space-y-1 rounded-lg bg-slate-50/80 p-2 text-[11px] text-slate-600 ring-1 ring-slate-100">
+      {payments.map((p, i) => {
+        const ev = p.fizetettevOverride ?? (p.datum ? p.datum.slice(0, 4) : null)
+        const isEgyhf = p.budgetCode === '101.01'
+        return (
+          <li key={i} className="flex flex-wrap items-center gap-1.5">
+            {ev && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
+                {ev}. évre
+              </span>
+            )}
+            <span className="font-semibold text-slate-700">
+              {typeof p.amount === 'number' ? `${p.amount.toLocaleString('hu-HU')} RON` : '—'}
+            </span>
+            <span className="text-slate-400">·</span>
+            <span className="font-mono">nyugta {p.iratszam || '—'}</span>
+            {p.datum && <span className="text-slate-400">· {p.datum}</span>}
+            {p.celNev && (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  isEgyhf ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {isEgyhf ? '⛪ ' : ''}
+                {p.celNev}
+              </span>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // AmbiguousCard — ambiguous donor választó
 // ════════════════════════════════════════════════════════════════════════
 
@@ -753,11 +889,13 @@ interface AmbiguousCardProps {
   resolution: DonorResolution
   selected: string | null
   onSelect: (id: string) => void
+  /** A befizető tételei (az egyeztetéshez — év / összeg / nyugta / kategória). */
+  payments?: ClassifiedKasszaRow[]
   /** B1: igaz, ha a kiválasztott jelölt az „1×/év" auto-elosztásból származik. */
   autoDistributed?: boolean
 }
 
-function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: AmbiguousCardProps) {
+function AmbiguousCard({ resolution, selected, onSelect, payments, autoDistributed }: AmbiguousCardProps) {
   // A Kassza-fájlból kinyert utca + házszám — ezt vetjük össze a jelöltek
   // 📍 címével, hogy a felhasználó vizuálisan tudjon dönteni
   const parsedCim =
@@ -794,7 +932,10 @@ function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: Ambi
         )}
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <DonorPayments payments={payments || []} />
+
+      <p className="mt-3 text-xs font-medium text-slate-600">Válaszd ki a megfelelő tagot:</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
         {resolution.candidates?.map((c) => {
           const isPicked = selected === c.id
           return (
@@ -830,6 +971,15 @@ function AmbiguousCard({ resolution, selected, onSelect, autoDistributed }: Ambi
             </button>
           )
         })}
+      </div>
+
+      {/* Ha a helyes tag nincs a fenti jelöltek között — szabad-szöveges keresés */}
+      <div className="mt-2 border-t border-amber-100 pt-2">
+        <ManualTagSearch
+          initialQuery={(resolution.raw.split(/\s+[-–—]\s+/)[0] || resolution.raw).trim()}
+          currentId={selected ? Number(selected) : undefined}
+          onPick={(id) => onSelect(String(id))}
+        />
       </div>
     </div>
   )

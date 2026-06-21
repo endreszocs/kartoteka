@@ -38,7 +38,6 @@ import {
   type CombinedInternalTransferPayload,
 } from '@kartoteka/ui-app'
 import {
-  getFamilyIdForPersonUseCase,
   saveExpenseUseCase,
   saveIncomeUseCase,
   searchMembersForFinanceUseCase,
@@ -46,6 +45,13 @@ import {
 
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
+import {
+  nextReceiptNumbersOnline,
+  searchFamiliesOnline,
+  familyMembersOnline,
+  familyMembersForPersonOnline,
+  expectedJarulekOnline,
+} from '../lib/finance-entry-lookups'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 import { isOnlineWithSession } from '../lib/use-session-online'
@@ -105,6 +111,8 @@ export function DesktopCombinedEntryDialog({
             forrasa: row.forrasa,
             // Offline-ban a backend a tárcából választ iratszámot.
             iratszam: isOnline ? row.iratszam : null,
+            // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi mellett).
+            nyugta: row.nyugta ?? null,
             irattipus: row.irattipus,
             fizetettev: row.fizetettev,
             megjegyzes: row.megjegyzes,
@@ -263,13 +271,13 @@ export function DesktopCombinedEntryDialog({
                 name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
               }))
             }}
-            onResolveFamilyId={async (szemelyId) => {
-              const res = await getFamilyIdForPersonUseCase(
-                { congregationId, personId: szemelyId },
-                { supabase: getDesktopSupabase(), runtime: 'desktop' },
-              )
-              return res.success ? res.familyId : null
-            }}
+            // 2026-06-21: ONLINE lekérdezések (a desktop offline ezekre üres/null-t ad → nincs auto-kitöltés).
+            // A járulék-számítás magja KÖZÖS a webbel (computeJarulekForMemberYear) → az összeg sosem tér el.
+            onSearchFamilies={async (query) => await searchFamiliesOnline(congregationId, query)}
+            onGetFamilyMembers={async (familyId) => await familyMembersOnline(congregationId, familyId)}
+            onGetFamilyMembersForPerson={async (personId) => await familyMembersForPersonOnline(congregationId, personId)}
+            onGetNextReceiptNumbers={async (year) => await nextReceiptNumbersOnline(congregationId, year)}
+            onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await expectedJarulekOnline(congregationId, personId, year, prospectiveDateIso)}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
             onSaveInternalTransfer={handleInternalTransfer}
@@ -277,6 +285,7 @@ export function DesktopCombinedEntryDialog({
             onToast={(type, message) =>
               setToast({ kind: type === 'success' ? 'success' : 'error', msg: message })
             }
+            draftStorageKey={`kartoteka:combined-entry-draft:${congregationId}`}
           />
         </div>
       </DialogContent>

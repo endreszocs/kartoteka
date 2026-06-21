@@ -265,7 +265,9 @@ async function insertIncomeRecord(params: {
   const legacyCompatiblePayload = {
     ...modernPayload,
     xkey: randomUUID().replace(/-/g, '').slice(0, 20),
-    nyugta: documentNumber,
+    // #3 (Endre): a `nyugta` a GYÜLEKEZETI saját sorszám (a kerületi = iratszam mellett).
+    // Ha nincs megadva, a régi viselkedés szerint az iratszámmal egyezik (a NOT NULL miatt is).
+    nyugta: input.nyugta?.trim() || documentNumber,
     csalad: Boolean(input.id_csalad),
     forrasa: input.forrasa || 'Kézi rögzítés',
     userid: userId,
@@ -308,7 +310,8 @@ async function insertExpenseRecord(params: {
     osszeg: input.osszeg,
     datum: input.datum,
     id_kiadascel: input.id_kiadascel,
-    kedvezmenyzett: input.kedvezmenyzett || null,
+    // A partner/kedvezményezett a `atvevo` oszlopba kerül (lent) — a `kiadas` táblában
+    // NINCS `kedvezmenyzett` oszlop, ezért azt nem szabad beszúrni (column-does-not-exist).
     id_szemely: 'id_szemely' in input ? input.id_szemely || null : null,
     iratszam: documentNumber,
     irattipus: input.irattipus,
@@ -602,6 +605,52 @@ async function insertLinkedInventoryFromIncome(params: {
  * gyülekezeti logika változatlanul — ez biztosítja a zéró regressziós
  * kockázatot a meglévő gyülekezeti felhasználóknak.
  */
+/**
+ * A hero-beli év-választóhoz: CSAK azok az évek, amelyekhez tartozik pénzügyi adat
+ * (befizetés/kiadás dátum-éve), kiegészítve a folyó évvel (abban mindig lehet dolgozni).
+ * Így a választó nem egy fix 2019–2027 listát mutat, hanem a ténylegesen használt éveket.
+ * (Endre kérése, 2026-06-20.)
+ */
+export async function listFinanceYears(): Promise<number[]> {
+  const access = await getEffectiveAccessContext()
+  const realYear = new Date().getFullYear()
+  if (!access.user) return [realYear]
+
+  const years = new Set<number>([realYear])
+  const addYears = (rows: { datum: string | null }[] | null) => {
+    for (const r of rows || []) {
+      const y = Number(String(r.datum || '').slice(0, 4))
+      if (Number.isInteger(y) && y >= 2000 && y <= realYear + 1) years.add(y)
+    }
+  }
+
+  const isDiocese =
+    access.activeProfileRole?.scope === 'diocese' && !!access.activeProfileRole.scopeId
+  try {
+    if (isDiocese) {
+      const did = access.activeProfileRole!.scopeId as string
+      const [bev, kia] = await Promise.all([
+        access.supabase.from('diocese_befizetes').select('datum').eq('diocese_id', did).eq('deleted', false),
+        access.supabase.from('diocese_kiadas').select('datum').eq('diocese_id', did).eq('deleted', false),
+      ])
+      addYears((bev.data || []) as { datum: string | null }[])
+      addYears((kia.data || []) as { datum: string | null }[])
+    } else if (access.effectiveCongregationId) {
+      const cid = access.effectiveCongregationId
+      const [bev, kia] = await Promise.all([
+        access.supabase.from('befizetes').select('datum').eq('congregation_id', cid).eq('deleted', false),
+        access.supabase.from('kiadas').select('datum').eq('congregation_id', cid).eq('deleted', false),
+      ])
+      addYears((bev.data || []) as { datum: string | null }[])
+      addYears((kia.data || []) as { datum: string | null }[])
+    }
+  } catch {
+    /* csendes — legalább a folyó év mindig elérhető marad */
+  }
+
+  return Array.from(years).sort((a, b) => b - a)
+}
+
 export async function initFinance(year: number) {
   const scope = await getFinanceScope()
   if (!scope) return null
@@ -636,9 +685,9 @@ export async function initFinance(year: number) {
     supabase.from('bankszamlak').select('*').eq('congregation_id', congregationId).eq('aktiv', true),
     supabase.from('befizetes').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     supabase.from('kiadas').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    // Előző évi adatok az átviteli egyenleghez
-    supabase.from('befizetes').select('osszeg, irattipus').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, irattipus').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
+    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     supabase
       .from('szemely')
@@ -680,24 +729,27 @@ export async function initFinance(year: number) {
   }
 
   let congregationName = ''
+  let congregationNameRo = '' // hivatalos román név (pl. „Parohia Reformată Brateș") a nyomtatványokhoz
   let debtCalcMode: 'akkori' | 'aktualis' = 'akkori'
 
   const congRes = await supabase
     .from('congregations')
-    .select('nev_hu, name, tartozas_szamitas_mod')
+    .select('nev_hu, nev_ro, name, tartozas_szamitas_mod')
     .eq('id', congregationId)
     .single()
 
   if (congRes.error?.message?.includes('tartozas_szamitas_mod')) {
     const fallbackRes = await supabase
       .from('congregations')
-      .select('nev_hu, name')
+      .select('nev_hu, nev_ro, name')
       .eq('id', congregationId)
       .single()
 
     congregationName = fallbackRes.data?.nev_hu || fallbackRes.data?.name || ''
+    congregationNameRo = (fallbackRes.data?.nev_ro as string | null) || ''
   } else {
     congregationName = congRes.data?.nev_hu || congRes.data?.name || ''
+    congregationNameRo = (congRes.data?.nev_ro as string | null) || ''
     debtCalcMode = normalizeDebtCalcMode(congRes.data?.tartozas_szamitas_mod)
   }
 
@@ -818,16 +870,38 @@ export async function initFinance(year: number) {
     if (kod === '100.02') bmKiaBanki = Number(id)
   }
 
-  // Átviteli egyenleg
-  let carryoverCash = 0, carryoverBank = 0
-  ;(prevBevRes.data || []).forEach((r: { osszeg: number; irattipus: string }) => {
-    if (r.irattipus === 'Készpénz') carryoverCash += Number(r.osszeg) || 0
-    else carryoverBank += Number(r.osszeg) || 0
+  // Átviteli (nyitó) egyenleg. A nyitó = az ÉVRE RÖGZÍTETT nyitó egyenleg (keszpenz_nyito_egyenleg /
+  // bankszamla_nyito_egyenleg, pl. importból), ha van; KÜLÖNBEN az előző év ZÁRÓJA
+  // (= előző évi rögzített nyitó + előző évi nettó forgalom). Korábban CSAK az előző évi nettó
+  // forgalmat számolta → a rögzített nyitó kimaradt, ezért a bank/kassza nyitó hibás (akár negatív) lett.
+  const [cashNyitoRes, bankNyitoRes] = await Promise.all([
+    supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+  ])
+  let recCashCur = 0, recCashPrev = 0, hasCashCur = false
+  for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+    if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
+    else recCashPrev += Number(r.nyito_egyenleg) || 0
+  }
+  let recBankCur = 0, recBankPrev = 0, hasBankCur = false
+  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
+    if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
+    else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+  }
+  // Előző évi NETTÓ forgalom — bankszamla_id szerint szétválasztva (NULL=kassza, egyébként bank).
+  let carryoverCashNet = 0, carryoverBankNet = 0
+  ;(prevBevRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg) || 0
+    else carryoverBankNet += Number(r.osszeg) || 0
   })
-  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; irattipus: string }) => {
-    if (r.irattipus === 'Készpénz') carryoverCash -= Number(r.osszeg) || 0
-    else carryoverBank -= Number(r.osszeg) || 0
+  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg) || 0
+    else carryoverBankNet -= Number(r.osszeg) || 0
   })
+  const carryoverCash = hasCashCur ? recCashCur : recCashPrev + carryoverCashNet
+  const carryoverBank = hasBankCur ? recBankCur : recBankPrev + carryoverBankNet
 
   // Évenkénti járulék
   const yearlyFees: Record<number, number> = {}
@@ -960,6 +1034,7 @@ export async function initFinance(year: number) {
     carryoverBank,
     internalTransfers,
     congregationName,
+    congregationNameRo,
     debtCalcMode,
     yearlyFees,
     debtRows,
@@ -1146,6 +1221,7 @@ async function initFinanceDiocese(
     carryoverBank,
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: dioceseName, // UI label, diocese módban a diocese neve
+    congregationNameRo: '', // diocese módban nincs külön román gyülekezetnév
     debtCalcMode: 'akkori' as 'akkori' | 'aktualis',
     yearlyFees: {} as Record<number, number>, // diocese-nél nincs tag-járulék
     debtRows: [] as DebtRow[], // tag-szintű adósság diocese-ben nincs
@@ -1376,13 +1452,16 @@ export async function saveIncomeBatch(rows: IncomeBatchRowInput[]) {
           supabase: scope.supabase,
           dioceseId: scope.scopeId,
           userId: user.id,
+          // Egyházmegyei bevételnek nincs tag/család-kapcsolata.
           input: { ...row, id_szemely: null, id_csalad: null },
         })
       : await insertIncomeRecord({
           supabase: scope.supabase,
           congregationId: scope.scopeId,
           userId: user.id,
-          input: { ...row, id_szemely: null, id_csalad: null },
+          // #4b / B1: a Tétel rögzítője által küldött tag-/család-kapcsolat MEGŐRZÉSE
+          // (kölcsönösen kizáró — a komponens már gondoskodik róla).
+          input: { ...row, id_szemely: row.id_szemely ?? null, id_csalad: row.id_csalad ?? null },
         })
 
     if ('error' in result) {
@@ -1508,6 +1587,105 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
   return maxNum + 1
 }
 
+// ── #3 (Endre): következő nyugtaszámok — kerületi (nyomdai) + gyülekezeti ──
+// A nyugtán KÉT szám van: a kerületi (a kerülettől kapott, előre nyomtatott szám —
+// `befizetes.iratszam`) és a gyülekezeti (a gyülekezet saját sorszáma — `befizetes.nyugta`).
+// Mindkettő FOLYAMATOS (hézagmentes): a következő = az UTOLSÓ nyugta számai + 1.
+// „Utolsó" = a legnagyobb kerületi számú sor — ennek a sornak vesszük MINDKÉT számát,
+// és léptetjük +1-gyel (lépésben), a vezető nullák megőrzésével (pl. „0115301" → „0115302").
+// Így a két szám együtt lép, és a régi (tükrözött nyugta=iratszam) adat sem rontja el a
+// gyülekezeti sorozatot az első valódi tétel után (önjavító).
+export async function getNextReceiptNumbers(
+  year: number,
+): Promise<{ keruleti: string; gyulekezeti: string; ujEv?: boolean; tavalyiUtolso?: string; tavalyiEv?: number }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { keruleti: '', gyulekezeti: '' }
+  const { supabase, T } = scope
+
+  // Egy számsorozat maximuma (numerikus) + a max értékhez tartozó számjegy-szélesség.
+  function maxNumOf(values: Array<string | null>): { num: number; width: number } {
+    let num = 0
+    let width = 0
+    for (const v of values) {
+      const m = String(v || '').match(/(\d+)/)
+      if (!m) continue
+      const n = parseInt(m[1], 10)
+      if (n > num) { num = n; width = m[1].length }
+    }
+    return { num, width }
+  }
+  const pad = (n: number, width: number) => (width > 0 ? String(n).padStart(width, '0') : String(n))
+
+  // KERÜLETI (nyomdai) szám — EGYSZERŰ: az ÖSSZES készpénz-iratszám MAX + 1 (folytonos, év-független).
+  // NINCS nyugtatömb-függőség (a tömb csak a NYOMTATÁSHOZ kell, a rögzítéshez nem).
+  let allQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+  if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
+  const { data: allData } = await allQ
+  // CSAK a valódi kerületi iratszámokat nézzük: kizárjuk az „AUTO-…" auto-generált iratszámot
+  // (üres iratszámú készpénz-tételnél keletkezik — dátumszerű számjegyei az égbe húznák a kerületi
+  // következőt). A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk: az kiejtette a régi/
+  // import kerületi előzményt is, így a mező üresen maradt — a max úgyis a legnagyobb valódi számot veszi.
+  const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
+    .filter((r) => r.iratszam && !/^AUTO/i.test(r.iratszam))
+    .map((r) => r.iratszam)
+  const befMax = maxNumOf(keruletiVals)
+  const keruleti = befMax.num > 0 ? pad(befMax.num + 1, befMax.width) : ''
+
+  // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → az adott NAPTÁRI év valódi nyugta-számai
+  // (nyugta != iratszam, hogy a tükrözött import-adat ne rontson). MAX + 1.
+  let yearQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
+  const { data: yearData } = await yearQ
+  const thisYear = maxNumOf(
+    ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
+      .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
+      .map((r) => r.nyugta),
+  )
+  if (thisYear.num > 0) {
+    // Folytonos az éven belül — nincs kérdés, csak +1.
+    return { keruleti, gyulekezeti: pad(thisYear.num + 1, thisYear.width) }
+  }
+
+  // Nincs ezévi gyülekezeti szám → van-e KORÁBBI évi? (ÚJ ÉV → a hívó kérdezzen rá)
+  let prevQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta, datum')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%észpénz%')
+    .lt('datum', `${year}-01-01`)
+    .order('datum', { ascending: false })
+    .limit(500)
+  if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
+  const { data: prevData } = await prevQ
+  const prevRows = ((prevData || []) as Array<{ iratszam: string | null; nyugta: string | null; datum: string }>)
+    .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
+  if (prevRows.length === 0) {
+    // Soha nem volt gyülekezeti nyugta → első valaha: 1-től, nincs kérdés.
+    return { keruleti, gyulekezeti: '1' }
+  }
+  // A legutóbbi KORÁBBI év + annak utolsó (max) gyülekezeti száma → ÚJ ÉV: döntés kell.
+  let maxYear = 0
+  for (const r of prevRows) { const y = parseInt(r.datum.slice(0, 4), 10); if (y > maxYear) maxYear = y }
+  const prevMax = maxNumOf(prevRows.filter((r) => parseInt(r.datum.slice(0, 4), 10) === maxYear).map((r) => r.nyugta))
+  return {
+    keruleti,
+    gyulekezeti: prevMax.num > 0 ? pad(prevMax.num + 1, prevMax.width) : '1', // alapértelmezett ajánlat: folytatás
+    ujEv: true,
+    tavalyiUtolso: prevMax.num > 0 ? pad(prevMax.num, prevMax.width) : '0',
+    tavalyiEv: maxYear,
+  }
+}
+
 // ── Utolsó rögzített dátum ───────────────────────────────────
 
 export async function getLastRecordedDate(): Promise<string | null> {
@@ -1532,9 +1710,9 @@ export async function searchMembersForFinance(query: string) {
   if (query.trim().length < 2) return []
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return []
-  // B2 javítás: diakritika-normalizálás
-  const normalized = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const parts = normalized.trim().split(/\s+/)
+  // ekezet-javitas: a raw (ekezetes) query-vel keresunk - az ilike NEM ekezet-erzeketlen,
+  // ezert a strippelt query (pl. Kovacs) sosem talalna meg az ekezetes DB-nevet (Kovacs).
+  const parts = query.trim().split(/\s+/)
   let q = supabase.from('szemely')
     .select('id, csaladnev, k_nev, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
     .eq('congregation_id', congregationId).eq('isvisible', true).eq('meghalt', false)
@@ -1544,6 +1722,35 @@ export async function searchMembersForFinance(query: string) {
 
   const { data } = await q.limit(8)
   return data || []
+}
+
+// ── #5 (Endre): kiadás-partner autocomplete ──────────────────
+// A korábban már rögzített kiadás-partnerek (atvevo) közül ajánl, gépelés közben.
+export async function searchExpensePartners(query: string): Promise<string[]> {
+  const term = query.trim()
+  if (term.length < 2) return []
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+  const { data } = await supabase
+    .from('kiadas')
+    .select('atvevo, datum')
+    .eq('congregation_id', congregationId)
+    .eq('deleted', false)
+    .ilike('atvevo', `%${term}%`)
+    .order('datum', { ascending: false })
+    .limit(60)
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const r of (data || []) as { atvevo: string | null }[]) {
+    const n = (r.atvevo || '').trim()
+    const key = n.toLowerCase()
+    if (n && !seen.has(key)) {
+      seen.add(key)
+      names.push(n)
+      if (names.length >= 8) break
+    }
+  }
+  return names
 }
 
 // ── B1 javítás: Személy → család ID meghatározás ─────────────
@@ -1576,6 +1783,228 @@ export async function getFamilyIdForPerson(personId: number): Promise<number | n
   return null
 }
 
+// ── #4b (Endre): Családi nyugta — család-keresés + tagok ──────
+// Egy nyugta, több név: a felhasználó kikeresi a családot (a tagok nevére/címére),
+// majd a tagok mellé összeget ír. A keresés a SZEMÉLY-találatokat családokká
+// csoportosítja (legacy csalad.id); a tagok a családfők + gyerekek + a hibrid
+// haztartas_tag tagok alapján. (A csalad táblának nincs congregation_id-je — a
+// gyülekezet-szűrés a kiinduló személyeknél történik.)
+
+export async function searchFamilies(
+  query: string,
+): Promise<Array<{ id: number; name: string; detail?: string }>> {
+  const term = query.trim()
+  if (term.length < 2) return []
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return []
+
+  // ekezet-javitas: raw (ekezetes) query (lasd searchMembersForFinance)
+  const parts = term.split(/\s+/).filter(Boolean)
+
+  // 1) Találó személyek (vezeték-/keresztnévre)
+  let pq = supabase.from('szemely').select('id').eq('congregation_id', congregationId).eq('isvisible', true)
+  if (parts.length === 1) pq = pq.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
+  else pq = pq.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
+  const { data: persons } = await pq.limit(40)
+  const personIds = (persons || []).map((p) => (p as { id: number }).id)
+  if (!personIds.length) return []
+  const idList = personIds.join(',')
+
+  // 2) E személyek családjai (családfő / gyerek / hibrid háztartás-tag)
+  const familyIds = new Set<number>()
+  const { data: asHead } = await supabase.from('csalad')
+    .select('id').or(`id_ferfi.in.(${idList}),id_no.in.(${idList})`).limit(40)
+  for (const r of (asHead || []) as Array<{ id: number }>) familyIds.add(r.id)
+  const { data: asChild } = await supabase.from('gyerek')
+    .select('id_csalad').in('id_szemely', personIds).limit(80)
+  for (const r of (asChild || []) as Array<{ id_csalad: number | null }>) if (r.id_csalad) familyIds.add(r.id_csalad)
+  const { data: asTag } = await supabase.from('haztartas_tag')
+    .select('haztartas:haztartas!id_haztartas(legacy_csalad_id)').in('id_szemely', personIds).is('ervenyes_ig', null).limit(80)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (asTag || []) as any[]) {
+    const h = Array.isArray(r.haztartas) ? r.haztartas[0] : r.haztartas
+    if (h?.legacy_csalad_id) familyIds.add(h.legacy_csalad_id as number)
+  }
+  if (!familyIds.size) return []
+
+  // 3) Család-részletek (családfők + cím)
+  const ids = [...familyIds].slice(0, 12)
+  const { data: fams } = await supabase.from('csalad')
+    .select(
+      'id, c_szam, ferfi:szemely!csalad_id_ferfi_fk(csaladnev, k_nev), no:szemely!csalad_id_no_fk(csaladnev, k_nev), utca:adrstreet!csalad_c_utcaid_fk(name)',
+    )
+    .in('id', ids)
+  const nameOf = (p: { csaladnev?: string | null; k_nev?: string | null } | null | undefined) =>
+    p ? `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() : ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((fams || []) as any[]).map((f) => {
+    const ferfi = Array.isArray(f.ferfi) ? f.ferfi[0] : f.ferfi
+    const no = Array.isArray(f.no) ? f.no[0] : f.no
+    const utca = Array.isArray(f.utca) ? f.utca[0] : f.utca
+    const heads = [nameOf(ferfi), nameOf(no)].filter(Boolean).join(' & ') || `Család #${f.id}`
+    const addr = [utca?.name, f.c_szam].filter(Boolean).join(' ')
+    return { id: f.id as number, name: heads, detail: addr || undefined }
+  })
+}
+
+export async function getFamilyMembers(
+  familyId: number,
+): Promise<Array<{ id: number; name: string; role?: string }>> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  const members = new Map<number, { id: number; name: string; role?: string }>()
+  const nameOf = (p: { id: number; csaladnev?: string | null; k_nev?: string | null }) =>
+    `${p.csaladnev ?? ''} ${p.k_nev ?? ''}`.trim() || `#${p.id}`
+
+  // Családfők
+  const { data: fam } = await supabase.from('csalad')
+    .select('ferfi:szemely!csalad_id_ferfi_fk(id, csaladnev, k_nev), no:szemely!csalad_id_no_fk(id, csaladnev, k_nev)')
+    .eq('id', familyId).maybeSingle()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const famAny = fam as any
+  if (famAny) {
+    const ferfi = Array.isArray(famAny.ferfi) ? famAny.ferfi[0] : famAny.ferfi
+    const no = Array.isArray(famAny.no) ? famAny.no[0] : famAny.no
+    if (ferfi?.id) members.set(ferfi.id, { id: ferfi.id, name: nameOf(ferfi), role: 'családfő' })
+    if (no?.id) members.set(no.id, { id: no.id, name: nameOf(no), role: 'házastárs' })
+  }
+
+  // Gyermekek
+  const { data: kids } = await supabase.from('gyerek')
+    .select('szemely:szemely!gyerek_id_szemely_fk(id, csaladnev, k_nev)').eq('id_csalad', familyId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const k of (kids || []) as any[]) {
+    const s = Array.isArray(k.szemely) ? k.szemely[0] : k.szemely
+    if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: 'gyermek' })
+  }
+
+  // Hibrid háztartás-tagok (legacy_csalad_id alapján) — pl. lakótárs, nagyszülő
+  if (congregationId) {
+    const { data: hh } = await supabase.from('haztartas')
+      .select('id').eq('congregation_id', congregationId).eq('legacy_csalad_id', familyId).limit(1)
+    const haztartasId = (hh?.[0] as { id: string } | undefined)?.id
+    if (haztartasId) {
+      const { data: tags } = await supabase.from('haztartas_tag')
+        .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev)')
+        .eq('id_haztartas', haztartasId).is('ervenyes_ig', null)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const t of (tags || []) as any[]) {
+        const s = Array.isArray(t.szemely) ? t.szemely[0] : t.szemely
+        if (s?.id && !members.has(s.id)) members.set(s.id, { id: s.id, name: nameOf(s), role: t.szerep || 'tag' })
+      }
+    }
+  }
+
+  return [...members.values()]
+}
+
+// Okos „Család csatolása": egy KIVÁLASZTOTT személy (befizető) családtagjai egy lépésben.
+// A személy családját feloldjuk (getFamilyIdForPerson), majd a tagokat lekérjük (getFamilyMembers).
+// Üres / nincs család → üres lista (a hívó ilyenkor a család-kereső ablakra esik vissza).
+export async function getFamilyMembersForPerson(
+  personId: number,
+): Promise<Array<{ id: number; name: string; role?: string }>> {
+  const familyId = await getFamilyIdForPerson(personId)
+  if (familyId == null) return []
+  return getFamilyMembers(familyId)
+}
+
+// (B) Egyházfenntartói járulék AUTO-ÖSSZEG (Endre, 2026-06-21): EGY tag adott évi járuléka a
+// Tétel-rögzítő automatikus kitöltéséhez. A meglévő computeJarulekForMemberYear motort használja
+// (single-source-of-truth a Tartozások-listával) — single-person szűréssel. `currentYear: year`,
+// hogy az eredmény BIT-AZONOS legyen az aggregát Tartozások-listával (lásd a nagy initFinance fv-t).
+// Visszaad {expected, paid, debt} | null (null = nincs scope / ismeretlen tag / hiba → nincs auto-kitöltés).
+export async function getExpectedJarulek(
+  personId: number,
+  year: number,
+  // (B/J6): a beírni kívánt befizetés dátuma (ISO) — a korai-fizetés/időszaki kedvezmény
+  // PROSPEKTÍV alkalmazásához (a dátum a határidő előtt van-e), hogy az auto-összeg a kedvezményes
+  // célt ajánlja. A Tartozás-lista NEM adja meg → ott a retrospektív (bit-azonos) viselkedés marad.
+  prospectiveDateIso?: string,
+): Promise<{ expected: number; paid: number; debt: number } | null> {
+  const { supabase, congregationId } = await getProfileCongregation()
+  if (!congregationId) return null
+
+  // 1. fázis: tag + beállítás + kedvezmények + felmentések + család + számítási mód (párhuzamosan).
+  const [memberRes, bealitasRes, discRes, exRes, famRes, congRes] = await Promise.all([
+    supabase.from('szemely').select('id, sz_datum, foglalkozas').eq('id', personId).eq('congregation_id', congregationId).maybeSingle(),
+    supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(year)).maybeSingle(),
+    supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
+    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
+    supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
+    supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
+  ])
+
+  const member = memberRes.data as { id: number; sz_datum: string | null; foglalkozas: string | null } | null
+  if (!member) return null // ismeretlen tag a gyülekezetben → nincs auto-kitöltés
+
+  // Család (legacy_csalad_id): aktív háztartás-tagság alapján (mint az aggregát 940-944).
+  let familyId: number | null = null
+  for (const row of (famRes.data || []) as Array<{ haztartas: { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null } | { legacy_csalad_id: number | null; isaktiv: boolean | null; ervenyes_ig: string | null }[] | null }>) {
+    const h = Array.isArray(row.haztartas) ? row.haztartas[0] : row.haztartas
+    if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) { familyId = h.legacy_csalad_id; break }
+  }
+
+  // 2. fázis: a tag (és családja) egyházfenntartás-befizetései az adott ÉVRE (fizetettev=year).
+  let payQ = supabase.from('befizetes')
+    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
+    .eq('congregation_id', congregationId)
+    .eq('fizetettev', year)
+    .or('deleted.eq.false,deleted.is.null')
+  // FONTOS: id_csalad.eq.null tilos Supabase-ben — ha nincs család, csak személyre szűrünk.
+  payQ = familyId != null ? payQ.or(`id_szemely.eq.${personId},id_csalad.eq.${familyId}`) : payQ.eq('id_szemely', personId)
+  const { data: payData } = await payQ
+  const maintenancePayments = ((payData || []) as Array<{
+    id_szemely: number | null; id_csalad: number | null; datum: string | null; fizetettev: number | null; osszeg: number; befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
+  }>).filter((p) => isChurchMaintenanceCode(getPaymentGoalCode(p.befizetescel)))
+
+  // Az aggregáttal AZONOS normalizálás (a Number()-konverziók KÖTELEZŐK).
+  const yearSettings: Record<number, JarulekYearSetting> = {}
+  const b = bealitasRes.data as { id: string; eves_jarulek: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null } | null
+  if (b) {
+    yearSettings[Number(b.id)] = {
+      year: Number(b.id),
+      eves_jarulek: Number(b.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: b.jarulek_kedvezmenyes == null ? null : Number(b.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: b.jarulek_hatarid || null,
+    }
+  }
+  // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés HIBÁZOTT, újrapróbáljuk
+  // `kezdet` nélkül — különben a SELECT némán [] -t adna, és az ÖSSZES mentett kedvezmény kiesne
+  // (ez a „van mentett adat, mégsem alkalmazza" tünet leggyakoribb oka). A kezdet ekkor null (nyitott ablak).
+  let discData: Array<Record<string, unknown>> | null = discRes.data as Array<Record<string, unknown>> | null
+  if (discRes.error) {
+    const retry = await supabase.from('jarulek_kedvezmeny')
+      .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+      .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year)
+    discData = retry.data as Array<Record<string, unknown>> | null
+  }
+  const discounts = ((discData || []) as unknown as JarulekDiscountRule[]).map((row) => ({
+    ...row,
+    ev: Number(row.ev),
+    aktiv: row.aktiv !== false,
+    kedv_osszeg: row.kedv_osszeg == null ? null : Number(row.kedv_osszeg) || 0,
+    kor_tol: row.kor_tol == null ? null : Number(row.kor_tol) || 0,
+    szazalek: row.szazalek == null ? null : Number(row.szazalek) || 0,
+    fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
+  }))
+  const exemptions = (exRes.data || []) as JarulekExemption[]
+  const debtCalcMode = normalizeDebtCalcMode(congRes.error ? null : (congRes.data as { tartozas_szamitas_mod?: unknown } | null)?.tartozas_szamitas_mod)
+
+  const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
+  const result = computeJarulekForMemberYear({
+    member: { id: member.id, sz_datum: member.sz_datum, familyId, foglalkozas: member.foglalkozas },
+    year,
+    currentYear: year, // D2: bit-azonos a Tartozások-listával
+    debtCalcMode,
+    yearSettings,
+    discounts,
+    exemptions,
+    payments: maintenancePayments,
+    prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
+  })
+  return { expected: result.expected, paid: result.paid, debt: result.debt }
+}
+
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────
 
 export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> {
@@ -1589,7 +2018,14 @@ export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> 
 
 // ── H7 javítás: Éves beállítás létrehozás ────────────────────
 
-export async function createYearlySettings(year: number, evesJarulek: number, jarulekHatarid: string) {
+export async function createYearlySettings(
+  year: number,
+  evesJarulek: number,
+  jarulekHatarid: string,
+  // A render-útvonal (page.tsx) NEM hívhat revalidatePath-ot renderelés közben (Next 16
+  // hiba). Onnan revalidate:false-szal hívjuk; a kliens-modalból marad az alapértelmezett true.
+  opts?: { revalidate?: boolean },
+) {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
@@ -1672,7 +2108,7 @@ export async function createYearlySettings(year: number, evesJarulek: number, ja
   }
 
   if (error) return { error: `Hiba: ${error.message}` }
-  revalidatePath('/penzugy')
+  if (opts?.revalidate !== false) revalidatePath('/penzugy')
   return { success: true }
 }
 
@@ -2397,7 +2833,8 @@ export async function saveFxRevaluation(raw: FxRevaluationInput) {
           id_kiadascel: celRow.id,
           osszeg,
           datum: evVegeDate,
-          kedvezmenyzett: `Árfolyam-veszteség: ${bank.bank_neve}`,
+          // A `kiadas` táblában a partner oszlopa `atvevo` (NINCS `kedvezmenyzett`).
+          atvevo: `Árfolyam-veszteség: ${bank.bank_neve}`,
           irattipus: 'Banki',
           iratszam: `ÁRF/${d.ev}/${bank.id}`,
           megjegyzes,

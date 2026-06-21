@@ -38,6 +38,10 @@ export interface CandidatePerson {
   sz_datum: string | null
   ferfi: boolean | null
   szcs_nev: string | null
+  /** Lakcím (utca + házszám) — a kézi kereső megjelenítéséhez. */
+  cim?: string | null
+  /** Foglalkozás — a kézi kereső megjelenítéséhez. */
+  foglalkozas?: string | null
   /** Pontszám (0-100+) — minél nagyobb, annál valószínűbb a match. */
   score: number
   /** Pontozási részletek — milyen szabályok adtak pontot (UI tooltip-hez). */

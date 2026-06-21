@@ -108,6 +108,45 @@ export function ronInWords(amount: number): string {
   return capitalizeFirst(`${leiWords}${de} lei și ${baniStr} ${baniNoun}`)
 }
 
+/**
+ * Dispoziție-specifikus betűvel-kiírás.
+ *
+ * A hivatalos rendelvény tömör formát kér: a szám-szavak EGYBEÍRVA (szóközök
+ * nélkül), az első betű nagy, a „de lei"/„lei" külön marad, és 0 bani esetén a
+ * bani-rész teljesen elmarad.
+ *
+ * Példák:
+ *   ronInWordsDispozitie(850)     → "Optsutecincizeci de lei"
+ *   ronInWordsDispozitie(221)     → "Douăsutedouăzeciișiunu de lei"
+ *   ronInWordsDispozitie(221.5)   → "Douăsutedouăzeciișiunu de lei și cincizeci bani"
+ *   ronInWordsDispozitie(1)       → "Un leu"
+ */
+export function ronInWordsDispozitie(amount: number): string {
+  const safe = Number.isFinite(amount) ? Math.max(0, amount) : 0
+  const lei = Math.floor(safe + 1e-9)
+  const bani = Math.round((safe - lei) * 100)
+  const leiFinal = bani === 100 ? lei + 1 : lei
+  const baniFinal = bani === 100 ? 0 : bani
+
+  // A szám-szavakból minden szóközt eltávolítunk (a „de" + főnév külön marad).
+  const noSpaces = (s: string) => s.replace(/\s+/g, '')
+
+  let leiPart: string
+  if (leiFinal === 1) {
+    leiPart = 'un leu'
+  } else {
+    const de = needsDe(leiFinal) ? ' de' : ''
+    leiPart = `${noSpaces(integerWords(leiFinal, false))}${de} lei`
+  }
+
+  // 0 bani esetén nem írjuk ki a bani-részt.
+  if (baniFinal === 0) {
+    return capitalizeFirst(leiPart)
+  }
+  const baniNoun = baniFinal === 1 ? 'ban' : 'bani'
+  return capitalizeFirst(`${leiPart} și ${noSpaces(integerWords(baniFinal, false))} ${baniNoun}`)
+}
+
 /** RON összeg formázása román konvenció szerint: 1.234,50 */
 export function formatRon(amount: number): string {
   const safe = Number.isFinite(amount) ? amount : 0

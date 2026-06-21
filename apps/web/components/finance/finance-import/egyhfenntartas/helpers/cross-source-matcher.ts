@@ -20,9 +20,7 @@
 
 import type { XlsxEgyhfRow } from './xlsx-egyhf-parser'
 import type { XmlBevetelekRow } from './xml-bevetelek-parser'
-import { nameSimilarity, normalizeNameForMatch } from '@/lib/import/jaro-winkler'
-
-export { normalizeNameForMatch }
+import { nameSimilarity } from '@/lib/import/jaro-winkler'
 
 export type MatchKind = 'match' | 'only-xlsx' | 'only-xml' | 'uncertain'
 

@@ -16,8 +16,28 @@ import {
 } from '@kartoteka/ui-app'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ListPlus } from 'lucide-react'
-import { saveIncomeBatch, saveExpenseBatch, saveInternalTransfer } from '@/app/(dashboard)/penzugy/actions'
+import {
+  saveIncomeBatch,
+  saveExpenseBatch,
+  saveInternalTransfer,
+  searchMembersForFinance,
+  searchExpensePartners,
+  searchFamilies,
+  getFamilyMembers,
+  getFamilyMembersForPerson,
+  getExpectedJarulek,
+  getNextReceiptNumbers,
+  checkReceiptDuplicate,
+  getLastRecordedDate,
+} from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
+
+/** Beágyazott Supabase to-one mező nevének kibontása (objektum vagy 1-elemű tömb). */
+function relName(v: unknown): string {
+  if (!v) return ''
+  const node = Array.isArray(v) ? v[0] : v
+  return (node as { name?: string } | null)?.name || ''
+}
 
 interface Props {
   open: boolean
@@ -26,9 +46,11 @@ interface Props {
   expenseCategories: ExpenseCategory[]
   bankAccounts: CombinedBankAccount[]
   currentYear: number
+  /** Az aktív gyülekezet — az auto-vázlatmentés kulcsához (gyülekezet-specifikus). */
+  congregationId?: string
 }
 
-export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear }: Props) {
+export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expenseCategories, bankAccounts, currentYear, congregationId }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-5xl xl:max-w-[90vw] 2xl:max-w-[84vw]">
@@ -64,11 +86,31 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               const res = await saveInternalTransfer(payload)
               return { error: 'error' in res ? res.error ?? null : null }
             }}
+            onSearchMembers={async (query) => {
+              const rows = (await searchMembersForFinance(query)) as Array<Record<string, unknown>>
+              return rows.map((m) => {
+                const name = `${(m.csaladnev as string) ?? ''} ${(m.k_nev as string) ?? ''}`.trim() || `#${m.id}`
+                const year = m.sz_datum ? String(m.sz_datum).slice(0, 4) : ''
+                const detail = [year, relName(m.adrlocality), relName(m.adrstreet), m.c_szam]
+                  .filter(Boolean)
+                  .join(' · ')
+                return { id: m.id as number, name, detail: detail || undefined }
+              })
+            }}
+            onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
+            onSearchFamilies={async (query) => await searchFamilies(query)}
+            onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}
+            onGetFamilyMembersForPerson={async (personId) => await getFamilyMembersForPerson(personId)}
+            onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await getExpectedJarulek(personId, year, prospectiveDateIso)}
+            onGetNextReceiptNumbers={async (year) => await getNextReceiptNumbers(year)}
+            onCheckReceiptDuplicate={async (iratszam) => await checkReceiptDuplicate(iratszam)}
+            onGetLastRecordedDate={async () => await getLastRecordedDate()}
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)
               else toast.error(message)
             }}
+            draftStorageKey={`kartoteka:combined-entry-draft:${congregationId || 'default'}`}
           />
         </div>
       </DialogContent>

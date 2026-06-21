@@ -20,6 +20,7 @@ import type {
   DonorResolution,
   FinanceImportItem,
 } from '@/app/(dashboard)/penzugy/finance-import-types'
+import { shouldResolvePerson } from '@/lib/import/person-scope-config'
 
 export interface BuildItemsInput {
   rows: ClassifiedKasszaRow[]
@@ -27,6 +28,8 @@ export interface BuildItemsInput {
   donorResolutions: DonorResolution[]
   manualPersonSelections: Record<string, string>
   skippedCodes: Set<string>
+  /** Bankszámla-import esetén a tételek ehhez a bankszámlához kötődnek (különben null = készpénz). */
+  bankszamlaId?: number | null
 }
 
 export interface BuildItemsResult {
@@ -38,6 +41,7 @@ export interface BuildItemsResult {
 export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResult {
   const { rows, budgetCodeResolutions, donorResolutions, manualPersonSelections, skippedCodes } =
     input
+  const bankszamlaId = input.bankszamlaId ?? null
 
   // Lookup map-ek a gyors elérés érdekében
   const budgetByRaw = new Map<string, BudgetCodeResolution>()
@@ -161,6 +165,7 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
         megjegyzes: pasztoralisMegjegyzes,
         fizetettev,
         belsoMozgasXkey,
+        bankszamlaId: row.bankszamlaId ?? bankszamlaId,
       })
       continue
     }
@@ -175,26 +180,31 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       continue
     }
 
-    // Donor-feloldás
+    // Donor-feloldás — PERSON-SCOPE kapuval (2026-06-19).
+    // Csak a tag-bevétel kategóriáknál (person-scope-config) próbálunk személyt
+    // rendelni; a perselypénz/cég/intézmény soroknál NEM (nincs téves párosítás,
+    // nincs „nem található" zaj). A MANUÁLIS választást viszont mindig tiszteljük.
     const donorRaw = row.donorString || ''
     let szemelyId: number | null = null
     if (donorRaw) {
-      // 1. Manuális override (ambiguous esetben)
       const manualPick = manualPersonSelections[donorRaw]
       if (manualPick) {
         szemelyId = parseIntSafe(manualPick)
-      } else {
-        // 2. Auto-resolved donor
+      } else if (shouldResolvePerson(budget.normalizedKod)) {
         const donor = donorByRaw.get(donorRaw)
         if (donor && donor.status === 'resolved' && donor.szemelyId) {
           szemelyId = parseIntSafe(donor.szemelyId)
         }
-        // company / not-found / unparsed → szemelyId marad null
+        // company / not-found / unparsed / nem-scope → szemelyId marad null
       }
     }
 
-    // Fizetett év (a dátum első 4 karaktere)
-    const fizetettev = parseIntSafe(row.datum.slice(0, 4)) ?? new Date().getFullYear()
+    // Fizetett év: az XML-overlay „Befizetett év"-e elsőbbség (több-éves hátralék
+    // helyes besorolása), különben a dátum éve.
+    const fizetettev =
+      row.fizetettevOverride ?? parseIntSafe(row.datum.slice(0, 4)) ?? new Date().getFullYear()
+    // Iratszám: a hivatalos (5-jegyű) XML-iratszám elsőbbség, különben a fájl sorszáma.
+    const iratszamFinal = row.iratszamHivatalos ?? row.iratszam ?? ''
 
     // Itt már csak `income` vagy `expense` lehet (a belső mozgás sorok
     // korábban skip-re mentek)
@@ -206,10 +216,11 @@ export function buildFinanceImportItems(input: BuildItemsInput): BuildItemsResul
       szemelyId,
       forrasa: donorRaw,
       nyugta: row.iratszam || '',
-      iratszam: row.iratszam || '',
+      iratszam: iratszamFinal,
       irattipus: row.irattipus || '',
       megjegyzes: row.megjegyzes || '',
       fizetettev,
+      bankszamlaId: row.bankszamlaId ?? bankszamlaId,
     })
   }
 

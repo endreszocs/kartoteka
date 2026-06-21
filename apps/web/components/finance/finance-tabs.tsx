@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, Building2, CalendarRange, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, Printer, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
+import { FinanceYearSelector } from './finance-year-selector'
 import { CashbookTab } from './cashbook-tab'
 import { BankTab } from './bank-tab'
 import { BudgetTab } from './budget-tab'
@@ -59,12 +60,16 @@ interface FinanceTabsProps {
   carryoverCash: number
   carryoverBank: number
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
+  congregationNameRo?: string
   congregationId: string
   debtCalcMode: DebtCalcMode
   yearlyFees: Record<number, number>
   debtRows: DebtRow[]
   receiptHealth: ReceiptHealth
   currentYear: number
+  /** A hero év-választóban felkínált évek (csak adattal bíró évek + folyó év). */
+  availableYears?: number[]
   isGodMode: boolean
   /** 2026-04-18 SCOPE-AWARE: 'congregation' (default) vagy 'diocese'.
    *  Diocese módban a tag-szintű fülek (debt, monetary, rental, oblio) el vannak rejtve. */
@@ -80,8 +85,8 @@ interface FinanceTabsProps {
 export function FinanceTabs({
   settings, szamadasiCellek, bevCelMap, kiaCelMap,
   bankAccounts, internalTransfers, initialIncome, initialExpense,
-  carryoverCash, carryoverBank, congregationName, congregationId,
-  currentYear, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
+  carryoverCash, carryoverBank, congregationName, congregationNameRo, congregationId,
+  currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   showAdminImport = false,
 }: FinanceTabsProps) {
@@ -98,9 +103,24 @@ export function FinanceTabs({
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
 
+  // Belső-mozgás cél-azonosítók: azok a befizetescel/kiadascel id-k, amelyek 3xx/4xx
+  // számadási kódra mutatnak (300.01/301.01/400.01/401.01/402.02). Ezeket a bevétel/kiadás
+  // ÖSSZEGBŐL kizárjuk (mint a számadás), akkor is, ha a soron nincs belso_mozgas_xkey.
+  const internalCelIds = useMemo(() => {
+    const internalIncomeCelIds = new Set<number>()
+    const internalExpenseCelIds = new Set<number>()
+    for (const [id, kod] of Object.entries(bevCelMap)) {
+      if (/^[34]/.test(String(kod))) internalIncomeCelIds.add(Number(id))
+    }
+    for (const [id, kod] of Object.entries(kiaCelMap)) {
+      if (/^[34]/.test(String(kod))) internalExpenseCelIds.add(Number(id))
+    }
+    return { internalIncomeCelIds, internalExpenseCelIds }
+  }, [bevCelMap, kiaCelMap])
+
   const balances = useMemo(() =>
-    calculateBalances(incomeRecords, expenseRecords, carryoverCash, carryoverBank),
-    [incomeRecords, expenseRecords, carryoverCash, carryoverBank]
+    calculateBalances(incomeRecords, expenseRecords, carryoverCash, carryoverBank, internalCelIds),
+    [incomeRecords, expenseRecords, carryoverCash, carryoverBank, internalCelIds]
   )
 
   // Bérleti szerződések + hátralék betöltése (lazy, client-oldalon)
@@ -258,10 +278,7 @@ export function FinanceTabs({
                 <Building2 className="size-3.5 text-teal-600" />
                 {congregationName}
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
-                <CalendarRange className="size-3.5" />
-                {currentYear}. költségvetési év
-              </span>
+              <FinanceYearSelector currentYear={currentYear} availableYears={availableYears} />
               <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
                 <Wallet className="size-3.5" />
                 Tartozásszámítás: {debtModeLabel}
@@ -441,6 +458,7 @@ export function FinanceTabs({
 
         <TabsContent value="cashbook" className="mt-4">
           <CashbookTab
+            unpairedInternalIds={internalMovementHealth.unpairedIds}
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverCash={carryoverCash}
@@ -456,6 +474,8 @@ export function FinanceTabs({
 
         <TabsContent value="bank" className="mt-4">
           <BankTab
+            currentYear={currentYear}
+            unpairedInternalIds={internalMovementHealth.unpairedIds}
             incomeRecords={incomeRecords}
             expenseRecords={expenseRecords}
             carryoverBank={carryoverBank}
@@ -565,6 +585,7 @@ export function FinanceTabs({
         expenseCategories={expenseCategories}
         bankAccounts={bankAccounts}
         currentYear={currentYear}
+        congregationId={congregationId}
       />
 
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}
@@ -580,8 +601,16 @@ export function FinanceTabs({
         open={dispozitieOpen}
         onOpenChange={(open) => { setDispozitieOpen(open); if (!open) refreshData() }}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         incomeCategories={incomeCategories}
         expenseCategories={expenseCategories}
+        // A kiválasztott (nem folyó) évre álló alapértelmezett dátum, hogy a Dispoziție a
+        // megfelelő év készpénzes tételeit listázza + sorszámozzon (pl. 2025 egyeztetésekor).
+        defaultDate={
+          currentYear === new Date().getFullYear()
+            ? undefined
+            : `${currentYear}-${new Date().toISOString().slice(5, 10)}`
+        }
       />
 
       <BudgetPrintDialog
@@ -609,6 +638,7 @@ export function FinanceTabs({
         bevCelMap={bevCelMap}
         kiaCelMap={kiaCelMap}
         congregationName={congregationName}
+        congregationNameRo={congregationNameRo}
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
         currentYear={currentYear}

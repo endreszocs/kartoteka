@@ -33,7 +33,7 @@ import {
   type LookupRecord,
 } from '@/lib/import/lookup-resolver'
 import { parseDonorString } from '@/components/finance/finance-import/helpers/donor-string-parser'
-import { splitKasszaRow, type KasszaRowKind } from '@/components/finance/finance-import/helpers/kassza-row-classifier'
+import { splitKasszaRow } from '@/components/finance/finance-import/helpers/kassza-row-classifier'
 import {
   buildBudgetCodeMaps,
   resolveBudgetCode,
@@ -43,6 +43,14 @@ import {
   diagnoseMonetar,
   type MonetarDiagnostic,
 } from '@/components/finance/finance-import/helpers/monetar-diagnostic'
+import {
+  parseXmlBevetelek,
+  type XmlBevetelekRow,
+} from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
+import {
+  detectKasszaColumns,
+  type KasszaFieldKey,
+} from '@/components/finance/finance-import/helpers/kassza-column-mapping'
 import { applyKasszaFix } from '@/components/finance/finance-import/helpers/kassza-sheet-parser'
 import { logImportRun } from '@/lib/import/import-log'
 import type {
@@ -58,6 +66,7 @@ import type {
   ResolvedSzemelyCandidate,
   FinanceImportItem,
   FinanceImportResult,
+  BankszamlaOption,
 } from './finance-import-types'
 
 // ════════════════════════════════════════════════════════════════════════
@@ -145,51 +154,22 @@ function kasszaRowToRecord(
   row: Record<string, string | number | null>,
   headers: string[],
 ): Record<string, unknown> {
-  // A `parsedSheet.rows` egy { headerName: érték } map
-  // A header neveket a `import-profiles.ts:PROFILE_KASSZA` columnMap aliasai
-  // listázzák.
-  const findHeader = (candidates: string[]): string | undefined => {
-    for (const cand of candidates) {
-      const lower = cand.toLowerCase().replace(/\s+/g, '')
-      const found = headers.find(
-        (h) => h.toLowerCase().replace(/\s+/g, '') === lower,
-      )
-      if (found) return found
-    }
-    return undefined
-  }
-
-  const datumHeader = findHeader(['Dátum', 'Datum', 'datum'])
-  const iratszamHeader = findHeader(['Iratszám', 'Iratszam', 'iratszam'])
-  const irattipusHeader = findHeader(['Irattip.', 'Irattípus', 'irattipus', 'Irattip'])
-  const nevHeader = findHeader(['Név', 'Nev', 'Forrás', 'Befizető'])
-  const bevOsszegHeader = findHeader(['Bev. - Összeg', 'Bevétel - Összeg', 'Bevétel'])
-  const bevCelHeader = findHeader([
-    'Bevétel - Költ.vet. név',
-    'Bevétel - Költvet. név',
-    ' Bevétel - Költ.vet. név',
-    'Bev cél',
-  ])
-  const kiaOsszegHeader = findHeader(['Kiad. - Összeg', 'Kiadás - Összeg', 'Kiadás'])
-  const kiaCelHeader = findHeader([
-    'Kiadás - költ.vet. név',
-    ' Kiadás - költ.vet. név',
-    'Kiad cél',
-  ])
-  const megjHeader = findHeader(['Megjegyzés', 'Megjegyzes'])
-  const kodHeader = findHeader(['Költségvetési szám', 'szám', 'Költs. szám', 'KöltsSzám'])
+  // EGYETLEN FORRÁS: ugyanaz az oszlop-felismerés, amit az ellenőrző UI is mutat
+  // (`kassza-column-mapping.ts`) → amit a felhasználó lát, az a tényleges parsolás.
+  const { mapping } = detectKasszaColumns(headers)
+  const get = (k: KasszaFieldKey) => (mapping[k] ? row[mapping[k] as string] : null)
 
   return {
-    datum: datumHeader ? row[datumHeader] : null,
-    iratszam: iratszamHeader ? row[iratszamHeader] : null,
-    irattipus: irattipusHeader ? row[irattipusHeader] : null,
-    _donor_string: nevHeader ? row[nevHeader] : null,
-    _bev_osszeg: bevOsszegHeader ? row[bevOsszegHeader] : null,
-    _bev_cel_nev: bevCelHeader ? row[bevCelHeader] : null,
-    _kia_osszeg: kiaOsszegHeader ? row[kiaOsszegHeader] : null,
-    _kia_cel_nev: kiaCelHeader ? row[kiaCelHeader] : null,
-    megjegyzes: megjHeader ? row[megjHeader] : null,
-    _szamadasicel_kod: kodHeader ? row[kodHeader] : null,
+    datum: get('datum'),
+    iratszam: get('iratszam'),
+    irattipus: get('irattipus'),
+    _donor_string: get('nev'),
+    _bev_osszeg: get('bevOsszeg'),
+    _bev_cel_nev: get('bevCel'),
+    _kia_osszeg: get('kiaOsszeg'),
+    _kia_cel_nev: get('kiaCel'),
+    megjegyzes: get('megjegyzes'),
+    _szamadasicel_kod: get('kod'),
   }
 }
 
@@ -209,12 +189,20 @@ export async function parseAndPreviewFinance(
 
   const sheets: FinanceSheetPreview[] = workbook.sheets.map((sheet) => {
     const isKasszaSheet = sheet.name.trim().toLowerCase() === 'kassza'
+    // Főkönyv-jellegű lap = van „Dátum" fejléce (a Kassza + az A–F bankszámlák).
+    const hasDateHeader = sheet.headers.some((h) => /d[áa]tum/i.test(h))
+    const isLedgerSheet = hasDateHeader && sheet.rowCount > 0
+    const isBankSheet = isLedgerSheet && !isKasszaSheet
     return {
       sheetName: sheet.name,
       headers: sheet.headers,
       rowCount: sheet.rowCount,
       isKasszaSheet,
+      isLedgerSheet,
+      isBankSheet,
       sampleRows: sheet.rows.slice(0, 5),
+      openingBalance: sheet.openingBalance ?? null,
+      closingBalance: sheet.closingBalance ?? null,
     }
   })
 
@@ -227,11 +215,49 @@ export async function parseAndPreviewFinance(
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// 1b. parseXmlReference — opcionális bevételek-XML referencia (overlay-hez)
+// ════════════════════════════════════════════════════════════════════════
+
+export interface XmlReferenceResult {
+  success?: boolean
+  error?: string
+  rows?: XmlBevetelekRow[]
+}
+
+/**
+ * A felhasználó által OPCIONÁLISAN feltöltött `bevételek YYYY.xml` referencia-fájl
+ * parse-olása MINDEN bevétel-kategóriára (categoryKeyword: null). A kliens ezután az
+ * `applyXmlOverlay`-jel egyezteti a Kassza bevétel-soraival (Befizetett év + hivatalos
+ * iratszám átvétele). Beszúrást NEM végez — csak referencia.
+ */
+export async function parseXmlReference(formData: FormData): Promise<XmlReferenceResult> {
+  const auth = await requireFinanceImportAccess()
+  if ('error' in auth) return { error: auth.error }
+
+  const file = formData.get('xmlFile')
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: 'Nincs XML-referencia fájl.' }
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    return { error: 'Az XML-referencia túl nagy (max 50 MB).' }
+  }
+  try {
+    const parsed = await parseXmlBevetelek(await file.arrayBuffer(), { categoryKeyword: null })
+    return { success: true, rows: parsed.rows }
+  } catch (e) {
+    return {
+      error: `Az XML-referencia olvasása sikertelen: ${e instanceof Error ? e.message : 'ismeretlen hiba'}.`,
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // 2. analyzeKasszaRows — Kassza fül sor-szétválasztás
 // ════════════════════════════════════════════════════════════════════════
 
 export async function analyzeKasszaRows(
   formData: FormData,
+  sheetName?: string,
 ): Promise<KasszaAnalysisResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -240,15 +266,16 @@ export async function analyzeKasszaRows(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
-  // A Kassza sheet keresése
+  // A választott főkönyvi lap (Kassza vagy A–F bankszámla) keresése
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
   if (kasszaSheet.warning) {
-    return { error: `A Kassza fül problémás: ${kasszaSheet.warning}` }
+    return { error: `A(z) "${sheetName || 'Kassza'}" fül problémás: ${kasszaSheet.warning}` }
   }
 
   return analyzeKasszaSheet(kasszaSheet)
@@ -408,6 +435,7 @@ function analyzeKasszaSheet(kasszaSheet: ParsedSheet): KasszaAnalysisResult {
 
 export async function resolveBudgetCodes(
   formData: FormData,
+  sheetName?: string,
 ): Promise<BudgetCodeResolutionResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -416,11 +444,12 @@ export async function resolveBudgetCodes(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
 
   // Kódok kigyűjtése
@@ -501,6 +530,7 @@ export async function resolveBudgetCodes(
 
 export async function resolveDonors(
   formData: FormData,
+  sheetName?: string,
 ): Promise<DonorResolutionResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -509,11 +539,12 @@ export async function resolveDonors(
   if (parseResult.error) return { error: parseResult.error }
   const workbook = parseResult.workbook!
 
+  const target = (sheetName || 'kassza').trim().toLowerCase()
   const kasszaSheet = workbook.sheets.find(
-    (s) => s.name.trim().toLowerCase() === 'kassza',
+    (s) => s.name.trim().toLowerCase() === target,
   )
   if (!kasszaSheet) {
-    return { error: 'A fájlban nincs "Kassza" nevű munkalap.' }
+    return { error: `A fájlban nincs "${sheetName || 'Kassza'}" nevű munkalap.` }
   }
 
   // Egyedi donor-stringek kigyűjtése + occurrence-szám
@@ -704,12 +735,38 @@ export async function getMonetarDiagnostic(
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// 5b. listBankszamlakForImport — a gyülekezet aktív bankszámlái (forrás-választóhoz)
+// ════════════════════════════════════════════════════════════════════════
+
+export async function listBankszamlakForImport(): Promise<{
+  data?: BankszamlaOption[]
+  error?: string
+}> {
+  const auth = await requireFinanceImportAccess()
+  if ('error' in auth) return { error: auth.error }
+  const { data, error } = await auth.access.supabase
+    .from('bankszamlak')
+    .select('id, bank_neve, iban, valuta')
+    .eq('congregation_id', auth.congregationId)
+    .eq('aktiv', true)
+    .order('bank_neve')
+  if (error) return { error: `Bankszámlák lekérése sikertelen: ${error.message}` }
+  return { data: (data || []) as BankszamlaOption[] }
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // 6. executeFinanceImport — RPC hívás + import-log
 // ════════════════════════════════════════════════════════════════════════
 
 export async function executeFinanceImport(
   items: FinanceImportItem[],
   fileName: string,
+  /**
+   * Opcionális: a KÉSZPÉNZ (Kassza) éves nyitó egyenleg rögzítése a hiteles
+   * év végi egyenleghez. Az xlsx „Előző évi készpénzegyenleg" cellájából.
+   * `eve` = a könyvelési év (a tételek túlnyomó éve), `nyito` = RON.
+   */
+  keszpenzNyito?: { eve: number; nyito: number } | null,
 ): Promise<FinanceImportResult> {
   const auth = await requireFinanceImportAccess()
   if ('error' in auth) return { error: auth.error }
@@ -815,6 +872,31 @@ export async function executeFinanceImport(
     })
   } catch {
     // Naplózás hiba nem blocker — az import sikeres lefutott
+  }
+
+  // Készpénz éves nyitó egyenleg rögzítése (forrasa='import') — enélkül a
+  // készpénz-egyenleg 0-ról indulna és az év végi egyenleg nem lenne hiteles.
+  // Best-effort: ha elbukik, az import attól még sikeres maradt.
+  if (
+    keszpenzNyito &&
+    Number.isFinite(keszpenzNyito.eve) &&
+    Number.isFinite(keszpenzNyito.nyito)
+  ) {
+    try {
+      await auth.access.supabase.from('keszpenz_nyito_egyenleg').upsert(
+        {
+          congregation_id: auth.congregationId,
+          eve: keszpenzNyito.eve,
+          nyito_egyenleg: keszpenzNyito.nyito,
+          forrasa: 'import',
+          updated_by: auth.userId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'congregation_id,eve' },
+      )
+    } catch {
+      // best-effort — nem blokkolja az importot
+    }
   }
 
   return {

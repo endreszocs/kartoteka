@@ -20,14 +20,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { parseDonorString } from '@/components/finance/finance-import/helpers/donor-string-parser'
-import {
-  parseXlsxEgyhf,
-  type XlsxEgyhfRow,
-} from '@/components/finance/finance-import/egyhfenntartas/helpers/xlsx-egyhf-parser'
-import {
-  parseXmlBevetelek,
-  type XmlBevetelekRow,
-} from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
+import { parseXlsxEgyhf } from '@/components/finance/finance-import/egyhfenntartas/helpers/xlsx-egyhf-parser'
+import { parseXmlBevetelek } from '@/components/finance/finance-import/egyhfenntartas/helpers/xml-bevetelek-parser'
 import {
   matchSources,
   type MatchedRow,
@@ -117,10 +111,6 @@ export interface SzemelyMatchInfo {
   }>
   /** Egy debug/UI tooltip — milyen módon talált rá */
   matchMode: 'exact' | 'fuzzy-name' | 'multiple' | 'not-found' | 'company'
-  /** B1 (1×/év szabály): a több-jelöltes esetben javasolt, automatikusan elosztott tag. */
-  suggestedSzemelyId?: number | null
-  /** True, ha a `suggestedSzemelyId`-t az „1×/év" elosztás állította be (UI jelzi). */
-  autoDistributed?: boolean
 }
 
 export interface PreviewMatchedRow {
@@ -304,13 +294,14 @@ export async function parseAndPreviewEgyhf(
     }
   }
 
-  // 4c) B1 — „1×/év" auto-elosztás a több-jelöltes (multiple) soroknál.
-  //     Az egyházfenntartói járulékot egy személy ÉVENTE EGYSZER fizeti. Ha egy címen/néven
-  //     több jelölt van (pl. egy háztartás több felnőtt tagja), és ugyanannyi (vagy kevesebb)
-  //     befizetés tartozik a jelölt-csoporthoz, akkor minden befizetést EGY-EGY KÜLÖN jelölthöz
-  //     rendelünk (round-robin). Így senkinek nem látszik elmaradása. Importnál ennyire lehetünk
-  //     pontosak — a UI jelzi, hogy ez auto-elosztás (ellenőrizendő).
-  distributeEgyhfCandidates(previewRows)
+  // 4c) NINCS vak round-robin auto-elosztás (2026-06-19).
+  //     A korábbi logika feltételezte, hogy egy címen több befizetés = több KÜLÖN ember,
+  //     és körbe-osztotta őket. A 2025-ös valós adat (bevételek 2025.xml „Befizetett év" +
+  //     megjegyzés) ezt MEGCÁFOLTA: a többszörös fizetés ugyanannak a személynek a KÜLÖNBÖZŐ
+  //     ÉVEKRE szóló hátraléka (pl. Kádár Barna Zsolt 5 tétele 2021–2025-re). Egy személy
+  //     ÉVENTE egyszer fizet → a tételeket NEM osztjuk szét emberek közt. A genuin bizonytalan
+  //     (azonos név+cím, pl. apa-fia) eseteket a felhasználó KÉZZEL dönti el a párosító UI-ban —
+  //     a rendszer nem tippel (ez okozta a „más fizet, más látszik elmaradottnak" hibát).
 
   // 5) #2 EGYEZTETÉS A KÖNYVELÉSSEL — a fájl sorait a DB-ben már könyvelt
   //    egyházfenntartási (101.01) befizetésekkel vetjük össze, kétirányú hibakereséssel.
@@ -551,9 +542,13 @@ export async function executeEgyhfImport(
       }
     }
 
-    // Dup-check: meglévő befizetes a (cong, év, iratszam, összeg, cél) kulcsra
+    // Dup-check: meglévő befizetes a (cong, év, iratszam, összeg, cél, SZEMÉLY)
+    // kulcsra. P1-5: az `id_szemely` is a kulcs része — egy tömbös nyugtán (azonos
+    // iratszám) több KÜLÖN személy azonos összegű befizetése így NEM ütközik
+    // (korábban a 2. tétel némán „duplikátumként" kiesett → adatvesztés). A
+    // `.limit(1)` véd a történelmi >1 találat okozta PGRST116-hiba ellen.
     const iratszamForDup = item.finalRow.iratszam || ''
-    const { data: existing } = await supabase
+    let dupQuery = supabase
       .from('befizetes')
       .select('id')
       .eq('congregation_id', profile.congregation_id)
@@ -562,7 +557,11 @@ export async function executeEgyhfImport(
       .eq('osszeg', item.finalRow.osszeg)
       .eq('id_befizetescel', idBefizetescel)
       .eq('deleted', false)
-      .maybeSingle()
+    dupQuery =
+      finalSzemelyId === null
+        ? dupQuery.is('id_szemely', null)
+        : dupQuery.eq('id_szemely', finalSzemelyId)
+    const { data: existing } = await dupQuery.limit(1).maybeSingle()
 
     if (existing) {
       result.skippedDuplicateCount++
@@ -670,38 +669,6 @@ function buildFinalRow(
 }
 
 /**
- * B1 — „1×/év" auto-elosztás: a több-jelöltes (multiple) sorokat a jelölt-csoport szerint
- * csoportosítja, és minden befizetést egy-egy KÜLÖN jelölthöz rendel (round-robin), ha a
- * befizetések száma ≤ a jelöltek száma. A `suggestedSzemelyId` + `autoDistributed` mezőket
- * állítja be (a UI ezt pre-selecteli és jelzi).
- */
-function distributeEgyhfCandidates(rows: PreviewMatchedRow[]): void {
-  // Csoportosítás a jelölt-halmaz szerint (azonos jelölt-id-k = azonos név/cím csoport).
-  const groups = new Map<string, PreviewMatchedRow[]>()
-  for (const row of rows) {
-    if (row.szemely.matchMode !== 'multiple') continue
-    if (row.szemely.candidates.length === 0) continue
-    const sig = row.szemely.candidates
-      .map((c) => c.szemelyId)
-      .sort((a, b) => a - b)
-      .join(',')
-    const arr = groups.get(sig) ?? []
-    arr.push(row)
-    groups.set(sig, arr)
-  }
-
-  for (const groupRows of groups.values()) {
-    const candidates = groupRows[0].szemely.candidates
-    // Csak akkor osztunk el, ha minden befizetésnek jut KÜLÖN jelölt.
-    if (groupRows.length > candidates.length) continue
-    groupRows.forEach((row, i) => {
-      row.szemely.suggestedSzemelyId = candidates[i].szemelyId
-      row.szemely.autoDistributed = true
-    })
-  }
-}
-
-/**
  * Tag-egyeztetés a megosztott, memóriában futó lookup-infrastruktúrával.
  *
  * A korábbi inline `lookupSzemely` per-soros DB-query-kkel dolgozott (N+1) és csak
@@ -757,7 +724,12 @@ function resolveSzemelyViaMaps(
     }
   })
 
-  return { szemelyId: null, csaladId: null, candidates, matchMode: 'multiple' }
+  return {
+    szemelyId: null,
+    csaladId: null,
+    candidates,
+    matchMode: lookup.approximate ? 'fuzzy-name' : 'multiple',
+  }
 }
 
 /**

@@ -23,6 +23,818 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: számozás megbízhatóbb + járulék-kedvezmény figyelembevétele
+<!-- key: 2026-06-21-szamozas-jarulek-kedvezmeny-fix -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Chitanță nyugtaszám-kitöltés megbízhatóbb.** Új évnél a **gyülekezeti** szám is azonnal
+  kitöltődik az ajánlott folytatással (eddig üresen maradhatott, amíg nem döntöttél), a kérdés-panel
+  már csak felülírásra szolgál, és a további sorok nem kérdeznek újra. Megszűnt egy ritka, „néma"
+  eset is, amikor a kitöltés gyors kattintásnál kimaradt. **Az első nyugtánál** (nincs előzmény) a
+  kerületi mező jelzi, hogy oda a kezdő (kerülettől kapott) számot kell beírni — onnantól magától lép.
+- **Az egyházfenntartói járulék auto-összeg most figyelembe veszi a kedvezményeket befizetéskor.**
+  A korai-fizetési / időszaki kedvezmény eddig csak akkor csökkentette az ajánlott összeget, ha a tag
+  **már befizetett** — de a rögzítéskor épp a *még be nem rögzített* befizetést írod be, ezért a teljes
+  díj jelent meg. Mostantól a rendszer a **befizetés dátuma** alapján számol: ha a határidőn belül
+  rögzíted, a **kedvezményes** összeget ajánlja. A Tartozások-lista számítása változatlan.
+<!-- key: 2026-06-21-desktop-tetel-bekotes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkció (asztali app)
+
+- **A Tétel rögzítő kényelmi funkciói az asztali appban is működnek — online.** A **Chitanță auto-
+  számozás** (utolsó + 1, új-évi kérdés), a **család keresése/csatolása** (okos: kiválasztott személynél
+  azonnal az ő családja), és az **egyházfenntartói járulék auto-összeg** mostantól a desktopon is elérhető.
+  A **járulék-számítás magja közös a webbel**, így az összeg **soha nem tér el** a webtől / a Tartozások-
+  listától. **Offline** ezek a (Supabase-adatot igénylő) funkciók kimaradnak — a rögzítés/mentés
+  (készpénz a tárcából, kiadás) változatlanul működik offline is.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: egyházfenntartói járulék automatikus összeg
+<!-- key: 2026-06-21-jarulek-auto-osszeg -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Egyházfenntartói járuléknál az összeg automatikusan kitöltődik.** Ha a jogcím **egyházfenntartói
+  járulék** (kód 101.01*) és a befizető **regisztrált gyülekezeti tag**, az app a tag **adott évi még
+  fizetendő** járulékát írja be az összeg-mezőbe — **a kedvezményeket, felmentést és a családi
+  befizetéseket is figyelembe véve**, pontosan úgy, ahogy a **Tartozások-lista** számol. Részben fizetett
+  tagnál a **maradékot** ajánlja; ha a tag már rendezett vagy felmentett, az összeg üresen marad. A
+  **kézzel beírt összeget soha nem írja felül**. (Az érték a tag és a „melyik évre" mező alapján számol,
+  így visszamenőleges járulékhoz is helyes.)
+
+---
+
+## [2026-06-21] — Tétel rögzítése: okos „Család csatolása"
+<!-- key: 2026-06-21-okos-csalad -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Finomítás
+
+- **A „Család csatolása" mostantól okos.** Ha a befizető-mezőben **már kiválasztottál** egy tagot,
+  a gomb **annak a személynek a családját** oldja fel, és a tagokat **egy lépésben** az almenübe teszi
+  (ablak nélkül) — utána már csak az összegeket töltöd. Ha a mező **üres**, a megszokott **család-kereső
+  ablak** nyílik meg. (Ha a kiválasztott személyhez nincs rögzített család, szól, és az ablakra vált.)
+
+---
+
+## [2026-06-21] — Tétel rögzítése: Chitanță automatikus sorszámozás + új-évi kérdés
+<!-- key: 2026-06-21-chitanta-szamozas-ujev -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás / új funkció
+
+- **A Chitanță automatikus sorszámozása mostantól egyszerűen az „utolsó + 1".** A rendszer
+  megnézi az **utolsó kerületi** és **gyülekezeti** számot, és **eggyel lépteti** — nincs többé
+  nyugtatömb-függőség (az csak a nyomtatáshoz kell). Több sor rögzítésekor a számok a kötegen belül
+  is helyesen nőnek (1, 2, 3…), nem maradnak ki.
+- **Év-váltási kérdés.** Amikor az **új év első** Chitanță-nyugtáját rögzíted, felugró kérdés
+  jelenik meg a **gyülekezeti** számra: **„1-től induljon"**, **„Folytatás (a tavalyi utolsó + 1)"**
+  vagy **„Saját számtól"** (beírod). A választást a rögzítő **megjegyzi**, így a további nyugták abból
+  nőnek tovább. A **kerületi** szám folytonos (mindig az utolsó + 1).
+
+---
+
+## [2026-06-21] — Tétel rögzítése: több befizető egy nyugtára (lenyitható almenüvel)
+<!-- key: 2026-06-21-tetel-tobb-befizeto-almenu -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Egy nyugta, több befizető — soronkénti lenyitható almenüvel.** A bevétel-sor **maga a nyugta**
+  (közös nyugtaszám, irattípus, jogcím). Ha **több befizető** van ugyanazon a nyugtán, a sor egy
+  **lenyitható almenüt** kap (▸/▾): az almenüben minden befizető **külön sorban** szerepel, **saját
+  névvel, saját összeggel és saját évvel** — soha nem jut egy összeg két emberre. A fő sor összege a
+  befizetők összegeinek **automatikus summája** (nem írható felül). A **„Család csatolása"** gomb a
+  kiválasztott személy családtagjait az almenübe teszi; az **„+ Üres befizető-sor"** és a **tag-kereső**
+  további befizetőket ad hozzá. **Mentéskor** minden befizetőből **külön tétel** lesz, **közös
+  nyugtaszámon** (a kerületi szám `/1`, `/2`… utótaggal, ahol kell). Egy befizető → a megszokott
+  egyszerű sor (a fő Összeg/Év mezővel), nincs felesleges kattintás. *(A korábbi chipes „Felbontás"
+  megoldást ez váltja le.)*
+
+---
+
+## [2026-06-21] — Tétel rögzítése: gyorsabb bevitel (dátum, irattípus, Enter, átnevezés)
+<!-- key: 2026-06-21-tetel-gyorsabb-bevitel -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Rugalmasabb dátumbevitel.** A dátumot szinte bárhogy beírhatod — a rendszer érti az
+  elválasztó nélküli (`20260620`), a rövid (`260620`), az év nélküli (`06.20` → idei év) és a
+  hónapneves (`június 20`) formákat is.
+- **Irattípus gépelhető.** Az irattípus mezőbe már írhatsz is — **egy betűre felajánlja** az
+  illeszkedő típusokat (pl. „C" → Chitanță); kiválaszthatod vagy sajátot is beírhatsz.
+- **Enter → következő mező.** A sorban az **Enter** a következő mezőre ugrik — gyorsabb a
+  billentyűzetes, tömeges rögzítés.
+- **„Gyül. sz." → „Irat sz."** átnevezés a megszokott megnevezésre (a kerületi szám mellett).
+
+---
+
+## [2026-06-21] — Chitanță-számozás a nyugtatömbből + Kerületi oszlop csak ha kell
+<!-- key: 2026-06-21-chitanta-tomb-szamozas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A Chitanță kerületi száma mostantól a regisztrált nyugtatömbből töltődik ki.** Eddig a rendszer
+  csak a korábbi befizetésekből próbálta kitalálni a következő számot — ha még nem volt rögzített
+  nyugta, üresen maradt. Mostantól az **aktív nyugtatömb** következő száma jelenik meg (a kerülettől
+  kapott tömb alapján), és mentésenként automatikusan tovább lép. Ha nincs aktív tömb, a rendszer
+  jelzi, hogy regisztrálj egyet a Nyugtatömbök panelen (vagy írd be kézzel).
+- **A Kerületi sz. és Gyül. sz. oszlop teljesen eltűnik**, ha egyetlen sorban sincs Chitanță
+  kiválasztva — más irattípusnál nem zavar feleslegesen.
+- **A „több azonos szám" téves jelzés megszűnt** üres iratszámnál, és tömeges bevitelnél a számok
+  most már **1, 2, 3, 4…** sorrendben nőnek (nem mind „1").
+
+---
+
+## [2026-06-21] — Súgó: részletes leírás a „Tétel rögzítése" ablakról
+<!-- key: 2026-06-21-sugo-tetel-rogzitese -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 📖 Súgó-bővítés
+
+- A **Pénzügy → Súgó → Napi munka** alatt új, részletes téma: **„Tétel rögzítése"**. Lépésről
+  lépésre elmagyarázza a központi beviteli ablakot: tömeges bevitel, befizető-keresés (ékezetes
+  névre is), automatikus chitanta-nyugtaszám (kerületi + gyülekezeti), „melyik évre", automatikus
+  vázlatmentés, beviteli őrök (duplikátum/dátum), családi nyugta, vesszős felbontás, kiadás-
+  kiegészítés és belső mozgás — tippekkel, gyakori hibákkal és életszerű példákkal.
+
+---
+
+## [2026-06-21] — Befizető-kereső: ékezetes nevek + a családablak már nem vágódik le
+<!-- key: 2026-06-21-kereso-ekezet-csalad-portal -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A befizető-kereső mostantól megtalálja az ékezetes magyar neveket.** Eddig a kereső a beírt szó
+  ékezeteit „lecsupaszította" (pl. „Kovács" → „Kovacs"), de a nyilvántartásban ékezetes nevek vannak,
+  így sosem talált egyezést. Mostantól az **ékezetes névre** (pl. „Kovács", „Tóth Ödön") is rendesen
+  keres — a tag- és a család-keresőben egyaránt.
+- **A „Családi nyugta" ablak már nem vágódik le.** Eddig a Tétel rögzítése ablakon belül nyílt, ami
+  levágta; mostantól a **teljes képernyőn**, középre igazítva jelenik meg.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: több személy egy nyugtára vesszővel
+<!-- key: 2026-06-21-tetel-vesszos-felbontas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Több személy egy nyugtára — vesszővel.** A Befizető mezőbe **vesszővel elválasztva** több nevet
+  is beírhatsz (pl. „Kovács János, Nagy Péter, Szabó Anna"); ekkor megjelenik a **„✂ Felbontás N
+  külön sorra"** gomb, ami minden névhez **külön bevétel-sort** készít az adott sor adataival (közös
+  nyugtaszám, `/1`, `/2`… utótaggal) — utána csak az összegeket töltöd ki tagonként. Így a nem
+  regisztrált családként összetartozó befizetők is gyorsan egy nyugtára vehetők.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: működő befizető-kereső + egyszerűbb családi nyugta
+<!-- key: 2026-06-21-tetel-kereso-csalad-v2 -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A „Befizető / forrás" kereső végre megbízhatóan működik.** A találati lista eddig egy túl szigorú
+  láthatóság-ellenőrzés miatt (a modális ablak elrendezése félrevezette) néha el sem indult vagy nem
+  jelent meg. Mostantól gépelve **azonnal megjelennek a tagok**, és kiválaszthatók.
+
+### ✨ Új / átalakított funkció
+
+- **Egyszerűbb családi nyugta.** A „Család" gomb mostantól a **Befizető mezőnél** van (soronként):
+  kitöltöd a sort (dátum, jogcím, melyik évre, nyugtaszámok), majd a „Család keresése" gombbal
+  kiválasztod a családot és **csak a neveket** pipálod ki. A rendszer minden kiválasztott taghoz
+  **külön sort** készít az **adott sor adataival** (közös nyugtaszám, /1, /2… utótaggal), és már csak
+  az **összegeket** kell tagonként beírnod a táblázatban. (Nem kell külön ablakban újra megadni
+  minden adatot.)
+
+---
+
+## [2026-06-21] — Tétel rögzítése: nyugtaszám-finomítások + új sor dátuma
+<!-- key: 2026-06-21-tetel-nyugta-finomitasok -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások / 🐛 Javítások
+
+- **A Kerületi sz. és Gyül. sz. mező csak Chitanță (nyugta) esetén jelenik meg.** Más irattípusnál
+  (pl. Factură) nem zavarnak feleslegesen — ott „—" látszik.
+- **A Chitanță automatikus következő-szám mostantól megbízhatóan kitölt.** A **kerületi szám az
+  összes eddigi nyugtából folytatódik** (év végén sem indul újra, a tömböt folytatja), a
+  **gyülekezeti szám pedig naptári évente 1-től**. (Korábban a „melyik évre" évéhez kötöttük, ezért
+  visszamenőleges tételnél nem jelent meg a következő szám.)
+- **Új sor az előző sor dátumával.** Tömeges rögzítésnél az „Új sor" gomb mostantól az **előző sor
+  dátumát** veszi át alapértelmezetten — nem kell minden sornál újra beírni.
+
+---
+
+## [2026-06-21] — Oldalsáv: az almenü nem csukódik be a főpontra kattintva
+<!-- key: 2026-06-21-sidebar-almenu-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros, admin -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Az oldalsávban a bal oldali főmenüpontra (pl. „Pénzügy") kattintva az almenü nem csukódik be
+  váratlanul.** Eddig azon az oldalon, ahol épp jártál (ott az almenü automatikusan nyitva van), a
+  főpontra kattintás **azonnal becsukta** az almenüt — emiatt tűnt úgy, hogy „nem működik". Mostantól
+  a főpontra kattintás **mindig nyitva tartja** az almenüt; a becsukás a sor végi nyíl (chevron)
+  gombbal történik.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: beviteli őrök (duplikátum + dátum-figyelés)
+<!-- key: 2026-06-21-tetel-beviteli-orok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók — nyugta-figyelés MÁR A BEVITELKOR
+
+- **Duplikált iratszám figyelés.** A bevétel rögzítésénél, amint kitöltöd a kerületi iratszámot,
+  a rendszer **azonnal jelzi, ha az a szám már létezik** (piros keret + „Ez az iratszám már
+  létezik"), illetve ha **ugyanazt a számot kétszer** írtad be a listában („Ismétlődő iratszám
+  ebben a listában"). Így a hibát még mentés előtt látod, nem a DB hibaüzenetéből utólag.
+- **Dátum-figyelés.** A rögzítő **figyelmeztet, ha a tétel dátuma jövőbeli**, vagy **korábbi, mint
+  a legutóbb rögzített tétel** („⚠ Korábbi, mint az utolsó rögzített (…)") — hogy ne maradjon ki
+  vagy ne csússzon el véletlenül a könyvelés. (Nem tiltó: a szándékos visszamenőleges rögzítés
+  továbbra is lehetséges, csak láthatóvá válik.)
+
+> Megjegyzés: ezek a beviteli őrök eddig csak a régi (már nem használt) rögzítő-ablakban éltek;
+> mostantól a jelenlegi „Tétel rögzítése" dialógusban is működnek. (Web; az asztali alkalmazásban
+> ezek bekötése következő lépés.)
+
+---
+
+## [2026-06-21] — Nyugta: kerületi + gyülekezeti szám, automatikus következő-szám
+<!-- key: 2026-06-21-nyugta-ketszam-autoszam -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **A nyugtán mostantól KÉT szám szerepel: a kerületi és a gyülekezeti.** A bevétel rögzítésénél a
+  „Kerületi sz." (a kerülettől kapott, előre nyomtatott szám) mellett külön mező a „Gyül. sz."
+  (a gyülekezet saját sorszáma). Mindkettő külön tárolódik és **megjelenik a pénztári napló
+  (Registru Casa) nyomtatásban is** (külön „Nr. ker." és „Nr. gyül." oszlop).
+- **Chitanță (nyugta) választásakor automatikus következő-szám.** Amikor a bevételnél a Chitanță
+  irattípust választod, a rendszer **mindkét számot kitölti a következő szabad sorszámmal** — az
+  utolsó nyugtához képest **+1, hézag nélkül** (pl. kerületi `0115301` → `0115302`, gyülekezeti
+  `86` → `87`, a vezető nullák megőrzésével). A számok kézzel felülírhatók.
+
+### 🐛 Háttér-javítás
+
+- A Tétel rögzítője által küldött gyülekezeti szám (`nyugta`) eddig nem volt külön tárolva
+  (az iratszámmal megegyezően mentődött); mostantól a kettő külön kezelhető.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: kereső-javítás + vázlat-állapot kijelzés
+<!-- key: 2026-06-21-tetel-kereso-vazlat-allapot -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Befizető-kereső: a dupla / eltűnő találati lista javítva.** Eddig a keresőben a találatok
+  „kétszer" jelentek meg, majd eltűntek és nem lehetett kiválasztani semmit — egy láthatatlanul
+  renderelt (mobil) másolat egy fantom legördülőt ugratott a sarokba. Mostantól **egyetlen, jól
+  kiválasztható lista** jelenik meg.
+
+### 🎨 UX javítások
+
+- **Automatikus vázlatmentés: látszik, mikor van mentve.** A lábléc mostantól a tényleges állapotot
+  mutatja: „💾 **Vázlat mentve: ÓÓ:PP:SS**" (zöld, az utolsó mentés idejével, gépelés közben élőben
+  frissül), vagy „még nincs mentendő adat", ha üres a rögzítő.
+
+---
+
+## [2026-06-21] — Tétel rögzítése: Családi nyugta (egy nyugta, több névvel)
+<!-- key: 2026-06-21-tetel-csaladi-nyugta -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **Családi nyugta.** A bevétel rögzítésénél új **„Család"** gomb: egyetlen nyugtán több
+  családtag befizetése rögzíthető. Megadsz **egy közös nyugtaszámot** (+ dátum, jogcím, év),
+  kikeresed a családot **név vagy cím szerint**, majd a megjelenő tagok mellé beírod, **ki mennyit
+  fizet**. A „Hozzáadás" gomb minden taghoz **külön bevétel-sort** készít (mindenki a saját
+  járulékával, a saját nevéhez kötve), amit a táblázatban még ellenőrizhetsz a Mentés előtt.
+- A közös nyugtaszám alatt a sorok automatikusan `/1`, `/2`… utótagot kapnak (pl. `45/1`, `45/2`),
+  mert a készpénzes nyugtaszámok egyediek kell legyenek — így egy nyugta, mégis tagonként követhető.
+
+### 🐛 Fontos javítás
+
+- **A befizetés mostantól tényleg a kiválasztott személyhez/családhoz kötődik.** Eddig a Tétel
+  rögzítőjében hiába választottál ki egy tagot (vagy családi módot), a webes mentés **eldobta** a
+  kapcsolatot — a befizetés név nélkül, csak szövegként került be. Ez javítva: a tag- és
+  család-kapcsolás megőrződik (egyéni járulék-nyilvántartás).
+
+---
+
+## [2026-06-21] — Tétel rögzítése: kiadás-partner automatikus kiegészítés
+<!-- key: 2026-06-21-tetel-kiadas-autocomplete -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Kiadás-partner automatikus kiegészítés.** A kiadás rögzítésénél, ahogy elkezded beírni a
+  **kedvezményezett** (cég vagy személy) nevét, a rendszer **felajánlja a korábban már rögzített
+  partnereket** — egy kattintással kitölthető a név, nem kell újra begépelni. (A korábbi átvevők
+  közül keres, a legutóbbiakat előre sorolva.)
+
+---
+
+## [2026-06-21] — Tétel rögzítése: „Melyik évre" mező + egységes oszlop-sorrend
+<!-- key: 2026-06-21-tetel-evre-oszlopsorrend -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók / 🎨 UX javítások
+
+- **„Melyik évre" mező** a bevétel rögzítésénél. Alapértelmezetten az **aktuális (kiválasztott) év**,
+  de ha valaki **visszamenőleg** fizeti az elmaradt egyházfenntartói járulékát, beírható a megfelelő
+  korábbi év — így a befizetés a **helyes évhez** kerül (nem feltétlenül a fizetés dátumának évéhez).
+- **Egységes oszlop-sorrend.** A Tétel rögzítése táblázata mostantól a Kassza/Bank/Tranzakciók
+  megszokott sorrendjét követi: **Dátum · Irattípus · Iratszám · Partner · Jogcím · Melyik évre ·
+  Összeg · Megjegyzés**.
+<!-- key: 2026-06-21-tetel-befizeto-kereses -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A „Befizető / forrás" mező mostantól keres.** A Tétel rögzítésénél (bevétel) ahogy gépeled a
+  nevet, a rendszer **azonnal keres a tagnyilvántartásban**, és **részletes találatokat** mutat —
+  név mellett a **születési év · helység · utca · házszám** is —, hogy egyértelműen kiválaszd a
+  megfelelő személyt. A kiválasztott tag a befizetéshez kapcsolódik (a tiszta név kerül a mezőbe).
+  (Eddig a web-en a keresés nem volt bekötve; az asztali alkalmazásban már működött.)
+
+---
+
+## [2026-06-21] — Tétel rögzítése: automatikus vázlatmentés (nem vész el a munkád)
+<!-- key: 2026-06-21-tetel-auto-vazlat -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Automatikus vázlatmentés a Tétel rögzítésénél.** Amint elkezded beírni az adatokat, a rendszer
+  **gépelés közben azonnal, automatikusan menti** azokat (a böngészőben). Ha **áramszünet** van,
+  véletlenül bezárod az ablakot, vagy bármi miatt félbe kell hagynod a munkát, **semmi nem vész el** —
+  a dialóg újranyitásakor a félbehagyott tételek **visszaállnak**, és ott folytathatod, ahol abbahagytad.
+  (Több száz tétel rögzítésénél ez a legnagyobb biztonság.)
+- A visszaállított vázlatnál egy jelzés mutatja a mentés időpontját, és egy kattintással **el is
+  vetheted** (tiszta lappal kezdesz). Sikeres mentés után a vázlat automatikusan törlődik.
+
+---
+
+## [2026-06-20] — Nyomtatás: az előnézet és a nyomtatott kép mostantól megegyezik (WYSIWYG)
+<!-- key: 2026-06-20-nyomtatas-wysiwyg -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **Az előnézet és a tényleges nyomtatás megegyezik.** Eddig a kettő eltérhetett, mert a lapmargó
+  duplán számítódott (a nyomtató `@page` margója + a dokumentum belső margója összeadódott), így a
+  nyomtatott tartalom keskenyebb lett, mint az előnézetben. Mostantól a margót egyetlen helyen (a
+  dokumentum belső `padding`-je) adjuk, a `@page` margó 0 — így a képernyős előnézet, a böngészős
+  nyomtatás és a PDF **ugyanazt** az elrendezést adja.
+- Tipp: a böngésző nyomtatási ablakában a „Margók" beállítás maradjon **Alapértelmezett** (vagy
+  „Nincs") — így pontosan az előnézet szerinti kép nyomtatódik.
+<!-- key: 2026-06-20-nyomtatvanyok-roman-nev-alairas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Hivatalos (román) nyomtatványok fejlécében a román gyülekezetnév.** A Registru Casa, Registru
+  Banca, Registrul-Jurnal és a Csoportnapló fejlécében mostantól a **hivatalos román név**
+  (pl. „Parohia Reformată Brateș", a Gyülekezet adatlap `nev_ro` mezőjéből) jelenik meg a magyar
+  név helyett — ahogy a hivatalos dokumentumoknál elvárt.
+- **Egységes aláírás-sávok.** Minden hivatalos nyomtatványon (Casa/Banca/Jurnal/Csoportnapló)
+  egységesen **három, kétnyelvű aláírás-sáv**: „Conducătorul unității — Lelkész/Gondnok",
+  „Întocmit — Készítette", „Verificat — Ellenőrizte".
+- A nyomtatási **előnézet** mostantól minden nyomtatványnál a **teljes, A4-arányos** dokumentumot
+  mutatja (görgethetően) — pontosan azt, ami nyomtatáskor készül (lásd az előző bejegyzést).
+
+---
+
+## [2026-06-20] — Nyomtatási előnézet: teljes dokumentum + Csoportnapló jogcím-választó
+<!-- key: 2026-06-20-elonezet-teljes-csoportnaplo-valaszto -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A nyomtatási előnézet a TELJES dokumentumot mutatja.** Eddig a hosszabb nyomtatványok (pl. a
+  Csoportnapló) alja levágódott az előnézetben („nem jelenik meg mindegyik"). Mostantól az előnézet
+  a teljes, **A4-arányos** dokumentumot mutatja, **függőlegesen görgethetően** — pontosan azt, ami
+  nyomtatáskor készül.
+
+### ✨ Új funkciók
+
+- **Csoportnapló — jogcím-választó.** A Csoportnaplónál bal oldalon mostantól **kiválasztható egy
+  konkrét költségvetési jogcím** (bevétel/kiadás csoportokba rendezve), és a rendszer **csak annak
+  a jogcímnek** az összes tételét listázza az adott évre — nyomtatható formában. Az alapértelmezett
+  a „Mind — összes jogcím".
+
+---
+
+## [2026-06-20] — Új nyomtatvány: Csoportnapló (jogcímenkénti tétellista)
+<!-- key: 2026-06-20-csoportnaplo -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Csoportnapló a Pénzügyi nyomtatási központban.** Minden **költségvetési jogcím** (számadási
+  cél) alatt a hozzá tartozó tételek listája — **dátum · irat · iratszám · partner · megjegyzés ·
+  összeg** —, **jogcímenkénti részösszeggel**, a bevételek és kiadások külön szekcióban, a végén
+  bevétel/kiadás/egyenleg összesítéssel.
+- **Román + magyar** felirat (Registru grupat pe capitole — Csoportnapló), **oldalszámozva**,
+  letisztult, nyomtatásra szerkesztett elrendezés (A4 fekvő, ismétlődő fejléc).
+- Az időszak a kiválasztott **hónap**, vagy „Teljes év" esetén **az egész év** (jogcímenként
+  összegyűjtve, nem hónapokra bontva). A **belső átvezetések** (3xx/4xx) automatikusan kimaradnak.
+<!-- key: 2026-06-20-oldalsav-almenu -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, mindenki -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Almenü egy kattintásra.** Ha egy fő menüpontnak van almenüje (pl. **Pénzügy, Tagnyilvántartás,
+  Anyakönyv**), a rákattintás mostantól **nem ugrik egyből az oldalra**, hanem **kinyitja az
+  almenüt** — onnan választod ki, hová szeretnél továbblépni. (Az áttekintő oldal az almenü első
+  eleméből — pl. „Áttekintés" — érhető el; új lapon megnyitás továbbra is működik.)
+- **Szebb, könnyebben kattintható almenük.** Nagyobb, levegősebb sorok, tisztább kijelölés és
+  rámutatás — kényelmesebb használat egérrel és érintőképernyőn is.
+
+---
+
+## [2026-06-20] — Oszlopba ágyazott szűrő + export-előnézet (Kassza / Bank / Tranzakciók)
+<!-- key: 2026-06-20-oszlop-szuro-export-elonezet -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Oszlop-igazított szűrő.** A szűrő-mezők mostantól **a táblázat fejlécében**, közvetlenül a
+  saját oszlopuk alatt találhatók (a cella szélességével) — így egyértelmű, melyik oszlopra
+  vonatkozik a szűrés. (A korábbi külön szűrő-kártya megszűnt; felül már csak a találatszám, a
+  „Szűrők törlése" és az „Export" gomb van.)
+- **Export előnézet — teljes lista + nyomtatás.** Az **„Export (Excel)"** gomb mostantól **nem tölt
+  le egyből**, hanem **előnézetet** nyit: a hivatalos oszloprend, egy rövid magyarázat és **a (szűrt)
+  sorok TELJES listája** (görgethető). Innen **Letöltés (Excel)** vagy **Nyomtatás** (A4 fekvő,
+  ismétlődő fejléc) — így előbb ellenőrizhető, mi kerül a fájlba/papírra.
+
+---
+
+## [2026-06-20] — Bank fül: kártyás számlaválasztó + per-számla import; Kassza: Nyugtatömbök 5. kártya
+<!-- key: 2026-06-20-bank-kartyas-valaszto -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Bank — a számlakártyák egyben szűrők.** A bankszámla-kártyára kattintva mostantól
+  arra a számlára szűrsz. Az **első kártya az „Összesítő"** (alapértelmezett — minden számla
+  együtt), utána az egyes bankszámlák. A kijelölt kártya kerettel kiemelve. (A külön szűrő-gombsor
+  megszűnt.)
+- **Bank — per-számla import.** Minden bankszámla-kártyán külön **„Kivonat importálása"** gomb,
+  amely kifejezetten **arra a számlára** importál (a wizard előre arra a számlára áll be) — így nem
+  lehet véletlenül rossz számlára tölteni.
+- **Bank — „+" kártya.** A számlák sorának végén egy **„+ Új bankszámla"** kártya az új számla
+  hozzáadásához.
+- **Kassza — Nyugtatömbök az 5. kártyán.** A Nyugtatömbök panel mostantól egy kompakt 5. kártyáról
+  (a nyitó/bevétel/kiadás/záró egyenleg mellett) nyitható ki és csukható be — kevésbé zsúfolt nézet.
+
+---
+
+## [2026-06-20] — Pénzügyi táblák: oszloponkénti szűrés + Excel-export (Kassza / Bank / Tranzakciók)
+<!-- key: 2026-06-20-penzugy-szuro-export -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Oszloponkénti szűrés.** A **Kassza, Bank és Tranzakciók** fülön a táblázat felett
+  mostantól szűrő-sáv található — Dátum, Irattípus, Iratszám, Partner, Jogcím és Megjegyzés
+  szerint kereshetsz a saját szövegeddel (ékezet-független, „tartalmazza" keresés). Több
+  mező egyszerre is használható, a találatszám rögtön látszik.
+- **Excel-export.** A szűrő-sáv **„Export (Excel)"** gombja a (szűrt) sorokat letölti
+  `.xlsx`-ként — a **hivatalos Adatok_2025.xlsx oszloprendben** (Dátum | Iratszám | Irattíp. |
+  Név | Bevétel összeg/jogcím | Kiadás összeg/jogcím | Megjegyzés), így **vissza is
+  importálható**. Ha nincs szűrő, a teljes (kiválasztott havi) lista exportálódik.
+- A Súgóba új téma került erről („Szűrés és Excel-export").
+
+---
+
+## [2026-06-20] — Dispoziție nyomtatvány: tisztább cím, betűvel-kiírás, 1 oldalas elrendezés, élesebb PDF
+<!-- key: 2026-06-20-dispozitie-nyomtatas-finomitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítások
+
+- **Rövidebb cím.** A rendelvény fejléce mostantól csak „Dispoziție de plată" ill.
+  „Dispoziție de încasare" (a fölösleges „către caserie" utótag nélkül).
+- **Tömör összeg betűvel.** A „(în litere)" sor a hivatalos rendelvény-formát követi:
+  a szám-szavak egybeírva (pl. **„Optsutecincizeci de lei"**), és 0 bani esetén a
+  „și 00 bani" rész elmarad — letisztultabb, kevésbé zsúfolt.
+- **Egy oldalra fér.** A két példány (caserie + cotor) mostantól **egyetlen A4 oldalra**
+  kerül — korábban átcsúszhatott a 2. oldalra.
+- **Élesebb PDF.** A „PDF-be mentés" mostantól veszteségmentes, nagyobb felbontású
+  képet készít (a korábbi elmosódott, „fapados" eredmény helyett), és a színek/szegélyek
+  hűen nyomtatódnak.
+
+---
+
+## [2026-06-20] — Dispoziție de plată / încasare: működő újranyomtatás + letisztult nyomtatvány
+<!-- key: 2026-06-20-dispozitie-javitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A Dispoziție de plată / încasare ismét működik.** A nyomtatási központban mostantól
+  **megjelennek a 2025-ben (importból) rögzített rendelvények**, és újra is nyomtathatók.
+  Korábban a lista üres maradt egy belső adatbázis-hiba miatt (a rendszer egy nem létező
+  oszlopot keresett). Ugyanez a hiba okozta, hogy **új Dispoziție létrehozása**, a **manuális
+  kiadás rögzítése** és az **évvégi árfolyam-veszteség** könyvelése is elakadhatott — mindezek
+  szintén javítva.
+
+### 🎨 UX javítások
+
+- **Helyes fejléc a rendelvényen.** A Dispoziție tetején mostantól a **hivatalos román név**
+  (pl. „Parohia Reformată Brateș") áll felül, alatta pedig a **magyar név** (pl. „Barátosi
+  Református Egyházközség") — szépen, két sorban. A román nevet a Gyülekezet adatlapjáról veszi.
+- **Kitöltött „Scopul plății" (a fizetés célja).** Az importált rendelvényeknél a cél mezőbe
+  automatikusan bekerül a **kiadás/bevétel jogcíme** (a kategória neve).
+- **Letisztult űrlap.** A rendelvényről **elhagytuk a fölösleges aláírás-rovatot**
+  (Conducătorul unităţii / Viza de control financiar-preventiv / Compartimentul financiar-contabil),
+  így átláthatóbb és kevesebb a nyomtatási hely.
+
+---
+
+## [2026-06-19] — Pénzügyi import: opcionális „bevételek XML" referencia (pontosabb évek, kevesebb hiba)
+<!-- key: 2026-06-19-import-xml-referencia -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkciók
+
+- **Befizető (tag) átkötése a tétel-szerkesztőben.** A bevétel gyors-szerkesztőjében mostantól
+  **látod, melyik taghoz van rendelve** a befizetés (vagy hogy nincs hozzárendelve), és egy
+  **ékezet-független keresővel** (kereszt-, lánykori vagy férjezett néven is) **áthozhatod /
+  hozzárendelheted** a megfelelő taghoz — storno és újrarögzítés nélkül. Így a hibásan vagy nem
+  párosított befizetések egyetlen kattintással javíthatók.
+- **Bevételek XML referencia feltöltése a hivatalos Excel mellé.** A Kassza-Excel mellé mostantól
+  opcionálisan feltöltheted az Adatkezelő-export bevételek-XML fájlját. A rendszer összeveti a kettőt,
+  és átveszi a **pontos** adatokat: melyik **évre** szól a befizetés (így ha valaki több év hátralékát
+  fizeti be egyszerre, az a megfelelő évekhez kerül — nem mind a tárgyévhez), valamint a hivatalos iratszám.
+  Egy üzenet jelzi, hány bevétel pontosodott.
+- **Bankszámla-könyvelés importja a hivatalos Excelből.** Eddig csak a készpénzt (Kassza) lehetett
+  importálni; mostantól a fájl **bankszámla-lapjait (A–F)** is. A feltöltés után kiválasztod a **forrást**
+  (készpénz vagy bankszámla), és bankszámlánál megadod, **melyik számládhoz** tartozik a lap — a tételek
+  (bevétel/kiadás) a megfelelő **bankszámlához** könyvelődnek, a bankszámla **nyitó egyenlegével** együtt.
+  Ugyanaz az ellenőrzött oszlop-egyeztetés, párosítás és egyenleg-levezetés, mint a Kasszánál.
+- **Év-választó a Pénzügy hero-ban — visszamenőleg is.** A Pénzügy fejlécében mostantól egy jól látható
+  **év-választóval** bármelyik (akár korábbi) évre válthatsz, és az **összes fül** (Áttekintés, Kassza,
+  Bank, Tranzakciók, Számadás…) **arra az évre** mutatja az adatokat. Így az importált korábbi évek
+  (pl. a 2025-ös könyvelés) azonnal láthatók — nem csak a tárgyév.
+- **Egylépéses kötegelt import: Kassza + az összes bankszámla egyszerre.** A fájl feltöltése után
+  hozzárendeled a bankszámla-lapokat a számláidhoz, és a rendszer **egyben beolvassa** a készpénzt és
+  minden bankszámlát. Az áttekintő **forrásonként** mutatja a végösszegeket és az egyenleg-levezetést,
+  majd egyetlen **„Import" gomb** mindent a helyére tesz (minden tétel a saját számlájára). A végén
+  **belső-mozgás kereszt-ellenőrzés**: a rendszer ellenőrzi, hogy a kassza↔bank átvezetések kimenő és
+  bejövő oldala pontosan egyezik-e (✓ a pénz nem veszett el / ⚠ ha hiányzik egy bankszámla párja).
+- **Belső mozgások (kassza ↔ bank) láthatósága + biztonsági figyelmeztetés.** Az áttekintő mostantól
+  külön kiemeli a **belső pénzmozgásokat** (pl. készpénz bankba tétele, ATM-felvét), amelyek mindkét
+  főkönyvben szerepelnek (kiadás az egyikben, bevétel a másikban). A rendszer emlékeztet: **a párját — a
+  másik főkönyvet — is importálni kell**, különben a pénzmozgás fele hiányozna. Ráadásul **figyelmeztet**,
+  ha egy sor belső mozgásnak tűnik (pl. „Készpénzletétel"), de hiányzó/téves kód miatt nem annak ismerte fel.
+- **Ellenőrizhető oszlop-egyeztetés.** Az importáló a fájl fejlécei alapján automatikusan felismeri, melyik
+  oszlop micsoda (Dátum, Név, Bevétel/Kiadás összeg, kód stb.), és az áttekintő tetején **megmutatja** —
+  így ellenőrizheted, mielőtt bármi bekerül. Ha egy kötelező oszlopot nem ismert fel (pl. más gyülekezet
+  eltérő táblázata), feltűnő figyelmeztetést kapsz. Így a rendszer **soha nem dolgozik vakon rossz oszloppal**.
+- **Kézi tag-keresés az áttekintőben — bármilyen névrésszel, ékezet nélkül is.** Ahol a rendszer nem
+  találta meg a befizetőt, vagy több azonos nevű illett rá, az áttekintőben **rákereshetsz** a tagra.
+  **Mindegy, mit írsz be:** keres a **keresztnévre, vezetéknévre, lánykori ÉS férjezett névre**, sőt a
+  **lakcímre** is — és **nem érzékeny az ékezetekre** (a „Timea" megtalálja a „Tímeát"). Így ha egy nő
+  férjhez ment és megváltozott a neve (pl. **Beder Csilla Tímea → Kovács Csilla Tímea**), a régi, lánykori
+  néven keresve is megtalálod. A találatoknál **kiemelve látszik a lánykori név** (pl. „szül. Beder"),
+  a lakcím, a születési dátum, az életkor és a foglalkozás — hogy biztosan a megfelelő tagot válaszd.
+- **Részletesebb egyeztetés.** Az egyeztető kártyákon mostantól látod az adott befizető **tételeit**
+  is — melyik **évre** szól, mennyi, melyik nyugta, milyen kategória —, így teljes képből döntesz. A
+  „kétszer fizetne" figyelmeztetés is áttekinthetőbb: minden ütköző befizető külön sorban, a **címével**.
+- **Év végi egyenleg + hitelesség-ellenőrzés.** Az áttekintőben mostantól látható a fájl tetejéről
+  kiolvasott **nyitó (előző évi) egyenleg** és az **év végi (záró) egyenleg**, levezetve:
+  *nyitó + bevétel − kiadás = számított záró*. A rendszer ezt összeveti a hivatalos záró egyenleggel:
+  ha egyezik, a könyvelés hiteles (✓); ha eltér (pl. hiányzik a nyitó egyenleg), feltűnően jelzi.
+- **A készpénz nyitó egyenleg mostantól rögzül.** Importáláskor a rendszer **elmenti** az „Előző évi
+  készpénzegyenleg" értékét az adott évhez, így a készpénz-egyenleg nem 0-ról, hanem a **valós áthozott
+  maradványból** indul — ez teszi hitelessé az év végi egyenleget, és korábbi évek importjánál is helyes
+  marad (az egyik év nyitója a másik év zárójához igazodik). *(Egyszeri adatbázis-bővítés szükséges hozzá.)*
+
+### 🎨 Fejlesztések
+
+- **Megjegyzés oszlop + egységes storno-gomb (Kassza/Bank).** A tételtáblákban mostantól látszik a **Megjegyzés** oszlop (a Bevétel/Kiadás után, a nyugta-ikon előtt), és a **storno mindig az utolsó** művelet-ikon — egységesen.
+
+### 🐛 Javítások
+
+- **Az importált dispozíciók és decontok megjelennek a Nyomtatási központban.** A hivatalos fájlból
+  importált **„disp. de plata" / „Disp. Plata" / „Decont."** tételek (amelyek kiadás/befizetés
+  sorként kerültek be, nem külön bizonylatként) mostantól **megjelennek** a Nyomtatási központ
+  **Dispoziție** és **Decont** újranyomtatás-listájában (az „importált" jelzéssel) — a
+  dátum / név / összeg / jogcím / sorszám adatokkal, így **újranyomtathatók**. (A személyi
+  szám / CI nincs a tranzakcióban, ezért az üresen marad az újranyomtatott bizonylaton.)
+- **Dispoziție de plată / încasare: megtalálja az importált készpénzes tételeket + a kiválasztott
+  évre nyit.** A „meglévő készpénzes tételből generálás" lista eddig **üres** volt importált
+  adatnál, két okból: (1) a készpénzes tételeket az **irattípus** alapján kereste, de az
+  importált sorok irattípusa „Chit." (nem „Készpénz"); (2) a dátum a **mai évre** (folyó) állt,
+  így a korábbi év (pl. 2025) tételeit nem listázta. Mostantól a készpénz a **bankszámla**
+  szerint szűr (nincs bankszámla = kassza), és a dialógus a **kiválasztott költségvetési évre**
+  nyit — így a 2025-ben rögzített tételekhez is kiállítható a rendelvény.
+- **Belső mozgás párosítás-állapota a tételsoroknál (zöld/piros), beégetett szöveg helyett.** A kassza↔bank belső mozgásoknál (pl. készpénzletét) a sor mostantól DINAMIKUSAN mutatja, hogy a banki párja megvan-e: zöld **„✓ párosítva"**, ha a másik oldal (pl. a banki jóváírás) is rögzítve van; **PIROS „⚠ nincs banki párja"**, ha hiányzik. Korábban a beégetett „⏳ Várakozik banki egyeztetésre" szöveg akkor is ott maradt, ha a pár már létezett — ami félrevezető volt, a hiányzó párt pedig nem emelte ki pirossal.
+
+- **Az „Éves egyenleg" a tényleges év végi egyenleget mutatja (nem a túlköltekezést).** Korábban a
+  bevétel − kiadás **különbséget** írta ki „Éves egyenleg"-ként — ez egy hiányos évnél nagy **negatív**
+  szám (a túlköltekezés/deficit), ami félrevezető „egyenleg"-ként. Mostantól a kártya a **tényleges év
+  végi egyenleget** (kassza záró + bank záró) mutatja — a rendelkezésre álló pénzt. A működési
+  eredmény (bevétel kontra kiadás) a két KPI-kártyából látszik. Ráadásul a **Kiadás (idén)** kártya a
+  belső mozgásokat **cél-kód szerint** is kizárja (nem csak a belső-mozgás jelölés alapján), így a
+  hivatalos számadás kiadásával egyezik.
+- **A hero év-választó csak a valós éveket kínálja.** Korábban egy fix 2019–2027 listát mutatott;
+  mostantól **csak azokat az éveket** sorolja fel, amelyekhez **tartozik pénzügyi adat**
+  (befizetés/kiadás), kiegészítve a **folyó évvel** (abban mindig lehet dolgozni). Így nem lehet
+  véletlenül egy üres, „el nem kezdett" évre váltani.
+- **Helyes egyenlegek a Pénzügy áttekintőn (negatív bank/éves egyenleg javítva).** Az áttekintő
+  Kassza/Bank egyenleg-kártyái eddig az **irattípus** alapján válogatták szét a tételeket — az
+  importált sorok („Chit."/„Extr") így mind a **bankhoz** kerültek, ezért a Bank-kártya torz,
+  **negatív** egyenleget mutatott, a Kassza-kártya pedig csak a nyitót. Mostantól a szétválasztás
+  a **bankszámla** szerint megy (nincs bankszámla = kassza). Ráadásul az **éves egyenleg** mostantól
+  a **belső mozgásokat kizárva** a valós működési eredményt mutatja (a számadással egyezően), nem az
+  átvezetésekkel felfújva.
+- **A Tranzakciók fülről nem lehet törölni (könyvelési szabály).** A Tranzakciók fül a **hiteles
+  napló** — innen tételt törölni nem lehet (sem visszamenőlegesen). Ha javítani kell, azt a
+  **Kassza / Bank** fülön, **storno**-val teheted meg (és csak a számadás beküldéséig). Így a
+  könyvelés nyoma megmarad, ahogy az előírások megkövetelik.
+- **Téves „párosítatlan belső mozgás" jelzés importált adatnál.** A kassza↔bank belső mozgások
+  (pl. készpénzletét) két fele a `(dátum, összeg)` páros alapján talál egymásra. A kiadás-oldal
+  dátuma időbélyeggel (`2025-12-29T00:00:00`), a befizetés-oldalé dátumként (`2025-12-29`) érkezett,
+  így a két fél külön kulcsra esett, és a rendszer **tévesen párosítatlannak** jelezte mindkettőt
+  (pl. „32 párosítatlan", pedig mindkét oldal megvolt). Mostantól a párosítás **összeg-alapú,
+  ±7 napos időablakkal** — a banki jóváírás akár 1-2 nappal a kasszai letét után/előtt is
+  történhet, a párok így is összetalálnak; a jelzés csak a **tényleg hiányzó** oldalaknál marad.
+- **Évre szűrés a Pénzügyben — most már tényleg az adott év adatait mutatja.** A hero-beli
+  év-választóval másik évre (pl. egy korábbi, importált évre) váltva a **Kassza / Bank /
+  Tranzakciók** fül **üres maradt** (a forgalom nem frissült a kiválasztott évre), a Bank fül
+  pedig a **mai évre** kérdezte a nyitó egyenleget („nincs rögzítve a 2026. évre"). Mostantól az
+  év-váltás **újratölti a tételeket**, a Bank a **kiválasztott év** nyitóját mutatja, és a
+  kassza/bank szétválasztás a **bankszámla szerint** megy (nem az irattípus alapján) — így a
+  hivatalos fájlból importált tételek (irattípus „Chit."/„Extr") is a **helyes fülön, helyes
+  összeggel** jelennek meg.
+- **Helyes bank- és kassza-nyitó egyenleg (áthozat).** A Pénzügy áttekintő/Bank/Kassza nyitó egyenlege
+  eddig **csak az előző évi forgalmat** vette számításba, a **rögzített nyitó (előző évről áthozott)
+  egyenleget nem** — ezért hibás, akár **negatív** nyitót mutatott (pl. a banknál). Mostantól a nyitó
+  helyesen az **adott évre rögzített nyitó egyenleg**, vagy ha az nincs, az **előző év zárója** (előző
+  nyitó + forgalom). Ráadásul a kassza/bank szétválasztás már a **számla** szerint megy (nem az
+  irattípus alapján), így az importált tételeknél is pontos.
+- **A Pénzügy oldal többé nem omlik össze beállítás nélküli évnél** (a korábbi évre váltáskor jelentkező
+  `revalidatePath` hiba megszüntetve).
+- **Hiányzó befizetések importkor (pontos darabszám-egyezés).** Az import duplikáció-szűrője
+  eddig a valóban **külön, de azonos adatú** tételeket tévesen **összevonta**, ezért azok
+  kimaradtak a könyvelésből. Tipikus esetek: a **hátralékos egyházfenntartás** (ugyanaz a nyugta,
+  de más évre könyvelve), **egy nyugtán két házastárs** ugyanakkora járuléka (pl. Beder Árpád +
+  Beder Zsuzsanna, 130–130 RON), illetve az **ugyanaznap többször levont, azonos összegű banki
+  díj** (pl. 0,51 RON háromszor). Egy valós importnál így ~1 244 RON hiányzott. Mostantól a
+  szűrő **darabszám-alapú**: minden tétel **annyi példányban** kerül be, **ahányszor a fájlban
+  szerepel** (a jogos ismétlések megmaradnak), miközben ugyanazon fájl újraimportja **továbbra
+  sem duplikál**, és egy hiányos import **automatikusan kiegészül** a hiányzó tételekkel.
+  *(Adatbázis-frissítés szükséges; utána a fájlt újra kell importálni a pótláshoz.)*
+- **Eltérő cím = külön személy.** Ha egy névhez csak egyetlen, de **más utcában lakó** tag illett (pl.
+  „Beder Timea - Asztalos 160" a nyilvántartásbeli „Beder Csilla Timea - Templom 235" helyett), a rendszer
+  **többé nem rendeli automatikusan** hozzá — felülvizsgálatra teszi, és megmutatja a tag címét, hogy te
+  dönthess. Így nem fordulhat elő, hogy az egyik kétszer fizetőnek, a másik elmaradottnak látszik.
+- **Pontos dátumok importáláskor (időzóna-javítás).** Az importáló (hivatalos Kassza, általános bevétel,
+  egyházfenntartás és bank) a **helyi gépen / az asztali (offline) appban minden dátumot egy nappal
+  korábbra olvasott** — pl. a **2025. január 1-jét 2024. december 31-ként** —, egy időzóna-kezelési hiba
+  miatt. Ez rossz napot, év elején/végén pedig rossz **évet** is okozhatott a befizetéseken és kiadásokon.
+  Mostantól a dátum **minden időzónában pontos** (a felhőben futó webes import eddig is helyes volt; a hiba
+  a helyi/asztali importot érintette).
+- **A „Befizetett év" a mérvadó a járulék évéhez.** Többéves elmaradás/előrefizetés esetén a rendszer a
+  bevételek XML **„Befizetett év"** adatát veszi a könyvelési évnek (nem pusztán a befizetés dátumát) — így
+  a hátralékos évek a megfelelő évhez kerülnek, és nincs fölösleges „nem ebbe az évbe tartozik" jelzés.
+
+### 🎨 Fejlesztések
+
+- **Okosabb, kategóriánkénti személy-hozzárendelés.** Az importáló mostantól csak ott próbálja a befizetőt
+  taghoz kötni, ahol ez értelmes (egyházfenntartás, adományok, területbérlet, sírhely, legátum, iratterjesztés,
+  visszatérítés — és a kiadás-oldalon a segély átvevője). A **perselypénzt**, a **céges/pályázati** bevételeket
+  és a **belső átvezetéseket** nem köti személyhez — így kevesebb a fölösleges „nem található", és nincs téves
+  személy-párosítás ezeknél.
+- **Modern, áttekinthető wizard + részletes tag-kereső.** Az importáló mostantól egyértelmű **lépés-jelzővel**
+  vezet végig (Feltöltés → Áttekintés és egyeztetés → Kész). A kézi tag-keresőben a név mellett a tag **lakcíme,
+  születési dátuma, életkora és foglalkozása** is látszik — így biztosan a megfelelő személyt választod.
+
+## [2026-06-19] — Pénzügyi importáló: pontosabb tag-párosítás, kézi kereső és adomány-előnézet
+<!-- key: 2026-06-19-import-parositas -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+A rendszergazdai pénzügyi importálóban (előző évi könyvelés bevezetése) jelentősen javult, ahogyan a
+befizetéseket, adományokat a **már nyilvántartott személyekhez** kötjük. A leggyakoribb panasz az volt,
+hogy az automatikus párosítás nem talált rá a tagra, és nem lehetett kézzel sem javítani — ez most megoldódott.
+
+### ✨ Új funkciók
+
+- **Kézi tag-kereső, ha az automatika nem talál.** Ha egy befizetőhöz a rendszer nem találta meg a tagot
+  (vagy több illik rá), mostantól közvetlenül **rákereshetsz** a tagnyilvántartásban — családnév, keresztnév
+  vagy **lánykori név** alapján —, és egy kattintással összekötheted. (Egyházfenntartás és adomány import egyaránt.)
+- **Adomány-import: ellenőrző lépés a könyvelés előtt.** A saját Excel/CSV adományfájl beolvasásakor most egy
+  **áttekintő képernyő** mutatja, kihez párosult minden tétel — itt javíthatsz, kereshetsz vagy kihagyhatsz
+  sorokat, **mielőtt** bármi bekerülne a könyvelésbe. (Korábban a fel nem ismert befizetők némán, név nélkül kerültek be.)
+
+### 🎨 Fejlesztések — okosabb automatikus párosítás
+
+- **Becenevek felismerése.** Pista=István, Kati=Katalin, Jóska=József, Zsuzsi=Zsuzsanna és sok más gyakori
+  becenév: a becenéven szereplő befizetőt is megtaláljuk a tagok között.
+- **Elgépelés-tűrő javaslatok.** Ha a név csak kicsit tér el (elírás), a rendszer felkínálja a **hasonló nevű**
+  tagokat ellenőrzésre. Ezeket sosem köti össze magától — te döntesz, hogy stimmel-e.
+- **Rugalmasabb cím-egyezés.** A „Főút” és a „Fő út” (és hasonló írásmódbeli eltérések) mostantól ugyanannak
+  számítanak a párosításnál, így kevesebb a fölösleges kézi munka az azonos nevű, de eltérő című tagoknál.
+
+### 🐛 Javítások
+
+- **Nincs többé téves összekötés.** Az importáló nem köt össze befizetést rossz emberhez pusztán azonos
+  keresztnév és cím alapján. Ha bizonytalan, inkább rád bízza a döntést (a „Hasonló név” / „Több tag” jelzéssel).
+- **Tömbös nyugta: nincs adatvesztés.** Ha ugyanazon a nyugtán több személy fizetett **azonos összeget**, most
+  mindegyik tétel bekerül — korábban a második véletlenül „duplikátumként” kimaradhatott.
+- **Belső átvezetések pontosabb felismerése.** A kassza és a bankszámla közötti pénzmozgásoknak (pl. készpénz
+  befizetése a bankba, felvétele a bankból) egy ritkább kód-változatát (300-as) is helyesen **belső mozgásként**
+  ismeri fel az importáló — így ezek nem számítanak tévesen bevételnek vagy kiadásnak az éves számadásban.
+- **Nincs többé „rossz emberhez könyvelés" azonos neveknél.** Az importáló korábban — ha egy néven több személy
+  illett — **megpróbálta kitalálni**, ki fizetett, és előfordulhatott, hogy az egyik azonos nevűnél két befizetés
+  jelent meg, miközben a másik (aki szintén fizetett) **elmaradottnak** látszott. Mostantól a rendszer az ilyen
+  bizonytalan eseteket (pl. azonos név azonos címen, apa-fia) **nem találgatja**, hanem rád bízza a döntést —
+  a befizetés dátuma, összege és iratszáma alapján te választod ki a megfelelő személyt. (A többszöri éves
+  befizetés — pl. több év hátralékának pótlása egyszerre — természetesen ugyanahhoz a személyhez kerül.)
+
 ## [2026-06-15] — Oblio (asztali): offline párosítás + árva PDF-ek tartalom-alapú felismerése
 <!-- key: 2026-06-15-oblio-desktop-offline-pdf -->
 <!-- category: feature -->

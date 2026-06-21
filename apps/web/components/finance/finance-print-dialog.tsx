@@ -54,6 +54,8 @@ interface FinancePrintDialogProps {
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
   congregationName: string
+  /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
+  congregationNameRo?: string
   carryoverCash: number
   carryoverBank: number
   currentYear: number
@@ -79,6 +81,7 @@ export function FinancePrintDialog({
   bevCelMap,
   kiaCelMap,
   congregationName,
+  congregationNameRo,
   carryoverCash,
   carryoverBank,
   currentYear,
@@ -91,6 +94,13 @@ export function FinancePrintDialog({
     ...FINANCE_PRINT_TYPES.filter((t) => t.id !== 'kiadasi_kiseroiv'),
     ...budgetTypes,
   ]
+
+  // Csoportnapló jogcím-választó opciói: a számadási célok (belső mozgások — 3xx/4xx — nélkül),
+  // kód szerint numerikusan rendezve.
+  const categoryOptions = cellek
+    .filter((c) => c.kod && !/^[34]/.test(c.kod) && (c.type === 'B' || c.type === 'K'))
+    .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
+    .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -108,6 +118,7 @@ export function FinancePrintDialog({
             bank_neve: b.bank_neve,
             iban: b.iban,
           }))}
+          categories={categoryOptions}
           currentYear={currentYear}
           buildReport={(filters: FinancePrintFilters): PrintReport => {
             // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
@@ -127,7 +138,7 @@ export function FinancePrintDialog({
               if (!doc) return emptyPreview('Válassz egy korábbi rendelvényt a bal oldalon.')
               const data = doc.data as Omit<DispozitieDocData, 'congregationName'>
               return {
-                html: buildDispozitieHtml({ congregationName: `Parohia Reformată ${congregationName}`, ...data }),
+                html: buildDispozitieHtml({ congregationName, congregationNameRo, ...data }),
                 title: `Dispoziție #${data.sorszam}`,
                 filename: `Dispozitie_${data.tipus}_${data.sorszam}_${data.date}.pdf`,
                 orientation: 'portrait',
@@ -176,6 +187,7 @@ export function FinancePrintDialog({
               bevCelMap,
               kiaCelMap,
               congregationName,
+              congregationNameRo,
               carryoverCash,
               carryoverBank,
               nyugtatombok:
@@ -187,6 +199,7 @@ export function FinancePrintDialog({
               year: filters.selectedYear,
               month: filters.selectedMonth,
               bankAccountId: filters.selectedBankId,
+              categoryKod: filters.selectedCategoryKod,
             })
           }}
           onLoadNyugtatombok={async (year) => {
@@ -198,8 +211,8 @@ export function FinancePrintDialog({
           }}
           onLoadSavedDocs={async (year): Promise<SavedDocOption[]> => {
             const [deconts, dispozitiok] = await Promise.all([
-              listDecontReprint(year),
-              listDispozitieReprint(year),
+              listDecontReprint(year).catch(() => []),
+              listDispozitieReprint(year).catch(() => []),
             ])
             return [
               ...deconts.map((d) => ({ id: d.id, label: d.label, kind: 'decont' as const, data: d.data })),

@@ -28,6 +28,8 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   Ban,
+  ChevronDown,
+  ChevronUp,
   Pencil,
   Printer,
   RotateCcw,
@@ -39,6 +41,16 @@ import {
   getExpensePartnerName,
   getTransactionDocumentNumber,
 } from './helpers'
+import {
+  ColumnFilterInput,
+  FinanceTableToolbar,
+  matchesColumnFilters,
+} from './FinanceTableToolbar'
+import {
+  buildFinanceExportAoa,
+  financeExportFilename,
+  type FinanceExportLine,
+} from './finance-export'
 import type { BefitetesRow, KiadasRow } from './types'
 
 const HU_MONTHS = [
@@ -67,7 +79,13 @@ interface CashRow {
   partner: string
   celNev: string
   iratszam: string
+  /** Irattípus (pl. Készpénz / Chit. / Extr). */
+  irattipus: string
+  /** Melyik évre szól a befizetés (egyházfenntartói járulék hátralék) — kiadásnál null. */
+  fizetettev: number | null
   isBm: boolean
+  /** Belső mozgás, aminek NINCS banki párja (piros jelzés); ha isBm és !unpaired → párosítva. */
+  unpaired?: boolean
   megjegyzes?: string
   hasMissingPerson: boolean
   hasMissingCategory: boolean
@@ -99,6 +117,9 @@ export interface AutoIssueChitantaResult {
 export interface CashbookTabProps {
   incomeRecords: BefitetesRow[]
   expenseRecords: KiadasRow[]
+  /** Párosítatlan belső-mozgás sor-azonosítók (a kiadas/befizetes id-k, amelyeknek nincs banki
+   *  párjuk). Ami NINCS benne, az párosítva van — nem „várakozik". */
+  unpairedInternalIds?: Set<number>
   carryoverCash: number
   bevCelMap: Record<number, string>
   kiaCelMap: Record<number, string>
@@ -124,6 +145,9 @@ export interface CashbookTabProps {
   }) => Promise<{ success?: boolean; error?: string | null }>
 
   onToast?: (message: string, kind: CashbookToastKind) => void
+
+  /** (Szűrt) sorok exportja Excelbe — a web köti be (SheetJS aoa → .xlsx letöltés). */
+  onExportXlsx?: (aoa: (string | number)[][], filename: string) => void
 
   /** ChitantaTombokPanel — aktív tömb státusz + menedzsment. */
   chitantaTombokPanelSlot?: (params: { refreshKey: number }) => ReactNode
@@ -173,6 +197,7 @@ export interface CashbookTabProps {
 export function CashbookTab({
   incomeRecords,
   expenseRecords,
+  unpairedInternalIds,
   carryoverCash,
   bevCelMap,
   kiaCelMap,
@@ -185,6 +210,7 @@ export function CashbookTab({
   loadChitantakForBefizetesek,
   onUndoStorno,
   onToast,
+  onExportXlsx,
   chitantaTombokPanelSlot,
   chitantaSilentPrintSlot,
   chitantaTombRequiredDialogSlot,
@@ -194,6 +220,10 @@ export function CashbookTab({
   const [monthFilter, setMonthFilter] = useState<number | 'all'>('all')
   const [sortBy, setSortBy] = useState<CashSortBy>('datum')
   const [sortDir, setSortDir] = useState<CashSortDir>('desc')
+  /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const setColFilter = (key: string, value: string) =>
+    setColFilters((s) => ({ ...s, [key]: value }))
 
   function toggleSort(col: CashSortBy) {
     if (sortBy === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -206,6 +236,8 @@ export function CashbookTab({
   const [silentPrintChitantaId, setSilentPrintChitantaId] = useState<string | null>(null)
   const [autoIssuingFor, setAutoIssuingFor] = useState<number | null>(null)
   const [tombRefreshKey, setTombRefreshKey] = useState(0)
+  /** A Nyugtatömbök panel kinyitva van-e (az 5. KPI-kártyáról nyitható). */
+  const [tombokExpanded, setTombokExpanded] = useState(false)
 
   const [tombRequiredOpen, setTombRequiredOpen] = useState(false)
   const [pendingBefizetesId, setPendingBefizetesId] = useState<number | null>(null)
@@ -331,7 +363,9 @@ export function CashbookTab({
   const cashIncomeIds = useMemo(
     () =>
       incomeRecords
-        .filter((r) => r.irattipus && r.irattipus.toLowerCase().includes('készpénz'))
+        // Kassza = nincs bankszámlához kötve (bankszamla_id NULL). Az irattípus
+        // (Készpénz / Chit. / stb.) nem megbízható megkülönböztető — importnál „Chit." jön.
+        .filter((r) => !r.bankszamla_id)
         .map((r) => r.id),
     [incomeRecords],
   )
@@ -360,18 +394,21 @@ export function CashbookTab({
   const cashRows: CashRow[] = useMemo(() => {
     const rows: CashRow[] = []
     incomeRecords.forEach((r) => {
-      if (!r.irattipus || !r.irattipus.toLowerCase().includes('készpénz')) return
+      if (r.bankszamla_id) return // csak kassza (bankszamla_id NULL); a bank a BankTab-on
       rows.push({
         id: r.id,
         type: 'income',
         datum: r.datum,
         osszeg: r.osszeg,
+        irattipus: r.irattipus || '',
+        fizetettev: r.fizetettev ?? null,
         partner: r.forrasa || 'Gyülekezeti tag',
         celNev: bevCelMap[r.id_befizetescel || 0]
           ? getCelName(bevCelMap[r.id_befizetescel || 0])
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
@@ -381,18 +418,21 @@ export function CashbookTab({
       })
     })
     expenseRecords.forEach((r) => {
-      if (!r.irattipus || !r.irattipus.toLowerCase().includes('készpénz')) return
+      if (r.bankszamla_id) return // csak kassza (bankszamla_id NULL)
       rows.push({
         id: r.id,
         type: 'expense',
         datum: r.datum,
         osszeg: r.osszeg,
+        irattipus: r.irattipus || '',
+        fizetettev: null,
         partner: getExpensePartnerName(r) || '—',
         celNev: kiaCelMap[r.id_kiadascel || 0]
           ? getCelName(kiaCelMap[r.id_kiadascel || 0])
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,
@@ -403,7 +443,7 @@ export function CashbookTab({
     })
     return rows.sort((a, b) => a.datum.localeCompare(b.datum))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomeRecords, expenseRecords])
+  }, [incomeRecords, expenseRecords, unpairedInternalIds])
 
   const { displayRows, openingBalance, monthIncome, monthExpense, closingBalance } =
     useMemo(() => {
@@ -464,12 +504,59 @@ export function CashbookTab({
       }
     }, [cashRows, monthFilter, carryoverCash, sortBy, sortDir])
 
+  // Oszlop-szűrés a megjelenített (havi + rendezett) sorokon. A KPI-k (nyitó/záró)
+  // a havi adatból számolnak — a szöveges szűrő csak a listát/exportot szűkíti.
+  const filteredRows = useMemo(
+    () =>
+      displayRows.filter((r) =>
+        matchesColumnFilters(colFilters, {
+          datum: (r.datum || '').slice(0, 10),
+          irattipus: r.irattipus,
+          iratszam: r.iratszam,
+          partner: r.partner,
+          jogcim: r.celNev,
+          megjegyzes: r.megjegyzes || '',
+        }),
+      ),
+    [displayRows, colFilters],
+  )
+
+  // Export-fájlnévhez: a sorok domináns éve.
+  const exportYear = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const r of cashRows) {
+      const y = new Date(r.datum).getFullYear()
+      if (Number.isFinite(y)) counts.set(y, (counts.get(y) || 0) + 1)
+    }
+    let best = ''
+    let bestN = 0
+    for (const [y, n] of counts) if (n > bestN) { best = String(y); bestN = n }
+    return best || 'export'
+  }, [cashRows])
+
+  function buildExport() {
+    const lines: FinanceExportLine[] = filteredRows.map((r) => ({
+      datum: r.datum,
+      iratszam: r.iratszam,
+      irattipus: r.irattipus,
+      nev: r.partner,
+      type: r.type,
+      osszeg: r.osszeg,
+      celNev: r.celNev,
+      megjegyzes: r.megjegyzes || '',
+    }))
+    return {
+      aoa: buildFinanceExportAoa(lines),
+      filename: financeExportFilename('Kassza', exportYear),
+    }
+  }
+
   const groupedByMonth = useMemo(() => {
     const groups = new Map<
       number,
       { label: string; rows: typeof displayRows; monthInc: number; monthExp: number }
     >()
-    for (const r of displayRows) {
+    for (const r of filteredRows) {
       const m = new Date(r.datum).getMonth()
       if (!groups.has(m)) {
         groups.set(m, { label: HU_MONTHS[m], rows: [], monthInc: 0, monthExp: 0 })
@@ -480,11 +567,15 @@ export function CashbookTab({
       else g.monthExp += r.osszeg
     }
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
-  }, [displayRows])
+  }, [filteredRows])
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div
+        className={`grid grid-cols-2 gap-3 ${
+          chitantaTombokPanelSlot ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-4'
+        }`}
+      >
         <MiniKpi
           label="Nyitó egyenleg"
           value={formatCurrency(openingBalance)}
@@ -510,9 +601,40 @@ export function CashbookTab({
           icon={<Wallet className="w-4 h-4" />}
           highlight
         />
+        {/* 5. kártya: Nyugtatömbök — kinyitja/becsukja a teljes panelt alatta. */}
+        {chitantaTombokPanelSlot && (
+          <button
+            type="button"
+            onClick={() => setTombokExpanded((v) => !v)}
+            aria-expanded={tombokExpanded}
+            className={`card-raised p-3.5 text-left transition hover:ring-1 hover:ring-emerald-300 ${
+              tombokExpanded ? 'ring-1 ring-emerald-300' : ''
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-slate-400">
+                <Printer className="w-4 h-4" />
+              </span>
+              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                Nyugtatömbök
+              </span>
+            </div>
+            <p className="text-sm font-bold text-emerald-600 inline-flex items-center gap-1">
+              {tombokExpanded ? (
+                <>
+                  <ChevronUp className="w-4 h-4" /> Bezárás
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4" /> Megnyitás
+                </>
+              )}
+            </p>
+          </button>
+        )}
       </div>
 
-      {chitantaTombokPanelSlot && (
+      {chitantaTombokPanelSlot && tombokExpanded && (
         <div className="card-raised p-4">
           {chitantaTombokPanelSlot({ refreshKey: tombRefreshKey })}
         </div>
@@ -545,8 +667,23 @@ export function CashbookTab({
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {groupedByMonth.map(([monthIdx, group]) => (
+        <div className="space-y-4">
+          <FinanceTableToolbar
+            values={colFilters}
+            onClear={() => setColFilters({})}
+            buildExport={onExportXlsx ? buildExport : undefined}
+            onDownload={onExportXlsx}
+            totalCount={displayRows.length}
+            filteredCount={filteredRows.length}
+          />
+
+          {filteredRows.length === 0 ? (
+            <div className="card-raised p-8 text-center">
+              <p className="text-sm text-slate-400">Nincs a szűrésnek megfelelő tétel.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
               <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -578,14 +715,9 @@ export function CashbookTab({
                         >
                           Dátum
                         </CashSortableTh>
-                        <CashSortableTh
-                          col="jogcim"
-                          sortBy={sortBy}
-                          sortDir={sortDir}
-                          onClick={() => toggleSort('jogcim')}
-                        >
-                          Jogcím
-                        </CashSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
+                          Irattípus
+                        </th>
                         <CashSortableTh
                           col="iratszam"
                           sortBy={sortBy}
@@ -604,6 +736,20 @@ export function CashbookTab({
                           Partner
                         </CashSortableTh>
                         <CashSortableTh
+                          col="jogcim"
+                          sortBy={sortBy}
+                          sortDir={sortDir}
+                          onClick={() => toggleSort('jogcim')}
+                        >
+                          Jogcím
+                        </CashSortableTh>
+                        <th
+                          className="p-2.5 text-center text-xs font-medium text-slate-500 hidden lg:table-cell"
+                          title="Melyik évre szól (egyházfenntartói járulék)"
+                        >
+                          Évre
+                        </th>
+                        <CashSortableTh
                           col="osszeg"
                           sortBy={sortBy}
                           sortDir={sortDir}
@@ -621,12 +767,40 @@ export function CashbookTab({
                         >
                           Kiadás
                         </CashSortableTh>
+                        <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden xl:table-cell">
+                          Megjegyzés
+                        </th>
                         <th
                           className="p-2.5 w-12 text-center text-xs font-medium text-slate-500"
                           title="Nyugta"
                         >
                           🧾
                         </th>
+                      </tr>
+                      {/* Oszlop-igazított szűrősor — minden mező a saját oszlopa alatt. */}
+                      <tr className="border-b border-slate-100 bg-white/70">
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.datum || ''} onChange={(v) => setColFilter('datum', v)} ariaLabel="Dátum szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden lg:table-cell">
+                          <ColumnFilterInput value={colFilters.irattipus || ''} onChange={(v) => setColFilter('irattipus', v)} ariaLabel="Irattípus szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top hidden md:table-cell">
+                          <ColumnFilterInput value={colFilters.iratszam || ''} onChange={(v) => setColFilter('iratszam', v)} ariaLabel="Iratszám szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.partner || ''} onChange={(v) => setColFilter('partner', v)} ariaLabel="Partner szűrő" />
+                        </th>
+                        <th className="p-1.5 align-top">
+                          <ColumnFilterInput value={colFilters.jogcim || ''} onChange={(v) => setColFilter('jogcim', v)} ariaLabel="Jogcím szűrő" />
+                        </th>
+                        <th className="p-1.5 hidden lg:table-cell" />
+                        <th className="p-1.5" />
+                        <th className="p-1.5" />
+                        <th className="p-1.5 align-top hidden xl:table-cell">
+                          <ColumnFilterInput value={colFilters.megjegyzes || ''} onChange={(v) => setColFilter('megjegyzes', v)} ariaLabel="Megjegyzés szűrő" />
+                        </th>
+                        <th className="p-1.5" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -666,6 +840,8 @@ export function CashbookTab({
               <span className="text-red-500 font-bold">−{formatCurrency(monthExpense)}</span>
             </div>
           </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -767,6 +943,30 @@ function CashRow({
       <td className={`p-2.5 text-slate-500 text-xs whitespace-nowrap ${textStorno}`}>
         {r.datum?.split('T')[0]}
       </td>
+      <td className={`p-2.5 text-slate-400 text-xs hidden lg:table-cell ${textStorno}`}>
+        {r.irattipus || '—'}
+      </td>
+      <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
+        {r.iratszam || '—'}
+      </td>
+      <td className="p-2.5">
+        <span
+          className={`font-medium text-xs ${
+            textStorno || (r.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
+          }`}
+        >
+          {r.hasMissingPerson ? `⚠ ${r.partner}` : r.partner}
+        </span>
+        {r.isBm && (
+          <p className="text-[10px] mt-0.5 truncate max-w-[180px]">
+            {r.unpaired ? (
+              <span className="font-semibold text-red-600">⚠ Nincs banki párja!</span>
+            ) : (
+              <span className="text-emerald-600">✓ Banki párja megvan</span>
+            )}
+          </p>
+        )}
+      </td>
       <td className="p-2.5">
         <div className="flex items-center gap-1.5">
           {r.stornozott && (
@@ -799,28 +999,28 @@ function CashRow({
           </p>
         )}
       </td>
-      <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
-        {r.iratszam || '—'}
-      </td>
-      <td className="p-2.5">
-        <span
-          className={`font-medium text-xs ${
-            textStorno || (r.hasMissingPerson ? 'text-amber-700' : 'text-slate-700')
-          }`}
-        >
-          {r.hasMissingPerson ? `⚠ ${r.partner}` : r.partner}
-        </span>
-        {r.isBm && r.megjegyzes && (
-          <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
-            {r.megjegyzes}
-          </p>
-        )}
+      <td className={`p-2.5 text-center text-xs text-slate-500 hidden lg:table-cell ${textStorno}`}>
+        {r.type === 'income' && r.fizetettev ? r.fizetettev : '—'}
       </td>
       <td className={`p-2.5 text-right font-bold text-emerald-600 ${textStorno}`}>
         {r.type === 'income' ? formatCurrency(r.osszeg) : ''}
       </td>
       <td className={`p-2.5 text-right font-bold text-red-500 ${textStorno}`}>
         {r.type === 'expense' ? formatCurrency(r.osszeg) : ''}
+      </td>
+      <td
+        className={`p-2.5 text-xs hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
+        title={r.megjegyzes || ''}
+      >
+        {r.isBm ? (
+          r.unpaired ? (
+            <span className="font-semibold text-red-600">⚠ nincs banki párja</span>
+          ) : (
+            <span className="text-emerald-600">✓ párosítva</span>
+          )
+        ) : (
+          <span className="text-slate-500">{r.megjegyzes || '—'}</span>
+        )}
       </td>
       <td className="p-2.5">
         <div className="flex items-center justify-end gap-1">
@@ -834,27 +1034,6 @@ function CashRow({
               <Pencil className="size-3.5" />
             </button>
           )}
-          {r.stornozott
-            ? canUndoStorno && (
-                <button
-                  type="button"
-                  title="Stornó visszavonása"
-                  onClick={() => void onUndoStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                >
-                  <RotateCcw className="size-3.5" />
-                </button>
-              )
-            : canStorno && (
-                <button
-                  type="button"
-                  title="Stornózás"
-                  onClick={() => onStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  <Ban className="size-3.5" />
-                </button>
-              )}
           {canChitanta && r.type === 'income' && !r.isBm && !r.stornozott ? (
             chitantakByBefizetes[r.id] ? (
               <button
@@ -879,6 +1058,28 @@ function CashRow({
               </button>
             )
           ) : null}
+          {/* Storno mindig az UTOLSÓ ikon (egységesen a Kassza/Bank fülön). */}
+          {r.stornozott
+            ? canUndoStorno && (
+                <button
+                  type="button"
+                  title="Stornó visszavonása"
+                  onClick={() => void onUndoStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                >
+                  <RotateCcw className="size-3.5" />
+                </button>
+              )
+            : canStorno && (
+                <button
+                  type="button"
+                  title="Stornózás"
+                  onClick={() => onStorno(r)}
+                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Ban className="size-3.5" />
+                </button>
+              )}
         </div>
       </td>
     </tr>

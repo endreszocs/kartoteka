@@ -69,6 +69,8 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   bankAccounts: BankAccount[]
+  /** Per-számla import: nyitáskor erre a bankszámlára áll be a wizard. */
+  defaultBankAccountId?: number | null
   /** Bevétel-kategóriák (id_befizetescel). */
   incomeCategories: Array<{ id: number; kod: string; nev: string }>
   /** Kiadás-kategóriák (id_kiadascel). */
@@ -80,6 +82,7 @@ export function BcrImportWizardDialog({
   open,
   onOpenChange,
   bankAccounts,
+  defaultBankAccountId,
   incomeCategories,
   expenseCategories,
   onImported,
@@ -125,8 +128,11 @@ export function BcrImportWizardDialog({
       setTransactions([])
       setDecisions({})
       setImportResult(null)
+    } else if (defaultBankAccountId != null) {
+      // Per-számla import: a kártyáról indított import erre a számlára áll be.
+      setSelectedBankId(defaultBankAccountId)
     }
-  }, [open])
+  }, [open, defaultBankAccountId])
 
   async function handleParse() {
     if (!file) {

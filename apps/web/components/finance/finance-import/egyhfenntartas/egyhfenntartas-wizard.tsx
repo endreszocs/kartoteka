@@ -21,6 +21,7 @@ import {
   type ExecuteImportItem,
 } from '@/app/(dashboard)/penzugy/egyhfenntartas-import-actions'
 
+import { WizardSteps } from '../steps/wizard-steps'
 import { WelcomeStep } from './steps/welcome-step'
 import { MatchStep } from './steps/match-step'
 import { ImportingStep } from './steps/importing-step'
@@ -62,14 +63,8 @@ export function EgyhfenntartasImportWizard() {
         return
       }
       setPreview(res.data)
-      // B1: a szerver által javasolt „1×/év" auto-elosztást előre kiválasztjuk
-      const seeded: Record<string, number> = {}
-      for (const m of res.data.matched) {
-        if (m.szemely.autoDistributed && m.szemely.suggestedSzemelyId) {
-          seeded[m.clientKey] = m.szemely.suggestedSzemelyId
-        }
-      }
-      if (Object.keys(seeded).length > 0) setManualSelections((prev) => ({ ...seeded, ...prev }))
+      // Nincs auto-előválasztás: a több-jelöltes (bizonytalan) sorokat a felhasználó
+      // kézzel dönti el a párosító UI-ban (a rendszer nem tippel).
       setStage('match')
       // Ha a fájl-detektált év eltér a felhasználó által megadottól, jelezzünk
       if (
@@ -144,8 +139,13 @@ export function EgyhfenntartasImportWizard() {
     setImportResult(null)
   }, [])
 
+  const currentStep: 1 | 2 | 3 =
+    stage === 'welcome' ? 1 : stage === 'result' ? 3 : 2
+
   return (
-    <div className="card-raised">
+    <div className="space-y-5">
+      <WizardSteps current={currentStep} />
+      <div className="card-raised">
       {stage === 'welcome' && (
         <WelcomeStep
           xlsxFile={xlsxFile}
@@ -185,6 +185,7 @@ export function EgyhfenntartasImportWizard() {
           onNewImport={handleReset}
         />
       )}
+      </div>
     </div>
   )
 }

@@ -141,7 +141,7 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
     .eq('ev', year)
     .eq('deleted', false)
     .order('sorszam', { ascending: true })
-  return ((data || []) as Record<string, unknown>[]).map((r) => {
+  const saved: DecontReprintOption[] = ((data || []) as Record<string, unknown>[]).map((r) => {
     const tetelek = Array.isArray(r.tetelek) ? (r.tetelek as Record<string, unknown>[]) : []
     const datum = String(r.datum).slice(0, 10)
     return {
@@ -165,6 +165,48 @@ export async function listDecontReprint(year: number): Promise<DecontReprintOpti
       },
     }
   })
+
+  // IMPORTÁLT decont-típusú tételek (irattípus „decont…") — külön decont rekord nélkül,
+  // egy 1-soros elszámolásként megjelenítve/újranyomtatva.
+  const { data: kiaDec } = await ctx.supabase
+    .from('kiadas')
+    .select('id, datum, osszeg, iratszam, atvevo, megjegyzes')
+    .eq('congregation_id', ctx.scopeId)
+    .eq('deleted', false)
+    .ilike('irattipus', '%decont%')
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+    .order('datum', { ascending: true })
+  const imported: DecontReprintOption[] = ((kiaDec || []) as Record<string, unknown>[]).map((r) => {
+    const datum = String(r.datum).slice(0, 10)
+    const name = String(r.atvevo || '—')
+    const sorszam = Number(String(r.iratszam || '').replace(/\D/g, '')) || 0
+    const explanation = String(r.megjegyzes || '')
+    return {
+      id: `imp-k-${r.id}`,
+      label: `#${sorszam || '—'} · ${datum} · ${name} · importált`,
+      data: {
+        sorszam,
+        date: datum,
+        personName: name,
+        jelleg: '',
+        approvedBy: '',
+        advance: 0,
+        items: [
+          {
+            actNr: String(r.iratszam || ''),
+            actType: 'Decont',
+            actDate: datum,
+            issuer: name,
+            explanation,
+            amount: Number(r.osszeg) || 0,
+          },
+        ],
+      },
+    }
+  })
+
+  return [...saved, ...imported]
 }
 
 export async function saveDecont(input: SaveDecontInput): Promise<
@@ -247,7 +289,6 @@ export async function saveDecont(input: SaveDecontInput): Promise<
       osszeg: Number(r.amount) || 0,
       datum: input.date,
       id_kiadascel: r.id_kiadascel || input.defaultCategoryId,
-      kedvezmenyzett: r.issuer || null,
       iratszam: docNum,
       irattipus: 'Készpénz',
       megjegyzes: `Decont #${sorszam}/${year} — ${r.explanation || ''}`.trim(),

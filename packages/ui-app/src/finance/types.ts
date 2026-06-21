@@ -318,6 +318,8 @@ export interface BefitetesRow {
   fizetettev: number | null
   megjegyzes: string | null
   belso_mozgas_xkey: string | null
+  /** Bankszámla azonosító: NULL = kassza (készpénz), kitöltve = banki tétel. */
+  bankszamla_id: number | null
   deleted: boolean
   /** Stornózott tételek: a listában maradnak, de a számításokból kimaradnak. */
   stornozott?: boolean
@@ -371,6 +373,8 @@ export interface KiadasRow {
   irattipus: string | null
   megjegyzes: string | null
   belso_mozgas_xkey: string | null
+  /** Bankszámla azonosító: NULL = kassza (készpénz), kitöltve = banki tétel. */
+  bankszamla_id: number | null
   deleted: boolean
   /** Stornózott tételek: a listában maradnak, de a számításokból kimaradnak. */
   stornozott?: boolean
@@ -392,6 +396,7 @@ export type FinancePrintType =
   | 'registru_casa'
   | 'registru_banca'
   | 'registru_jurnal'
+  | 'csoport_naplo'
   | 'nyugtatomb_kimutatas'
   | 'kiadasi_kiseroiv'
   | 'decont_reprint'

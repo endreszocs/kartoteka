@@ -50,8 +50,12 @@ export const saveIncomeInputSchema = z
     /** Forrás rövid szöveges leírása (pl. "Kézi rögzítés", "perselypénz", "bank"). */
     forrasa: z.string().trim().max(100).nullable().optional(),
 
-    /** Iratszám — ha üres, a use-case `getNextReceiptNumberUseCase`-sel tölt automatikusan. */
+    /** Iratszám — ha üres, a use-case `getNextReceiptNumberUseCase`-sel tölt automatikusan.
+     *  #3 (Endre): ez a KERÜLETI (nyomdai) szám — a kerülettől kapott szám. */
     iratszam: z.string().trim().max(50).nullable().optional(),
+
+    /** #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett). */
+    nyugta: z.string().trim().max(50).nullable().optional(),
 
     /** Irat-típus (Készpénz vagy Banki) — a meglévő web-konvenció. */
     irattipus: z.enum(RECEIPT_TYPES),
