@@ -45,6 +45,13 @@ import {
 
 import { errorMessage } from '../lib/error'
 import { enqueueEntryExcelRow } from '../lib/excel-enqueue'
+import {
+  nextReceiptNumbersOnline,
+  searchFamiliesOnline,
+  familyMembersOnline,
+  familyMembersForPersonOnline,
+  expectedJarulekOnline,
+} from '../lib/finance-entry-lookups'
 import { getDesktopSupabase } from '../lib/supabase'
 import { getTauriSqliteBackend } from '../lib/tauri-sqlite-backend'
 import { isOnlineWithSession } from '../lib/use-session-online'
@@ -264,6 +271,13 @@ export function DesktopCombinedEntryDialog({
                 name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
               }))
             }}
+            // 2026-06-21: ONLINE lekérdezések (a desktop offline ezekre üres/null-t ad → nincs auto-kitöltés).
+            // A járulék-számítás magja KÖZÖS a webbel (computeJarulekForMemberYear) → az összeg sosem tér el.
+            onSearchFamilies={async (query) => await searchFamiliesOnline(congregationId, query)}
+            onGetFamilyMembers={async (familyId) => await familyMembersOnline(congregationId, familyId)}
+            onGetFamilyMembersForPerson={async (personId) => await familyMembersForPersonOnline(congregationId, personId)}
+            onGetNextReceiptNumbers={async (year) => await nextReceiptNumbersOnline(congregationId, year)}
+            onGetExpectedJarulek={async (personId, year) => await expectedJarulekOnline(congregationId, personId, year)}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
             onSaveInternalTransfer={handleInternalTransfer}

@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Desktop: a Tétel rögzítő okosításai online elérhetők
+<!-- key: 2026-06-21-desktop-tetel-bekotes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: desktop (következő kiadás) -->
+
+### ✨ Új funkció (asztali app)
+
+- **A Tétel rögzítő kényelmi funkciói az asztali appban is működnek — online.** A **Chitanță auto-
+  számozás** (utolsó + 1, új-évi kérdés), a **család keresése/csatolása** (okos: kiválasztott személynél
+  azonnal az ő családja), és az **egyházfenntartói járulék auto-összeg** mostantól a desktopon is elérhető.
+  A **járulék-számítás magja közös a webbel**, így az összeg **soha nem tér el** a webtől / a Tartozások-
+  listától. **Offline** ezek a (Supabase-adatot igénylő) funkciók kimaradnak — a rögzítés/mentés
+  (készpénz a tárcából, kiadás) változatlanul működik offline is.
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: egyházfenntartói járulék automatikus összeg
 <!-- key: 2026-06-21-jarulek-auto-osszeg -->
 <!-- category: feature -->
