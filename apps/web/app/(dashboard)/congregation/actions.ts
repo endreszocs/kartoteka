@@ -68,7 +68,7 @@ const bankAccountSchema = z.object({
 const feeDiscountSchema = z.object({
   id: z.string().uuid().optional(),
   ev: z.number().int().min(2000).max(2100),
-  tipus: z.enum(['idoszak', 'kor', 'jovedelem']),
+  tipus: z.enum(['idoszak', 'kor', 'jovedelem', 'foglalkozas']),
   sorrend: z.number().int().min(0).default(0),
   aktiv: z.boolean().default(true),
   kezdet: z.string().regex(/^\d{2}-\d{2}$/).optional().or(z.literal('')),
@@ -860,8 +860,16 @@ export async function saveCongregationFeeDiscount(
       parsed.data.tipus === 'kor' || parsed.data.tipus === 'jovedelem'
         ? parsed.data.szazalek ?? null
         : null,
-    fix_osszeg: parsed.data.tipus === 'jovedelem' ? parsed.data.fixOsszeg ?? null : null,
-    jov_leiras: parsed.data.tipus === 'jovedelem' ? parsed.data.jovLeiras?.trim() || null : null,
+    // fix összeg: szociális (jovedelem) VAGY foglalkozás-alapú (a fizetendő összeg; 0 = mentesül)
+    fix_osszeg:
+      parsed.data.tipus === 'jovedelem' || parsed.data.tipus === 'foglalkozas'
+        ? parsed.data.fixOsszeg ?? null
+        : null,
+    // jov_leiras: szociális → szabad szöveg; foglalkozás → vesszős kulcsszavak (a tag foglalkozás-mezőjéhez)
+    jov_leiras:
+      parsed.data.tipus === 'jovedelem' || parsed.data.tipus === 'foglalkozas'
+        ? parsed.data.jovLeiras?.trim() || null
+        : null,
   }
 
   const result = await supabase
