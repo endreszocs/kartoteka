@@ -277,7 +277,7 @@ export function DesktopCombinedEntryDialog({
             onGetFamilyMembers={async (familyId) => await familyMembersOnline(congregationId, familyId)}
             onGetFamilyMembersForPerson={async (personId) => await familyMembersForPersonOnline(congregationId, personId)}
             onGetNextReceiptNumbers={async (year) => await nextReceiptNumbersOnline(congregationId, year)}
-            onGetExpectedJarulek={async (personId, year) => await expectedJarulekOnline(congregationId, personId, year)}
+            onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await expectedJarulekOnline(congregationId, personId, year, prospectiveDateIso)}
             onSaveIncomeBatch={handleIncomeBatch}
             onSaveExpenseBatch={handleExpenseBatch}
             onSaveInternalTransfer={handleInternalTransfer}

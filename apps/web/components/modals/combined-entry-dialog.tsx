@@ -101,7 +101,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             onSearchFamilies={async (query) => await searchFamilies(query)}
             onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}
             onGetFamilyMembersForPerson={async (personId) => await getFamilyMembersForPerson(personId)}
-            onGetExpectedJarulek={async (personId, year) => await getExpectedJarulek(personId, year)}
+            onGetExpectedJarulek={async (personId, year, prospectiveDateIso) => await getExpectedJarulek(personId, year, prospectiveDateIso)}
             onGetNextReceiptNumbers={async (year) => await getNextReceiptNumbers(year)}
             onCheckReceiptDuplicate={async (iratszam) => await checkReceiptDuplicate(iratszam)}
             onGetLastRecordedDate={async () => await getLastRecordedDate()}
