@@ -386,8 +386,16 @@ export function CombinedEntryBody({
         const add = additions.filter((a) => a.id == null || !existing.has(a.id))
         if (!add.length) return { ...r, partner: '' }
         const evreDefault = curPeople[0]?.evre || r.evre || String(currentYear)
-        const newPeople = [...curPeople, ...add.map((a) => ({ id: a.id, name: a.name, osszeg: '', evre: evreDefault }))]
-        return { ...r, people: newPeople, partner: '' }
+        // BLOCKER-fix: 0 befizetőről indulva a fő Összeg mezőbe MÁR beírt érték (r.amount) NE
+        // vesszen el a tag-választáskor — az ELSŐ új befizetőre visszük át, és ürítjük a fősor
+        // amount-ját (a UI ezután a people[0].osszeg-et / a summát mutatja). A sorrend (előbb
+        // összeg, utána tag) így sem okoz csendes adatvesztést.
+        const seed = curPeople.length === 0 ? (r.amount.trim() || '') : ''
+        const newPeople = [
+          ...curPeople,
+          ...add.map((a, i) => ({ id: a.id, name: a.name, osszeg: i === 0 ? seed : '', evre: evreDefault })),
+        ]
+        return { ...r, people: newPeople, partner: '', ...(curPeople.length === 0 ? { amount: '' } : {}) }
       }),
     )
   }
@@ -399,7 +407,21 @@ export function CombinedEntryBody({
   }
   /** Egy befizető törlése az almenüből. */
   function removePayer(rowId: string, idx: number) {
-    setRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: (r.people ?? []).filter((_, i) => i !== idx) } : r)))
+    setRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const removed = (r.people ?? [])[idx]
+        const people = (r.people ?? []).filter((_, i) => i !== idx)
+        // BLOCKER-fix (visszafelé): ha az UTOLSÓ befizetőt is töröljük (0-ra esik), a hozzá tartozó
+        // összeg/év NE vesszen el — visszaírjuk a fősor mezőibe (a UI ezután a klasszikus
+        // szabad-szöveges sort mutatja). 2→1 esetén nincs teendő: a maradt people[0].osszeg-et az
+        // amountOf accessor úgyis a fő mezőben mutatja.
+        if (people.length === 0 && removed) {
+          return { ...r, people, amount: removed.osszeg || r.amount, evre: removed.evre || r.evre }
+        }
+        return { ...r, people }
+      }),
+    )
   }
 
   // #4: a fősor Összeg/Év mezője 0 vagy 1 befizetőnél a megfelelő forrást szerkeszti
@@ -592,7 +614,9 @@ export function CombinedEntryBody({
         validPayers.forEach((p, i) => {
           incomeBatch.push({
             datum, id_befizetescel: Number(r.categoryId),
-            forrasa: p.name.trim() || r.partner.trim() || null,
+            // minor-fix: NE az árva keresőpuffert (r.partner) használjuk fallbacknek — az egy
+            // másik, be nem véglegesített gépelés lehet; csak a befizető saját neve vagy null.
+            forrasa: p.name.trim() || null,
             osszeg: Number(p.osszeg),
             iratszam: base ? (multi ? `${base}/${i + 1}` : base) : null,
             irattipus: 'Készpénz',
