@@ -954,7 +954,19 @@ export async function initFinance(year: number) {
   }>).filter((payment) => isChurchMaintenanceCode(getPaymentGoalCode(payment.befizetescel)))
 
   const exemptions = (exemptionsRes.data || []) as JarulekExemption[]
-  const discounts = ((discountsRes.data || []) as JarulekDiscountRule[]).map((row) => ({
+  // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés HIBÁZOTT, újrapróbáljuk
+  // `kezdet` nélkül — különben a SELECT némán [] -t adna, és az ÖSSZES mentett kedvezmény kiesne
+  // a Tartozás-listáról (a „van mentett adat, mégsem alkalmazza" tünet). A kezdet ekkor null (nyitott ablak).
+  // Bit-azonos a getExpectedJarulek (Tétel-rögzítő auto-összeg) ellenállóságával — commit 535c33fc.
+  let discData: Array<Record<string, unknown>> | null = discountsRes.data as Array<Record<string, unknown>> | null
+  if (discountsRes.error) {
+    const retry = await supabase.from('jarulek_kedvezmeny')
+      .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+      .eq('congregation_id', congregationId).eq('aktiv', true)
+    if (retry.error) console.warn('[initFinance] jarulek_kedvezmeny retry (kezdet nélkül) is hibázott — a kedvezmények kimaradnak:', retry.error.message)
+    discData = retry.data as Array<Record<string, unknown>> | null
+  }
+  const discounts = ((discData || []) as unknown as JarulekDiscountRule[]).map((row) => ({
     ...row,
     ev: Number(row.ev),
     aktiv: row.aktiv !== false,
@@ -1976,6 +1988,7 @@ export async function getExpectedJarulek(
     const retry = await supabase.from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
       .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year)
+    if (retry.error) console.warn('[getExpectedJarulek] jarulek_kedvezmeny retry (kezdet nélkül) is hibázott — a kedvezmények kimaradnak:', retry.error.message)
     discData = retry.data as Array<Record<string, unknown>> | null
   }
   const discounts = ((discData || []) as unknown as JarulekDiscountRule[]).map((row) => ({

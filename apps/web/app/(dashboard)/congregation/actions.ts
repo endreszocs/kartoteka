@@ -862,6 +862,23 @@ export async function saveCongregationFeeDiscount(
       }
     }
 
+    // Ellenálló a `kezdet` oszlop hiányára (régi séma): CSAK ha pont a hiányzó oszlop a hiba,
+    // próbáljuk újra nélküle — így genuine hibát (RLS, constraint) NEM nyelünk el, és UPDATE-útnál
+    // nem hagyunk bent elavult kezdet-értéket (a törölt kulcsot a Supabase nem írná felül). Így a
+    // kedvezmény (nyitott időablakkal) elmenthető nyers Postgres-hiba nélkül; a `kezdet` oszlop
+    // pótlása a végleges megoldás.
+    if (isMissingColumnError(result.error)) {
+      const recordWithoutKezdet = { ...record } as Record<string, unknown>
+      delete recordWithoutKezdet.kezdet
+      const retry = await supabase
+        .from('jarulek_kedvezmeny')
+        .upsert(recordWithoutKezdet, { onConflict: 'id' })
+      if (!retry.error) {
+        revalidatePath('/', 'layout')
+        return { success: 'A kedvezmény sikeresen elmentve.' }
+      }
+    }
+
     return { error: result.error.message }
   }
 

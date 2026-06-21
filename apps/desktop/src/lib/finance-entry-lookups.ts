@@ -271,6 +271,7 @@ export async function expectedJarulekOnline(
     const retry = await supabase.from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
       .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year)
+    if (retry.error) console.warn('[expectedJarulekOnline] jarulek_kedvezmeny retry (kezdet nélkül) is hibázott — a kedvezmények kimaradnak:', retry.error.message)
     discData = retry.data as Array<Record<string, unknown>> | null
   }
   const discounts = ((discData || []) as unknown as JarulekDiscountRule[]).map((row) => ({
