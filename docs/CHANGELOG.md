@@ -23,20 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-06-21] — Tétel rögzítése: több befizető egy nyugtára (chipekkel)
-<!-- key: 2026-06-21-tetel-tobb-befizeto-chip -->
+## [2026-06-21] — Tétel rögzítése: több befizető egy nyugtára (lenyitható almenüvel)
+<!-- key: 2026-06-21-tetel-tobb-befizeto-almenu -->
 <!-- category: feature -->
 <!-- targets: lelkesz, gondnok, penztaros -->
 <!-- version: web (következő kiadás) -->
 
 ### ✨ Új funkció
 
-- **Több személy egy nyugtára — a Befizető mezőn belül, egymás mellett.** Mostantól a befizetőnél
-  **több személyt is kiválaszthatsz** a tagnyilvántartásból (a korábbi „egy után nem enged többet"
-  hiba megszűnt) — a kiválasztottak **chipekként** jelennek meg egymás mellett a mezőben. A
-  **„Család keresése"** gomb a család tagjait **ugyanígy a mezőbe teszi** (chipek). Amikor kész vagy,
-  a **„✂ Felbontás N külön sorra"** gomb minden taghoz **külön sort** készít egy **közös
-  nyugtaszámon**, és tagonként beírod az összeget a táblázatban. Egy chip az × gombbal eltávolítható.
+- **Egy nyugta, több befizető — soronkénti lenyitható almenüvel.** A bevétel-sor **maga a nyugta**
+  (közös nyugtaszám, irattípus, jogcím). Ha **több befizető** van ugyanazon a nyugtán, a sor egy
+  **lenyitható almenüt** kap (▸/▾): az almenüben minden befizető **külön sorban** szerepel, **saját
+  névvel, saját összeggel és saját évvel** — soha nem jut egy összeg két emberre. A fő sor összege a
+  befizetők összegeinek **automatikus summája** (nem írható felül). A **„Család csatolása"** gomb a
+  kiválasztott személy családtagjait az almenübe teszi; az **„+ Üres befizető-sor"** és a **tag-kereső**
+  további befizetőket ad hozzá. **Mentéskor** minden befizetőből **külön tétel** lesz, **közös
+  nyugtaszámon** (a kerületi szám `/1`, `/2`… utótaggal, ahol kell). Egy befizető → a megszokott
+  egyszerű sor (a fő Összeg/Év mezővel), nincs felesleges kattintás. *(A korábbi chipes „Felbontás"
+  megoldást ez váltja le.)*
 
 ---
 
