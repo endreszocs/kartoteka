@@ -364,17 +364,25 @@ export function CombinedEntryBody({
         const rowId = row.id
         const payerUid = p.uid
         const payerId = p.id
+        const payerName = p.name
         void onGetExpectedJarulek(payerId, year)
           .then((res) => {
-            if (!res || !(res.debt > 0)) return // felmentett/rendezve → nem írunk 0-t
+            if (!res) return
             if (jarulekReqRef.current.get(payerUid) !== reqKey) return // közben változott a tag/év
-            const amount = String(res.debt)
-            setIncomeRows((cur) => cur.map((r) => (r.id !== rowId ? r : {
-              ...r,
-              people: (r.people ?? []).map((q) =>
-                q.uid === payerUid && q.id === payerId && (q.osszeg ?? '').trim() === '' ? { ...q, osszeg: amount } : q,
-              ),
-            })))
+            if (res.debt > 0) {
+              const amount = String(res.debt)
+              setIncomeRows((cur) => cur.map((r) => (r.id !== rowId ? r : {
+                ...r,
+                people: (r.people ?? []).map((q) =>
+                  q.uid === payerUid && q.id === payerId && (q.osszeg ?? '').trim() === '' ? { ...q, osszeg: amount } : q,
+                ),
+              })))
+            } else {
+              // M3: rendezve / felmentett → NEM írunk 0-t, de jelezzük (különben néma a mező).
+              onToast('success', res.expected <= 0
+                ? `${payerName || 'A tag'}: erre az évre (${year}) felmentett — nincs járulék.`
+                : `${payerName || 'A tag'}: a ${year}. évi járulék már rendezve (nincs hátralék).`)
+            }
           })
           .catch(() => { /* hálózat nélkül nincs auto-kitöltés */ })
       }
