@@ -265,7 +265,15 @@ export async function expectedJarulekOnline(
       jarulek_hatarid: b.jarulek_hatarid || null,
     }
   }
-  const discounts = ((discRes.data || []) as JarulekDiscountRule[]).map((row) => ({
+  // Ellenálló a `kezdet` oszlop hiányára (web-azonos): ha a lekérdezés hibázott, újra `kezdet` nélkül.
+  let discData: Array<Record<string, unknown>> | null = discRes.data as Array<Record<string, unknown>> | null
+  if (discRes.error) {
+    const retry = await supabase.from('jarulek_kedvezmeny')
+      .select('id, ev, tipus, aktiv, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
+      .eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year)
+    discData = retry.data as Array<Record<string, unknown>> | null
+  }
+  const discounts = ((discData || []) as unknown as JarulekDiscountRule[]).map((row) => ({
     ...row,
     ev: Number(row.ev),
     aktiv: row.aktiv !== false,
