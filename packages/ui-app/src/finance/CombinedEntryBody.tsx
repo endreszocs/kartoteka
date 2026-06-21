@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, Search } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { SearchableSelect } from './SearchableSelect'
@@ -1122,81 +1122,13 @@ function PartnerCell({
   updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string }>) => void
   removePayer: (rowId: string, idx: number) => void
 }) {
-  const [hits, setHits] = useState<CombinedMemberHit[]>([])
-  const [open, setOpen] = useState(false)
-  const debounceRef = useRef<number | null>(null)
-  // 2026-06-12 (Endre #2): a találati lista PORTÁLBAN, fix pozícióval nyílik —
-  // a dialógus overflow-y-auto-ja korábban levágta (a felhasználó nem látta).
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
-
-  const measure = () => {
-    const el = inputRef.current
-    // A párhuzamosan renderelt REJTETT cella (táblázat lg:block ⇄ mobil-kártya lg:hidden)
-    // inputja display:none-os ősben van → isElementVisible=false → ne nyíljon fantom legördülő.
-    // (NEM offsetParent: a Base UI dialóg transformja a látható cellán is null-t adhatna.)
-    if (!isElementVisible(el)) {
-      setDropRect(null)
-      return
-    }
-    const r = el!.getBoundingClientRect()
-    setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
-  }
-
-  useEffect(() => {
-    if (!open) return
-    measure()
-    // Görgetésre/átméretezésre újrapozicionálunk (capture: a dialóguson belüli
-    // scroll-konténerek eseményeit is elkapjuk).
-    const onMove = () => measure()
-    window.addEventListener('scroll', onMove, true)
-    window.addEventListener('resize', onMove)
-    return () => {
-      window.removeEventListener('scroll', onMove, true)
-      window.removeEventListener('resize', onMove)
-    }
-    // `hits`-re is újramérünk: ha a dialóg-animáció miatt a mérés korábban null-t adott,
-    // a találatok beérkezésekor újrapozícionálunk (különben a lista nem nyílna ki).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, hits])
-
-  // Debounce-os keresés gépeléskor (csak kereső-módban, kiválasztás előtt).
-  // Bevételnél tag-keresés (onSearchMembers), kiadásnál korábbi-partner autocomplete
-  // (onSearchExpense → névlista, amit a közös találat-formára képezünk).
-  useEffect(() => {
-    if (!searchable) return
-    const q = row.partner.trim()
-    if (q.length < 2) {
-      setHits([])
-      setOpen(false)
-      return
-    }
-    if (debounceRef.current) window.clearTimeout(debounceRef.current)
-    debounceRef.current = window.setTimeout(() => {
-      // Csak a TÉNYLEGESEN látható cella keressen — a rejtett (másik breakpoint) ne.
-      // (isElementVisible, NEM offsetParent — lásd a helper kommentjét.)
-      if (!isElementVisible(inputRef.current)) return
-      const p: Promise<CombinedMemberHit[]> =
-        mode === 'income'
-          ? (onSearchMembers ? onSearchMembers(q) : Promise.resolve([]))
-          : onSearchExpense
-            ? onSearchExpense(q).then((names) => names.map((n, i) => ({ id: -1 - i, name: n })))
-            : Promise.resolve([])
-      void p
-        .then((res) => {
-          setHits(res.slice(0, 8))
-          setOpen(res.length > 0)
-        })
-        .catch(() => {
-          setHits([])
-          setOpen(false)
-        })
-    }, 300)
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.partner, searchable, mode])
+  // mode szerinti kereső-függvény: bevétel → tag-keresés; kiadás → korábbi partnerek (névlista).
+  const searchFn = (query: string): Promise<CombinedMemberHit[]> =>
+    mode === 'income'
+      ? (onSearchMembers ? onSearchMembers(query) : Promise.resolve([]))
+      : onSearchExpense
+        ? onSearchExpense(query).then((names) => names.map((n, i) => ({ id: -1 - i, name: n })))
+        : Promise.resolve([])
 
   if (!searchable) {
     return (
@@ -1208,16 +1140,273 @@ function PartnerCell({
     )
   }
 
-  // #4 (Endre, 2026-06-21): EGY nyugta — több befizető, lenyitható ALMENÜvel. 0 befizető → klasszikus
-  // mező; 1 → egy chip (a fősor összeg/év az ő mezője); 2+ → lenyitható almenü, befizetőnként
-  // saját NÉV + ÖSSZEG + ÉV, és a fősor összege read-only summa.
+  // #4 (Endre, 2026-06-21): EGY nyugta — több befizető. Minden befizető NEVE maga a kereső-mező
+  // (ahová a nevet írod, ott keres és illeszt be — NINCS külön kereső-sor). 0/1 befizető → egy mező;
+  // 2+ → lenyitható almenü, befizetőnként saját név(kereső) + összeg + év; a fősor összeg read-only summa.
   const people = row.people || []
   const subId = `payers-${row.id}`
   const sum = people.reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
+  const isMulti = mode === 'income' && people.length >= 2
 
-  const dropdown =
-    open && hits.length > 0 && dropRect && typeof document !== 'undefined'
-      ? createPortal(
+  // ── Üres / egyszemélyes / kiadás: a befizető NEVE maga a kereső-mező ────────
+  if (!isMulti) {
+    const single = mode === 'income' && people.length === 1 ? people[0] : null
+    return (
+      <div className="relative space-y-1.5">
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <PayerNameSearch
+              value={single ? single.name : row.partner}
+              linked={!!single && single.id != null}
+              onSearch={searchFn}
+              placeholder={
+                mode === 'income'
+                  ? 'Befizető neve — itt keres a tagok közt (vagy szabad szöveg)'
+                  : 'Cég/személy — itt keres a korábbiak közt (vagy szabad szöveg)'
+              }
+              onType={(t) => {
+                if (single) updatePayer(row.id, 0, { name: t, id: null })
+                else updateRow(row.id, { partner: t })
+              }}
+              onPick={(h) => {
+                if (mode === 'expense') updateRow(row.id, { partner: h.name })
+                else if (single) updatePayer(row.id, 0, { id: h.id, name: h.name })
+                else appendPayers(row.id, [{ id: h.id, name: h.name }])
+              }}
+            />
+          </div>
+          {single && (
+            <button
+              type="button"
+              aria-label="Befizető leválasztása"
+              title="Befizető leválasztása"
+              className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+              onClick={() => removePayer(row.id, 0)}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
+        </div>
+        {mode === 'income' && (onOpenFamily || people.length >= 1) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            {onOpenFamily && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onOpenFamily}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+                title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
+              >
+                <Users className="size-3" /> Család csatolása
+              </button>
+            )}
+            {people.length >= 1 && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => addEmptyPayer(row.id)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+                title="Még egy befizető ugyanarra a nyugtára (lenyitható almenü, tagonként összeg)"
+              >
+                <Plus className="size-3" /> Még egy befizető
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Többfizetős (2+): kártyás lenyitható almenü — minden sor NEVE maga a kereső ─────
+  const preview =
+    people.slice(0, 2).map((p) => p.name || '—').join(', ') + (people.length > 2 ? ` +${people.length - 2}` : '')
+  const missing = people.some((p) => !(Number(p.osszeg) > 0))
+  return (
+    <div className="relative space-y-1.5">
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={expanded}
+        aria-controls={subId}
+        className="flex w-full items-center gap-2 rounded-lg border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50/60 px-2.5 py-1.5 text-left text-xs shadow-sm transition hover:from-emerald-100"
+      >
+        <ChevronRight className={`size-4 shrink-0 text-emerald-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <Users className="size-3.5 shrink-0 text-emerald-600" />
+        <span className="shrink-0 font-semibold text-emerald-900">{people.length} befizető</span>
+        <span className="truncate text-emerald-700/60">{preview}</span>
+        <span className="ml-auto shrink-0 font-semibold tabular-nums text-emerald-900">{formatRon(sum)} RON</span>
+      </button>
+      {expanded && (
+        <div id={subId} className="overflow-visible rounded-lg border border-emerald-200 bg-white shadow-sm">
+          <div className="grid grid-cols-[1fr_6rem_4.5rem_2rem] gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
+            <span>Befizető (név = keresés)</span>
+            <span className="text-right">Összeg</span>
+            <span className="text-center">Év</span>
+            <span></span>
+          </div>
+          {people.map((p, i) => {
+            const zero = !(Number(p.osszeg) > 0)
+            return (
+              <div
+                key={`${p.id ?? 'free'}-${i}`}
+                className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2 border-b border-slate-50 px-2.5 py-1 last:border-b-0"
+              >
+                <PayerNameSearch
+                  value={p.name}
+                  linked={p.id != null}
+                  onSearch={searchFn}
+                  placeholder="Név — itt keres"
+                  onType={(t) => updatePayer(row.id, i, { name: t, id: null })}
+                  onPick={(h) => updatePayer(row.id, i, { id: h.id, name: h.name })}
+                />
+                <input
+                  className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={p.osszeg}
+                  placeholder="0"
+                  onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
+                />
+                <input
+                  className={inputClass + ' h-8 px-1 text-center'}
+                  type="number"
+                  inputMode="numeric"
+                  value={p.evre}
+                  onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
+                />
+                <button
+                  type="button"
+                  aria-label="Befizető törlése"
+                  className="flex h-8 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                  onClick={() => removePayer(row.id, i)}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            )
+          })}
+          <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-2.5 py-1.5">
+            <span className="text-[11px] text-slate-400">{people.length} befizető — egy nyugta</span>
+            <span
+              className={`text-xs font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
+              title={missing ? 'Van befizető összeg nélkül — az nem mentődik' : undefined}
+            >
+              Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
+            </span>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => addEmptyPayer(row.id)}
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+        >
+          <Plus className="size-3" /> Még egy befizető
+        </button>
+        {onOpenFamily && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onOpenFamily}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+          >
+            <Users className="size-3" /> Család csatolása
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// PayerNameSearch — egyetlen befizető NEVE = kereső-mező.
+//
+// Ahová a felhasználó a nevet írja, ott azonnal keres a tagnyilvántartásban (debounce),
+// és a találatból választva BEILLESZTI (linkeli) a tagot — nincs külön kereső-sor. A saját
+// portál-dropdownja a `position:fixed` + getBoundingClientRect-tel a dialóg overflow-ján is
+// kilátszik; a rejtett breakpoint (táblázat⇄mobil) inputját az isElementVisible kiszűri.
+// `linked` = regisztrált tag van hozzárendelve (id != null) → zöld jelölés + nem keres tovább.
+// ─────────────────────────────────────────────────────────────────────────
+function PayerNameSearch({
+  value,
+  linked,
+  onType,
+  onPick,
+  onSearch,
+  placeholder,
+}: {
+  value: string
+  linked: boolean
+  onType: (text: string) => void
+  onPick: (hit: CombinedMemberHit) => void
+  onSearch: (query: string) => Promise<CombinedMemberHit[]>
+  placeholder: string
+}) {
+  const [hits, setHits] = useState<CombinedMemberHit[]>([])
+  const [open, setOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
+
+  const measure = () => {
+    const el = inputRef.current
+    if (!isElementVisible(el)) { setDropRect(null); return }
+    const r = el!.getBoundingClientRect()
+    setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    measure()
+    const onMove = () => measure()
+    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('resize', onMove)
+    return () => {
+      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('resize', onMove)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hits])
+
+  // Keresés gépeléskor — kiválasztott (linked) tagnál NEM keresünk (az már beillesztve).
+  useEffect(() => {
+    if (linked) { setHits([]); setOpen(false); return }
+    const q = value.trim()
+    if (q.length < 2) { setHits([]); setOpen(false); return }
+    if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    debounceRef.current = window.setTimeout(() => {
+      if (!isElementVisible(inputRef.current)) return // rejtett breakpoint ne keressen
+      void onSearch(q)
+        .then((res) => { setHits(res.slice(0, 8)); setOpen(res.length > 0) })
+        .catch(() => { setHits([]); setOpen(false) })
+    }, 300)
+    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, linked])
+
+  return (
+    <div className="relative flex items-center gap-1.5">
+      {linked && (
+        <span
+          className="inline-block size-2 shrink-0 rounded-full bg-emerald-500"
+          title="Regisztrált tag hozzárendelve"
+        />
+      )}
+      <input
+        ref={inputRef}
+        className={inputClass + ' h-8' + (linked ? ' border-emerald-300 bg-emerald-50/50 font-medium text-emerald-900' : '')}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onType(e.target.value)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onFocus={() => hits.length > 0 && setOpen(true)}
+      />
+      {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
+        createPortal(
           <div
             className="fixed z-[200] max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl"
             style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 260) }}
@@ -1228,14 +1417,7 @@ function PartnerCell({
                 type="button"
                 className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  // Bevételnél a kiválasztott tagot a sor befizető-almenüjéhez fűzzük (a buffer
-                  // ürül, dedup id szerint); kiadásnál sima szöveg (egy partner).
-                  if (mode === 'income') appendPayers(row.id, [{ id: h.id, name: h.name }])
-                  else updateRow(row.id, { partner: h.name })
-                  setHits([])
-                  setOpen(false)
-                }}
+                onClick={() => { onPick(h); setHits([]); setOpen(false) }}
               >
                 <div className="text-sm font-medium text-slate-800">{h.name}</div>
                 {h.detail && <div className="text-[11px] text-slate-400">{h.detail}</div>}
@@ -1243,172 +1425,7 @@ function PartnerCell({
             ))}
           </div>,
           document.body,
-        )
-      : null
-
-  // ── Egységes render ───────────────────────────────────────────────────────
-  // A kereső-mező STABIL pozícióban van (mindig ugyanaz a React-elem, key="payer-search") →
-  // a single↔multi váltáskor SEM mountol újra, így a kereső megbízhatóan működik (ez volt a hiba).
-  // Felette: többfizetős (2+) → kártyás lenyitható almenü; egyszemélyes (1) → chip.
-  const isMulti = mode === 'income' && people.length >= 2
-  const isSingle = mode === 'income' && people.length === 1
-  const preview =
-    people.slice(0, 2).map((p) => p.name || '—').join(', ') + (people.length > 2 ? ` +${people.length - 2}` : '')
-  const missing = people.some((p) => !(Number(p.osszeg) > 0))
-
-  return (
-    <div className="relative space-y-1.5">
-      {/* Többfizetős: összegző fej + kártyás lenyitható almenü */}
-      {isMulti && (
-        <div key="multi" className="space-y-1">
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            aria-expanded={expanded}
-            aria-controls={subId}
-            className="flex w-full items-center gap-2 rounded-lg border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50/60 px-2.5 py-1.5 text-left text-xs shadow-sm transition hover:from-emerald-100"
-          >
-            <ChevronRight className={`size-4 shrink-0 text-emerald-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-            <Users className="size-3.5 shrink-0 text-emerald-600" />
-            <span className="shrink-0 font-semibold text-emerald-900">{people.length} befizető</span>
-            <span className="truncate text-emerald-700/60">{preview}</span>
-            <span className="ml-auto shrink-0 font-semibold tabular-nums text-emerald-900">{formatRon(sum)} RON</span>
-          </button>
-          {expanded && (
-            <div id={subId} className="overflow-hidden rounded-lg border border-emerald-200 bg-white shadow-sm">
-              <div className="grid grid-cols-[1fr_6rem_4.5rem_2rem] gap-2 border-b border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
-                <span>Befizető</span>
-                <span className="text-right">Összeg</span>
-                <span className="text-center">Év</span>
-                <span></span>
-              </div>
-              {people.map((p, i) => {
-                const zero = !(Number(p.osszeg) > 0)
-                return (
-                  <div
-                    key={`${p.id ?? 'free'}-${i}`}
-                    className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2 border-b border-slate-50 px-2.5 py-1 last:border-b-0 hover:bg-emerald-50/30"
-                  >
-                    {p.id == null ? (
-                      <input
-                        className={inputClass + ' h-8'}
-                        value={p.name}
-                        placeholder="Név (szabad szöveg)"
-                        onChange={(e) => updatePayer(row.id, i, { name: e.target.value })}
-                      />
-                    ) : (
-                      <span className="flex items-center gap-1.5 truncate text-xs font-medium text-slate-700" title={p.name}>
-                        <span className="inline-block size-1.5 shrink-0 rounded-full bg-emerald-400" />
-                        {p.name}
-                      </span>
-                    )}
-                    <input
-                      className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={p.osszeg}
-                      placeholder="0"
-                      onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
-                    />
-                    <input
-                      className={inputClass + ' h-8 px-1 text-center'}
-                      type="number"
-                      inputMode="numeric"
-                      value={p.evre}
-                      onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      aria-label="Befizető törlése"
-                      className="flex h-8 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                      onClick={() => removePayer(row.id, i)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                )
-              })}
-              <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-2.5 py-1.5">
-                <span className="text-[11px] text-slate-400">{people.length} befizető — egy nyugta</span>
-                <span
-                  className={`text-xs font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
-                  title={missing ? 'Van befizető összeg nélkül — az nem mentődik' : undefined}
-                >
-                  Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Egyszemélyes: chip */}
-      {isSingle && (
-        <div key="single" className="flex flex-wrap gap-1">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900">
-            <span className="inline-block size-1.5 rounded-full bg-emerald-400" />
-            {people[0].name || <span className="italic text-emerald-700/60">(név nélkül)</span>}
-            <button
-              type="button"
-              className="shrink-0 rounded text-emerald-700 hover:text-rose-600"
-              title="Eltávolítás"
-              onClick={() => removePayer(row.id, 0)}
-            >
-              ×
-            </button>
-          </span>
-        </div>
-      )}
-
-      {/* Kereső — STABIL pozíció (key) + kereső-ikon; ez adja hozzá a befizetőket */}
-      <div key="payer-search" className="relative">
-        <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-        <input
-          ref={inputRef}
-          className={inputClass + ' pl-8'}
-          value={row.partner}
-          placeholder={
-            mode === 'income'
-              ? people.length >= 1
-                ? 'Még egy befizető hozzáadása… (tag keresése)'
-                : 'Befizető neve — keresés a tagok közt vagy szabad szöveg'
-              : 'Cég/személy — keresés a korábbiak közt vagy szabad szöveg'
-          }
-          onChange={(e) => updateRow(row.id, { partner: e.target.value })}
-          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-          onFocus={() => hits.length > 0 && setOpen(true)}
-        />
-      </div>
-
-      {/* Műveletek: Család csatolása + Üres befizető-sor */}
-      {mode === 'income' && (onOpenFamily || people.length >= 1) && (
-        <div key="actions" className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          {onOpenFamily && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onOpenFamily}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-              title="A kiválasztott személy családtagjai a befizető-almenübe kerülnek (tagonként összeg)"
-            >
-              <Users className="size-3" /> Család csatolása
-            </button>
-          )}
-          {people.length >= 1 && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => addEmptyPayer(row.id)}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
-              title="Üres befizető-sor (szabad szöveges név) hozzáadása az almenühöz"
-            >
-              <Plus className="size-3" /> Üres befizető-sor
-            </button>
-          )}
-        </div>
-      )}
-      {dropdown}
+        )}
     </div>
   )
 }
