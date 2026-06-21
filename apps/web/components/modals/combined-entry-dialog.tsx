@@ -24,6 +24,7 @@ import {
   searchExpensePartners,
   searchFamilies,
   getFamilyMembers,
+  getFamilyMembersForPerson,
   getNextReceiptNumbers,
   checkReceiptDuplicate,
   getLastRecordedDate,
@@ -98,6 +99,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
             onSearchFamilies={async (query) => await searchFamilies(query)}
             onGetFamilyMembers={async (familyId) => await getFamilyMembers(familyId)}
+            onGetFamilyMembersForPerson={async (personId) => await getFamilyMembersForPerson(personId)}
             onGetNextReceiptNumbers={async (year) => await getNextReceiptNumbers(year)}
             onCheckReceiptDuplicate={async (iratszam) => await checkReceiptDuplicate(iratszam)}
             onGetLastRecordedDate={async () => await getLastRecordedDate()}

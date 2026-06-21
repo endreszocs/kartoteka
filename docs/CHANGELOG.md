@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-21] — Tétel rögzítése: okos „Család csatolása"
+<!-- key: 2026-06-21-okos-csalad -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Finomítás
+
+- **A „Család csatolása" mostantól okos.** Ha a befizető-mezőben **már kiválasztottál** egy tagot,
+  a gomb **annak a személynek a családját** oldja fel, és a tagokat **egy lépésben** az almenübe teszi
+  (ablak nélkül) — utána már csak az összegeket töltöd. Ha a mező **üres**, a megszokott **család-kereső
+  ablak** nyílik meg. (Ha a kiválasztott személyhez nincs rögzített család, szól, és az ablakra vált.)
+
+---
+
 ## [2026-06-21] — Tétel rögzítése: Chitanță automatikus sorszámozás + új-évi kérdés
 <!-- key: 2026-06-21-chitanta-szamozas-ujev -->
 <!-- category: fix -->

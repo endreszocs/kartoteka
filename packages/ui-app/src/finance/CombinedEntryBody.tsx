@@ -108,6 +108,12 @@ export interface CombinedEntryBodyProps {
   onSearchFamilies?: (query: string) => Promise<CombinedFamilyHit[]>
   onGetFamilyMembers?: (familyId: number) => Promise<CombinedFamilyMember[]>
   /**
+   * Okos „Család csatolása" (Endre, 2026-06-21): ha a sorban MÁR ki van választva egy regisztrált
+   * befizető, az ő családtagjait EGY lépésben az almenübe tesszük (ablak nélkül). Ha nincs megadva
+   * (vagy nincs kiválasztott személy / nincs család), a család-kereső ablakra esünk vissza.
+   */
+  onGetFamilyMembersForPerson?: (personId: number) => Promise<CombinedFamilyMember[]>
+  /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
    * nyugta). Mindkettő +1-gyel lép az utolsó nyugtához képest, hézag nélkül. Ha nincs
@@ -193,7 +199,7 @@ export function CombinedEntryBody({
   incomeCategories, expenseCategories, bankAccounts, currentYear,
   onSaveIncomeBatch, onSaveExpenseBatch, onSaveInternalTransfer, onClose, onToast,
   onSearchMembers, onSearchExpensePartners,
-  onSearchFamilies, onGetFamilyMembers, onGetNextReceiptNumbers,
+  onSearchFamilies, onGetFamilyMembers, onGetFamilyMembersForPerson, onGetNextReceiptNumbers,
   onCheckReceiptDuplicate, onGetLastRecordedDate, draftStorageKey,
 }: CombinedEntryBodyProps) {
   const [tab, setTab] = useState<'income' | 'expense'>('income')
@@ -610,6 +616,31 @@ export function CombinedEntryBody({
     onToast('success', 'Családtagok hozzáadva — töltsd ki az összegeket befizetőnként az almenüben.')
   }
 
+  // Okos „Család csatolása": ha a sorban MÁR ki van választva egy regisztrált tag, annak a
+  // CSALÁDJÁT oldjuk fel és tesszük az almenübe (ablak nélkül). Ha nincs kiválasztott tag (üres a
+  // mező) vagy nincs család, a család-kereső ABLAKra esünk vissza.
+  function handleFamilyClick(rowId: string) {
+    const r = incomeRows.find((x) => x.id === rowId)
+    const linked = r?.people?.find((p) => p.id != null)
+    if (linked?.id != null && onGetFamilyMembersForPerson) {
+      void onGetFamilyMembersForPerson(linked.id)
+        .then((members) => {
+          if (members && members.length > 0) {
+            appendPayers(rowId, members.map((m) => ({ id: m.id, name: m.name })))
+            setCollapsedPayerRows((s) => { if (!s.has(rowId)) return s; const n = new Set(s); n.delete(rowId); return n })
+            onToast('success', `${linked.name} családja az almenübe került — töltsd ki az összegeket.`)
+          } else {
+            onToast('error', 'Ehhez a személyhez nincs rögzített család — keresd ki kézzel.')
+            setFamilyPickerRowId(rowId)
+          }
+        })
+        .catch(() => setFamilyPickerRowId(rowId))
+    } else {
+      // Üres mező → a megszokott család-kereső ablak.
+      setFamilyPickerRowId(rowId)
+    }
+  }
+
   async function handleSave() {
     if (incomeValid === 0 && expenseValid === 0) {
       onToast('error', 'Legalább egy érvényes sor szükséges (összeg + kategória + dátum; belső mozgásnál bankszámla is).')
@@ -951,7 +982,7 @@ export function CombinedEntryBody({
                         onSearchExpense={onSearchExpensePartners}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
-                            ? () => setFamilyPickerRowId(r.id)
+                            ? () => handleFamilyClick(r.id)
                             : undefined
                         }
                         updateRow={updateRow}
@@ -1061,7 +1092,7 @@ export function CombinedEntryBody({
                         onSearchExpense={onSearchExpensePartners}
                         onOpenFamily={
                           tab === 'income' && onSearchFamilies && onGetFamilyMembers
-                            ? () => setFamilyPickerRowId(r.id)
+                            ? () => handleFamilyClick(r.id)
                             : undefined
                         }
                         updateRow={updateRow}

@@ -1896,6 +1896,17 @@ export async function getFamilyMembers(
   return [...members.values()]
 }
 
+// Okos „Család csatolása": egy KIVÁLASZTOTT személy (befizető) családtagjai egy lépésben.
+// A személy családját feloldjuk (getFamilyIdForPerson), majd a tagokat lekérjük (getFamilyMembers).
+// Üres / nincs család → üres lista (a hívó ilyenkor a család-kereső ablakra esik vissza).
+export async function getFamilyMembersForPerson(
+  personId: number,
+): Promise<Array<{ id: number; name: string; role?: string }>> {
+  const familyId = await getFamilyIdForPerson(personId)
+  if (familyId == null) return []
+  return getFamilyMembers(familyId)
+}
+
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────
 
 export async function checkReceiptDuplicate(iratszam: string): Promise<boolean> {
