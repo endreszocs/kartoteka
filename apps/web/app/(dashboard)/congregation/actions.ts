@@ -118,7 +118,7 @@ function normalizeFeeDiscountRow(row: Record<string, unknown>) {
   return {
     id: String(row.id),
     ev: Number(row.ev) || new Date().getFullYear(),
-    tipus: row.tipus === 'idoszak' || row.tipus === 'kor' || row.tipus === 'jovedelem' ? row.tipus : 'idoszak',
+    tipus: row.tipus === 'idoszak' || row.tipus === 'kor' || row.tipus === 'jovedelem' || row.tipus === 'foglalkozas' ? row.tipus : 'idoszak',
     sorrend: Number(row.sorrend) || 0,
     aktiv: typeof row.aktiv === 'boolean' ? row.aktiv : true,
     kezdet: typeof row.kezdet === 'string' ? row.kezdet : null,
