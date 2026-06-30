@@ -61,10 +61,12 @@ export async function nextReceiptNumbersOnline(
   const supabase = getDesktopSupabase()
 
   // KERÜLETI: az összes valódi készpénz-iratszám max+1 (AUTO- és tükrözött kizárva).
+  // 2026-06-30 FIX: készpénz = `bankszamla_id IS NULL` (kassza), NEM irattipus — így az
+  // importált nyugták (irattipus 'chitanta' stb.) is beleszámítanak. Web-azonos (getNextReceiptNumbers).
   const { data: allData } = await supabase.from('befizetes')
     .select('iratszam, nyugta')
     .eq('congregation_id', congregationId).eq('deleted', false)
-    .ilike('irattipus', '%észpénz%').is('belso_mozgas_xkey', null)
+    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
   // A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk a kerületire (kiejtette a régi/import
   // előzményt); csak az AUTO- auto-iratszámot zárjuk ki. (Web-azonos, lásd getNextReceiptNumbers.)
   const keruletiVals = ((allData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
@@ -77,7 +79,7 @@ export async function nextReceiptNumbersOnline(
   const { data: yearData } = await supabase.from('befizetes')
     .select('iratszam, nyugta')
     .eq('congregation_id', congregationId).eq('deleted', false)
-    .ilike('irattipus', '%észpénz%').is('belso_mozgas_xkey', null)
+    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
     .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)
   const thisYear = maxNumOf(
     ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
@@ -89,7 +91,7 @@ export async function nextReceiptNumbersOnline(
   const { data: prevData } = await supabase.from('befizetes')
     .select('iratszam, nyugta, datum')
     .eq('congregation_id', congregationId).eq('deleted', false)
-    .ilike('irattipus', '%észpénz%').is('belso_mozgas_xkey', null)
+    .is('bankszamla_id', null).is('belso_mozgas_xkey', null)
     .lt('datum', `${year}-01-01`).order('datum', { ascending: false }).limit(500)
   const prevRows = ((prevData || []) as Array<{ iratszam: string | null; nyugta: string | null; datum: string }>)
     .filter((r) => r.nyugta && r.nyugta !== r.iratszam)

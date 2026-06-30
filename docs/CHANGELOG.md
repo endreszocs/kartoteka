@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-30] — Javítás: Chitanță nyugtaszámok automatikus kitöltése (importált előzményből is)
+<!-- key: 2026-06-30-chitanta-szamozas-import-elozmeny -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **Tétel rögzítésekor a „Chitanță" (nyugta) választásakor mostantól a Kerületi sz. és az Irat sz.
+  mező automatikusan kitöltődik az utolsó nyugta + 1 értékkel — akkor is, ha a korábbi nyugtáidat
+  importból hoztad be** (pl. egyházfenntartás-import vagy általános import). Eddig a rendszer a
+  számozáshoz csak a kézzel rögzített nyugtákat „látta", az importált tételeket nem, ezért importált
+  előzmény esetén a két mező üresen maradt (vagy 1-ről indult), és az **új évnél feltett kérdés**
+  („folytatjuk az előző évi számozást, vagy kezdjük 1-től?") sem jelent meg. Mostantól a rendszer
+  minden készpénzes nyugtát figyelembe vesz az eredetétől függetlenül, így a kerületi és a
+  gyülekezeti számozás folytonos marad, és az új évi kérdés a helyén megjelenik.
+- **A nyugta-ellenőrzés** (hiányzó / ismétlődő számok jelzése) is mostantól beleszámítja az importált
+  nyugtákat — így nem jelez tévesen „hiányzó számokat" az importált és a kézi nyugták között.
+
+---
+
 ## [2026-06-30] — Gyorsabb betöltés: Pénzügy
 <!-- key: 2026-06-30-penzugy-gyorsitas -->
 <!-- category: improvement -->

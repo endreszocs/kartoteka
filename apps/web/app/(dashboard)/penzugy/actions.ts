@@ -149,11 +149,15 @@ function extractNumericDocumentNumber(rawValue: string | null | undefined) {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
-function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam' | 'nyugta' | 'irattipus' | 'deleted' | 'belso_mozgas_xkey'>>): ReceiptHealth {
+function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam' | 'nyugta' | 'irattipus' | 'deleted' | 'belso_mozgas_xkey' | 'bankszamla_id'>>): ReceiptHealth {
   const numberedRows = rows
     .filter(row => !row.deleted)
     .filter(row => !row.belso_mozgas_xkey)
-    .filter(row => String(row.irattipus || '').toLowerCase().includes('észpénz'))
+    // 2026-06-30 FIX: készpénz = kanonikus `bankszamla_id IS NULL` (kassza), NEM az
+    // irattipus — különben az importált nyugták (irattipus 'chitanta' stb.) kimaradnának,
+    // és a Chitanță-számozás javítása után HAMIS „hiányzó szám" figyelmeztetést adna
+    // (az importált számok közti hézagokat tévesen jelölné). Konzisztens a getNextReceiptNumbers-szel.
+    .filter(row => row.bankszamla_id == null)
     .map(row => ({
       number: extractNumericDocumentNumber(row.iratszam || row.nyugta || null),
       date: String(row.datum || ''),
@@ -1634,11 +1638,18 @@ export async function getNextReceiptNumbers(
 
   // KERÜLETI (nyomdai) szám — EGYSZERŰ: az ÖSSZES készpénz-iratszám MAX + 1 (folytonos, év-független).
   // NINCS nyugtatömb-függőség (a tömb csak a NYOMTATÁSHOZ kell, a rögzítéshez nem).
+  // 2026-06-30 FIX (Endre hibajelzés): a készpénzt a kanonikus `bankszamla_id IS NULL`
+  // (kassza) alapján azonosítjuk, NEM az `irattipus`-ból. Így az IMPORTÁLT nyugták is
+  // beleszámítanak a sorozatba — ezek bankszamla_id nélkül = kassza, de irattipus-uk
+  // 'chitanta' / 'általános import' / fájlból jövő érték, amit az `irattipus ILIKE
+  // '%észpénz%'` szűrő kihagyott. Emiatt nem találta a Chitanță auto-számozás az
+  // importból hozott utolsó kerületi/gyülekezeti számot. (Manuális-only gyülekezetnél
+  // a halmaz változatlan: a kézi készpénz 'Készpénz' = bankszamla_id NULL.)
   let allQ = supabase.from(T.befizetes)
     .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
+    .is('bankszamla_id', null)
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
   const { data: allData } = await allQ
   // CSAK a valódi kerületi iratszámokat nézzük: kizárjuk az „AUTO-…" auto-generált iratszámot
@@ -1657,7 +1668,7 @@ export async function getNextReceiptNumbers(
     .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
+    .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
   if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
@@ -1677,7 +1688,7 @@ export async function getNextReceiptNumbers(
     .select('iratszam, nyugta, datum')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
+    .is('bankszamla_id', null)
     .lt('datum', `${year}-01-01`)
     .order('datum', { ascending: false })
     .limit(500)
