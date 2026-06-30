@@ -1,4 +1,4 @@
-import { weekBounds, ageFromDate } from '@/lib/utils/date'
+import { ageFromDate } from '@/lib/utils/date'
 import { HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
 import { HeroBannerScriptureV2 } from '@/components/dashboard/hero-banner-scripture-v2'
 import { KpiCards } from '@/components/dashboard/kpi-cards'
@@ -21,14 +21,6 @@ interface Member {
   namepattern: string | null
   sz_datum: string | null
   ferfi: boolean | null
-  /** Házszám a szemely táblából (c_szam) */
-  c_szam?: string | null
-  /** Szabad-szöveges lakcím a szemely táblából (c_szcim) — ritkán kitöltött */
-  c_szcim?: string | null
-  /** Utcanév a szemely.c_utcaid → adrstreet.name join-on keresztül (2026-04-21u) */
-  adrstreet?: { name: string | null } | { name: string | null }[] | null
-  /** Helységnév a szemely.c_helysegid → adrlocality.name join-on keresztül (2026-04-21u) */
-  adrlocality?: { name: string | null } | { name: string | null }[] | null
 }
 
 interface NamedayRow {
@@ -44,12 +36,6 @@ interface ActivityRow {
   jellege: string | null
   cim: string | null
   created_at: string
-}
-
-
-interface PresbiterSummary {
-  id: number
-  id_szemely: number | null
 }
 
 export default async function DashboardPage() {
@@ -70,26 +56,19 @@ export default async function DashboardPage() {
     return <CongregationOnlyNotice module="A gyülekezeti irányítópult" currentScope={scope} />
   }
 
-  // Gyülekezeti setup status — ha hiányosak az adatok, auto-open wizard
-  const setupStatus = await checkCongregationSetupStatus(effectiveCongregationId)
-  // 2026-06-05: ha a bevezető körbevezetés (walkthrough) még nem futott le, a
-  // setup-wizard csak ANNAK befejezése után nyíljon (ne fedjék egymást).
-  const { data: walkthroughRow } = await supabase
-    .from('profiles')
-    .select('walkthrough_completed')
-    .eq('id', access.userId ?? '')
-    .maybeSingle()
-  const deferSetupForWalkthrough = !(
-    walkthroughRow as { walkthrough_completed?: boolean | null } | null
-  )?.walkthrough_completed
   const today = new Date()
   const curYear = today.getFullYear()
   const curMonth = today.getMonth() + 1
+  const curDay = today.getDate()
   const chartStartDate = `${curYear - 1}-${String(curMonth).padStart(2, '0')}-01`
-  const { start: weekStart, end: weekEnd } = weekBounds(today)
 
-  // ── 12 párhuzamos lekérdezés ──────────────────────────────
+  // ── Minden lekérdezés EGYETLEN párhuzamos hullámban ───────────────────────
+  // 2026-06-30 (perf): a setup-status + walkthrough korábban SZEKVENCIÁLISAN
+  // futott a fő blokk előtt (3 külön körútnyi latency). Egyik sem függ a
+  // többitől, ezért egyetlen Promise.all-ba vonjuk össze → 1 körút.
   const [
+    setupStatus,
+    walkthroughResult,
     szemResult,
     elkoltozottResult,
     csaladResult,
@@ -104,10 +83,15 @@ export default async function DashboardPage() {
     congregationFeeResult,
     annualFeeCurrentYearResult,
   ] = await Promise.all([
-    // 2026-04-21u: join adrstreet (utca) + adrlocality (helység) — az előző
-    // verzió csak `c_szcim, c_szam`-ot hozott, ami hiányos volt: a nyomtatott
-    // születésnap-listában csak a házszám jelent meg helység/utcanév nélkül.
-    supabase.from('szemely').select('id, csaladnev, k_nev, namepattern, sz_datum, ferfi, c_szam, c_szcim, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', effectiveCongregationId).eq('meghalt', false),
+    // Gyülekezeti setup status — ha hiányosak az adatok, auto-open wizard
+    checkCongregationSetupStatus(effectiveCongregationId),
+    // 2026-06-05: ha a bevezető körbevezetés (walkthrough) még nem futott le, a
+    // setup-wizard csak ANNAK befejezése után nyíljon (ne fedjék egymást).
+    supabase.from('profiles').select('walkthrough_completed').eq('id', access.userId ?? '').maybeSingle(),
+    // 2026-06-30 (perf): a cím-joinok (adrstreet/adrlocality) + c_szam/c_szcim
+    // KIKERÜLTEK innen — azok csak a születésnap-lista modálban, a „Lakhely"
+    // kapcsoló mögött kellenek, ezért kérésre töltődnek (getBirthdayListAddresses).
+    supabase.from('szemely').select('id, csaladnev, k_nev, namepattern, sz_datum, ferfi').eq('congregation_id', effectiveCongregationId).eq('meghalt', false),
     supabase.from('elkoltozott').select('id_szemely').eq('congregation_id', effectiveCongregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ `haztartas` táblát
     // olvassuk — congregation_id direkt szűr, és a tagság aktív tagjai a
@@ -120,9 +104,15 @@ export default async function DashboardPage() {
     // deleted/stornozott törölt tételek kizárva — 2026-04-21t
     supabase.from('befizetes').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).eq('stornozott', false).gte('datum', chartStartDate),
     supabase.from('kiadas').select('osszeg, datum').eq('congregation_id', effectiveCongregationId).eq('deleted', false).gte('datum', chartStartDate),
-    supabase.from('befizetes').select('id_szemely').eq('congregation_id', effectiveCongregationId).eq('fizetettev', curYear),
-    supabase.from('presbiter').select('id, id_szemely'),
-    supabase.from('nevnap').select('nev1, nev2, nev3, honap, nap'),
+    // 2026-06-30 (perf): csak a sorszám kell (head:true) — korábban az összes
+    // id_szemely-t lehúzta pusztán a .length-hez.
+    supabase.from('befizetes').select('*', { count: 'exact', head: true }).eq('congregation_id', effectiveCongregationId).eq('fizetettev', curYear),
+    // 2026-06-30 (perf + scope): gyülekezetre szűrt presbiterek a bevált
+    // szemely!inner join-mintával (korábban az EGÉSZ presbiter táblát lehúzta).
+    supabase.from('presbiter').select('id, szemely:szemely!inner(congregation_id, meghalt)').eq('szemely.congregation_id', effectiveCongregationId).eq('szemely.meghalt', false),
+    // 2026-06-30 (perf): csak a mai nap névnapja kell — korábban a teljes
+    // (~366 soros) nevnap táblát lehúzta, hogy aztán JS-ben keressen.
+    supabase.from('nevnap').select('nev1, nev2, nev3, honap, nap').eq('honap', String(curMonth)).eq('nap', String(curDay)),
     supabase.from('public_sites').select('is_published').eq('congregation_id', effectiveCongregationId).maybeSingle(),
     supabase.from('public_posts').select('*', { count: 'exact', head: true }).eq('congregation_id', effectiveCongregationId).eq('status', 'published'),
     supabase.from('munkanaplo').select('idopont, jellege, cim, created_at').eq('congregation_id', effectiveCongregationId)
@@ -132,9 +122,12 @@ export default async function DashboardPage() {
     supabase.from('congregation_annual_fees').select('year').eq('congregation_id', effectiveCongregationId).eq('year', curYear).maybeSingle(),
   ])
 
+  const deferSetupForWalkthrough = !(
+    walkthroughResult.data as { walkthrough_completed?: boolean | null } | null
+  )?.walkthrough_completed
+
   // ── Shared adatobjektum ───────────────────────────────────
   const allMembers: Member[] = (szemResult.data || []) as Member[]
-  const memberIds = new Set(allMembers.map(member => Number(member.id)))
   const elkoltozottIds = new Set((elkoltozottResult.data || []).map((e: { id_szemely: string }) => e.id_szemely))
   const activeMembers = allMembers.filter(m => !elkoltozottIds.has(m.id))
   // 2026-04-19 JAVÍTÁS: csak az AKTÍV tagok alapján szűrjük a családokat
@@ -153,9 +146,10 @@ export default async function DashboardPage() {
       activeMemberIds.has(t.id_szemely)
     )
   }).length
-  const presbCount = ((presbResult.data || []) as PresbiterSummary[]).filter(row =>
-    row.id_szemely !== null && memberIds.has(row.id_szemely)
-  ).length
+  // 2026-06-30: a presbiter-lekérdezés már gyülekezetre szűrt (szemely!inner:
+  // csak ennek a gyülekezetnek az ÉLŐ tagjai), így a sorok száma = a
+  // presbiterek száma — nincs szükség kliens-oldali szűrésre.
+  const presbCount = (presbResult.data || []).length
 
   const allBefizetes = (befizetesResult.data || []) as { osszeg: number; datum: string }[]
   const allKiadas = (kiadasResult.data || []) as { osszeg: number; datum: string }[]
@@ -370,7 +364,7 @@ export default async function DashboardPage() {
         women={women}
         childrenCount={children}
         avgAge={avgAge}
-        payersCount={payersResult.data?.length ?? 0}
+        payersCount={payersResult.count ?? 0}
         presbCount={presbCount}
         balance={balance}
       />

@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getBirthdayListAddresses } from '@/app/(dashboard)/dashboard/actions'
 
 interface Member {
   id: string
@@ -27,14 +28,6 @@ interface Member {
   namepattern: string | null
   sz_datum: string | null
   ferfi: boolean | null
-  /** Házszám a szemely táblából (c_szam) */
-  c_szam?: string | null
-  /** Szabad-szöveges lakcím a szemely táblából (c_szcim) — ritka */
-  c_szcim?: string | null
-  /** Utcanév a szemely.c_utcaid → adrstreet.name join-on keresztül */
-  adrstreet?: { name: string | null } | { name: string | null }[] | null
-  /** Helységnév a szemely.c_helysegid → adrlocality.name join-on keresztül */
-  adrlocality?: { name: string | null } | { name: string | null }[] | null
 }
 
 interface BirthdayEntry {
@@ -74,6 +67,24 @@ export function BirthdayListDialog({
   const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all')
   const [showAddress, setShowAddress] = useState(false)
 
+  // 2026-06-30 (perf): a lakcímek KÉRÉSRE töltődnek — a dashboard fő lekérdezése
+  // már nem hozza a cím-joinokat. Csak akkor kérjük le, ha a felhasználó a
+  // „Lakhely megjelenítése" kapcsolót bekapcsolja (modálonként egyszer).
+  const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null)
+  const [addressLoading, setAddressLoading] = useState(false)
+
+  // Esemény-vezérelt (NEM effect): a kapcsoló bekapcsolásakor töltjük a címeket,
+  // modálonként egyszer. Így nincs felesleges lekérés, ha a felhasználó sosem
+  // kapcsolja be a „Lakhely megjelenítése" opciót.
+  function loadAddressesIfNeeded() {
+    if (addressMap !== null || addressLoading) return
+    setAddressLoading(true)
+    getBirthdayListAddresses()
+      .then((map) => setAddressMap(map))
+      .catch(() => setAddressMap({}))
+      .finally(() => setAddressLoading(false))
+  }
+
   // 1. lépés: szerkesztett születésnap-entries (névvel, életkorral)
   const allEntries: BirthdayEntry[] = useMemo(() => {
     const today = new Date()
@@ -90,34 +101,6 @@ export function BirthdayListDialog({
         const day = birthDate.getDate()
         const thisYearBday = new Date(currentYear, month, day)
         const ageThisYear = currentYear - birthDate.getFullYear()
-        // Lakcím összeállítása: „Helység, Utca Házszám" formátumban
-        // (2026-04-21u — korábban csak c_szcim+c_szam volt, így csak házszám
-        // látszódott; most a valódi adrstreet/adrlocality join-ból építjük.
-        // Fallback: ha a c_szcim van kitöltve, azt használjuk szöveges lakcímnek.)
-        const streetRaw = m.adrstreet
-        const streetObj = Array.isArray(streetRaw) ? streetRaw[0] : streetRaw
-        const street = streetObj?.name?.trim() || null
-
-        const localityRaw = m.adrlocality
-        const localityObj = Array.isArray(localityRaw) ? localityRaw[0] : localityRaw
-        const locality = localityObj?.name?.trim() || null
-
-        const hazszam = m.c_szam?.trim() || null
-        const szabadSzoveg = m.c_szcim?.trim() || null
-
-        // Prioritás: ha van strukturált adat (street), azt használjuk;
-        // különben a szabad-szöveges c_szcim a fallback; különben csak a házszám
-        let address: string | null = null
-        if (street) {
-          const streetLine = hazszam ? `${street} ${hazszam}` : street
-          address = locality ? `${locality}, ${streetLine}` : streetLine
-        } else if (szabadSzoveg) {
-          address = hazszam ? `${szabadSzoveg} ${hazszam}` : szabadSzoveg
-        } else if (locality) {
-          address = hazszam ? `${locality}, ${hazszam}` : locality
-        } else if (hazszam) {
-          address = hazszam
-        }
         return {
           id: m.id,
           name,
@@ -127,7 +110,8 @@ export function BirthdayListDialog({
           age: ageThisYear,
           isMale: m.ferfi,
           thisYearBday,
-          address,
+          // Lakcím a kérésre betöltött térképből (lásd getBirthdayListAddresses)
+          address: addressMap?.[String(m.id)] ?? null,
         }
       })
       .filter((e): e is NonNullable<typeof e> => e !== null)
@@ -136,7 +120,7 @@ export function BirthdayListDialog({
         if (a.day !== b.day) return a.day - b.day
         return a.name.localeCompare(b.name, 'hu')
       })
-  }, [allMembers])
+  }, [allMembers, addressMap])
 
   // 2. lépés: dátum-tartomány meghatározása a preset alapján
   const dateRange = useMemo((): { from: Date; to: Date } | null => {
@@ -429,14 +413,17 @@ export function BirthdayListDialog({
               <input
                 type="checkbox"
                 checked={showAddress}
-                onChange={(e) => setShowAddress(e.target.checked)}
+                onChange={(e) => {
+                  setShowAddress(e.target.checked)
+                  if (e.target.checked) loadAddressesIfNeeded()
+                }}
                 className="size-4"
               />
               <span className="text-sm font-medium text-slate-700">
                 Lakhely megjelenítése (város + cím)
               </span>
               <span className="ml-auto text-[11px] text-slate-500">
-                A nyomtatási listára is kikerül
+                {addressLoading ? 'Címek betöltése…' : 'A nyomtatási listára is kikerül'}
               </span>
             </label>
           </div>
