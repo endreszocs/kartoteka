@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-30] — Gyorsabb betöltés: Irányítópult (kezdőképernyő)
+<!-- key: 2026-06-30-iranyitopult-gyorsitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ⚡ Gyorsabb működés
+
+- **Az Irányítópult (a belépés utáni kezdőképernyő) érezhetően gyorsabban töltődik be.** A háttérben
+  a rendszer eddig sok adatot egymás után, lépésről lépésre kért le; mostantól ezeket egyszerre,
+  párhuzamosan tölti, így rövidebb a várakozás. **A képernyőn minden ugyanúgy néz ki és pontosan
+  ugyanazokat a számokat mutatja, mint eddig** — csak gyorsabban jelenik meg.
+- **Kevesebb felesleges adatletöltés.** Néhány adatot a rendszer korábban akkor is mindig letöltött,
+  amikor nem volt rá szükség (például az összes tag lakcímét, a teljes névnap-naptárt és az összes
+  presbiter-bejegyzést). Mostantól ezek csak akkor töltődnek be, amikor tényleg kellenek — például a
+  lakcímek csak a **születésnapi lista nyomtatásakor**. Ez tovább gyorsítja a megjelenést és kíméli a
+  lassabb internetkapcsolatot is.
+
+---
+
 ## [2026-06-21] — Járulék-kedvezmények: a mentett kedvezmények biztosan érvényesülnek
 <!-- key: 2026-06-21-jarulek-kedvezmeny-ellenallosag -->
 <!-- category: fix -->
