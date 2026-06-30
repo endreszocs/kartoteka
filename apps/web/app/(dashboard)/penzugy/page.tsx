@@ -25,9 +25,6 @@ export default async function PenzugyPage({
 
   if (!scopeId) return null
 
-  const godMode = access.master ? await getGodModeStatus() : { active: false }
-  const delegatedImport = await getDelegatedImportStatus('finance')
-
   // ANAF SPV 60 napos határidő figyelő — csak congregation scope-ban releváns
   if (scope === 'congregation') {
     void checkOblioDeadline().catch(() => {
@@ -44,9 +41,19 @@ export default async function PenzugyPage({
     Number.isInteger(parsedYear) && parsedYear >= 2000 && parsedYear <= realYear + 1
       ? parsedYear
       : realYear
-  let data = await initFinance(selectedYear)
-  // A hero év-választóhoz: csak az adattal bíró évek (+ folyó év).
-  const availableYears = await listFinanceYears()
+
+  // 2026-06-30 (perf): a 4 független szerver-lekérés EGYETLEN párhuzamos hullámban
+  // (getGodModeStatus + getDelegatedImportStatus + initFinance + listFinanceYears).
+  // Eddig szekvenciálisan futottak; a getEffectiveAccessContext React-cache-elt, így
+  // a belső újra-hívások nem okoznak extra DB round-tripet. A `data` mutálható marad
+  // a settings-fallback újratöltésekhez (lentebb).
+  const [godMode, delegatedImport, data0, availableYears] = await Promise.all([
+    access.master ? getGodModeStatus() : Promise.resolve({ active: false }),
+    getDelegatedImportStatus('finance'),
+    initFinance(selectedYear),
+    listFinanceYears(),
+  ])
+  let data = data0
 
   if (!data) {
     return (
