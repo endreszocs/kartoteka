@@ -216,11 +216,13 @@ export function OverviewTab({ members }: OverviewTabProps) {
         {/* Korcsoportok — gradiens sávok */}
         <div className="lg:col-span-3 card-raised p-5">
           <h3 className="text-sm font-semibold text-slate-700 mb-3">Korcsoportok</h3>
+          {/* 2026-06-30 (perf): a maxCount loop-invariáns — egyszer számoljuk ki a
+              ciklus előtt, ne minden korcsoport-iterációban újra. */}
+          {(() => { const maxCount = Math.max(...Object.values(stats.groups)); return (
           <div className="space-y-1">
             {AGE_GROUPS.map(g => {
               const count = stats.groups[g.key] || 0
               const pct = stats.total > 0 ? Math.round(count / stats.total * 100) : 0
-              const maxCount = Math.max(...Object.values(stats.groups))
               const barPct = maxCount > 0 ? (count / maxCount * 100) : 0
               return (
                 <div key={g.key} className="flex items-center gap-2 group">
@@ -236,6 +238,7 @@ export function OverviewTab({ members }: OverviewTabProps) {
               )
             })}
           </div>
+          ) })()}
         </div>
       </div>
 

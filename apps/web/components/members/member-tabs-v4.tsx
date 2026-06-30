@@ -1,17 +1,25 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 
 import { ColorTabs } from '@/components/ui/color-tabs'
 import type { EnrichedMember } from '@/lib/constants/members'
-import { DistrictsTab } from './districts-tab'
-import { FamiliesTab } from './families-tab-v2'
 import { OverviewTab } from './overview-tab'
 import { PersonsTab } from './persons-tab'
-import { PresbytersTab } from './presbyters-tab'
-import { TagnyilvantartasHelp } from './tagnyilvantartas-help'
-import { ValidationErrorsTab } from './validation-errors-tab'
-import { VotersTab } from './voters-tab'
+
+// 2026-06-30 (perf): a nem-default, ritkábban használt fülek next/dynamic-kal
+// töltődnek — így a route kezdeti JS-bundle-jéből kikerül a nehéz súgó (~58KB),
+// a Családok, Presbiterek, Körzetek, Választók és Hibák fül kódja, és csak a
+// tényleges fülre kattintáskor töltődik le. Az Áttekintés (default) és a Személyek
+// (leggyakoribb) statikus marad a gyors első festésért. A viselkedés változatlan.
+const tabLoading = () => <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
+const FamiliesTab = dynamic(() => import('./families-tab-v2').then((m) => m.FamiliesTab), { ssr: false, loading: tabLoading })
+const PresbytersTab = dynamic(() => import('./presbyters-tab').then((m) => m.PresbytersTab), { ssr: false, loading: tabLoading })
+const DistrictsTab = dynamic(() => import('./districts-tab').then((m) => m.DistrictsTab), { ssr: false, loading: tabLoading })
+const VotersTab = dynamic(() => import('./voters-tab').then((m) => m.VotersTab), { ssr: false, loading: tabLoading })
+const ValidationErrorsTab = dynamic(() => import('./validation-errors-tab').then((m) => m.ValidationErrorsTab), { ssr: false, loading: tabLoading })
+const TagnyilvantartasHelp = dynamic(() => import('./tagnyilvantartas-help').then((m) => m.TagnyilvantartasHelp), { ssr: false, loading: tabLoading })
 
 // Hash-routing — a sidebar almenüből (`/tagnyilvantartas#persons` stb.) közvetlen tab-ugrás.
 // Az érvényes value-k egyezniek kell a `tabs` array-vel.

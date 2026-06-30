@@ -1,6 +1,6 @@
 import { getMembers } from './actions'
 import { MemberTabsV4 } from '@/components/members/member-tabs-v4'
-import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
+import { AdminImportLazy } from '@/components/members/admin-import-lazy'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
@@ -8,8 +8,16 @@ import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 export default async function TagnyilvantartasPage() {
   const access = await getEffectiveAccessContext()
   const master = access.master
-  const godMode = master ? await getGodModeStatus() : { active: false }
-  const delegatedImport = await getDelegatedImportStatus('members')
+
+  // 2026-06-30 (perf): a godMode + delegatedImport + getMembers FÜGGETLENEK
+  // egymástól (mind a cache-elt access-kontextusra épülnek), ezért egyetlen
+  // párhuzamos hullámban futnak — a getMembers (a legdrágább) mellé a két
+  // státusz-lekérdezés így nem ad külön körutat.
+  const [godMode, delegatedImport, membersData] = await Promise.all([
+    master ? getGodModeStatus() : Promise.resolve({ active: false }),
+    getDelegatedImportStatus('members'),
+    getMembers(),
+  ])
 
   const {
     members,
@@ -18,7 +26,7 @@ export default async function TagnyilvantartasPage() {
     exemptPersonIds,
     exemptFamilyIds,
     personToFamilyMap,
-  } = await getMembers()
+  } = membersData
 
   // 2026-05-25: a "Rendszergazdai importáló" mostantól a MemberTabsV4 belső
   // tab-listájának VÉGÉN jelenik meg (Áttekintés / Személyek / Családok /
@@ -40,11 +48,12 @@ export default async function TagnyilvantartasPage() {
         isGodMode={godMode.active}
         showAdminImport={showAdminImport}
         adminImportContent={
-          <TagnyilvantartasImportWizard
-            mode="module"
-            congregationId={access.effectiveCongregationId}
-            congregationName={access.congregationName}
-          />
+          showAdminImport ? (
+            <AdminImportLazy
+              congregationId={access.effectiveCongregationId}
+              congregationName={access.congregationName}
+            />
+          ) : null
         }
       />
     </div>
