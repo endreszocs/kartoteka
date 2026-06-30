@@ -189,6 +189,10 @@ export function ValidationErrorsTab() {
   const [search, setSearch] = useState('')
   const [running, startRunning] = useTransition()
   const [ignoreTarget, setIgnoreTarget] = useState<MveRow | null>(null)
+  // 2026-06-30 (perf): csak az első `visibleCount` betöltött sort rendereljük a
+  // DOM-ba (a betöltött `rows` és a `total` változatlan) — nagy, sok ezer hibás
+  // gyülekezetnél a teljes lista egyszerre kirajzolása blokkolná a böngészőt.
+  const [visibleCount, setVisibleCount] = useState(100)
 
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -395,7 +399,7 @@ export function ValidationErrorsTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((r) => (
+                {rows.slice(0, visibleCount).map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-800">{r.member_name}</div>
@@ -448,6 +452,14 @@ export function ValidationErrorsTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {!loading && rows.length > visibleCount && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <span className="text-xs text-muted-foreground">{visibleCount} / {rows.length} megjelenítve</span>
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setVisibleCount((c) => c + 100)}>
+              További 100 megjelenítése
+            </Button>
           </div>
         )}
         {!loading && rows.length > 0 && (

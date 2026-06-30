@@ -20,6 +20,10 @@ export function VotersTab() {
   const [eligFilter, setEligFilter] = useState('mind')
   const [printOpen, setPrintOpen] = useState(false)
   const [recomputing, setRecomputing] = useState(false)
+  // 2026-06-30 (perf): csak az első `visibleCount` sort rendereljük; a fejléc-szám,
+  // az egyházmegyének beküldött létszám és a nyomtatás TOVÁBBRA IS a teljes
+  // halmazon dolgozik — csak a DOM-ba írt sorok száma korlátozott.
+  const [visibleCount, setVisibleCount] = useState(150)
 
   const currentYear = new Date().getFullYear()
 
@@ -67,10 +71,17 @@ export function VotersTab() {
     })
   }, [voters, search, nemFilter, jarulekFilter, korzetFilter, eligFilter])
 
-  const fizetoCount = voters.filter(v => v.jarulekFizeto).length
-  const maleCount = voters.filter(v => v.jarulekFizeto && v.ferfi).length
-  const femaleCount = voters.filter(v => v.jarulekFizeto && !v.ferfi).length
-  const eligibleCount = voters.filter(v => v.eligible).length
+  // 2026-06-30 (perf): a 4 KPI-számláló egyetlen memoizált menetbe vonva — korábban
+  // 4 teljes .filter() futott MINDEN renderkor (pl. minden gépelésnél a keresőben).
+  // A teljes voters halmazon dolgozik (nem a szűrt listán), ezért [voters] a függőség.
+  const { fizetoCount, maleCount, femaleCount, eligibleCount } = useMemo(() => {
+    let fizeto = 0, male = 0, female = 0, eligible = 0
+    for (const v of voters) {
+      if (v.jarulekFizeto) { fizeto++; if (v.ferfi) male++; else female++ }
+      if (v.eligible) eligible++
+    }
+    return { fizetoCount: fizeto, maleCount: male, femaleCount: female, eligibleCount: eligible }
+  }, [voters])
 
   return (
     <div className="space-y-4">
@@ -175,7 +186,7 @@ export function VotersTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/60">
-                {filtered.map((v, i) => (
+                {filtered.slice(0, visibleCount).map((v, i) => (
                   <tr key={v.id} className="transition-colors hover:bg-secondary/55">
                     <td className="p-2.5 text-slate-400 text-xs">{i + 1}</td>
                     <td className="p-2.5">
@@ -223,6 +234,14 @@ export function VotersTab() {
               </tbody>
             </table>
           </div>
+          {filtered.length > visibleCount && (
+            <div className="flex items-center justify-between border-t border-white/60 px-4 py-3">
+              <span className="text-xs text-slate-400">{visibleCount} / {filtered.length} sor megjelenítve</span>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setVisibleCount(c => c + 150)}>
+                További 150 megjelenítése
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

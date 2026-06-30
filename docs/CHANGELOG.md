@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-30] — Gyorsabb betöltés: Tagnyilvántartás
+<!-- key: 2026-06-30-tagnyilvantartas-gyorsitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ⚡ Gyorsabb működés
+
+- **A Tagnyilvántartás érezhetően gyorsabban nyílik meg.** A rendszer mostantól csak a ténylegesen
+  szükséges adatokat tölti be, és a ritkábban használt füleket (Súgó, Családok, Presbiterek, Körzetek,
+  Választók, Hibák, Rendszergazdai importáló) csak akkor, amikor rákattintasz — így a kezdőképernyő
+  (Áttekintés és Személyek) sokkal hamarabb megjelenik. **Minden adat ugyanaz marad, csak gyorsabban.**
+- **Nagy gyülekezeteknél nem akad meg a böngésző a hosszú listáknál.** A Családok, a Választók és a
+  Hibák lista mostantól első körben az első néhány száz sort mutatja, a többi egy „További megjelenítése"
+  gombbal tölthető — így több ezer tag esetén sem fagy le vagy lassul be az oldal. A keresés és a szűrők
+  ugyanúgy a **teljes** névsoron dolgoznak, és a fejléc-számok (pl. összes választó, az egyházmegyének
+  beküldött létszám) változatlanok.
+- **Kevesebb felesleges adatletöltés a háttérben.** A taglista betöltésekor a rendszer többé nem tölti le
+  a feleslegesen nagy adatokat (például a tagokhoz mentett fényképeket), és a „valaha fizetett járulék"
+  kimutatáshoz is már csak az egyházfenntartói járulékot nézi át. Ez gyorsítja a megjelenést és kíméli a
+  lassabb internetkapcsolatot is.
+
+---
+
 ## [2026-06-30] — Gyorsabb betöltés: Irányítópult (kezdőképernyő)
 <!-- key: 2026-06-30-iranyitopult-gyorsitas -->
 <!-- category: improvement -->

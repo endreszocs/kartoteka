@@ -92,13 +92,23 @@ export async function getMembers(): Promise<{
 
   const currentYear = new Date().getFullYear()
 
-  const [membersRes, paymentsRes, everPaidRes, exemptionsRes, familiesRes, childrenRes, yearlySettingsRes, discountsRes, congregationRes, pendingTransfersRes] = await Promise.all([
-    supabase.from('szemely').select('*, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
+  const [membersRes, paymentsRes, everPaidRes, exemptionsRes, familiesRes, yearlySettingsRes, discountsRes, congregationRes, pendingTransfersRes] = await Promise.all([
+    // 2026-06-30 (perf): a '*' helyett explicit oszloplista. A teljes szemely
+    // tábla (~50 oszlop, köztük a potenciálisan NAGY base64 `kep`, photo_url,
+    // social_profil_url, szig, taj, c_szcim, nemzetiseg stb.) helyett csak a
+    // lista/áttekintés és a szerkesztő űrlap által ténylegesen használt mezők.
+    // FONTOS: a c_tombhaz/c_lepcsohaz/c_emelet/c_ajto MARAD — a szerkesztő űrlap
+    // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
+    // néma adatvesztést okozna.
+    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
     supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
-    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null'),
+    // 2026-06-30 (perf): a 101.01* kód-szűrés a DB-be került (beágyazott inner-join),
+    // korábban MINDEN befizetést lehúzott; a JS-szűrő alább forrás-igazságként marad,
+    // és hiba esetén a szűretlen lekérdezésre esünk vissza.
+    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(szamadasicel!inner(kod))').eq('congregation_id', congregationId).like('befizetescel.szamadasicel.kod', '101.01%').or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
     // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
@@ -107,8 +117,6 @@ export async function getMembers(): Promise<{
       .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
       .eq('congregation_id', congregationId)
       .is('ervenyes_ig', null),
-    // 2026-06-01: a `childrenRes` üresen marad (a fenti egy lekérdezés átveszi)
-    Promise.resolve({ data: [] }),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(currentYear)),
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('ev', currentYear).eq('aktiv', true),
     supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
@@ -179,13 +187,26 @@ export async function getMembers(): Promise<{
   // Minden olyan szemely_id, akinek volt valaha egyházfenntartási befizetése,
   // bármelyik évre. Ezt használja az aktív-tag számítás (Endre szabálya:
   // református VAGY bármikor fizető).
-  const everPaidPersonSet = new Set<number>()
-  const everPaidFamilySet = new Set<number>()
-  ;((everPaidRes.data || []) as Array<{
+  // 2026-06-30 (perf + ellenállóság): a fenti lekérdezés már a DB-ben szűr a
+  // 101.01* kódra (beágyazott inner-join). Ha az a szűrő egy régebbi PostgREST-en
+  // hibázna, visszaesünk a szűretlen lekérdezésre — a JS-szűrő (isChurchMaintenanceCode)
+  // úgyis kiszűri a nem-egyházfenntartási sorokat, így a hasEverPaid bit-azonos marad.
+  type EverPaidRow = {
     id_szemely: number | null
     id_csalad: number | null
     befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
-  }>).forEach((payment) => {
+  }
+  let everPaidData = (everPaidRes.data || []) as EverPaidRow[]
+  if (everPaidRes.error) {
+    const retry = await supabase.from('befizetes')
+      .select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))')
+      .eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null')
+    if (retry.error) console.warn('[tagnyilvantartas/lista] everPaid retry (szűretlen) is hibázott:', retry.error.message)
+    everPaidData = (retry.data || []) as EverPaidRow[]
+  }
+  const everPaidPersonSet = new Set<number>()
+  const everPaidFamilySet = new Set<number>()
+  everPaidData.forEach((payment) => {
     if (!isChurchMaintenanceCode(getPaymentGoalCode(payment.befizetescel))) return
     if (payment.id_szemely) everPaidPersonSet.add(payment.id_szemely)
     if (payment.id_csalad) everPaidFamilySet.add(payment.id_csalad)
@@ -239,7 +260,10 @@ export async function getMembers(): Promise<{
   const exemptions = (exemptionsRes.data || []) as JarulekExemption[]
 
   // Enrichment
-  const members: EnrichedMember[] = ((membersRes.data || []) as MemberRow[]).map(m => {
+  // 2026-06-30: a select most explicit oszloplista (nem '*'), ezért a pontos
+  // shape nem fed át a MemberRow-val — unknown-on át castolunk (a kihagyott
+  // mezőket ez az út úgysem olvassa). A MemberRow típust SZÁNDÉKOSAN nem szűkítjük.
+  const members: EnrichedMember[] = ((membersRes.data || []) as unknown as MemberRow[]).map(m => {
     const familyId = personToFamilyMap[m.id] ?? null
     const jarulek = computeJarulekForMemberYear({
       member: {

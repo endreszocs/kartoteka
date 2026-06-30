@@ -112,6 +112,10 @@ export function FamiliesTab() {
     try { localStorage.setItem('kartoteka.families.viewMode', v) } catch {}
   }
   const districtMap = useMemo(() => districtsToMap(districts), [districts])
+  // 2026-06-30 (perf): csak az első `visibleCount` családot rendereljük (kártya ÉS
+  // lista nézet). A fejléc-számok, a KPI-k és az export TOVÁBBRA IS a teljes
+  // listán dolgoznak — csak a DOM-ba írt elemek száma korlátozott.
+  const [visibleCount, setVisibleCount] = useState(150)
 
   const loadFamilies = useCallback(async () => {
     const data = await getFamilies()
@@ -242,23 +246,9 @@ export function FamiliesTab() {
   const districtMissing = families.filter((f) => f.id_csoport == null).length
   // Megjegyzés: a régi „aktív / mixedConfession / singledStatus" stat-okat
   // kivettük — a fizetési-státusz-alapú új KPI-kre fogunk áttérni Fázis 3-ban.
-  const singledStatusCounts = filtered.reduce((acc, family) => {
-    const adults = [family.ferfi, family.no].filter(Boolean)
-    adults.forEach((adult) => {
-      if (adult?.allapot === 'özvegy') acc.widowed += 1
-      if (adult?.allapot === 'elvált') acc.divorced += 1
-    })
-
-    if (
-      adults.length === 1 &&
-      adults[0]?.allapot !== 'özvegy' &&
-      adults[0]?.allapot !== 'elvált'
-    ) {
-      acc.single += 1
-    }
-
-    return acc
-  }, { widowed: 0, single: 0, divorced: 0 })
+  // 2026-06-30 (perf): a korábbi `singledStatusCounts` reduce törölve — halott
+  // számítás volt (a JSX sehol nem használta), mégis minden renderkor végigment
+  // a teljes `filtered` listán.
 
   async function handleDelete(id: number, event: React.MouseEvent) {
     event.stopPropagation()
@@ -530,19 +520,29 @@ export function FamiliesTab() {
       ) : viewMode === 'cards' ? (
         // 2026-06-11 (Endre): modern kártyanézet — tag-avatarok, gyermek-chipek,
         // hover-animáció, kártyán belüli karton-nyomtatás gomb (közös komponens).
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map((family) => (
-            <FamilyCardModern
-              key={family.id}
-              data={familyRowToModernCard(family, districtMap)}
-              onClick={() => openDetails(family.id)}
-              onPrint={() => {
-                setPrintFamilyId(family.id)
-                setPrintOpen(true)
-              }}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filtered.slice(0, visibleCount).map((family) => (
+              <FamilyCardModern
+                key={family.id}
+                data={familyRowToModernCard(family, districtMap)}
+                onClick={() => openDetails(family.id)}
+                onPrint={() => {
+                  setPrintFamilyId(family.id)
+                  setPrintOpen(true)
+                }}
+              />
+            ))}
+          </div>
+          {filtered.length > visibleCount && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-xs text-slate-400">{visibleCount} / {filtered.length} család megjelenítve</span>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setVisibleCount((c) => c + 150)}>
+                További 150 megjelenítése
+              </Button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="card-raised overflow-hidden">
           <div className="overflow-x-auto">
@@ -559,7 +559,7 @@ export function FamiliesTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/60">
-                {filtered.map((family) => {
+                {filtered.slice(0, visibleCount).map((family) => {
                   const householdLabel = family.ferfi && family.no ? 'Házaspár alapú család' : 'Egytagú vagy részben rögzített háztartás'
 
                   // CSALÁDFŐ logika: a férj VAGY nő (az aki van). Ha mindkettő van,
@@ -669,6 +669,14 @@ export function FamiliesTab() {
               </tbody>
             </table>
           </div>
+          {filtered.length > visibleCount && (
+            <div className="flex items-center justify-between border-t border-white/60 px-4 py-3">
+              <span className="text-xs text-slate-400">{visibleCount} / {filtered.length} család megjelenítve</span>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setVisibleCount((c) => c + 150)}>
+                További 150 megjelenítése
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

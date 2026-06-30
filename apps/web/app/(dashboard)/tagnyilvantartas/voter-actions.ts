@@ -109,13 +109,31 @@ export async function getVoters(): Promise<VoterRow[]> {
     if (ev >= prevYear) jarulekFizetoIds.add(id)
   })
 
+  // 2026-06-30 (perf): O(n²) → O(n+m). Korábban a getKorzet MINDEN 18+ személyre
+  // Array.find-dal végigpásztázta a csaladok/gyerekLinks tömböt (sok ezer tag ×
+  // sok ezer család = négyzetes). Egyszer felépítjük az indexeket, megőrizve a
+  // felnőtt-precedenciát + first-wins szemantikát; a kimenet bit-azonos.
+  const adultToCsoport = new Map<number, number | null>()
+  const childPersonToCsalad = new Map<number, number>()
+  const csaladById = new Map<number, number | null>()
+  for (const c of csaladok) {
+    if (!csaladById.has(c.id)) csaladById.set(c.id, c.id_csoport ?? null)
+    if (c.id_ferfi != null && !adultToCsoport.has(c.id_ferfi)) adultToCsoport.set(c.id_ferfi, c.id_csoport ?? null)
+    if (c.id_no != null && !adultToCsoport.has(c.id_no)) adultToCsoport.set(c.id_no, c.id_csoport ?? null)
+  }
+  for (const g of gyerekLinks) {
+    if (!childPersonToCsalad.has(g.id_szemely)) childPersonToCsalad.set(g.id_szemely, g.id_csalad)
+  }
+
   function getKorzet(szemelId: number): string {
-    let fam = csaladok.find(c => c.id_ferfi === szemelId || c.id_no === szemelId)
-    if (!fam) {
-      const link = gyerekLinks.find(g => g.id_szemely === szemelId)
-      if (link) fam = csaladok.find(c => c.id === link.id_csalad)
+    let csoport: number | null | undefined
+    if (adultToCsoport.has(szemelId)) {
+      csoport = adultToCsoport.get(szemelId) // felnőtt-precedencia, first-wins
+    } else {
+      const csaladId = childPersonToCsalad.get(szemelId)
+      if (csaladId != null) csoport = csaladById.get(csaladId) ?? null
     }
-    return getVisibleDistrictName(fam?.id_csoport, districtNameMap)
+    return getVisibleDistrictName(csoport ?? null, districtNameMap)
   }
 
   return szemelyek
