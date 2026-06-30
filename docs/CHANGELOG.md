@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-06-30] — Gyorsabb betöltés: Pénzügy
+<!-- key: 2026-06-30-penzugy-gyorsitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### ⚡ Gyorsabb működés
+
+- **A Pénzügy oldal érezhetően gyorsabban nyílik meg.** A rendszer mostantól csak a ténylegesen
+  megnyitott fülek programkódját tölti be (a Súgó, a Könyvelés, a Tartozások, az Importáló és a
+  többi fül csak akkor, amikor rákattintasz), és az Excel-exporthoz használt nagy programkönyvtár
+  (kb. 300 KB) is **csak akkor töltődik le, amikor ténylegesen Excelbe exportálsz** — nem minden
+  megnyitáskor. **Minden összeg, egyenleg, lista és nyomtatvány pontosan ugyanaz marad, csak
+  gyorsabban jelenik meg.**
+- **Kevesebb felesleges adatletöltés és várakozás a háttérben.** A pénzügyi adatok betöltésekor a
+  rendszer a korábbi, lépésről lépésre futó lekérdezések helyett egyszerre, párhuzamosan dolgozik,
+  és a befizetés/kiadás tételeknél csak a ténylegesen megjelenített mezőket kéri le. Ez gyorsabb
+  betöltést ad, különösen nagy gyülekezeteknél (egy évben sok ezer tétel) és lassabb
+  internetkapcsolatnál.
+
+---
+
 ## [2026-06-30] — Gyorsabb betöltés: Tagnyilvántartás
 <!-- key: 2026-06-30-tagnyilvantartas-gyorsitas -->
 <!-- category: improvement -->

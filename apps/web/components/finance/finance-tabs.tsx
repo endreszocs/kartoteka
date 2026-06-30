@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { AlertTriangle, Building2, Printer, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
@@ -9,18 +10,27 @@ import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
 import { FinanceYearSelector } from './finance-year-selector'
-import { CashbookTab } from './cashbook-tab'
-import { BankTab } from './bank-tab'
-import { BudgetTab } from './budget-tab'
-import { AccountingTabV2 } from './accounting-tab-v2'
-import { DebtTabV2 } from './debt-tab-v2'
-import { TransactionsTab } from './transactions-tab'
-import { MonetaryTabV2 } from './monetary-tab-v2'
-import { RentalTab } from './rental-tab'
 import { OblioEllenorzesTab } from './oblio-ellenorzes-tab'
-import { PenzugyHelp } from './penzugy-help'
-import { FinanceImportTabs } from './finance-import/finance-import-tabs'
 import { slugifyCongregationName } from '@/lib/utils/slugify'
+
+// 2026-06-30 (perf): a nehéz, nem-default fülek next/dynamic-kal töltődnek. A
+// base-ui Tabs.Panel (keepMounted=false alapérték) az inaktív fület nem rendereli,
+// így a dynamic import a fül kódját CSAK a fülre kattintáskor tölti le — a route
+// kezdeti JS-bundle-jéből kikerül a ~72KB-os Súgó, az import-varázsló és a nagy
+// könyvelő/tranzakció/kassza/bank/költségvetés fül. A Dashboard (default) + a hero
+// (OblioStatusChip/YearSelector) statikus marad a gyors első festésért. A viselkedés
+// változatlan. (Az Oblio-ellenőrzés fül keepMounted miatt SZÁNDÉKOSAN statikus.)
+const tabLoading = () => <div className="mt-4 h-64 animate-pulse rounded-2xl bg-slate-100" />
+const CashbookTab = dynamic(() => import('./cashbook-tab').then((m) => m.CashbookTab), { ssr: false, loading: tabLoading })
+const BankTab = dynamic(() => import('./bank-tab').then((m) => m.BankTab), { ssr: false, loading: tabLoading })
+const BudgetTab = dynamic(() => import('./budget-tab').then((m) => m.BudgetTab), { ssr: false, loading: tabLoading })
+const AccountingTabV2 = dynamic(() => import('./accounting-tab-v2').then((m) => m.AccountingTabV2), { ssr: false, loading: tabLoading })
+const DebtTabV2 = dynamic(() => import('./debt-tab-v2').then((m) => m.DebtTabV2), { ssr: false, loading: tabLoading })
+const TransactionsTab = dynamic(() => import('./transactions-tab').then((m) => m.TransactionsTab), { ssr: false, loading: tabLoading })
+const MonetaryTabV2 = dynamic(() => import('./monetary-tab-v2').then((m) => m.MonetaryTabV2), { ssr: false, loading: tabLoading })
+const RentalTab = dynamic(() => import('./rental-tab').then((m) => m.RentalTab), { ssr: false, loading: tabLoading })
+const PenzugyHelp = dynamic(() => import('./penzugy-help').then((m) => m.PenzugyHelp), { ssr: false, loading: tabLoading })
+const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
@@ -221,10 +231,18 @@ export function FinanceTabs({
   // ezért gyülekezeti módban kiszűrjük őket; a kanonikus belső-mozgás kódok
   // maradnak (a CombinedEntryBody belső-mozgás sor-típusa használja őket).
   // Egyházmegyei módban a viselkedés VÁLTOZATLAN.
+  // 2026-06-30 (perf): id→cella index egyszer, hogy az income/expenseCategories
+  // ne O(n*m)-ben (.find soronként) keresse a szamadasicel nevét/szintjét.
+  const celById = useMemo(() => {
+    const m = new Map<string, SzamadasiCel>()
+    for (const c of szamadasiCellek) m.set(c.id, c)
+    return m
+  }, [szamadasiCellek])
+
   const incomeCategories = useMemo(() => {
     const celIds = Object.entries(bevCelMap)
     return celIds.map(([id, kod]) => {
-      const cel = szamadasiCellek.find(c => c.id === kod)
+      const cel = celById.get(kod)
       const nev = (cel?.nev || '').trim()
       return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
     }).filter((c) =>
@@ -233,13 +251,13 @@ export function FinanceTabs({
       BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
     ).map(({ id, kod, nev }) => ({ id, kod, nev }))
       .sort((a, b) => a.kod.localeCompare(b.kod))
-  }, [bevCelMap, szamadasiCellek, scope])
+  }, [bevCelMap, celById, scope])
 
   // Kiadás kategória opciók — ua. mint incomeCategories
   const expenseCategories = useMemo(() => {
     const celIds = Object.entries(kiaCelMap)
     return celIds.map(([id, kod]) => {
-      const cel = szamadasiCellek.find(c => c.id === kod)
+      const cel = celById.get(kod)
       const nev = (cel?.nev || '').trim()
       return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
     }).filter((c) =>
@@ -248,7 +266,7 @@ export function FinanceTabs({
       BELSO_MOZGAS_ROGZITO_KODS.has(c.kod),
     ).map(({ id, kod, nev }) => ({ id, kod, nev }))
       .sort((a, b) => a.kod.localeCompare(b.kod))
-  }, [kiaCelMap, szamadasiCellek, scope])
+  }, [kiaCelMap, celById, scope])
 
   const debtModeLabel = debtCalcMode === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás'
   const hasReceiptWarnings = receiptHealth.missingNumbers.length > 0 || receiptHealth.duplicateNumbers.length > 0 || receiptHealth.chronologyIssues.length > 0

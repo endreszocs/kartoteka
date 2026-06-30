@@ -665,7 +665,8 @@ export async function initFinance(year: number) {
   const [
     settingsRes, celRes, bevCelRes, kiaCelRes, bankRes,
     bevRes, kiaRes, prevBevRes, prevKiaRes,
-    bealitasAllRes, membersRes, debtPaymentsRes, exemptionsRes, familiesRes, childrenRes, discountsRes,
+    bealitasAllRes, membersRes, debtPaymentsRes, exemptionsRes, familiesRes, discountsRes,
+    transferRes, congRes,
   ] = await Promise.all([
     supabase.from('bealitas').select('*').eq('id', String(year)).eq('congregation_id', congregationId).maybeSingle(),
     // 2026-04-18 JAVÍTÁS (Endre diagnosztikai SQL-je alapján):
@@ -683,8 +684,11 @@ export async function initFinance(year: number) {
     supabase.from('befizetescel').select('id, id_szamadasicel'),
     supabase.from('kiadascel').select('id, id_szamadasicel'),
     supabase.from('bankszamlak').select('*').eq('congregation_id', congregationId).eq('aktiv', true),
-    supabase.from('befizetes').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('*').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    // 2026-06-30 (perf): '*' helyett a BefizetesRow/KiadasRow típus mezői (a DB-ben
+    // ~31/33 oszlop, de a UI csak ~18/16-ot olvas) — bit-azonos a fogyasztóknak,
+    // kevesebb adat-transzfer/deszerializálás nagy gyülekezetnél (sok ezer tétel/év).
+    supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
     supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
@@ -706,24 +710,28 @@ export async function initFinance(year: number) {
       .select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)')
       .eq('congregation_id', congregationId)
       .is('ervenyes_ig', null),
-    Promise.resolve({ data: [] }),
     supabase
       .from('jarulek_kedvezmeny')
       .select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras')
       .eq('congregation_id', congregationId)
       .eq('aktiv', true),
+    // 2026-06-30 (perf): a belsomozgas (transferRes) és a congregations (congRes)
+    // korábban a Promise.all UTÁN, szekvenciálisan futott — egyik sem függ a fő
+    // blokktól, ezért bevonjuk a párhuzamos hullámba (2 round-trippel kevesebb).
+    supabase.from('belsomozgas')
+      .select('id, datum, tipus, forras, cel, osszeg, cel_osszeg, arfolyam, megjegyzes, deleted')
+      .eq('congregation_id', congregationId)
+      .or('deleted.eq.false,deleted.is.null')
+      .gte('datum', `${year}-01-01`)
+      .lte('datum', `${year}-12-31`)
+      .order('datum', { ascending: false }),
+    supabase.from('congregations')
+      .select('nev_hu, nev_ro, name, tartozas_szamitas_mod')
+      .eq('id', congregationId)
+      .single(),
   ])
 
   let internalTransfers: InternalTransferRow[] = []
-  const transferRes = await supabase
-    .from('belsomozgas')
-    .select('id, datum, tipus, forras, cel, osszeg, cel_osszeg, arfolyam, megjegyzes, deleted')
-    .eq('congregation_id', congregationId)
-    .or('deleted.eq.false,deleted.is.null')
-    .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
-    .order('datum', { ascending: false })
-
   if (!transferRes.error) {
     internalTransfers = normalizeInternalTransfers((transferRes.data || []) as Record<string, unknown>[])
   }
@@ -732,12 +740,8 @@ export async function initFinance(year: number) {
   let congregationNameRo = '' // hivatalos román név (pl. „Parohia Reformată Brateș") a nyomtatványokhoz
   let debtCalcMode: 'akkori' | 'aktualis' = 'akkori'
 
-  const congRes = await supabase
-    .from('congregations')
-    .select('nev_hu, nev_ro, name, tartozas_szamitas_mod')
-    .eq('id', congregationId)
-    .single()
-
+  // A primary congregations-lekérdezés már a fenti Promise.all-ban futott (congRes).
+  // Ha a `tartozas_szamitas_mod` oszlop hiányzik (régi séma), a ritka fallback ág fut.
   if (congRes.error?.message?.includes('tartozas_szamitas_mod')) {
     const fallbackRes = await supabase
       .from('congregations')
