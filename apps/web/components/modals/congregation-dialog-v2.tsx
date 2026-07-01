@@ -643,7 +643,27 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
         </DialogHeader>
 
         {mode === 'summary' ? (
-          <CongregationSummary data={summaryData} onEdit={() => setMode('edit')} />
+          <div className="space-y-3">
+            {/* #Endre 2026-07-02: a „Szerkesztés" a Gyülekezet beállítása ablakot nyitja (ott a mezők). */}
+            <CongregationSummary
+              data={summaryData}
+              onEdit={() => {
+                onOpenChange(false)
+                window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
+              }}
+            />
+            {/* Átmeneti: a még nem migrált haladó szerkesztők (kedvezmény-szabályok, egyéb díjak,
+                évenkénti díjak, lelkész-átadás) — hogy ne vesszenek el, amíg át nem kerülnek a beállításokba. */}
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => setMode('edit')}
+                className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-slate-600"
+              >
+                Haladó szerkesztő (kedvezmények, egyéb díjak, évenkénti díjak, lelkész-átadás)
+              </button>
+            </div>
+          </div>
         ) : (
         <div className="space-y-5">
           <div>

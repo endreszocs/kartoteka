@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Fejlesztés: „Gyülekezetünk adatai" új, színes read-only nézet + mezők a beállításokban
+<!-- key: 2026-07-02-gyulekezetunk-adatai-redizajn-migracio -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A „Gyülekezetünk adatai" ablak teljesen megújult: színes, kategorizált, egyértelmű, csak
+  megtekintésre és nyomtatásra szolgáló nézet** (élénk fejléc a címerrel, kategóriánként külön
+  színnel — megnevezések, egyházi hovatartozás, cím, elérhetőség, bankszámlák, pénzügyi alap,
+  kedvezmények, lelkészek). **A szerkesztés innen átkerült a „Gyülekezet beállítása" ablakba** — a
+  „Szerkesztés a beállításokban" gomb oda visz.
+- **A „Gyülekezet beállítása" ablak mostantól az egyházmegyét és a pénzügyi alapot is szerkeszti**
+  (éves járulék, kedvezményes alapösszeg, járulék határidő, tartozás-számítás módja) — új „Pénzügyi
+  alap" lap. Így a gyülekezet minden fő adata egy helyen, a beállításokban módosítható.
+
+---
+
 ## [2026-07-01] — Új funkció: hiányzó nyugták utólagos elszámolása egy gombbal (Decont)
 <!-- key: 2026-07-01-hianyzo-nyugtak-decont -->
 <!-- category: feature -->
