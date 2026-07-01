@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Új funkció: hiányzó nyugták BEVÉTELEZÉSE varázslóval (Dispoziție de încasare)
+<!-- key: 2026-07-02-hianyzo-nyugtak-incasare-wizard -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **A Nyugtafigyelő „Hiányzó nyugták" gombja mostantól helyesen a BEVÉTELEZÉST indítja** (korábban
+  tévesen a Decont/kiadás-elszámolást nyitotta). A hiányzó nyugták a gyülekezet **bevételei**, ezért
+  egy **Dispoziție de încasare varázsló** nyílik meg, ahol **minden hiányzó nyugta egy külön tétel**:
+  megadod az összegét és a befizetőt, közös dátumot és bevétel-kategóriát választasz, majd egy
+  ellenőrző lépés után mented. Minden tétel **külön bevételként a kasszába ÉS a számadásba** kerül,
+  a nyugta saját **Irat sz.**-ával — így a figyelő „hiányzó" listájáról is lekerül.
+
+---
+
+## [2026-07-02] — Javítás: az egyházi (saját) CNP nem hiba a tagnyilvántartás Hibák fülén
+<!-- key: 2026-07-02-egyhazi-cnp-nem-hiba -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Hibák fülön többé nem jelez tévesen a rendszer az egyházi (saját) CNP-kre.** Az egyházi
+  rendszer által kiadott CNP (pl. `EC-2026-…`) szándékosan NEM 13 számjegyű valódi román CNP, ezért
+  a „CNP nem 13 számjegy" ellenőrzés mostantól kihagyja ezeket (és a régi placeholder-eket is). A
+  valódi CNP-k ellenőrzése változatlan.
+
+---
+
 ## [2026-07-02] — Fejlesztés: „Gyülekezetünk adatai" új, színes read-only nézet + mezők a beállításokban
 <!-- key: 2026-07-02-gyulekezetunk-adatai-redizajn-migracio -->
 <!-- category: improvement -->
@@ -44,19 +76,18 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-07-01] — Új funkció: hiányzó nyugták utólagos elszámolása egy gombbal (Decont)
+## [2026-07-01] — (JAVÍTVA 2026-07-02) hiányzó nyugták gomb — a helyes megoldás a bevételezés
 <!-- key: 2026-07-01-hianyzo-nyugtak-decont -->
 <!-- category: feature -->
 <!-- targets: lelkesz, gondnok, penztaros -->
-<!-- version: web + desktop (következő kiadás) -->
+<!-- version: web (visszavonva — lásd lentebb) -->
 
 ### ✨ Új funkció
 
-- **A Nyugtafigyelő „Hiányzó nyugták" listájánál mostantól van egy gomb: „Elszámolás a hiányzó
-  nyugtákról (Decont)".** Egy kattintással megnyitja a Decont — Elszámolás ablakot, **automatikusan
-  előtöltve a hiányzó nyugtaszámokkal és a mai dátummal** — így az elmaradt nyugtákat utólag,
-  aktuális dátummal be tudod vezetni. A decont tételei **valódi kiadásként a könyvelésbe ÉS a
-  számadásba (éves jelentés) is bekerülnek** — nem maradnak ki.
+- ⚠️ **Ezt a bejegyzést a 2026-07-02-i „hiányzó nyugták BEVÉTELEZÉSE (Dispoziție de încasare)"
+  javítja/váltja fel.** Az eredeti gomb tévesen a Decontot (kiadás-elszámolás) nyitotta; a hiányzó
+  nyugták valójában BEVÉTELEK, ezért a helyes megoldás a Dispoziție de încasare varázsló (a kasszába
+  és a számadásba bevételként).
 
 ---
 

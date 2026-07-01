@@ -36,6 +36,19 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const PHONE_RE = /^[+\d][\d\s\-/().]{6,20}$/
 // Romániai CNP: 13 számjegy
 const CNP_RE = /^\d{13}$/
+// Egyházi (saját) CNP — a rendszer generálja azoknak, akiknek nincs valódi
+// román CNP-jük. Formátum: `EC-YYYY-XXXXXXXXXX` (generate_egyhazi_cnp), ill.
+// régi placeholder-ek (pl. `IMPORT-<uuid>`). Ezek SZÁNDÉKOSAN nem 13 jegyű
+// román CNP-k → ki kell hagyni a 13-jegy formátum-ellenőrzésből.
+// Heurisztika: bármely nem-tisztán-numerikus CNP egyházi/placeholder értéknek
+// minősül (a valódi CNP mindig 13 számjegy, csak számokból áll).
+const CHURCH_CNP_RE = /^EC-/i
+function isChurchOrPlaceholderCnp(cnp: string): boolean {
+  const v = cnp.trim()
+  // EC-… egyházi CNP, bármely nem-numerikus placeholder (IMPORT-<uuid> stb.), vagy a régi
+  // 999-előtagú numerikus placeholder (generateCnp) — a valódi román CNP sosem kezdődik 9-cel.
+  return CHURCH_CNP_RE.test(v) || /\D/.test(v) || (/^999\d+$/.test(v) && v.length !== 13)
+}
 
 function isPlainText(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.trim().length > 0
@@ -125,7 +138,14 @@ export function validateMember(member: MemberRow): ValidationError[] {
       severity: 'warning',
     })
   }
-  if (member.cnp && !CNP_RE.test(member.cnp.trim())) {
+  // Az egyházi (saját) CNP-ket (EC-YYYY-... vagy bármely nem-numerikus
+  // placeholder) NEM ellenőrizzük 13-jegy szabállyal — ezek szándékosan nem
+  // valódi román CNP-k, így nem hiba, ha nem 13 számjegy.
+  if (
+    member.cnp &&
+    !isChurchOrPlaceholderCnp(member.cnp) &&
+    !CNP_RE.test(member.cnp.trim())
+  ) {
     errors.push({
       member_id: id,
       field_name: 'cnp',

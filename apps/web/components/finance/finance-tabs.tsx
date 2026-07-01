@@ -33,8 +33,8 @@ const PenzugyHelp = dynamic(() => import('./penzugy-help').then((m) => m.Penzugy
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
-import type { DecontPrefill } from '@kartoteka/ui-app'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
+import { DispozitieIncasareWizard } from '@/components/modals/dispozitie-incasare-wizard'
 import { FinancePrintDialog } from '@/components/finance/finance-print-dialog'
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
@@ -110,9 +110,9 @@ export function FinanceTabs({
   const [rentalDebtRows, setRentalDebtRows] = useState<RentalDebtRow[]>([])
   const [combinedOpen, setCombinedOpen] = useState(false)
   const [decontOpen, setDecontOpen] = useState(false)
-  // #Endre 2026-07-01: a Nyugtafigyelő „hiányzó nyugták" gombja előtölti a Decontot ezekkel.
-  const [decontPrefill, setDecontPrefill] = useState<DecontPrefill | undefined>(undefined)
   const [dispozitieOpen, setDispozitieOpen] = useState(false)
+  // #Endre 2026-07-02: a Nyugtafigyelő „hiányzó nyugták" bevételezése (Dispoziție de încasare wizard).
+  const [dispozitieIncasareOpen, setDispozitieIncasareOpen] = useState(false)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
 
@@ -360,23 +360,15 @@ export function FinanceTabs({
                       <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
                     )}
                   </p>
-                  {/* #Endre 2026-07-01: a hiányzó nyugták utólagos elszámolása a Decont ablakban,
-                      AKTUÁLIS dátummal előtöltve. A decont a tételeket a KÖNYVELÉSbe (kiadás) ÉS a
-                      SZÁMADÁSba is beviszi — nem marad ki. */}
+                  {/* #Endre 2026-07-02: a hiányzó nyugták BEVÉTELEK → Dispoziție de încasare wizard
+                      (minden hiányzó Irat sz. külön bevételi tétel a KASSZÁBA és a SZÁMADÁSba). */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setDecontPrefill({
-                        date: new Date().toISOString().slice(0, 10),
-                        jelleg: 'Hiányzó nyugták utólagos elszámolása',
-                        actNumbers: receiptHealth.missingNumbers.map((n) => String(n)),
-                      })
-                      setDecontOpen(true)
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-violet-700"
-                    title="Megnyitja a Decont — Elszámolás ablakot a hiányzó nyugtaszámokkal, mai dátummal. A tételek a könyvelésbe és a számadásba is bekerülnek."
+                    onClick={() => setDispozitieIncasareOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700"
+                    title="Megnyitja a Dispoziție de încasare varázslót a hiányzó nyugtákkal, mai dátummal. Minden nyugta külön bevételi tételként a kasszába és a számadásba kerül."
                   >
-                    Elszámolás a hiányzó nyugtákról (Decont)
+                    Hiányzó nyugták bevételezése (Dispoziție de încasare)
                   </button>
                 </div>
               )}
@@ -641,10 +633,23 @@ export function FinanceTabs({
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}
       <DecontDialog
         open={decontOpen}
-        onOpenChange={(open) => { setDecontOpen(open); if (!open) { setDecontPrefill(undefined); refreshData() } }}
+        onOpenChange={(open) => { setDecontOpen(open); if (!open) refreshData() }}
         congregationName={congregationName}
         categories={expenseCategories}
-        prefill={decontPrefill}
+      />
+
+      {/* #Endre 2026-07-02: hiányzó nyugták BEVÉTELEZÉSE — Dispoziție de încasare wizard */}
+      <DispozitieIncasareWizard
+        open={dispozitieIncasareOpen}
+        onOpenChange={setDispozitieIncasareOpen}
+        missingNumbers={receiptHealth.missingNumbers}
+        incomeCategories={incomeCategories}
+        defaultDate={
+          currentYear === new Date().getFullYear()
+            ? undefined
+            : `${currentYear}-${new Date().toISOString().slice(5, 10)}`
+        }
+        onDone={refreshData}
       />
 
       {/* Dispoziție de plată / încasare dialog */}
