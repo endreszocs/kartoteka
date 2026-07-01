@@ -767,36 +767,16 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
         </div>
       </WizardSectionCard>
 
-      {/* Kedvezményes időszak */}
-      <WizardSectionCard
-        icon={Calculator}
-        iconColor="text-emerald-700"
-        iconBg="bg-emerald-50"
-        title="Kedvezményes időszak"
-        description="Aki a határidő előtt fizet, a kedvezményes alapösszeget fizetheti. Hagyd 0-n, ha nincs kedvezmény."
-      >
-        <div className="grid gap-3 md:grid-cols-2">
-          <WizardField id="jarulek_kedvezmenyes" label="Kedvezményes alapösszeg (RON)" hint="0 = nincs kedvezményes összeg.">
-            <WizardInput
-              id="jarulek_kedvezmenyes"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder="pl. 100"
-              value={form.jarulek_kedvezmenyes || ''}
-              onChange={(e) => setForm({ ...form, jarulek_kedvezmenyes: Number(e.target.value) || 0 })}
-            />
-          </WizardField>
-          <WizardField id="jarulek_hatarid" label="Kedvezmény határideje (HH-NN)" hint="Eddig fizetve jár a kedvezményes összeg (pl. 07-01).">
-            <WizardInput
-              id="jarulek_hatarid"
-              placeholder="pl. 07-01"
-              value={form.jarulek_hatarid}
-              onChange={(e) => setForm({ ...form, jarulek_hatarid: e.target.value })}
-            />
-          </WizardField>
-        </div>
-      </WizardSectionCard>
+      {/* #Endre (6a): a kedvezmény NEM itt állítható — a „Kedvezmények és díjak" panelen (időszaki,
+          kor-, foglalkozás-, szociális kedvezmények). A jarulek_kedvezmenyes/hatarid skalár mezők a
+          háttérben megmaradnak (nem törlődnek), de itt nem szerkesztjük. */}
+      <WizardBanner tone="info">
+        <p>
+          A <strong>kedvezményeket</strong> (korai fizetés / kor / foglalkozás / szociális) a bal
+          oldali <strong>&bdquo;Kedvezmények és díjak&rdquo;</strong> panelen állíthatod be — több szabály is
+          felvehető, akár évenként.
+        </p>
+      </WizardBanner>
 
       {/* Tartozás-számítási mód — a welcome radio-kártyáival azonos */}
       <WizardSectionCard

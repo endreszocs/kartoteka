@@ -92,7 +92,9 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
     }
 
     toast.success(result.success)
-    setDiscountForm(getEmptyDiscountForm(new Date().getFullYear()))
+    // #Endre: mentés után az űrlap ürül, de MEGTARTJUK az évet és a típust — így a lelkész
+    // AZONNAL rögzítheti a következő (pl. újabb időszaki) kedvezményt anélkül, hogy újra beállítaná.
+    setDiscountForm({ ...getEmptyDiscountForm(discountForm.ev), tipus: discountForm.tipus })
     const refreshed = await getCongregationFeeDiscounts(congregationId)
     if ('error' in refreshed && refreshed.error) toast.error(refreshed.error)
     setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
@@ -114,6 +116,9 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
     setDiscountSchemaReady(refreshed.schemaReady !== false)
     setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
   }
+
+  // #Endre (6d): mely kedvezmény-TÍPUSOKBAN van élő (aktív) szabály — a típus-kártya zöld jelöléséhez.
+  const activeTypes = new Set(discounts.filter((d) => d.aktiv).map((d) => d.tipus))
 
   return (
     <div className="space-y-4 pt-4">
@@ -139,7 +144,7 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
 
         {discounts.length === 0 ? (
           <div className="rounded-[1.2rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-            Még nincs kedvezményszabály. Alul hozhatsz létre újat — 3 típus közül választhatsz, mindhez példát találsz.
+            Még nincs kedvezményszabály. Alul hozhatsz létre újat — 4 típus közül választhatsz, mindhez példát találsz.
           </div>
         ) : (
           <div className="space-y-4">
@@ -203,6 +208,7 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
               description="Határidőhöz kötött kedvezményes összeg."
               example="Aki júl. 1-ig fizet, 130 RON-t fizet a 150 helyett."
               selected={discountForm.tipus === 'idoszak'}
+              hasActive={activeTypes.has('idoszak')}
               onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'idoszak' }))}
             />
             <DiscountTypeCard
@@ -211,6 +217,7 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
               description="Egy korhatárhoz kötött százalékos kedvezmény."
               example="65+ éves tag 50%-ot kap — 75 RON-t fizet a 150 helyett."
               selected={discountForm.tipus === 'kor'}
+              hasActive={activeTypes.has('kor')}
               onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'kor' }))}
             />
             <DiscountTypeCard
@@ -219,6 +226,7 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
               description="A tag foglalkozása alapján (pl. tanuló, diák)."
               example="Tanuló / diák tag 0 RON-t fizet."
               selected={discountForm.tipus === 'foglalkozas'}
+              hasActive={activeTypes.has('foglalkozas')}
               onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' }))}
             />
             <DiscountTypeCard
@@ -227,6 +235,7 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
               description="Egyedi elbírálás (betegség, nehéz helyzet)."
               example="Súlyos beteg tag 100% — 0 RON-t fizet."
               selected={discountForm.tipus === 'jovedelem'}
+              hasActive={activeTypes.has('jovedelem')}
               onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'jovedelem' }))}
             />
           </div>
@@ -333,14 +342,20 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
           </label>
         </div>
 
-        <div className="mt-4 flex justify-between gap-2">
-          <Button type="button" variant="ghost" onClick={() => setDiscountForm(getEmptyDiscountForm(new Date().getFullYear()))}>
-            <Plus className="mr-2 size-4" />
-            Új üres
-          </Button>
-          <Button type="button" onClick={() => void handleSaveDiscount()}>
-            <Save className="mr-2 size-4" />
-            {discountForm.id ? 'Módosítás mentése' : 'Kedvezmény létrehozása'}
+        <div className="mt-4 flex items-center justify-between gap-2">
+          {/* #Endre (6c): a „+" MOSTANTÓL a valódi hozzáadás-gombon van (kiemelt, emerald). A
+              ballal csak SZERKESZTÉSKOR lehet elvetni. Mentés után az űrlap ürül (év+típus marad),
+              így egyből rögzíthető a következő kedvezmény. */}
+          {discountForm.id ? (
+            <Button type="button" variant="ghost" onClick={() => setDiscountForm(getEmptyDiscountForm(discountForm.ev))}>
+              Mégse (szerkesztés elvetése)
+            </Button>
+          ) : (
+            <span className="text-[11px] text-slate-400">Kitöltés után kattints a hozzáadásra — több szabály is felvehető.</span>
+          )}
+          <Button type="button" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => void handleSaveDiscount()}>
+            {discountForm.id ? <Save className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
+            {discountForm.id ? 'Módosítás mentése' : 'Kedvezmény hozzáadása'}
           </Button>
         </div>
       </Panel>
@@ -380,6 +395,7 @@ function DiscountTypeCard({
   description,
   example,
   selected,
+  hasActive,
   onClick,
 }: {
   icon: ReactNode
@@ -387,19 +403,28 @@ function DiscountTypeCard({
   description: string
   example: string
   selected: boolean
+  hasActive?: boolean
   onClick: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-full flex-col items-start gap-2 rounded-[1.1rem] border-2 p-3 text-left transition ${
+      className={`relative flex h-full flex-col items-start gap-2 rounded-[1.1rem] border-2 p-3 text-left transition ${
         selected
           ? 'border-emerald-500 bg-emerald-50/80 shadow-sm'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          : hasActive
+            ? 'border-emerald-300 bg-emerald-50/40 hover:border-emerald-400'
+            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
       }`}
     >
-      <div className={`flex size-9 items-center justify-center rounded-full ${selected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+      {/* #Endre (6d): jelvény, ha ebben a kategóriában van ÉLŐ (aktív) kedvezmény ebben a gyülekezetben */}
+      {hasActive && (
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+          ● él
+        </span>
+      )}
+      <div className={`flex size-9 items-center justify-center rounded-full ${selected || hasActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
         {icon}
       </div>
       <div className="text-sm font-semibold text-slate-800">{title}</div>

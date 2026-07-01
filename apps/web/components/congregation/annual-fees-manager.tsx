@@ -172,7 +172,8 @@ export function AnnualFeesManager({
                         min={0}
                         value={displayValue}
                         onChange={(e) => handleEditChange(year, e.target.value)}
-                        className="h-8 max-w-28 text-sm"
+                        // #Endre (6b): látható mező — eddig beleolvadt a kártya hátterébe
+                        className="h-8 max-w-28 text-sm bg-white border-slate-300 shadow-sm focus-visible:border-teal-500 focus-visible:ring-teal-500/25 disabled:bg-slate-100 disabled:text-slate-500"
                         disabled={isCurrentYear}
                       />
                     )}
