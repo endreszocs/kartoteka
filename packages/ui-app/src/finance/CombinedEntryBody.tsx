@@ -1461,7 +1461,7 @@ function PartnerCell({
             {people.length === 0 && (
               <p className="text-[10.5px] leading-tight text-slate-400">
                 Több befizető egy nyugtára? Kattints a{' '}
-                <span className="font-medium text-emerald-600">„Még egy befizető"</span>-re — mindenki külön összeggel.
+                <span className="font-medium text-emerald-600">&bdquo;Még egy befizető&rdquo;</span>-re — mindenki külön összeggel.
               </p>
             )}
           </div>

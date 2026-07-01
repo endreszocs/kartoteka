@@ -805,8 +805,8 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
           <WizardBanner tone="info">
             <p>
               Egy tagnak lehet pl. 2022-es tartozása. A rendszer ezt a 2022-es beállítások szerint
-              számolja („akkori"), vagy az aktuális évi beállítások alapján („aktuális")? Ha nem vagy
-              biztos, válaszd az „akkori"-t — ez a leggyakoribb és legtisztább.
+              számolja (&bdquo;akkori&rdquo;), vagy az aktuális évi beállítások alapján (&bdquo;aktuális&rdquo;)? Ha nem
+              vagy biztos, válaszd az &bdquo;akkori&rdquo;-t — ez a leggyakoribb és legtisztább.
             </p>
           </WizardBanner>
         }

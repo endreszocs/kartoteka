@@ -231,7 +231,7 @@ export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, i
               </div>
               <div>
                 <DialogTitle className="font-heading text-lg">Hiányzó nyugták utólagos bevételezése</DialogTitle>
-                <p className="mt-0.5 text-xs text-zinc-500">Minden hiányzó Chitanță egy bevétel a kasszába — személyhez kötve, „utólag elszámolt" nyommal.</p>
+                <p className="mt-0.5 text-xs text-zinc-500">Minden hiányzó Chitanță egy bevétel a kasszába — személyhez kötve, &bdquo;utólag elszámolt&rdquo; nyommal.</p>
               </div>
             </div>
           </DialogHeader>
@@ -326,14 +326,14 @@ export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, i
                   </select>
                 </label>
               </div>
-              <label className="block text-sm text-slate-600">Megjegyzés (a tételekre kerül — „utólag elszámolt" nyom)
+              <label className="block text-sm text-slate-600">Megjegyzés (a tételekre kerül — &bdquo;utólag elszámolt&rdquo; nyom)
                 <Input value={megj} onChange={(e) => setMegj(e.target.value)} className="mt-1" />
               </label>
               <div className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-xs text-sky-800">
                 <Info className="mt-0.5 size-3.5 shrink-0" />
                 <p>
                   A dátum a <strong>könyvelés napja</strong>. Ha a nyugta éve még nyitott, add meg az eredeti dátumot;
-                  ha a számadás már lezárt, a mai dátum + a „utólag elszámolt" megjegyzés a helyes (a nyugta saját száma
+                  ha a számadás már lezárt, a mai dátum + a &bdquo;utólag elszámolt&rdquo; megjegyzés a helyes (a nyugta saját száma
                   a megjegyzésben marad).
                 </p>
               </div>
@@ -366,7 +366,7 @@ export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, i
               </div>
               <p className="text-xs text-slate-500">
                 Mentéskor minden tétel <strong>Chitanță-bevételként</strong> a kasszába (Registrul de casă) és a
-                számadásba könyvelődik, a nyugta saját Irat sz.-ával — így a Nyugtafigyelő „hiányzó" listájáról lekerül.
+                számadásba könyvelődik, a nyugta saját Irat sz.-ával — így a Nyugtafigyelő &bdquo;hiányzó&rdquo; listájáról lekerül.
               </p>
             </div>
           )}
