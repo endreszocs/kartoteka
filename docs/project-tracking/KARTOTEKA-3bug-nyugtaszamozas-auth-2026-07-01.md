@@ -149,7 +149,11 @@ van. **JAVÍTVA:** min(uuid) → (array_agg(scope_id))[1] (Postgresben nincs min
 **Teszt-infra:** a seed + teardown lefutott (Teszt gyülekezet létrejött, majd tisztán törölhető) — OK.
 
 ## Hátralévő / a felhasználóra vár
-- Tisztázó diagnosztika lefuttatása + eredmény visszamásolása (Bug 3 megerősítés + Bug 2 gyökér).
-- Teszt-gyülekezet seedelése a biztonságos próbához (opcionálisan test user + minta nyugták).
-- Bug 2 javító SQL-ek a valós második fiókra (diagnosztika → javítás; opc. RPC + RLS).
-- Deploy a felhasználó kifejezett jelzésére (`csak akkor deployolj ha megkérlek rá`).
+- ✅ Tisztázó diagnosztika lefuttatva — Bug 3 megerősítve (114 944 hamis → 3 valós), Bug 2 gyökér azonosítva.
+- ✅ Bug 2 LEZÁRVA (DB-SQL lefuttatva): `endre940115` → Barátosi (rejected→active); 3 éles lelkész
+  (Zabolai/Maksai/Kisbaconi) scalar-sync-csel rendben.
+- ⏳ **Deploy** a felhasználó kifejezett jelzésére (`csak akkor deployolj ha megkérlek rá`) —
+  a kód-javítások (Bug 1 „nincs regisztrálva", Bug 3 nyugtafigyelő + mindkét szám a listákban) az
+  `fix/receipt-numbering-and-auth` ágon, PR + merge main hiányzik.
+- (Opcionális, később) `admin_activate_user` keményítés + RLS co-membership telepítése a jövőbeli
+  ismétlődés megelőzésére; `handle_new_user` trigger keményítés az árva OAuth-profilokra.
