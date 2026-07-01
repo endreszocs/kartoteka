@@ -23,6 +23,77 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Javítás: második e-mail ugyanahhoz az egyházközséghez — most már látja az adatokat
+<!-- key: 2026-07-01-masodik-email-egyhazkozseg-hozzaferes -->
+<!-- category: fix -->
+<!-- targets: admin, lelkesz -->
+<!-- version: adatbázis (admin által futtatott SQL) -->
+
+### 🔧 Javítás
+
+- **Ha ugyanahhoz az egyházközséghez egy MÁSODIK e-mail címet regisztráltál, de az nem látta a
+  gyülekezet adatait, ez mostantól javítható.** Az ok: a rendszer a hozzáférést a fiók saját
+  „egyházközség" beállítása alapján dönti el — ha ez a második fióknál üres maradt (mert a
+  jóváhagyáskor már aktív volt), a fiók semmit nem látott. A javítás beállítja a második fiók
+  egyházközségét, így ugyanazokat az adatokat látja, mint az első. (A javítás adatbázis-oldali,
+  az adminisztrátor futtatja; a részletek a fejlesztői dokumentációban.)
+
+---
+
+## [2026-07-01] — Fejlesztés: a Könyvelés listákban is látszik a Kerületi sz. ÉS az Irat sz.
+<!-- key: 2026-07-01-keruleti-es-irat-sz-lista -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A pénzügyi listákban (Könyvelés / Tranzakciók) az „Iratszám" oszlop mostantól MINDKÉT számot
+  megmutatja:** a **Kerületi sz.**-ot (a kerülettől kapott, nyomtatott szám) fő értékként, alatta
+  pedig kis betűvel az **Irat sz.**-ot (a gyülekezet saját sorszáma), ha az külön van rögzítve. Így
+  egy pillantással ellenőrizhető mindkét szám — nem csak a rögzítő ablakban, hanem a listában is.
+
+---
+
+## [2026-07-01] — Javítás: a Nyugtafigyelő már a gyülekezet saját sorszámát (Irat sz.) figyeli
+<!-- key: 2026-07-01-nyugtafigyelo-irat-sz -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Nyugtafigyelő riasztás nem jelez többé tévesen több tízezer „hiányzó" nyugtát.** A nyugtán KÉT
+  szám van: a **Kerületi sz.** (a kerület adja, előre nyomtatott, kerület-szintű nagy szám — pl.
+  115019), és az **Irat sz.** (a gyülekezet saját, évente újrainduló sorszáma — pl. 1, 2, … 77).
+  Eddig a figyelő a két számot összemosta, és a kettőt egyetlen folyamatos sorozatként ellenőrizte —
+  ezért a kis gyülekezeti számok (1–77) és a nagy kerületi számok (115019–115328) közötti „lyukat"
+  (kb. 115 000 szám) tévesen hiányzó nyugtáknak, a nagy kerületi számokat pedig tévesen
+  ismétlődéseknek és dátumhibáknak jelezte.
+- **Mostantól a figyelő kizárólag a gyülekezet saját sorszámát (Irat sz.) követi**, az év első és
+  utolsó nyugtája között (nem 1-től) — így a hiányzó/ismétlődő szám jelzés valóban a gyülekezet saját
+  számozásának hézagjait mutatja. A kerületi számban lévő hézag normális (a számok más gyülekezetek
+  nyugtái közé esnek), ezért azt a rendszer nem jelzi hibaként.
+
+---
+
+## [2026-07-01] — Javítás: ismeretlen Google-fiók nem „regisztrál" — kiírjuk, hogy nincs regisztrálva
+<!-- key: 2026-07-01-google-nincs-regisztralva -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo, admin -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **Ha valaki egy nem regisztrált e-mail-lel próbál Google-fiókkal belépni, a rendszer mostantól
+  világosan kiírja: „Ez az e-mail cím nincs regisztrálva a rendszerben."** Eddig a belépés úgy
+  viselkedett, mintha az illető éppen regisztrálna (a profil-kiegészítő űrlapra vitte) — pedig
+  Google-lel csak már regisztrált felhasználó léphet be. Új felhasználó továbbra is a Regisztráció
+  (hozzáférés igénylése) oldalon kezdi. A már regisztrált, Google-lel belépő felhasználókat ez nem
+  érinti.
+
+---
+
 ## [2026-06-30] — Javítás: Chitanță nyugtaszámok automatikus kitöltése (importált előzményből is)
 <!-- key: 2026-06-30-chitanta-szamozas-import-elozmeny -->
 <!-- category: fix -->

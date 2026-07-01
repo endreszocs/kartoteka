@@ -344,17 +344,26 @@ export function FinanceTabs({
               <div>
                 <h3 className="text-sm font-semibold text-red-700">Nyugtafigyelő riasztás</h3>
                 <p className="text-sm text-red-600/90">
-                  A rendszer {receiptHealth.trackedReceiptCount} készpénzes nyugtát ellenőrzött ebben az évben.
+                  A rendszer {receiptHealth.trackedReceiptCount} készpénzes nyugtát ellenőrzött ebben az évben —
+                  a gyülekezet saját sorszáma (Irat sz.) alapján, az év első és utolsó nyugtája között.
                 </p>
               </div>
               {receiptHealth.missingNumbers.length > 0 && (
                 <p className="text-sm text-slate-700">
-                  Hiányzó nyugták: <strong>{receiptHealth.missingNumbers.join(', ')}</strong>
+                  Hiányzó nyugták (Irat sz.):{' '}
+                  <strong>{receiptHealth.missingNumbers.slice(0, 50).join(', ')}</strong>
+                  {receiptHealth.missingNumbers.length > 50 && (
+                    <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
+                  )}
                 </p>
               )}
               {receiptHealth.duplicateNumbers.length > 0 && (
                 <p className="text-sm text-slate-700">
-                  Ismétlődő nyugtaszámok: <strong>{receiptHealth.duplicateNumbers.join(', ')}</strong>
+                  Ismétlődő nyugtaszámok (Irat sz.):{' '}
+                  <strong>{receiptHealth.duplicateNumbers.slice(0, 50).join(', ')}</strong>
+                  {receiptHealth.duplicateNumbers.length > 50 && (
+                    <span className="text-slate-500"> … (+{receiptHealth.duplicateNumbers.length - 50} további)</span>
+                  )}
                 </p>
               )}
               {receiptHealth.chronologyIssues.length > 0 && (

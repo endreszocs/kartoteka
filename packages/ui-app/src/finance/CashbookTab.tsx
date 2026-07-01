@@ -78,7 +78,11 @@ interface CashRow {
   osszeg: number
   partner: string
   celNev: string
+  /** Kerületi sz. — a kerülettől kapott, előre nyomtatott szám (befizetes.iratszam). */
   iratszam: string
+  /** Irat sz. — a gyülekezet saját sorszáma (befizetes.nyugta). Csak akkor van kitöltve,
+   *  ha valódi (nem a kerületi számmal tükrözött) gyülekezeti szám; kiadásnál mindig üres. */
+  gyulekezetiSzam: string
   /** Irattípus (pl. Készpénz / Chit. / Extr). */
   irattipus: string
   /** Melyik évre szól a befizetés (egyházfenntartói járulék hátralék) — kiadásnál null. */
@@ -407,6 +411,8 @@ export function CashbookTab({
           ? getCelName(bevCelMap[r.id_befizetescel || 0])
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
+        // Irat sz. = gyülekezeti saját sorszám (nyugta); csak ha valódi (nem a kerületivel tükrözött).
+        gyulekezetiSzam: r.nyugta && r.nyugta !== r.iratszam ? r.nyugta : '',
         isBm: !!r.belso_mozgas_xkey,
         unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
@@ -431,6 +437,7 @@ export function CashbookTab({
           ? getCelName(kiaCelMap[r.id_kiadascel || 0])
           : '',
         iratszam: getTransactionDocumentNumber(r) || '',
+        gyulekezetiSzam: '', // kiadásnál nincs külön gyülekezeti sorszám
         isBm: !!r.belso_mozgas_xkey,
         unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id),
         megjegyzes: r.megjegyzes || undefined,
@@ -725,7 +732,7 @@ export function CashbookTab({
                           onClick={() => toggleSort('iratszam')}
                           className="hidden md:table-cell"
                         >
-                          Iratszám
+                          Kerületi / Irat sz.
                         </CashSortableTh>
                         <CashSortableTh
                           col="partner"
@@ -947,7 +954,15 @@ function CashRow({
         {r.irattipus || '—'}
       </td>
       <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
-        {r.iratszam || '—'}
+        <span title="Kerületi sz. — a kerülettől kapott, nyomtatott szám">{r.iratszam || '—'}</span>
+        {r.gyulekezetiSzam && (
+          <span
+            className="block text-[10px] text-slate-400/80"
+            title="Irat sz. — a gyülekezet saját sorszáma"
+          >
+            Irat sz.: {r.gyulekezetiSzam}
+          </span>
+        )}
       </td>
       <td className="p-2.5">
         <span
