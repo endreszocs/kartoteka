@@ -102,6 +102,24 @@ majd célzott javítás. A teljes ágens-riport: a session `tasks/wv4zp8iv4.outp
 2. `feat(penzugy)`: a listákban is látszik a Kerületi sz. és az Irat sz.
 3. (ez a doc + Bug 2 SQL-ek + CHANGELOG)
 
+## Tisztázó diagnosztika + teszt-környezet (2026-07-01, második kör)
+
+A felhasználó kérésére, hogy „biztosan tudjak diagnosztizálni" és biztonságosan teszteljünk:
+
+- **`migration-docs/sql/2026-07-01-tisztazo-diagnosztika.sql`** — READ-ONLY. 3 szakasz:
+  (0) melyik congregation_id; (1) Bug 3: a Kerületi/Irat sz. KÉT skálája + a RÉGI (`iratszam||nyugta`)
+  vs ÚJ (csak nem-tükrözött `nyugta`) monitor MIN..MAX és a hamis-hézag mérete — a nyugtafigyelővel
+  BIT-AZONOS szűrővel (datum-év + deleted=false + bankszamla_id IS NULL + belso_mozgas_xkey IS NULL,
+  forrás: penzugy/actions.ts:707 + computeReceiptHealth); (2) Bug 2: RLS-szimuláció egy emailre.
+  A user lefuttatja, visszamásolja → 100% biztos diagnózis.
+- **`migration-docs/sql/2026-07-01-teszt-egyhazkozseg-seed.sql`** — Teszt Egyházkerület→Egyházmegye→
+  gyülekezet FIX UUID-kkel (`7e57…0001/0002/0003`). BLOCK 1 org-hierarchia; BLOCK 2 (opc.) egy
+  regisztrált email hozzárendelése; BLOCK 3 (opc.) minta nyugták (Irat sz. 1–5 + szándékos hézag a
+  6-nál + tükrözött 115019 legacy sor → a javított figyelő csak a valós „hiányzó: 6"-ot jelzi);
+  **teljes TEARDOWN** (minden `congregation_id`-gyerek gyerek→szülő sorrendben, NINCS CASCADE a sémában).
+
 ## Hátralévő / a felhasználóra vár
-- Bug 2 SQL-ek lefuttatása a Supabase SQL editorban (diagnosztika → javítás; opcionálisan RPC + RLS).
+- Tisztázó diagnosztika lefuttatása + eredmény visszamásolása (Bug 3 megerősítés + Bug 2 gyökér).
+- Teszt-gyülekezet seedelése a biztonságos próbához (opcionálisan test user + minta nyugták).
+- Bug 2 javító SQL-ek a valós második fiókra (diagnosztika → javítás; opc. RPC + RLS).
 - Deploy a felhasználó kifejezett jelzésére (`csak akkor deployolj ha megkérlek rá`).
