@@ -33,6 +33,7 @@ const PenzugyHelp = dynamic(() => import('./penzugy-help').then((m) => m.Penzugy
 const FinanceImportTabs = dynamic(() => import('./finance-import/finance-import-tabs').then((m) => m.FinanceImportTabs), { ssr: false, loading: tabLoading })
 import { CombinedEntryDialog } from '@/components/modals/combined-entry-dialog'
 import { DecontDialog } from '@/components/modals/decont-dialog'
+import type { DecontPrefill } from '@kartoteka/ui-app'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { FinancePrintDialog } from '@/components/finance/finance-print-dialog'
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
@@ -109,6 +110,8 @@ export function FinanceTabs({
   const [rentalDebtRows, setRentalDebtRows] = useState<RentalDebtRow[]>([])
   const [combinedOpen, setCombinedOpen] = useState(false)
   const [decontOpen, setDecontOpen] = useState(false)
+  // #Endre 2026-07-01: a Nyugtafigyelő „hiányzó nyugták" gombja előtölti a Decontot ezekkel.
+  const [decontPrefill, setDecontPrefill] = useState<DecontPrefill | undefined>(undefined)
   const [dispozitieOpen, setDispozitieOpen] = useState(false)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
@@ -349,13 +352,33 @@ export function FinanceTabs({
                 </p>
               </div>
               {receiptHealth.missingNumbers.length > 0 && (
-                <p className="text-sm text-slate-700">
-                  Hiányzó nyugták (Irat sz.):{' '}
-                  <strong>{receiptHealth.missingNumbers.slice(0, 50).join(', ')}</strong>
-                  {receiptHealth.missingNumbers.length > 50 && (
-                    <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
-                  )}
-                </p>
+                <div className="space-y-1.5">
+                  <p className="text-sm text-slate-700">
+                    Hiányzó nyugták (Irat sz.):{' '}
+                    <strong>{receiptHealth.missingNumbers.slice(0, 50).join(', ')}</strong>
+                    {receiptHealth.missingNumbers.length > 50 && (
+                      <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
+                    )}
+                  </p>
+                  {/* #Endre 2026-07-01: a hiányzó nyugták utólagos elszámolása a Decont ablakban,
+                      AKTUÁLIS dátummal előtöltve. A decont a tételeket a KÖNYVELÉSbe (kiadás) ÉS a
+                      SZÁMADÁSba is beviszi — nem marad ki. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDecontPrefill({
+                        date: new Date().toISOString().slice(0, 10),
+                        jelleg: 'Hiányzó nyugták utólagos elszámolása',
+                        actNumbers: receiptHealth.missingNumbers.map((n) => String(n)),
+                      })
+                      setDecontOpen(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-violet-700"
+                    title="Megnyitja a Decont — Elszámolás ablakot a hiányzó nyugtaszámokkal, mai dátummal. A tételek a könyvelésbe és a számadásba is bekerülnek."
+                  >
+                    Elszámolás a hiányzó nyugtákról (Decont)
+                  </button>
+                </div>
               )}
               {receiptHealth.duplicateNumbers.length > 0 && (
                 <p className="text-sm text-slate-700">
@@ -618,9 +641,10 @@ export function FinanceTabs({
       {/* Decont (elszámolás) dialog — a hivatalos Elszamolas sablonnal */}
       <DecontDialog
         open={decontOpen}
-        onOpenChange={(open) => { setDecontOpen(open); if (!open) refreshData() }}
+        onOpenChange={(open) => { setDecontOpen(open); if (!open) { setDecontPrefill(undefined); refreshData() } }}
         congregationName={congregationName}
         categories={expenseCategories}
+        prefill={decontPrefill}
       />
 
       {/* Dispoziție de plată / încasare dialog */}

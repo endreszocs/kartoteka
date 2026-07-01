@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Új funkció: hiányzó nyugták utólagos elszámolása egy gombbal (Decont)
+<!-- key: 2026-07-01-hianyzo-nyugtak-decont -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **A Nyugtafigyelő „Hiányzó nyugták" listájánál mostantól van egy gomb: „Elszámolás a hiányzó
+  nyugtákról (Decont)".** Egy kattintással megnyitja a Decont — Elszámolás ablakot, **automatikusan
+  előtöltve a hiányzó nyugtaszámokkal és a mai dátummal** — így az elmaradt nyugtákat utólag,
+  aktuális dátummal be tudod vezetni. A decont tételei **valódi kiadásként a könyvelésbe ÉS a
+  számadásba (éves jelentés) is bekerülnek** — nem maradnak ki.
+
+---
+
 ## [2026-07-01] — Javítás: tag-mentés hiba + gyorsabb nyugta-autofill + szülő-összekötés magyarázat
 <!-- key: 2026-07-01-tag-mentes-autofill-szulo -->
 <!-- category: fix -->

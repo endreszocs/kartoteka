@@ -51,6 +51,20 @@ export interface DecontTabBodyProps {
   /** Nyomtatás callback (web: printToBrowser/printToPdf). */
   onPrint: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
   onToast: DecontToastFn
+  /** #Endre 2026-07-01: előtöltés (pl. a Nyugtafigyelő „hiányzó nyugták" gombjából). */
+  prefill?: DecontPrefill
+}
+
+/** Előtöltő adatok a Decont ablakhoz — pl. a hiányzó nyugták utólagos elszámolásához. */
+export interface DecontPrefill {
+  /** Elszámolási (könyvelési) dátum — alap: ma. */
+  date?: string
+  personName?: string
+  jelleg?: string
+  /** Kiadás-kategória (id_kiadascel). */
+  categoryId?: number
+  /** Előtöltött tétel-sorok Irat sz.-ai (pl. a hiányzó nyugták: 24, 225, 313). */
+  actNumbers?: string[]
 }
 
 type Row = {
@@ -82,14 +96,20 @@ export function DecontTabBody({
   onSaveDecont,
   onPrint,
   onToast,
+  prefill,
 }: DecontTabBodyProps) {
-  const [personName, setPersonName] = useState('')
+  const [personName, setPersonName] = useState(prefill?.personName ?? '')
   const [approvedBy, setApprovedBy] = useState('')
   const [advance, setAdvance] = useState('0')
-  const [jelleg, setJelleg] = useState('')
-  const [dateRaw, setDateRaw] = useState(todayIso())
-  const [categoryId, setCategoryId] = useState<number | ''>('')
-  const [rows, setRows] = useState<Row[]>([createRow()])
+  const [jelleg, setJelleg] = useState(prefill?.jelleg ?? '')
+  const [dateRaw, setDateRaw] = useState(prefill?.date || todayIso())
+  const [categoryId, setCategoryId] = useState<number | ''>(prefill?.categoryId ?? '')
+  const [rows, setRows] = useState<Row[]>(
+    // #Endre 2026-07-01: előtöltött Irat sz.-ok (hiányzó nyugták) → minden szám egy külön sor.
+    prefill?.actNumbers?.length
+      ? prefill.actNumbers.map((n) => ({ ...createRow(), actNr: n }))
+      : [createRow()],
+  )
   const [sorszam, setSorszam] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
