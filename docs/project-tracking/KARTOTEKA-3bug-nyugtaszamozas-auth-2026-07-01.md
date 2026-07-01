@@ -123,6 +123,27 @@ A felhasználó kérésére, hogy „biztosan tudjak diagnosztizálni" és bizto
   fájlban (minden `congregation_id`-gyerek gyerek→szülő sorrendben, NINCS CASCADE a sémában; a user
   profil megmarad, csak leválik).
 
+## Diagnosztika EREDMÉNYE (megerősítve valós adaton, 2026-07-01)
+
+**Bug 3 — bizonyítva.** Barátosi Református Egyházközség (`43cff37f-1131-4c79-8082-0e8af61cf40a`),
+478 készpénzes 2025-ös nyugta. Régi monitor: MIN 77 → MAX 115331 → **114 944 hamis „hiányzó"**
+(= a bejelentett ~115000). Új monitor (csak Irat sz.): a gyülekezeti sorszám **19 → 331** (tényleg
+NEM 1-től indul) → **3 valós hiányzó**. Tükrözött sor: 1. A javítás pontos.
+
+**Bug 2 — leleplezve, ÉLES felhasználókat érint.** Több AKTÍV lelkész `profiles.congregation_id=NULL`,
+pedig van 1 jóváhagyott congregation-scope `profile_roles`-uk → az RLS (skalár-alapú) nem lát adatot:
+`beketivadar@gmail.com`, `ferenczi.cs.zoltan@gmail.com`, `oprakoppany98@gmail.com` (mind active,
+approved_cong_roles=1, congregation_id NULL). Külön: `endre940115@gmail.com` = **pending** (0 approved)
+→ ez még admin-jóváhagyásra vár (nem ugyanaz az eset). Működő kontroll: `endreszocs`/Barátosi,
+`marosiarpad`/Sepsiszentgyörgy III, `uzoniref`/Uzoni (RLS=IGEN).
+
+**Javítás (jobb, mint a két-email verzió):** `2026-07-01-bug2-reszletek.sql` (melyik fiók melyik
+gyülekezethez) + `2026-07-01-bug2-javitas-scalar-sync.sql` — a skalárt minden érintett fiók SAJÁT,
+már jóváhagyott szerepéből tölti (nem tippel), csak ahol pontosan 1 approved gyülekezet van. A pending
+fiók az admin-aktiválással rendeződik (a `admin_activate_user` most a congregation_id-t is beírja).
+
+**Teszt-infra:** a seed + teardown lefutott (Teszt gyülekezet létrejött, majd tisztán törölhető) — OK.
+
 ## Hátralévő / a felhasználóra vár
 - Tisztázó diagnosztika lefuttatása + eredmény visszamásolása (Bug 3 megerősítés + Bug 2 gyökér).
 - Teszt-gyülekezet seedelése a biztonságos próbához (opcionálisan test user + minta nyugták).
