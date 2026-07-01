@@ -346,9 +346,11 @@ async function insertExpenseRecord(params: {
     osszeg: input.osszeg,
     datum: input.datum,
     id_kiadascel: input.id_kiadascel,
-    // A partner/kedvezményezett a `atvevo` oszlopba kerül (lent) — a `kiadas` táblában
-    // NINCS `kedvezmenyzett` oszlop, ezért azt nem szabad beszúrni (column-does-not-exist).
-    id_szemely: 'id_szemely' in input ? input.id_szemely || null : null,
+    // A partner/kedvezményezett a `atvevo`/`atvevoid` oszlopba kerül (lent, referencePayload) —
+    // a `kiadas` táblában NINCS `kedvezmenyzett` és NINCS `id_szemely` oszlop sem (a személy =
+    // `atvevoid`). Ezért ezeket TILOS beszúrni: a PostgREST akkor is elutasít (schema cache),
+    // ha az érték null. Enélkül a canonical/reference payload eddig MINDIG elbukott (→ a hiba a
+    // végső bizonylatszam-fallbackot mutatta).
     iratszam: documentNumber,
     irattipus: input.irattipus,
     megjegyzes: input.megjegyzes || null,
