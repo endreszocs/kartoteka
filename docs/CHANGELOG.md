@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Fejlesztés: „Gyülekezetünk adatai" szép, kategorizált, nyomtatható összefoglaló
+<!-- key: 2026-07-01-gyulekezetunk-adatai-osszefoglalo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A fejléc menü „Gyülekezetünk adatai" ablaka mostantól egy letisztult, kategorizált
+  (Apple-beállítások jellegű) ÖSSZEFOGLALÓT mutat a gyülekezet minden rögzített adatáról** —
+  megnevezések, egyházi hovatartozás, hivatalos cím, elérhetőség, bankszámlák, pénzügyi alap,
+  kedvezmények és lelkészek —, és **egy gombbal kinyomtatható** (szép, A4-es hivatalos adatlap
+  a címerrel). A szerkesztés a „Szerkesztés" gombbal érhető el (semmi nem változott a szerkesztő
+  nézetben). A hivatalos alapadatok továbbra is a „Gyülekezet beállítása" ablakban szerkeszthetők.
+
+---
+
 ## [2026-07-01] — Fejlesztés: befizető-kereső életkorral + egyházfenntartás auto-összeg megbízhatóbb
 <!-- key: 2026-07-01-befizeto-eletkor-jarulek-autofill -->
 <!-- category: improvement -->

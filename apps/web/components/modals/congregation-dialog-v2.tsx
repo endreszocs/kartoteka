@@ -42,6 +42,7 @@ import {
   updateCongregation,
   type CustomFeeRow,
 } from '@/app/(dashboard)/congregation/actions'
+import { CongregationSummary, type CongregationSummaryData } from './congregation-summary'
 import {
   deleteAnnualFee,
   saveAnnualFee,
@@ -175,6 +176,10 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const [completing, setCompleting] = useState(false)
   // 2026-06-05 (F4a): életciklus-státusz (inaktív gyülekezet jelzés)
   const [congStatus, setCongStatus] = useState<string | null>(null)
+  // #Endre 2026-07-01: az ablak alapból a read-only, nyomtatható ÖSSZEFOGLALÓT mutatja;
+  // a „Szerkesztés" gombra vált a meglévő szerkesztő nézetre.
+  const [mode, setMode] = useState<'summary' | 'edit'>('summary')
+  const [districtName, setDistrictName] = useState<string | null>(null)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
     name: '',
@@ -266,6 +271,11 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     if (congregation) {
       const currentYear = new Date().getFullYear()
       setCongStatus((congregation as { status?: string | null }).status ?? null)
+      setDistrictName(
+        (congregation as { district?: string | null }).district
+        || (congregation as { egyhazkerulet?: string | null }).egyhazkerulet
+        || null,
+      )
       setPublicSite({
         enabled: !!congregation.public_site_enabled,
         slug: congregation.public_slug ?? null,
@@ -306,6 +316,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   useEffect(() => {
     if (!open || !congregationId) return
 
+    setMode('summary') // minden megnyitáskor az összefoglaló nézettel indulunk
     let cancelled = false
     queueMicrotask(() => {
       if (!cancelled) void loadData()
@@ -315,6 +326,50 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
       cancelled = true
     }
   }, [open, congregationId, loadData])
+
+  // #Endre 2026-07-01: a read-only összefoglaló + nyomtatás adatai a betöltött form-ból/listákból.
+  // (A hook-oknak a feltételes `return null` ELŐTT kell lenniük — rules-of-hooks.)
+  const summaryData: CongregationSummaryData = useMemo(() => {
+    const dioceseName = dioceses.find((d) => d.id === form.dioceseId)?.name || null
+    const cimSor = [
+      form.iranyitoszam,
+      form.varos,
+      [form.cim, form.hazszam].filter(Boolean).join(' '),
+      form.megye && form.megye !== form.varos ? `${form.megye} megye` : '',
+      form.country && form.country !== 'Románia' ? form.country : '',
+    ].filter(Boolean).join(', ')
+    const amt = (n: number | null) => `${(Number(n) || 0).toLocaleString('hu-HU')} RON`
+    const fmtDiscount = (d: FeeDiscountRow): string => {
+      if (d.tipus === 'idoszak') return `Időablak ${d.kezdet || '—'}–${d.hatarid || '—'}: ${amt(d.kedv_osszeg)}`
+      if (d.tipus === 'kor') return `${d.kor_tol ?? '?'}+ év: ${d.szazalek ? `${d.szazalek}%` : amt(d.fix_osszeg)}`
+      if (d.tipus === 'foglalkozas') return `${d.jov_leiras || 'Foglalkozás'}: ${Number(d.fix_osszeg) === 0 ? 'nem fizet' : amt(d.fix_osszeg)}`
+      return `${d.jov_leiras || 'Jövedelem'}: ${d.szazalek ? `${d.szazalek}%` : amt(d.fix_osszeg)}`
+    }
+    return {
+      cimerUrl: form.cimerUrl || '',
+      nevHu: form.nevHu,
+      nev: form.nev,
+      nevRo: form.nevRo,
+      nevEn: form.nevEn,
+      adoszam: form.adoszam,
+      districtName,
+      dioceseName,
+      cimSor,
+      email: form.email,
+      telefon: form.telefon,
+      web: form.web,
+      banks: bankAccounts.filter((b) => b.aktiv !== false).map((b) => ({
+        bank_neve: b.bank_neve, iban: b.iban, valuta: b.valuta, is_default: b.is_default,
+      })),
+      evesJarulek: form.evesJarulek,
+      jarulekKedvezmenyes: form.jarulekKedvezmenyes,
+      jarulekHatarid: form.jarulekHatarid,
+      tartozasSzamitasMod: form.tartozasSzamitasMod as 'akkori' | 'aktualis',
+      discounts: discounts.filter((d) => d.aktiv !== false).map(fmtDiscount),
+      pastors: pastors.map((p) => ({ full_name: p.full_name, started_at: p.started_at, ended_at: p.ended_at })),
+      status: congStatus,
+    }
+  }, [form, dioceses, districtName, bankAccounts, discounts, pastors, congStatus])
 
   if (!congregationId) return null
   const activeCongregationId = congregationId
@@ -587,7 +642,19 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
           </DialogTitle>
         </DialogHeader>
 
+        {mode === 'summary' ? (
+          <CongregationSummary data={summaryData} onEdit={() => setMode('edit')} />
+        ) : (
         <div className="space-y-5">
+          <div>
+            <button
+              type="button"
+              onClick={() => setMode('summary')}
+              className="text-sm font-medium text-teal-700 hover:text-teal-900"
+            >
+              ← Vissza az összefoglalóhoz
+            </button>
+          </div>
           <div className="card-raised relative overflow-hidden p-5 sm:p-6">
             <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-amber-200/35 blur-3xl" />
             <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-teal-200/25 blur-3xl" />
@@ -1593,6 +1660,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
 
           </Tabs>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )
