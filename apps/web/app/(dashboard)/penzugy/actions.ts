@@ -149,6 +149,16 @@ function extractNumericDocumentNumber(rawValue: string | null | undefined) {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
+// #Endre 2026-07-01: egy fizikai nyugta KERÜLETI alap-iratszáma a per-befizető `/N` utótag
+// nélkül. Egy nyugtán több befizető lehet — ilyenkor személyenként KÜLÖN sor keletkezik,
+// KÖZÖS gyülekezeti sorszámmal (nyugta) és KÖZÖS kerületi alap-iratszámmal, csak `/1`, `/2` …
+// utótaggal (a kerületi iratszámra UNIQUE index van). Az alap (a /N levágva) tehát a fizikai
+// nyugta azonosítója: ha egy Irat sz.-hoz TÖBB különböző alap tartozik, az két külön nyugta
+// ugyanazzal a sorszámmal → VALÓDI duplikátum. Ha csak egy alap → egy nyugta több befizetővel (OK).
+function receiptBaseKey(rawValue: string | null | undefined): string {
+  return String(rawValue || '').replace(/\/\d+\s*$/, '').trim()
+}
+
 function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam' | 'nyugta' | 'irattipus' | 'deleted' | 'belso_mozgas_xkey' | 'bankszamla_id'>>): ReceiptHealth {
   const numberedRows = rows
     .filter(row => !row.deleted)
@@ -174,8 +184,10 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
         ? extractNumericDocumentNumber(row.nyugta)
         : null,
       date: String(row.datum || ''),
+      // A kerületi alap-iratszám (a /N nélkül) = a fizikai nyugta azonosítója (lásd receiptBaseKey).
+      base: receiptBaseKey(row.iratszam),
     }))
-    .filter((row): row is { number: number; date: string } => row.number != null)
+    .filter((row): row is { number: number; date: string; base: string } => row.number != null)
     .sort((a, b) => a.number - b.number)
 
   if (numberedRows.length === 0) {
@@ -191,14 +203,21 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
   const missingNumbers: number[] = []
   const duplicateNumbers = new Set<number>()
   const chronologyIssues: ReceiptChronologyIssue[] = []
-  const numberCounts = new Map<number, number>()
 
+  // #Endre 2026-07-01: az ISMÉTLŐDŐ Irat sz. ÖNMAGÁBAN NEM hiba. Egy nyugtán több befizető
+  // lehet (személyenként külön sor, KÖZÖS Irat sz. + közös kerületi alap-iratszám /N utótaggal)
+  // — ez teljesen szabályos. Ezért egy Irat sz. CSAK akkor valódi duplikátum, ha TÖBB
+  // KÜLÖNBÖZŐ kerületi alap-iratszámhoz (= külön fizikai nyugtához) tartozik. A lényeg a
+  // HIÁNYZÓ számok kiszűrése; a több-befizetős ismétlődést nem jelezzük hibaként.
+  const basesByNumber = new Map<number, Set<string>>()
   numberedRows.forEach(row => {
-    numberCounts.set(row.number, (numberCounts.get(row.number) || 0) + 1)
+    const set = basesByNumber.get(row.number) ?? new Set<string>()
+    set.add(row.base)
+    basesByNumber.set(row.number, set)
   })
 
-  numberCounts.forEach((count, number) => {
-    if (count > 1) duplicateNumbers.add(number)
+  basesByNumber.forEach((bases, number) => {
+    if (bases.size > 1) duplicateNumbers.add(number)
   })
 
   // Az év első és utolsó nyugtája között keresünk hiányzókat. Ha 2025-ben

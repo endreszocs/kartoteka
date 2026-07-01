@@ -23,6 +23,26 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Javítás: a Nyugtafigyelő nem jelez hibát a több-befizetős nyugtákra + finomabb új-évi kérdés
+<!-- key: 2026-07-01-nyugtafigyelo-tobb-befizeto-ujjev -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Nyugtafigyelő már nem jelzi hibaként az „ismétlődő" Irat sz.-okat, ha egy nyugtán több
+  befizető szerepel.** Ha egy nyugtát több személyre bontasz (mindenkihez külön sor, de KÖZÖS
+  Irat sz.-mal), az teljesen szabályos — a rendszer eddig ezt tévesen ismétlődésnek jelezte.
+  Mostantól egy Irat sz. csak akkor számít valódi duplikátumnak, ha **két KÜLÖNBÖZŐ nyugtához**
+  (eltérő kerületi alap-iratszámhoz) tartozik ugyanaz a sorszám. A lényeg továbbra is a **hiányzó**
+  számok kiszűrése. (Ellenőrző lekérdezés: `2026-07-01-nyugta-duplikatum-ellenorzes.sql`.)
+- **Az „Új év — hogyan induljon a gyülekezeti nyugtaszám?" kérdés eltűnik, ha múlt évi dátumot
+  választasz.** Ha a nyugta rögzítésekor nem az új évre, hanem egy korábbi év dátumára váltasz, a
+  felugró új-évi kérdés magától bezárul (az csak az új évre vonatkozik).
+
+---
+
 ## [2026-07-01] — Javítás: második e-mail ugyanahhoz az egyházközséghez — most már látja az adatokat
 <!-- key: 2026-07-01-masodik-email-egyhazkozseg-hozzaferes -->
 <!-- category: fix -->

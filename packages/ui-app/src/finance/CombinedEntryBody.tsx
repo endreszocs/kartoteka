@@ -821,6 +821,17 @@ export function CombinedEntryBody({
   const dateInvalid = (r: EntryRow) => r.datum.trim() !== '' && parseFlexibleDate(r.datum) == null
 
   // Dátum mező: szabadon beírható szöveg + naptár-választó (natív date input).
+  // #Endre 2026-07-01: dátumváltás kezelése. Ha a kiváltó soron NEM az új-évhez tartozó
+  // (pl. múlt évi) dátumot választ a felhasználó, tüntessük el az „Új év (…)" felugró kérdést —
+  // az kizárólag arra az egy új évre vonatkozik, amelyre az autofill rákérdezett.
+  function handleDatumChange(r: EntryRow, value: string) {
+    updateRow(r.id, { datum: value })
+    if (newYearPrompt && newYearPrompt.rowId === r.id) {
+      const y = Number(parseFlexibleDate(value)?.slice(0, 4))
+      if (!y || y !== newYearPrompt.year) setNewYearPrompt(null)
+    }
+  }
+
   function renderDateField(r: EntryRow) {
     return (
       <div className="flex items-center gap-1">
@@ -828,7 +839,7 @@ export function CombinedEntryBody({
           className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`}
           value={r.datum}
           placeholder="pl. 2026.01.04"
-          onChange={(e) => updateRow(r.id, { datum: e.target.value })}
+          onChange={(e) => handleDatumChange(r, e.target.value)}
         />
         <input
           type="date"
@@ -836,7 +847,7 @@ export function CombinedEntryBody({
           title="Naptár"
           className="h-9 w-9 shrink-0 rounded-md border border-input bg-transparent px-1 text-transparent"
           value={parseFlexibleDate(r.datum) || ''}
-          onChange={(e) => { if (e.target.value) updateRow(r.id, { datum: e.target.value }) }}
+          onChange={(e) => { if (e.target.value) handleDatumChange(r, e.target.value) }}
         />
       </div>
     )
