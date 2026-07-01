@@ -106,17 +106,22 @@ majd célzott javítás. A teljes ágens-riport: a session `tasks/wv4zp8iv4.outp
 
 A felhasználó kérésére, hogy „biztosan tudjak diagnosztizálni" és biztonságosan teszteljünk:
 
-- **`migration-docs/sql/2026-07-01-tisztazo-diagnosztika.sql`** — READ-ONLY. 3 szakasz:
-  (0) melyik congregation_id; (1) Bug 3: a Kerületi/Irat sz. KÉT skálája + a RÉGI (`iratszam||nyugta`)
-  vs ÚJ (csak nem-tükrözött `nyugta`) monitor MIN..MAX és a hamis-hézag mérete — a nyugtafigyelővel
-  BIT-AZONOS szűrővel (datum-év + deleted=false + bankszamla_id IS NULL + belso_mozgas_xkey IS NULL,
-  forrás: penzugy/actions.ts:707 + computeReceiptHealth); (2) Bug 2: RLS-szimuláció egy emailre.
-  A user lefuttatja, visszamásolja → 100% biztos diagnózis.
-- **`migration-docs/sql/2026-07-01-teszt-egyhazkozseg-seed.sql`** — Teszt Egyházkerület→Egyházmegye→
-  gyülekezet FIX UUID-kkel (`7e57…0001/0002/0003`). BLOCK 1 org-hierarchia; BLOCK 2 (opc.) egy
-  regisztrált email hozzárendelése; BLOCK 3 (opc.) minta nyugták (Irat sz. 1–5 + szándékos hézag a
-  6-nál + tükrözött 115019 legacy sor → a javított figyelő csak a valós „hiányzó: 6"-ot jelzi);
-  **teljes TEARDOWN** (minden `congregation_id`-gyerek gyerek→szülő sorrendben, NINCS CASCADE a sémában).
+- **`migration-docs/sql/2026-07-01-tisztazo-diagnosztika.sql`** — READ-ONLY, **NULLA-KONFIG**
+  (semmit nem kell átírni, egyben futtatható, EGY eredménytábla). Auto: A_gyulekezetek (2025 készpénz-db),
+  B_nyugtaszamozas (a legtöbb nyugtás gyülekezetre a Kerületi/Irat sz. két skálája + RÉGI vs ÚJ monitor
+  MIN..MAX + a ~115000-es hamis hézag), C_profilok_hozzaferes (minden fiók status/congregation_id/
+  RLS_latna_adatot → a második-email Bug 2 magától látszik). A nyugtafigyelővel BIT-AZONOS szűrő
+  (penzugy/actions.ts:707 + computeReceiptHealth). **Megj.:** az 1. körös verzió placeholder-öket kért
+  és 3 külön szakasz volt — a Supabase editor csak az utolsó eredményt adja + a user egyben futtatta →
+  átírva nulla-konfigra.
+- **`migration-docs/sql/2026-07-01-teszt-egyhazkozseg-seed.sql`** — CSAK LÉTREHOZÁS. Teszt
+  Egyházkerület→Egyházmegye→gyülekezet FIX UUID-kkel (`7e57…0001/0002/0003`). BLOCK 1 org (mindig OK);
+  BLOCK 2/3 (opc.) email-attach + minta nyugták — **hibatűrő**: ha nincs regisztrált user, NEM hibázik,
+  csak kihagyja (RAISE NOTICE). **Megj.:** az 1. körben BLOCK 2 RAISE EXCEPTION-t dobott → a Supabase
+  egy-tranzakció miatt a BLOCK 1-et is visszagörgette; ezért lett hibatűrő + a teardown külön fájlba.
+- **`migration-docs/sql/2026-07-01-teszt-egyhazkozseg-teardown.sql`** — a teljes visszabontás KÜLÖN
+  fájlban (minden `congregation_id`-gyerek gyerek→szülő sorrendben, NINCS CASCADE a sémában; a user
+  profil megmarad, csak leválik).
 
 ## Hátralévő / a felhasználóra vár
 - Tisztázó diagnosztika lefuttatása + eredmény visszamásolása (Bug 3 megerősítés + Bug 2 gyökér).
