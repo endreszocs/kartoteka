@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Javítás: második e-mail ugyanahhoz az egyházközséghez — most már látja az adatokat
+<!-- key: 2026-07-01-masodik-email-egyhazkozseg-hozzaferes -->
+<!-- category: fix -->
+<!-- targets: admin, lelkesz -->
+<!-- version: adatbázis (admin által futtatott SQL) -->
+
+### 🔧 Javítás
+
+- **Ha ugyanahhoz az egyházközséghez egy MÁSODIK e-mail címet regisztráltál, de az nem látta a
+  gyülekezet adatait, ez mostantól javítható.** Az ok: a rendszer a hozzáférést a fiók saját
+  „egyházközség" beállítása alapján dönti el — ha ez a második fióknál üres maradt (mert a
+  jóváhagyáskor már aktív volt), a fiók semmit nem látott. A javítás beállítja a második fiók
+  egyházközségét, így ugyanazokat az adatokat látja, mint az első. (A javítás adatbázis-oldali,
+  az adminisztrátor futtatja; a részletek a fejlesztői dokumentációban.)
+
+---
+
 ## [2026-07-01] — Fejlesztés: a Könyvelés listákban is látszik a Kerületi sz. ÉS az Irat sz.
 <!-- key: 2026-07-01-keruleti-es-irat-sz-lista -->
 <!-- category: improvement -->
