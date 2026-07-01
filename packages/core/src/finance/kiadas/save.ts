@@ -185,7 +185,8 @@ export async function saveExpenseUseCase(
         offlineNotSupported: true,
       }
     }
-    if (!/észpénz/i.test(clean.irattipus)) {
+    // #5-fix: készpénz-azonosítás a bankszamla_id IS NULL alapján, nem az irattipus szövegén.
+    if (clean.bankszamla_id != null && !/észpénz/i.test(clean.irattipus)) {
       return {
         success: false,
         error:

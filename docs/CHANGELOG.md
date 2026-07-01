@@ -23,7 +23,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-07-02] — Új funkció: hiányzó nyugták BEVÉTELEZÉSE varázslóval (Dispoziție de încasare)
+## [2026-07-02] — Új funkció: hiányzó nyugták UTÓLAGOS BEVÉTELEZÉSE varázslóval (személyhez kötve)
 <!-- key: 2026-07-02-hianyzo-nyugtak-incasare-wizard -->
 <!-- category: feature -->
 <!-- targets: lelkesz, gondnok, penztaros -->
@@ -31,12 +31,59 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### ✨ Új funkció
 
-- **A Nyugtafigyelő „Hiányzó nyugták" gombja mostantól helyesen a BEVÉTELEZÉST indítja** (korábban
-  tévesen a Decont/kiadás-elszámolást nyitotta). A hiányzó nyugták a gyülekezet **bevételei**, ezért
-  egy **Dispoziție de încasare varázsló** nyílik meg, ahol **minden hiányzó nyugta egy külön tétel**:
-  megadod az összegét és a befizetőt, közös dátumot és bevétel-kategóriát választasz, majd egy
-  ellenőrző lépés után mented. Minden tétel **külön bevételként a kasszába ÉS a számadásba** kerül,
-  a nyugta saját **Irat sz.**-ával — így a figyelő „hiányzó" listájáról is lekerül.
+- **A Nyugtafigyelő „Hiányzó nyugták" gombja a hiányzó nyugtákat utólag BEVÉTELEZI** (korábban tévesen
+  a Decont/kiadás-elszámolást nyitotta). A hiányzó nyugták a gyülekezet **bevételei**. A varázslóban
+  **minden hiányzó nyugta egy külön sor**: megadod az összegét és **kikeresed a befizető tagot** — így
+  az **adomány / egyházfenntartás a taghoz is hozzászámít** —, majd közös dátumot és bevétel-jogcímet
+  választasz.
+- **Könyvelésileg helyes megoldás:** a már kiállított **Chitanță maga a bizonylat**, ezért a tétel
+  **Chitanță-bevételként a kasszába (Registrul de casă) és a számadásba** kerül a nyugta saját
+  **Irat sz.**-ával — nem külön Dispoziție-bizonylattal (az csak akkor kell, ha nincs más bizonylat).
+  Minden tétel **„utólag elszámolt" megjegyzést** kap (látható nyom), és a figyelő „hiányzó" listájáról
+  is lekerül.
+
+---
+
+## [2026-07-02] — Javítás: a készpénzes tétel irattípusa a valódi bizonylatot mutatja (Chitanță)
+<!-- key: 2026-07-02-irattipus-chitanta -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A tétel-listákban az IRATTÍPUS oszlop a valóban választott bizonylattípust mutatja** (Chitanță,
+  Factură stb.) — korábban készpénzes rögzítésnél tévesen mindig „Készpénz" jelent meg. A készpénz/bank
+  megkülönböztetés a háttérben a **bankszámla-kötés** alapján megy, így a kassza-/bank-kimutatások, a
+  következő nyugtaszám és az offline rögzítés is helyesek maradnak.
+
+---
+
+## [2026-07-02] — UX: a „Még egy befizető" gomb jól látható és mindig elérhető
+<!-- key: 2026-07-02-tobb-fizeto-kiemeles -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Tétel rögzítése ablakban a „Még egy befizető" mostantól kiemelt, jól látható gomb**, és már az
+  első befizető felvétele ELŐTT is elérhető. Egy nyugtára több befizetőt (pl. családtagokat) így
+  könnyebb felvinni, mindenkit külön összeggel — a mező mellett rövid súgó is segít.
+
+---
+
+## [2026-07-02] — Javítás: nyugtatömb-mentés „gyulekezeti_szam is ambiguous" hiba
+<!-- key: 2026-07-02-nyugtatomb-ambiguous-fix -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web + DB-migráció -->
+
+### 🔧 Javítás
+
+- **Új nyugtatömb rögzítésekor / chitanță-szám lefoglalásakor megszűnik a „Szám-lefoglalási hiba:
+  column reference »gyulekezeti_szam« is ambiguous" hibaüzenet.** A szám-lefoglaló adatbázis-függvény
+  javítva (a javítás DB-oldali migrációként fut le).
 
 ---
 

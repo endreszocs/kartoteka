@@ -453,7 +453,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
   const rows: Row[] = []
 
   for (const r of mIncome) {
-    const isCash = r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id)
+    const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
     rows.push({
       date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
@@ -464,7 +464,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     })
   }
   for (const r of mExpense) {
-    const isCash = r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id)
+    const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
     rows.push({
       date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
@@ -500,11 +500,11 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     const mi = filterByMonth(data.income, f.year, m)
     const me = filterByMonth(data.expense, f.year, m)
     for (const r of mi) {
-      const isCash = r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id)
+      const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
       if (isCash) prevCI += Number(r.osszeg || 0); else prevBI += Number(r.osszeg || 0)
     }
     for (const r of me) {
-      const isCash = r.irattipus === 'Készpénz' || (!r.irattipus && !r.bankszamla_id)
+      const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
       if (isCash) prevCE += Number(r.osszeg || 0); else prevBE += Number(r.osszeg || 0)
     }
   }

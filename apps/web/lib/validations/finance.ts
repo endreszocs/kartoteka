@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import {
-  RECEIPT_TYPES,
   TRANSFER_TYPES,
   RENTAL_FREQUENCIES,
   RENTAL_TIPUS,
@@ -10,6 +9,11 @@ import {
 } from '@/lib/constants/finance'
 
 const today = () => new Date().toISOString().slice(0, 10)
+
+// #5 (Endre): az irattipus szabad szöveges BIZONYLATTÍPUS-címke (Chitanță/Factură/Bon fiscal/
+// Készpénz/Banki/Extras/OP…). A régi z.enum(['Készpénz','Banki']) túl szűk volt — a DB-oszlop
+// `text` (nincs CHECK), és a bank-import + a Chitanță-nyugták is tetszőleges címkét írnak.
+const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
 
 // ── Bevétel ──────────────────────────────────────────────────
 
@@ -23,7 +27,7 @@ export const incomeSchema = z.object({
   iratszam: z.string().nullable().optional(),
   // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
   nyugta: z.string().nullable().optional(),
-  irattipus: z.enum(RECEIPT_TYPES),
+  irattipus: irattipusSchema,
   fizetettev: z.number().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
 }).refine(
@@ -68,7 +72,7 @@ export const incomeBatchRowSchema = z.object({
   iratszam: z.string().nullable().optional(),
   // #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett).
   nyugta: z.string().nullable().optional(),
-  irattipus: z.enum(RECEIPT_TYPES),
+  irattipus: irattipusSchema,
   fizetettev: z.number().nullable().optional(),
   megjegyzes: z.string().nullable().optional(),
   // #4b / B1 (Endre): a befizetés személyhez vagy családhoz kapcsolása (kölcsönösen
@@ -95,7 +99,7 @@ export const expenseSchema = z.object({
   id_szemely: z.number().nullable().optional(),
   iratszam: z.string().nullable().optional(),
   bizonylatszam: z.string().nullable().optional(),
-  irattipus: z.enum(RECEIPT_TYPES),
+  irattipus: irattipusSchema,
   megjegyzes: z.string().nullable().optional(),
   is_inventory: z.boolean().optional(),
 }).refine(
@@ -111,7 +115,7 @@ export const expenseBatchRowSchema = z.object({
   kedvezmenyzett: z.string().nullable().optional(),
   osszeg: z.number({ message: 'Az összeg kötelező' }).positive('Az összeg pozitív szám kell legyen'),
   iratszam: z.string().nullable().optional(),
-  irattipus: z.enum(RECEIPT_TYPES),
+  irattipus: irattipusSchema,
   megjegyzes: z.string().nullable().optional(),
   is_inventory: z.boolean().optional(),
 }).refine(

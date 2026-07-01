@@ -159,6 +159,10 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
+-- FIX (2026-07-02): a `gyulekezeti_szam` OUT-paraméter és az oblio_szamlak.gyulekezeti_szam
+-- OSZLOP ütközött ("column reference gyulekezeti_szam is ambiguous"). Az alábbi direktíva
+-- minősítetlen esetben az OSZLOP-ot választja; az oblio_szamlak lekérdezést is aliasoltuk (os.).
+#variable_conflict use_column
 DECLARE
   v_tomb_id uuid;
   v_sorozat text;
@@ -189,13 +193,13 @@ BEGIN
 
   -- 3. Gyülekezeti saját szám — év eleji újraindítás
   v_year := EXTRACT(YEAR FROM p_szamla_datum);
-  SELECT COALESCE(MAX(gyulekezeti_szam), 0) + 1
+  SELECT COALESCE(MAX(os.gyulekezeti_szam), 0) + 1
     INTO v_gyul
-    FROM public.oblio_szamlak
-    WHERE congregation_id = p_congregation_id
-      AND tipus = 'chitanta_papir'
-      AND EXTRACT(YEAR FROM szamla_datum) = v_year
-      AND stornozott = false;
+    FROM public.oblio_szamlak os
+    WHERE os.congregation_id = p_congregation_id
+      AND os.tipus = 'chitanta_papir'
+      AND EXTRACT(YEAR FROM os.szamla_datum) = v_year
+      AND os.stornozott = false;
 
   -- 4. Felhasznalt_darabszam increment (+ dátum frissítés)
   UPDATE public.chitanta_tombok

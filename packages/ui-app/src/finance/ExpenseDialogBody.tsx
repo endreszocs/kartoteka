@@ -37,7 +37,7 @@ export interface SaveExpensePayload {
   kedvezmenyzett: string | null
   osszeg: number
   iratszam: string | null
-  irattipus: (typeof RECEIPT_TYPES)[number]
+  irattipus: string // #5: szabad szöveges bizonylattípus (Chitanță/Factură/Készpénz/…)
   megjegyzes: string | null
   is_inventory: boolean
 }
@@ -48,7 +48,7 @@ export interface SaveExpenseBatchRow {
   kedvezmenyzett: string | null
   osszeg: number
   iratszam: string | null
-  irattipus: (typeof RECEIPT_TYPES)[number]
+  irattipus: string // #5: szabad szöveges bizonylattípus (Chitanță/Factură/Készpénz/…)
   megjegyzes: string | null
   is_inventory: boolean
 }

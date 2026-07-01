@@ -1621,7 +1621,7 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
     .select('iratszam')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
+    .is('bankszamla_id', null) // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
   // belso_mozgas_xkey csak congregation táblában

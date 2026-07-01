@@ -548,6 +548,12 @@ export function CombinedEntryBody({
     return parts.length ? parts.join(' ') : null
   }
 
+  // #5 (Endre): az IRATTÍPUS oszlop a VÁLASZTOTT bizonylattípust mutassa (Chitanță/Factură/…),
+  // ne fixen „Készpénz"-t. A készpénz-azonosítás már a bankszamla_id IS NULL (kassza) alapján
+  // megy, nem az irattipus szövegén (lásd reporting.ts / offline save-gate). Ha nincs választott
+  // típus, marad a „Készpénz" alapérték.
+  function docTypeForSave(r: EntryRow): string { return r.docType.trim() || 'Készpénz' }
+
   // ── Beviteli őrök (P0 duplikátum + P1 dátum-sorrend) ─────────────────────
   // P1: a sor dátuma jövőbeli, vagy korábbi mint az utolsó rögzített → figyelmeztetés
   // (NEM blokkol — a visszamenőleges rögzítés jogos lehet, csak nehogy VÉLETLEN legyen).
@@ -775,7 +781,7 @@ export function CombinedEntryBody({
             forrasa: p.name.trim() || null,
             osszeg: Number(p.osszeg),
             iratszam: base ? (multi ? `${base}/${i + 1}` : base) : null,
-            irattipus: 'Készpénz',
+            irattipus: docTypeForSave(r),
             nyugta: commonNyugta,
             fizetettev: Number(p.evre) || Number(r.evre) || Number(datum.slice(0, 4)) || currentYear,
             megjegyzes: commonMegj,
@@ -787,7 +793,7 @@ export function CombinedEntryBody({
         incomeBatch.push({
           datum, id_befizetescel: Number(r.categoryId),
           forrasa: r.partner.trim() || null,
-          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
           nyugta: commonNyugta,
           fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear,
           megjegyzes: commonMegj,
@@ -802,7 +808,7 @@ export function CombinedEntryBody({
       if (dir) { pushTransfer(dir, datum, r); continue }
       expenseBatch.push({
         datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
-        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
         megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
       })
     }
@@ -1426,29 +1432,37 @@ function PartnerCell({
             </button>
           )}
         </div>
-        {mode === 'income' && (onOpenFamily || people.length >= 1) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-            {onOpenFamily && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onOpenFamily}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-                title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
-              >
-                <Users className="size-3" /> Család csatolása
-              </button>
-            )}
-            {people.length >= 1 && (
+        {mode === 'income' && (
+          <div className="space-y-1">
+            {/* #4 (Endre): a „Még egy befizető" mindig látható, kiemelt pill-gomb, és már
+                a 0-fizetős (szabadszavas) állapotban is elérhető — nem csak miután van tag. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => addEmptyPayer(row.id)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                 title="Még egy befizető ugyanarra a nyugtára (lenyitható almenü, tagonként összeg)"
               >
-                <Plus className="size-3" /> Még egy befizető
+                <Plus className="size-3.5" /> Még egy befizető
               </button>
+              {onOpenFamily && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={onOpenFamily}
+                  className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                  title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
+                >
+                  <Users className="size-3.5" /> Család csatolása
+                </button>
+              )}
+            </div>
+            {people.length === 0 && (
+              <p className="text-[10.5px] leading-tight text-slate-400">
+                Több befizető egy nyugtára? Kattints a{' '}
+                <span className="font-medium text-emerald-600">„Még egy befizető"</span>-re — mindenki külön összeggel.
+              </p>
             )}
           </div>
         )}
@@ -1536,23 +1550,24 @@ function PartnerCell({
           </div>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => addEmptyPayer(row.id)}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+          title="Még egy befizető ugyanarra a nyugtára"
         >
-          <Plus className="size-3" /> Még egy befizető
+          <Plus className="size-3.5" /> Még egy befizető
         </button>
         {onOpenFamily && (
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenFamily}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
           >
-            <Users className="size-3" /> Család csatolása
+            <Users className="size-3.5" /> Család csatolása
           </button>
         )}
       </div>

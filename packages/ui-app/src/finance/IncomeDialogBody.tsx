@@ -60,7 +60,7 @@ export interface SaveIncomePayload {
   id_csalad: number | null
   forrasa: string | null
   iratszam: string | null
-  irattipus: (typeof RECEIPT_TYPES)[number]
+  irattipus: string // #5: szabad szöveges bizonylattípus (Chitanță/Factură/Készpénz/…)
   fizetettev: number | null
   megjegyzes: string | null
 }
@@ -71,7 +71,7 @@ export interface SaveIncomeBatchRow {
   forrasa: string | null
   osszeg: number
   iratszam: string | null
-  irattipus: (typeof RECEIPT_TYPES)[number]
+  irattipus: string // #5: szabad szöveges bizonylattípus (Chitanță/Factură/Készpénz/…)
   fizetettev: number | null
   megjegyzes: string | null
   /** #3 (2026-06-20): gyülekezeti saját sorszám (a kerületi = iratszam mellett) → befizetes.nyugta. */

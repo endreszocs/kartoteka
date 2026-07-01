@@ -15,7 +15,9 @@
 
 import { z } from 'zod'
 
-const RECEIPT_TYPES = ['Készpénz', 'Banki'] as const
+// #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (Chitanță/Factură/Készpénz/
+// Banki/Extras/OP…). A régi 2-értékű enum túl szűk volt — a DB-oszlop `text`, nincs CHECK.
+const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
 
 /** Jövőbeli dátum-prevenció — a refine() alatt kell. */
 const today = () => new Date().toISOString().slice(0, 10)
@@ -57,8 +59,8 @@ export const saveIncomeInputSchema = z
     /** #3 (Endre): gyülekezeti saját sorszám → befizetes.nyugta (a kerületi = iratszam mellett). */
     nyugta: z.string().trim().max(50).nullable().optional(),
 
-    /** Irat-típus (Készpénz vagy Banki) — a meglévő web-konvenció. */
-    irattipus: z.enum(RECEIPT_TYPES),
+    /** Irat-/bizonylattípus (Chitanță/Factură/Készpénz/Banki/…) — szabad szöveges címke. */
+    irattipus: irattipusSchema,
 
     /** Melyik évre szól a fizetés (ha pótlás, nem mindig = datum.year). */
     fizetettev: z.number().int().min(2000).max(2100).nullable().optional(),
