@@ -158,8 +158,21 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
     // és a Chitanță-számozás javítása után HAMIS „hiányzó szám" figyelmeztetést adna
     // (az importált számok közti hézagokat tévesen jelölné). Konzisztens a getNextReceiptNumbers-szel.
     .filter(row => row.bankszamla_id == null)
+    // 2026-07-01 FIX (Endre): a nyugtafigyelő a GYÜLEKEZET SAJÁT sorszámát (Irat sz. =
+    // `nyugta`) követi, NEM a kerületi (nyomdai) számot (`iratszam`). A KÉT szám két külön
+    // számsorozat: a kerületi számot a kerület adja, kerület-szintű NAGY szám (pl. 115019),
+    // amelyben a gyülekezetnél NORMÁLIS a hézag (a számok más gyülekezetek nyugtái közé
+    // esnek) — így azt sorozatként hézag-ellenőrizni értelmetlen. A gyülekezeti saját
+    // sorszám az, aminek hézag- és duplikátummentesnek kell lennie. Korábban a monitor a
+    // két oszlopot `iratszam || nyugta`-ként ÖSSZEMOSTA, ezért a ~115000-es kerületi és az
+    // 1..N gyülekezeti számok EGY sorozatként ~115000 hamis „hiányzót", ~310 hamis
+    // „duplikátumot" és hamis dátumrendellenességeket adtak. A tükrözött (import/legacy:
+    // nyugta === iratszam) sorokat kihagyjuk — azoknak nincs valódi gyülekezeti számuk
+    // (ugyanaz a kizárás, mint a getNextReceiptNumbers-ben).
     .map(row => ({
-      number: extractNumericDocumentNumber(row.iratszam || row.nyugta || null),
+      number: (row.nyugta && row.nyugta !== row.iratszam)
+        ? extractNumericDocumentNumber(row.nyugta)
+        : null,
       date: String(row.datum || ''),
     }))
     .filter((row): row is { number: number; date: string } => row.number != null)

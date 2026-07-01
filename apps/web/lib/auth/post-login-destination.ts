@@ -15,17 +15,28 @@ import { isMasterAdmin } from '@/lib/auth/roles'
  * Ezért a „megadta-e már az adatait?" kérdést MINDKÉT helyen figyelni kell.
  *
  * Visszatérés:
- *   - 'home'     → aktív (vagy master): mehet a /valassz-profilt-ra.
- *   - 'complete' → nem aktív ÉS még NEM adta meg a regisztrációs adatait
- *                  (se profil-egyházmegye, se access_request) → /oauth-complete.
- *   - 'pending'  → nem aktív, DE már megadta az adatait (OAuth-kiegészítés VAGY
- *                  jelszavas regisztráció access_request-tel) → jóváhagyásra vár.
+ *   - 'home'           → aktív (vagy master): mehet a /valassz-profilt-ra.
+ *   - 'complete'       → nem aktív ÉS még NEM adta meg a regisztrációs adatait
+ *                        (se profil-egyházmegye, se access_request) → /oauth-complete.
+ *                        CSAK a jelszavas (via: 'password') úton fordulhat elő.
+ *   - 'pending'        → nem aktív, DE már megadta az adatait (OAuth-kiegészítés VAGY
+ *                        jelszavas regisztráció access_request-tel) → jóváhagyásra vár.
+ *   - 'not_registered' → (CSAK Google/OAuth, via: 'oauth') a belépő e-mail cím NINCS
+ *                        regisztrálva: nincs se aktív profil, se egyházmegye, se
+ *                        access_request. A `handle_new_user` trigger ilyenkor is létrehoz
+ *                        egy `pending` profilt MINDEN friss auth-userre (így az OAuth-nál
+ *                        egy ismeretlen e-mail „hiányos regisztrációnak" tűnne) — ezért az
+ *                        OAuth-ágon ezt kifejezetten „nincs regisztrálva"-ként kezeljük,
+ *                        és NEM küldjük regisztrációs űrlapra (Endre kérése, 2026-07-01).
+ *                        Google-lel csak MÁR regisztrált (hozzáférést igényelt) felhasználó
+ *                        léphet be; új felhasználó a /hozzaferes-kerese úton kezd.
  */
-export type PostLoginDestination = 'home' | 'complete' | 'pending'
+export type PostLoginDestination = 'home' | 'complete' | 'pending' | 'not_registered'
 
 export async function resolvePostLoginDestination(
   supabase: SupabaseClient,
   user: { id: string; email?: string | null },
+  opts?: { via?: 'oauth' | 'password' },
 ): Promise<PostLoginDestination> {
   if (isMasterAdmin(user.email)) return 'home'
 
@@ -49,7 +60,11 @@ export async function resolvePostLoginDestination(
     if ((count ?? 0) > 0) return 'pending'
   }
 
-  // Se egyházmegye a profilon, se access_request → tényleg hiányos (pl. friss
-  // OAuth-belépés) → a profil-kiegészítő űrlap.
+  // Se egyházmegye a profilon, se access_request → nincs valódi regisztráció.
+  // OAuth (Google): ez egy ISMERETLEN e-mail → „nincs regisztrálva" (a trigger által
+  // auto-létrehozott pending profil ellenére) → NEM regisztrációs űrlap.
+  if (opts?.via === 'oauth') return 'not_registered'
+  // Jelszavas út: idáig csak sikeres jelszavas belépés jut el (tehát létező, hitelesített
+  // felhasználó) — a hiányos állapotot a profil-kiegészítő űrlappal zárjuk le.
   return 'complete'
 }

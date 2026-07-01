@@ -23,6 +23,45 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Javítás: a Nyugtafigyelő már a gyülekezet saját sorszámát (Irat sz.) figyeli
+<!-- key: 2026-07-01-nyugtafigyelo-irat-sz -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Nyugtafigyelő riasztás nem jelez többé tévesen több tízezer „hiányzó" nyugtát.** A nyugtán KÉT
+  szám van: a **Kerületi sz.** (a kerület adja, előre nyomtatott, kerület-szintű nagy szám — pl.
+  115019), és az **Irat sz.** (a gyülekezet saját, évente újrainduló sorszáma — pl. 1, 2, … 77).
+  Eddig a figyelő a két számot összemosta, és a kettőt egyetlen folyamatos sorozatként ellenőrizte —
+  ezért a kis gyülekezeti számok (1–77) és a nagy kerületi számok (115019–115328) közötti „lyukat"
+  (kb. 115 000 szám) tévesen hiányzó nyugtáknak, a nagy kerületi számokat pedig tévesen
+  ismétlődéseknek és dátumhibáknak jelezte.
+- **Mostantól a figyelő kizárólag a gyülekezet saját sorszámát (Irat sz.) követi**, az év első és
+  utolsó nyugtája között (nem 1-től) — így a hiányzó/ismétlődő szám jelzés valóban a gyülekezet saját
+  számozásának hézagjait mutatja. A kerületi számban lévő hézag normális (a számok más gyülekezetek
+  nyugtái közé esnek), ezért azt a rendszer nem jelzi hibaként.
+
+---
+
+## [2026-07-01] — Javítás: ismeretlen Google-fiók nem „regisztrál" — kiírjuk, hogy nincs regisztrálva
+<!-- key: 2026-07-01-google-nincs-regisztralva -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo, admin -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **Ha valaki egy nem regisztrált e-mail-lel próbál Google-fiókkal belépni, a rendszer mostantól
+  világosan kiírja: „Ez az e-mail cím nincs regisztrálva a rendszerben."** Eddig a belépés úgy
+  viselkedett, mintha az illető éppen regisztrálna (a profil-kiegészítő űrlapra vitte) — pedig
+  Google-lel csak már regisztrált felhasználó léphet be. Új felhasználó továbbra is a Regisztráció
+  (hozzáférés igénylése) oldalon kezdi. A már regisztrált, Google-lel belépő felhasználókat ez nem
+  érinti.
+
+---
+
 ## [2026-06-30] — Javítás: Chitanță nyugtaszámok automatikus kitöltése (importált előzményből is)
 <!-- key: 2026-06-30-chitanta-szamozas-import-elozmeny -->
 <!-- category: fix -->

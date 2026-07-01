@@ -73,7 +73,9 @@ export async function GET(request: Request) {
 
       if (user) {
         // Egységes döntés (ugyanaz a logika, mint az email+jelszó login-nál).
-        const dest = await resolvePostLoginDestination(supabase, user)
+        // `via: 'oauth'` → ismeretlen (nem regisztrált) e-mailnél 'not_registered'-t
+        // ad vissza, NEM 'complete'-et (nem küldjük regisztrációs űrlapra).
+        const dest = await resolvePostLoginDestination(supabase, user, { via: 'oauth' })
 
         // Aktív (vagy master) → mehet a kezdőoldalra
         if (dest === 'home') {
@@ -83,7 +85,17 @@ export async function GET(request: Request) {
           return applySessionModeCookie(NextResponse.redirect(`${origin}/valassz-profilt`))
         }
 
+        // Ismeretlen e-mail Google-lel (nincs regisztráció) → NE regisztráljon úgy, mintha
+        // új felhasználó lenne: jelentkeztessük ki és írjuk ki, hogy „nincs regisztrálva".
+        // (Endre kérése, 2026-07-01 — a friss OAuth-userre a trigger auto-létrehoz egy
+        // pending profilt, ezért látszana „hiányos regisztrációnak".)
+        if (dest === 'not_registered') {
+          await supabase.auth.signOut()
+          return NextResponse.redirect(`${origin}/login?error=not_registered`)
+        }
+
         // Nem aktív + még nem adta meg az adatait → profil-kiegészítő űrlap
+        // (jelszavas úton fordulhat elő; OAuth-nál a fenti 'not_registered' viszi el).
         if (dest === 'complete') {
           return applySessionModeCookie(NextResponse.redirect(`${origin}/oauth-complete`))
         }

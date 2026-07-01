@@ -61,7 +61,9 @@ export async function signIn(data: LoginInput) {
 
   // Egységes belépés-utáni döntés — UGYANAZ a logika, mint a Google (OAuth)
   // flow-ban (auth/callback), hogy mindkét belépési mód azonosan viselkedjen.
-  const dest = await resolvePostLoginDestination(supabase, authData.user)
+  // `via: 'password'`: az ismeretlen e-mailt már fentebb elkaptuk (login_email_status),
+  // így itt a hiányos állapot a profil-kiegészítő űrlaphoz ('complete') vezet.
+  const dest = await resolvePostLoginDestination(supabase, authData.user, { via: 'password' })
 
   // Nem aktív, de már megadta az adatait → jóváhagyásra vár (kijelentkeztetés)
   if (dest === 'pending') {
