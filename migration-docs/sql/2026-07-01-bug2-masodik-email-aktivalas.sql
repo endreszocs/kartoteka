@@ -17,7 +17,7 @@ DECLARE
   v_uid   uuid;
   v_prev  text;
 BEGIN
-  SELECT id, status INTO v_uid, v_prev FROM public.profiles p
+  SELECT p.id, p.status INTO v_uid, v_prev FROM public.profiles p
     JOIN auth.users u ON u.id = p.id
    WHERE lower(u.email) = v_email;
   IF v_uid IS NULL THEN
