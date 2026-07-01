@@ -103,6 +103,9 @@ interface CongregationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationId: string | null
+  /** #Endre 2026-07-02: 'view' = tisztán read-only „Gyülekezetünk adatai" (nincs szerkesztés);
+   *  'advanced-edit' = a beállításokból nyíló haladó szerkesztő (kedvezmények, díjak, lelkész-átadás). */
+  variant?: 'view' | 'advanced-edit'
 }
 
 const CURRENCY_OPTIONS = ['RON', 'EUR', 'USD', 'HUF']
@@ -144,7 +147,7 @@ function getEmptyDiscountForm(defaultYear: number) {
   }
 }
 
-export function CongregationDialogV2({ open, onOpenChange, congregationId }: CongregationDialogProps) {
+export function CongregationDialogV2({ open, onOpenChange, congregationId, variant = 'view' }: CongregationDialogProps) {
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [annualRows, setAnnualRows] = useState<AnnualFeeRow[]>([])
@@ -178,7 +181,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   const [congStatus, setCongStatus] = useState<string | null>(null)
   // #Endre 2026-07-01: az ablak alapból a read-only, nyomtatható ÖSSZEFOGLALÓT mutatja;
   // a „Szerkesztés" gombra vált a meglévő szerkesztő nézetre.
-  const [mode, setMode] = useState<'summary' | 'edit'>('summary')
+  const [mode, setMode] = useState<'summary' | 'edit'>(variant === 'advanced-edit' ? 'edit' : 'summary')
   const [districtName, setDistrictName] = useState<string | null>(null)
   const [customFeeForm, setCustomFeeForm] = useState({
     id: undefined as string | undefined,
@@ -316,7 +319,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
   useEffect(() => {
     if (!open || !congregationId) return
 
-    setMode('summary') // minden megnyitáskor az összefoglaló nézettel indulunk
+    setMode(variant === 'advanced-edit' ? 'edit' : 'summary') // view = read-only összefoglaló; advanced-edit = szerkesztő
     let cancelled = false
     queueMicrotask(() => {
       if (!cancelled) void loadData()
@@ -325,7 +328,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
     return () => {
       cancelled = true
     }
-  }, [open, congregationId, loadData])
+  }, [open, congregationId, loadData, variant])
 
   // #Endre 2026-07-01: a read-only összefoglaló + nyomtatás adatai a betöltött form-ból/listákból.
   // (A hook-oknak a feltételes `return null` ELŐTT kell lenniük — rules-of-hooks.)
@@ -633,7 +636,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
       <DialogContent className="max-h-[92vh] overflow-y-auto w-[calc(100%-1rem)] sm:max-w-6xl xl:max-w-[94vw]">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
-            Gyülekezetünk adatai
+            {variant === 'advanced-edit' ? 'Kedvezmények, díjak és lelkész-átadás' : 'Gyülekezetünk adatai'}
             {congStatus === 'inactive' && (
               <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
                 Inaktív — 1+ éve nincs aktivitás
@@ -643,27 +646,15 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
         </DialogHeader>
 
         {mode === 'summary' ? (
-          <div className="space-y-3">
-            {/* #Endre 2026-07-02: a „Szerkesztés" a Gyülekezet beállítása ablakot nyitja (ott a mezők). */}
-            <CongregationSummary
-              data={summaryData}
-              onEdit={() => {
-                onOpenChange(false)
-                window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
-              }}
-            />
-            {/* Átmeneti: a még nem migrált haladó szerkesztők (kedvezmény-szabályok, egyéb díjak,
-                évenkénti díjak, lelkész-átadás) — hogy ne vesszenek el, amíg át nem kerülnek a beállításokba. */}
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => setMode('edit')}
-                className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-slate-600"
-              >
-                Haladó szerkesztő (kedvezmények, egyéb díjak, évenkénti díjak, lelkész-átadás)
-              </button>
-            </div>
-          </div>
+          // #Endre 2026-07-02: TISZTÁN read-only — a szerkesztés a Gyülekezet beállítása ablakban.
+          <CongregationSummary
+            data={summaryData}
+            onEdit={() => {
+              if (variant === 'advanced-edit') { setMode('edit'); return }
+              onOpenChange(false)
+              window.dispatchEvent(new Event('kartoteka:open-congregation-setup-wizard'))
+            }}
+          />
         ) : (
         <div className="space-y-5">
           <div>
@@ -721,9 +712,11 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId }: Con
             </div>
           </div>
 
-          <Tabs defaultValue="alap" className="w-full">
-            <TabsList className="grid w-full grid-cols-1 gap-2 rounded-[1.4rem] bg-slate-50 p-2 sm:grid-cols-3">
-              <TabsTrigger value="alap">Alapadatok</TabsTrigger>
+          {/* advanced-edit (a beállításokból): az Alapadatok a Gyülekezet beállítása ablakban van,
+              ezért itt csak Pénzügy + Lelkészek látszik, Pénzügy-alapértelmezéssel. */}
+          <Tabs defaultValue={variant === 'advanced-edit' ? 'penzugy' : 'alap'} className="w-full">
+            <TabsList className={`grid w-full grid-cols-1 gap-2 rounded-[1.4rem] bg-slate-50 p-2 ${variant === 'advanced-edit' ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+              {variant !== 'advanced-edit' && <TabsTrigger value="alap">Alapadatok</TabsTrigger>}
               <TabsTrigger value="penzugy">Pénzügy</TabsTrigger>
               <TabsTrigger value="lelkeszek">Lelkészek</TabsTrigger>
             </TabsList>

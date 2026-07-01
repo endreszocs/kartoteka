@@ -479,7 +479,29 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                 )}
 
                 {activePane === 'penzugy' && (
-                  <SectionFinance form={form} setForm={setForm} />
+                  <>
+                    <SectionFinance form={form} setForm={setForm} />
+                    {/* #Endre 2026-07-02: a haladó pénzügyi + lelkész szerkesztők (kedvezmény-szabályok,
+                        egyéb díjak, évenkénti visszamenőleges díjak, lelkész-átadás) átkerültek ide a
+                        „Gyülekezetünk adatai"-ból — külön, részletes szerkesztő ablakban nyílnak. */}
+                    <div className="card-raised p-4 bg-violet-50/40 border-violet-200">
+                      <p className="text-sm font-semibold text-slate-800">Kedvezmények, egyéb díjak és lelkész-átadás</p>
+                      <p className="mt-1 mb-3 text-xs text-slate-500">
+                        A kedvezmény-szabályok, az egyéb díjak, az évenkénti (visszamenőleges) díjak és a
+                        lelkész-átadás részletes szerkesztője külön ablakban nyílik.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          onOpenChange(false)
+                          window.dispatchEvent(new Event('kartoteka:open-congregation-advanced'))
+                        }}
+                      >
+                        Haladó szerkesztő megnyitása
+                      </Button>
+                    </div>
+                  </>
                 )}
 
                 {activePane === 'cim' && (

@@ -38,7 +38,9 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   „Szerkesztés a beállításokban" gomb oda visz.
 - **A „Gyülekezet beállítása" ablak mostantól az egyházmegyét és a pénzügyi alapot is szerkeszti**
   (éves járulék, kedvezményes alapösszeg, járulék határidő, tartozás-számítás módja) — új „Pénzügyi
-  alap" lap. Így a gyülekezet minden fő adata egy helyen, a beállításokban módosítható.
+  alap" lap. Innen nyílik a **Haladó szerkesztő** is: kedvezmény-szabályok, egyéb díjak, évenkénti
+  (visszamenőleges) díjak és a **lelkész-átadás**. Így a gyülekezet MINDEN szerkesztése a
+  beállításokban van, a „Gyülekezetünk adatai" pedig teljesen megtekintő/nyomtató nézet lett.
 
 ---
 
