@@ -6,8 +6,11 @@
 --   a SAJÁT szerepe scope_id-jából tölti ki. NEM tippel: mindenkit a saját, admin által már
 --   jóváhagyott gyülekezetéhez köt. Idempotens és biztonságos.
 --
--- Ez rendbe teszi a diagnosztikában látott eseteket (pl. beketivadar, ferenczi.cs.zoltan,
---   oprakoppany), akik aktívak és van jóváhagyott szerepük, de üres a skalár → nem láttak adatot.
+-- Rendbe teszi (a diagnosztika szerint): beketivadar@gmail.com → Zabolai,
+--   ferenczi.cs.zoltan@gmail.com → Maksai, oprakoppany98@gmail.com → Kisbaconi.
+--
+-- JAVÍTVA (2026-07-01): a Postgresben nincs min(uuid), ezért (array_agg(scope_id))[1]-et
+--   használunk (a HAVING count(*)=1 miatt pontosan 1 elem van).
 --
 -- FUTTATÁS: PART A csak MEGMUTATJA, mit változtatna (read-only). Nézd át; ha jó, futtasd PART B-t.
 -- ============================================================================
@@ -21,7 +24,7 @@ SELECT
 FROM public.profiles p
 JOIN auth.users u ON u.id = p.id
 JOIN (
-  SELECT profile_id, min(scope_id) AS scope_id
+  SELECT profile_id, (array_agg(scope_id))[1] AS scope_id
   FROM public.profile_roles
   WHERE scope = 'congregation' AND approval_status = 'approved' AND active AND scope_id IS NOT NULL
   GROUP BY profile_id
@@ -36,7 +39,7 @@ ORDER BY u.email;
 UPDATE public.profiles p
 SET congregation_id = r.scope_id
 FROM (
-  SELECT profile_id, min(scope_id) AS scope_id
+  SELECT profile_id, (array_agg(scope_id))[1] AS scope_id
   FROM public.profile_roles
   WHERE scope = 'congregation' AND approval_status = 'approved' AND active AND scope_id IS NOT NULL
   GROUP BY profile_id

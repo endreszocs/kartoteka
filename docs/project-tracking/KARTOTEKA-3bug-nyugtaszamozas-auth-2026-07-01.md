@@ -130,17 +130,21 @@ A felhasználó kérésére, hogy „biztosan tudjak diagnosztizálni" és bizto
 (= a bejelentett ~115000). Új monitor (csak Irat sz.): a gyülekezeti sorszám **19 → 331** (tényleg
 NEM 1-től indul) → **3 valós hiányzó**. Tükrözött sor: 1. A javítás pontos.
 
-**Bug 2 — leleplezve, ÉLES felhasználókat érint.** Több AKTÍV lelkész `profiles.congregation_id=NULL`,
+**Bug 2 — leleplezve, ÉLES felhasználókat érint.** 3 AKTÍV lelkész `profiles.congregation_id=NULL`,
 pedig van 1 jóváhagyott congregation-scope `profile_roles`-uk → az RLS (skalár-alapú) nem lát adatot:
-`beketivadar@gmail.com`, `ferenczi.cs.zoltan@gmail.com`, `oprakoppany98@gmail.com` (mind active,
-approved_cong_roles=1, congregation_id NULL). Külön: `endre940115@gmail.com` = **pending** (0 approved)
-→ ez még admin-jóváhagyásra vár (nem ugyanaz az eset). Működő kontroll: `endreszocs`/Barátosi,
-`marosiarpad`/Sepsiszentgyörgy III, `uzoniref`/Uzoni (RLS=IGEN).
+`beketivadar@gmail.com` → **Zabolai**, `ferenczi.cs.zoltan@gmail.com` → **Maksai**,
+`oprakoppany98@gmail.com` → **Kisbaconi** (mind approved+active, más-más gyülekezet).
+Működő kontroll: `endreszocs`/Barátosi, `marosiarpad`/Sepsiszentgyörgy III, `uzoniref`/Uzoni (RLS=IGEN).
 
-**Javítás (jobb, mint a két-email verzió):** `2026-07-01-bug2-reszletek.sql` (melyik fiók melyik
-gyülekezethez) + `2026-07-01-bug2-javitas-scalar-sync.sql` — a skalárt minden érintett fiók SAJÁT,
-már jóváhagyott szerepéből tölti (nem tippel), csak ahol pontosan 1 approved gyülekezet van. A pending
-fiók az admin-aktiválással rendeződik (a `admin_activate_user` most a congregation_id-t is beírja).
+**A user „második e-mailje" = `endre940115@gmail.com` — állapota `rejected`** (nincs se szerepe,
+se gyülekezete). TEHÁT nem lát adatot, mert a regisztrációnál ELUTASÍTÁSRA került — NEM az aktiválási
+csapda. Aktiválás Barátosihoz: `2026-07-01-bug2-masodik-email-aktivalas.sql` (felülírja aktívra +
+Barátosi + approved szerep).
+
+**Javítás a 3 lelkészre (jobb, mint a két-email verzió):** `2026-07-01-bug2-reszletek.sql` (melyik
+fiók melyik gyülekezethez) + `2026-07-01-bug2-javitas-scalar-sync.sql` — a skalárt minden érintett
+fiók SAJÁT, már jóváhagyott szerepéből tölti (nem tippel), csak ahol pontosan 1 approved gyülekezet
+van. **JAVÍTVA:** min(uuid) → (array_agg(scope_id))[1] (Postgresben nincs min(uuid)).
 
 **Teszt-infra:** a seed + teardown lefutott (Teszt gyülekezet létrejött, majd tisztán törölhető) — OK.
 
