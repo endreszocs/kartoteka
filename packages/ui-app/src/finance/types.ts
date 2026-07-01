@@ -296,8 +296,18 @@ export interface ReceiptChronologyIssue {
   currentDate: string
 }
 
+// #Endre (issue 2): egy hiányzó gyülekezeti Irat sz. + a szomszédokból KIKÖVETKEZTETETT
+// kerületi (nyomdai) szám. A kerületi és a gyülekezeti sorszám éven belül együtt lép (+1/+1),
+// ezért a hiányzó nyugta kerületi száma a legközelebbi ismert szomszédokból interpolálható.
+export interface MissingReceipt {
+  iratSz: number
+  keruletiSz: string | null
+}
+
 export interface ReceiptHealth {
   missingNumbers: number[]
+  /** #Endre (issue 2): iratSz + (kikövetkeztetett) keruletiSz párok — a bevételezés-wizard előtöltéséhez. */
+  missingReceipts: MissingReceipt[]
   duplicateNumbers: number[]
   chronologyIssues: ReceiptChronologyIssue[]
   trackedReceiptCount: number

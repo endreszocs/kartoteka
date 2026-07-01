@@ -37,6 +37,7 @@ import type {
   InternalTransferRow,
   DebtRow,
   ReceiptHealth,
+  MissingReceipt,
   ReceiptChronologyIssue,
   RentalContractRow,
   RentalDebtRow,
@@ -186,13 +187,18 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
       date: String(row.datum || ''),
       // A kerületi alap-iratszám (a /N nélkül) = a fizikai nyugta azonosítója (lásd receiptBaseKey).
       base: receiptBaseKey(row.iratszam),
+      // #Endre (issue 2): a KERÜLETI szám numerikus + nyers alakja — a hiányzó nyugta kerületi
+      // számának kikövetkeztetéséhez (interpoláció a legközelebbi ismert szomszédokból).
+      keruletiNum: extractNumericDocumentNumber(row.iratszam),
+      keruletiRaw: String(row.iratszam || ''),
     }))
-    .filter((row): row is { number: number; date: string; base: string } => row.number != null)
+    .filter((row): row is { number: number; date: string; base: string; keruletiNum: number | null; keruletiRaw: string } => row.number != null)
     .sort((a, b) => a.number - b.number)
 
   if (numberedRows.length === 0) {
     return {
       missingNumbers: [],
+      missingReceipts: [],
       duplicateNumbers: [],
       chronologyIssues: [],
       trackedReceiptCount: 0,
@@ -201,6 +207,7 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
   }
 
   const missingNumbers: number[] = []
+  const missingReceipts: MissingReceipt[] = []
   const duplicateNumbers = new Set<number>()
   const chronologyIssues: ReceiptChronologyIssue[] = []
 
@@ -228,8 +235,31 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
   const highestReceiptNumber = numberedRows[numberedRows.length - 1]?.number ?? null
   if (lowestReceiptNumber != null && highestReceiptNumber != null) {
     const existing = new Set(numberedRows.map(row => row.number))
+    // #Endre (issue 2): a hiányzó gyülekezeti Irat sz. KERÜLETI számát a legközelebbi ismert
+    // ALSÓ és FELSŐ szomszéd kerületi számai közt lineárisan interpoláljuk (a két sorozat éven
+    // belül együtt lép). Vezető-nulla szélesség = a szomszédok kerületi nyers-szélességének maximuma.
+    let prevIdx = 0
     for (let receipt = lowestReceiptNumber; receipt <= highestReceiptNumber; receipt += 1) {
-      if (!existing.has(receipt)) missingNumbers.push(receipt)
+      if (existing.has(receipt)) continue
+      missingNumbers.push(receipt)
+      while (prevIdx + 1 < numberedRows.length && numberedRows[prevIdx + 1].number < receipt) prevIdx += 1
+      const prev = numberedRows[prevIdx]?.number < receipt ? numberedRows[prevIdx] : undefined
+      const next = numberedRows.find(r => r.number > receipt)
+      let keruletiSz: string | null = null
+      if (prev?.keruletiNum != null && next?.keruletiNum != null && next.number !== prev.number) {
+        const ratio = (receipt - prev.number) / (next.number - prev.number)
+        const guess = Math.round(prev.keruletiNum + ratio * (next.keruletiNum - prev.keruletiNum))
+        const width = Math.max(
+          prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
+          next.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
+        )
+        keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
+      } else if (prev?.keruletiNum != null) {
+        const guess = prev.keruletiNum + (receipt - prev.number)
+        const width = prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0
+        keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
+      }
+      missingReceipts.push({ iratSz: receipt, keruletiSz })
     }
   }
 
@@ -248,6 +278,7 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
 
   return {
     missingNumbers,
+    missingReceipts,
     duplicateNumbers: Array.from(duplicateNumbers).sort((a, b) => a - b),
     chronologyIssues,
     trackedReceiptCount: numberedRows.length,
@@ -1281,6 +1312,7 @@ async function initFinanceDiocese(
     debtRows: [] as DebtRow[], // tag-szintű adósság diocese-ben nincs
     receiptHealth: {
       missingNumbers: [],
+      missingReceipts: [],
       duplicateNumbers: [],
       chronologyIssues: [],
       trackedReceiptCount: 0,
