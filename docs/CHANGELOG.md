@@ -23,6 +23,31 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Javítás: tag-mentés hiba + gyorsabb nyugta-autofill + szülő-összekötés magyarázat
+<!-- key: 2026-07-01-tag-mentes-autofill-szulo -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **Új tag mentése többé nem hibázik.** A tagnyilvántartásban új tag rögzítésekor a Mentés
+  „Invalid input: expected number, received string" hibát adott — ez javítva.
+- **A Tétel rögzítésekor a nyugtaszám automatikus kitöltése érezhetően gyorsabb.** A rendszer
+  mostantól egy megnyitásra évente egyszer kérdezi le a következő számokat (nem soronként újra),
+  és a lekérdezéseket párhuzamosan futtatja.
+- **Az „Új év — hogyan induljon a gyülekezeti nyugtaszám?" kérdés újra megjelenik, ha visszaváltasz
+  az aktuális évi dátumra** (múlt évi dátumnál eltűnik). A választ a rendszer megjegyzi — utána
+  többször nem kérdez rá.
+
+### 🎨 UX javítás
+
+- **A szülők rögzítésénél a „Nincs a tagok között? Rögzítés tagként + összekötés" gombra víve a
+  kurzort most elmagyarázza, mit csinál** (új tagrekordot hoz létre a szülő nevével, a gyermek
+  címét örökölve, és apaként/anyaként összeköti).
+
+---
+
 ## [2026-07-01] — Fejlesztés: „Gyülekezetünk adatai" szép, kategorizált, nyomtatható összefoglaló
 <!-- key: 2026-07-01-gyulekezetunk-adatai-osszefoglalo -->
 <!-- category: improvement -->

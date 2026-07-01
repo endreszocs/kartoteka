@@ -1683,7 +1683,31 @@ export async function getNextReceiptNumbers(
     .eq('deleted', false)
     .is('bankszamla_id', null)
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
-  const { data: allData } = await allQ
+
+  // #Endre 2026-07-01 (perf): a 3 FÜGGETLEN lekérdezés PÁRHUZAMOSAN (nem sorosan): kerületi (allQ),
+  // ezévi (yearQ) és korábbi évi (prevQ). A prevQ-t is mindig lekérjük — ha van ezévi szám, nem
+  // használjuk (olcsóbb, mint egy plusz soros round-trip). A kliens per-évre cache-eli a hívást.
+  let yearQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .is('bankszamla_id', null)
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
+  let prevQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta, datum')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .is('bankszamla_id', null)
+    .lt('datum', `${year}-01-01`)
+    .order('datum', { ascending: false })
+    .limit(500)
+  if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
+  const [allRes, yearRes, prevRes] = await Promise.all([allQ, yearQ, prevQ])
+  const allData = allRes.data
+  const yearData = yearRes.data
+  const prevData = prevRes.data
   // CSAK a valódi kerületi iratszámokat nézzük: kizárjuk az „AUTO-…" auto-generált iratszámot
   // (üres iratszámú készpénz-tételnél keletkezik — dátumszerű számjegyei az égbe húznák a kerületi
   // következőt). A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk: az kiejtette a régi/
@@ -1696,15 +1720,6 @@ export async function getNextReceiptNumbers(
 
   // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → az adott NAPTÁRI év valódi nyugta-számai
   // (nyugta != iratszam, hogy a tükrözött import-adat ne rontson). MAX + 1.
-  let yearQ = supabase.from(T.befizetes)
-    .select('iratszam, nyugta')
-    .eq(T.scopeCol, scope.scopeId)
-    .eq('deleted', false)
-    .is('bankszamla_id', null)
-    .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
-  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
-  const { data: yearData } = await yearQ
   const thisYear = maxNumOf(
     ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
       .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
@@ -1715,17 +1730,8 @@ export async function getNextReceiptNumbers(
     return { keruleti, gyulekezeti: pad(thisYear.num + 1, thisYear.width) }
   }
 
-  // Nincs ezévi gyülekezeti szám → van-e KORÁBBI évi? (ÚJ ÉV → a hívó kérdezzen rá)
-  let prevQ = supabase.from(T.befizetes)
-    .select('iratszam, nyugta, datum')
-    .eq(T.scopeCol, scope.scopeId)
-    .eq('deleted', false)
-    .is('bankszamla_id', null)
-    .lt('datum', `${year}-01-01`)
-    .order('datum', { ascending: false })
-    .limit(500)
-  if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
-  const { data: prevData } = await prevQ
+  // Nincs ezévi gyülekezeti szám → van-e KORÁBBI évi? (ÚJ ÉV → a hívó kérdezzen rá) — a prevData
+  // már megvan a fenti Promise.all-ból.
   const prevRows = ((prevData || []) as Array<{ iratszam: string | null; nyugta: string | null; datum: string }>)
     .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
   if (prevRows.length === 0) {

@@ -228,7 +228,10 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         {/* Form — WIZARD MÓD (2026-06-02) */}
         {step === 'form' && (
           <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-3">
-            <input type="hidden" {...register('id')} />
+            {/* #Endre 2026-07-01: az `id` rejtett mező üres string ÚJ tagnál — a séma z.number().optional()-t
+                vár, a Zod v4 az ""-t NEM ugorja át → "expected number, received string". setValueAs:
+                üres → undefined (INSERT), különben Number (UPDATE). */}
+            <input type="hidden" {...register('id', { setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)) })} />
 
             {/* Wizard-stepper indicator (kötelező lépés-sor) */}
             <div className="mb-1 flex items-center justify-between gap-2 sm:gap-4">
@@ -392,6 +395,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                           disabled={parentCreating === type}
                           onClick={() => handleQuickCreateParent(type)}
                           className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 transition hover:underline disabled:opacity-50"
+                          title={`Létrehoz egy ÚJ tagrekordot a beírt névvel (${type === 'apa' ? 'édesapa' : 'édesanya'}), a most szerkesztett tag címét örökölve, és ${type === 'apa' ? 'apaként' : 'anyaként'} összeköti vele. Ha a szülő MÁR tag, inkább a fenti keresőből válaszd ki. (A cím legyen kitöltve, mert a szülő azt örökli.)`}
                         >
                           <UserPlus className="size-3" />
                           {parentCreating === type ? 'Rögzítés…' : 'Nincs a tagok között? Rögzítés tagként + összekötés'}

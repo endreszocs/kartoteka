@@ -231,6 +231,10 @@ export function CombinedEntryBody({
   /** #2 (Endre): az ELDÖNTÖTT gyülekezeti kezdőszám az adott naptári évre (új-évi kérdés után) —
    *  erről nő tovább a kötegen belüli léptetés; null = még nincs döntés erre az évre. */
   const gyulStartRef = useRef<{ year: number; start: number; width: number } | null>(null)
+  // #Endre 2026-07-01 (perf): egy dialógus-megnyitásra ÉVENTE EGYSZER kérdezünk a szervertől a
+  // következő nyugtaszámokért — a köteg-belüli léptetést a fillReceiptNumbers.nextOf kliens-oldalon
+  // számolja, így N Chitanță-sor sem indít N szerver-hívást. (A ref a dialóg újramountolásakor ürül.)
+  const receiptCacheRef = useRef<Map<number, ReturnType<NonNullable<typeof onGetNextReceiptNumbers>>>>(new Map())
   /** #2: az új-évi kérdés-panel állapota (null = nincs kérdés). */
   const [newYearPrompt, setNewYearPrompt] = useState<{ year: number; rowId: string; tavalyiEv?: number; tavalyiUtolso: string; ajanlott: string } | null>(null)
   /** #2: a „saját számtól" opció beviteli mezeje. */
@@ -638,31 +642,39 @@ export function CombinedEntryBody({
     })
   }
 
+  // #Endre 2026-07-01 (perf): a szerver-lekérés per-év CACHE-elve (egy dialóg-megnyitásra 1×/év).
+  function fetchReceiptNumbersCached(year: number) {
+    const cache = receiptCacheRef.current
+    let p = cache.get(year)
+    if (!p) { p = onGetNextReceiptNumbers!(year); cache.set(year, p) }
+    return p
+  }
+
+  // Chitanță auto-számozás + új-évi popup — KÖZÖS a docType- ÉS a dátumváltáshoz, hogy a dátum
+  // idei (új) évre visszaváltásakor is újraértékeljen (a popup ÚJRA feljöhet, amíg nincs döntés).
+  function maybeFetchReceiptNumbers(r: EntryRow) {
+    if (tab !== 'income' || r.docType !== 'Chitanță' || !onGetNextReceiptNumbers) return
+    // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
+    const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
+    void fetchReceiptNumbersCached(year)
+      .then((next) => {
+        if (!next) return
+        // A puszta MEGJELENÍTÉS NEM döntés: idei-évre visszaváltáskor újra feljön, amíg a felhasználó
+        // nem válaszol (decideNewYear) vagy be nem zárja („Később") — ekkor a gyulStartRef „megjegyzi".
+        const decided = gyulStartRef.current?.year === year
+        if (next.ujEv && !decided) {
+          setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
+        }
+        fillReceiptNumbers(r.id, year, next, false)
+      })
+      .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
+  }
+
   function handleDocTypeChange(r: EntryRow, value: string) {
     // Az irattípust AZONNAL beállítjuk (a vezérelt select ne ugorjon vissza a hálózati lekérés alatt).
     updateRow(r.id, { docType: value })
-    const needsFill = !r.iratszam.trim() || !r.gyulekezetiSzam.trim()
-    if (tab === 'income' && value === 'Chitanță' && onGetNextReceiptNumbers && needsFill) {
-      // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
-      const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
-      void onGetNextReceiptNumbers(year)
-        .then((next) => {
-          if (!next) return
-          const decided = gyulStartRef.current?.year === year
-          // ÚJ ÉV + még nincs döntés → felugró kérdés a gyülekezeti kezdetről. J2: a gyülekezetit
-          // MOST IS kitöltjük az ajánlott folytatással (ne maradjon üres), és beállítjuk a
-          // gyulStartRef-et, hogy a TÖBBI sor ne kérdezzen újra — a panel csak FELÜLÍRÁSRA szolgál.
-          if (next.ujEv && !decided) {
-            setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
-            const digits = (next.gyulekezeti || '').replace(/\D/g, '')
-            gyulStartRef.current = { year, start: Number(digits) || 1, width: digits.length || 1 }
-            fillReceiptNumbers(r.id, year, next, false)
-            return
-          }
-          fillReceiptNumbers(r.id, year, next, false)
-        })
-        .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
-    }
+    // A friss docType-tal hívjuk (a state async — a helper r.docType-ját felül kell írni).
+    maybeFetchReceiptNumbers({ ...r, docType: value })
   }
 
   // #2: az új-évi kérdésre adott válasz — beállítja a gyülekezeti kezdőszámot erre az évre,
@@ -834,9 +846,15 @@ export function CombinedEntryBody({
   // az kizárólag arra az egy új évre vonatkozik, amelyre az autofill rákérdezett.
   function handleDatumChange(r: EntryRow, value: string) {
     updateRow(r.id, { datum: value })
-    if (newYearPrompt && newYearPrompt.rowId === r.id) {
-      const y = Number(parseFlexibleDate(value)?.slice(0, 4))
-      if (!y || y !== newYearPrompt.year) setNewYearPrompt(null)
+    const yNew = Number(parseFlexibleDate(value)?.slice(0, 4))
+    // A NYITOTT új-évi panel eltüntetése, ha EZ a sor MÁS évre vált (pl. múlt évi dátum).
+    if (newYearPrompt && newYearPrompt.rowId === r.id && (!yNew || yNew !== newYearPrompt.year)) {
+      setNewYearPrompt(null)
+    }
+    // Chitanță-sornál a dátumváltás ÚJRAÉRTÉKEL: idei (új) évre visszaváltáskor a popup ismét
+    // feljöhet (amíg nincs döntés), a szám-kitöltés pedig az új évhez igazodik.
+    if (tab === 'income' && r.docType === 'Chitanță' && yNew) {
+      maybeFetchReceiptNumbers({ ...r, datum: value })
     }
   }
 
@@ -975,9 +993,18 @@ export function CombinedEntryBody({
             </button>
             <button
               type="button"
-              onClick={() => { setNewYearPrompt(null); setCustomStart('') }}
+              onClick={() => {
+                // „Később" = az ajánlott folytatást elfogadjuk erre az évre, és TÖBBSZÖR nem kérdezünk
+                // (a döntést a gyulStartRef megjegyzi — így dátum-oda-vissza sem hozza vissza a panelt).
+                const p = newYearPrompt
+                if (p) {
+                  const digits = (p.ajanlott || '').replace(/\D/g, '')
+                  gyulStartRef.current = { year: p.year, start: Number(digits) || 1, width: digits.length || 1 }
+                }
+                setNewYearPrompt(null); setCustomStart('')
+              }}
               className="ml-auto rounded-lg px-2 py-1.5 text-xs font-medium text-sky-700/70 transition hover:bg-sky-100"
-              title="Most nem döntök — kézzel beírom a gyülekezeti számot"
+              title="Most nem döntök — az ajánlott számmal folytatom (később átírhatom kézzel)"
             >
               Később
             </button>
