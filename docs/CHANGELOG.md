@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Új: minden gyülekezeti szerkesztő egy helyen (a „Haladó szerkesztő" megszűnt)
+<!-- key: 2026-07-02-gyulekezet-beallitas-konszolidacio -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció / UX
+
+- **A gyülekezet ÖSSZES beállítása egy helyen: a „Gyülekezet beállítása" ablakban.** Új panelek:
+  - **Kedvezmények és díjak** — a kedvezmény-szabályok (korai fizetés, kor/nyugdíjas, foglalkozás,
+    szociális) és az egyéb gyülekezeti díjak teljes szerkesztője (hozzáadás / módosítás / törlés).
+  - **Lelkészek és átadás** — a lelkészi szolgálati napló és a gyülekezet-átadás teljes folyamata.
+  - A **Pénzügyi alap** panelre bekerültek az **évenkénti (visszamenőleges) díjak** is.
+- **A külön „Haladó szerkesztő" ablak és gomb megszűnt** — minden funkciója beolvadt a beállítás-
+  ablakba, így nincs többé oda-vissza ugrálás; a „Gyülekezetünk adatai" nézet „Szerkesztés" gombja
+  is ide vezet.
+
+---
+
 ## [2026-07-02] — Javítás: készpénzes KIADÁS mentése (oszlop-hiba)
 <!-- key: 2026-07-02-keszpenz-kiadas-mentes-fix -->
 <!-- category: fix -->
