@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Fejlesztés: befizető-kereső életkorral + egyházfenntartás auto-összeg megbízhatóbb
+<!-- key: 2026-07-01-befizeto-eletkor-jarulek-autofill -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Befizető / forrás keresőjének legördülője szebb lett, és mutatja a befizető életkorát.** A
+  találati listában mostantól kezdőbetűs ikon, a név mellett egy „N éves" jelvény (a születési év a
+  jelvényre húzva jelenik meg), alatta a cím — így egy pillantással azonosítható a megfelelő tag.
+
+### 🔧 Javítás
+
+- **Az egyházfenntartói járulék automatikus összege megbízhatóbb.** Ha egy regisztrált tag jogcíme
+  egyházfenntartói járulék, a rendszer a welcome-oldalon beállított **éves járulék-alapból és a
+  kedvezményekből** kiszámolja a még fizetendőt, és beírja (a kézi összeget sosem írja felül).
+  Mostantól akkor is működik, ha csak a **gyülekezeti alapadat** van beállítva (nincs külön évenkénti
+  beállítás). **Ha egyáltalán nincs beállítva** az adott évi éves járulék, a rendszer már nem
+  „felmentett"-et ír, hanem jelzi, hogy **állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt** —
+  addig kézzel is rögzíthető.
+
+---
+
 ## [2026-07-01] — Javítás: a Nyugtafigyelő nem jelez hibát a több-befizetős nyugtákra + finomabb új-évi kérdés
 <!-- key: 2026-07-01-nyugtafigyelo-tobb-befizeto-ujjev -->
 <!-- category: fix -->

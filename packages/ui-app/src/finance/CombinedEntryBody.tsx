@@ -28,7 +28,7 @@ import {
 import type { IncomeCategory, SaveIncomeBatchRow } from './IncomeDialogBody'
 import type { ExpenseCategory, SaveExpenseBatchRow } from './ExpenseDialogBody'
 
-export type CombinedToastFn = (type: 'success' | 'error', message: string) => void
+export type CombinedToastFn = (type: 'success' | 'error' | 'warning', message: string) => void
 
 /** Irat (bizonylat) típusok — román megnevezéssel, a könyvelési gyakorlat szerint. */
 const DOC_TYPES = ['Factură', 'Bon fiscal', 'Chitanță', 'Stat de plată', 'Ordin de plată', 'Altele'] as const
@@ -72,8 +72,12 @@ export interface CombinedInternalTransferPayload {
 export interface CombinedMemberHit {
   id: number
   name: string
-  /** Részletes másodlagos sor a találati listában (pl. „1980 · Brateș · Fő u. 12"). */
+  /** Részletes másodlagos sor a találati listában (pl. „Brateș · Fő u. 12"). */
   detail?: string
+  /** #Endre 2026-07-01: a befizető életkora (teljes évek) — a találati sorban badge-ként. */
+  age?: number
+  /** Születési év (ha van) — a badge tooltipjéhez / másodlagos infóhoz. */
+  birthYear?: string
 }
 
 export interface CombinedEntryBodyProps {
@@ -120,7 +124,7 @@ export interface CombinedEntryBodyProps {
    * (a még fizetendőt, kedvezményekkel/felmentéssel). A kézzel beírt összeget SOHA nem írja felül. Ha
    * nincs megadva (pl. desktop), nincs automatikus kitöltés.
    */
-  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number } | null>
+  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number; hasBase?: boolean } | null>
   /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
@@ -380,6 +384,10 @@ export function CombinedEntryBody({
                   q.uid === payerUid && q.id === payerId && (q.osszeg ?? '').trim() === '' ? { ...q, osszeg: amount } : q,
                 ),
               })))
+            } else if (res.hasBase === false) {
+              // #Endre 2026-07-01: NINCS beállítva az adott évi éves járulék-alap (se bealitas, se
+              // congregations.eves_jarulek) → NEM „felmentett", hanem beállítandó. Ajánljuk fel.
+              onToast('warning', `A(z) ${year}. évi éves járulék nincs beállítva — állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt, utána automatikusan kitölti. Addig írd be kézzel.`)
             } else {
               // M3: rendezve / felmentett → NEM írunk 0-t, de jelezzük (különben néma a mező).
               onToast('success', res.expected <= 0
@@ -1616,19 +1624,35 @@ function PayerNameSearch({
       {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed z-[200] max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl"
-            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 260) }}
+            className="fixed z-[200] max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl ring-1 ring-black/5"
+            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 280) }}
           >
             {hits.map((h) => (
               <button
                 key={h.id}
                 type="button"
-                className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
+                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
               >
-                <div className="text-sm font-medium text-slate-800">{h.name}</div>
-                {h.detail && <div className="text-[11px] text-slate-400">{h.detail}</div>}
+                {/* Kezdőbetűs avatar — letisztult, „apple" jelleg */}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
+                  {(h.name.trim()[0] || '?').toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-800">{h.name}</span>
+                    {h.age != null && (
+                      <span
+                        className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 group-hover:bg-white"
+                        title={h.birthYear ? `Született: ${h.birthYear}` : undefined}
+                      >
+                        {h.age} éves
+                      </span>
+                    )}
+                  </span>
+                  {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
+                </span>
               </button>
             ))}
           </div>,

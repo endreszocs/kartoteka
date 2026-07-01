@@ -266,10 +266,25 @@ export function DesktopCombinedEntryDialog({
                 { supabase: getDesktopSupabase(), runtime: 'desktop' },
               )
               if (!res.success) return []
-              return res.members.map((m) => ({
-                id: m.id,
-                name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
-              }))
+              return res.members.map((m) => {
+                // #Endre 2026-07-01: életkor (teljes évek) a találati badge-hez (web-azonos).
+                let age: number | undefined
+                const b = m.sz_datum ? new Date(String(m.sz_datum)) : null
+                if (b && !Number.isNaN(b.getTime())) {
+                  const now = new Date()
+                  let a = now.getFullYear() - b.getFullYear()
+                  const mo = now.getMonth() - b.getMonth()
+                  if (mo < 0 || (mo === 0 && now.getDate() < b.getDate())) a--
+                  if (a >= 0 && a < 130) age = a
+                }
+                return {
+                  id: m.id,
+                  name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
+                  detail: m.cim_nev ?? undefined,
+                  age,
+                  birthYear: m.sz_datum ? String(m.sz_datum).slice(0, 4) : undefined,
+                }
+              })
             }}
             // 2026-06-21: ONLINE lekérdezések (a desktop offline ezekre üres/null-t ad → nincs auto-kitöltés).
             // A járulék-számítás magja KÖZÖS a webbel (computeJarulekForMemberYear) → az összeg sosem tér el.

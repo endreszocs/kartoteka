@@ -1979,7 +1979,7 @@ export async function getExpectedJarulek(
   // PROSPEKTÍV alkalmazásához (a dátum a határidő előtt van-e), hogy az auto-összeg a kedvezményes
   // célt ajánlja. A Tartozás-lista NEM adja meg → ott a retrospektív (bit-azonos) viselkedés marad.
   prospectiveDateIso?: string,
-): Promise<{ expected: number; paid: number; debt: number } | null> {
+): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean } | null> {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return null
 
@@ -1990,7 +1990,7 @@ export async function getExpectedJarulek(
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
-    supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
+    supabase.from('congregations').select('tartozas_szamitas_mod, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('id', congregationId).maybeSingle(),
   ])
 
   const member = memberRes.data as { id: number; sz_datum: string | null; foglalkozas: string | null } | null
@@ -2027,6 +2027,22 @@ export async function getExpectedJarulek(
       jarulek_hatarid: b.jarulek_hatarid || null,
     }
   }
+  // #Endre 2026-07-01: ha az adott ÉVRE nincs `bealitas` sor (vagy 0 az alap), a welcome-ben a
+  // `congregations`-be írt éves járulék az ALAP (fallback) — így az auto-összeg akkor is működik,
+  // ha csak a gyülekezeti alapadat van beállítva (nincs külön per-évi bealitas, pl. új/teszt gyülekezet).
+  const cong = congRes.error ? null : (congRes.data as {
+    tartozas_szamitas_mod?: unknown; eves_jarulek?: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null
+  } | null)
+  if ((yearSettings[year]?.eves_jarulek || 0) <= 0 && (Number(cong?.eves_jarulek) || 0) > 0) {
+    yearSettings[year] = {
+      year,
+      eves_jarulek: Number(cong?.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: cong?.jarulek_kedvezmenyes == null ? null : Number(cong?.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: cong?.jarulek_hatarid || null,
+    }
+  }
+  // Van-e egyáltalán beállított éves járulék-alap erre az évre (bealitas VAGY congregations)?
+  const hasBase = (yearSettings[year]?.eves_jarulek || 0) > 0
   // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés HIBÁZOTT, újrapróbáljuk
   // `kezdet` nélkül — különben a SELECT némán [] -t adna, és az ÖSSZES mentett kedvezmény kiesne
   // (ez a „van mentett adat, mégsem alkalmazza" tünet leggyakoribb oka). A kezdet ekkor null (nyitott ablak).
@@ -2048,7 +2064,7 @@ export async function getExpectedJarulek(
     fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
   }))
   const exemptions = (exRes.data || []) as JarulekExemption[]
-  const debtCalcMode = normalizeDebtCalcMode(congRes.error ? null : (congRes.data as { tartozas_szamitas_mod?: unknown } | null)?.tartozas_szamitas_mod)
+  const debtCalcMode = normalizeDebtCalcMode(cong?.tartozas_szamitas_mod)
 
   const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
   const result = computeJarulekForMemberYear({
@@ -2062,7 +2078,7 @@ export async function getExpectedJarulek(
     payments: maintenancePayments,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
-  return { expected: result.expected, paid: result.paid, debt: result.debt }
+  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
 }
 
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────

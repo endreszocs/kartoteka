@@ -228,16 +228,17 @@ export async function expectedJarulekOnline(
   personId: number,
   year: number,
   prospectiveDateIso?: string, // (B/J6) a befizetés dátuma a korai-fizetés kedvezmény prospektív alkalmazásához
-): Promise<{ expected: number; paid: number; debt: number } | null> {
+): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean } | null> {
   if (!(await isOnlineWithSession())) return null
   const supabase = getDesktopSupabase()
 
-  const [memberRes, bealitasRes, discRes, exRes, famRes] = await Promise.all([
+  const [memberRes, bealitasRes, discRes, exRes, famRes, congRes] = await Promise.all([
     supabase.from('szemely').select('id, sz_datum, foglalkozas').eq('id', personId).eq('congregation_id', congregationId).maybeSingle(),
     supabase.from('bealitas').select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('congregation_id', congregationId).eq('id', String(year)).maybeSingle(),
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
+    supabase.from('congregations').select('eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('id', congregationId).maybeSingle(),
   ])
 
   const member = memberRes.data as { id: number; sz_datum: string | null; foglalkozas: string | null } | null
@@ -285,6 +286,17 @@ export async function expectedJarulekOnline(
     szazalek: row.szazalek == null ? null : Number(row.szazalek) || 0,
     fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
   }))
+  // #Endre 2026-07-01 (web-azonos): ha az adott ÉVRE nincs bealitas alap, a congregations (welcome) éves járuléka a fallback.
+  const cong = congRes.error ? null : (congRes.data as { eves_jarulek?: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null } | null)
+  if ((yearSettings[year]?.eves_jarulek || 0) <= 0 && (Number(cong?.eves_jarulek) || 0) > 0) {
+    yearSettings[year] = {
+      year,
+      eves_jarulek: Number(cong?.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: cong?.jarulek_kedvezmenyes == null ? null : Number(cong?.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: cong?.jarulek_hatarid || null,
+    }
+  }
+  const hasBase = (yearSettings[year]?.eves_jarulek || 0) > 0
   const exemptions = (exRes.data || []) as JarulekExemption[]
   const debtCalcMode: DebtCalcMode = 'akkori' // currentYear:year mellett irreleváns (web-azonos)
   const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
@@ -300,5 +312,5 @@ export async function expectedJarulekOnline(
     payments: maintenancePayments,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
-  return { expected: result.expected, paid: result.paid, debt: result.debt }
+  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
 }
