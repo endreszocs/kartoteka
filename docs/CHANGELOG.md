@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-01] — Fejlesztés: a Könyvelés listákban is látszik a Kerületi sz. ÉS az Irat sz.
+<!-- key: 2026-07-01-keruleti-es-irat-sz-lista -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A pénzügyi listákban (Könyvelés / Tranzakciók) az „Iratszám" oszlop mostantól MINDKÉT számot
+  megmutatja:** a **Kerületi sz.**-ot (a kerülettől kapott, nyomtatott szám) fő értékként, alatta
+  pedig kis betűvel az **Irat sz.**-ot (a gyülekezet saját sorszáma), ha az külön van rögzítve. Így
+  egy pillantással ellenőrizhető mindkét szám — nem csak a rögzítő ablakban, hanem a listában is.
+
+---
+
 ## [2026-07-01] — Javítás: a Nyugtafigyelő már a gyülekezet saját sorszámát (Irat sz.) figyeli
 <!-- key: 2026-07-01-nyugtafigyelo-irat-sz -->
 <!-- category: fix -->

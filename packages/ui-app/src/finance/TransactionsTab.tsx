@@ -140,7 +140,10 @@ type UnifiedRow = {
   osszeg: number
   label: string
   category: string
+  /** Kerületi sz. — a kerülettől kapott, nyomtatott szám (iratszam). */
   iratszam: string
+  /** Irat sz. — a gyülekezet saját sorszáma (nyugta), csak ha valódi; kiadásnál üres. */
+  gyulekezetiSzam: string
   irattipus: string
   megjegyzes: string
   isBm: boolean
@@ -280,6 +283,7 @@ export function TransactionsTab({
           ? getCelName(bevCelMap[r.id_befizetescel || 0])
           : '—',
         iratszam: getTransactionDocumentNumber(r) || '—',
+        gyulekezetiSzam: r.nyugta && r.nyugta !== r.iratszam ? r.nyugta : '',
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
@@ -296,6 +300,7 @@ export function TransactionsTab({
           ? getCelName(kiaCelMap[r.id_kiadascel || 0])
           : '—',
         iratszam: getTransactionDocumentNumber(r) || '—',
+        gyulekezetiSzam: '', // kiadásnál nincs külön gyülekezeti sorszám
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
@@ -499,7 +504,7 @@ export function TransactionsTab({
                           Kategória
                         </th>
                         <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
-                          Iratszám
+                          Kerületi / Irat sz.
                         </th>
                         <th className="p-2.5 text-right text-xs font-medium text-slate-500">
                           Összeg
@@ -611,7 +616,15 @@ export function TransactionsTab({
                                 </span>
                               </td>
                               <td className="p-2.5 hidden lg:table-cell text-slate-400 text-xs">
-                                {r.iratszam}
+                                <span title="Kerületi sz. — a kerülettől kapott, nyomtatott szám">{r.iratszam}</span>
+                                {r.gyulekezetiSzam && (
+                                  <span
+                                    className="block text-[10px] text-slate-400/80"
+                                    title="Irat sz. — a gyülekezet saját sorszáma"
+                                  >
+                                    Irat sz.: {r.gyulekezetiSzam}
+                                  </span>
+                                )}
                               </td>
                               <td
                                 className={`p-2.5 text-right font-bold ${
