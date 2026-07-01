@@ -14,7 +14,8 @@
 
 import { z } from 'zod'
 
-const RECEIPT_TYPES = ['Készpénz', 'Banki'] as const
+// #5 (Endre): az irattipus szabad szöveges bizonylattípus-címke (lásd befizetes-save.ts).
+const irattipusSchema = z.string().trim().min(1, 'Az irattípus kötelező').max(50)
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -51,7 +52,7 @@ export const saveExpenseInputSchema = z
     iratszam: z.string().trim().max(50).nullable().optional(),
 
     /** Irat-típus (Készpénz vagy Banki). */
-    irattipus: z.enum(RECEIPT_TYPES),
+    irattipus: irattipusSchema,
 
     megjegyzes: z.string().trim().max(500).nullable().optional(),
 

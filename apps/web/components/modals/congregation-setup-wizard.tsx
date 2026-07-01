@@ -18,8 +18,8 @@
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Banknote, Check, Church, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, X,
+  Banknote, Calculator, Check, Church, FileText, Image as ImageIcon,
+  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, Wallet, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -30,6 +30,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModalField } from '@/components/ui/modal-field'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
+// #3 (Endre): a Pénzügyi alap szakasz a welcome finance-lépés vizuális mintáját kövesse
+// (kártya-szakaszok + magyarázó bannerek + radio-kártyák) — közös helper-komponensek.
+import {
+  WizardSectionCard,
+  WizardField,
+  WizardBanner,
+  Input as WizardInput,
+} from '@/components/onboarding/wizard/_helpers/wizard-ui'
 import {
   getCongregationForSetup,
   saveCongregationSetup,
@@ -37,6 +45,7 @@ import {
   getCongregationBankAccounts,
   saveCongregationBankAccount,
   deleteCongregationBankAccount,
+  getDioceses,
 } from '@/app/(dashboard)/congregation/actions'
 
 /**
@@ -76,6 +85,12 @@ interface SetupFormState {
   adrlocality_id: number | null
   adrstreet_id: number | null
   isForeign: boolean
+  // #Endre 2026-07-02: átmigrálva a „Gyülekezetünk adatai" ablakból
+  diocese_id: string
+  eves_jarulek: number
+  jarulek_kedvezmenyes: number
+  jarulek_hatarid: string
+  tartozas_szamitas_mod: 'akkori' | 'aktualis'
 }
 
 type SetForm = (f: SetupFormState) => void
@@ -148,14 +163,16 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [isPending, startTransition] = useTransition()
   const [loading, setLoading] = useState(true)
 
-  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank'>('attekintes')
+  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank' | 'penzugy'>('attekintes')
 
   const [form, setForm] = useState<SetupFormState>({
     nev: '', nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
     megye: '', varos: '', cim: '', email: '', telefon: '', web: '',
     bank: '', iban: '', iranyitoszam: '', hazszam: '', country: 'Románia',
     adrlocality_id: null, adrstreet_id: null, isForeign: false,
+    diocese_id: '', eves_jarulek: 100, jarulek_kedvezmenyes: 0, jarulek_hatarid: '07-01', tartozas_szamitas_mod: 'akkori',
   })
+  const [dioceses, setDioceses] = useState<Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>>([])
 
   // Több bankszámla + a törlésre jelölt (meglévő) számlák id-jei.
   const [bankAccounts, setBankAccounts] = useState<BankSlot[]>([])
@@ -176,6 +193,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
+      void getDioceses().then((list) => { if (!cancelled) setDioceses(list) }).catch(() => {})
       void Promise.all([
         getCongregationForSetup(congregationId),
         getCongregationBankAccounts(congregationId),
@@ -197,6 +215,11 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
             country: d.country || 'Románia',
             adrlocality_id: d.adrlocality_id, adrstreet_id: d.adrstreet_id,
             isForeign: (d.country && d.country !== 'Románia') || false,
+            diocese_id: d.diocese_id || '',
+            eves_jarulek: d.eves_jarulek ?? 100,
+            jarulek_kedvezmenyes: d.jarulek_kedvezmenyes ?? 0,
+            jarulek_hatarid: d.jarulek_hatarid || '07-01',
+            tartozas_szamitas_mod: d.tartozas_szamitas_mod || 'akkori',
           })
           setContext({ dioceseName: d.diocese_name, districtName: d.district_name })
 
@@ -274,7 +297,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   // Készültség kategóriánként (Tier-1 kötelező mezők). A szerver továbbra is szigorúan validál; a
   // hiányzó mezőket panelenként jelezzük (oldalsáv-státusz + készültség-jelző). A `cim` (utca) és a
   // `cimer_url` is itt van — különben a gomb aktív lenne, de a szerver-mentés elbukna.
-  const paneMissing: Record<'attekintes' | 'cim' | 'bank', string[]> = { attekintes: [], cim: [], bank: [] }
+  const paneMissing: Record<'attekintes' | 'cim' | 'bank' | 'penzugy', string[]> = { attekintes: [], cim: [], bank: [], penzugy: [] }
   if (form.nev_hu.trim().length < 2) paneMissing.attekintes.push('magyar név')
   if (!form.adoszam.trim()) paneMissing.attekintes.push('adószám')
   if (!form.cimer_url.trim()) paneMissing.attekintes.push('címer')
@@ -284,14 +307,16 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) paneMissing.cim.push('e-mail')
   if (!form.telefon.trim()) paneMissing.cim.push('telefon')
   if (!primaryBank || !primaryBank.bank_neve.trim() || !primaryBank.iban.trim()) paneMissing.bank.push('fő bankszámla (név + IBAN)')
+  if (!(form.eves_jarulek > 0)) paneMissing.penzugy.push('éves járulék')
 
   const PANES = [
     { key: 'attekintes' as const, label: 'Áttekintés és alapadatok', icon: Church, chipBg: 'bg-teal-50', chipText: 'text-teal-600' },
     { key: 'cim' as const, label: 'Cím és elérhetőség', icon: MapPin, chipBg: 'bg-sky-50', chipText: 'text-sky-600' },
     { key: 'bank' as const, label: 'Bankszámlák', icon: Banknote, chipBg: 'bg-indigo-50', chipText: 'text-indigo-600' },
+    { key: 'penzugy' as const, label: 'Pénzügyi alap', icon: Landmark, chipBg: 'bg-emerald-50', chipText: 'text-emerald-600' },
   ]
   const doneCount = PANES.filter((p) => paneMissing[p.key].length === 0).length
-  const allMissing = [...paneMissing.attekintes, ...paneMissing.cim, ...paneMissing.bank]
+  const allMissing = [...paneMissing.attekintes, ...paneMissing.cim, ...paneMissing.bank, ...paneMissing.penzugy]
 
   function handleSave() {
     // Soft-gate: a Mentés mindig kattintható; ha kötelező adat hiányzik, az első hiányos panelra
@@ -456,7 +481,34 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                       fieldErrors={fieldErrors}
                       dioceseName={context.dioceseName}
                       districtName={context.districtName}
+                      dioceses={dioceses}
                     />
+                  </>
+                )}
+
+                {activePane === 'penzugy' && (
+                  <>
+                    <SectionFinance form={form} setForm={setForm} />
+                    {/* #Endre 2026-07-02: a haladó pénzügyi + lelkész szerkesztők (kedvezmény-szabályok,
+                        egyéb díjak, évenkénti visszamenőleges díjak, lelkész-átadás) átkerültek ide a
+                        „Gyülekezetünk adatai"-ból — külön, részletes szerkesztő ablakban nyílnak. */}
+                    <div className="card-raised p-4 bg-violet-50/40 border-violet-200">
+                      <p className="text-sm font-semibold text-slate-800">Kedvezmények, egyéb díjak és lelkész-átadás</p>
+                      <p className="mt-1 mb-3 text-xs text-slate-500">
+                        A kedvezmény-szabályok, az egyéb díjak, az évenkénti (visszamenőleges) díjak és a
+                        lelkész-átadás részletes szerkesztője külön ablakban nyílik.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          onOpenChange(false)
+                          window.dispatchEvent(new Event('kartoteka:open-congregation-advanced'))
+                        }}
+                      >
+                        Haladó szerkesztő megnyitása
+                      </Button>
+                    </div>
                   </>
                 )}
 
@@ -526,7 +578,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
 // ─────────────────────────────────────────────────────────────────────────
 
 function SectionBasics({
-  form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName,
+  form, setForm, onCimerUpload, uploading, fieldErrors, dioceseName, districtName, dioceses,
 }: {
   form: SetupFormState
   setForm: SetForm
@@ -535,7 +587,12 @@ function SectionBasics({
   fieldErrors: Record<string, string>
   dioceseName: string | null
   districtName: string | null
+  dioceses: Array<{ id: string; name: string; district_id: string | null; district_name: string | null }>
 }) {
+  // A kiválasztott egyházmegye kerülete (a select alatt read-only megjelenítéshez).
+  const selectedDistrictName = form.diocese_id
+    ? (dioceses.find((d) => d.id === form.diocese_id)?.district_name || districtName)
+    : districtName
   return (
     <section className="space-y-4">
       <div className="card-raised p-4 bg-teal-50/30 border-teal-100">
@@ -550,7 +607,7 @@ function SectionBasics({
         </div>
       </div>
 
-      {/* Read-only kontextus: Egyházkerület + Egyházmegye */}
+      {/* Egyházi hovatartozás: egyházmegye SZERKESZTHETŐ (select), egyházkerület a megyéből derivált read-only */}
       <div className="card-raised p-4 bg-sky-50/40 border-sky-200">
         <div className="flex items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-100">
@@ -564,21 +621,23 @@ function SectionBasics({
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházkerület</p>
                 <p className="text-sm font-semibold text-slate-800">
-                  {districtName || <span className="italic text-slate-400">nincs beállítva</span>}
+                  {selectedDistrictName || <span className="italic text-slate-400">a megyéből adódik</span>}
                 </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-slate-500">Egyházmegye</p>
-                <p className="text-sm font-semibold text-slate-800">
-                  {dioceseName || <span className="italic text-slate-400">nincs beállítva</span>}
-                </p>
+                <select
+                  value={form.diocese_id}
+                  onChange={(e) => setForm({ ...form, diocese_id: e.target.value })}
+                  className="mt-0.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-500/25"
+                >
+                  <option value="">{dioceseName ? `${dioceseName} (jelenlegi)` : '— válassz egyházmegyét —'}</option>
+                  {dioceses.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
-            {(!districtName || !dioceseName) && (
-              <p className="text-[11px] text-sky-900/70 italic pt-1">
-                A hiányzó hozzárendelést a rendszergazda állíthatja be az Admin panelen.
-              </p>
-            )}
           </div>
         </div>
       </div>
@@ -666,6 +725,120 @@ function SectionBasics({
         )}
         {fieldErrors.cimer_url && <p className="text-xs text-rose-600 mt-2">{fieldErrors.cimer_url}</p>}
       </div>
+    </section>
+  )
+}
+
+// #Endre 2026-07-02: Pénzügyi alap — átmigrálva a „Gyülekezetünk adatai" ablakból.
+function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetForm }) {
+  const currentYear = new Date().getFullYear()
+  return (
+    <section className="space-y-4">
+      {/* Aktuális év alapösszege — a welcome finance-lépés mintájára */}
+      <WizardSectionCard
+        icon={Wallet}
+        iconColor="text-amber-700"
+        iconBg="bg-amber-50"
+        title="Aktuális év alapösszege"
+        description={`A ${currentYear}. évre vonatkozó teljes éves egyházfenntartási járulék. Ebből számol a rendszer minden tag hátralékát. Bármikor módosítható.`}
+      >
+        <div className="md:max-w-md">
+          <WizardField
+            id="eves_jarulek"
+            label="Éves alap járulék (RON)"
+            required
+            hint="Családonkénti vagy tagsági teljes éves egyházfenntartás."
+          >
+            <WizardInput
+              id="eves_jarulek"
+              type="number"
+              step="0.01"
+              min="0"
+              inputMode="numeric"
+              placeholder="pl. 120"
+              value={form.eves_jarulek || ''}
+              onChange={(e) => setForm({ ...form, eves_jarulek: Number(e.target.value) || 0 })}
+            />
+          </WizardField>
+        </div>
+      </WizardSectionCard>
+
+      {/* Kedvezményes időszak */}
+      <WizardSectionCard
+        icon={Calculator}
+        iconColor="text-emerald-700"
+        iconBg="bg-emerald-50"
+        title="Kedvezményes időszak"
+        description="Aki a határidő előtt fizet, a kedvezményes alapösszeget fizetheti. Hagyd 0-n, ha nincs kedvezmény."
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <WizardField id="jarulek_kedvezmenyes" label="Kedvezményes alapösszeg (RON)" hint="0 = nincs kedvezményes összeg.">
+            <WizardInput
+              id="jarulek_kedvezmenyes"
+              type="number"
+              min="0"
+              inputMode="numeric"
+              placeholder="pl. 100"
+              value={form.jarulek_kedvezmenyes || ''}
+              onChange={(e) => setForm({ ...form, jarulek_kedvezmenyes: Number(e.target.value) || 0 })}
+            />
+          </WizardField>
+          <WizardField id="jarulek_hatarid" label="Kedvezmény határideje (HH-NN)" hint="Eddig fizetve jár a kedvezményes összeg (pl. 07-01).">
+            <WizardInput
+              id="jarulek_hatarid"
+              placeholder="pl. 07-01"
+              value={form.jarulek_hatarid}
+              onChange={(e) => setForm({ ...form, jarulek_hatarid: e.target.value })}
+            />
+          </WizardField>
+        </div>
+      </WizardSectionCard>
+
+      {/* Tartozás-számítási mód — a welcome radio-kártyáival azonos */}
+      <WizardSectionCard
+        icon={Calculator}
+        iconColor="text-cyan-700"
+        iconBg="bg-cyan-50"
+        title="Tartozás-számítási mód"
+        description="Hogyan számolja a rendszer a régi évek tartozását?"
+        banner={
+          <WizardBanner tone="info">
+            <p>
+              Egy tagnak lehet pl. 2022-es tartozása. A rendszer ezt a 2022-es beállítások szerint
+              számolja (&bdquo;akkori&rdquo;), vagy az aktuális évi beállítások alapján (&bdquo;aktuális&rdquo;)? Ha nem
+              vagy biztos, válaszd az &bdquo;akkori&rdquo;-t — ez a leggyakoribb és legtisztább.
+            </p>
+          </WizardBanner>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          {([
+            ['akkori', 'Akkori év szerint', 'A 2022-es tartozás a 2022-es beállítások szerint van számolva. Ajánlott — ez a hagyományos.'],
+            ['aktualis', 'Aktuális év szerint', 'A régi tartozások az aktuális évi járulékkal vannak számolva. Egyszerűbb — de figyeld a változások hatását.'],
+          ] as const).map(([val, title, desc]) => (
+            <label
+              key={val}
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition-colors ${
+                form.tartozas_szamitas_mod === val
+                  ? 'border-cyan-500 bg-cyan-50/50'
+                  : 'border-slate-200 bg-white hover:border-cyan-200'
+              }`}
+            >
+              <input
+                type="radio"
+                name="tartozas_szamitas_mod"
+                className="mt-1 size-4"
+                checked={form.tartozas_szamitas_mod === val}
+                onChange={() => setForm({ ...form, tartozas_szamitas_mod: val })}
+              />
+              <span className="text-sm">
+                <strong className="block text-slate-800">{title}</strong>
+                <span className="mt-0.5 block text-xs text-slate-600">{desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </WizardSectionCard>
     </section>
   )
 }

@@ -51,6 +51,12 @@ export const memberSchema = z.object({
   esketes_hazastars_nev: z.string().optional().or(z.literal('')),
   // Pénzügyi
   fizeto_status: z.enum(['fizet', 'felmentett', 'nem_fizet']).optional(),
+  // #1 (Endre): GDPR-hozzájárulások + közösségi profil-link — a személyi kartonról (űrlap)
+  // is menthető legyen (eddig csak a részletező dialógus külön ConsentEditor-jéből ment).
+  gdpr_consent: z.boolean().optional(),
+  photo_consent: z.boolean().optional(),
+  mailing_consent: z.boolean().optional(),
+  social_profil_url: z.string().optional().or(z.literal('')),
 })
 
 export type MemberInput = z.infer<typeof memberSchema>

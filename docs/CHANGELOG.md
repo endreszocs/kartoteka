@@ -23,6 +23,250 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Új funkció: hiányzó nyugták UTÓLAGOS BEVÉTELEZÉSE varázslóval (személyhez kötve)
+<!-- key: 2026-07-02-hianyzo-nyugtak-incasare-wizard -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció
+
+- **A Nyugtafigyelő „Hiányzó nyugták" gombja a hiányzó nyugtákat utólag BEVÉTELEZI** (korábban tévesen
+  a Decont/kiadás-elszámolást nyitotta). A hiányzó nyugták a gyülekezet **bevételei**. A varázslóban
+  **minden hiányzó nyugta egy külön sor**: megadod az összegét és **kikeresed a befizető tagot** — így
+  az **adomány / egyházfenntartás a taghoz is hozzászámít** —, majd közös dátumot és bevétel-jogcímet
+  választasz.
+- **Könyvelésileg helyes megoldás:** a már kiállított **Chitanță maga a bizonylat**, ezért a tétel
+  **Chitanță-bevételként a kasszába (Registrul de casă) és a számadásba** kerül a nyugta saját
+  **Irat sz.**-ával — nem külön Dispoziție-bizonylattal (az csak akkor kell, ha nincs más bizonylat).
+  Minden tétel **„utólag elszámolt" megjegyzést** kap (látható nyom), és a figyelő „hiányzó" listájáról
+  is lekerül.
+
+---
+
+## [2026-07-02] — Javítás: a készpénzes tétel irattípusa a valódi bizonylatot mutatja (Chitanță)
+<!-- key: 2026-07-02-irattipus-chitanta -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A tétel-listákban az IRATTÍPUS oszlop a valóban választott bizonylattípust mutatja** (Chitanță,
+  Factură stb.) — korábban készpénzes rögzítésnél tévesen mindig „Készpénz" jelent meg. A készpénz/bank
+  megkülönböztetés a háttérben a **bankszámla-kötés** alapján megy, így a kassza-/bank-kimutatások, a
+  következő nyugtaszám és az offline rögzítés is helyesek maradnak.
+
+---
+
+## [2026-07-02] — UX: a „Még egy befizető" gomb jól látható és mindig elérhető
+<!-- key: 2026-07-02-tobb-fizeto-kiemeles -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Tétel rögzítése ablakban a „Még egy befizető" mostantól kiemelt, jól látható gomb**, és már az
+  első befizető felvétele ELŐTT is elérhető. Egy nyugtára több befizetőt (pl. családtagokat) így
+  könnyebb felvinni, mindenkit külön összeggel — a mező mellett rövid súgó is segít.
+
+---
+
+## [2026-07-02] — Javítás: nyugtatömb-mentés „gyulekezeti_szam is ambiguous" hiba
+<!-- key: 2026-07-02-nyugtatomb-ambiguous-fix -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web + DB-migráció -->
+
+### 🔧 Javítás
+
+- **Új nyugtatömb rögzítésekor / chitanță-szám lefoglalásakor megszűnik a „Szám-lefoglalási hiba:
+  column reference »gyulekezeti_szam« is ambiguous" hibaüzenet.** A szám-lefoglaló adatbázis-függvény
+  javítva (a javítás DB-oldali migrációként fut le).
+
+---
+
+## [2026-07-02] — Javítás: a személyi kartonon menthető a GDPR-hozzájárulás + közösségi profil-link
+<!-- key: 2026-07-02-tag-gdpr-social-mentes -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A tag felvételi/szerkesztő űrlapján (Pénzügyi lépés) mostantól rögzíthető és MENTŐDIK a
+  GDPR-hozzájárulás, a fénykép-közlési és a hírlevél-hozzájárulás.** Eddig ezek csak a részletező
+  kártya külön szerkesztőjéből mentek. Szerkesztéskor a meglévő értékek előtöltődnek (nem törlődnek).
+- **Új mező: „Közösségi profil (Facebook) link"** — a profilkép ebből tölthető be; a link mostantól
+  a személyi kartonon is megadható és mentődik.
+
+---
+
+## [2026-07-02] — UX: a Gyülekezet beállításai „Pénzügyi alap" rész átdolgozva (welcome-minta)
+<!-- key: 2026-07-02-penzugyi-alap-welcome-minta -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Gyülekezet beállításai → „Pénzügyi alap" szakasz a bevezető (welcome) varázsló pénzügyi
+  lépésének letisztult felépítését követi:** külön, magyarázatos kártya az éves alapösszegnek, a
+  kedvezményes időszaknak és a tartozás-számítási módnak — jól látható választókkal.
+
+---
+
+## [2026-07-02] — UX: a „Gyülekezetünk adatai" ablak szélessége javítva
+<!-- key: 2026-07-02-gyulekezet-ablak-szelesseg -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A „Gyülekezetünk adatai" (megtekintő) ablak már nem indokolatlanul széles.** A haladó szerkesztő
+  nézet marad szélesebb, a megtekintő nézet visszafogottabb méretet kap.
+
+---
+
+## [2026-07-02] — Javítás: az egyházi (saját) CNP nem hiba a tagnyilvántartás Hibák fülén
+<!-- key: 2026-07-02-egyhazi-cnp-nem-hiba -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Hibák fülön többé nem jelez tévesen a rendszer az egyházi (saját) CNP-kre.** Az egyházi
+  rendszer által kiadott CNP (pl. `EC-2026-…`) szándékosan NEM 13 számjegyű valódi román CNP, ezért
+  a „CNP nem 13 számjegy" ellenőrzés mostantól kihagyja ezeket (és a régi placeholder-eket is). A
+  valódi CNP-k ellenőrzése változatlan.
+
+---
+
+## [2026-07-02] — Fejlesztés: „Gyülekezetünk adatai" új, színes read-only nézet + mezők a beállításokban
+<!-- key: 2026-07-02-gyulekezetunk-adatai-redizajn-migracio -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A „Gyülekezetünk adatai" ablak teljesen megújult: színes, kategorizált, egyértelmű, csak
+  megtekintésre és nyomtatásra szolgáló nézet** (élénk fejléc a címerrel, kategóriánként külön
+  színnel — megnevezések, egyházi hovatartozás, cím, elérhetőség, bankszámlák, pénzügyi alap,
+  kedvezmények, lelkészek). **A szerkesztés innen átkerült a „Gyülekezet beállítása" ablakba** — a
+  „Szerkesztés a beállításokban" gomb oda visz.
+- **A „Gyülekezet beállítása" ablak mostantól az egyházmegyét és a pénzügyi alapot is szerkeszti**
+  (éves járulék, kedvezményes alapösszeg, járulék határidő, tartozás-számítás módja) — új „Pénzügyi
+  alap" lap. Innen nyílik a **Haladó szerkesztő** is: kedvezmény-szabályok, egyéb díjak, évenkénti
+  (visszamenőleges) díjak és a **lelkész-átadás**. Így a gyülekezet MINDEN szerkesztése a
+  beállításokban van, a „Gyülekezetünk adatai" pedig teljesen megtekintő/nyomtató nézet lett.
+
+---
+
+## [2026-07-01] — (JAVÍTVA 2026-07-02) hiányzó nyugták gomb — a helyes megoldás a bevételezés
+<!-- key: 2026-07-01-hianyzo-nyugtak-decont -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (visszavonva — lásd lentebb) -->
+
+### ✨ Új funkció
+
+- ⚠️ **Ezt a bejegyzést a 2026-07-02-i „hiányzó nyugták BEVÉTELEZÉSE (Dispoziție de încasare)"
+  javítja/váltja fel.** Az eredeti gomb tévesen a Decontot (kiadás-elszámolás) nyitotta; a hiányzó
+  nyugták valójában BEVÉTELEK, ezért a helyes megoldás a Dispoziție de încasare varázsló (a kasszába
+  és a számadásba bevételként).
+
+---
+
+## [2026-07-01] — Javítás: tag-mentés hiba + gyorsabb nyugta-autofill + szülő-összekötés magyarázat
+<!-- key: 2026-07-01-tag-mentes-autofill-szulo -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **Új tag mentése többé nem hibázik.** A tagnyilvántartásban új tag rögzítésekor a Mentés
+  „Invalid input: expected number, received string" hibát adott — ez javítva.
+- **A Tétel rögzítésekor a nyugtaszám automatikus kitöltése érezhetően gyorsabb.** A rendszer
+  mostantól egy megnyitásra évente egyszer kérdezi le a következő számokat (nem soronként újra),
+  és a lekérdezéseket párhuzamosan futtatja.
+- **Az „Új év — hogyan induljon a gyülekezeti nyugtaszám?" kérdés újra megjelenik, ha visszaváltasz
+  az aktuális évi dátumra** (múlt évi dátumnál eltűnik). A választ a rendszer megjegyzi — utána
+  többször nem kérdez rá.
+
+### 🎨 UX javítás
+
+- **A szülők rögzítésénél a „Nincs a tagok között? Rögzítés tagként + összekötés" gombra víve a
+  kurzort most elmagyarázza, mit csinál** (új tagrekordot hoz létre a szülő nevével, a gyermek
+  címét örökölve, és apaként/anyaként összeköti).
+
+---
+
+## [2026-07-01] — Fejlesztés: „Gyülekezetünk adatai" szép, kategorizált, nyomtatható összefoglaló
+<!-- key: 2026-07-01-gyulekezetunk-adatai-osszefoglalo -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A fejléc menü „Gyülekezetünk adatai" ablaka mostantól egy letisztult, kategorizált
+  (Apple-beállítások jellegű) ÖSSZEFOGLALÓT mutat a gyülekezet minden rögzített adatáról** —
+  megnevezések, egyházi hovatartozás, hivatalos cím, elérhetőség, bankszámlák, pénzügyi alap,
+  kedvezmények és lelkészek —, és **egy gombbal kinyomtatható** (szép, A4-es hivatalos adatlap
+  a címerrel). A szerkesztés a „Szerkesztés" gombbal érhető el (semmi nem változott a szerkesztő
+  nézetben). A hivatalos alapadatok továbbra is a „Gyülekezet beállítása" ablakban szerkeszthetők.
+
+---
+
+## [2026-07-01] — Fejlesztés: befizető-kereső életkorral + egyházfenntartás auto-összeg megbízhatóbb
+<!-- key: 2026-07-01-befizeto-eletkor-jarulek-autofill -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Befizető / forrás keresőjének legördülője szebb lett, és mutatja a befizető életkorát.** A
+  találati listában mostantól kezdőbetűs ikon, a név mellett egy „N éves" jelvény (a születési év a
+  jelvényre húzva jelenik meg), alatta a cím — így egy pillantással azonosítható a megfelelő tag.
+
+### 🔧 Javítás
+
+- **Az egyházfenntartói járulék automatikus összege megbízhatóbb.** Ha egy regisztrált tag jogcíme
+  egyházfenntartói járulék, a rendszer a welcome-oldalon beállított **éves járulék-alapból és a
+  kedvezményekből** kiszámolja a még fizetendőt, és beírja (a kézi összeget sosem írja felül).
+  Mostantól akkor is működik, ha csak a **gyülekezeti alapadat** van beállítva (nincs külön évenkénti
+  beállítás). **Ha egyáltalán nincs beállítva** az adott évi éves járulék, a rendszer már nem
+  „felmentett"-et ír, hanem jelzi, hogy **állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt** —
+  addig kézzel is rögzíthető.
+
+---
+
+## [2026-07-01] — Javítás: a Nyugtafigyelő nem jelez hibát a több-befizetős nyugtákra + finomabb új-évi kérdés
+<!-- key: 2026-07-01-nyugtafigyelo-tobb-befizeto-ujjev -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros, szamvevo -->
+<!-- version: web + desktop (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A Nyugtafigyelő már nem jelzi hibaként az „ismétlődő" Irat sz.-okat, ha egy nyugtán több
+  befizető szerepel.** Ha egy nyugtát több személyre bontasz (mindenkihez külön sor, de KÖZÖS
+  Irat sz.-mal), az teljesen szabályos — a rendszer eddig ezt tévesen ismétlődésnek jelezte.
+  Mostantól egy Irat sz. csak akkor számít valódi duplikátumnak, ha **két KÜLÖNBÖZŐ nyugtához**
+  (eltérő kerületi alap-iratszámhoz) tartozik ugyanaz a sorszám. A lényeg továbbra is a **hiányzó**
+  számok kiszűrése. (Ellenőrző lekérdezés: `2026-07-01-nyugta-duplikatum-ellenorzes.sql`.)
+- **Az „Új év — hogyan induljon a gyülekezeti nyugtaszám?" kérdés eltűnik, ha múlt évi dátumot
+  választasz.** Ha a nyugta rögzítésekor nem az új évre, hanem egy korábbi év dátumára váltasz, a
+  felugró új-évi kérdés magától bezárul (az csak az új évre vonatkozik).
+
+---
+
 ## [2026-07-01] — Javítás: második e-mail ugyanahhoz az egyházközséghez — most már látja az adatokat
 <!-- key: 2026-07-01-masodik-email-egyhazkozseg-hozzaferes -->
 <!-- category: fix -->

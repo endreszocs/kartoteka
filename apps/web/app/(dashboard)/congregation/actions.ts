@@ -1151,6 +1151,12 @@ const congregationSetupSchema = z.object({
   country: z.string().optional().or(z.literal('')),
   adrlocality_id: z.number().int().nullable().optional(),
   adrstreet_id: z.number().int().nullable().optional(),
+  // #Endre 2026-07-02: egyházmegye + pénzügyi alap átmigrálva a „Gyülekezetünk adatai" ablakból.
+  diocese_id: z.string().uuid().optional().or(z.literal('')),
+  eves_jarulek: z.number().min(0).default(100),
+  jarulek_kedvezmenyes: z.number().min(0).default(0),
+  jarulek_hatarid: z.string().regex(/^\d{2}-\d{2}$/, 'Formátum: HH-NN (pl. 07-01)').default('07-01'),
+  tartozas_szamitas_mod: z.enum(['akkori', 'aktualis']).default('akkori'),
 })
 
 export type CongregationSetupInput = z.infer<typeof congregationSetupSchema>
@@ -1201,14 +1207,28 @@ export async function saveCongregationSetup(
     country: parsed.data.country || 'Románia',
     adrlocality_id: parsed.data.adrlocality_id ?? null,
     adrstreet_id: parsed.data.adrstreet_id ?? null,
+    // #Endre 2026-07-02: egyházmegye + pénzügyi alap (átmigrálva a „Gyülekezetünk adatai" ablakból)
+    diocese_id: parsed.data.diocese_id || null,
+    eves_jarulek: parsed.data.eves_jarulek,
+    jarulek_kedvezmenyes: parsed.data.jarulek_kedvezmenyes,
+    jarulek_hatarid: parsed.data.jarulek_hatarid,
+    tartozas_szamitas_mod: parsed.data.tartozas_szamitas_mod,
   }
 
-  const { error } = await access.supabase
+  let updateError = (await access.supabase
     .from('congregations')
     .update(payload)
-    .eq('id', parsed.data.id)
+    .eq('id', parsed.data.id)).error
 
-  if (error) return { error: error.message }
+  // Régi DB-ken hiányozhat pl. a tartozas_szamitas_mod oszlop → az új mezők nélkül újrapróbáljuk,
+  // hogy a mag-adatok akkor is elmentődjenek (a setup-mentés ne bukjon el egy hiányzó oszlopon).
+  if (updateError && /column|does not exist|schema cache|could not find|violates/i.test(updateError.message)) {
+    const safe = { ...payload } as Record<string, unknown>
+    for (const k of ['diocese_id', 'eves_jarulek', 'jarulek_kedvezmenyes', 'jarulek_hatarid', 'tartozas_szamitas_mod']) delete safe[k]
+    updateError = (await access.supabase.from('congregations').update(safe).eq('id', parsed.data.id)).error
+  }
+
+  if (updateError) return { error: updateError.message }
 
   revalidatePath('/dashboard')
   revalidatePath('/penzugy')
@@ -1406,6 +1426,11 @@ export async function getCongregationForSetup(
     country: string | null
     adrlocality_id: number | null
     adrstreet_id: number | null
+    diocese_id: string | null
+    eves_jarulek: number | null
+    jarulek_kedvezmenyes: number | null
+    jarulek_hatarid: string | null
+    tartozas_szamitas_mod: 'akkori' | 'aktualis' | null
   }
   error?: string
 }> {
@@ -1422,7 +1447,7 @@ export async function getCongregationForSetup(
       id, nev_hu, name, nev_ro, nev_en, adoszam, megye, varos, cim,
       email, telefon, web, bank, iban, cimer_url,
       iranyitoszam, hazszam, country, adrlocality_id, adrstreet_id,
-      diocese_id,
+      diocese_id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid, tartozas_szamitas_mod,
       dioceses ( name, district_id, districts ( name ) )
     `)
     .eq('id', targetId)
@@ -1508,6 +1533,11 @@ export async function getCongregationForSetup(
       country: row.country as string | null,
       adrlocality_id: row.adrlocality_id as number | null,
       adrstreet_id: row.adrstreet_id as number | null,
+      diocese_id: row.diocese_id as string | null,
+      eves_jarulek: row.eves_jarulek as number | null,
+      jarulek_kedvezmenyes: row.jarulek_kedvezmenyes as number | null,
+      jarulek_hatarid: row.jarulek_hatarid as string | null,
+      tartozas_szamitas_mod: row.tartozas_szamitas_mod as 'akkori' | 'aktualis' | null,
     },
   }
 }

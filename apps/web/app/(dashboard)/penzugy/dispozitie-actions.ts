@@ -35,6 +35,10 @@ export interface SaveDispozitieInput {
   categoryId: number
   /** ha meglévő készpénzes kassza-tételből generáljuk: annak az id-je (nem könyvel újra) */
   fromKasszaId?: number | null
+  /** #Endre 2026-07-02 (incasare): a bevételezendő nyugta GYÜLEKEZETI sorszáma (Irat sz.) — a
+   *  befizetes.nyugta-ba megy, hogy a Nyugtafigyelő „hiányzó" listájáról lekerüljön. A dispoziție
+   *  saját (dp_incasare) sorszáma marad az iratszam-ban. */
+  iratsz?: string
 }
 
 export interface DispozitieKasszaOption {
@@ -407,7 +411,9 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
       megjegyzes: `Dispoziție de încasare #${sorszam}/${year} — ${input.cel || ''}`.trim(),
       deleted: false,
       congregation_id: ctx.scopeId,
-      nyugta: docNum,
+      // Ha megadták a nyugta gyülekezeti sorszámát (Irat sz.), az megy a nyugta-mezőbe (a
+      // Nyugtafigyelő ezt követi); az iratszam a dispoziție saját (DP) száma marad — így nyugta≠iratszam.
+      nyugta: input.iratsz?.trim() || docNum,
       xkey: randomUUID(),
       csalad: false,
       userid: ctx.userId,

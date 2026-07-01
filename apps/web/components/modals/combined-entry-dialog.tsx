@@ -39,6 +39,18 @@ function relName(v: unknown): string {
   return (node as { name?: string } | null)?.name || ''
 }
 
+/** #Endre 2026-07-01: teljes-években vett életkor a születési dátumból (sz_datum). */
+function ageFromBirth(szDatum: unknown): number | null {
+  if (!szDatum) return null
+  const b = new Date(String(szDatum))
+  if (Number.isNaN(b.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - b.getFullYear()
+  const m = now.getMonth() - b.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--
+  return age >= 0 && age < 130 ? age : null
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -90,11 +102,19 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               const rows = (await searchMembersForFinance(query)) as Array<Record<string, unknown>>
               return rows.map((m) => {
                 const name = `${(m.csaladnev as string) ?? ''} ${(m.k_nev as string) ?? ''}`.trim() || `#${m.id}`
-                const year = m.sz_datum ? String(m.sz_datum).slice(0, 4) : ''
-                const detail = [year, relName(m.adrlocality), relName(m.adrstreet), m.c_szam]
+                const birthYear = m.sz_datum ? String(m.sz_datum).slice(0, 4) : ''
+                const age = ageFromBirth(m.sz_datum)
+                // A cím a másodlagos sorban; az életkor külön badge-ben (a születési év a tooltipben).
+                const detail = [relName(m.adrlocality), relName(m.adrstreet), m.c_szam]
                   .filter(Boolean)
                   .join(' · ')
-                return { id: m.id as number, name, detail: detail || undefined }
+                return {
+                  id: m.id as number,
+                  name,
+                  detail: detail || undefined,
+                  age: age ?? undefined,
+                  birthYear: birthYear || undefined,
+                }
               })
             }}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
@@ -108,6 +128,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             onClose={() => onOpenChange(false)}
             onToast={(type, message) => {
               if (type === 'success') toast.success(message)
+              else if (type === 'warning') toast.warning(message)
               else toast.error(message)
             }}
             draftStorageKey={`kartoteka:combined-entry-draft:${congregationId || 'default'}`}

@@ -200,8 +200,10 @@ export async function saveIncomeUseCase(
         offlineNotSupported: true,
       }
     }
-    // Offline csak Készpénzes — bank-átutalások a banki rendszerből jönnek
-    if (!/észpénz/i.test(clean.irattipus)) {
+    // Offline csak készpénz (kassza = nincs bankszámla) — bank-átutalások a banki rendszerből
+    // jönnek. #5-fix: a készpénz-azonosítás a bankszamla_id IS NULL alapján megy, NEM az irattipus
+    // szövegén (különben egy „Chitanță" típusú készpénzes tétel tévesen elutasításra kerülne).
+    if (clean.bankszamla_id != null && !/észpénz/i.test(clean.irattipus)) {
       return {
         success: false,
         error:

@@ -17,16 +17,18 @@ import {
 } from '@/components/ui/dialog'
 import { ClipboardList } from 'lucide-react'
 import { DecontTab } from '@/components/finance/decont-tab'
-import type { DecontCategoryOption } from '@kartoteka/ui-app'
+import type { DecontCategoryOption, DecontPrefill } from '@kartoteka/ui-app'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName: string
   categories: DecontCategoryOption[]
+  /** #Endre 2026-07-01: előtöltés (pl. a Nyugtafigyelő „hiányzó nyugták" gombjából). */
+  prefill?: DecontPrefill
 }
 
-export function DecontDialog({ open, onOpenChange, congregationName, categories }: Props) {
+export function DecontDialog({ open, onOpenChange, congregationName, categories, prefill }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -53,7 +55,13 @@ export function DecontDialog({ open, onOpenChange, congregationName, categories 
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 sm:px-8 sm:py-5">
-          <DecontTab congregationName={congregationName} categories={categories} />
+          {/* key: az előtöltés változásakor friss mount (a useState-seedek újra lefutnak). */}
+          <DecontTab
+            key={prefill ? (prefill.actNumbers?.join(',') || '') + (prefill.date || '') : 'empty'}
+            congregationName={congregationName}
+            categories={categories}
+            prefill={prefill}
+          />
         </div>
       </DialogContent>
     </Dialog>

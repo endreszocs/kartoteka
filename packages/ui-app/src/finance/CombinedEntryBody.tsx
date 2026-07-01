@@ -28,7 +28,7 @@ import {
 import type { IncomeCategory, SaveIncomeBatchRow } from './IncomeDialogBody'
 import type { ExpenseCategory, SaveExpenseBatchRow } from './ExpenseDialogBody'
 
-export type CombinedToastFn = (type: 'success' | 'error', message: string) => void
+export type CombinedToastFn = (type: 'success' | 'error' | 'warning', message: string) => void
 
 /** Irat (bizonylat) típusok — román megnevezéssel, a könyvelési gyakorlat szerint. */
 const DOC_TYPES = ['Factură', 'Bon fiscal', 'Chitanță', 'Stat de plată', 'Ordin de plată', 'Altele'] as const
@@ -72,8 +72,12 @@ export interface CombinedInternalTransferPayload {
 export interface CombinedMemberHit {
   id: number
   name: string
-  /** Részletes másodlagos sor a találati listában (pl. „1980 · Brateș · Fő u. 12"). */
+  /** Részletes másodlagos sor a találati listában (pl. „Brateș · Fő u. 12"). */
   detail?: string
+  /** #Endre 2026-07-01: a befizető életkora (teljes évek) — a találati sorban badge-ként. */
+  age?: number
+  /** Születési év (ha van) — a badge tooltipjéhez / másodlagos infóhoz. */
+  birthYear?: string
 }
 
 export interface CombinedEntryBodyProps {
@@ -120,7 +124,7 @@ export interface CombinedEntryBodyProps {
    * (a még fizetendőt, kedvezményekkel/felmentéssel). A kézzel beírt összeget SOHA nem írja felül. Ha
    * nincs megadva (pl. desktop), nincs automatikus kitöltés.
    */
-  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number } | null>
+  onGetExpectedJarulek?: (personId: number, year: number, prospectiveDateIso?: string) => Promise<{ expected: number; paid: number; debt: number; hasBase?: boolean } | null>
   /**
    * #3 (Endre, 2026-06-20): Chitanță választásakor a következő nyugtaszámok lekérése —
    * `keruleti` (kerülettől kapott/nyomdai → iratszam) és `gyulekezeti` (saját sorszám →
@@ -227,6 +231,10 @@ export function CombinedEntryBody({
   /** #2 (Endre): az ELDÖNTÖTT gyülekezeti kezdőszám az adott naptári évre (új-évi kérdés után) —
    *  erről nő tovább a kötegen belüli léptetés; null = még nincs döntés erre az évre. */
   const gyulStartRef = useRef<{ year: number; start: number; width: number } | null>(null)
+  // #Endre 2026-07-01 (perf): egy dialógus-megnyitásra ÉVENTE EGYSZER kérdezünk a szervertől a
+  // következő nyugtaszámokért — a köteg-belüli léptetést a fillReceiptNumbers.nextOf kliens-oldalon
+  // számolja, így N Chitanță-sor sem indít N szerver-hívást. (A ref a dialóg újramountolásakor ürül.)
+  const receiptCacheRef = useRef<Map<number, ReturnType<NonNullable<typeof onGetNextReceiptNumbers>>>>(new Map())
   /** #2: az új-évi kérdés-panel állapota (null = nincs kérdés). */
   const [newYearPrompt, setNewYearPrompt] = useState<{ year: number; rowId: string; tavalyiEv?: number; tavalyiUtolso: string; ajanlott: string } | null>(null)
   /** #2: a „saját számtól" opció beviteli mezeje. */
@@ -380,6 +388,10 @@ export function CombinedEntryBody({
                   q.uid === payerUid && q.id === payerId && (q.osszeg ?? '').trim() === '' ? { ...q, osszeg: amount } : q,
                 ),
               })))
+            } else if (res.hasBase === false) {
+              // #Endre 2026-07-01: NINCS beállítva az adott évi éves járulék-alap (se bealitas, se
+              // congregations.eves_jarulek) → NEM „felmentett", hanem beállítandó. Ajánljuk fel.
+              onToast('warning', `A(z) ${year}. évi éves járulék nincs beállítva — állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt, utána automatikusan kitölti. Addig írd be kézzel.`)
             } else {
               // M3: rendezve / felmentett → NEM írunk 0-t, de jelezzük (különben néma a mező).
               onToast('success', res.expected <= 0
@@ -536,6 +548,12 @@ export function CombinedEntryBody({
     return parts.length ? parts.join(' ') : null
   }
 
+  // #5 (Endre): az IRATTÍPUS oszlop a VÁLASZTOTT bizonylattípust mutassa (Chitanță/Factură/…),
+  // ne fixen „Készpénz"-t. A készpénz-azonosítás már a bankszamla_id IS NULL (kassza) alapján
+  // megy, nem az irattipus szövegén (lásd reporting.ts / offline save-gate). Ha nincs választott
+  // típus, marad a „Készpénz" alapérték.
+  function docTypeForSave(r: EntryRow): string { return r.docType.trim() || 'Készpénz' }
+
   // ── Beviteli őrök (P0 duplikátum + P1 dátum-sorrend) ─────────────────────
   // P1: a sor dátuma jövőbeli, vagy korábbi mint az utolsó rögzített → figyelmeztetés
   // (NEM blokkol — a visszamenőleges rögzítés jogos lehet, csak nehogy VÉLETLEN legyen).
@@ -630,31 +648,39 @@ export function CombinedEntryBody({
     })
   }
 
+  // #Endre 2026-07-01 (perf): a szerver-lekérés per-év CACHE-elve (egy dialóg-megnyitásra 1×/év).
+  function fetchReceiptNumbersCached(year: number) {
+    const cache = receiptCacheRef.current
+    let p = cache.get(year)
+    if (!p) { p = onGetNextReceiptNumbers!(year); cache.set(year, p) }
+    return p
+  }
+
+  // Chitanță auto-számozás + új-évi popup — KÖZÖS a docType- ÉS a dátumváltáshoz, hogy a dátum
+  // idei (új) évre visszaváltásakor is újraértékeljen (a popup ÚJRA feljöhet, amíg nincs döntés).
+  function maybeFetchReceiptNumbers(r: EntryRow) {
+    if (tab !== 'income' || r.docType !== 'Chitanță' || !onGetNextReceiptNumbers) return
+    // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
+    const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
+    void fetchReceiptNumbersCached(year)
+      .then((next) => {
+        if (!next) return
+        // A puszta MEGJELENÍTÉS NEM döntés: idei-évre visszaváltáskor újra feljön, amíg a felhasználó
+        // nem válaszol (decideNewYear) vagy be nem zárja („Később") — ekkor a gyulStartRef „megjegyzi".
+        const decided = gyulStartRef.current?.year === year
+        if (next.ujEv && !decided) {
+          setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
+        }
+        fillReceiptNumbers(r.id, year, next, false)
+      })
+      .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
+  }
+
   function handleDocTypeChange(r: EntryRow, value: string) {
     // Az irattípust AZONNAL beállítjuk (a vezérelt select ne ugorjon vissza a hálózati lekérés alatt).
     updateRow(r.id, { docType: value })
-    const needsFill = !r.iratszam.trim() || !r.gyulekezetiSzam.trim()
-    if (tab === 'income' && value === 'Chitanță' && onGetNextReceiptNumbers && needsFill) {
-      // A gyülekezeti sorszám a NAPTÁRI évhez (datum) kötődik — nem a „melyik évre" mezőhöz.
-      const year = Number(parseFlexibleDate(r.datum)?.slice(0, 4)) || currentYear
-      void onGetNextReceiptNumbers(year)
-        .then((next) => {
-          if (!next) return
-          const decided = gyulStartRef.current?.year === year
-          // ÚJ ÉV + még nincs döntés → felugró kérdés a gyülekezeti kezdetről. J2: a gyülekezetit
-          // MOST IS kitöltjük az ajánlott folytatással (ne maradjon üres), és beállítjuk a
-          // gyulStartRef-et, hogy a TÖBBI sor ne kérdezzen újra — a panel csak FELÜLÍRÁSRA szolgál.
-          if (next.ujEv && !decided) {
-            setNewYearPrompt({ year, rowId: r.id, tavalyiEv: next.tavalyiEv, tavalyiUtolso: next.tavalyiUtolso || '0', ajanlott: next.gyulekezeti })
-            const digits = (next.gyulekezeti || '').replace(/\D/g, '')
-            gyulStartRef.current = { year, start: Number(digits) || 1, width: digits.length || 1 }
-            fillReceiptNumbers(r.id, year, next, false)
-            return
-          }
-          fillReceiptNumbers(r.id, year, next, false)
-        })
-        .catch(() => onToast('error', 'A következő nyugtaszámot nem sikerült lekérni — írd be kézzel.'))
-    }
+    // A friss docType-tal hívjuk (a state async — a helper r.docType-ját felül kell írni).
+    maybeFetchReceiptNumbers({ ...r, docType: value })
   }
 
   // #2: az új-évi kérdésre adott válasz — beállítja a gyülekezeti kezdőszámot erre az évre,
@@ -755,7 +781,7 @@ export function CombinedEntryBody({
             forrasa: p.name.trim() || null,
             osszeg: Number(p.osszeg),
             iratszam: base ? (multi ? `${base}/${i + 1}` : base) : null,
-            irattipus: 'Készpénz',
+            irattipus: docTypeForSave(r),
             nyugta: commonNyugta,
             fizetettev: Number(p.evre) || Number(r.evre) || Number(datum.slice(0, 4)) || currentYear,
             megjegyzes: commonMegj,
@@ -767,7 +793,7 @@ export function CombinedEntryBody({
         incomeBatch.push({
           datum, id_befizetescel: Number(r.categoryId),
           forrasa: r.partner.trim() || null,
-          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+          osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
           nyugta: commonNyugta,
           fizetettev: Number(r.evre) || Number(datum.slice(0, 4)) || currentYear,
           megjegyzes: commonMegj,
@@ -782,7 +808,7 @@ export function CombinedEntryBody({
       if (dir) { pushTransfer(dir, datum, r); continue }
       expenseBatch.push({
         datum, id_kiadascel: Number(r.categoryId), kedvezmenyzett: r.partner.trim() || null,
-        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: 'Készpénz',
+        osszeg: Number(r.amount), iratszam: combinedIratszam(r), irattipus: docTypeForSave(r),
         megjegyzes: r.megjegyzes.trim() || null, is_inventory: false,
       })
     }
@@ -821,6 +847,23 @@ export function CombinedEntryBody({
   const dateInvalid = (r: EntryRow) => r.datum.trim() !== '' && parseFlexibleDate(r.datum) == null
 
   // Dátum mező: szabadon beírható szöveg + naptár-választó (natív date input).
+  // #Endre 2026-07-01: dátumváltás kezelése. Ha a kiváltó soron NEM az új-évhez tartozó
+  // (pl. múlt évi) dátumot választ a felhasználó, tüntessük el az „Új év (…)" felugró kérdést —
+  // az kizárólag arra az egy új évre vonatkozik, amelyre az autofill rákérdezett.
+  function handleDatumChange(r: EntryRow, value: string) {
+    updateRow(r.id, { datum: value })
+    const yNew = Number(parseFlexibleDate(value)?.slice(0, 4))
+    // A NYITOTT új-évi panel eltüntetése, ha EZ a sor MÁS évre vált (pl. múlt évi dátum).
+    if (newYearPrompt && newYearPrompt.rowId === r.id && (!yNew || yNew !== newYearPrompt.year)) {
+      setNewYearPrompt(null)
+    }
+    // Chitanță-sornál a dátumváltás ÚJRAÉRTÉKEL: idei (új) évre visszaváltáskor a popup ismét
+    // feljöhet (amíg nincs döntés), a szám-kitöltés pedig az új évhez igazodik.
+    if (tab === 'income' && r.docType === 'Chitanță' && yNew) {
+      maybeFetchReceiptNumbers({ ...r, datum: value })
+    }
+  }
+
   function renderDateField(r: EntryRow) {
     return (
       <div className="flex items-center gap-1">
@@ -828,7 +871,7 @@ export function CombinedEntryBody({
           className={`${inputClass} ${dateInvalid(r) ? 'border-red-400' : ''}`}
           value={r.datum}
           placeholder="pl. 2026.01.04"
-          onChange={(e) => updateRow(r.id, { datum: e.target.value })}
+          onChange={(e) => handleDatumChange(r, e.target.value)}
         />
         <input
           type="date"
@@ -836,7 +879,7 @@ export function CombinedEntryBody({
           title="Naptár"
           className="h-9 w-9 shrink-0 rounded-md border border-input bg-transparent px-1 text-transparent"
           value={parseFlexibleDate(r.datum) || ''}
-          onChange={(e) => { if (e.target.value) updateRow(r.id, { datum: e.target.value }) }}
+          onChange={(e) => { if (e.target.value) handleDatumChange(r, e.target.value) }}
         />
       </div>
     )
@@ -956,9 +999,18 @@ export function CombinedEntryBody({
             </button>
             <button
               type="button"
-              onClick={() => { setNewYearPrompt(null); setCustomStart('') }}
+              onClick={() => {
+                // „Később" = az ajánlott folytatást elfogadjuk erre az évre, és TÖBBSZÖR nem kérdezünk
+                // (a döntést a gyulStartRef megjegyzi — így dátum-oda-vissza sem hozza vissza a panelt).
+                const p = newYearPrompt
+                if (p) {
+                  const digits = (p.ajanlott || '').replace(/\D/g, '')
+                  gyulStartRef.current = { year: p.year, start: Number(digits) || 1, width: digits.length || 1 }
+                }
+                setNewYearPrompt(null); setCustomStart('')
+              }}
               className="ml-auto rounded-lg px-2 py-1.5 text-xs font-medium text-sky-700/70 transition hover:bg-sky-100"
-              title="Most nem döntök — kézzel beírom a gyülekezeti számot"
+              title="Most nem döntök — az ajánlott számmal folytatom (később átírhatom kézzel)"
             >
               Később
             </button>
@@ -1380,29 +1432,37 @@ function PartnerCell({
             </button>
           )}
         </div>
-        {mode === 'income' && (onOpenFamily || people.length >= 1) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-            {onOpenFamily && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onOpenFamily}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
-                title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
-              >
-                <Users className="size-3" /> Család csatolása
-              </button>
-            )}
-            {people.length >= 1 && (
+        {mode === 'income' && (
+          <div className="space-y-1">
+            {/* #4 (Endre): a „Még egy befizető" mindig látható, kiemelt pill-gomb, és már
+                a 0-fizetős (szabadszavas) állapotban is elérhető — nem csak miután van tag. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => addEmptyPayer(row.id)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                 title="Még egy befizető ugyanarra a nyugtára (lenyitható almenü, tagonként összeg)"
               >
-                <Plus className="size-3" /> Még egy befizető
+                <Plus className="size-3.5" /> Még egy befizető
               </button>
+              {onOpenFamily && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={onOpenFamily}
+                  className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                  title="Családi nyugta — a tagok a befizető-almenübe kerülnek (tagonként összeg)"
+                >
+                  <Users className="size-3.5" /> Család csatolása
+                </button>
+              )}
+            </div>
+            {people.length === 0 && (
+              <p className="text-[10.5px] leading-tight text-slate-400">
+                Több befizető egy nyugtára? Kattints a{' '}
+                <span className="font-medium text-emerald-600">&bdquo;Még egy befizető&rdquo;</span>-re — mindenki külön összeggel.
+              </p>
             )}
           </div>
         )}
@@ -1490,23 +1550,24 @@ function PartnerCell({
           </div>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => addEmptyPayer(row.id)}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:underline"
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+          title="Még egy befizető ugyanarra a nyugtára"
         >
-          <Plus className="size-3" /> Még egy befizető
+          <Plus className="size-3.5" /> Még egy befizető
         </button>
         {onOpenFamily && (
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenFamily}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:underline"
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
           >
-            <Users className="size-3" /> Család csatolása
+            <Users className="size-3.5" /> Család csatolása
           </button>
         )}
       </div>
@@ -1605,19 +1666,35 @@ function PayerNameSearch({
       {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed z-[200] max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl"
-            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 260) }}
+            className="fixed z-[200] max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl ring-1 ring-black/5"
+            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 280) }}
           >
             {hits.map((h) => (
               <button
                 key={h.id}
                 type="button"
-                className="block w-full px-2 py-1.5 text-left hover:bg-emerald-50"
+                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
               >
-                <div className="text-sm font-medium text-slate-800">{h.name}</div>
-                {h.detail && <div className="text-[11px] text-slate-400">{h.detail}</div>}
+                {/* Kezdőbetűs avatar — letisztult, „apple" jelleg */}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
+                  {(h.name.trim()[0] || '?').toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-800">{h.name}</span>
+                    {h.age != null && (
+                      <span
+                        className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 group-hover:bg-white"
+                        title={h.birthYear ? `Született: ${h.birthYear}` : undefined}
+                      >
+                        {h.age} éves
+                      </span>
+                    )}
+                  </span>
+                  {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
+                </span>
               </button>
             ))}
           </div>,

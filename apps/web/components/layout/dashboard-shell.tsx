@@ -76,6 +76,9 @@ export function DashboardShell({
 }: DashboardShellProps) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [congregationOpen, setCongregationOpen] = useState(false)
+  // #Endre 2026-07-02: 'view' = read-only „Gyülekezetünk adatai"; 'advanced-edit' = a beállításokból
+  // nyíló haladó szerkesztő (kedvezmények, díjak, lelkész-átadás).
+  const [congregationVariant, setCongregationVariant] = useState<'view' | 'advanced-edit'>('view')
   const [godModeOpen, setGodModeOpen] = useState(false)
   const [congregationSetupWizardOpen, setCongregationSetupWizardOpen] = useState(false)
 
@@ -84,18 +87,25 @@ export function DashboardShell({
   // dispatchelik, a shell pedig megnyitja a modalt.
   useEffect(() => {
     function handleOpenCongregationDialog() {
+      setCongregationVariant('view')
+      setCongregationOpen(true)
+    }
+    function handleOpenCongregationAdvanced() {
+      setCongregationVariant('advanced-edit')
       setCongregationOpen(true)
     }
     function handleOpenCongregationSetupWizard() {
       setCongregationSetupWizardOpen(true)
     }
     window.addEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
+    window.addEventListener('kartoteka:open-congregation-advanced', handleOpenCongregationAdvanced)
     window.addEventListener(
       'kartoteka:open-congregation-setup-wizard',
       handleOpenCongregationSetupWizard,
     )
     return () => {
       window.removeEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
+      window.removeEventListener('kartoteka:open-congregation-advanced', handleOpenCongregationAdvanced)
       window.removeEventListener(
         'kartoteka:open-congregation-setup-wizard',
         handleOpenCongregationSetupWizard,
@@ -149,6 +159,7 @@ export function DashboardShell({
         open={congregationOpen}
         onOpenChange={setCongregationOpen}
         congregationId={congregationId}
+        variant={congregationVariant}
       />
 
       {isMasterAdmin && (

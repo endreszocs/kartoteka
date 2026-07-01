@@ -149,6 +149,16 @@ function extractNumericDocumentNumber(rawValue: string | null | undefined) {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
+// #Endre 2026-07-01: egy fizikai nyugta KERÜLETI alap-iratszáma a per-befizető `/N` utótag
+// nélkül. Egy nyugtán több befizető lehet — ilyenkor személyenként KÜLÖN sor keletkezik,
+// KÖZÖS gyülekezeti sorszámmal (nyugta) és KÖZÖS kerületi alap-iratszámmal, csak `/1`, `/2` …
+// utótaggal (a kerületi iratszámra UNIQUE index van). Az alap (a /N levágva) tehát a fizikai
+// nyugta azonosítója: ha egy Irat sz.-hoz TÖBB különböző alap tartozik, az két külön nyugta
+// ugyanazzal a sorszámmal → VALÓDI duplikátum. Ha csak egy alap → egy nyugta több befizetővel (OK).
+function receiptBaseKey(rawValue: string | null | undefined): string {
+  return String(rawValue || '').replace(/\/\d+\s*$/, '').trim()
+}
+
 function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam' | 'nyugta' | 'irattipus' | 'deleted' | 'belso_mozgas_xkey' | 'bankszamla_id'>>): ReceiptHealth {
   const numberedRows = rows
     .filter(row => !row.deleted)
@@ -174,8 +184,10 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
         ? extractNumericDocumentNumber(row.nyugta)
         : null,
       date: String(row.datum || ''),
+      // A kerületi alap-iratszám (a /N nélkül) = a fizikai nyugta azonosítója (lásd receiptBaseKey).
+      base: receiptBaseKey(row.iratszam),
     }))
-    .filter((row): row is { number: number; date: string } => row.number != null)
+    .filter((row): row is { number: number; date: string; base: string } => row.number != null)
     .sort((a, b) => a.number - b.number)
 
   if (numberedRows.length === 0) {
@@ -191,14 +203,21 @@ function computeReceiptHealth(rows: Array<Pick<BefitetesRow, 'datum' | 'iratszam
   const missingNumbers: number[] = []
   const duplicateNumbers = new Set<number>()
   const chronologyIssues: ReceiptChronologyIssue[] = []
-  const numberCounts = new Map<number, number>()
 
+  // #Endre 2026-07-01: az ISMÉTLŐDŐ Irat sz. ÖNMAGÁBAN NEM hiba. Egy nyugtán több befizető
+  // lehet (személyenként külön sor, KÖZÖS Irat sz. + közös kerületi alap-iratszám /N utótaggal)
+  // — ez teljesen szabályos. Ezért egy Irat sz. CSAK akkor valódi duplikátum, ha TÖBB
+  // KÜLÖNBÖZŐ kerületi alap-iratszámhoz (= külön fizikai nyugtához) tartozik. A lényeg a
+  // HIÁNYZÓ számok kiszűrése; a több-befizetős ismétlődést nem jelezzük hibaként.
+  const basesByNumber = new Map<number, Set<string>>()
   numberedRows.forEach(row => {
-    numberCounts.set(row.number, (numberCounts.get(row.number) || 0) + 1)
+    const set = basesByNumber.get(row.number) ?? new Set<string>()
+    set.add(row.base)
+    basesByNumber.set(row.number, set)
   })
 
-  numberCounts.forEach((count, number) => {
-    if (count > 1) duplicateNumbers.add(number)
+  basesByNumber.forEach((bases, number) => {
+    if (bases.size > 1) duplicateNumbers.add(number)
   })
 
   // Az év első és utolsó nyugtája között keresünk hiányzókat. Ha 2025-ben
@@ -1602,7 +1621,7 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
     .select('iratszam')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
-    .ilike('irattipus', '%észpénz%')
+    .is('bankszamla_id', null) // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
   // belso_mozgas_xkey csak congregation táblában
@@ -1664,7 +1683,31 @@ export async function getNextReceiptNumbers(
     .eq('deleted', false)
     .is('bankszamla_id', null)
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
-  const { data: allData } = await allQ
+
+  // #Endre 2026-07-01 (perf): a 3 FÜGGETLEN lekérdezés PÁRHUZAMOSAN (nem sorosan): kerületi (allQ),
+  // ezévi (yearQ) és korábbi évi (prevQ). A prevQ-t is mindig lekérjük — ha van ezévi szám, nem
+  // használjuk (olcsóbb, mint egy plusz soros round-trip). A kliens per-évre cache-eli a hívást.
+  let yearQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .is('bankszamla_id', null)
+    .gte('datum', `${year}-01-01`)
+    .lte('datum', `${year}-12-31`)
+  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
+  let prevQ = supabase.from(T.befizetes)
+    .select('iratszam, nyugta, datum')
+    .eq(T.scopeCol, scope.scopeId)
+    .eq('deleted', false)
+    .is('bankszamla_id', null)
+    .lt('datum', `${year}-01-01`)
+    .order('datum', { ascending: false })
+    .limit(500)
+  if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
+  const [allRes, yearRes, prevRes] = await Promise.all([allQ, yearQ, prevQ])
+  const allData = allRes.data
+  const yearData = yearRes.data
+  const prevData = prevRes.data
   // CSAK a valódi kerületi iratszámokat nézzük: kizárjuk az „AUTO-…" auto-generált iratszámot
   // (üres iratszámú készpénz-tételnél keletkezik — dátumszerű számjegyei az égbe húznák a kerületi
   // következőt). A tükrözés-kizárást (nyugta === iratszam) NEM alkalmazzuk: az kiejtette a régi/
@@ -1677,15 +1720,6 @@ export async function getNextReceiptNumbers(
 
   // GYÜLEKEZETI saját sorszám: évente 1-től ÚJRAINDUL → az adott NAPTÁRI év valódi nyugta-számai
   // (nyugta != iratszam, hogy a tükrözött import-adat ne rontson). MAX + 1.
-  let yearQ = supabase.from(T.befizetes)
-    .select('iratszam, nyugta')
-    .eq(T.scopeCol, scope.scopeId)
-    .eq('deleted', false)
-    .is('bankszamla_id', null)
-    .gte('datum', `${year}-01-01`)
-    .lte('datum', `${year}-12-31`)
-  if (scope.scope === 'congregation') yearQ = yearQ.is('belso_mozgas_xkey', null)
-  const { data: yearData } = await yearQ
   const thisYear = maxNumOf(
     ((yearData || []) as Array<{ iratszam: string | null; nyugta: string | null }>)
       .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
@@ -1696,17 +1730,8 @@ export async function getNextReceiptNumbers(
     return { keruleti, gyulekezeti: pad(thisYear.num + 1, thisYear.width) }
   }
 
-  // Nincs ezévi gyülekezeti szám → van-e KORÁBBI évi? (ÚJ ÉV → a hívó kérdezzen rá)
-  let prevQ = supabase.from(T.befizetes)
-    .select('iratszam, nyugta, datum')
-    .eq(T.scopeCol, scope.scopeId)
-    .eq('deleted', false)
-    .is('bankszamla_id', null)
-    .lt('datum', `${year}-01-01`)
-    .order('datum', { ascending: false })
-    .limit(500)
-  if (scope.scope === 'congregation') prevQ = prevQ.is('belso_mozgas_xkey', null)
-  const { data: prevData } = await prevQ
+  // Nincs ezévi gyülekezeti szám → van-e KORÁBBI évi? (ÚJ ÉV → a hívó kérdezzen rá) — a prevData
+  // már megvan a fenti Promise.all-ból.
   const prevRows = ((prevData || []) as Array<{ iratszam: string | null; nyugta: string | null; datum: string }>)
     .filter((r) => r.nyugta && r.nyugta !== r.iratszam)
   if (prevRows.length === 0) {
@@ -1960,7 +1985,7 @@ export async function getExpectedJarulek(
   // PROSPEKTÍV alkalmazásához (a dátum a határidő előtt van-e), hogy az auto-összeg a kedvezményes
   // célt ajánlja. A Tartozás-lista NEM adja meg → ott a retrospektív (bit-azonos) viselkedés marad.
   prospectiveDateIso?: string,
-): Promise<{ expected: number; paid: number; debt: number } | null> {
+): Promise<{ expected: number; paid: number; debt: number; hasBase: boolean } | null> {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return null
 
@@ -1971,7 +1996,7 @@ export async function getExpectedJarulek(
     supabase.from('jarulek_kedvezmeny').select('id, ev, tipus, aktiv, kezdet, hatarid, kedv_osszeg, kor_tol, szazalek, fix_osszeg, jov_leiras').eq('congregation_id', congregationId).eq('aktiv', true).eq('ev', year),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     supabase.from('haztartas_tag').select('id_szemely, haztartas:haztartas!id_haztartas(legacy_csalad_id, isaktiv, ervenyes_ig)').eq('congregation_id', congregationId).eq('id_szemely', personId).is('ervenyes_ig', null),
-    supabase.from('congregations').select('tartozas_szamitas_mod').eq('id', congregationId).maybeSingle(),
+    supabase.from('congregations').select('tartozas_szamitas_mod, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid').eq('id', congregationId).maybeSingle(),
   ])
 
   const member = memberRes.data as { id: number; sz_datum: string | null; foglalkozas: string | null } | null
@@ -2008,6 +2033,22 @@ export async function getExpectedJarulek(
       jarulek_hatarid: b.jarulek_hatarid || null,
     }
   }
+  // #Endre 2026-07-01: ha az adott ÉVRE nincs `bealitas` sor (vagy 0 az alap), a welcome-ben a
+  // `congregations`-be írt éves járulék az ALAP (fallback) — így az auto-összeg akkor is működik,
+  // ha csak a gyülekezeti alapadat van beállítva (nincs külön per-évi bealitas, pl. új/teszt gyülekezet).
+  const cong = congRes.error ? null : (congRes.data as {
+    tartozas_szamitas_mod?: unknown; eves_jarulek?: number | null; jarulek_kedvezmenyes?: number | null; jarulek_hatarid?: string | null
+  } | null)
+  if ((yearSettings[year]?.eves_jarulek || 0) <= 0 && (Number(cong?.eves_jarulek) || 0) > 0) {
+    yearSettings[year] = {
+      year,
+      eves_jarulek: Number(cong?.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: cong?.jarulek_kedvezmenyes == null ? null : Number(cong?.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: cong?.jarulek_hatarid || null,
+    }
+  }
+  // Van-e egyáltalán beállított éves járulék-alap erre az évre (bealitas VAGY congregations)?
+  const hasBase = (yearSettings[year]?.eves_jarulek || 0) > 0
   // Ellenálló a `kezdet` oszlop hiányára (régi séma): ha a lekérdezés HIBÁZOTT, újrapróbáljuk
   // `kezdet` nélkül — különben a SELECT némán [] -t adna, és az ÖSSZES mentett kedvezmény kiesne
   // (ez a „van mentett adat, mégsem alkalmazza" tünet leggyakoribb oka). A kezdet ekkor null (nyitott ablak).
@@ -2029,7 +2070,7 @@ export async function getExpectedJarulek(
     fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
   }))
   const exemptions = (exRes.data || []) as JarulekExemption[]
-  const debtCalcMode = normalizeDebtCalcMode(congRes.error ? null : (congRes.data as { tartozas_szamitas_mod?: unknown } | null)?.tartozas_szamitas_mod)
+  const debtCalcMode = normalizeDebtCalcMode(cong?.tartozas_szamitas_mod)
 
   const prospectiveDate = prospectiveDateIso ? new Date(prospectiveDateIso) : null
   const result = computeJarulekForMemberYear({
@@ -2043,7 +2084,7 @@ export async function getExpectedJarulek(
     payments: maintenancePayments,
     prospectiveDate: prospectiveDate && !Number.isNaN(prospectiveDate.getTime()) ? prospectiveDate : null,
   })
-  return { expected: result.expected, paid: result.paid, debt: result.debt }
+  return { expected: result.expected, paid: result.paid, debt: result.debt, hasBase }
 }
 
 // ── H2 javítás: Iratszám duplikáció ellenőrzés ──────────────

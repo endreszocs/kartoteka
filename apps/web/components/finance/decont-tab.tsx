@@ -8,7 +8,7 @@
  * és a nyomtatást.
  */
 
-import { DecontTabBody, type DecontCategoryOption } from '@kartoteka/ui-app'
+import { DecontTabBody, type DecontCategoryOption, type DecontPrefill } from '@kartoteka/ui-app'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { getNextDecontNumber, saveDecont } from '@/app/(dashboard)/penzugy/decont-actions'
 import { toast } from 'sonner'
@@ -16,13 +16,15 @@ import { toast } from 'sonner'
 interface DecontTabProps {
   congregationName: string
   categories: DecontCategoryOption[]
+  prefill?: DecontPrefill
 }
 
-export function DecontTab({ congregationName, categories }: DecontTabProps) {
+export function DecontTab({ congregationName, categories, prefill }: DecontTabProps) {
   return (
     <DecontTabBody
       congregationName={congregationName}
       categories={categories}
+      prefill={prefill}
       onGetNextNumber={getNextDecontNumber}
       onSaveDecont={saveDecont}
       onPrint={async ({ mode, html, filename }) => {
