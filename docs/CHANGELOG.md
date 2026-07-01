@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Javítás: készpénzes KIADÁS mentése (oszlop-hiba)
+<!-- key: 2026-07-02-keszpenz-kiadas-mentes-fix -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A készpénzes kiadási tétel mentése többé nem hibázik** a „Could not find the »bizonylatszam«
+  column of »kiadas«" üzenettel. A kiadás-rögzítés a `kiadas` tábla valós oszlopait használja (a
+  személy az `atvevoid` mezőbe kerül, nem a nem létező `id_szemely`-be), így a mentés első
+  próbálkozásra sikerül — a fizető/átvevő párosítás megmarad.
+
+---
+
 ## [2026-07-02] — Új funkció: hiányzó nyugták UTÓLAGOS BEVÉTELEZÉSE varázslóval (személyhez kötve)
 <!-- key: 2026-07-02-hianyzo-nyugtak-incasare-wizard -->
 <!-- category: feature -->
