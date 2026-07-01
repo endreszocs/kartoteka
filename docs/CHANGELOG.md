@@ -87,6 +87,49 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Javítás: a személyi kartonon menthető a GDPR-hozzájárulás + közösségi profil-link
+<!-- key: 2026-07-02-tag-gdpr-social-mentes -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🔧 Javítás
+
+- **A tag felvételi/szerkesztő űrlapján (Pénzügyi lépés) mostantól rögzíthető és MENTŐDIK a
+  GDPR-hozzájárulás, a fénykép-közlési és a hírlevél-hozzájárulás.** Eddig ezek csak a részletező
+  kártya külön szerkesztőjéből mentek. Szerkesztéskor a meglévő értékek előtöltődnek (nem törlődnek).
+- **Új mező: „Közösségi profil (Facebook) link"** — a profilkép ebből tölthető be; a link mostantól
+  a személyi kartonon is megadható és mentődik.
+
+---
+
+## [2026-07-02] — UX: a Gyülekezet beállításai „Pénzügyi alap" rész átdolgozva (welcome-minta)
+<!-- key: 2026-07-02-penzugyi-alap-welcome-minta -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Gyülekezet beállításai → „Pénzügyi alap" szakasz a bevezető (welcome) varázsló pénzügyi
+  lépésének letisztult felépítését követi:** külön, magyarázatos kártya az éves alapösszegnek, a
+  kedvezményes időszaknak és a tartozás-számítási módnak — jól látható választókkal.
+
+---
+
+## [2026-07-02] — UX: a „Gyülekezetünk adatai" ablak szélessége javítva
+<!-- key: 2026-07-02-gyulekezet-ablak-szelesseg -->
+<!-- category: fix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A „Gyülekezetünk adatai" (megtekintő) ablak már nem indokolatlanul széles.** A haladó szerkesztő
+  nézet marad szélesebb, a megtekintő nézet visszafogottabb méretet kap.
+
+---
+
 ## [2026-07-02] — Javítás: az egyházi (saját) CNP nem hiba a tagnyilvántartás Hibák fülén
 <!-- key: 2026-07-02-egyhazi-cnp-nem-hiba -->
 <!-- category: fix -->

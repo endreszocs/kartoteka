@@ -18,8 +18,8 @@
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Banknote, Check, Church, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, X,
+  Banknote, Calculator, Check, Church, FileText, Image as ImageIcon,
+  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, Wallet, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -30,6 +30,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModalField } from '@/components/ui/modal-field'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
+// #3 (Endre): a Pénzügyi alap szakasz a welcome finance-lépés vizuális mintáját kövesse
+// (kártya-szakaszok + magyarázó bannerek + radio-kártyák) — közös helper-komponensek.
+import {
+  WizardSectionCard,
+  WizardField,
+  WizardBanner,
+  Input as WizardInput,
+} from '@/components/onboarding/wizard/_helpers/wizard-ui'
 import {
   getCongregationForSetup,
   saveCongregationSetup,
@@ -723,69 +731,114 @@ function SectionBasics({
 
 // #Endre 2026-07-02: Pénzügyi alap — átmigrálva a „Gyülekezetünk adatai" ablakból.
 function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetForm }) {
+  const currentYear = new Date().getFullYear()
   return (
     <section className="space-y-4">
-      <div className="card-raised p-4 bg-emerald-50/40 border-emerald-100">
-        <div className="flex items-start gap-2">
-          <Landmark className="size-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-heading text-base text-slate-800">Pénzügyi alap</h3>
-            <p className="text-xs text-slate-600 mt-1">
-              Az éves egyházfenntartói járulék alapösszege, a kedvezményes alap, a fizetési határidő és
-              a tartozás-számítás módja. Ezekből számol a rendszer minden tag hátralékát.
-            </p>
-          </div>
+      {/* Aktuális év alapösszege — a welcome finance-lépés mintájára */}
+      <WizardSectionCard
+        icon={Wallet}
+        iconColor="text-amber-700"
+        iconBg="bg-amber-50"
+        title="Aktuális év alapösszege"
+        description={`A ${currentYear}. évre vonatkozó teljes éves egyházfenntartási járulék. Ebből számol a rendszer minden tag hátralékát. Bármikor módosítható.`}
+      >
+        <div className="md:max-w-md">
+          <WizardField
+            id="eves_jarulek"
+            label="Éves alap járulék (RON)"
+            required
+            hint="Családonkénti vagy tagsági teljes éves egyházfenntartás."
+          >
+            <WizardInput
+              id="eves_jarulek"
+              type="number"
+              step="0.01"
+              min="0"
+              inputMode="numeric"
+              placeholder="pl. 120"
+              value={form.eves_jarulek || ''}
+              onChange={(e) => setForm({ ...form, eves_jarulek: Number(e.target.value) || 0 })}
+            />
+          </WizardField>
         </div>
-      </div>
+      </WizardSectionCard>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <ModalField label="Éves egyházfenntartás (RON) *">
-          <Input
-            type="number" min={0} inputMode="numeric"
-            value={String(form.eves_jarulek)}
-            onChange={(e) => setForm({ ...form, eves_jarulek: Number(e.target.value) || 0 })}
-            className={FIELD_INPUT_CLASS}
-          />
-        </ModalField>
-        <ModalField label="Kedvezményes alapösszeg (RON)">
-          <Input
-            type="number" min={0} inputMode="numeric"
-            value={String(form.jarulek_kedvezmenyes)}
-            onChange={(e) => setForm({ ...form, jarulek_kedvezmenyes: Number(e.target.value) || 0 })}
-            className={FIELD_INPUT_CLASS}
-          />
-        </ModalField>
-      </div>
+      {/* Kedvezményes időszak */}
+      <WizardSectionCard
+        icon={Calculator}
+        iconColor="text-emerald-700"
+        iconBg="bg-emerald-50"
+        title="Kedvezményes időszak"
+        description="Aki a határidő előtt fizet, a kedvezményes alapösszeget fizetheti. Hagyd 0-n, ha nincs kedvezmény."
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <WizardField id="jarulek_kedvezmenyes" label="Kedvezményes alapösszeg (RON)" hint="0 = nincs kedvezményes összeg.">
+            <WizardInput
+              id="jarulek_kedvezmenyes"
+              type="number"
+              min="0"
+              inputMode="numeric"
+              placeholder="pl. 100"
+              value={form.jarulek_kedvezmenyes || ''}
+              onChange={(e) => setForm({ ...form, jarulek_kedvezmenyes: Number(e.target.value) || 0 })}
+            />
+          </WizardField>
+          <WizardField id="jarulek_hatarid" label="Kedvezmény határideje (HH-NN)" hint="Eddig fizetve jár a kedvezményes összeg (pl. 07-01).">
+            <WizardInput
+              id="jarulek_hatarid"
+              placeholder="pl. 07-01"
+              value={form.jarulek_hatarid}
+              onChange={(e) => setForm({ ...form, jarulek_hatarid: e.target.value })}
+            />
+          </WizardField>
+        </div>
+      </WizardSectionCard>
 
-      <ModalField label="Járulék határidő (HH-NN)">
-        <Input
-          value={form.jarulek_hatarid}
-          onChange={(e) => setForm({ ...form, jarulek_hatarid: e.target.value })}
-          placeholder="pl. 07-01"
-          className={FIELD_INPUT_CLASS}
-        />
-      </ModalField>
-
-      <div className="card-raised p-4">
-        <p className="text-sm font-semibold text-slate-800 mb-2">Tartozás-számítás módja</p>
-        <div className="space-y-2">
+      {/* Tartozás-számítási mód — a welcome radio-kártyáival azonos */}
+      <WizardSectionCard
+        icon={Calculator}
+        iconColor="text-cyan-700"
+        iconBg="bg-cyan-50"
+        title="Tartozás-számítási mód"
+        description="Hogyan számolja a rendszer a régi évek tartozását?"
+        banner={
+          <WizardBanner tone="info">
+            <p>
+              Egy tagnak lehet pl. 2022-es tartozása. A rendszer ezt a 2022-es beállítások szerint
+              számolja („akkori"), vagy az aktuális évi beállítások alapján („aktuális")? Ha nem vagy
+              biztos, válaszd az „akkori"-t — ez a leggyakoribb és legtisztább.
+            </p>
+          </WizardBanner>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-2">
           {([
-            ['akkori', 'Akkori évi besorolás — minden év a saját akkori díjával számol'],
-            ['aktualis', 'Aktuális évi besorolás — minden korábbi év a jelenlegi díjjal'],
-          ] as const).map(([val, label]) => (
-            <label key={val} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2.5 hover:bg-slate-50">
+            ['akkori', 'Akkori év szerint', 'A 2022-es tartozás a 2022-es beállítások szerint van számolva. Ajánlott — ez a hagyományos.'],
+            ['aktualis', 'Aktuális év szerint', 'A régi tartozások az aktuális évi járulékkal vannak számolva. Egyszerűbb — de figyeld a változások hatását.'],
+          ] as const).map(([val, title, desc]) => (
+            <label
+              key={val}
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition-colors ${
+                form.tartozas_szamitas_mod === val
+                  ? 'border-cyan-500 bg-cyan-50/50'
+                  : 'border-slate-200 bg-white hover:border-cyan-200'
+              }`}
+            >
               <input
                 type="radio"
                 name="tartozas_szamitas_mod"
+                className="mt-1 size-4"
                 checked={form.tartozas_szamitas_mod === val}
                 onChange={() => setForm({ ...form, tartozas_szamitas_mod: val })}
-                className="mt-0.5"
               />
-              <span className="text-sm text-slate-700">{label}</span>
+              <span className="text-sm">
+                <strong className="block text-slate-800">{title}</strong>
+                <span className="mt-0.5 block text-xs text-slate-600">{desc}</span>
+              </span>
             </label>
           ))}
         </div>
-      </div>
+      </WizardSectionCard>
     </section>
   )
 }

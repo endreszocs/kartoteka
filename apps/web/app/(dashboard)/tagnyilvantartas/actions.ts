@@ -100,7 +100,7 @@ export async function getMembers(): Promise<{
     // FONTOS: a c_tombhaz/c_lepcsohaz/c_emelet/c_ajto MARAD — a szerkesztő űrlap
     // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
     // néma adatvesztést okozna.
-    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
+    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
     supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
@@ -478,6 +478,8 @@ export async function saveMember(data: MemberInput) {
     id_apja: d.id_apja_cnp || null,
     id_anyja: d.id_anyja_cnp || null,
     megjegyzes: d.megjegyzes || null,
+    // #1 (Endre): közösségi profil-link (a fénykép ebből tölthető)
+    social_profil_url: d.social_profil_url || null,
   }
 
   let savedId = d.id
@@ -653,6 +655,17 @@ export async function saveMember(data: MemberInput) {
         felekezet: d.att_felekezet || null, honnanid: honnanId,
       }])
     }
+  }
+
+  // #1 (Endre): GDPR-hozzájárulások mentése az űrlapról — a meglévő updateMemberConsents
+  // action-t hívjuk, hogy a gdpr_consent_at dátum-logika egy helyen maradjon. A getMembers
+  // előtölti a form checkboxait, így a szerkesztés-mentés nem törli a korábbi hozzájárulást.
+  if (savedId != null) {
+    await updateMemberConsents(savedId, {
+      gdpr_consent: !!d.gdpr_consent,
+      photo_consent: !!d.photo_consent,
+      mailing_consent: !!d.mailing_consent,
+    })
   }
 
   // 2026-06-10 (Fázis 2, P1-1): minden tag-mutáció auditnaplóba — a vallási

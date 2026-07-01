@@ -102,6 +102,8 @@ export interface MemberRow {
   gdpr_consent_at: string | null
   photo_consent: boolean | null
   mailing_consent: boolean | null
+  // #1 (2026-07-02): közösségi profil-link (a fénykép ebből tölthető) — az űrlap előtölti/menti
+  social_profil_url: string | null
   voter_eligible: boolean | null
   voter_manual_override: number | null
   type: string | null

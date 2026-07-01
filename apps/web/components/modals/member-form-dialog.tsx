@@ -94,12 +94,18 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         anyjaneve: editMember.anyjaneve || '',
         megjegyzes: editMember.megjegyzes || '',
         belepes_oka: 'alap',
+        // #1: GDPR + közösségi link előtöltése (biztonságos — a getMembers már betölti ezeket,
+        // így a mentés nem törli a meglévő hozzájárulást).
+        gdpr_consent: !!editMember.gdpr_consent_at,
+        photo_consent: editMember.photo_consent ?? false,
+        mailing_consent: editMember.mailing_consent ?? false,
+        social_profil_url: editMember.social_profil_url || '',
       })
     } else {
       setStep('choose')
       setWizardStep(1)
       setMaxReachedStep(1)
-      reset({ belepes_oka: 'alap', vallas: 'Református', ferfi: true, c_szam: '1' })
+      reset({ belepes_oka: 'alap', vallas: 'Református', ferfi: true, c_szam: '1', gdpr_consent: false, photo_consent: false, mailing_consent: false, social_profil_url: '' })
     }
     setParentResults({ apa: [], anya: [] })
     setParentSearchVisible({ apa: false, anya: false })
@@ -497,6 +503,37 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                     A pontos járulékösszeg és kedvezmények a Pénzügy modulban állíthatóak.
                   </p>
                 </div>
+
+                {/* #1 (Endre): Adatvédelem + fénykép — a személyi kartonról menthető */}
+                <div className="space-y-2.5 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+                  <Label className="text-sm font-semibold text-sky-900">Adatvédelem és fénykép</Label>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Közösségi profil (Facebook) link</Label>
+                    <Input
+                      {...register('social_profil_url')}
+                      placeholder="https://facebook.com/…"
+                      className={FIELD_CLASS_COMPACT}
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      A profilkép ennek a linknek az alapján tölthető be (a személyi karton fénykép-szerkesztőjében).
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 pt-1">
+                    <label className="flex items-start gap-2 text-sm text-slate-700">
+                      <input type="checkbox" {...register('gdpr_consent')} className="mt-0.5 size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
+                      <span>GDPR-hozzájárulás (adatkezelési tájékoztató elfogadva)</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm text-slate-700">
+                      <input type="checkbox" {...register('photo_consent')} className="mt-0.5 size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
+                      <span>Fénykép közölhető (pl. gyülekezeti kiadványban, faliújságon)</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm text-slate-700">
+                      <input type="checkbox" {...register('mailing_consent')} className="mt-0.5 size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
+                      <span>Hírlevél / értesítők küldhetők (e-mail, telefon)</span>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900">
                   <strong>Utolsó lépés!</strong> Ellenőrizd a megadott adatokat, majd kattints
                   a „Tag mentése” gombra. Az alapadatok mellett a megadott anyakönyvi események
