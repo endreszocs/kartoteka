@@ -280,3 +280,135 @@ export function buildDispozitieHtml(d: DispozitieDocData): string {
   </style></head>
   <body><div class="wrap">${copy('Exemplarul 1 (caserie)')}${copy('Exemplarul 2 (cotor)')}</div></body></html>`
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// DECONT DE ÎNCASĂRI — Bevételi elszámolás (hiányzó nyugták utólagos
+// bevételezése). #Endre (2026-07-02): a hiányzó Chitanță-k utólagos
+// kasszába-vétele DECONT-ként, élő A4-előnézettel (a buildDecontHtml
+// kiadási sablonjának bevételi párja).
+// ═══════════════════════════════════════════════════════════════════
+
+export interface DecontIncasareItem {
+  iratSz: string
+  keruletiSz: string
+  payer: string
+  explanation: string
+  amount: number
+}
+
+export interface DecontIncasareDocData {
+  congregationName: string
+  date: string // yyyy-mm-dd — a könyvelés dátuma
+  category: string // közös bevétel-jogcím (pl. Egyházfenntartás)
+  note: string // pl. „Utólag elszámolt nyugták"
+  items: DecontIncasareItem[]
+}
+
+export function buildDecontIncasareHtml(d: DecontIncasareDocData): string {
+  const total = d.items.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+
+  const rowsHtml = d.items
+    .map(
+      (r, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td class="c">${esc(r.iratSz) || '&nbsp;'}</td>
+        <td class="c">${esc(r.keruletiSz) || '&nbsp;'}</td>
+        <td>${esc(r.payer) || '&nbsp;'}</td>
+        <td>${esc(r.explanation) || '&nbsp;'}</td>
+        <td class="r">${formatRon(Number(r.amount) || 0)}</td>
+      </tr>`,
+    )
+    .join('')
+
+  return `<!doctype html><html lang="ro"><head><meta charset="utf-8"/>
+  <style>
+    @page { size: A4 portrait; margin: 14mm 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 12px; margin: 0; }
+    @media screen { body { padding: 14mm 12mm; } }
+    .sheet { width: 100%; }
+    .unit-band { border: 1px solid #94a3b8; background: #e7f3e7; height: 26px; }
+    .unit-label { font-size: 11px; color: #1f3a5f; margin: 2px 0 10px; }
+    .title { text-align: center; font-weight: bold; font-size: 15px; line-height: 1.35; }
+    .subnum { text-align: center; font-weight: bold; font-size: 14px; }
+    .subhint { text-align: center; font-size: 11px; color: #475569; margin-bottom: 12px; }
+    .meta { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 10px; font-size: 12px; }
+    .meta .lbl { font-size: 11px; color: #475569; }
+    .meta .val { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #64748b; padding: 4px 6px; vertical-align: top; }
+    th { font-size: 11px; text-align: left; background: #f8fafc; white-space: pre-line; }
+    td.c { text-align: center; }
+    td.r { text-align: right; }
+    .total-row td { font-weight: bold; }
+    .signs { display: flex; justify-content: space-between; gap: 40px; margin-top: 56px; }
+    .signs .col { width: 48%; font-size: 12px; }
+    .signname { font-weight: bold; margin-top: 22px; min-height: 16px; }
+    .signhint { font-size: 10px; color: #475569; }
+    .line { display: inline-block; border-bottom: 1px solid #14213d; min-width: 180px; }
+    .decl { margin-top: 48px; font-size: 12px; line-height: 1.9; }
+    .decl .date { float: right; font-weight: bold; }
+  </style></head>
+  <body><div class="sheet">
+    <div class="unit-band">&nbsp;${esc(d.congregationName)}</div>
+    <div class="unit-label">Unitate - Egység</div>
+
+    <div class="title">DECONT DE ÎNCASĂRI<br/>BEVÉTELI ELSZÁMOLÁS</div>
+    <div class="subnum">${huDate(d.date)}</div>
+    <div class="subhint">(data - dátum)</div>
+
+    <div class="meta">
+      <div>
+        <div class="lbl">Scopul - Jogcím</div>
+        <div class="val">${esc(d.category) || '&nbsp;'}</div>
+      </div>
+      <div>
+        <div class="lbl">Mențiune - Megjegyzés</div>
+        <div class="val">${esc(d.note) || '&nbsp;'}</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nr.\nSz.</th>
+          <th>Act nr\nIrat sz.</th>
+          <th>Ser. distr.\nKerületi sz.</th>
+          <th>Depunător\nBefizető</th>
+          <th>Explicația - Magyarázat</th>
+          <th>Suma - Összeg\n(RON)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml || '<tr><td class="c">&nbsp;</td><td colspan="4"></td><td></td></tr>'}
+        <tr class="total-row">
+          <td></td><td></td><td></td><td></td>
+          <td>Total - Összesen</td>
+          <td class="r">${formatRon(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="signs">
+      <div class="col">
+        Întocmit — Készítette
+        <div class="signname">&nbsp;</div>
+        <span class="line">&nbsp;</span><br/>
+        <span class="signhint">(semnătura / aláírás)</span>
+      </div>
+      <div class="col">
+        Aprobat — Jóváhagyta
+        <div class="signname">&nbsp;</div>
+        <span class="line">&nbsp;</span><br/>
+        <span class="signhint">(semnătura / aláírás)</span>
+      </div>
+    </div>
+
+    <div class="decl">
+      <span class="date">${huDate(d.date)}</span>
+      Suma de ${formatRon(total)} lei s-a încasat în casierie conform chitanțelor de mai sus.<br/>
+      A fenti nyugták szerinti ${formatRon(total)} lej a kasszába bevételezve.
+    </div>
+  </div></body></html>`
+}

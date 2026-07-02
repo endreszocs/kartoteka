@@ -360,15 +360,16 @@ export function FinanceTabs({
                       <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
                     )}
                   </p>
-                  {/* #Endre 2026-07-02: a hiányzó nyugták BEVÉTELEK → Dispoziție de încasare wizard
-                      (minden hiányzó Irat sz. külön bevételi tétel a KASSZÁBA és a SZÁMADÁSba). */}
+                  {/* #Endre 2026-07-02: a hiányzó nyugták BEVÉTELEK → bevételi elszámolás (Decont
+                      de încasări) élő előnézettel; minden hiányzó Irat sz. külön bevételi tétel a
+                      KASSZÁBA és a SZÁMADÁSba, a Kerületi sz. a szomszédokból kikövetkeztetve. */}
                   <button
                     type="button"
                     onClick={() => setDispozitieIncasareOpen(true)}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700"
-                    title="Megnyitja a Dispoziție de încasare varázslót a hiányzó nyugtákkal, mai dátummal. Minden nyugta külön bevételi tételként a kasszába és a számadásba kerül."
+                    title="Megnyitja a bevételi elszámolást a hiányzó nyugtákkal. Minden nyugta külön bevételi tételként a kasszába és a számadásba kerül, élő előnézettel."
                   >
-                    Hiányzó nyugták bevételezése (Dispoziție de încasare)
+                    Hiányzó nyugták bevételi elszámolása (Decont de încasări)
                   </button>
                 </div>
               )}
@@ -638,11 +639,14 @@ export function FinanceTabs({
         categories={expenseCategories}
       />
 
-      {/* #Endre 2026-07-02: hiányzó nyugták BEVÉTELEZÉSE — Dispoziție de încasare wizard */}
+      {/* #Endre 2026-07-02: hiányzó nyugták BEVÉTELI ELSZÁMOLÁSA (Decont de încasări) —
+          élő előnézettel, kikövetkeztetett Kerületi sz.-mal, több befizetővel nyugtánként */}
       <DispozitieIncasareWizard
         open={dispozitieIncasareOpen}
         onOpenChange={setDispozitieIncasareOpen}
         missingNumbers={receiptHealth.missingNumbers}
+        missingReceipts={receiptHealth.missingReceipts}
+        congregationName={congregationName}
         incomeCategories={incomeCategories}
         defaultDate={
           currentYear === new Date().getFullYear()

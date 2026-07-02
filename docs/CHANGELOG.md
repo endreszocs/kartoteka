@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — Új: hiányzó nyugták bevételi ELSZÁMOLÁSA élő előnézettel (Decont de încasări)
+<!-- key: 2026-07-02-hianyzo-nyugtak-decont-elonezet -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció / UX
+
+- **A hiányzó nyugták utólagos könyvelése mostantól bevételi ELSZÁMOLÁS (Decont de încasări)** —
+  nem „Dispoziție de încasare". Az ablak a Decont-ablak mintájára **élő A4-előnézetet** mutat
+  (gépelés közben frissül), ami nyomtatható hivatalos formában tartalmazza a tételeket.
+- **A Kerületi sz. automatikusan kikövetkeztetve előtöltődik** a hiányzó nyugta előtti és utáni
+  nyugták számaiból (a kerületi és a gyülekezeti sorszám együtt lép) — természetesen kézzel
+  felülírható.
+- **Egy nyugtára több befizető is rögzíthető** (a nyugtán több név is szerepelhet), mindenki külön
+  összeggel. A **tag-párosítás nem kötelező** — nem gyülekezeti tag is adhat adományt (ilyenkor a
+  név szabad szövegként mentődik, és a rendszer diszkréten jelzi: „nem tag").
+- **Részletesebb, szebb befizető-kereső:** avatar, életkor-jelvény és lakcím a találatokban; zöld
+  jelölés mutatja, ha a befizető taghoz van kötve.
+
+---
+
 ## [2026-07-02] — Új: minden gyülekezeti szerkesztő egy helyen (a „Haladó szerkesztő" megszűnt)
 <!-- key: 2026-07-02-gyulekezet-beallitas-konszolidacio -->
 <!-- category: improvement -->
