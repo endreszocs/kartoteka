@@ -1,218 +1,347 @@
 'use client'
 
 /**
- * Hiányzó nyugták UTÓLAGOS BEVÉTELI ELSZÁMOLÁSA (wizard). (Endre, 2026-07-02.)
+ * Hiányzó nyugták — BEVÉTELI ELSZÁMOLÁS (Decont de încasări). (Endre, 2026-07-02.)
  *
  * A Nyugtafigyelő „hiányzó nyugták" gombja nyitja. Könyvelői háttér (OMF 2634/2015):
- * a már KIÁLLÍTOTT Chitanță maga a bizonylat → nem külön Dispoziție de încasare-t készítünk
- * (az csak akkor, ha NINCS más bizonylat), hanem minden nyugtát a saját Irat sz.-ával
- * BEVÉTELKÉNT a kasszába (Registrul de casă) könyvelünk, SZEMÉLYHEZ kötve (adomány/
- * egyházfenntartás a taghoz számít) és „utólag elszámolt" megjegyzéssel (látható nyom).
+ * a már KIÁLLÍTOTT Chitanță maga a bizonylat → minden nyugtát a saját Irat sz.-ával
+ * BEVÉTELKÉNT a kasszába (Registrul de casă) könyvelünk, „utólag elszámolt" nyommal.
  *
- * Minden hiányzó Irat sz. egy KÜLÖN sor → egy `befizetes` BEVÉTEL a kasszába (bankszamla_id NULL),
- * irattipus='Chitanță', nyugta = a gyülekezeti Irat sz. (így a figyelő „hiányzó" listájáról lekerül),
- * id_szemely = a párosított tag. A `saveIncomeBatch` egy hívásban rögzíti.
+ * #Endre észrevételek (2026-07-02):
+ *  1. Ez ELSZÁMOLÁS (decont), bevétellel — nem „Dispoziție de încasare".
+ *  2. A Kerületi sz. a szomszédos nyugták számaiból KIKÖVETKEZTETVE előtöltődik
+ *     (missingReceipts a computeReceiptHealth-ből).
+ *  3. Egy nyugtára TÖBB befizető is rögzíthető (a nyugtán több név szerepelhet);
+ *     a tag-párosítás OPCIONÁLIS (nem gyülekezeti tag is adhat adományt);
+ *     részletes kereső (avatar + életkor + cím).
+ *  4. ÉLŐ A4 ELŐNÉZET a decont-ablak mintájára (buildDecontIncasareHtml + iframe).
  *
- * 3 lépés: 1) tételek (Irat sz. + Kerületi sz. opc. + befizető-kereső + összeg) →
- *          2) könyvelés (dátum + bevétel-jogcím + megjegyzés) → 3) ellenőrzés + mentés.
+ * Mentés: saveIncomeBatch — soronként/befizetőnként egy `befizetes` BEVÉTEL a kasszába
+ * (bankszamla_id NULL), irattipus='Chitanță', nyugta = a gyülekezeti Irat sz. (így a
+ * figyelő „hiányzó" listájáról lekerül), több befizetőnél a kerületi szám /N utótaggal.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ArrowRight, ArrowLeft, Check, Coins, Plus, Trash2, Loader2, Search, UserCheck, Info } from 'lucide-react'
+import { Check, Coins, Plus, Trash2, Loader2, UserPlus, X } from 'lucide-react'
 import { saveIncomeBatch, searchMembersForFinance } from '@/app/(dashboard)/penzugy/actions'
 import type { IncomeBatchRowInput } from '@/lib/validations/finance'
+import { buildDecontIncasareHtml, type DecontIncasareItem, type MissingReceipt } from '@/lib/constants/finance'
 import { toast } from 'sonner'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   missingNumbers: number[]
+  /** #Endre (issue 2): iratSz + kikövetkeztetett keruletiSz párok — ha van, ebből seedelünk. */
+  missingReceipts?: MissingReceipt[]
   incomeCategories: Array<{ id: number; nev: string; kod?: string }>
   defaultDate?: string
+  /** Az élő előnézet fejlécéhez (Unitate). */
+  congregationName?: string
   onDone?: () => void
 }
 
-type Row = {
-  id: string
-  iratsz: string        // Irat sz. (gyülekezeti) → befizetes.nyugta
-  keruleti: string      // Kerületi sz. (opcionális) → befizetes.iratszam
-  name: string          // befizető neve (szabad szöveg vagy párosított tag neve)
-  personId: number | null // párosított tag → id_szemely
-  amount: string
-}
+/** Egy befizető egy nyugtán — az id OPCIONÁLIS (null = nem gyülekezeti tag / szabad szöveg). */
+type Payer = { uid: string; id: number | null; name: string; osszeg: string }
+type Row = { id: string; iratsz: string; keruleti: string; people: Payer[] }
 
-type SearchHit = {
+type SearchHitRaw = {
   id: number
   csaladnev: string | null
   k_nev: string | null
   sz_datum: string | null
   c_szam: string | null
   adrlocality?: { name?: string } | Array<{ name?: string }> | null
+  adrstreet?: { name?: string } | Array<{ name?: string }> | null
 }
+
+type Hit = { id: number; name: string; detail?: string; age?: number; birthYear?: string }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const uid = () => `${Math.random().toString(36).slice(2)}-${Date.now()}`
 const ron = (n: number) => `${(Number(n) || 0).toLocaleString('hu-HU')} RON`
 
-function hitName(h: SearchHit) { return `${h.csaladnev || ''} ${h.k_nev || ''}`.trim() }
-function hitBirthYear(h: SearchHit): string | null {
-  const m = String(h.sz_datum || '').match(/(\d{4})/)
-  return m ? m[1] : null
-}
-function hitLocality(h: SearchHit): string | null {
-  const a = h.adrlocality
-  const name = Array.isArray(a) ? a[0]?.name : a?.name
+function relName(v: SearchHitRaw['adrlocality']): string | null {
+  const name = Array.isArray(v) ? v[0]?.name : v?.name
   return name || null
 }
+function ageFromBirth(szDatum: string | null): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(szDatum || ''))
+  if (!m) return null
+  const birth = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(birth.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - birth.getFullYear()
+  if (now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())) age -= 1
+  return age >= 0 && age < 130 ? age : null
+}
+function toHit(m: SearchHitRaw): Hit {
+  return {
+    id: m.id,
+    name: `${m.csaladnev ?? ''} ${m.k_nev ?? ''}`.trim() || `#${m.id}`,
+    detail: [relName(m.adrlocality), relName(m.adrstreet), m.c_szam].filter(Boolean).join(' · ') || undefined,
+    age: ageFromBirth(m.sz_datum) ?? undefined,
+    birthYear: m.sz_datum ? String(m.sz_datum).slice(0, 4) : undefined,
+  }
+}
 
-const STEPS = ['Tételek', 'Könyvelés', 'Ellenőrzés'] as const
+const emptyPayer = (): Payer => ({ uid: uid(), id: null, name: '', osszeg: '' })
 
-// ── Befizető-kereső cella (tag → id_szemely; szabad szöveg is megengedett) ──────────────
-function PayerSearchCell({
-  value, personId, onType, onPick,
+// ── Befizető-kereső (portálos dropdown — a CombinedEntryBody PayerNameSearch mintájára) ──
+// Avatar + életkor-badge + cím-detail; a tag-párosítás OPCIONÁLIS (szabad szöveg is mehet).
+function PayerSearch({
+  value, linked, onType, onPick, autoFocus,
 }: {
   value: string
-  personId: number | null
+  linked: boolean
   onType: (t: string) => void
-  onPick: (p: { id: number; name: string }) => void
+  onPick: (h: Hit) => void
+  autoFocus?: boolean
 }) {
-  const [results, setResults] = useState<SearchHit[]>([])
+  const [hits, setHits] = useState<Hit[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const justPickedRef = useRef(false)
+  const [dropRect, setDropRect] = useState<{ left: number; top: number; width: number } | null>(null)
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
-
-  function handleType(t: string) {
-    onType(t)
-    if (timer.current) clearTimeout(timer.current)
-    if (t.trim().length < 2) { setResults([]); setOpen(false); return }
-    setLoading(true)
-    timer.current = setTimeout(async () => {
-      try {
-        const rows = (await searchMembersForFinance(t)) as unknown as SearchHit[]
-        setResults(rows || [])
-        setOpen(true)
-      } finally {
-        setLoading(false)
-      }
-    }, 250)
+  const measure = () => {
+    const el = inputRef.current
+    if (!el) { setDropRect(null); return }
+    const r = el.getBoundingClientRect()
+    setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
   }
 
+  useEffect(() => {
+    if (autoFocus) queueMicrotask(() => inputRef.current?.focus())
+  }, [autoFocus])
+
+  useEffect(() => {
+    if (!open) return
+    // setState mikrotaszkban (react-hooks/set-state-in-effect — a kódbázis mintája)
+    queueMicrotask(measure)
+    const onMove = () => measure()
+    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('resize', onMove)
+    return () => {
+      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('resize', onMove)
+    }
+  }, [open, hits])
+
+  useEffect(() => {
+    const reset = () => queueMicrotask(() => { setHits([]); setOpen(false) })
+    if (linked) { reset(); return }
+    if (justPickedRef.current) { justPickedRef.current = false; return }
+    const q = value.trim()
+    if (q.length < 2) { reset(); return }
+    if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    queueMicrotask(() => setLoading(true))
+    debounceRef.current = window.setTimeout(() => {
+      void searchMembersForFinance(q)
+        .then((rows) => {
+          const mapped = ((rows || []) as unknown as SearchHitRaw[]).map(toHit)
+          setHits(mapped.slice(0, 8))
+          setOpen(mapped.length > 0)
+        })
+        .catch(() => { setHits([]); setOpen(false) })
+        .finally(() => setLoading(false))
+    }, 300)
+    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
+  }, [value, linked])
+
   return (
-    <div className="relative">
-      <div className="relative">
-        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-300">
-          {personId != null ? <UserCheck className="size-4 text-emerald-500" /> : <Search className="size-4" />}
+    <div className="relative flex items-center gap-1.5">
+      {linked && (
+        <span className="inline-block size-2 shrink-0 rounded-full bg-emerald-500" title="Regisztrált tag hozzárendelve" />
+      )}
+      <input
+        ref={inputRef}
+        className={`h-8 w-full rounded-md border px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 ${
+          linked
+            ? 'border-emerald-300 bg-emerald-50/50 font-medium text-emerald-900 focus-visible:ring-emerald-400'
+            : 'border-slate-300 bg-white focus-visible:border-emerald-500 focus-visible:ring-emerald-500/25'
+        }`}
+        value={value}
+        placeholder="Név — tag-kereső VAGY szabad szöveg"
+        onChange={(e) => onType(e.target.value)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onFocus={() => hits.length > 0 && setOpen(true)}
+      />
+      {loading && <Loader2 className="absolute right-2 size-3.5 animate-spin text-slate-300" />}
+      {!linked && value.trim().length >= 2 && !loading && hits.length === 0 && (
+        <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500" title="Nincs tag-találat — szabad szövegként mentődik (nem gyülekezeti tag is adhat)">
+          nem tag
         </span>
-        <Input
-          value={value}
-          onChange={(e) => handleType(e.target.value)}
-          onFocus={() => { if (results.length) setOpen(true) }}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Név — itt keres a tagok között"
-          className={`h-8 pl-8 ${personId != null ? 'border-emerald-300 bg-emerald-50/40' : ''}`}
-        />
-        {loading && <Loader2 className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-slate-300" />}
-      </div>
-      {open && results.length > 0 && (
-        <div className="absolute z-50 mt-1 max-h-56 w-full min-w-[16rem] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-          {results.map((h) => {
-            const by = hitBirthYear(h)
-            const loc = hitLocality(h)
-            return (
+      )}
+      {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed z-[200] max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl ring-1 ring-black/5"
+            style={{ left: dropRect.left, top: dropRect.top, width: Math.max(dropRect.width, 300) }}
+          >
+            {hits.map((h) => (
               <button
                 key={h.id}
                 type="button"
+                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { onPick({ id: h.id, name: hitName(h) }); setOpen(false) }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition hover:bg-emerald-50"
+                onClick={() => { justPickedRef.current = true; onPick(h); setHits([]); setOpen(false) }}
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-semibold text-emerald-700">
-                  {(h.csaladnev || '?').slice(0, 1).toUpperCase()}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-xs font-semibold text-emerald-700">
+                  {(h.name.trim()[0] || '?').toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-slate-800">{hitName(h)}</span>
-                  {(by || loc) && <span className="block truncate text-[11px] text-slate-400">{[by, loc].filter(Boolean).join(' · ')}</span>}
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-800">{h.name}</span>
+                    {h.age != null && (
+                      <span
+                        className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 group-hover:bg-white"
+                        title={h.birthYear ? `Született: ${h.birthYear}` : undefined}
+                      >
+                        {h.age} éves
+                      </span>
+                    )}
+                  </span>
+                  {h.detail && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{h.detail}</span>}
                 </span>
               </button>
-            )
-          })}
-        </div>
-      )}
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
 
-export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, incomeCategories, defaultDate, onDone }: Props) {
-  const [step, setStep] = useState(0)
+export function DispozitieIncasareWizard({
+  open, onOpenChange, missingNumbers, missingReceipts, incomeCategories, defaultDate, congregationName, onDone,
+}: Props) {
   const [date, setDate] = useState(defaultDate || todayIso())
   const [categoryId, setCategoryId] = useState<number | ''>('')
   const [megj, setMegj] = useState('Utólag elszámolt nyugta')
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
+  // Az újonnan hozzáadott befizető mezője automatikusan fókuszt kap.
+  const [focusUid, setFocusUid] = useState<string | null>(null)
 
-  // Megnyitáskor friss állapot + a hiányzó számokból egy-egy sor.
+  // Megnyitáskor friss állapot + seed: missingReceipts (Kerületi sz. ELŐTÖLTVE a szomszédokból
+  // kikövetkeztetve), fallback a nyers missingNumbers-re.
   useEffect(() => {
     if (!open) return
-    setStep(0)
     setDate(defaultDate || todayIso())
     setCategoryId('')
     setMegj('Utólag elszámolt nyugta')
     setBusy(false)
-    setRows(
-      (missingNumbers.length ? missingNumbers : [0]).map((n) => ({
-        id: uid(), iratsz: n ? String(n) : '', keruleti: '', name: '', personId: null, amount: '',
-      })),
-    )
-  }, [open, missingNumbers, defaultDate])
-
-  const total = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows])
-  const validRows = useMemo(() => rows.filter((r) => r.iratsz.trim() && Number(r.amount) > 0), [rows])
+    setFocusUid(null)
+    const seeds: Array<{ iratsz: string; keruleti: string }> =
+      missingReceipts && missingReceipts.length
+        ? missingReceipts.map((m) => ({ iratsz: String(m.iratSz), keruleti: m.keruletiSz ?? '' }))
+        : (missingNumbers.length ? missingNumbers : [0]).map((n) => ({ iratsz: n ? String(n) : '', keruleti: '' }))
+    setRows(seeds.map((s) => ({ id: uid(), iratsz: s.iratsz, keruleti: s.keruleti, people: [emptyPayer()] })))
+  }, [open, missingReceipts, missingNumbers, defaultDate])
 
   function patchRow(id: string, patch: Partial<Row>) {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
-  function addRow() { setRows((cur) => [...cur, { id: uid(), iratsz: '', keruleti: '', name: '', personId: null, amount: '' }]) }
+  function addRow() { setRows((cur) => [...cur, { id: uid(), iratsz: '', keruleti: '', people: [emptyPayer()] }]) }
   function removeRow(id: string) { setRows((cur) => (cur.length === 1 ? cur : cur.filter((r) => r.id !== id))) }
 
-  const step1Ok = validRows.length > 0 && rows.every((r) => !r.iratsz.trim() || Number(r.amount) > 0)
-  const step2Ok = Boolean(categoryId) && validRows.every((r) => r.name.trim())
-  const linkedCount = validRows.filter((r) => r.personId != null).length
+  // ── Befizető-műveletek (a CombinedEntryBody appendPayers/updatePayer/removePayer mintájára) ──
+  function addPayer(rowId: string) {
+    const p = emptyPayer()
+    setRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: [...r.people, p] } : r)))
+    setFocusUid(p.uid)
+  }
+  function updatePayer(rowId: string, payerUid: string, patch: Partial<Payer>) {
+    setRows((cur) =>
+      cur.map((r) =>
+        r.id === rowId ? { ...r, people: r.people.map((p) => (p.uid === payerUid ? { ...p, ...patch } : p)) } : r,
+      ),
+    )
+  }
+  function removePayer(rowId: string, payerUid: string) {
+    setRows((cur) =>
+      cur.map((r) =>
+        r.id === rowId
+          ? { ...r, people: r.people.length === 1 ? [emptyPayer()] : r.people.filter((p) => p.uid !== payerUid) }
+          : r,
+      ),
+    )
+  }
+
+  // Érvényes befizető: összeg > 0 ÉS (van neve VAGY taghoz kötött) — a párosítás NEM kötelező.
+  const validPayersOf = (r: Row) => r.people.filter((p) => Number(p.osszeg) > 0 && (p.name.trim() || p.id != null))
+  const rowSum = (r: Row) => r.people.reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
+  const validRows = useMemo(() => rows.filter((r) => r.iratsz.trim() && validPayersOf(r).length > 0), [rows])
+  const total = useMemo(() => validRows.reduce((s, r) => s + validPayersOf(r).reduce((x, p) => x + Number(p.osszeg), 0), 0), [validRows])
+  const linkedCount = useMemo(() => validRows.reduce((s, r) => s + validPayersOf(r).filter((p) => p.id != null).length, 0), [validRows])
+  const canSave = Boolean(categoryId) && validRows.length > 0 && !busy
+
+  const categoryName = incomeCategories.find((c) => c.id === categoryId)?.nev || ''
+
+  // ── ÉLŐ ELŐNÉZET (issue 4) — a decont-ablak mintájára (buildDecontIncasareHtml + iframe) ──
+  const previewHtml = useMemo(() => {
+    const items: DecontIncasareItem[] = rows
+      .filter((r) => r.iratsz.trim())
+      .map((r) => ({
+        iratSz: r.iratsz.trim(),
+        keruletiSz: r.keruleti.trim(),
+        payer: r.people.filter((p) => p.name.trim()).map((p) => p.name.trim()).join(', '),
+        explanation: categoryName,
+        amount: rowSum(r),
+      }))
+    return buildDecontIncasareHtml({
+      congregationName: congregationName || '',
+      date,
+      category: categoryName,
+      note: megj.trim(),
+      items,
+    })
+  }, [rows, date, categoryName, megj, congregationName])
 
   async function handleSave() {
     if (!categoryId) return
     setBusy(true)
     try {
       const year = Number(date.slice(0, 4)) || new Date().getFullYear()
-      const batch: IncomeBatchRowInput[] = validRows.map((r) => {
+      const batch: IncomeBatchRowInput[] = []
+      for (const r of validRows) {
         const iratsz = r.iratsz.trim()
-        const note = `${megj.trim() || 'Utólag elszámolt nyugta'}${iratsz ? ` (Chitanță ${iratsz})` : ''}`
-        return {
-          datum: date,
-          id_befizetescel: Number(categoryId),
-          forrasa: r.name.trim() || null,
-          osszeg: Number(r.amount),
-          // Kerületi sz. (opcionális) → iratszam; ha üres, az insert AUTO-hivatkozást tesz.
-          iratszam: r.keruleti.trim() || null,
-          // Irat sz. (gyülekezeti) → nyugta: ettől kerül le a figyelő „hiányzó" listájáról.
-          nyugta: iratsz,
-          irattipus: 'Chitanță',
-          fizetettev: year,
-          megjegyzes: note,
-          id_szemely: r.personId ?? null,
-          id_csalad: null,
-        }
-      })
+        const keruleti = r.keruleti.trim()
+        const payers = validPayersOf(r)
+        const multi = payers.length > 1
+        const note = `${megj.trim() || 'Utólag elszámolt nyugta'} (Chitanță ${iratsz})`
+        payers.forEach((p, i) => {
+          batch.push({
+            datum: date,
+            id_befizetescel: Number(categoryId),
+            forrasa: p.name.trim() || null,
+            // Több befizetőnél a kerületi szám /N utótagot kap (fizikai nyugta = közös alap).
+            iratszam: keruleti ? (multi ? `${keruleti}/${i + 1}` : keruleti) : null,
+            nyugta: iratsz,
+            irattipus: 'Chitanță',
+            osszeg: Number(p.osszeg),
+            fizetettev: year,
+            megjegyzes: note,
+            id_szemely: p.id ?? null,
+            id_csalad: null,
+          })
+        })
+      }
       const res = await saveIncomeBatch(batch)
       if ('error' in res && res.error) {
         toast.error(`A könyvelés nem sikerült — ${res.error}`)
         return
       }
-      toast.success(`${batch.length} nyugta utólag bevételként a kasszába könyvelve${linkedCount ? ` · ${linkedCount} személyhez kötve` : ''}.`)
+      toast.success(
+        `${validRows.length} nyugta (${batch.length} tétel) bevételként a kasszába könyvelve${linkedCount ? ` · ${linkedCount} személyhez kötve` : ''}.`,
+      )
       onDone?.()
       onOpenChange(false)
     } finally {
@@ -222,7 +351,7 @@ export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, i
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-3xl">
+      <DialogContent className="max-h-[94vh] overflow-y-auto p-0 w-[calc(100%-1rem)] sm:max-w-[96vw] xl:max-w-[1400px]">
         <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-6 pb-4 pt-6">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -230,164 +359,144 @@ export function DispozitieIncasareWizard({ open, onOpenChange, missingNumbers, i
                 <Coins className="h-5 w-5" />
               </div>
               <div>
-                <DialogTitle className="font-heading text-lg">Hiányzó nyugták utólagos bevételezése</DialogTitle>
-                <p className="mt-0.5 text-xs text-zinc-500">Minden hiányzó Chitanță egy bevétel a kasszába — személyhez kötve, &bdquo;utólag elszámolt&rdquo; nyommal.</p>
+                <DialogTitle className="font-heading text-lg">Hiányzó nyugták — bevételi elszámolás (Decont de încasări)</DialogTitle>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Minden hiányzó Chitanță bevételként a kasszába — egy nyugtára több befizető is rögzíthető, a tag-párosítás nem kötelező.
+                </p>
               </div>
             </div>
           </DialogHeader>
-          {/* Lépés-indikátor */}
-          <div className="mt-4 flex items-center gap-2">
-            {STEPS.map((label, i) => (
-              <div key={label} className="flex flex-1 items-center gap-2">
-                <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${i < step ? 'bg-emerald-600 text-white' : i === step ? 'bg-emerald-100 text-emerald-800 ring-2 ring-emerald-300' : 'bg-slate-100 text-slate-400'}`}>
-                  {i < step ? <Check className="size-3.5" /> : i + 1}
-                </span>
-                <span className={`text-xs font-medium ${i === step ? 'text-emerald-800' : 'text-slate-400'}`}>{label}</span>
-                {i < STEPS.length - 1 && <span className="h-px flex-1 bg-slate-200" />}
-              </div>
-            ))}
-          </div>
         </div>
 
-        <div className="px-6 py-5">
-          {/* 1. lépés — tételek */}
-          {step === 0 && (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Add meg minden hiányzó nyugta összegét és befizetőjét. A <strong>befizető keresésekor</strong> a
-                taghoz kötjük a tételt (adomány / egyházfenntartás a taghoz számít). A <strong>Kerületi sz.</strong> nem kötelező.
-              </p>
-              <div className="overflow-visible rounded-xl border border-slate-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2 w-20">Irat sz.</th>
-                      <th className="px-3 py-2 w-24">Kerületi sz.</th>
-                      <th className="px-3 py-2">Befizető (tag-kereső)</th>
-                      <th className="px-3 py-2 text-right w-28">Összeg (RON)</th>
-                      <th className="px-3 py-2 w-8" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rows.map((r) => (
-                      <tr key={r.id}>
-                        <td className="px-3 py-1.5 align-top">
-                          <Input value={r.iratsz} onChange={(e) => patchRow(r.id, { iratsz: e.target.value })} className="h-8 tabular-nums" />
-                        </td>
-                        <td className="px-3 py-1.5 align-top">
-                          <Input value={r.keruleti} onChange={(e) => patchRow(r.id, { keruleti: e.target.value })} placeholder="opc." className="h-8 tabular-nums" />
-                        </td>
-                        <td className="px-3 py-1.5 align-top">
-                          <PayerSearchCell
-                            value={r.name}
-                            personId={r.personId}
-                            onType={(t) => patchRow(r.id, { name: t, personId: null })}
-                            onPick={(p) => patchRow(r.id, { name: p.name, personId: p.id })}
-                          />
-                        </td>
-                        <td className="px-3 py-1.5 align-top">
-                          <Input type="number" min={0} inputMode="numeric" value={r.amount} onChange={(e) => patchRow(r.id, { amount: e.target.value })} className="h-8 text-right tabular-nums" />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <button type="button" onClick={() => removeRow(r.id)} className="mt-1 text-slate-300 transition hover:text-rose-500" title="Sor törlése">
-                            <Trash2 className="size-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex items-center justify-between">
-                <Button variant="ghost" size="sm" onClick={addRow}><Plus className="mr-1 size-4" /> Új sor</Button>
-                <p className="text-sm text-slate-600">
-                  Összesen: <strong className="tabular-nums text-emerald-700">{ron(total)}</strong> · {validRows.length} tétel
-                  {linkedCount > 0 && <span className="text-emerald-600"> · {linkedCount} személyhez kötve</span>}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* 2. lépés — könyvelés */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-sm text-slate-600">Könyvelési dátum
-                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
-                </label>
-                <label className="text-sm text-slate-600">Bevétel-jogcím (kategória) *
-                  <select
-                    value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}
-                    className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/25"
-                  >
-                    <option value="">— válassz —</option>
-                    {incomeCategories.map((c) => <option key={c.id} value={c.id}>{c.kod ? `${c.kod} · ${c.nev}` : c.nev}</option>)}
-                  </select>
-                </label>
-              </div>
-              <label className="block text-sm text-slate-600">Megjegyzés (a tételekre kerül — &bdquo;utólag elszámolt&rdquo; nyom)
-                <Input value={megj} onChange={(e) => setMegj(e.target.value)} className="mt-1" />
+        <div className="grid gap-5 px-6 py-5 xl:grid-cols-2">
+          {/* ── BAL: kitöltő ── */}
+          <div className="space-y-4">
+            {/* Könyvelés-fejléc */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm text-slate-600">Könyvelési dátum
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
               </label>
-              <div className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2 text-xs text-sky-800">
-                <Info className="mt-0.5 size-3.5 shrink-0" />
-                <p>
-                  A dátum a <strong>könyvelés napja</strong>. Ha a nyugta éve még nyitott, add meg az eredeti dátumot;
-                  ha a számadás már lezárt, a mai dátum + a &bdquo;utólag elszámolt&rdquo; megjegyzés a helyes (a nyugta saját száma
-                  a megjegyzésben marad).
-                </p>
-              </div>
-              {!step2Ok && (
-                <p className="text-xs text-amber-700">Válassz jogcímet, és minden tételhez adj meg befizetőt (az 1. lépésben).</p>
-              )}
+              <label className="text-sm text-slate-600">Bevétel-jogcím (kategória) *
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/25"
+                >
+                  <option value="">— válassz —</option>
+                  {incomeCategories.map((c) => <option key={c.id} value={c.id}>{c.kod ? `${c.kod} · ${c.nev}` : c.nev}</option>)}
+                </select>
+              </label>
             </div>
-          )}
+            <label className="block text-sm text-slate-600">Megjegyzés (minden tételre kerül — &bdquo;utólag elszámolt&rdquo; nyom)
+              <Input value={megj} onChange={(e) => setMegj(e.target.value)} className="mt-1" />
+            </label>
 
-          {/* 3. lépés — ellenőrzés + mentés */}
-          {step === 2 && (
+            {/* Tételek — nyugtánként egy kártya, több befizetővel */}
             <div className="space-y-3">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-sm">
-                <p className="font-semibold text-emerald-900">{validRows.length} nyugta bevételezése · összesen {ron(total)}</p>
-                <p className="mt-0.5 text-emerald-800/80">
-                  Dátum: {date} · Jogcím: {incomeCategories.find((c) => c.id === categoryId)?.nev || '—'}
-                  {linkedCount > 0 && ` · ${linkedCount} személyhez kötve`}
-                </p>
-              </div>
-              <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 text-sm">
-                {validRows.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between px-3 py-2">
-                    <span className="flex items-center gap-2 text-slate-600">
-                      {r.personId != null && <UserCheck className="size-3.5 shrink-0 text-emerald-500" />}
-                      Irat sz. <strong className="tabular-nums">{r.iratsz}</strong> — {r.name || <span className="italic text-slate-400">nincs befizető</span>}
-                    </span>
-                    <span className="tabular-nums font-medium text-slate-800">{ron(Number(r.amount))}</span>
+              {rows.map((r) => {
+                const sum = rowSum(r)
+                return (
+                  <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-xs text-slate-500">Irat sz.
+                        <Input value={r.iratsz} onChange={(e) => patchRow(r.id, { iratsz: e.target.value })} className="mt-0.5 h-8 w-24 tabular-nums" />
+                      </label>
+                      <label className="text-xs text-slate-500">
+                        Kerületi sz.
+                        <Input
+                          value={r.keruleti}
+                          onChange={(e) => patchRow(r.id, { keruleti: e.target.value })}
+                          placeholder="—"
+                          className="mt-0.5 h-8 w-28 tabular-nums"
+                          title="A szomszédos nyugták számaiból kikövetkeztetve — ellenőrizd, szükség esetén javítsd"
+                        />
+                      </label>
+                      <span className="ml-auto text-sm font-semibold tabular-nums text-emerald-800">{ron(sum)}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(r.id)}
+                        className="mb-1 text-slate-300 transition hover:text-rose-500"
+                        title="Nyugta-sor törlése"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+
+                    {/* Befizetők — a nyugtán több név is szerepelhet */}
+                    <div className="mt-2 space-y-1.5">
+                      {r.people.map((p) => (
+                        <div key={p.uid} className="grid grid-cols-[1fr_6rem_2rem] items-center gap-2">
+                          <PayerSearch
+                            value={p.name}
+                            linked={p.id != null}
+                            autoFocus={focusUid === p.uid}
+                            onType={(t) => updatePayer(r.id, p.uid, { name: t, id: null })}
+                            onPick={(h) => updatePayer(r.id, p.uid, { id: h.id, name: h.name })}
+                          />
+                          <Input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={p.osszeg}
+                            placeholder="0"
+                            onChange={(e) => updatePayer(r.id, p.uid, { osszeg: e.target.value })}
+                            className="h-8 text-right tabular-nums"
+                          />
+                          <button
+                            type="button"
+                            aria-label="Befizető törlése"
+                            onClick={() => removePayer(r.id, p.uid)}
+                            className="flex h-8 w-6 items-center justify-center rounded text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => addPayer(r.id)}
+                        className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                        title="Még egy befizető ugyanarra a nyugtára — a nyugtán több név is szerepelhet"
+                      >
+                        <UserPlus className="size-3.5" /> Még egy befizető
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <p className="text-xs text-slate-500">
-                Mentéskor minden tétel <strong>Chitanță-bevételként</strong> a kasszába (Registrul de casă) és a
-                számadásba könyvelődik, a nyugta saját Irat sz.-ával — így a Nyugtafigyelő &bdquo;hiányzó&rdquo; listájáról lekerül.
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Button variant="ghost" size="sm" onClick={addRow}><Plus className="mr-1 size-4" /> Új nyugta-sor</Button>
+              <p className="text-sm text-slate-600">
+                Összesen: <strong className="tabular-nums text-emerald-700">{ron(total)}</strong> · {validRows.length} nyugta
+                {linkedCount > 0 && <span className="text-emerald-600"> · {linkedCount} személyhez kötve</span>}
               </p>
             </div>
-          )}
-        </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4">
-          <Button variant="ghost" onClick={() => (step === 0 ? onOpenChange(false) : setStep((s) => s - 1))} disabled={busy}>
-            {step === 0 ? 'Mégse' : (<><ArrowLeft className="mr-1 size-4" /> Vissza</>)}
-          </Button>
-          {step < 2 ? (
-            <Button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={(step === 0 && !step1Ok) || (step === 1 && !step2Ok)}
-            >
-              Tovább <ArrowRight className="ml-1 size-4" />
-            </Button>
-          ) : (
-            <Button onClick={handleSave} disabled={busy || validRows.length === 0} className="bg-emerald-600 hover:bg-emerald-700">
-              {busy ? <><Loader2 className="mr-1.5 size-4 animate-spin" /> Könyvelés…</> : <><Check className="mr-1.5 size-4" /> Mentés és könyvelés</>}
-            </Button>
-          )}
+            <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+              <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Mégse</Button>
+              <Button onClick={handleSave} disabled={!canSave} className="bg-emerald-600 hover:bg-emerald-700">
+                {busy ? <><Loader2 className="mr-1.5 size-4 animate-spin" /> Könyvelés…</> : <><Check className="mr-1.5 size-4" /> Mentés és könyvelés</>}
+              </Button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Mentéskor minden tétel <strong>Chitanță-bevételként</strong> a kasszába (Registrul de casă) és a
+              számadásba könyvelődik, a nyugta saját Irat sz.-ával — így a Nyugtafigyelő &bdquo;hiányzó&rdquo; listájáról lekerül.
+            </p>
+          </div>
+
+          {/* ── JOBB: élő A4-előnézet (a decont-ablak mintájára) ── */}
+          <div className="xl:sticky xl:top-4 xl:self-start">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Előnézet — Decont de încasări</p>
+                <span className="text-[11px] text-slate-400">élőben frissül</span>
+              </div>
+              <iframe title="Bevételi elszámolás előnézet" srcDoc={previewHtml} className="block h-[720px] w-full bg-white" />
+            </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

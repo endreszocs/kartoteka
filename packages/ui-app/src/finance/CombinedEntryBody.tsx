@@ -461,6 +461,9 @@ export function CombinedEntryBody({
 
   /** #4: melyik többfizetős sorok almenüje van ÖSSZECSUKVA (alapból minden nyitva — felfedezhetőség). */
   const [collapsedPayerRows, setCollapsedPayerRows] = useState<Set<string>>(() => new Set())
+  // #5 (Endre): az újonnan hozzáadott befizető NÉV-mezője automatikusan fókuszt kap,
+  // hogy a „Még egy befizető" után azonnal írható legyen a következő név.
+  const [focusPayerUid, setFocusPayerUid] = useState<string | null>(null)
   const togglePayerRow = (id: string) =>
     setCollapsedPayerRows((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
@@ -492,8 +495,28 @@ export function CombinedEntryBody({
       }),
     )
   }
-  /** Üres (szabad-szöveges) befizető-sor hozzáadása az almenühöz. */
-  function addEmptyPayer(rowId: string) { appendPayers(rowId, [{ id: null, name: '' }]) }
+  /** #5 (Endre): „Még egy befizető" — az új mező AZONNAL írható. 0 befizetőnél a már beírt
+   * szabad-szöveges nevet/összeget ELSŐ befizetővé alakítja, és rögtön ad egy üres, FÓKUSZÁLT
+   * második sort (korábban a kattintás láthatatlan maradt, mert az almenü csak 2+ befizetőnél
+   * nyílik); 1+ befizetőnél üres sort fűz hozzá + fókusz. Az almenüt kinyitjuk. */
+  function addEmptyPayer(rowId: string) {
+    const newUid = crypto.randomUUID()
+    setRows((cur) =>
+      cur.map((r) => {
+        if (r.id !== rowId) return r
+        const curPeople = r.people ?? []
+        const evreDefault = curPeople[0]?.evre || r.evre || String(currentYear)
+        const empty = { uid: newUid, id: null as number | null, name: '', osszeg: '', evre: evreDefault }
+        if (curPeople.length === 0) {
+          const first = { uid: crypto.randomUUID(), id: null as number | null, name: r.partner.trim(), osszeg: r.amount.trim(), evre: evreDefault }
+          return { ...r, people: [first, empty], partner: '', amount: '' }
+        }
+        return { ...r, people: [...curPeople, empty] }
+      }),
+    )
+    setCollapsedPayerRows((cur) => { const next = new Set(cur); next.delete(rowId); return next })
+    setFocusPayerUid(newUid)
+  }
   /** Egy befizető mezőjének frissítése (név / összeg / év). */
   function updatePayer(rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string }>) {
     setRows((cur) => cur.map((r) => (r.id === rowId ? { ...r, people: (r.people ?? []).map((p, i) => (i === idx ? { ...p, ...patch } : p)) } : r)))
@@ -1119,6 +1142,7 @@ export function CombinedEntryBody({
                         addEmptyPayer={addEmptyPayer}
                         updatePayer={updatePayer}
                         removePayer={removePayer}
+                        focusPayerUid={focusPayerUid}
                       />
                     )}
                   </td>
@@ -1225,6 +1249,7 @@ export function CombinedEntryBody({
                         addEmptyPayer={addEmptyPayer}
                         updatePayer={updatePayer}
                         removePayer={removePayer}
+                        focusPayerUid={focusPayerUid}
                       />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
@@ -1349,6 +1374,7 @@ function PartnerCell({
   addEmptyPayer,
   updatePayer,
   removePayer,
+  focusPayerUid,
 }: {
   row: EntryRow
   mode: 'income' | 'expense'
@@ -1366,6 +1392,8 @@ function PartnerCell({
   addEmptyPayer: (rowId: string) => void
   updatePayer: (rowId: string, idx: number, patch: Partial<{ id: number | null; name: string; osszeg: string; evre: string }>) => void
   removePayer: (rowId: string, idx: number) => void
+  /** #5: az újonnan hozzáadott befizető uid-je — annak NÉV-mezője fókuszt kap. */
+  focusPayerUid?: string | null
 }) {
   // mode szerinti kereső-függvény: bevétel → tag-keresés; kiadás → korábbi partnerek (névlista).
   const searchFn = (query: string): Promise<CombinedMemberHit[]> =>
@@ -1404,6 +1432,7 @@ function PartnerCell({
               value={single ? single.name : row.partner}
               linked={!!single && single.id != null}
               onSearch={searchFn}
+              showUnlinkedBadge={mode === 'income'}
               placeholder={
                 mode === 'income'
                   ? 'Befizető neve — itt keres a tagok közt (vagy szabad szöveg)'
@@ -1508,9 +1537,11 @@ function PartnerCell({
                   value={p.name}
                   linked={p.id != null}
                   onSearch={searchFn}
-                  placeholder="Név — itt keres"
+                  placeholder="Név — itt keres (vagy szabad szöveg)"
                   onType={(t) => updatePayer(row.id, i, { name: t, id: null })}
                   onPick={(h) => updatePayer(row.id, i, { id: h.id, name: h.name })}
+                  autoFocus={focusPayerUid === p.uid}
+                  showUnlinkedBadge
                 />
                 <input
                   className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
@@ -1592,6 +1623,8 @@ function PayerNameSearch({
   onPick,
   onSearch,
   placeholder,
+  autoFocus,
+  showUnlinkedBadge,
 }: {
   value: string
   linked: boolean
@@ -1599,6 +1632,10 @@ function PayerNameSearch({
   onPick: (hit: CombinedMemberHit) => void
   onSearch: (query: string) => Promise<CombinedMemberHit[]>
   placeholder: string
+  /** #5: mountkor fókusz — a „Még egy befizető" után azonnal írható az új név. */
+  autoFocus?: boolean
+  /** #5: „nem tag" jelvény szabad-szöveges (nem párosított) névnél — csak bevételnél. */
+  showUnlinkedBadge?: boolean
 }) {
   const [hits, setHits] = useState<CombinedMemberHit[]>([])
   const [open, setOpen] = useState(false)
@@ -1615,6 +1652,11 @@ function PayerNameSearch({
     const r = el!.getBoundingClientRect()
     setDropRect({ left: r.left, top: r.bottom + 4, width: r.width })
   }
+
+  // #5: az újonnan hozzáadott befizető mezője automatikus fókuszt kap.
+  useEffect(() => {
+    if (autoFocus) queueMicrotask(() => inputRef.current?.focus())
+  }, [autoFocus])
 
   useEffect(() => {
     if (!open) return
@@ -1663,6 +1705,15 @@ function PayerNameSearch({
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
         onFocus={() => hits.length > 0 && setOpen(true)}
       />
+      {/* #5: nem párosított (szabad-szöveges) név — nem gyülekezeti tag is adhat adományt. */}
+      {showUnlinkedBadge && !linked && value.trim().length >= 2 && !open && (
+        <span
+          className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500"
+          title="Nincs taghoz kötve — szabad szövegként mentődik (nem gyülekezeti tag is adhat)"
+        >
+          nem tag
+        </span>
+      )}
       {open && hits.length > 0 && dropRect && typeof document !== 'undefined' &&
         createPortal(
           <div

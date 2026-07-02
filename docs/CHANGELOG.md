@@ -23,6 +23,64 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — UX: „Még egy befizető" — azonnal írható új mező + „nem tag" jelzés
+<!-- key: 2026-07-02-meg-egy-befizeto-fokusz -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Tétel rögzítése ablakban a „Még egy befizető" gombra kattintva azonnal írható az új
+  befizető neve** — a mező automatikusan fókuszt kap, és az almenü rögtön kinyílik (korábban az
+  első kattintás láthatatlan maradt). A már beírt név/összeg nem vész el: első befizetőként
+  megmarad.
+- **A tag-párosítás nem kötelező** — nem gyülekezeti tag is adhat adományt. A rendszer diszkréten
+  jelzi („nem tag"), ha a beírt név nincs taghoz kötve; zöld jelölés mutatja, ha kötve van.
+
+---
+
+## [2026-07-02] — Új: hiányzó nyugták bevételi ELSZÁMOLÁSA élő előnézettel (Decont de încasări)
+<!-- key: 2026-07-02-hianyzo-nyugtak-decont-elonezet -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció / UX
+
+- **A hiányzó nyugták utólagos könyvelése mostantól bevételi ELSZÁMOLÁS (Decont de încasări)** —
+  nem „Dispoziție de încasare". Az ablak a Decont-ablak mintájára **élő A4-előnézetet** mutat
+  (gépelés közben frissül), ami nyomtatható hivatalos formában tartalmazza a tételeket.
+- **A Kerületi sz. automatikusan kikövetkeztetve előtöltődik** a hiányzó nyugta előtti és utáni
+  nyugták számaiból (a kerületi és a gyülekezeti sorszám együtt lép) — természetesen kézzel
+  felülírható.
+- **Egy nyugtára több befizető is rögzíthető** (a nyugtán több név is szerepelhet), mindenki külön
+  összeggel. A **tag-párosítás nem kötelező** — nem gyülekezeti tag is adhat adományt (ilyenkor a
+  név szabad szövegként mentődik, és a rendszer diszkréten jelzi: „nem tag").
+- **Részletesebb, szebb befizető-kereső:** avatar, életkor-jelvény és lakcím a találatokban; zöld
+  jelölés mutatja, ha a befizető taghoz van kötve.
+
+---
+
+## [2026-07-02] — Új: minden gyülekezeti szerkesztő egy helyen (a „Haladó szerkesztő" megszűnt)
+<!-- key: 2026-07-02-gyulekezet-beallitas-konszolidacio -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web (következő kiadás) -->
+
+### ✨ Új funkció / UX
+
+- **A gyülekezet ÖSSZES beállítása egy helyen: a „Gyülekezet beállítása" ablakban.** Új panelek:
+  - **Kedvezmények és díjak** — a kedvezmény-szabályok (korai fizetés, kor/nyugdíjas, foglalkozás,
+    szociális) és az egyéb gyülekezeti díjak teljes szerkesztője (hozzáadás / módosítás / törlés).
+  - **Lelkészek és átadás** — a lelkészi szolgálati napló és a gyülekezet-átadás teljes folyamata.
+  - A **Pénzügyi alap** panelre bekerültek az **évenkénti (visszamenőleges) díjak** is.
+- **A külön „Haladó szerkesztő" ablak és gomb megszűnt** — minden funkciója beolvadt a beállítás-
+  ablakba, így nincs többé oda-vissza ugrálás; a „Gyülekezetünk adatai" nézet „Szerkesztés" gombja
+  is ide vezet.
+
+---
+
 ## [2026-07-02] — Javítás: készpénzes KIADÁS mentése (oszlop-hiba)
 <!-- key: 2026-07-02-keszpenz-kiadas-mentes-fix -->
 <!-- category: fix -->

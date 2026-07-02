@@ -19,7 +19,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Banknote, Calculator, Check, Church, FileText, Image as ImageIcon,
-  Landmark, Loader2, MapPin, Phone, Plus, Save, Star, Trash2, Upload, Wallet, X,
+  Landmark, Loader2, MapPin, Percent, Phone, Plus, Save, Star, Trash2, Upload, UserCog, Wallet, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -38,6 +38,13 @@ import {
   WizardBanner,
   Input as WizardInput,
 } from '@/components/onboarding/wizard/_helpers/wizard-ui'
+// #Endre 2026-07-02: a haladó szerkesztő (kedvezmények, egyéb díjak, évenkénti díjak,
+// lelkész-átadás) BEOLVAD a beállítás-ablakba — külön self-contained komponensek, a meglévő
+// (változatlan) szerver-actionökre építve. A régi „Haladó szerkesztő" ablak megszűnik.
+import { FeeDiscountsManager } from '@/components/congregation/fee-discounts-manager'
+import { CustomFeesManager } from '@/components/congregation/custom-fees-manager'
+import { AnnualFeesManager } from '@/components/congregation/annual-fees-manager'
+import { PastorTransferManager } from '@/components/congregation/pastor-transfer-manager'
 import {
   getCongregationForSetup,
   saveCongregationSetup,
@@ -163,7 +170,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   const [isPending, startTransition] = useTransition()
   const [loading, setLoading] = useState(true)
 
-  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank' | 'penzugy'>('attekintes')
+  const [activePane, setActivePane] = useState<'attekintes' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz'>('attekintes')
 
   const [form, setForm] = useState<SetupFormState>({
     nev: '', nev_hu: '', nev_ro: '', nev_en: '', adoszam: '', cimer_url: '',
@@ -297,7 +304,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
   // Készültség kategóriánként (Tier-1 kötelező mezők). A szerver továbbra is szigorúan validál; a
   // hiányzó mezőket panelenként jelezzük (oldalsáv-státusz + készültség-jelző). A `cim` (utca) és a
   // `cimer_url` is itt van — különben a gomb aktív lenne, de a szerver-mentés elbukna.
-  const paneMissing: Record<'attekintes' | 'cim' | 'bank' | 'penzugy', string[]> = { attekintes: [], cim: [], bank: [], penzugy: [] }
+  const paneMissing: Record<'attekintes' | 'cim' | 'bank' | 'penzugy' | 'kedvezmenyek' | 'lelkesz', string[]> = { attekintes: [], cim: [], bank: [], penzugy: [], kedvezmenyek: [], lelkesz: [] }
   if (form.nev_hu.trim().length < 2) paneMissing.attekintes.push('magyar név')
   if (!form.adoszam.trim()) paneMissing.attekintes.push('adószám')
   if (!form.cimer_url.trim()) paneMissing.attekintes.push('címer')
@@ -314,6 +321,8 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
     { key: 'cim' as const, label: 'Cím és elérhetőség', icon: MapPin, chipBg: 'bg-sky-50', chipText: 'text-sky-600' },
     { key: 'bank' as const, label: 'Bankszámlák', icon: Banknote, chipBg: 'bg-indigo-50', chipText: 'text-indigo-600' },
     { key: 'penzugy' as const, label: 'Pénzügyi alap', icon: Landmark, chipBg: 'bg-emerald-50', chipText: 'text-emerald-600' },
+    { key: 'kedvezmenyek' as const, label: 'Kedvezmények és díjak', icon: Percent, chipBg: 'bg-violet-50', chipText: 'text-violet-600' },
+    { key: 'lelkesz' as const, label: 'Lelkészek és átadás', icon: UserCog, chipBg: 'bg-rose-50', chipText: 'text-rose-600' },
   ]
   const doneCount = PANES.filter((p) => paneMissing[p.key].length === 0).length
   const allMissing = [...paneMissing.attekintes, ...paneMissing.cim, ...paneMissing.bank, ...paneMissing.penzugy]
@@ -489,27 +498,22 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                 {activePane === 'penzugy' && (
                   <>
                     <SectionFinance form={form} setForm={setForm} />
-                    {/* #Endre 2026-07-02: a haladó pénzügyi + lelkész szerkesztők (kedvezmény-szabályok,
-                        egyéb díjak, évenkénti visszamenőleges díjak, lelkész-átadás) átkerültek ide a
-                        „Gyülekezetünk adatai"-ból — külön, részletes szerkesztő ablakban nyílnak. */}
-                    <div className="card-raised p-4 bg-violet-50/40 border-violet-200">
-                      <p className="text-sm font-semibold text-slate-800">Kedvezmények, egyéb díjak és lelkész-átadás</p>
-                      <p className="mt-1 mb-3 text-xs text-slate-500">
-                        A kedvezmény-szabályok, az egyéb díjak, az évenkénti (visszamenőleges) díjak és a
-                        lelkész-átadás részletes szerkesztője külön ablakban nyílik.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          onOpenChange(false)
-                          window.dispatchEvent(new Event('kartoteka:open-congregation-advanced'))
-                        }}
-                      >
-                        Haladó szerkesztő megnyitása
-                      </Button>
-                    </div>
+                    {/* #Endre 2026-07-02: az évenkénti (visszamenőleges) díjak beolvadtak ide a
+                        haladó szerkesztőből. A kedvezmény-szabályok + egyéb díjak a „Kedvezmények
+                        és díjak" panelen, a lelkész-átadás a „Lelkészek és átadás" panelen. */}
+                    <AnnualFeesManager congregationId={congregationId} currentYearFee={form.eves_jarulek} />
                   </>
+                )}
+
+                {activePane === 'kedvezmenyek' && (
+                  <>
+                    <FeeDiscountsManager congregationId={congregationId} />
+                    <CustomFeesManager congregationId={congregationId} />
+                  </>
+                )}
+
+                {activePane === 'lelkesz' && (
+                  <PastorTransferManager congregationId={congregationId} />
                 )}
 
                 {activePane === 'cim' && (
@@ -763,36 +767,16 @@ function SectionFinance({ form, setForm }: { form: SetupFormState; setForm: SetF
         </div>
       </WizardSectionCard>
 
-      {/* Kedvezményes időszak */}
-      <WizardSectionCard
-        icon={Calculator}
-        iconColor="text-emerald-700"
-        iconBg="bg-emerald-50"
-        title="Kedvezményes időszak"
-        description="Aki a határidő előtt fizet, a kedvezményes alapösszeget fizetheti. Hagyd 0-n, ha nincs kedvezmény."
-      >
-        <div className="grid gap-3 md:grid-cols-2">
-          <WizardField id="jarulek_kedvezmenyes" label="Kedvezményes alapösszeg (RON)" hint="0 = nincs kedvezményes összeg.">
-            <WizardInput
-              id="jarulek_kedvezmenyes"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder="pl. 100"
-              value={form.jarulek_kedvezmenyes || ''}
-              onChange={(e) => setForm({ ...form, jarulek_kedvezmenyes: Number(e.target.value) || 0 })}
-            />
-          </WizardField>
-          <WizardField id="jarulek_hatarid" label="Kedvezmény határideje (HH-NN)" hint="Eddig fizetve jár a kedvezményes összeg (pl. 07-01).">
-            <WizardInput
-              id="jarulek_hatarid"
-              placeholder="pl. 07-01"
-              value={form.jarulek_hatarid}
-              onChange={(e) => setForm({ ...form, jarulek_hatarid: e.target.value })}
-            />
-          </WizardField>
-        </div>
-      </WizardSectionCard>
+      {/* #Endre (6a): a kedvezmény NEM itt állítható — a „Kedvezmények és díjak" panelen (időszaki,
+          kor-, foglalkozás-, szociális kedvezmények). A jarulek_kedvezmenyes/hatarid skalár mezők a
+          háttérben megmaradnak (nem törlődnek), de itt nem szerkesztjük. */}
+      <WizardBanner tone="info">
+        <p>
+          A <strong>kedvezményeket</strong> (korai fizetés / kor / foglalkozás / szociális) a bal
+          oldali <strong>&bdquo;Kedvezmények és díjak&rdquo;</strong> panelen állíthatod be — több szabály is
+          felvehető, akár évenként.
+        </p>
+      </WizardBanner>
 
       {/* Tartozás-számítási mód — a welcome radio-kártyáival azonos */}
       <WizardSectionCard
