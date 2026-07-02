@@ -23,6 +23,23 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-02] — UX: „Még egy befizető" — azonnal írható új mező + „nem tag" jelzés
+<!-- key: 2026-07-02-meg-egy-befizeto-fokusz -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🎨 UX javítás
+
+- **A Tétel rögzítése ablakban a „Még egy befizető" gombra kattintva azonnal írható az új
+  befizető neve** — a mező automatikusan fókuszt kap, és az almenü rögtön kinyílik (korábban az
+  első kattintás láthatatlan maradt). A már beírt név/összeg nem vész el: első befizetőként
+  megmarad.
+- **A tag-párosítás nem kötelező** — nem gyülekezeti tag is adhat adományt. A rendszer diszkréten
+  jelzi („nem tag"), ha a beírt név nincs taghoz kötve; zöld jelölés mutatja, ha kötve van.
+
+---
+
 ## [2026-07-02] — Új: hiányzó nyugták bevételi ELSZÁMOLÁSA élő előnézettel (Decont de încasări)
 <!-- key: 2026-07-02-hianyzo-nyugtak-decont-elonezet -->
 <!-- category: improvement -->
