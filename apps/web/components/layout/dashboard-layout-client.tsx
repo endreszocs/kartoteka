@@ -135,6 +135,8 @@ void Church
 
 interface DashboardLayoutClientProps {
   profile: Profile
+  /** 2026-07-10 (S4-avatar): a beállított profilfotó URL-je a header avatárhoz. */
+  avatarUrl?: string | null
   congregationId: string | null
   role: Role
   master: boolean
@@ -177,7 +179,7 @@ interface DashboardLayoutClientProps {
 }
 
 export function DashboardLayoutClient({
-  profile, congregationId, master, admin, egyhazkeruletiAdmin = false, esperes,
+  profile, avatarUrl = null, congregationId, master, admin, egyhazkeruletiAdmin = false, esperes,
   konyvelo = false, szamvevo = false, hasCongregation, assignedCongregationsCount = 0,
   isGodMode, godModeExpiresAt, congregationName, congregationLogo, congregationDioceseName = null,
   override, profileRoles = [], activeProfileRoleId = null, scopeNames = {}, activeScope = null,
@@ -215,6 +217,7 @@ export function DashboardLayoutClient({
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <DashboardShell
           profile={profile}
+          avatarUrl={avatarUrl}
           congregationId={congregationId}
           congregationName={congregationName}
           congregationLogo={congregationLogo}

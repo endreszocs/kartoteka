@@ -37,14 +37,17 @@ export function ExpenseDialogV2({ open, onOpenChange, categories, bankAccounts }
         <div className="border-b border-zinc-100 px-6 pb-4 pt-6">
           <DialogHeader>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-600 shadow-md">
+              {/* 2026-07-10 (S4-#6): rose-paletta a body újratervezésével egységben */}
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 shadow-md">
                 <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
               </div>
               <div>
                 <DialogTitle className="font-heading text-lg">Kiadás rögzítése</DialogTitle>
-                <p className="mt-0.5 text-xs text-zinc-400">Egyszeri vagy táblázatos bevitel, bankból kivétellel és leltári felismeréssel.</p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  Három lépés: mi történt, kinek fizettünk, részletek — vagy táblázatos bevitel több sorhoz.
+                </p>
               </div>
             </div>
           </DialogHeader>

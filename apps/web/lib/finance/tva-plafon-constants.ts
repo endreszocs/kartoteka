@@ -26,13 +26,9 @@ export const TVA_FIGYELMEZTETES_PIROS_SZAZALEK = 1.00
 /** Figyelmeztetési szintek — UI színek és üzenetek ezeket használják. */
 export type TvaFigyelmeztetesSzint = 'nyugodt' | 'sarga' | 'narancs' | 'piros'
 
-/** A 4 szint sorrendje (növekvő kockázat szerint). */
-export const TVA_SZINT_SORREND: TvaFigyelmeztetesSzint[] = [
-  'nyugodt',
-  'sarga',
-  'narancs',
-  'piros',
-]
+// 2026-07-10 (S4-halottkod): a TVA_SZINT_SORREND konstans törölve — a teljes
+// monorepóban sehol nem hivatkozott rá senki (a szint-logika a
+// tvaFigyelmeztetesSzint() küszöb-összehasonlításaival működik).
 
 /**
  * Egy beszámító tétel (szamadasicel kód) összesítője.

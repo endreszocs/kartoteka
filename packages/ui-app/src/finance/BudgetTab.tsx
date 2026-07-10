@@ -500,11 +500,12 @@ export function BudgetTab({
               if (!isAvailable) return null
 
               return (
+                // 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon.
                 <Button
                   key={m}
                   size="sm"
                   variant={isActive ? 'default' : 'outline'}
-                  className="rounded-full"
+                  className="rounded-full max-sm:min-h-10"
                   onClick={() => setMode(m)}
                 >
                   {MODE_LABELS[m]}
@@ -515,11 +516,12 @@ export function BudgetTab({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
+          {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
           {canEdit && (
             <>
               <Button
                 size="sm"
-                className="rounded-xl"
+                className="rounded-xl max-sm:min-h-10"
                 onClick={() => void handleSave()}
                 disabled={saving}
               >
@@ -528,7 +530,7 @@ export function BudgetTab({
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                className="rounded-xl max-sm:min-h-10 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                 onClick={() => void handleFinalizeAndSubmit()}
                 disabled={saving}
               >
@@ -543,7 +545,7 @@ export function BudgetTab({
             <Button
               size="sm"
               variant="outline"
-              className="rounded-xl text-amber-700 border-amber-200 hover:bg-amber-50"
+              className="rounded-xl max-sm:min-h-10 text-amber-700 border-amber-200 hover:bg-amber-50"
               onClick={() => void handleUnlockRequest()}
             >
               Javítási kérelem
@@ -698,19 +700,22 @@ function BudgetCellTable({
           {formatCurrency(total)} RON
         </span>
       </div>
+      {/* 2026-07-10 (S4-mobil): min-w + tabular-nums — telefonon vízszintesen
+          görgethető tábla; a referencia-oszlopok (Előző / Előző évi tény)
+          md alatt rejtve, a lényeg (Kód/Megnevezés/Terv) mindig látszik. */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[440px] text-sm tabular-nums">
           <thead className="border-b border-slate-100 bg-slate-50/80">
             <tr>
               <th className="p-2 text-left text-xs font-medium text-slate-500 w-16">Kód</th>
               <th className="p-2 text-left text-xs font-medium text-slate-500">Megnevezés</th>
               {showModComparison && (
-                <th className="p-2 text-right text-xs font-medium text-slate-500 w-28">
+                <th className="hidden md:table-cell p-2 text-right text-xs font-medium text-slate-500 w-28">
                   Előző
                 </th>
               )}
               {showPrevYear && (
-                <th className="p-2 text-right text-xs font-medium text-slate-400 w-28">
+                <th className="hidden md:table-cell p-2 text-right text-xs font-medium text-slate-400 w-28">
                   Előző évi tény
                 </th>
               )}
@@ -736,8 +741,12 @@ function BudgetCellTable({
                 >
                   {row.nev}
                 </td>
-                {showModComparison && <td className="p-2 text-right text-xs text-slate-300">–</td>}
-                {showPrevYear && <td className="p-2 text-right text-xs text-slate-300">–</td>}
+                {showModComparison && (
+                  <td className="hidden md:table-cell p-2 text-right text-xs text-slate-300">–</td>
+                )}
+                {showPrevYear && (
+                  <td className="hidden md:table-cell p-2 text-right text-xs text-slate-300">–</td>
+                )}
                 <td className="p-2 text-right">
                   <span className={row.group ? 'font-semibold text-slate-700' : 'text-slate-600'}>
                     {formatCurrency(row.value)}
@@ -771,12 +780,12 @@ function BudgetCellTable({
                     {c.nev}
                   </td>
                   {showModComparison && (
-                    <td className="p-2 text-right text-xs text-slate-400">
+                    <td className="hidden md:table-cell p-2 text-right text-xs text-slate-400">
                       {formatCurrency(prevVal)}
                     </td>
                   )}
                   {showPrevYear && (
-                    <td className="p-2 text-right text-xs text-slate-400">
+                    <td className="hidden md:table-cell p-2 text-right text-xs text-slate-400">
                       {prevYearVal !== 0 ? formatCurrency(prevYearVal) : '–'}
                     </td>
                   )}
@@ -786,11 +795,12 @@ function BudgetCellTable({
                         {formatCurrency(val)}
                       </span>
                     ) : canEdit ? (
+                      // 2026-07-10 (S4-mobil): min-h-10 telefonon + tabular-nums a bevitelben.
                       <input
                         type="number"
                         value={val || ''}
                         onChange={(e) => setValue(c.id, Number(e.target.value) || 0)}
-                        className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm placeholder:text-slate-300"
+                        className="w-28 max-sm:min-h-10 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm tabular-nums placeholder:text-slate-300"
                         step="0.01"
                         min="0"
                         placeholder={

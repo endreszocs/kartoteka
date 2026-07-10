@@ -85,12 +85,20 @@ export function buildDecontHtml(d: DecontDocData): string {
 
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8"/>
   <style>
-    @page { size: A4 portrait; margin: 14mm 12mm; }
-    * { box-sizing: border-box; }
-    body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 12px; margin: 0; }
-    /* Képernyős előnézeten emuláljuk a lap-margót (a @page csak nyomtatásnál hat) */
-    @media screen { body { padding: 14mm 12mm; } }
-    .sheet { width: 100%; }
+    /* 2026-07-10 (S4-decont): WYSIWYG — @page margó 0, a lap-margót a .sheet
+       paddingje (14mm 12mm) adja, így a képernyős előnézet, a böngészős
+       nyomtatás ÉS a PDF (printToPdf margin [0,0]) AZONOS tartalom-szélességet
+       és tördelést kap (minta: reporting.ts styles()). */
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 12px; margin: 0; background: #fff; }
+    .sheet { width: 210mm; margin: 0 auto; padding: 14mm 12mm; background: #fff; }
+    /* 2026-07-10 (S4-decont): hosszú tartalomnál se csússzon szét a táblázat —
+       fix oszlopszélesség (colgroup) + tördelés a cellán belül. */
+    table { table-layout: fixed; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    td { word-break: break-word; overflow-wrap: anywhere; }
     /* 2026-07-10 (ÚJ #5): zöld háttér eltávolítva — a hivatalos iraton nincs kiemelés. */
     .unit-band { border: 1px solid #94a3b8; background: #fff; height: 26px; }
     .unit-label { font-size: 11px; color: #1f3a5f; margin: 2px 0 10px; }
@@ -141,6 +149,11 @@ export function buildDecontHtml(d: DecontDocData): string {
     </div>
 
     <table>
+      <!-- 2026-07-10 (S4-decont): fix oszlopszélességek — hosszú szöveg tördelődik, nem tolja szét a lapot. -->
+      <colgroup>
+        <col style="width:6%"/><col style="width:11%"/><col style="width:8%"/><col style="width:12%"/>
+        <col style="width:17%"/><col style="width:34%"/><col style="width:12%"/>
+      </colgroup>
       <thead>
         <tr>
           <th>Nr.\nSz.</th>
@@ -231,8 +244,9 @@ function dispozitieCopy(d: DispozitieDocData): string {
        <div class="dp-head-hu">${esc(d.congregationName)}</div>`
     : `<div class="dp-head">${esc(d.congregationName)}</div>`
 
-  return `<div class="dp">
-    ${head}
+  // 2026-07-10 (S4-decont): NINCS saját .dp wrapper — a buildDispozitieHtml copy()
+  // csomagolja be; a korábbi beágyazott .dp DUPLA keretet + dupla paddingot rajzolt.
+  return `${head}
     <div class="dp-title">${titlu}</div>
     <div class="dp-nr">nr. ${esc(d.sorszam)} din ${huDate(d.date)}</div>
 
@@ -248,8 +262,7 @@ function dispozitieCopy(d: DispozitieDocData): string {
       <div class="block-title">Casier,</div>
       <div>${casierLine}${esc(words)} &nbsp;<span class="muted">(în litere)</span></div>
       <div>Data: ${huDate(d.date)} &nbsp;&nbsp; Semnătura: <span class="line">&nbsp;</span></div>
-    </div>
-  </div>`
+    </div>`
 }
 
 export function buildDispozitieHtml(d: DispozitieDocData): string {
@@ -260,13 +273,17 @@ export function buildDispozitieHtml(d: DispozitieDocData): string {
   // A4 álló, két A5 példány egymás alatt — szellős, nem zsúfolt.
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8"/>
   <style>
-    @page { size: A4 portrait; margin: 10mm; }
+    /* 2026-07-10 (S4-decont): WYSIWYG — @page margó 0, a lap-margót a .wrap
+       paddingje (10mm) adja, így a képernyős előnézet, a böngészős nyomtatás
+       ÉS a PDF (printToPdf margin [0,0]) AZONOS tördelést kap (minta:
+       reporting.ts styles()). */
+    @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 13px; margin: 0; }
-    @media screen { body { padding: 10mm; } }
+    body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 13px; margin: 0; background: #fff; }
     /* Két A5 példány EGY A4 oldalon: a magasságok úgy hangolva, hogy ne csússzon 2. oldalra. */
-    .wrap { display: flex; flex-direction: column; gap: 6mm; }
-    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 8mm 12mm; min-height: 100mm; position: relative; break-inside: avoid; }
+    .wrap { width: 210mm; margin: 0 auto; padding: 10mm; display: flex; flex-direction: column; gap: 6mm; }
+    /* 2026-07-10 (S4-decont): hosszú név/cél tördelődik, nem tolja szét a keretet. */
+    .dp { border: 1px solid #94a3b8; border-radius: 4px; padding: 8mm 12mm; min-height: 100mm; position: relative; break-inside: avoid; page-break-inside: avoid; word-break: break-word; overflow-wrap: anywhere; }
     .exno { position: absolute; top: 4mm; right: 5mm; font-size: 10px; color: #94a3b8; }
     .dp-head { text-align: center; font-weight: bold; font-size: 14px; }
     .dp-head-hu { text-align: center; font-weight: normal; font-size: 12px; color: #475569; margin-top: 1px; }

@@ -3035,10 +3035,20 @@ export async function saveRentalContract(raw: RentalContractInput) {
 
   const d = parsed.data
 
-  // A tipus alapján auto-kitöltjük az id_szamadasicel-t, ha nincs megadva vagy üres
+  // A tipus alapján auto-kitöltjük az id_szamadasicel-t, ha nincs megadva vagy üres.
+  // 2026-07-10 (S4-#2 audit): ha a beküldött kód a KÉT bérleti kód egyike, de NEM
+  // a tipus-hoz tartozó (pl. szerkesztéskor terulet→epulet váltás történt, és a
+  // dialog a régi 104.05-öt küldte vissza), akkor is a tipus szerinti helyes kódra
+  // korrigálunk — különben a befizetés-párosítás rossz kategóriát figyelne.
+  // Egyedi (nem bérleti) kódot változatlanul tiszteletben tartunk.
+  const beErkezettKod = d.id_szamadasicel?.trim() || ''
   const id_szamadasicel =
-    d.id_szamadasicel && d.id_szamadasicel.trim().length > 0
-      ? d.id_szamadasicel
+    beErkezettKod.length > 0 &&
+    !(
+      RENTAL_SZAMADASICEL_CODES.includes(beErkezettKod) &&
+      beErkezettKod !== RENTAL_SZAMADASICEL_MAP[d.tipus]
+    )
+      ? beErkezettKod
       : RENTAL_SZAMADASICEL_MAP[d.tipus]
 
   // Cég esetén a ceg_nev-et használjuk berlo_nev-ként is (a Vanilla JS így csinálja,
@@ -3169,6 +3179,10 @@ export async function getRentalDebtRows(
       .select('id_szemely, forrasa, fizetettev, osszeg')
       .eq('congregation_id', congregationId)
       .eq('deleted', false)
+      // 2026-07-10 (S4-#2 audit): a STORNÓZOTT befizetés nem számít befizetett
+      // bérleti díjnak — eddig beleszámított, így a hátralék alábecsült volt.
+      // Or-szűrés, mert a storno-funkció előtti sorokban a stornozott IS NULL.
+      .or('stornozott.eq.false,stornozott.is.null')
       .in('id_befizetescel', bevCelIds)
       .gte('fizetettev', yearFrom)
       .lte('fizetettev', yearTo)

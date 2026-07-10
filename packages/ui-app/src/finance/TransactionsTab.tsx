@@ -119,6 +119,23 @@ export interface TransactionsTabProps {
     onClick: () => void
   }) => ReactNode
 
+  /** 2026-07-10 (S4 #10): van-e kiválasztott Oblio (KARTOTEKA) mappa.
+   *  `false` esetén az SPV-ikon kattintás NEM vált fület (az Oblio ellenőrzés
+   *  fül mappa nélkül zsákutca lenne), hanem az `oblioFolderWarningSlot`
+   *  figyelmeztetőjét nyitja. `undefined` (pl. desktop-adapter, vagy még fut
+   *  az ellenőrzés) = nincs kapuzás, a régi viselkedés marad. */
+  oblioFolderReady?: boolean
+
+  /** 2026-07-10 (S4 #10): figyelmeztető dialog, ha nincs Oblio-mappa.
+   *  `onFolderPicked` — a web-oldali sikeres mappa-választás után hívandó:
+   *  bezárja a figyelmeztetőt és reload nélkül folytatja a megszakított
+   *  fülváltást az Oblio ellenőrzésre. */
+  oblioFolderWarningSlot?: (params: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    onFolderPicked: () => void
+  }) => ReactNode
+
   /** Kiadási kísérőív nyomtatási modal. */
   kiseroivPrintDialogSlot?: (params: {
     open: boolean
@@ -182,6 +199,8 @@ export function TransactionsTab({
   oblioExpenseStatusIconSlot,
   kiseroivPrintDialogSlot,
   oblioInvoiceDialogSlot,
+  oblioFolderReady,
+  oblioFolderWarningSlot,
 }: TransactionsTabProps) {
   const [monthFilter, setMonthFilter] = useState<number | ''>('')
   /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
@@ -191,6 +210,8 @@ export function TransactionsTab({
   const [kiseroivDate, setKiseroivDate] = useState<string | null>(null)
   const [invoiceContract, setInvoiceContract] = useState<RentalContractRow | null>(null)
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
+  // 2026-07-10 (S4 #10): "nincs Oblio-mappa" figyelmeztető láthatósága.
+  const [oblioFolderWarningOpen, setOblioFolderWarningOpen] = useState(false)
 
   const [expenseSpvMatchedIds, setExpenseSpvMatchedIds] = useState<Set<number>>(new Set())
   const [spvMatchesLoaded, setSpvMatchesLoaded] = useState(false)
@@ -719,6 +740,16 @@ export function TransactionsTab({
                                       matched: expenseSpvMatchedIds.has(r.id),
                                       notYetScanned: !spvMatchesLoaded,
                                       onClick: () => {
+                                        // 2026-07-10 (S4 #10): mappa nélkül a fülváltás
+                                        // zsákutca — előbb a figyelmeztető, amiből
+                                        // HELYBEN kiválasztható a KARTOTEKA mappa.
+                                        if (
+                                          oblioFolderReady === false &&
+                                          oblioFolderWarningSlot
+                                        ) {
+                                          setOblioFolderWarningOpen(true)
+                                          return
+                                        }
                                         onSwitchTab?.('oblio_ellenorzes')
                                       },
                                     })}
@@ -769,6 +800,17 @@ export function TransactionsTab({
         open: invoiceDialogOpen,
         onOpenChange: setInvoiceDialogOpen,
         contract: invoiceContract,
+      })}
+
+      {/* 2026-07-10 (S4 #10): "nincs Oblio-mappa" figyelmeztető — sikeres
+          mappa-választás után reload nélkül folytatjuk a fülváltást. */}
+      {oblioFolderWarningSlot?.({
+        open: oblioFolderWarningOpen,
+        onOpenChange: setOblioFolderWarningOpen,
+        onFolderPicked: () => {
+          setOblioFolderWarningOpen(false)
+          onSwitchTab?.('oblio_ellenorzes')
+        },
       })}
     </div>
   )

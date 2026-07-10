@@ -23,6 +23,60 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-10] — Pénzügy 3. kör: banki import javítás, megújult Decont/Dispoziție, bérleti szerződések
+<!-- key: 2026-07-10-penzugy-harmadik-kor -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **⚠️ KIEMELT: A banki import (BCR Excel) eddig „Import sikeres!" feliratot mutatott
+  akkor is, amikor VALÓJÁBAN egyetlen tételt sem rögzített.** Egy belső hiba miatt
+  minden bevételi tétel mentése elbukott, de a varázsló ezt zölddel nyugtázta —
+  aki importált, joggal hihette, hogy a kivonat bekerült, pedig nem. Mindkét
+  hibát javítottuk: az import mostantól ténylegesen rögzít, és ha mégis hiba
+  történik, a varázsló piros figyelmeztetéssel ŐSZINTÉN megmondja, hogy nem sikerült
+  — és mit kell tenni.
+- **A bérleti szerződések számításában két súlyos hibát találtunk és javítottunk:**
+  a tört évek (év közben kezdődő/végződő szerződés) várható bérleti díja rossz
+  időszakkal számolódott, és egy-egy befizetés kétszer is beszámítódhatott két
+  szerződésbe. Mostantól a kimutatás (várható / befolyt / hátralék) pontos.
+- **Devizás bankszámla nyitó egyenlegénél az árfolyam automatikusan kitöltődik**
+  a megadott dátum szerinti hivatalos BNR árfolyammal (kézzel felülírható), és a
+  beviteli mezők jól láthatóak lettek.
+- **Az Oblio-számla figyelmeztetés:** a Tranzakciók fülön a rendszer szól, ha még
+  nincs beállítva a KARTOTEKA mappa — eddig csendben nem működött az ellenőrzés.
+
+### ✨ Új funkciók és 🎨 megújult felület
+
+- **A Decont de încasări és a Dispoziție de plată/încasare ablak teljesen megújult:**
+  mindkettőnél rögzíthető utólag bevétel ÉS kiadás is, áttekinthetőbb űrlappal,
+  élő A4-es előnézettel — ami pixelre pontosan azt mutatja, ami a nyomtatóból
+  kijön. Az Irat szám mező is a helyére került.
+- **Videós útmutató a banki importhoz** — a varázsló első lépésében egy kattintással
+  megnyitható oktatóvideó mutatja végig a teljes folyamatot.
+- **Új bankszámla felvétele:** megújult, kereshetős pénznem-választóval (nem csak
+  RON/EUR/HUF — bármely pénznem kikereshető).
+- **A bevétel- és kiadás-rögzítő ablakok megújultak** — világosabb elrendezés,
+  jól látható mezők, következetes viselkedés.
+- **A profilfotó mostantól tényleg megjelenik a fejlécben** — eddig hiába állítottad
+  be, mindig csak a monogram látszott.
+- **A Pénzügy oldal telefonon és táblagépen is kényelmesen használható** — a
+  táblázatok, ablakok és gombok minden képernyőméreten jól kezelhetők.
+- Belső karbantartás: elhalt, sehová nem vezető kódrészletek eltávolítása —
+  gyorsabb és megbízhatóbb felület.
+
+### ℹ️ Jó tudni — Oblio automatikus számla-letöltés
+
+Megvizsgáltuk, hogy az Oblio (vagy hasonló szolgáltató) tud-e automatikusan
+bejövő e-Factura számlákat átadni a Kartotékának úgy, hogy csak egy API-kulcsot
+kellene megadni. **Jelenleg egyik román számlázó sem kínál ilyen szolgáltatást** —
+a bejövő számlák hivatalos forrása az ANAF SPV rendszere. Középtávon a közvetlen
+ANAF-kapcsolat kiépítését javasoljuk; addig a mappás megoldás marad.
+
+---
+
 ## [2026-07-10] — Pénzügy 2. kör: könyvelői pontosság, kedvezmények érvényesítése, új kezelőfelület
 <!-- key: 2026-07-10-penzugy-masodik-kor -->
 <!-- category: bugfix -->
@@ -37,10 +91,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   Korábban a stornó a listákból eltűnt, de az összegeket felfújhatta — ez szabálytalanság
   forrása lehetett volna. A stornózott tétel a listákban látható marad (átláthatóság),
   csak nem számít.
-- **A véglegesített (lezárt) évet mostantól SEMMILYEN úton nem lehet módosítani** —
-  az új tétel rögzítése mellett a belső mozgás, a bankkivonat-import, a rendszergazdai
-  importok és az árfolyam-átértékelés is tiltott, amíg az egyházmegye javítási engedélyt
-  nem ad. A költségvetés mentése is szerver-oldali ellenőrzést kapott.
+- **⚠️ KIEMELT: A véglegesített (lezárt) évet mostantól SEMMILYEN úton nem lehet
+  módosítani.** Miért fontos ez? A beküldött számadás azt tanúsítja az egyházmegye
+  felé, hogy „ennyi volt az év" — ha utána bármi változhatna, a beküldött szám már
+  nem lenne igaz. Eddig hat „hátsó ajtó" maradt nyitva, most mind zárva van.
+  **Példák, mi NEM lehetséges többé egy lezárt évben:**
+  - *Belső mozgás rögzítése* — pl. nem lehet utólag „banki letételt" könyvelni
+    a tavalyi, már beküldött évre;
+  - *Bankkivonat-import (BCR Excel)* — ha a kivonatban akár egyetlen tavalyi,
+    lezárt évi tétel van, a rendszer megmondja, melyik év zárt, és nem importál;
+  - *Rendszergazdai importok* (kassza-, egyházfenntartás- és általános
+    bevétel-import) — a rendszergazdának is előbb javítási engedély kell;
+  - *Árfolyam-átértékelés* — a devizás év végi átértékelés sem írható a zárt évre;
+  - *Költségvetés átírása* — a mentés mostantól a szerveren ellenőrzi a zárat
+    (eddig ügyes böngésző-trükkel megkerülhető lett volna), és külön adatbázis-
+    szintű védelem (RLS) is telepíthető rá;
+  - *Decont / Dispoziție* rögzítése zárt évre (ez eddig is védett volt — maradt).
+  Ha egy lezárt évben mégis javítani kell: a megszokott út él — **javítási
+  engedélyt kérsz az egyházmegyétől**, és a feloldás után módosíthatsz.
 - **A Csoportnapló megjavult:** eddig üres lehetett akkor is, ha volt adat (a program
   a folyó — még üres — hónapot mutatta, és a besorolatlan tételeket eldobta). Mostantól
   alapból a teljes évet mutatja, a jogcím nélküli tételek külön „Besorolatlan" csoportba

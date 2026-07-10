@@ -495,9 +495,11 @@ export async function importBankTransactionsUseCase(
           continue
         }
         const { osszegRon: incOsszegRon, arfolyam: incArfolyam } = computeOsszegRon(item)
-        // A `befizetes` táblán az `xkey` és `nyugta` oszlopok NOT NULL
+        // A `befizetes` táblán az `xkey`, `nyugta` ÉS `csalad` oszlopok NOT NULL
         // (legacy DB séma) — mindenhol meg kell adnunk, különben a beszúrás
-        // constraint-hibával bukik ("null value in column xkey").
+        // constraint-hibával bukik. 2026-07-10 (S4 #8): a `csalad: false` eddig
+        // HIÁNYZOTT → "null value in column csalad" hibával MINDEN banki
+        // bevétel-import elbukott, miközben a wizard "Import sikeres!"-t írt.
         const payload = {
           osszeg: Math.abs(item.amount),
           osszeg_ron: incOsszegRon,
@@ -506,6 +508,7 @@ export async function importBankTransactionsUseCase(
           id_befizetescel: item.categoryId,
           id_szemely: item.personId ?? null,
           id_csalad: null,
+          csalad: false,
           forrasa: item.counterparty || item.description.slice(0, 100),
           iratszam: docNumber,
           nyugta: docNumber,
@@ -633,6 +636,7 @@ export async function importBankTransactionsUseCase(
             osszeg: absAmount, datum: item.date,
             id_befizetescel: item.categoryId ?? null,
             id_szemely: null, id_csalad: null,
+            csalad: false, // 2026-07-10 (S4 #8): NOT NULL oszlop — enélkül elbukott
             forrasa: 'Belső mozgás — bankba',
             iratszam: docNumber, nyugta: docNumber,
             irattipus: 'banki', bankszamla_id: item.bankszamlaId,
@@ -696,6 +700,7 @@ export async function importBankTransactionsUseCase(
               osszeg: absAmount, datum: item.date,
               id_befizetescel: item.categoryId ?? null,
               id_szemely: null, id_csalad: null,
+              csalad: false, // 2026-07-10 (S4 #8): NOT NULL oszlop — enélkül elbukott
               forrasa: isKasszaTarget ? 'Belső mozgás — bankból' : 'Belső mozgás — másik számláról',
               iratszam: docNumber, nyugta: docNumber,
               irattipus: cpIrattipus, bankszamla_id: counterpartBankId,

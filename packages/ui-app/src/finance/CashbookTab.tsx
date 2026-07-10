@@ -655,12 +655,13 @@ export function CashbookTab({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
+        {/* 2026-07-10 (S4-mobil): min-h-10 — 40px-es érintőfelület telefonon is. */}
         <select
           value={monthFilter}
           onChange={(e) =>
             setMonthFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
           }
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+          className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
         >
           <option value="all">Minden hónap</option>
           {HU_MONTHS.map((name, i) => (
@@ -699,7 +700,8 @@ export function CashbookTab({
             <div className="space-y-6">
               {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
-              <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
+              {/* 2026-07-10 (S4-mobil): flex-wrap — 375px-en a havi összegek új sorba törhetnek. */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-slate-700">{group.label}</span>
                   <span className="text-xs text-slate-500">
@@ -717,8 +719,10 @@ export function CashbookTab({
               </div>
 
               <div className="card-raised overflow-hidden">
+                {/* 2026-07-10 (S4-mobil): min-w — telefonon a tábla vízszintesen görgethető,
+                    nem nyomódik össze; tabular-nums az összeg-oszlopok igazításához. */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[600px] text-sm tabular-nums">
                     <thead className="bg-slate-50/80 border-b border-slate-100">
                       <tr>
                         <CashSortableTh
@@ -845,9 +849,10 @@ export function CashbookTab({
             </div>
           ))}
 
-          <div className="card-raised p-4 flex items-center justify-between">
+          {/* 2026-07-10 (S4-mobil): flex-wrap + tabular-nums az éves összesítőben. */}
+          <div className="card-raised p-4 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-semibold text-slate-700">Éves összesen</span>
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-4 text-sm tabular-nums">
               <span className="text-emerald-600 font-bold">
                 +{formatCurrency(monthIncome)}
               </span>
@@ -1055,7 +1060,7 @@ function CashRow({
               type="button"
               title="Szerkesztés"
               onClick={() => onEdit(r)}
-              className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+              className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
             >
               <Pencil className="size-3.5" />
             </button>
@@ -1068,7 +1073,7 @@ function CashRow({
                   chitantakByBefizetes[r.id].szam
                 }`}
                 onClick={() => onReprintChitanta(chitantakByBefizetes[r.id].id)}
-                className="inline-flex items-center justify-center rounded-md bg-emerald-100/70 border border-emerald-200 p-1.5 text-emerald-700 hover:bg-emerald-200 hover:text-emerald-800 transition-colors"
+                className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 bg-emerald-100/70 border border-emerald-200 p-1.5 text-emerald-700 hover:bg-emerald-200 hover:text-emerald-800 transition-colors"
               >
                 <Printer className="size-3.5" />
               </button>
@@ -1078,7 +1083,7 @@ function CashRow({
                 title="Nyugta automatikus kiállítása és nyomtatása"
                 disabled={autoIssuingFor === r.id}
                 onClick={() => void onIssueChitanta(r.id)}
-                className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-50"
               >
                 <Printer className="size-3.5" />
               </button>
@@ -1091,7 +1096,7 @@ function CashRow({
                   type="button"
                   title="Stornó visszavonása"
                   onClick={() => void onUndoStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
                 >
                   <RotateCcw className="size-3.5" />
                 </button>
@@ -1101,7 +1106,7 @@ function CashRow({
                   type="button"
                   title="Stornózás"
                   onClick={() => onStorno(r)}
-                  className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
                 >
                   <Ban className="size-3.5" />
                 </button>
@@ -1133,10 +1138,11 @@ function CashSortableTh({
   const arrow = active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'
   return (
     <th className={`p-2.5 text-${align} text-xs font-medium text-slate-500 ${className || ''}`}>
+      {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — a rendező gomb telefonon is 40px-es. */}
       <button
         type="button"
         onClick={onClick}
-        className={`inline-flex items-center gap-1 hover:text-slate-800 transition-colors ${
+        className={`inline-flex items-center gap-1 max-sm:min-h-10 hover:text-slate-800 transition-colors ${
           active ? 'text-emerald-700 font-semibold' : ''
         }`}
       >
@@ -1168,7 +1174,8 @@ function MiniKpi({
           {label}
         </span>
       </div>
-      <p className={`text-lg font-bold ${color}`}>
+      {/* 2026-07-10 (S4-mobil): tabular-nums + break-words — hosszú összeg 375px-en is olvasható. */}
+      <p className={`text-lg font-bold tabular-nums break-words ${color}`}>
         {value} <span className="text-xs font-normal text-slate-400">RON</span>
       </p>
     </div>

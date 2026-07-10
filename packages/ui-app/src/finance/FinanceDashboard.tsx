@@ -220,8 +220,9 @@ export function FinanceDashboard({
 
   return (
     <div className="space-y-4">
-      {/* KPI kártyák */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* KPI kártyák — 2026-07-10 (S4-mobil): 375px-en 1 oszlop (nem törik a nagy
+          összeg), sm-től 2, lg-től 4 oszlop. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <FinKpi
           icon={<Wallet className="w-5 h-5" />}
           gradient="from-blue-500 to-indigo-600"
@@ -257,16 +258,17 @@ export function FinanceDashboard({
       {/* TVA-plafon figyelő — opcionális slot, web/desktop saját widgetjét mountolja */}
       {tvaPlafonSlot}
 
-      {/* Egyenleg banner */}
+      {/* Egyenleg banner — 2026-07-10 (S4-mobil): flex-wrap + tabular-nums,
+          375px-en az ikon a szám alá törhet, nem folyik ki. */}
       <div
-        className={`card-raised p-5 flex items-center justify-between ${
+        className={`card-raised p-5 flex flex-wrap items-center justify-between gap-3 ${
           netBalance >= 0 ? 'bg-emerald-50/50' : 'bg-red-50/50'
         }`}
       >
-        <div>
+        <div className="min-w-0">
           <p className="text-sm text-slate-500">Éves egyenleg</p>
           <p
-            className={`text-2xl font-bold ${
+            className={`text-2xl font-bold tabular-nums break-words ${
               netBalance >= 0 ? 'text-emerald-600' : 'text-red-600'
             }`}
           >
@@ -373,8 +375,10 @@ export function FinanceDashboard({
                     {r.datum?.split('T')[0]} {r.iratszam ? `· ${r.iratszam}` : ''}
                   </p>
                 </div>
+                {/* 2026-07-10 (S4-mobil): shrink-0 + nowrap + tabular-nums — az összeg
+                    nem törik meg, a hosszú partnernév truncate-el mellette. */}
                 <span
-                  className={`text-sm font-bold ${
+                  className={`text-sm font-bold shrink-0 whitespace-nowrap tabular-nums ${
                     r.type === 'income' ? 'text-emerald-600' : 'text-red-500'
                   }`}
                 >
@@ -412,7 +416,7 @@ function FinKpi({ icon, gradient, label, value, suffix, valueColor }: FinKpiProp
             {label}
           </p>
           <p
-            className={`text-lg sm:text-xl font-bold mt-1.5 ${
+            className={`text-lg sm:text-xl font-bold mt-1.5 tabular-nums break-words ${
               valueColor || 'text-slate-800'
             }`}
           >
@@ -633,7 +637,7 @@ function TopExpenseBars({
         <div key={it.kod} title={`${it.label}: ${formatCurrency(it.value)} RON`}>
           <div className="flex items-baseline justify-between gap-3 mb-1">
             <span className="text-[11px] text-slate-600 truncate">{it.label}</span>
-            <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+            <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap tabular-nums">
               {formatCurrency(it.value)} RON
             </span>
           </div>

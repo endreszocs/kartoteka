@@ -163,6 +163,15 @@ export default async function DashboardLayout({
     Boolean(access.effectiveCongregationId) &&
     !profileOnboardingDone
 
+  // 2026-07-10 (S4-avatar): a beállított profilfotó a headerbe. Elsődleges forrás
+  // az auth user_metadata (a fotó-mentés szinkronizálja, Google OAuth is ide ír) —
+  // NINCS extra DB-lekérés. Fallback: a monorepo ELŐTT beállított fotók csak a
+  // pastor_profiles.photo_url-ban élnek, azokat egy párhuzamos lekérés hozza be.
+  const metadataAvatarUrl =
+    (user.user_metadata?.avatar_url as string | undefined) ||
+    (user.user_metadata?.picture as string | undefined) ||
+    null
+
   // 3. Párhuzamos fetch — minden ami egymástól független:
   //    - scope-tábla nevek (3 query egymás között Promise.all-ban)
   //    - onboarding state (csak ha kell)
@@ -175,6 +184,7 @@ export default async function DashboardLayout({
     godMode,
     dioceseSetupStatus,
     congregationSetupStatus,
+    fallbackPhotoUrl,
   ] = await Promise.all([
     loadScopeNames(supabase, profileRoles),
     needsOnboardingCheck
@@ -187,6 +197,15 @@ export default async function DashboardLayout({
     access.effectiveCongregationId && (activeProfileRole == null || activeProfileRole.scope === 'congregation')
       ? checkCongregationSetupStatus(access.effectiveCongregationId)
       : Promise.resolve({ needsSetup: false, missingFields: [] as string[], congregationId: null as string | null }),
+    // S4-avatar fallback: csak akkor fut, ha a metadata-ban NINCS fotó (legacy fotók).
+    metadataAvatarUrl
+      ? Promise.resolve(null as string | null)
+      : supabase
+          .from('pastor_profiles')
+          .select('photo_url')
+          .eq('user_id', user.id)
+          .maybeSingle()
+          .then((res) => ((res.data as { photo_url: string | null } | null)?.photo_url ?? null)),
   ])
 
   // 4. Redirect az onboarding-state alapján (csak a párhuzamos fetch UTÁN dobható).
@@ -210,6 +229,7 @@ export default async function DashboardLayout({
       <SyncStatusBar />
       <DashboardLayoutClient
         profile={profile}
+        avatarUrl={metadataAvatarUrl || fallbackPhotoUrl}
         congregationId={access.effectiveCongregationId}
         role={role}
         master={master}

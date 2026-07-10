@@ -48,9 +48,10 @@ export function DecontDialog({ open, onOpenChange, congregationName, categories,
             </span>
             Decont — Elszámolás
           </DialogTitle>
+          {/* 2026-07-10 (S4-decont): a leírás jelezze, hogy a mentés könyvel is. */}
           <DialogDescription className="text-sm leading-6 text-slate-600">
-            Egy átvevő által elköltött előleg részletes elszámolása.
-            Töltsd ki a sablont, majd nyomtatás vagy PDF-be mentés.
+            Egy átvevő által elköltött előleg részletes elszámolása. Mentéskor a tételek
+            kiadásként könyvelődnek; utána nyomtathatsz vagy PDF-be menthetsz.
           </DialogDescription>
         </DialogHeader>
 

@@ -290,10 +290,11 @@ export function AccountingTab({
                 ? 'A számadás véglegesítve és beküldve az egyházmegyének. Módosítás csak javítási kérelemmel lehetséges.'
                 : 'Ha minden tétel stimmel, egy kattintással véglegesítheted és beküldheted a számadást az egyházmegyének.'}
             </p>
+            {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
             {!settings.accounting_finalized ? (
               <Button
                 size="sm"
-                className="rounded-xl bg-violet-600 hover:bg-violet-700 gap-1.5"
+                className="rounded-xl max-sm:min-h-10 bg-violet-600 hover:bg-violet-700 gap-1.5"
                 onClick={() => setFinalizeWizardOpen(true)}
               >
                 <Send className="size-4" />
@@ -303,7 +304,7 @@ export function AccountingTab({
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl border-amber-300 text-amber-700 hover:bg-amber-50"
+                className="rounded-xl max-sm:min-h-10 border-amber-300 text-amber-700 hover:bg-amber-50"
                 onClick={handleRequestUnlock}
                 disabled={!!settings.accounting_unlock_requested}
               >
@@ -516,14 +517,16 @@ function ComparisonTable({
         {icon}
         <span className="text-sm font-semibold text-slate-700">{title}</span>
       </div>
+      {/* 2026-07-10 (S4-mobil): min-w + tabular-nums — telefonon vízszintesen
+          görgethető tábla; az „Előző évi tény" referencia-oszlop md alatt rejtve. */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[560px] text-sm tabular-nums">
           <thead className="border-b border-slate-100 bg-slate-50/80">
             <tr>
               <th className="p-2 text-left text-xs font-medium text-slate-500">Kód</th>
               <th className="p-2 text-left text-xs font-medium text-slate-500">Megnevezés</th>
               {showPrevYear && (
-                <th className="p-2 text-right text-xs font-medium text-slate-400">
+                <th className="hidden md:table-cell p-2 text-right text-xs font-medium text-slate-400">
                   Előző évi tény
                 </th>
               )}
@@ -549,7 +552,9 @@ function ComparisonTable({
                 >
                   {row.nev}
                 </td>
-                {showPrevYear && <td className="p-2 text-right text-xs text-slate-300">–</td>}
+                {showPrevYear && (
+                  <td className="hidden md:table-cell p-2 text-right text-xs text-slate-300">–</td>
+                )}
                 <td className="p-2 text-right text-slate-600">{formatCurrency(row.value)}</td>
                 <td className="p-2 text-right text-slate-600">{formatCurrency(row.value)}</td>
                 <td className="p-2 text-right text-xs text-slate-300">–</td>
@@ -601,7 +606,7 @@ function ComparisonTable({
                     {cell.nev}
                   </td>
                   {showPrevYear && (
-                    <td className="p-2 text-right text-xs text-slate-400">
+                    <td className="hidden md:table-cell p-2 text-right text-xs text-slate-400">
                       {prevActual !== 0 ? formatCurrency(prevActual) : '-'}
                     </td>
                   )}

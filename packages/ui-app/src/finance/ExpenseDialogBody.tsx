@@ -3,6 +3,23 @@
 /**
  * Kiadás-rögzítő dialog body — Sprint Q F3.1 (v0.7.10).
  *
+ * 2026-07-10 (S4-#6): teljes vizuális újratervezés + működés-ellenőrzés.
+ *   - Szekciók: „Mi történt?" (kategória + összeg + dátum kiemelten),
+ *     „Kinek fizettünk?" (kedvezményezett), „Részletek" (iratszám, típus,
+ *     megjegyzés) — halvány elválasztókkal, lépés-számozással.
+ *   - Speciális mód (bankból kivétel) feltűnő, lila magyarázó sávot kap:
+ *     „Ez nem kiadás — belső átvezetés".
+ *   - Látható input-mezők (rounded-lg + border-slate-300 + shadow-sm +
+ *     fókusz-gyűrű) — a korábbi shadcn-token-os (border-input/bg-transparent)
+ *     áttetsző mezők helyett, egységben az IncomeDialogBody-val.
+ *   - Nagy, jobbra igazított összeg-mező RON utótaggal.
+ *   - Mobil (375px): 1 oszlopos szekciók, görgethető batch-tábla, min. 40px
+ *     érintőfelületek.
+ *   - FIX: a dátum-hiba eddig a táblázatos mentést is letiltotta, pedig a
+ *     batch-soroknak saját dátumuk van — mostantól csak egyesével módban tilt.
+ *   - FIX: batch-mentésnél a hiányos (megkezdett, de érvénytelen) sorok eddig
+ *     némán kimaradtak — mostantól hibaüzenet sorolja fel őket.
+ *
  * A webes `apps/web/components/modals/expense-dialog-v2.tsx`-ből kiemelve a sharedba,
  * iOS-future-proof módon (callback prop-pattern + body-pattern). A Dialog shell
  * (DialogContent / DialogHeader / DialogTitle) a webes wrapper-ben marad —
@@ -18,7 +35,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Building2, Plus, Trash2 } from 'lucide-react'
 import type { BankAccount } from './types'
 import { RECEIPT_TYPES } from './types'
 import { isInventoryCategory } from './helpers'
@@ -108,6 +125,55 @@ function createBatchExpenseRow(): BatchExpenseRow {
   }
 }
 
+// ── Közös stílusok (S4-#6) — látható mezők + rose fókusz-gyűrű ──────────────
+
+const inputClass =
+  'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 shadow-sm transition ' +
+  'placeholder:text-slate-400 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/25'
+
+const textareaClass =
+  'min-h-[80px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition ' +
+  'placeholder:text-slate-400 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/25'
+
+const labelClass = 'text-sm font-medium text-slate-700'
+
+/** Szekció-fejléc: számozott kör + cím — a form 3 lépését vizuálisan tagolja. */
+function SectionHeading({ step, title, hint }: { step: string; title: string; hint?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center self-center rounded-full bg-rose-100 text-xs font-bold text-rose-700">
+        {step}
+      </span>
+      <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+      {hint && <span className="text-xs text-slate-400">{hint}</span>}
+    </div>
+  )
+}
+
+/** Nagy összeg-mező RON utótaggal — jobbra igazítva, kiemelt tipográfiával. */
+function AmountInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0.01}
+        step={0.01}
+        value={value || ''}
+        onChange={event => onChange(Number(event.target.value))}
+        placeholder="0.00"
+        className={
+          'h-12 w-full rounded-lg border border-slate-300 bg-white pl-3 pr-14 text-right text-xl font-bold tabular-nums text-slate-800 shadow-sm transition ' +
+          'placeholder:font-normal placeholder:text-slate-300 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/25'
+        }
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+        RON
+      </span>
+    </div>
+  )
+}
+
 // ── UI komponens ─────────────────────────────────────────────
 
 export function ExpenseDialogBody({
@@ -130,7 +196,7 @@ export function ExpenseDialogBody({
   const [receiptType, setReceiptType] = useState<(typeof RECEIPT_TYPES)[number]>('Készpénz')
   const [note, setNote] = useState('')
   const [selectedBank, setSelectedBank] = useState('')
-  const [dateBadge, setDateBadge] = useState('')
+  const [dateError, setDateError] = useState('')
   const [batchRows, setBatchRows] = useState<BatchExpenseRow[]>([createBatchExpenseRow()])
 
   useEffect(() => {
@@ -146,7 +212,7 @@ export function ExpenseDialogBody({
       setReceiptType('Készpénz')
       setNote('')
       setSelectedBank('')
-      setDateBadge('')
+      setDateError('')
       setBatchRows([createBatchExpenseRow()])
     })
   }, [open])
@@ -162,7 +228,7 @@ export function ExpenseDialogBody({
   function checkDate(value: string) {
     setDatum(value)
     const today = new Date().toISOString().slice(0, 10)
-    setDateBadge(value > today ? 'Jövőbeli dátum nem engedélyezett.' : '')
+    setDateError(value > today ? 'Jövőbeli dátum nem engedélyezett.' : '')
   }
 
   function updateBatchRow(key: string, patch: Partial<BatchExpenseRow>) {
@@ -239,21 +305,40 @@ export function ExpenseDialogBody({
   }
 
   async function handleBatchSubmit() {
-    const normalizedRows = batchRows
-      .filter(row => row.categoryId !== '' && Number(row.amount) > 0)
-      .map(row => {
-        const category = categories.find(item => item.id === row.categoryId) || null
-        return {
-          datum: row.datum,
-          id_kiadascel: Number(row.categoryId),
-          kedvezmenyzett: row.partner || null,
-          osszeg: Number(row.amount),
-          iratszam: row.documentNumber || null,
-          irattipus: row.receiptType,
-          megjegyzes: row.note || null,
-          is_inventory: category ? isInventoryCategory(category.nev) : false,
-        }
-      })
+    // 2026-07-10 (S4-#6 FIX): a megkezdett, de érvénytelen sorok eddig NÉMÁN
+    // kimaradtak a mentésből — mostantól hibával jelezzük, melyik sor hiányos.
+    const isRowTouched = (row: BatchExpenseRow) =>
+      row.categoryId !== '' ||
+      row.amount.trim() !== '' ||
+      row.partner.trim() !== '' ||
+      row.documentNumber.trim() !== '' ||
+      row.note.trim() !== ''
+    const isRowValid = (row: BatchExpenseRow) => row.categoryId !== '' && Number(row.amount) > 0
+
+    const invalidRowNumbers = batchRows
+      .map((row, index) => (isRowTouched(row) && !isRowValid(row) ? index + 1 : null))
+      .filter((n): n is number => n !== null)
+    if (invalidRowNumbers.length > 0) {
+      onToast(
+        'error',
+        `Hiányos sor: ${invalidRowNumbers.join(', ')}. — kategória és pozitív összeg kötelező (vagy ürítsd ki a sort).`,
+      )
+      return
+    }
+
+    const normalizedRows = batchRows.filter(isRowValid).map(row => {
+      const category = categories.find(item => item.id === row.categoryId) || null
+      return {
+        datum: row.datum,
+        id_kiadascel: Number(row.categoryId),
+        kedvezmenyzett: row.partner || null,
+        osszeg: Number(row.amount),
+        iratszam: row.documentNumber || null,
+        irattipus: row.receiptType,
+        megjegyzes: row.note || null,
+        is_inventory: category ? isInventoryCategory(category.nev) : false,
+      }
+    })
 
     if (normalizedRows.length === 0) {
       onToast('error', 'Legalább egy kitöltött kiadási sor szükséges.')
@@ -271,39 +356,28 @@ export function ExpenseDialogBody({
     setLoading(false)
   }
 
-  // Style helper-ek (shadcn-radix-tól független, native HTML-re)
-  const inputClass =
-    'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ' +
-    'transition-colors placeholder:text-muted-foreground focus-visible:outline-none ' +
-    'focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
-  const textareaClass =
-    'flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ' +
-    'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-  const labelClass = 'text-sm font-medium leading-none'
-
   return (
-    <div className="space-y-4 px-6 pb-6 pt-4">
+    <div className="space-y-4 px-4 pb-6 pt-4 sm:px-6">
+      {/* Mód-váltó — min. 40px érintőfelület mobilra */}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className={
-            'inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium ' +
-            (mode === 'single'
-              ? 'bg-primary text-primary-foreground shadow'
-              : 'border border-input bg-background hover:bg-accent hover:text-accent-foreground')
-          }
+          className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-medium transition ${
+            mode === 'single'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50'
+          }`}
           onClick={() => setMode('single')}
         >
           Egyesével
         </button>
         <button
           type="button"
-          className={
-            'inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium ' +
-            (mode === 'table'
-              ? 'bg-primary text-primary-foreground shadow'
-              : 'border border-input bg-background hover:bg-accent hover:text-accent-foreground')
-          }
+          className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-medium transition ${
+            mode === 'table'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50'
+          }`}
           onClick={() => setMode('table')}
         >
           Táblázatos bevitel
@@ -312,10 +386,13 @@ export function ExpenseDialogBody({
 
       {mode === 'single' ? (
         <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="divide-y divide-slate-100">
+            {/* ── 1. szekció: Mi történt? ─────────────────────────── */}
+            <section className="space-y-3 pb-4">
+              <SectionHeading step="1" title="Mi történt?" hint="jogcím, összeg, dátum" />
+
               <div className="space-y-1.5">
-                <label className={labelClass}>Kategória *</label>
+                <label className={labelClass}>Kategória (jogcím) *</label>
                 <select
                   value={categoryValue}
                   onChange={event =>
@@ -325,10 +402,10 @@ export function ExpenseDialogBody({
                         : Number(event.target.value) || '',
                     )
                   }
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                  className={inputClass + ' h-11'}
                 >
-                  <option value="">— Válasszon —</option>
-                  <option value={SPECIAL_BANK_WITHDRAWAL}>Bankból kivétel</option>
+                  <option value="">— Válasszon: mire ment el a pénz? —</option>
+                  <option value={SPECIAL_BANK_WITHDRAWAL}>Bankból kivétel (belső átvezetés)</option>
                   {categories.map(category => (
                     <option key={category.id} value={category.id}>
                       {category.kod} — {category.nev}
@@ -336,121 +413,175 @@ export function ExpenseDialogBody({
                   ))}
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <label className={labelClass}>Dátum *</label>
-                <input className={inputClass} type="date" value={datum} onChange={event => checkDate(event.target.value)} />
-                {dateBadge && (
-                  <span className="inline-flex items-center rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                    {dateBadge}
-                  </span>
-                )}
+
+              {/* S4-#6: feltűnő magyarázó sáv a speciális módhoz */}
+              {isBankWithdrawal && (
+                <div className="flex items-start gap-3 rounded-xl border border-violet-300 bg-violet-50 px-4 py-3">
+                  <ArrowLeftRight className="mt-0.5 size-5 shrink-0 text-violet-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-violet-900">
+                      Ez nem kiadás — belső átvezetés
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-violet-800/80">
+                      A pénz a bankszámláról a kasszába kerül. A mentés egy összekapcsolt
+                      kiadás–bevétel párt hoz létre, a gyülekezet összkiadását nem növeli.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Összeg *</label>
+                  <AmountInput value={amount} onChange={setAmount} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Dátum *</label>
+                  <input
+                    className={inputClass + ' h-12'}
+                    type="date"
+                    value={datum}
+                    onChange={event => checkDate(event.target.value)}
+                  />
+                  {dateError && (
+                    <span className="inline-block rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
+                      {dateError}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            </section>
 
             {isBankWithdrawal ? (
-              <div className="grid gap-3 rounded-2xl border border-violet-200 bg-violet-50/80 p-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Melyik bankból történt a kivétel? *</label>
-                  <select
-                    value={selectedBank}
-                    onChange={event => setSelectedBank(event.target.value)}
-                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">— Válasszon bankszámlát —</option>
-                    {bankAccounts.map(account => (
-                      <option key={account.id} value={String(account.id)}>
-                        {account.bank_neve} ({account.valuta})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Összeg (RON) *</label>
-                  <input className={inputClass} type="number" min={0.01} step={0.01} value={amount || ''} onChange={event => setAmount(Number(event.target.value))} />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <label className={labelClass}>Megjegyzés</label>
-                  <textarea
-                    className={textareaClass + ' min-h-[84px]'}
-                    value={note}
-                    onChange={event => setNote(event.target.value)}
-                    placeholder="Pl. napi készpénzfelvétel a bankból."
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
+              /* ── Speciális mód: bankból kivétel részletei ──────── */
+              <section className="space-y-3 pt-4">
+                <SectionHeading step="2" title="Honnan jött a pénz?" />
+                <div className="grid gap-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
                   <div className="space-y-1.5">
-                    <label className={labelClass}>Kedvezményezett / Partner</label>
-                    <input className={inputClass} value={partner} onChange={event => setPartner(event.target.value)} placeholder="Pl. Barkács Kft." />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className={labelClass}>Összeg (RON) *</label>
-                    <input className={inputClass} type="number" min={0.01} step={0.01} value={amount || ''} onChange={event => setAmount(Number(event.target.value))} />
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label className={labelClass}>Iratszám</label>
-                    <input className={inputClass} value={documentNumber} onChange={event => setDocumentNumber(event.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className={labelClass}>Típus *</label>
+                    <label className={labelClass}>Melyik bankból történt a kivétel? *</label>
                     <select
-                      value={receiptType}
-                      onChange={event => setReceiptType(event.target.value as (typeof RECEIPT_TYPES)[number])}
-                      className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                      value={selectedBank}
+                      onChange={event => setSelectedBank(event.target.value)}
+                      className={inputClass}
                     >
-                      {RECEIPT_TYPES.map(type => (
-                        <option key={type} value={type}>
-                          {type}
+                      <option value="">— Válasszon bankszámlát —</option>
+                      {bankAccounts.map(account => (
+                        <option key={account.id} value={String(account.id)}>
+                          {account.bank_neve} ({account.valuta})
                         </option>
                       ))}
                     </select>
                   </div>
+                  <div className="space-y-1.5">
+                    <label className={labelClass}>Megjegyzés</label>
+                    <textarea
+                      className={textareaClass}
+                      value={note}
+                      onChange={event => setNote(event.target.value)}
+                      placeholder="Pl. napi készpénzfelvétel a bankból."
+                    />
+                  </div>
                 </div>
+              </section>
+            ) : (
+              <>
+                {/* ── 2. szekció: Kinek fizettünk? ──────────────────── */}
+                <section className="space-y-3 pb-4 pt-4">
+                  <SectionHeading step="2" title="Kinek fizettünk?" hint="opcionális" />
+                  <div className="space-y-1.5">
+                    <label className={labelClass}>Kedvezményezett / Partner</label>
+                    <input
+                      className={inputClass}
+                      value={partner}
+                      onChange={event => setPartner(event.target.value)}
+                      placeholder="Pl. Barkács Kft., villanyszerelő, Electrica…"
+                    />
+                    <p className="text-[11px] leading-snug text-slate-500">
+                      Kinek vagy milyen cégnek ment ki a pénz — a későbbi visszakereséshez hasznos.
+                    </p>
+                  </div>
+                </section>
 
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Megjegyzés</label>
-                  <textarea
-                    className={textareaClass + ' min-h-[84px]'}
-                    value={note}
-                    onChange={event => setNote(event.target.value)}
-                    placeholder="Kiegészítő információ a kiadásról."
-                  />
-                </div>
+                {/* ── 3. szekció: Részletek ─────────────────────────── */}
+                <section className="space-y-3 pt-4">
+                  <SectionHeading step="3" title="Részletek" hint="bizonylat, megjegyzés" />
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className={labelClass}>Iratszám</label>
+                      <input
+                        className={inputClass + ' font-mono'}
+                        value={documentNumber}
+                        onChange={event => setDocumentNumber(event.target.value)}
+                        placeholder="Pl. számla- vagy nyugtaszám"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className={labelClass}>Bizonylat típusa *</label>
+                      <select
+                        value={receiptType}
+                        onChange={event => setReceiptType(event.target.value as (typeof RECEIPT_TYPES)[number])}
+                        className={inputClass}
+                      >
+                        {RECEIPT_TYPES.map(type => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className={labelClass}>Megjegyzés</label>
+                    <textarea
+                      className={textareaClass}
+                      value={note}
+                      onChange={event => setNote(event.target.value)}
+                      placeholder="Kiegészítő információ a kiadásról (nem kötelező)."
+                    />
+                  </div>
+                </section>
               </>
             )}
           </div>
 
+          {/* ── Gyors ellenőrzés (jobb oszlop) ──────────────────── */}
           <div className="space-y-4">
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Gyors ellenőrzés</p>
               <div className="mt-3 space-y-3 text-sm text-slate-600">
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
                   <span>Rögzítési mód</span>
-                  <strong>{isBankWithdrawal ? 'Bankból kivétel' : 'Kiadási tétel'}</strong>
+                  <strong className="text-right">{isBankWithdrawal ? 'Belső átvezetés (bankból kivétel)' : 'Kiadási tétel'}</strong>
                 </div>
                 {selectedCategory && (
-                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
                     <span>Kategória</span>
-                    <strong>{selectedCategory.nev}</strong>
+                    <strong className="text-right">{selectedCategory.nev}</strong>
                   </div>
                 )}
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
                   <span>Összeg</span>
-                  <strong>{amount > 0 ? `${amount.toFixed(2)} RON` : 'Nincs megadva'}</strong>
+                  <strong className={amount > 0 ? 'tabular-nums text-rose-700' : ''}>
+                    {amount > 0 ? `${amount.toFixed(2)} RON` : 'Nincs megadva'}
+                  </strong>
                 </div>
+                {isBankWithdrawal && selectedBank && (
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
+                    <span>Forrás bankszámla</span>
+                    <strong className="text-right">{bankAccounts.find(account => String(account.id) === selectedBank)?.bank_neve || '—'}</strong>
+                  </div>
+                )}
                 {isInventory && !isBankWithdrawal && (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
                     Ez a kategória leltári tételhez kapcsolódhat, ezért a mentés leltári nyomot is hagyhat.
                   </div>
                 )}
                 {isBankWithdrawal && (
-                  <div className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2 text-violet-700">
-                    Itt külön belső mozgás készül: a kiválasztott bankból a kasszába kerül át az összeg.
+                  <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs leading-relaxed text-violet-800">
+                    Belső átvezetés: a bankból kikerülő és a kasszába beérkező oldal
+                    összekapcsolva, egy mentéssel jön létre.
                   </div>
                 )}
               </div>
@@ -459,13 +590,14 @@ export function ExpenseDialogBody({
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-[1280px] w-full text-sm table-fixed">
+          {/* Batch-tábla — mobilon vízszintesen görgethető */}
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[1280px] table-fixed text-sm">
               <colgroup>
                 <col style={{ width: '130px' }} />
                 <col style={{ width: '240px' }} />
                 <col style={{ width: '240px' }} />
-                <col style={{ width: '120px' }} />
+                <col style={{ width: '130px' }} />
                 <col style={{ width: '110px' }} />
                 <col style={{ width: '130px' }} />
                 <col />
@@ -476,24 +608,31 @@ export function ExpenseDialogBody({
                   <th className="px-3 py-3 text-left text-xs font-medium">Dátum</th>
                   <th className="px-3 py-3 text-left text-xs font-medium">Kategória</th>
                   <th className="px-3 py-3 text-left text-xs font-medium">Partner</th>
-                  <th className="px-3 py-3 text-right text-xs font-medium">Összeg</th>
+                  <th className="px-3 py-3 text-right text-xs font-medium">Összeg (RON)</th>
                   <th className="px-3 py-3 text-left text-xs font-medium">Iratszám</th>
                   <th className="px-3 py-3 text-left text-xs font-medium">Típus</th>
                   <th className="px-3 py-3 text-left text-xs font-medium">Megjegyzés</th>
-                  <th className="px-3 py-3 text-right text-xs font-medium">—</th>
+                  <th className="px-3 py-3 text-right text-xs font-medium">
+                    <span className="sr-only">Műveletek</span>—
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {batchRows.map(row => (
                   <tr key={row.key} className="border-t border-slate-100">
                     <td className="px-2 py-2">
-                      <input className={inputClass + ' text-sm'} type="date" value={row.datum} onChange={event => updateBatchRow(row.key, { datum: event.target.value })} />
+                      <input
+                        className={inputClass + ' px-2'}
+                        type="date"
+                        value={row.datum}
+                        onChange={event => updateBatchRow(row.key, { datum: event.target.value })}
+                      />
                     </td>
                     <td className="px-2 py-2">
                       <select
                         value={row.categoryId}
                         onChange={event => updateBatchRow(row.key, { categoryId: Number(event.target.value) || '' })}
-                        className="w-full rounded-xl border border-input bg-background px-2 h-9 text-sm"
+                        className={inputClass + ' px-2'}
                       >
                         <option value="">— Válasszon —</option>
                         {categories.map(category => (
@@ -504,19 +643,37 @@ export function ExpenseDialogBody({
                       </select>
                     </td>
                     <td className="px-2 py-2">
-                      <input className={inputClass + ' text-sm'} value={row.partner} onChange={event => updateBatchRow(row.key, { partner: event.target.value })} placeholder="Szolgáltató / kedvezményezett" />
+                      <input
+                        className={inputClass + ' px-2'}
+                        value={row.partner}
+                        onChange={event => updateBatchRow(row.key, { partner: event.target.value })}
+                        placeholder="Szolgáltató / kedvezményezett"
+                      />
                     </td>
                     <td className="px-2 py-2">
-                      <input className={inputClass + ' text-sm text-right font-semibold'} type="number" min={0.01} step={0.01} value={row.amount} onChange={event => updateBatchRow(row.key, { amount: event.target.value })} />
+                      <input
+                        className={inputClass + ' px-2 text-right font-semibold tabular-nums'}
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        step={0.01}
+                        value={row.amount}
+                        onChange={event => updateBatchRow(row.key, { amount: event.target.value })}
+                        placeholder="0.00"
+                      />
                     </td>
                     <td className="px-2 py-2">
-                      <input className={inputClass + ' text-sm font-mono'} value={row.documentNumber} onChange={event => updateBatchRow(row.key, { documentNumber: event.target.value })} />
+                      <input
+                        className={inputClass + ' px-2 font-mono'}
+                        value={row.documentNumber}
+                        onChange={event => updateBatchRow(row.key, { documentNumber: event.target.value })}
+                      />
                     </td>
                     <td className="px-2 py-2">
                       <select
                         value={row.receiptType}
                         onChange={event => updateBatchRow(row.key, { receiptType: event.target.value as (typeof RECEIPT_TYPES)[number] })}
-                        className="w-full rounded-xl border border-input bg-background px-2 h-9 text-sm"
+                        className={inputClass + ' px-2'}
                       >
                         {RECEIPT_TYPES.map(type => (
                           <option key={type} value={type}>
@@ -526,13 +683,19 @@ export function ExpenseDialogBody({
                       </select>
                     </td>
                     <td className="px-2 py-2">
-                      <input className={inputClass + ' text-sm'} value={row.note} onChange={event => updateBatchRow(row.key, { note: event.target.value })} placeholder="Megjegyzés (opcionális)" />
+                      <input
+                        className={inputClass + ' px-2'}
+                        value={row.note}
+                        onChange={event => updateBatchRow(row.key, { note: event.target.value })}
+                        placeholder="Megjegyzés (opcionális)"
+                      />
                     </td>
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
-                        className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 w-9 hover:bg-accent hover:text-accent-foreground"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600"
                         onClick={() => removeBatchRow(row.key)}
+                        title="Sor eltávolítása"
                       >
                         <Trash2 className="size-4" />
                       </button>
@@ -543,14 +706,14 @@ export function ExpenseDialogBody({
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
             <div className="flex items-center gap-2">
-              <Building2 className="size-4 text-slate-400" />
+              <Building2 className="size-4 shrink-0 text-slate-400" />
               Egy mentéssel több kiadási sort rögzíthet. A bankból kivétel opció itt nem batch, hanem egyesével használható.
             </div>
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
               onClick={addBatchRow}
             >
               <Plus className="size-4" />
@@ -560,21 +723,29 @@ export function ExpenseDialogBody({
         </div>
       )}
 
-      <div className="flex gap-2 border-t border-zinc-100 pt-4">
+      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
         <button
           type="button"
-          className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 border border-input px-4 py-2 text-sm font-medium"
+          className="min-h-[44px] flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
           onClick={() => onClose()}
         >
           Mégse
         </button>
         <button
           type="button"
-          className="flex-[2] rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="min-h-[44px] flex-[2] rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => void (mode === 'single' ? handleSingleSubmit() : handleBatchSubmit())}
-          disabled={loading || dateBadge.length > 0}
+          // S4-#6 FIX: a dátum-hiba csak egyesével módban tilt (a táblázatos
+          // soroknak saját dátumuk van).
+          disabled={loading || (mode === 'single' && dateError.length > 0)}
         >
-          {loading ? 'Mentés...' : mode === 'single' ? 'Kiadás mentése' : 'Táblázat mentése'}
+          {loading
+            ? 'Mentés…'
+            : mode === 'table'
+              ? 'Táblázat mentése'
+              : isBankWithdrawal
+                ? 'Belső átvezetés mentése'
+                : 'Kiadás mentése'}
         </button>
       </div>
     </div>

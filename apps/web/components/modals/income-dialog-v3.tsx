@@ -74,8 +74,9 @@ export function IncomeDialog({
               </div>
               <div>
                 <DialogTitle className="font-heading text-lg">Bevétel rögzítése</DialogTitle>
+                {/* 2026-07-10 (S4-#6): a body szekcionált újratervezéséhez igazított alcím */}
                 <p className="mt-0.5 text-xs text-zinc-400">
-                  Egyszeri vagy táblázatos bevitel, banki letéttel és feltételes leltári kapcsolattal.
+                  Három lépés: mi történt, ki fizetett, részletek — vagy táblázatos bevitel több sorhoz.
                 </p>
               </div>
             </div>

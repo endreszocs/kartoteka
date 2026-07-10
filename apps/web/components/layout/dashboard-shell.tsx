@@ -33,6 +33,8 @@ const CongregationSetupWizardLazy = dynamic(
 
 interface DashboardShellProps {
   profile: Profile
+  /** 2026-07-10 (S4-avatar): a beállított profilfotó URL-je a header avatárhoz. */
+  avatarUrl?: string | null
   congregationId: string | null
   congregationName: string | null
   congregationLogo: string | null
@@ -57,6 +59,7 @@ interface DashboardShellProps {
 
 export function DashboardShell({
   profile,
+  avatarUrl = null,
   congregationId,
   congregationName,
   congregationLogo,
@@ -118,6 +121,7 @@ export function DashboardShell({
 
       <HeaderRefinedV3
         profile={profile}
+        avatarUrl={avatarUrl}
         congregationName={congregationName}
         congregationLogo={congregationLogo}
         congregationDioceseName={congregationDioceseName}

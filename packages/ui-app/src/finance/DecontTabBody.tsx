@@ -11,9 +11,18 @@
  * (élő előnézet jobb oldalon) ROMÁN/kétnyelvű, a hivatalos elrendezés szerint.
  *
  * NEM importál környezet-függő modult — minden a callback-pattern-en megy be.
+ *
+ * 2026-07-10 (S4-decont): újradizájn —
+ *  - látható (fehér, keretes) mezők fókusz-gyűrűvel minden inputon/selecten,
+ *  - szekcionált űrlap: Alapadatok / Dátum és kategória / Tételek,
+ *  - tétel-tábla: fejléc-háttér + zebra-sorok + kiemelt összesítő-sor,
+ *  - a gombsor elkülönülő alsó sávban,
+ *  - mobil: az előnézet a form ALÁ kerül (grid-cols-1 → lg:grid-cols-2),
+ *  - előnézet: pixelhű, scroll-mentes A4 (fit-to-width, ResizeObserver +
+ *    transform:scale — a FinancePrintDialogBody mintája).
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Plus, Printer, Save, Trash2 } from 'lucide-react'
 import { buildDecontHtml, type DecontDocItem } from './official-documents'
 import { formatRon } from './ron-in-words'
@@ -83,9 +92,95 @@ function createRow(): Row {
   return { id: crypto.randomUUID(), actNr: '', actType: 'Fact', actDate: todayIso(), issuer: '', explanation: '', amount: '' }
 }
 
+// 2026-07-10 (S4-decont): LÁTHATÓ mezők — fehér háttér, slate-300 keret,
+// shadow-sm + violet fókusz-gyűrű (a régi bg-transparent beleolvadt a kártyába).
 const inputClass =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ' +
-  'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+  'flex h-9 w-full rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm text-slate-800 shadow-sm ' +
+  'placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 ' +
+  'disabled:cursor-not-allowed disabled:opacity-50'
+
+// A tétel-tábla celláiba kompaktabb (h-8) változat.
+const cellInputClass =
+  'flex h-8 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-800 shadow-sm ' +
+  'placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30'
+
+// A SearchableSelect belső inputja saját (bg-transparent) osztályt hordoz —
+// a wrapperen keresztül tesszük láthatóvá (a komponens másik agens-szabály
+// miatt nem módosítható innen).
+const searchableFix = '[&_input]:rounded-lg [&_input]:border-slate-300 [&_input]:bg-white'
+
+// ── Pixelhű A4 előnézet ──────────────────────────────────────
+// 2026-07-10 (S4-decont): fit-to-width — a FinancePrintDialogBody mintája
+// (ResizeObserver + docW=A4 px + transform:scale). Ide duplikálva, mert a
+// feladat-szabály szerint új megosztott fájl nem hozható létre.
+// 210mm ≈ 794px (96 dpi) + ráhagyás, hogy a mm-alapú lap biztosan elférjen.
+const A4_PREVIEW_W = 812
+
+function A4Preview({ html, title }: { html: string; title: string }) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [boxW, setBoxW] = useState(0)
+  const [contentH, setContentH] = useState(1123) // A4 magasság px-ben (297mm)
+
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (w > 0) setBoxW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const measure = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    if (h > 0) setContentH(h)
+  }
+
+  // srcDoc-váltás után újramérés (a betűtípus-betöltés miatt kis késleltetéssel is).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const doc = iframeRef.current?.contentDocument
+      if (!doc) return
+      const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+      if (h > 0) setContentH(h)
+    }, 120)
+    return () => clearTimeout(t)
+  }, [html])
+
+  const targetW = boxW > 0 ? Math.max(0, boxW - 16) : A4_PREVIEW_W
+  const scale = Math.min(1, targetW / A4_PREVIEW_W)
+  const scaledW = Math.round(A4_PREVIEW_W * scale)
+  const scaledH = Math.round(contentH * scale)
+
+  return (
+    <div ref={boxRef} className="w-full">
+      <div
+        className="mx-auto overflow-hidden rounded-lg border border-slate-300 bg-white shadow-md"
+        style={{ width: scaledW, height: scaledH }}
+      >
+        <iframe
+          ref={iframeRef}
+          onLoad={measure}
+          title={title}
+          srcDoc={html}
+          style={{
+            width: A4_PREVIEW_W,
+            height: contentH,
+            border: 0,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+            background: '#fff',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+    </div>
+  )
+}
 
 // ── UI ────────────────────────────────────────────────────────
 
@@ -219,102 +314,139 @@ export function DecontTabBody({
         </p>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+      {/* 2026-07-10 (S4-decont): mobil = 1 oszlop (előnézet a form ALATT), lg-től 2 oszlop. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
         {/* ── Kitöltés (magyar magyarázattal) — bal oldal ── */}
-        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Elszámoló neve *" hint="Aki az előleget felvette / a számlákat hozza">
-              <input className={inputClass} value={personName} onChange={(e) => setPersonName(e.target.value)} />
-            </Field>
-            <Field label="Jóváhagyta" hint="Aki jóváhagyja (pl. gondnok, lelkész)">
-              <input className={inputClass} value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} />
-            </Field>
-            <Field label="Elszámolás jellege" hint="Pl. „karbantartási kiadások”">
-              <input className={inputClass} value={jelleg} onChange={(e) => setJelleg(e.target.value)} />
-            </Field>
-            <Field label="Kapott előleg (RON)" hint="0, ha nem volt előleg">
-              <input className={inputClass} type="number" min={0} step={0.01} value={advance} onChange={(e) => setAdvance(e.target.value)} />
-            </Field>
-            <Field label="Decont dátum *" hint={date ? `Értelmezve: ${date} — erre a napra könyvelődnek a tételek` : 'Bármilyen formátum (pl. 2026.01.04)'}>
-              <input className={`${inputClass} ${dateRaw.trim() && !date ? 'border-red-400' : ''}`} value={dateRaw} placeholder="pl. 2026.01.04" onChange={(e) => setDateRaw(e.target.value)} />
-            </Field>
-            <Field label="Kiadás-kategória *" hint="Ide könyveli a tételeket — gépelj a kereséshez">
-              <SearchableSelect options={categoryOptions} value={categoryId} onChange={setCategoryId} />
-            </Field>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-[760px] w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500">
-                <tr>
-                  <th className="px-2 py-2 text-left">Irat sz.</th>
-                  <th className="px-2 py-2 text-left">Típus</th>
-                  <th className="px-2 py-2 text-left">Számla dátuma</th>
-                  <th className="px-2 py-2 text-left">Kiállító</th>
-                  <th className="px-2 py-2 text-left">Magyarázat</th>
-                  <th className="px-2 py-2 text-right">Összeg</th>
-                  <th className="px-2 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-t border-slate-100">
-                    <td className="px-2 py-1.5"><input className={inputClass} value={r.actNr} onChange={(e) => updateRow(r.id, { actNr: e.target.value })} /></td>
-                    <td className="px-2 py-1.5">
-                      <select className={inputClass} value={r.actType} onChange={(e) => updateRow(r.id, { actType: e.target.value })}>
-                        <option value="Fact">Fact — Számla</option>
-                        <option value="chit">chit — Nyugta</option>
-                        <option value="bon">bon — Bizonylat</option>
-                      </select>
-                    </td>
-                    <td className="px-2 py-1.5"><input className={inputClass} type="date" value={r.actDate} onChange={(e) => updateRow(r.id, { actDate: e.target.value })} /></td>
-                    <td className="px-2 py-1.5"><input className={inputClass} value={r.issuer} onChange={(e) => updateRow(r.id, { issuer: e.target.value })} /></td>
-                    <td className="px-2 py-1.5"><input className={inputClass} value={r.explanation} onChange={(e) => updateRow(r.id, { explanation: e.target.value })} /></td>
-                    <td className="px-2 py-1.5"><input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
-                    <td className="px-2 py-1.5 text-right">
-                      <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
-                        <Trash2 className="size-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent" onClick={addRow}>
-              <Plus className="size-4" /> Új sor
-            </button>
-            <div className="text-sm">
-              <span className="text-slate-500">Összesen:</span> <strong className="text-slate-800">{formatRon(total)} RON</strong>
-              <span className="ml-3 text-slate-500">{diff >= 0 ? 'Kifizetni' : 'Visszafizetni'}:</span>{' '}
-              <strong className={diff >= 0 ? 'text-emerald-600' : 'text-red-500'}>{formatRon(Math.abs(diff))} RON</strong>
+        <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <Section title="Alapadatok">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Elszámoló neve *" hint="Aki az előleget felvette / a számlákat hozza">
+                <input className={inputClass} value={personName} onChange={(e) => setPersonName(e.target.value)} />
+              </Field>
+              <Field label="Jóváhagyta" hint="Aki jóváhagyja (pl. gondnok, lelkész)">
+                <input className={inputClass} value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} />
+              </Field>
+              <Field label="Elszámolás jellege" hint="Pl. „karbantartási kiadások”">
+                <input className={inputClass} value={jelleg} onChange={(e) => setJelleg(e.target.value)} />
+              </Field>
+              <Field label="Kapott előleg (RON)" hint="0, ha nem volt előleg">
+                <input className={inputClass} type="number" min={0} step={0.01} value={advance} onChange={(e) => setAdvance(e.target.value)} />
+              </Field>
             </div>
-          </div>
+          </Section>
 
-          <div className="flex flex-wrap gap-2 pt-1">
+          <Section title="Dátum és kategória">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Decont dátum *" hint={date ? `Értelmezve: ${date} — erre a napra könyvelődnek a tételek` : 'Bármilyen formátum (pl. 2026.01.04)'}>
+                <input className={`${inputClass} ${dateRaw.trim() && !date ? '!border-red-400 focus:!ring-red-500/30' : ''}`} value={dateRaw} placeholder="pl. 2026.01.04" onChange={(e) => setDateRaw(e.target.value)} />
+              </Field>
+              <Field label="Kiadás-kategória *" hint="Ide könyveli a tételeket — gépelj a kereséshez">
+                <SearchableSelect className={searchableFix} options={categoryOptions} value={categoryId} onChange={setCategoryId} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Tételek">
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-[760px] w-full text-sm">
+                <thead className="bg-slate-100 text-xs font-semibold text-slate-600">
+                  <tr>
+                    <th className="px-2 py-2.5 text-left">Irat sz.</th>
+                    <th className="px-2 py-2.5 text-left">Típus</th>
+                    <th className="px-2 py-2.5 text-left">Számla dátuma</th>
+                    <th className="px-2 py-2.5 text-left">Kiállító</th>
+                    <th className="px-2 py-2.5 text-left">Magyarázat</th>
+                    <th className="px-2 py-2.5 text-right">Összeg</th>
+                    <th className="px-2 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    // Zebra-sorok: páros sorok halvány háttérrel.
+                    <tr key={r.id} className="border-t border-slate-100 odd:bg-white even:bg-slate-50/60">
+                      <td className="px-2 py-1.5"><input className={cellInputClass} value={r.actNr} onChange={(e) => updateRow(r.id, { actNr: e.target.value })} /></td>
+                      <td className="px-2 py-1.5">
+                        <select className={cellInputClass} value={r.actType} onChange={(e) => updateRow(r.id, { actType: e.target.value })}>
+                          <option value="Fact">Fact — Számla</option>
+                          <option value="chit">chit — Nyugta</option>
+                          <option value="bon">bon — Bizonylat</option>
+                        </select>
+                      </td>
+                      <td className="px-2 py-1.5"><input className={cellInputClass} type="date" value={r.actDate} onChange={(e) => updateRow(r.id, { actDate: e.target.value })} /></td>
+                      <td className="px-2 py-1.5"><input className={cellInputClass} value={r.issuer} onChange={(e) => updateRow(r.id, { issuer: e.target.value })} /></td>
+                      <td className="px-2 py-1.5"><input className={cellInputClass} value={r.explanation} onChange={(e) => updateRow(r.id, { explanation: e.target.value })} /></td>
+                      <td className="px-2 py-1.5"><input className={cellInputClass + ' text-right'} type="number" min={0} step={0.01} value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} /></td>
+                      <td className="px-2 py-1.5 text-right">
+                        <button type="button" aria-label="Sor törlése" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-500" onClick={() => removeRow(r.id)}>
+                          <Trash2 className="size-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {/* Kiemelt összesítő-sor */}
+                <tfoot>
+                  <tr className="border-t-2 border-violet-200 bg-violet-50/70">
+                    <td colSpan={4} className="px-2 py-2 text-right text-xs text-slate-500">
+                      Kapott előleg: {formatRon(advanceNum)} RON
+                    </td>
+                    <td className="px-2 py-2 text-sm font-semibold text-slate-800">Összesen</td>
+                    <td className="px-2 py-2 text-right text-sm font-bold text-violet-700">{formatRon(total)} RON</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100" onClick={addRow}>
+                <Plus className="size-4" /> Új sor
+              </button>
+              <div
+                className={`rounded-lg border px-4 py-2 text-sm font-medium shadow-sm ${
+                  diff >= 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-600'
+                }`}
+              >
+                {diff >= 0 ? 'Kifizetni' : 'Visszafizetni'}: <strong>{formatRon(Math.abs(diff))} RON</strong>
+              </div>
+            </div>
+          </Section>
+
+          {/* ── Elkülönülő alsó gombsáv ── */}
+          <div className="-mx-4 -mb-4 mt-1 flex flex-wrap items-center gap-2 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:-mx-5 sm:-mb-5 sm:px-5">
             <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50" onClick={() => void handleSave()} disabled={busy}>
               <Save className="size-4" /> {saved ? 'Mentve ✓ — újra menthető' : 'Mentés és könyvelés'}
             </button>
-            <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50" onClick={() => void handlePrint('browser')} disabled={busy}>
+            <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 disabled:opacity-50" onClick={() => void handlePrint('browser')} disabled={busy}>
               <Printer className="size-4" /> Nyomtatás
             </button>
-            <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent disabled:opacity-50" onClick={() => void handlePrint('pdf')} disabled={busy}>
+            <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 disabled:opacity-50" onClick={() => void handlePrint('pdf')} disabled={busy}>
               <Save className="size-4" /> PDF
             </button>
           </div>
         </div>
 
-        {/* ── Élő előnézet (a tényleges nyomtatott dokumentum) — jobb oldal ── */}
-        <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 xl:sticky xl:top-2">
-          <p className="px-1 pb-2 text-xs font-medium text-slate-500">Nyomtatási előnézet — a teljes A4-es dokumentum</p>
-          <div className="mx-auto w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <iframe title="Decont előnézet" srcDoc={previewHtml} className="block h-[860px] w-full bg-white" />
-          </div>
+        {/* ── Élő előnézet — pixelhű, scroll-mentes A4 (jobb oldal / mobilon alul) ── */}
+        <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-4 lg:sticky lg:top-2">
+          <p className="px-1 pb-2 text-xs font-medium text-slate-500">
+            Nyomtatási előnézet — pixelhű A4 (pontosan ez kerül papírra / PDF-be)
+          </p>
+          <A4Preview html={previewHtml} title="Decont előnézet" />
         </div>
       </div>
     </div>
+  )
+}
+
+/** 2026-07-10 (S4-decont): halvány szekció-kártya — a fehér mezők így láthatóan elválnak. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+      <h4 className="mb-3 border-b border-slate-200 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        {title}
+      </h4>
+      {children}
+    </section>
   )
 }
 

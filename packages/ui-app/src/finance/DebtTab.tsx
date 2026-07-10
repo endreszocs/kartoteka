@@ -336,9 +336,11 @@ export function DebtTab({
               </span>
             </div>
 
-            {/* 2026-07-10 (S2-1c): kereső + év-szűrő + csak-tartozók + export */}
+            {/* 2026-07-10 (S2-1c): kereső + év-szűrő + csak-tartozók + export
+                2026-07-10 (S4-mobil): a kereső 375px-en teljes szélességű, minden
+                vezérlő min. 40px-es érintőfelületű (max-sm:min-h-10). */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <div className="relative">
+              <div className="relative w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -346,7 +348,7 @@ export function DebtTab({
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Keresés név szerint…"
                   aria-label="Keresés név szerint"
-                  className="w-52 rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2.5 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+                  className="w-full max-sm:min-h-10 sm:w-52 rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2.5 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
                 />
               </div>
               {allYears.length > 1 && (
@@ -356,7 +358,7 @@ export function DebtTab({
                     setYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
                   }
                   aria-label="Év szűrő"
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+                  className="max-sm:min-h-10 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
                 >
                   <option value="all">Minden év ({yearRangeLabel})</option>
                   {[...allYears].reverse().map((y) => (
@@ -366,7 +368,7 @@ export function DebtTab({
                   ))}
                 </select>
               )}
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+              <label className="inline-flex max-sm:min-h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
                 <input
                   type="checkbox"
                   checked={onlyDebtors}
@@ -380,7 +382,7 @@ export function DebtTab({
                 onClick={exportCsv}
                 disabled={filteredMembers.length === 0}
                 title="A (szűrt) lista letöltése CSV-ben (Excelben megnyitható)"
-                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="ml-auto inline-flex max-sm:min-h-10 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
                 Export (CSV)
@@ -388,8 +390,10 @@ export function DebtTab({
             </div>
           </div>
 
+          {/* 2026-07-10 (S4-mobil): min-w — telefonon a sok évoszlopos tábla
+              vízszintesen görgethető; tabular-nums az összeg-oszlopokhoz. */}
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[680px] text-sm tabular-nums">
               <thead className="border-b border-slate-100 bg-white/85">
                 <tr>
                   <th className="w-8 p-3" aria-label="Részletek" />
@@ -516,8 +520,9 @@ export function DebtTab({
               </p>
             </div>
           ) : (
+            // 2026-07-10 (S4-mobil): min-w + tabular-nums — telefonon görgethető tábla.
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[640px] text-sm tabular-nums">
                 <thead className="border-b border-slate-100 bg-white/85">
                   <tr>
                     <th className="p-3 text-left text-xs font-medium text-slate-500">Bérlő</th>
@@ -599,12 +604,13 @@ function MemberRows({
     <>
       <tr className="hover:bg-slate-50/70">
         <td className="p-2 text-center">
+          {/* 2026-07-10 (S4-mobil): max-sm 40px-es érintőfelület a kibontó nyílnak. */}
           <button
             type="button"
             onClick={onToggle}
             aria-expanded={isOpen}
             aria-label={`${member.name} évenkénti részletei`}
-            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="inline-flex items-center justify-center rounded p-1 max-sm:min-h-10 max-sm:min-w-10 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
             {isOpen ? (
               <ChevronDown className="h-4 w-4" />

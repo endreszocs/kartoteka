@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   Landmark,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -55,6 +56,11 @@ import { fetchBnrRateAction } from '@/app/(dashboard)/penzugy/actions'
 import type { BankAccount } from '@/lib/constants/finance'
 
 type WizardStep = 'upload' | 'opening-balance' | 'categorize' | 'confirm' | 'done'
+
+// 2026-07-10 (S4-#7): közös, JÓL LÁTHATÓ input-mező stílus a nyitó egyenleg
+// lépéshez — eddig a mezők beleolvadtak a világos kártya-háttérbe.
+const FIELD_INPUT_CLS =
+  'rounded-lg border-slate-300 bg-white shadow-sm focus-visible:border-violet-400 focus-visible:ring-violet-200'
 
 type RowDecision = {
   action: BankImportItemAction
@@ -112,6 +118,9 @@ export function BcrImportWizardDialog({
   /** BNR árfolyam lekérdezés állapot. */
   const [loadingBnr, setLoadingBnr] = useState(false)
   const [bnrInfo, setBnrInfo] = useState<string | null>(null)
+  /** 2026-07-10 (S4-#7): mely számla+év párosra futott már le az AUTOMATIKUS
+   *  BNR-lekérés — így nem indítjuk újra minden render / lépés-váltás után. */
+  const [bnrAutoKey, setBnrAutoKey] = useState<string | null>(null)
   /** Év eleji állapot ellenőrzés (a helyes könyvelési logikával). */
   const [yearStartCheck, setYearStartCheck] = useState<YearStartCheckResult | null>(null)
 
@@ -128,6 +137,10 @@ export function BcrImportWizardDialog({
       setTransactions([])
       setDecisions({})
       setImportResult(null)
+      // 2026-07-10 (S4-#7): BNR-infó + auto-lekérés kulcs nullázása, hogy a
+      // következő megnyitáskor friss automatikus lekérés fusson.
+      setBnrInfo(null)
+      setBnrAutoKey(null)
     } else if (defaultBankAccountId != null) {
       // Per-számla import: a kártyáról indított import erre a számlára áll be.
       setSelectedBankId(defaultBankAccountId)
@@ -238,7 +251,10 @@ export function BcrImportWizardDialog({
     return () => { cancelled = true }
   }, [step, selectedBankId, selectedBank?.valuta, nyitoValuta, nyitoArfolyam, nyitoEve])
 
-  async function handleFetchBnr() {
+  // 2026-07-10 (S4-#7): `silent` mód — az automatikus (lépés-megnyitáskori)
+  // lekérés nem dobál toast-okat, csak a diszkrét inline forrás-jelzést állítja.
+  async function handleFetchBnr(opts?: { silent?: boolean }) {
+    const silent = opts?.silent === true
     setLoadingBnr(true)
     setBnrInfo(null)
     try {
@@ -257,9 +273,13 @@ export function BcrImportWizardDialog({
 
       if (!rate) {
         const msg = res.error || `A ${valuta} árfolyam nem elérhető ${nyitoEve}-re.`
-        toast.error(msg, { duration: 10000 })
+        // 2026-07-10 (S4-#7): silent (automatikus) módban nincs toast — csak
+        // érthető inline üzenet, és marad a manuális út.
+        if (!silent) toast.error(msg, { duration: 10000 })
         setBnrInfo(
-          `⚠️ Árfolyam nem tölthető le. Nézd meg: bnr.ro/Exchange-rates-1224.aspx`,
+          silent
+            ? '⚠️ Az automatikus árfolyam-lekérés nem sikerült — írd be kézzel, vagy próbáld a BNR gombbal (bnr.ro/Exchange-rates-1224.aspx).'
+            : `⚠️ Árfolyam nem tölthető le. Nézd meg: bnr.ro/Exchange-rates-1224.aspx`,
         )
         return
       }
@@ -270,14 +290,14 @@ export function BcrImportWizardDialog({
         res.source === 'frankfurter' ? 'Frankfurter (ECB)' :
         'online'
       const dateLabel = res.date || (isCurrentYear ? 'friss' : `${nyitoEve}-01`)
-      const contextLabel = isCurrentYear
-        ? 'legfrissebb publikáció'
-        : `${nyitoEve}. évre érvényes (BNR/ECB január 1-i árfolyama)`
-      setBnrInfo(`${sourceLabel} ${valuta} árfolyam: ${rate} (${dateLabel}) — ${contextLabel}`)
+      // 2026-07-10 (S4-#7): diszkrét forrás-jelzés, pl. „BNR: 4.9752 (2024-12-31)"
+      setBnrInfo(`${sourceLabel}: ${rate} (${dateLabel})`)
       if (typeof nyitoValuta === 'number') {
         setNyitoRon(Number((nyitoValuta * rate).toFixed(2)))
       }
-      if (res.source === 'bnr') {
+      if (silent) {
+        // Automatikus lekérésnél nem zavarjuk toast-tal a felhasználót.
+      } else if (res.source === 'bnr') {
         toast.success(
           `BNR árfolyam betöltve a ${nyitoEve}. évre: 1 ${valuta} = ${rate} RON (${dateLabel})`,
           { duration: 6000 },
@@ -292,6 +312,23 @@ export function BcrImportWizardDialog({
       setLoadingBnr(false)
     }
   }
+
+  // 2026-07-10 (S4-#7): a NYITÓ EGYENLEG lépés megnyitásakor a rendszer
+  // AUTOMATIKUSAN lekéri a nyitó év árfolyamát (nem-RON számlánál), a meglévő
+  // BNR-gomb logikát újrahasznosítva. A mező kézzel felülírható marad; hiba
+  // esetén marad a manuális út. A kulcs (számla:év) gátolja az ismétlődő
+  // lekérést, és a már kitöltött árfolyamot (pl. mentett rekord) nem írjuk felül.
+  useEffect(() => {
+    if (step !== 'opening-balance' || !selectedBankId) return
+    const valuta = selectedBank?.valuta || 'RON'
+    if (valuta === 'RON') return
+    if (typeof nyitoArfolyam === 'number' && nyitoArfolyam > 0) return
+    const key = `${selectedBankId}:${nyitoEve}`
+    if (bnrAutoKey === key || loadingBnr) return
+    setBnrAutoKey(key)
+    void handleFetchBnr({ silent: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedBankId, selectedBank?.valuta, nyitoEve, nyitoArfolyam, bnrAutoKey, loadingBnr])
 
   // Opening balance lépés: mentés után tovább categorize-ra
   async function handleSaveNyito() {
@@ -519,6 +556,26 @@ export function BcrImportWizardDialog({
           {/* ───── LÉPÉS 1: FÁJL FELTÖLTÉS ───── */}
           {step === 'upload' && (
             <div className="max-w-2xl mx-auto space-y-5">
+              {/* 2026-07-10 (S4): videó útmutató a banki importhoz — a felhasználó
+                  által készített tutorial (public/tutorials). Új lapon nyílik,
+                  a böngésző natívan lejátssza. */}
+              <a
+                href="/tutorials/BANK_IMPORT_TUTORIAL.mp4"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm text-violet-800 transition hover:bg-violet-100/60"
+              >
+                <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
+                  ▶
+                </span>
+                <span>
+                  <span className="font-semibold">Videó útmutató a banki importhoz</span>
+                  <span className="block text-xs text-violet-600/80">
+                    Lépésről lépésre megmutatja a fájl letöltését, a nyitó egyenleget és a
+                    kategorizálást — új lapon nyílik.
+                  </span>
+                </span>
+              </a>
               <div className="space-y-2">
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">
@@ -617,11 +674,17 @@ export function BcrImportWizardDialog({
                       type="number"
                       step="0.01"
                       value={nyitoValuta}
-                      onChange={(e) =>
-                        setNyitoValuta(e.target.value === '' ? '' : Number(e.target.value))
-                      }
+                      onChange={(e) => {
+                        const v = e.target.value === '' ? '' : Number(e.target.value)
+                        setNyitoValuta(v)
+                        // 2026-07-10 (S4-#7): a valuta-összeg változásakor a
+                        // RON-érték AZONNAL újraszámolódik, ha van árfolyam.
+                        if (typeof v === 'number' && typeof nyitoArfolyam === 'number' && nyitoArfolyam > 0) {
+                          setNyitoRon(Number((v * nyitoArfolyam).toFixed(2)))
+                        }
+                      }}
                       placeholder="0.00"
-                      className="h-11"
+                      className={`h-11 ${FIELD_INPUT_CLS}`}
                     />
                   </div>
 
@@ -646,13 +709,13 @@ export function BcrImportWizardDialog({
                                 }
                               }}
                               placeholder="Pl. 4.9750"
-                              className="h-11 flex-1"
+                              className={`h-11 flex-1 ${FIELD_INPUT_CLS}`}
                             />
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={handleFetchBnr}
+                              onClick={() => void handleFetchBnr()}
                               disabled={loadingBnr}
                               className="h-11 rounded-xl border-cyan-200 text-cyan-700 hover:bg-cyan-50 whitespace-nowrap"
                               title="Legfrissebb BNR árfolyam lekérése"
@@ -664,14 +727,21 @@ export function BcrImportWizardDialog({
                               )}
                             </Button>
                           </div>
-                          {bnrInfo ? (
+                          {/* 2026-07-10 (S4-#7): automatikus lekérés státusza —
+                              töltés közben spinner, utána diszkrét forrás-jelzés
+                              (pl. „BNR: 4.9752 (2024-12-31)"). */}
+                          {loadingBnr ? (
+                            <p className="text-[11px] text-cyan-700 font-medium inline-flex items-center gap-1">
+                              <Loader2 className="size-3 animate-spin" /> BNR árfolyam automatikus lekérése…
+                            </p>
+                          ) : bnrInfo ? (
                             <p className="text-[11px] text-cyan-700 font-medium">{bnrInfo}</p>
                           ) : (
                             <p className="text-[11px] text-slate-500">
-                              BNR január 1-i árfolyam ({nyitoEve}. évre) — kattints a BNR gombra
-                              az automatikus lekérdezéshez. Január 1. ünnep, ezért a rendszer az
-                              előző év utolsó publikált árfolyamát adja vissza (könyvelési
-                              gyakorlat: az év eleji nyitót az előző év záró árfolyama értékeli).
+                              A rendszer automatikusan lekéri a {nyitoEve}. évre érvényes BNR
+                              árfolyamot (az előző év utolsó publikált záró árfolyamát —
+                              könyvelési gyakorlat). Az érték kézzel felülírható, a BNR gombbal
+                              pedig újra lekérhető.
                             </p>
                           )}
                         </div>
@@ -687,7 +757,7 @@ export function BcrImportWizardDialog({
                               setNyitoRon(e.target.value === '' ? '' : Number(e.target.value))
                             }
                             placeholder="0.00"
-                            className="h-11"
+                            className={`h-11 ${FIELD_INPUT_CLS}`}
                           />
                           <p className="text-[11px] text-slate-500">
                             {typeof nyitoValuta === 'number' && typeof nyitoArfolyam === 'number' && nyitoArfolyam > 0
@@ -1028,12 +1098,31 @@ export function BcrImportWizardDialog({
             </div>
           )}
 
-          {/* ───── LÉPÉS 4: KÉSZ ───── */}
-          {step === 'done' && importResult && (
+          {/* ───── LÉPÉS 4: KÉSZ ─────
+              2026-07-10 (S4 #8): ŐSZINTE eredmény-állapot — 0 importált tétel +
+              hibák esetén NEM "sikeres", hanem piros "nem sikerült"; részleges
+              hibáknál sárga "részben sikerült". Eddig 0 tétel + hiba mellett is
+              zöld pipát és "Import sikeres!"-t mutatott. */}
+          {step === 'done' && importResult && (() => {
+            const failed = importResult.imported === 0 && importResult.errors.length > 0
+            const partial = importResult.imported > 0 && importResult.errors.length > 0
+            return (
             <div className="max-w-xl mx-auto space-y-4">
-              <div className="card-raised p-5 text-center">
-                <CheckCircle2 className="size-12 mx-auto text-emerald-500 mb-2" />
-                <h4 className="font-heading text-xl text-slate-800 mb-2">Import sikeres!</h4>
+              <div className={`card-raised p-5 text-center ${failed ? 'border border-red-200 bg-red-50/40' : partial ? 'border border-amber-200 bg-amber-50/40' : ''}`}>
+                {failed ? (
+                  <AlertTriangle className="size-12 mx-auto text-red-500 mb-2" />
+                ) : partial ? (
+                  <AlertTriangle className="size-12 mx-auto text-amber-500 mb-2" />
+                ) : (
+                  <CheckCircle2 className="size-12 mx-auto text-emerald-500 mb-2" />
+                )}
+                <h4 className="font-heading text-xl text-slate-800 mb-2">
+                  {failed
+                    ? 'Az import nem sikerült!'
+                    : partial
+                      ? 'Az import részben sikerült'
+                      : 'Import sikeres!'}
+                </h4>
                 <p className="text-sm text-slate-600">
                   <strong>{importResult.imported}</strong> tétel importálva ·{' '}
                   <strong>{importResult.skipped}</strong> kihagyva
@@ -1046,6 +1135,11 @@ export function BcrImportWizardDialog({
                     <> · <span className="text-red-600">{importResult.errors.length} hiba</span></>
                   )}
                 </p>
+                {failed && (
+                  <p className="mt-2 text-xs text-red-700">
+                    Egyetlen tétel sem került rögzítésre — a hibák javítása után indítsd újra az importot.
+                  </p>
+                )}
               </div>
 
               {importResult.errors.length > 0 && (
@@ -1070,7 +1164,8 @@ export function BcrImportWizardDialog({
                 </Button>
               </div>
             </div>
-          )}
+            )
+          })()}
         </div>
       </DialogContent>
     </Dialog>

@@ -8,7 +8,7 @@ import { SupportDialog } from '@/components/layout/support-dialog'
 import { SettingsDialog } from '@/components/modals/settings-dialog'
 
 import { signOut } from '@/app/(dashboard)/actions'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,9 @@ import type { ProfileRoleRow } from '@/lib/profile-roles/types'
 
 interface HeaderProps {
   profile: Profile
+  /** 2026-07-10 (S4-avatar): a beállított profilfotó URL-je — ha van, a monogram
+   *  helyett a fotó jelenik meg az avatárban. */
+  avatarUrl?: string | null
   congregationName: string | null
   congregationLogo: string | null
   /** A gyülekezet egyházmegyéjének neve — congregation scope-ban a chip secondary felirata. */
@@ -67,6 +70,7 @@ function getRoleLabel(role: string) {
 
 export function HeaderRefinedV3({
   profile,
+  avatarUrl = null,
   congregationName,
   congregationLogo,
   congregationDioceseName = null,
@@ -199,6 +203,10 @@ export function HeaderRefinedV3({
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-xl bg-muted px-2.5 py-1.5 transition outline-none hover:bg-muted/70">
               <Avatar className="h-8 w-8">
+                {/* 2026-07-10 (S4-avatar): a beállított profilfotó — eddig CSAK a
+                    monogram renderelődött, a fotó soha. Ha a kép nem tölt be,
+                    az AvatarFallback (monogram) automatikusan visszajön. */}
+                {avatarUrl && <AvatarImage src={avatarUrl} alt={fullName} />}
                 <AvatarFallback
                   className="text-[13px] font-semibold text-white"
                   style={{ background: 'var(--accent)' }}

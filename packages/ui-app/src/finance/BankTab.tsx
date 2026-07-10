@@ -739,7 +739,8 @@ export function BankTab({
                     type="button"
                     onClick={() => handleImportForAccount(account.id)}
                     title={`Banki kivonat importálása ide: ${account.bank_neve}`}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100"
+                    // 2026-07-10 (S4-mobil): min-h-10 — 40px-es érintőfelület telefonon is.
+                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100"
                   >
                     <FileSpreadsheet className="size-3.5" />
                     Kivonat importálása
@@ -752,7 +753,8 @@ export function BankTab({
                         setBankDialogOpen(true)
                       }}
                       title="Bankszámla szerkesztése"
-                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+                      // 2026-07-10 (S4-mobil): telefonon 40px (size-10), sm-től marad a kompakt size-7.
+                      className="inline-flex size-10 sm:size-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
                     >
                       <Pencil className="size-3.5" />
                     </button>
@@ -808,12 +810,13 @@ export function BankTab({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        {/* 2026-07-10 (S4-mobil): min-h-10 — 40px-es érintőfelület telefonon is. */}
         <select
           value={monthFilter}
           onChange={(event) =>
             setMonthFilter(event.target.value === 'all' ? 'all' : Number(event.target.value))
           }
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+          className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
         >
           <option value="all">Minden honap</option>
           {HU_MONTHS.map((name, index) => (
@@ -859,8 +862,8 @@ export function BankTab({
             <div className="space-y-6">
               {groupedByMonth.map(([monthIdx, group]) => (
             <div key={monthIdx} className="space-y-2">
-              {/* Havi elválasztó fejléc */}
-              <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
+              {/* Havi elválasztó fejléc — 2026-07-10 (S4-mobil): flex-wrap 375px-re. */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 px-4 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-slate-700">{group.label}</span>
                   <span className="text-xs text-slate-500">
@@ -877,10 +880,11 @@ export function BankTab({
                 </div>
               </div>
 
-              {/* Havi tábla */}
+              {/* Havi tábla — 2026-07-10 (S4-mobil): min-w + tabular-nums; telefonon
+                  a tábla vízszintesen görgethető, nem nyomódik össze. */}
               <div className="card-raised overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[600px] text-sm tabular-nums">
                     <thead className="border-b border-slate-100 bg-slate-50/80">
                       <tr>
                         <BankSortableTh
@@ -1103,7 +1107,7 @@ export function BankTab({
                                     type="button"
                                     title="Szerkesztés"
                                     onClick={() => handleOpenEdit(row)}
-                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                                   >
                                     <Pencil className="size-3.5" />
                                   </button>
@@ -1113,7 +1117,7 @@ export function BankTab({
                                     type="button"
                                     title="Stornó visszavonása"
                                     onClick={() => void handleUndoStorno(row)}
-                                    className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                                    className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 transition-colors"
                                   >
                                     <RotateCcw className="size-3.5" />
                                   </button>
@@ -1122,7 +1126,7 @@ export function BankTab({
                                     type="button"
                                     title="Stornózás"
                                     onClick={() => handleOpenStorno(row)}
-                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    className="inline-flex items-center justify-center rounded-md max-sm:min-h-10 max-sm:min-w-10 border border-slate-200 p-1.5 text-slate-400 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
                                   >
                                     <Ban className="size-3.5" />
                                   </button>
@@ -1139,10 +1143,10 @@ export function BankTab({
             </div>
           ))}
 
-          {/* Éves összesítő */}
-          <div className="card-raised p-4 flex items-center justify-between">
+          {/* Éves összesítő — 2026-07-10 (S4-mobil): flex-wrap + tabular-nums. */}
+          <div className="card-raised p-4 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-semibold text-slate-700">Éves összesen</span>
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-4 text-sm tabular-nums">
               <span className="text-emerald-600 font-bold">
                 +{formatCurrency(monthIncome)}
               </span>
@@ -1241,10 +1245,11 @@ function BankSortableTh({
     <th
       className={`p-2.5 text-${align} text-xs font-medium text-slate-500 ${className || ''}`}
     >
+      {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — a rendező gomb telefonon is 40px-es. */}
       <button
         type="button"
         onClick={onClick}
-        className={`inline-flex items-center gap-1 hover:text-slate-800 transition-colors ${
+        className={`inline-flex items-center gap-1 max-sm:min-h-10 hover:text-slate-800 transition-colors ${
           active ? 'text-violet-700 font-semibold' : ''
         }`}
       >
@@ -1276,7 +1281,8 @@ function MiniKpi({
           {label}
         </span>
       </div>
-      <p className={`text-lg font-bold ${color}`}>
+      {/* 2026-07-10 (S4-mobil): tabular-nums + break-words — hosszú összeg 375px-en is olvasható. */}
+      <p className={`text-lg font-bold tabular-nums break-words ${color}`}>
         {value} <span className="text-xs font-normal text-slate-400">RON</span>
       </p>
     </div>

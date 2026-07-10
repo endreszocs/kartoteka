@@ -141,11 +141,9 @@ export function normalizeName(name: string): string {
     .toLowerCase()
 }
 
-// ── Név prefix eltávolítás ───────────────────────────────────
-
-export function stripNamePrefix(name: string): string {
-  return name.replace(/^(ifj\.|id\.|dr\.|özv\.)\s*/gi, '').trim()
-}
+// 2026-07-10 (S4-halottkod): a stripNamePrefix export törölve — a teljes
+// monorepóban (web + desktop + ui-app, dinamikus importokkal együtt) sehol
+// nem volt rá hivatkozás.
 
 // ── Forrás szétbontás (audit) ────────────────────────────────
 

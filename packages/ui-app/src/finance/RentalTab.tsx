@@ -194,10 +194,13 @@ export function RentalTab({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* 2026-07-10 (S4-#2): látható input-stílus (border-slate-300 + shadow-sm +
+              fókusz-gyűrű) és min. 40px-es érintőfelület a mobil-követelmény szerint */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
+            aria-label="Szerződés státusz szűrő"
+            className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
           >
             <option value="aktiv">Aktív</option>
             <option value="mind">Összes (lejárt is)</option>
@@ -205,7 +208,8 @@ export function RentalTab({
           <select
             value={tipusFilter}
             onChange={(e) => setTipusFilter(e.target.value as TipusFilter)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
+            aria-label="Szerződés típus szűrő"
+            className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
           >
             <option value="mind">Mind</option>
             <option value="terulet">Terület</option>
@@ -213,7 +217,7 @@ export function RentalTab({
           </select>
           <Button
             onClick={handleNew}
-            className="rounded-xl bg-amber-600 hover:bg-amber-700"
+            className="min-h-[40px] rounded-xl bg-amber-600 hover:bg-amber-700"
             size="sm"
           >
             <Plus className="mr-1 h-4 w-4" />
@@ -358,10 +362,11 @@ export function RentalTab({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  {/* 2026-07-10 (S4-#2): min. 40px érintőfelület mobilon */}
                   {c.jogi_tipus !== 'comodat' && c.aktiv && invoiceDialogSlot && (
                     <Button
                       size="sm"
-                      className="flex-1 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
+                      className="min-h-[40px] flex-1 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
                       onClick={() => handleIssueInvoice(c)}
                     >
                       <FileText className="mr-1 h-3 w-3" />
@@ -371,7 +376,7 @@ export function RentalTab({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-1 rounded-lg"
+                    className="min-h-[40px] flex-1 rounded-lg"
                     onClick={() => handleEdit(c)}
                   >
                     <Pencil className="mr-1 h-3 w-3" />
@@ -380,7 +385,7 @@ export function RentalTab({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-1 rounded-lg text-red-600 hover:bg-red-50"
+                    className="min-h-[40px] flex-1 rounded-lg text-red-600 hover:bg-red-50"
                     onClick={() => handleDelete(c)}
                     disabled={deletingId === c.id}
                   >

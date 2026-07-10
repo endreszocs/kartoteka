@@ -5,21 +5,22 @@
  *   migration-docs/source-links/penzugy_tartozasok.js:304-399
  *   (_renderBerletTartozas függvény)
  *
- * FONTOS DUPLIKÁCIÓ: a hátralék-számítás "duális párosítást" használ —
- * minden szerződésre az `id_szemely` alapján ÉS a `berlo_nev` (case-insensitive
- * trim) alapján is összegzi a befizetéseket. Ha egy befizetés mindkét
- * kritériumhoz illeszkedik (pl. azonos személy + egyező név), **kétszer
- * számolódik**. Ez a Vanilla JS-es viselkedés, amit a migráció során
- * szándékosan megtartunk — a régi kód és a pénzügyi historikus adatok ezzel
- * konzisztensek. Jövőbeli refaktorban érdemes mérlegelni, hogy csak az
- * `id_szemely` alapú párosítás legyen elsődleges, és a név csak fallback.
+ * 2026-07-10 (S4-#2 audit): a korábbi "duális párosítás" (két külön Map:
+ * id_szemely ÉS berlo_nev szerint, majd MINDKETTŐ összege) DUPLÁN számolta
+ * azt a befizetést, amely egyszerre illeszkedett személy-ID és név szerint
+ * is — a `fizett` felfúvódott, a hátralék alábecsült lett. Javítva:
+ * befizetésenként EGYSZER vizsgáljuk az illeszkedést (id_szemely VAGY név,
+ * logikai VAGY), így egy befizetés egy szerződéshez legfeljebb egyszer
+ * számít. A név-párosítás robusztusabb is lett: a `forrasa` "Név - utca"
+ * formátumából a név-részt is figyeljük (splitForrasaNameStreet).
  */
 
 import type { RentalContractRow, RentalDebtRow, RentalTipus } from './types'
 // 2026-06-10: a `calculateEvesDij` a megosztott `helpers`-ből jön (azonos
 // implementáció) — a korábbi lokális duplikátum eltávolítva a barrel-ütközés
 // elkerüléséért (helpers.ts is exportálja).
-import { calculateEvesDij } from './helpers'
+// 2026-07-10 (S4-#2): + splitForrasaNameStreet a robusztusabb név-párosításhoz.
+import { calculateEvesDij, splitForrasaNameStreet } from './helpers'
 
 export interface RentalPaymentLike {
   id_szemely: number | null
@@ -53,17 +54,25 @@ function parseMonthIndex(iso: string | null | undefined): number {
 /**
  * Részarányos (arányos) bérleti díj egy adott évre.
  *
- * Szabály:
+ * Szabály: az adott évben AKTÍV hónapok száma alapján arányosítunk:
  * - Ha az év a szerződés kezdet/vége tartományán kívül esik → 0
- * - Ha az év TELJES évben lefedett → teljes éves díj
- * - Ha az év a KEZDET éve → a kezdő hónap alapján arányosítva:
- *   `evesDij * (12 - kezdetHonap) / 12`  (kezdetHonap: 0=január)
- * - Ha az év a VÉGE éve (és van vege) → a záró hónap alapján:
- *   `evesDij * (vegeHonap + 1) / 12`  (vegeHonap: 0=január)
+ * - Ha az év TELJES évben lefedett → teljes éves díj (12/12)
+ * - Ha az év a KEZDET éve → az aktív ablak a kezdő hónapnál indul
+ * - Ha az év a VÉGE éve (és van vege) → az aktív ablak a záró hónapnál zárul
+ * - Ha az év EGYSZERRE kezdet- és vége-év → a két ablak METSZETE számít
  *
  * Példa: 2025-05-15 — 2026-03-31 szerződés, éves díj 1200 RON:
  * - 2025: 8 hónap aktív (május-december) = 1200 * 8/12 = 800
  * - 2026: 3 hónap aktív (január-március) = 1200 * 3/12 = 300
+ *
+ * Példa (töredék-év, egyazon évben indul ÉS zárul):
+ * 2025-05-01 — 2025-08-31, éves díj 1200 RON:
+ * - 2025: 4 hónap aktív (május-augusztus) = 1200 * 4/12 = 400
+ *
+ * 2026-07-10 (S4-#2 audit): korábban a vége-évi ág FELÜLÍRTA a kezdet-évi
+ * arányosítást — egy éven belül induló ÉS végződő szerződésnél a teljes
+ * január→vége időszakot számolta (fenti példában 8/12 = 800), figyelmen
+ * kívül hagyva a kezdő hónapot. Javítva: hónap-ablak metszet.
  */
 export function calculateAranyosDij(contract: RentalContractRow, year: number): number {
   const evesDij = calculateEvesDij(contract)
@@ -74,19 +83,15 @@ export function calculateAranyosDij(contract: RentalContractRow, year: number): 
 
   if (year < szKezdetEv || year > szVegeEv) return 0
 
-  let aranyos = evesDij
+  // Aktív hónap-ablak az adott éven belül (0=január … 11=december)
+  const elsoAktivHonap = year === szKezdetEv ? parseMonthIndex(contract.kezdet) : 0
+  const utolsoAktivHonap =
+    year === szVegeEv && contract.vege ? parseMonthIndex(contract.vege) : 11
 
-  if (year === szKezdetEv) {
-    const kezdetHonap = parseMonthIndex(contract.kezdet) // 0-11
-    aranyos = (evesDij * (12 - kezdetHonap)) / 12
-  }
+  // Hibás adat (vege < kezdet ugyanabban az évben) ellen védve: min. 0 hónap
+  const aktivHonapok = Math.max(0, utolsoAktivHonap - elsoAktivHonap + 1)
 
-  if (year === szVegeEv && contract.vege) {
-    const vegeHonap = parseMonthIndex(contract.vege) // 0-11
-    aranyos = (evesDij * (vegeHonap + 1)) / 12
-  }
-
-  return aranyos
+  return (evesDij * aktivHonapok) / 12
 }
 
 // ── Bérleti hátralék számítás ────────────────────────────────
@@ -97,15 +102,21 @@ export function calculateAranyosDij(contract: RentalContractRow, year: number): 
  *
  * Minden aktív (NEM törölt) szerződésre kiszámolja:
  * - `elvart`  — az évenként aránylagos elvárt díjak összege
- * - `fizett`  — a befizetett összeg az intervallumon belül (duális párosítás)
+ * - `fizett`  — a befizetett összeg az intervallumon belül
  * - `hatralek = max(0, elvart - fizett)`
  *
- * Duális párosítás: a befizetés akkor számít ehhez a szerződéshez, ha:
+ * Párosítás (2026-07-10, S4-#2 audit — javítva): a befizetés akkor számít
+ * ehhez a szerződéshez, ha:
  * - `befizetes.id_szemely === contract.id_szemely`, VAGY
- * - `befizetes.forrasa.trim().toLowerCase() === contract.berlo_nev.trim().toLowerCase()`
+ * - a `forrasa` (teljes VAGY a "Név - utca" formátum név-része, trim +
+ *   case-insensitive) egyezik a `berlo_nev`-vel.
+ * A feltételek logikai VAGY-gyal, befizetésenként EGYSZER értékelődnek ki —
+ * a korábbi implementáció a személy-ID- és a név-egyezést KÜLÖN összegezte,
+ * így az egyszerre mindkettőre illeszkedő befizetés duplán számolódott.
  *
- * Ha mindkettő igaz és eltérő befizetésekre vonatkozik → összeadódnak
- * (a Vanilla JS-ben is így működik).
+ * Ismert korlát (nem javítható befizetés→szerződés link nélkül): ha ugyanannak
+ * a bérlőnek TÖBB aktív szerződése van, ugyanaz a befizetés MINDKÉT szerződés
+ * `fizett`-jébe beszámít — a bérlő-szintű összesítés viszont helyes marad.
  *
  * @param contracts  az összes aktív bérleti szerződés (nem törölt)
  * @param payments   az összes 104.04/104.05 kódú befizetés az adott évekre
@@ -118,36 +129,20 @@ export function calculateRentalDebts(
   yearFrom: number,
   yearTo: number,
 ): RentalDebtRow[] {
-  // Befizetéseket szervezzük személy-ID és név szerint, évenként
-  const bySzemely = new Map<number, Map<number, number>>()
-  const byNev = new Map<string, Map<number, number>>()
-
-  for (const p of payments) {
-    const ev = p.fizetettev
-    if (ev == null) continue
-    const osszeg = toNum(p.osszeg)
-
-    if (p.id_szemely != null) {
-      let szMap = bySzemely.get(p.id_szemely)
-      if (!szMap) {
-        szMap = new Map()
-        bySzemely.set(p.id_szemely, szMap)
+  // 2026-07-10 (S4-#2): a befizetéseket előfeldolgozzuk — év-szűrés + normalizált
+  // név-kulcsok (teljes forrasa ÉS a "Név - utca" név-része) egyszer számolódnak.
+  const relevantPayments = payments
+    .filter(p => p.fizetettev != null && p.fizetettev >= yearFrom && p.fizetettev <= yearTo)
+    .map(p => {
+      const forrasaKey = p.forrasa ? p.forrasa.trim().toLowerCase() : ''
+      const nevReszKey = splitForrasaNameStreet(p.forrasa).namePart.toLowerCase()
+      return {
+        id_szemely: p.id_szemely,
+        osszeg: toNum(p.osszeg),
+        forrasaKey,
+        nevReszKey,
       }
-      szMap.set(ev, (szMap.get(ev) ?? 0) + osszeg)
-    }
-
-    if (p.forrasa) {
-      const key = p.forrasa.trim().toLowerCase()
-      if (key) {
-        let nevMap = byNev.get(key)
-        if (!nevMap) {
-          nevMap = new Map()
-          byNev.set(key, nevMap)
-        }
-        nevMap.set(ev, (nevMap.get(ev) ?? 0) + osszeg)
-      }
-    }
-  }
+    })
 
   // Aktív szerződések szűrése (aktiv=true, deleted=false)
   const aktivContracts = contracts.filter(c => c.aktiv && !c.deleted)
@@ -156,21 +151,21 @@ export function calculateRentalDebts(
 
   for (const contract of aktivContracts) {
     let elvart = 0
-    let fizett = 0
+    for (let ev = yearFrom; ev <= yearTo; ev++) {
+      elvart += calculateAranyosDij(contract, ev)
+    }
 
     const nevKey = contract.berlo_nev.trim().toLowerCase()
 
-    for (let ev = yearFrom; ev <= yearTo; ev++) {
-      elvart += calculateAranyosDij(contract, ev)
-
-      let eviFizetes = 0
-      if (contract.id_szemely != null) {
-        eviFizetes += bySzemely.get(contract.id_szemely)?.get(ev) ?? 0
-      }
-      if (nevKey) {
-        eviFizetes += byNev.get(nevKey)?.get(ev) ?? 0
-      }
-      fizett += eviFizetes
+    // Befizetésenként EGYSZER döntünk az illeszkedésről (VAGY-feltétel) —
+    // így nincs dupla számolás akkor sem, ha ID és név egyszerre egyezik.
+    let fizett = 0
+    for (const p of relevantPayments) {
+      const idEgyezik =
+        contract.id_szemely != null && p.id_szemely === contract.id_szemely
+      const nevEgyezik =
+        nevKey !== '' && (p.forrasaKey === nevKey || p.nevReszKey === nevKey)
+      if (idEgyezik || nevEgyezik) fizett += p.osszeg
     }
 
     const hatralek = Math.max(0, elvart - fizett)

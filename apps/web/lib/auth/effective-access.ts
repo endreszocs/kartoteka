@@ -89,7 +89,9 @@ export interface ActiveProfileRoleContext {
 
 export interface EffectiveAccessContext {
   supabase: SupabaseServerClient
-  user: { id: string; email?: string | null } | null
+  // 2026-07-10 (S4-avatar): user_metadata is átjön (futásidőben mindig a teljes
+  // Supabase User van itt) — a header-avatár a metadata avatar_url/picture-ből él.
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null
   userId: string | null
   profile: Profile | null
   fullName: string

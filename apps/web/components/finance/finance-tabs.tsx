@@ -327,7 +327,8 @@ export function FinanceTabs({
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">Pénzügy</p>
-            <h2 className="font-heading text-3xl text-slate-800">Áttekintés és költségvetés</h2>
+            {/* 2026-07-10 (S4-mobil): kisebb cím 375px-en, sm-től marad a text-3xl. */}
+            <h2 className="font-heading text-2xl sm:text-3xl text-slate-800">Áttekintés és költségvetés</h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
               A bevételek, kiadások, kassza, bank és éves számadás egy helyen, áttekinthetően és barátságosan kezelhető.
             </p>
@@ -362,17 +363,19 @@ export function FinanceTabs({
           {/* 2026-07-10 (S2 #4): az év-választó a bal oszlopba költözött (fent);
               itt csak az akciógombok maradtak. */}
           <div className="flex flex-col items-start gap-3 xl:items-end">
+            {/* 2026-07-10 (S4-mobil): a gombok wrap-elnek (flex-wrap megvolt), és
+                max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
+              <Button size="sm" className="rounded-xl max-sm:min-h-10 bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
                 + Tétel rögzítése
               </Button>
-              <Button size="sm" variant="outline" className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
+              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
                 Decont
               </Button>
-              <Button size="sm" variant="outline" className="rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
+              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
                 Dispoziție
               </Button>
-              <Button size="sm" variant="outline" className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
+              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
                 <Printer className="mr-1 size-3.5" />
                 Nyomtatási központ
               </Button>
@@ -380,7 +383,7 @@ export function FinanceTabs({
                   tartalma innen, a hero gombjából nyíló teljes-képernyős
                   modálban él tovább. Diocese módban (tag-szintű funkció) rejtve. */}
               {scope !== 'diocese' && (
-                <Button size="sm" variant="outline" className="rounded-xl border-cyan-200 text-cyan-700 hover:bg-cyan-50" onClick={() => setOblioModalOpen(true)}>
+                <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-cyan-200 text-cyan-700 hover:bg-cyan-50" onClick={() => setOblioModalOpen(true)}>
                   <FileCheck className="mr-1 size-3.5" />
                   Oblio ellenőrzés
                 </Button>
@@ -422,10 +425,11 @@ export function FinanceTabs({
                   {/* #Endre 2026-07-02: a hiányzó nyugták BEVÉTELEK → bevételi elszámolás (Decont
                       de încasări) élő előnézettel; minden hiányzó Irat sz. külön bevételi tétel a
                       KASSZÁBA és a SZÁMADÁSba, a Kerületi sz. a szomszédokból kikövetkeztetve. */}
+                  {/* 2026-07-10 (S4-mobil): max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
                   <button
                     type="button"
                     onClick={() => setDispozitieIncasareOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700"
+                    className="inline-flex max-sm:min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700"
                     title="Megnyitja a bevételi elszámolást a hiányzó nyugtákkal. Minden nyugta külön bevételi tételként a kasszába és a számadásba kerül, élő előnézettel."
                   >
                     Hiányzó nyugták bevételi elszámolása (Decont de încasări)
@@ -602,7 +606,7 @@ export function FinanceTabs({
             <Button
               size="sm"
               variant="outline"
-              className="rounded-xl border-teal-200 text-teal-700 hover:bg-teal-50"
+              className="rounded-xl max-sm:min-h-10 border-teal-200 text-teal-700 hover:bg-teal-50"
               onClick={() => setBudgetPrintOpen(true)}
             >
               <Printer className="mr-1 size-3.5" />
@@ -768,13 +772,14 @@ export function FinanceTabs({
       {scope !== 'diocese' && (
         <Dialog open={oblioModalOpen} onOpenChange={setOblioModalOpen}>
           <DialogContent className="flex max-h-[92vh] w-full flex-col overflow-hidden p-0 sm:max-w-7xl">
-            <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 pr-14">
+            {/* 2026-07-10 (S4-mobil): kisebb belső margó telefonon (px-4), sm-től px-6. */}
+            <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-4 sm:px-6 py-4 pr-14">
               <DialogTitle className="flex items-center gap-2">
                 <FileCheck className="size-5 text-cyan-600" />
                 Oblio ellenőrzés
               </DialogTitle>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 py-5">
               {oblioModalOpen && (
                 <OblioEllenorzesTab
                   congregationSlug={slugifyCongregationName(congregationName)}
