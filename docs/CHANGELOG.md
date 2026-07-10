@@ -64,6 +64,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   tételek is szerepelnek, ezért a korábbi „Kasszakönyv" felirat félrevezető volt.
 - **Az asztali (offline) verzió bevétel/kiadás összesítői is pontosabbak** —
   a belső mozgások ott sem számítanak bele a totálokba.
+- **Az Oblio ellenőrzés „Mappa beállítása" gombja mostantól tényleg működik** —
+  eddig egy olyan oldalra vitt, ahol nincs is mappa-beállítás (lelkészként sehol
+  nem lehetett beállítani, így a webes Oblio ellenőrzés el sem indulhatott).
+  Most a gomb azonnal megnyitja a mappa-választót, és a rendszer megjegyzi a
+  kiválasztott KARTOTEKA mappát (Chrome/Edge böngésző szükséges).
 
 ### ✨ Új funkciók és 🎨 átláthatóbb felület
 

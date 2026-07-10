@@ -144,7 +144,8 @@ export interface OblioEllenorzesTabProps {
   /** UI-feedback. */
   onToast?: (msg: string, kind: OblioTabToastKind) => void
 
-  /** Beállítások-megnyitás (web: `/profile?tab=offline` redirect). */
+  /** Mappa-beállítás indítása (web 2026-07-10-től: HELYBEN nyitja a
+   *  showDirectoryPicker-t — a korábbi /profile?tab=offline redirect halott cél volt). */
   onOpenSettings: () => void
 
   /** 4 modal slot (a Dialog shell webnél marad). */

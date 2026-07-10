@@ -126,7 +126,8 @@ export function OblioEllenorzesFolderCard({
               </p>
               <p className="text-sm leading-6 text-slate-600">
                 Az Oblio ellenőrzéshez a beérkezett számla XML-ek a saját számítógépeden tárolódnak.
-                Először állítsd be a KARTOTEKA helyi mappát az Offline beállítások menüben.
+                Kattints a gombra, és válaszd ki (vagy hozd létre) a KARTOTEKA mappát —
+                a rendszer megjegyzi. Chrome vagy Edge böngésző szükséges.
               </p>
             </div>
           </div>
