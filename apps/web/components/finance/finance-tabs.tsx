@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import { AlertTriangle, Building2, FileCheck, Printer, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, Building2, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
@@ -325,21 +325,84 @@ export function FinanceTabs({
         <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-teal-200/30 blur-3xl" />
 
         <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
+          {/* 2026-07-10 (S5-#1): OLDALCSERE — a munkavégzés gombjai (Tétel rögzítése,
+              Decont, Dispoziție, Nyomtatás, Oblio) a BAL oldalra kerültek (balról
+              jobbra olvasunk, ott kezdődik a munka), a cím + év-választó + chipek
+              a JOBB oldalra. A gombok soft-filled pirulák lettek ikonnal. */}
+          <div className="flex flex-col items-start gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">Pénzügy</p>
+            {/* 2026-07-10 (S4-mobil): a gombok wrap-elnek, max-sm:min-h-10 —
+                40px-es érintőfelület telefonon. */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                className="rounded-xl max-sm:min-h-10 bg-gradient-to-r from-teal-600 to-emerald-600 px-4 font-semibold text-white shadow-md transition hover:from-teal-700 hover:to-emerald-700 hover:shadow-lg"
+                onClick={() => setCombinedOpen(true)}
+              >
+                <Plus className="mr-1 size-4" />
+                Tétel rögzítése
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl max-sm:min-h-10 border-violet-200 bg-violet-50 font-medium text-violet-700 shadow-sm transition hover:bg-violet-100 hover:shadow"
+                onClick={() => setDecontOpen(true)}
+              >
+                <Receipt className="mr-1 size-3.5" />
+                Decont
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl max-sm:min-h-10 border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 hover:shadow"
+                onClick={() => setDispozitieOpen(true)}
+              >
+                <FileText className="mr-1 size-3.5" />
+                Dispoziție
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl max-sm:min-h-10 border-blue-200 bg-blue-50 font-medium text-blue-700 shadow-sm transition hover:bg-blue-100 hover:shadow"
+                onClick={() => setPrintDialogOpen(true)}
+              >
+                <Printer className="mr-1 size-3.5" />
+                Nyomtatási központ
+              </Button>
+              {/* 2026-07-10 (S3 #4): az Oblio ellenőrzés fül megszűnt — a
+                  tartalma innen, a hero gombjából nyíló teljes-képernyős
+                  modálban él tovább. Diocese módban (tag-szintű funkció) rejtve. */}
+              {scope !== 'diocese' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl max-sm:min-h-10 border-cyan-200 bg-cyan-50 font-medium text-cyan-700 shadow-sm transition hover:bg-cyan-100 hover:shadow"
+                  onClick={() => setOblioModalOpen(true)}
+                >
+                  <FileCheck className="mr-1 size-3.5" />
+                  Oblio ellenőrzés
+                </Button>
+              )}
+              {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
+                  belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
+              {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
+            </div>
+          </div>
+
+          {/* 2026-07-10 (S5-#1): a cím + leírás + év-választó + chipek a JOBB oszlopban,
+              xl-en jobbra igazítva; mobilon (egymás alatt) marad balra zárt. */}
+          <div className="xl:text-right">
             {/* 2026-07-10 (S4-mobil): kisebb cím 375px-en, sm-től marad a text-3xl. */}
             <h2 className="font-heading text-2xl sm:text-3xl text-slate-800">Áttekintés és költségvetés</h2>
-            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            <p className="mt-1 max-w-2xl text-sm text-slate-500 xl:ml-auto">
               A bevételek, kiadások, kassza, bank és éves számadás egy helyen, áttekinthetően és barátságosan kezelhető.
             </p>
 
-            {/* 2026-07-10 (S2 #4): az év-választó a BAL oldalra került — balról jobbra
-                olvasunk, itt szembeötlőbb; a cím alatt, a chip-sor felett. */}
-            <div className="mt-3">
+            <div className="mt-3 flex xl:justify-end">
               <FinanceYearSelector currentYear={currentYear} availableYears={availableYears} />
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2 xl:justify-end">
               <span className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
                 <Building2 className="size-3.5 text-teal-600" />
                 {congregationName}
@@ -357,40 +420,6 @@ export function FinanceTabs({
                   Rendszergazdai mód aktív
                 </span>
               )}
-            </div>
-          </div>
-
-          {/* 2026-07-10 (S2 #4): az év-választó a bal oszlopba költözött (fent);
-              itt csak az akciógombok maradtak. */}
-          <div className="flex flex-col items-start gap-3 xl:items-end">
-            {/* 2026-07-10 (S4-mobil): a gombok wrap-elnek (flex-wrap megvolt), és
-                max-sm:min-h-10 — 40px-es érintőfelület telefonon. */}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" className="rounded-xl max-sm:min-h-10 bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
-                + Tétel rögzítése
-              </Button>
-              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
-                Decont
-              </Button>
-              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
-                Dispoziție
-              </Button>
-              <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
-                <Printer className="mr-1 size-3.5" />
-                Nyomtatási központ
-              </Button>
-              {/* 2026-07-10 (S3 #4): az Oblio ellenőrzés fül megszűnt — a
-                  tartalma innen, a hero gombjából nyíló teljes-képernyős
-                  modálban él tovább. Diocese módban (tag-szintű funkció) rejtve. */}
-              {scope !== 'diocese' && (
-                <Button size="sm" variant="outline" className="rounded-xl max-sm:min-h-10 border-cyan-200 text-cyan-700 hover:bg-cyan-50" onClick={() => setOblioModalOpen(true)}>
-                  <FileCheck className="mr-1 size-3.5" />
-                  Oblio ellenőrzés
-                </Button>
-              )}
-              {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
-                  belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
-              {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
             </div>
           </div>
         </div>

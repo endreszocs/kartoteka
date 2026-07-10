@@ -39,6 +39,7 @@ import { loadBudgetRowsCompat, type BudgetCompatRow } from '@/lib/finance/budget
 import { createClient } from '@/lib/supabase/client'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { getChitantaTombokReport } from '@/app/(dashboard)/penzugy/chitanta-tombok-actions'
+import { getYearFinanceRecords } from '@/app/(dashboard)/penzugy/actions'
 import { listDecontReprint } from '@/app/(dashboard)/penzugy/decont-actions'
 import { listDispozitieReprint } from '@/app/(dashboard)/penzugy/dispozitie-actions'
 import { toast } from 'sonner'
@@ -61,6 +62,22 @@ interface FinancePrintDialogProps {
   currentYear: number
   settings: BealitasRow
 }
+
+/** 2026-07-10 (S5-#3): a Body opak yearRecords-ának webes alakja. */
+type YearRecordsPayload = {
+  income: BefitetesRow[]
+  expense: KiadasRow[]
+  carryoverCash: number
+  carryoverBank: number
+}
+
+/** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok
+ *  (saját lazy-loaderük van vagy snapshot-ból nyomtatnak). */
+const TYPES_WITHOUT_RECORDS = new Set<FinancePrintType>([
+  'decont_reprint',
+  'dispozitie_reprint',
+  'nyugtatomb_kimutatas',
+])
 
 function emptyPreview(message: string): PrintReport {
   return {
@@ -131,6 +148,24 @@ export function FinancePrintDialog({
           categories={categoryOptions}
           currentYear={currentYear}
           buildReport={(filters: FinancePrintFilters): PrintReport => {
+            // 2026-07-10 (S5-#3): a bevétel/kiadás sorok a KIVÁLASZTOTT évhez.
+            // Az oldal évén a props-beli (memóriában lévő) sorokat használjuk;
+            // más évnél a Body által betöltött yearRecords-ot — amíg az töltődik,
+            // "Betöltés…" előnézetet adunk (mint a budgetRows-nál).
+            const yearScoped = filters.selectedYear !== currentYear
+            if (
+              yearScoped &&
+              filters.yearRecords == null &&
+              !TYPES_WITHOUT_RECORDS.has(filters.printType)
+            ) {
+              return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
+            }
+            const yr = yearScoped ? (filters.yearRecords as YearRecordsPayload | null) : null
+            const incomeUse = yr ? yr.income : income
+            const expenseUse = yr ? yr.expense : expense
+            const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
+            const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+
             // Korábbi bizonylatok újranyomtatása (a snapshot adatból)
             if (filters.printType === 'decont_reprint') {
               const doc = filters.selectedDoc
@@ -167,12 +202,12 @@ export function FinancePrintDialog({
               const actualExpense: Record<string, number> = {}
               // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a hivatalos
               // költségvetés/számadás nyomtatvány tényadatába sem számít.
-              for (const r of income) {
+              for (const r of incomeUse) {
                 if (r.deleted || r.stornozott) continue
                 const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
                 if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
               }
-              for (const r of expense) {
+              for (const r of expenseUse) {
                 if (r.deleted || r.stornozott) continue
                 const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
                 if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
@@ -184,24 +219,24 @@ export function FinancePrintDialog({
                 actualExpense,
                 congregationName,
                 year: filters.selectedYear,
-                carryoverCash,
-                carryoverBank,
+                carryoverCash: carryoverCashUse,
+                carryoverBank: carryoverBankUse,
                 finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
               }
               return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
             }
 
             const reportData: FinanceReportData = {
-              income,
-              expense,
+              income: incomeUse,
+              expense: expenseUse,
               bankAccounts,
               cellek,
               bevCelMap,
               kiaCelMap,
               congregationName,
               congregationNameRo,
-              carryoverCash,
-              carryoverBank,
+              carryoverCash: carryoverCashUse,
+              carryoverBank: carryoverBankUse,
               nyugtatombok:
                 filters.printType === 'nyugtatomb_kimutatas'
                   ? filters.nyugtatombok
@@ -213,6 +248,20 @@ export function FinancePrintDialog({
               bankAccountId: filters.selectedBankId,
               categoryKod: filters.selectedCategoryKod,
             })
+          }}
+          onLoadYearRecords={async (year): Promise<unknown> => {
+            // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói a szerverről.
+            const res = await getYearFinanceRecords(year)
+            if (res.error || !res.income || !res.expense) {
+              toast.error(`A(z) ${year}. évi tételek betöltése sikertelen${res.error ? `: ${res.error}` : '.'}`)
+              return { income: [], expense: [], carryoverCash: 0, carryoverBank: 0 } satisfies YearRecordsPayload
+            }
+            return {
+              income: res.income,
+              expense: res.expense,
+              carryoverCash: res.carryoverCash ?? 0,
+              carryoverBank: res.carryoverBank ?? 0,
+            } satisfies YearRecordsPayload
           }}
           onLoadNyugtatombok={async (year) => {
             const res = await getChitantaTombokReport(year)

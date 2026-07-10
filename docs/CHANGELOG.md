@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-10] — Pénzügy 4. kör: múltbeli évek nyomtatása, nyugtafigyelő-áthozás, felület-rendezés
+<!-- key: 2026-07-10-penzugy-negyedik-kor -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **A Nyomtatási központ mostantól MÚLTBELI ÉVEKRE is működik.** Eddig ha az
+  oldal a 2026-os éven állt, és a nyomtatási központban 2025-öt választottál,
+  MINDEN nyomtatvány (Registru Casa/Banca/Jurnal, Csoportnapló, számadás-
+  tényadatok) üresen jött ki — „Nincs könyvelt tétel" felirattal, pedig volt.
+  Az ok: a nyomtatás a képernyőn lévő (az oldal évére szűrt) tételeket szűrte
+  a másik évre. Mostantól a kiválasztott év tételeit és nyitó egyenlegeit a
+  rendszer külön betölti — a webes és az asztali verzióban is.
+- **A Csoportnapló ezzel a jogcímenkénti nézetben is helyes** múltbeli évre
+  (ez volt a bejelentett „üres Csoportnapló" közvetlen oka).
+- **A Nyugtafigyelő riasztás átjön az új évbe.** Az előző évben elmaradt
+  (hiányzó sorszámú) nyugták mostantól a folyó költségvetési év nézetében is
+  piros riasztásként jelennek meg — akkor is, ha az új évben még egyetlen
+  nyugta sincs rögzítve (eddig ilyenkor a riasztás teljesen eltűnt). Amint egy
+  hiányzó sorszámot pótolsz, az lekerül a listáról.
+- **A „Készpénzfelvétel bankszámláról" nem szerepel többé kétszer** a Tétel
+  rögzítése jogcím-listájában. Az ok egy régi, hibás (már inaktivált) belső
+  mozgás jogcím volt, amely ugyanazt a feliratot kapta, mint a helyes —
+  mostantól irányonként pontosan egy belső mozgás opció jelenik meg.
+- **Az asztali verzió számadás-nyomtatványának tényadatából a stornózott
+  tételek is kimaradnak** (a webes javítás párja — eddig csak a webben volt meg).
+
+### 🎨 Felület
+
+- **A Pénzügy oldal fejléce átrendeződött:** a munka gombjai (Tétel rögzítése,
+  Decont, Dispoziție, Nyomtatási központ, Oblio ellenőrzés) a BAL oldalra
+  kerültek — ott kezdődik a munka —, a cím, az év-választó és az információs
+  címkék a jobb oldalra. A gombok megújultak: színes, ikonos, finoman kiemelt
+  formát kaptak.
+- **A Tétel rögzítése ablakban a Kiadás fül is halvány piros pirulaként
+  látszik** (a Bevétel halvány zöldként), és kattintásra élénkül meg — eddig
+  az inaktív fül jelöletlen, sima szövegnek tűnt.
+
+---
+
 ## [2026-07-10] — Pénzügy 3. kör: banki import javítás, megújult Decont/Dispoziție, bérleti szerződések
 <!-- key: 2026-07-10-penzugy-harmadik-kor -->
 <!-- category: bugfix -->

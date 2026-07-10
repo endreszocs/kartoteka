@@ -65,6 +65,11 @@ export interface FinancePrintFilters {
   budgetRows: Record<string, unknown> | null
   /** Csoportnaplónál a kiválasztott jogcím kódja (null = összes jogcím). */
   selectedCategoryKod: string | null
+  /** 2026-07-10 (S5-#3): a KIVÁLASZTOTT év bevétel/kiadás sorai + nyitói, ha az
+   *  eltér az oldal évétől (a wrapper értelmezi — mint a budgetRows).
+   *  undefined = az oldal éve (a wrapper a saját propjait használja);
+   *  null = még töltődik. */
+  yearRecords?: unknown | null
 }
 
 export interface FinancePrintDialogBodyProps {
@@ -96,6 +101,12 @@ export interface FinancePrintDialogBodyProps {
   /** Költségvetési sorok betöltése (költségvetés/számadás típusokhoz). */
   onLoadBudgetRows?: (year: number) => Promise<Record<string, unknown>>
 
+  /** 2026-07-10 (S5-#3): egy adott év bevétel/kiadás sorainak betöltése — akkor
+   *  hívódik, ha a dialog évválasztója az oldal évétől ELTÉRŐ évre áll. Enélkül
+   *  a múltbeli évek nyomtatványai üresek (az oldal csak a saját évét tartja
+   *  memóriában). Az eredmény opakan megy vissza a buildReport filters-ébe. */
+  onLoadYearRecords?: (year: number) => Promise<unknown>
+
   /** Direkt nyomtatás — a wrapper a webes print-engine-v2.printToBrowser-t hívja. */
   onPrintToBrowser?: (html: string) => Promise<void>
 
@@ -125,6 +136,7 @@ export function FinancePrintDialogBody({
   onLoadNyugtatombok,
   onLoadSavedDocs,
   onLoadBudgetRows,
+  onLoadYearRecords,
   onPrintToBrowser,
   onPrintToPdf,
   onToast,
@@ -148,6 +160,8 @@ export function FinancePrintDialogBody({
   const [budgetRows, setBudgetRows] = useState<Record<string, unknown> | null>(null)
   /** Csoportnapló: a kiválasztott jogcím kódja ('' = mind). */
   const [selectedCategoryKod, setSelectedCategoryKod] = useState<string>('')
+  /** 2026-07-10 (S5-#3): a NEM-folyó évhez betöltött bevétel/kiadás sorok (opak). */
+  const [yearRecords, setYearRecords] = useState<unknown | null>(null)
 
   const isCsoportNaploMode = printType === 'csoport_naplo'
   const isBudgetMode =
@@ -190,6 +204,20 @@ export function FinancePrintDialogBody({
     })
     return () => { cancelled = true }
   }, [open, isBudgetMode, selectedYear, onLoadBudgetRows])
+
+  // 2026-07-10 (S5-#3): ha a dialog évválasztója az oldal évétől ELTÉRŐ évre áll,
+  // a bevétel/kiadás sorokat AHHOZ az évhez töltjük be — eddig a memóriában lévő
+  // (az oldal évére szűrt) sorokat szűrtük, így múltbeli évre minden üres volt.
+  const needsYearRecords = selectedYear !== currentYear
+  useEffect(() => {
+    if (!open || !needsYearRecords || !onLoadYearRecords) return
+    let cancelled = false
+    setYearRecords(null)
+    void onLoadYearRecords(selectedYear).then((recs) => {
+      if (!cancelled) setYearRecords(recs)
+    })
+    return () => { cancelled = true }
+  }, [open, needsYearRecords, selectedYear, onLoadYearRecords])
 
   // Fit-to-width előnézet: a konténer szélességét mérjük, és a dokumentumot
   // (A4) lekicsinyítjük, hogy NE legyen oldalirányú görgetés.
@@ -248,8 +276,9 @@ export function FinancePrintDialogBody({
       selectedDoc: isReprintMode ? selectedDoc : null,
       budgetRows: isBudgetMode ? budgetRows : null,
       selectedCategoryKod: isCsoportNaploMode && selectedCategoryKod ? selectedCategoryKod : null,
+      yearRecords: needsYearRecords ? yearRecords : undefined,
     }),
-    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows, isCsoportNaploMode, selectedCategoryKod],
+    [printType, selectedYear, selectedMonth, selectedBankId, showBankSelector, isNyugtatombMode, nyugtatombok, isReprintMode, selectedDoc, isBudgetMode, budgetRows, isCsoportNaploMode, selectedCategoryKod, needsYearRecords, yearRecords],
   )
 
   const report = useMemo(() => buildReport(filters), [buildReport, filters])

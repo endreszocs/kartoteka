@@ -64,6 +64,21 @@ interface DesktopFinancePrintDialogProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info' | 'warning') => void
 }
 
+/** 2026-07-10 (S5-#3, web-paritás): a Body opak yearRecords-ának alakja. */
+type YearRecordsPayload = {
+  income: BefitetesRow[]
+  expense: KiadasRow[]
+  carryoverCash: number
+  carryoverBank: number
+}
+
+/** Bizonylat-típusok, amelyeknek NEM kellenek a bevétel/kiadás sorok. */
+const TYPES_WITHOUT_RECORDS = new Set<FinancePrintType>([
+  'decont_reprint',
+  'dispozitie_reprint',
+  'nyugtatomb_kimutatas',
+])
+
 function emptyPreview(message: string): PrintReport {
   return {
     html: `<!doctype html><html lang="hu"><head><meta charset="utf-8"><style>body{font-family:system-ui,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0;color:#94a3b8;font-size:14px;text-align:center;padding:24px}</style></head><body>${message}</body></html>`,
@@ -132,6 +147,22 @@ export function DesktopFinancePrintDialog({
               .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))}
             currentYear={currentYear}
             buildReport={(filters: FinancePrintFilters): PrintReport => {
+              // 2026-07-10 (S5-#3, web-paritás): a sorok a KIVÁLASZTOTT évhez —
+              // az oldal évén a props, más évnél a Body által betöltött yearRecords.
+              const yearScoped = filters.selectedYear !== currentYear
+              if (
+                yearScoped &&
+                filters.yearRecords == null &&
+                !TYPES_WITHOUT_RECORDS.has(filters.printType)
+              ) {
+                return emptyPreview(`A(z) ${filters.selectedYear}. évi tételek betöltése…`)
+              }
+              const yr = yearScoped ? (filters.yearRecords as YearRecordsPayload | null) : null
+              const incomeUse = yr ? yr.income : income
+              const expenseUse = yr ? yr.expense : expense
+              const carryoverCashUse = yr ? yr.carryoverCash : carryoverCash
+              const carryoverBankUse = yr ? yr.carryoverBank : carryoverBank
+
               // Korábbi bizonylatok újranyomtatása (a mentett pillanatképből)
               if (filters.printType === 'decont_reprint') {
                 const doc = filters.selectedDoc
@@ -166,13 +197,16 @@ export function DesktopFinancePrintDialog({
                 const isSzamadas = filters.printType === 'szamadas'
                 const actualIncome: Record<string, number> = {}
                 const actualExpense: Record<string, number> = {}
-                for (const r of income) {
-                  if (r.deleted) continue
+                // 2026-07-10 (S5, web-paritás — S3 audit KRITIKUS #1): a stornózott
+                // tétel a hivatalos tényadatba sem számít (a webes wrapper már így
+                // számolt, a desktop-tükörből kimaradt).
+                for (const r of incomeUse) {
+                  if (r.deleted || r.stornozott) continue
                   const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
                   if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
                 }
-                for (const r of expense) {
-                  if (r.deleted) continue
+                for (const r of expenseUse) {
+                  if (r.deleted || r.stornozott) continue
                   const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
                   if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
                 }
@@ -183,24 +217,24 @@ export function DesktopFinancePrintDialog({
                   actualExpense,
                   congregationName,
                   year: filters.selectedYear,
-                  carryoverCash,
-                  carryoverBank,
+                  carryoverCash: carryoverCashUse,
+                  carryoverBank: carryoverBankUse,
                   finalized: isSzamadas ? !!settings.accounting_finalized : !!settings.budget_finalized,
                 }
                 return buildBudgetPrintDocument(filters.printType as BudgetPrintType, printData)
               }
 
               const reportData: FinanceReportData = {
-                income,
-                expense,
+                income: incomeUse,
+                expense: expenseUse,
                 bankAccounts,
                 cellek,
                 bevCelMap,
                 kiaCelMap,
                 congregationName,
                 congregationNameRo,
-                carryoverCash,
-                carryoverBank,
+                carryoverCash: carryoverCashUse,
+                carryoverBank: carryoverBankUse,
                 nyugtatombok:
                   filters.printType === 'nyugtatomb_kimutatas'
                     ? filters.nyugtatombok
@@ -212,6 +246,62 @@ export function DesktopFinancePrintDialog({
                 bankAccountId: filters.selectedBankId,
                 categoryKod: filters.selectedCategoryKod,
               })
+            }}
+            // 2026-07-10 (S5-#3): a kiválasztott év sorai + nyitói — a webes
+            // getYearFinanceRecords tükre (azonos select-ek + nyitó-számítás).
+            onLoadYearRecords={async (year): Promise<unknown> => {
+              const emptyPayload: YearRecordsPayload = { income: [], expense: [], carryoverCash: 0, carryoverBank: 0 }
+              if (!(await isOnlineWithSession())) {
+                onToast?.('A múltbeli évek nyomtatásához internetkapcsolat és belépés szükséges.', 'warning')
+                return emptyPayload
+              }
+              try {
+                const supabase = getDesktopSupabase()
+                const congregationId = settings.congregation_id
+                const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
+                  supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+                  supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+                  supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+                  supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+                  supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+                    .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+                  supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+                    .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+                ])
+                const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
+                if (firstErr) {
+                  onToast?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${firstErr.message}`, 'error')
+                  return emptyPayload
+                }
+                let recCashCur = 0, recCashPrev = 0, hasCashCur = false
+                for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+                  if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
+                  else recCashPrev += Number(r.nyito_egyenleg) || 0
+                }
+                let recBankCur = 0, recBankPrev = 0, hasBankCur = false
+                for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
+                  if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
+                  else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+                }
+                let cashNet = 0, bankNet = 0
+                ;((prevBevRes.data || []) as { osszeg: number; bankszamla_id: number | null }[]).forEach((r) => {
+                  if (r.bankszamla_id == null) cashNet += Number(r.osszeg) || 0
+                  else bankNet += Number(r.osszeg) || 0
+                })
+                ;((prevKiaRes.data || []) as { osszeg: number; bankszamla_id: number | null }[]).forEach((r) => {
+                  if (r.bankszamla_id == null) cashNet -= Number(r.osszeg) || 0
+                  else bankNet -= Number(r.osszeg) || 0
+                })
+                return {
+                  income: (bevRes.data || []) as BefitetesRow[],
+                  expense: (kiaRes.data || []) as KiadasRow[],
+                  carryoverCash: hasCashCur ? recCashCur : recCashPrev + cashNet,
+                  carryoverBank: hasBankCur ? recBankCur : recBankPrev + bankNet,
+                } satisfies YearRecordsPayload
+              } catch (e) {
+                onToast?.(`A(z) ${year}. évi tételek betöltése sikertelen: ${errorMessage(e)}`, 'error')
+                return emptyPayload
+              }
             }}
             // Nyugtatömb-kimutatás — a web `getChitantaTombokReport` tükre
             // (chitanta_tombok + gyülekezeti számok az oblio_szamlak-ból).

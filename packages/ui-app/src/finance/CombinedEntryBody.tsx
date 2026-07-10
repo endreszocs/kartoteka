@@ -508,9 +508,25 @@ export function CombinedEntryBody({
   const categoryOptions = useMemo(() => {
     const hasBank = bankAccounts.length > 0
     const singleBank = bankAccounts.length === 1 ? bankAccounts[0] : null
+    // 2026-07-10 (S5-#2): irányonként EGY belső-mozgás opció elég — a mentés csak az
+    // IRÁNYT használja (pushTransfer), a konkrét cél-id-t nem. Korábban a 300.01 ÉS a
+    // legacy 401.01 (hibás bevétel-oldali cél, aktiv=false, de a lekérés áthozza) is a
+    // listában volt, ugyanazzal a „Készpénzfelvétel…" felirattal → duplikátum. A
+    // kanonikus KASSZA-oldali kód (felvétel: 300.01, letétel: 400.01) élvez elsőbbséget.
+    const dirPick = new Map<'deposit' | 'withdraw', number>()
+    for (const c of cats) {
+      const dir = dirOfKod(c.kod)
+      if (!dir) continue
+      const canonical = dir === 'withdraw' ? '300.01' : '400.01'
+      if (!dirPick.has(dir) || c.kod === canonical) dirPick.set(dir, c.id)
+    }
     return cats
       .filter((c) => !BANKBANK_KODS.has(c.kod))
       .filter((c) => hasBank || !dirOfKod(c.kod))
+      .filter((c) => {
+        const dir = dirOfKod(c.kod)
+        return !dir || dirPick.get(dir) === c.id
+      })
       .map((c) => {
         const dir = dirOfKod(c.kod)
         if (!dir) return { id: c.id, label: c.nev }
@@ -1031,14 +1047,14 @@ export function CombinedEntryBody({
           MINDKETTŐ rögzíthető (a számláló-badge a másik fülön is mutatja a kész sorokat). */}
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
         <button type="button" onClick={() => setTab('income')} aria-pressed={tab === 'income'}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'text-emerald-700 hover:bg-emerald-50'}`}>
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
           <TrendingUp className="size-5 shrink-0" aria-hidden />
-          Bevétel{incomeValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'income' ? 'bg-white/25' : 'bg-emerald-100 text-emerald-700'}`}>{incomeValid}</span>}
+          Bevétel{incomeValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'income' ? 'bg-white/25' : 'bg-white/80 text-emerald-700'}`}>{incomeValid}</span>}
         </button>
         <button type="button" onClick={() => setTab('expense')} aria-pressed={tab === 'expense'}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'text-rose-600 hover:bg-rose-50'}`}>
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
           <TrendingDown className="size-5 shrink-0" aria-hidden />
-          Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-rose-100 text-rose-600'}`}>{expenseValid}</span>}
+          Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-white/80 text-rose-600'}`}>{expenseValid}</span>}
         </button>
       </div>
       <p className="text-xs text-slate-400">

@@ -268,6 +268,54 @@ function extractNumberedReceiptRows(rows: ReceiptHealthInputRow[]): NumberedRece
     .sort((a, b) => a.number - b.number)
 }
 
+/**
+ * 2026-07-10 (S5-#4): hézag-gyűjtő segéd — egy (sorszám szerint rendezett) sorozat
+ * BELSŐ hiányzóit adja vissza, a kerületi szám interpolációjával. Az opcionális
+ * ALSÓ horgony (előző év utolsó nyugtája) az évhatár-kiterjesztéshez való: ha a
+ * horgony+1 kisebb a sorozat legkisebbjénél, a keresés a horgony utáni számtól indul.
+ */
+function collectMissingReceipts(
+  numbered: NumberedReceiptRow[],
+  anchor: NumberedReceiptRow | null,
+): { missingNumbers: number[]; missingReceipts: MissingReceipt[] } {
+  const missingNumbers: number[] = []
+  const missingReceipts: MissingReceipt[] = []
+  const lowest = numbered[0]?.number ?? null
+  const highest = numbered[numbered.length - 1]?.number ?? null
+  if (lowest == null || highest == null) return { missingNumbers, missingReceipts }
+  const anchorExtendsDown = anchor != null && anchor.number + 1 < lowest
+  const lowerBound = anchorExtendsDown && anchor ? anchor.number + 1 : lowest
+  const existing = new Set(numbered.map(row => row.number))
+  // #Endre (issue 2): a hiányzó gyülekezeti Irat sz. KERÜLETI számát a legközelebbi ismert
+  // ALSÓ és FELSŐ szomszéd kerületi számai közt lineárisan interpoláljuk (a két sorozat éven
+  // belül együtt lép). Vezető-nulla szélesség = a szomszédok kerületi nyers-szélességének maximuma.
+  const neighborRows = anchorExtendsDown && anchor ? [anchor, ...numbered] : numbered
+  let prevIdx = 0
+  for (let receipt = lowerBound; receipt <= highest; receipt += 1) {
+    if (existing.has(receipt)) continue
+    missingNumbers.push(receipt)
+    while (prevIdx + 1 < neighborRows.length && neighborRows[prevIdx + 1].number < receipt) prevIdx += 1
+    const prev = neighborRows[prevIdx]?.number < receipt ? neighborRows[prevIdx] : undefined
+    const next = neighborRows.find(r => r.number > receipt)
+    let keruletiSz: string | null = null
+    if (prev?.keruletiNum != null && next?.keruletiNum != null && next.number !== prev.number) {
+      const ratio = (receipt - prev.number) / (next.number - prev.number)
+      const guess = Math.round(prev.keruletiNum + ratio * (next.keruletiNum - prev.keruletiNum))
+      const width = Math.max(
+        prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
+        next.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
+      )
+      keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
+    } else if (prev?.keruletiNum != null) {
+      const guess = prev.keruletiNum + (receipt - prev.number)
+      const width = prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0
+      keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
+    }
+    missingReceipts.push({ iratSz: receipt, keruletiSz })
+  }
+  return { missingNumbers, missingReceipts }
+}
+
 function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: ReceiptHealthInputRow[]): ReceiptHealth {
   const numberedRows = extractNumberedReceiptRows(rows)
 
@@ -282,10 +330,19 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
   const prevAnchor: NumberedReceiptRow | null =
     prevYearNumbered.length > 0 ? prevYearNumbered[prevYearNumbered.length - 1] : null
 
+  // 2026-07-10 (S5-#4): az ELŐZŐ év SAJÁT (éven belüli) hiányzóit is átvisszük a
+  // folyó évbe — a pótlás a folyó évben történik, ott kell a riasztás. A folyó
+  // évben már pótolt sorszámok lentebb kiszűrődnek.
+  const prevYearGaps = prevYearNumbered.length > 0
+    ? collectMissingReceipts(prevYearNumbered, null)
+    : { missingNumbers: [] as number[], missingReceipts: [] as MissingReceipt[] }
+
   if (numberedRows.length === 0) {
+    // 2026-07-10 (S5-#4): eddig itt MINDEN kiürült — pedig év elején (amikor még
+    // nincs idei nyugta) a tavalyi hiányzók riasztása pont a legfontosabb.
     return {
-      missingNumbers: [],
-      missingReceipts: [],
+      missingNumbers: prevYearGaps.missingNumbers,
+      missingReceipts: prevYearGaps.missingReceipts,
       duplicateNumbers: [],
       chronologyIssues: [],
       trackedReceiptCount: 0,
@@ -293,8 +350,6 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
     }
   }
 
-  const missingNumbers: number[] = []
-  const missingReceipts: MissingReceipt[] = []
   const duplicateNumbers = new Set<number>()
   const chronologyIssues: ReceiptChronologyIssue[] = []
 
@@ -318,47 +373,23 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
   // az első nyugta sorszáma 23 (mert 22-ig 2024-ben voltak), akkor csak 23-tól
   // felfelé ellenőrzünk — különben 1–22 "hiányzókként" jelennének meg, pedig
   // azok egy másik évből valók.
-  const lowestReceiptNumber = numberedRows[0]?.number ?? null
+  // 2026-07-10 (#7): ALSÓ horgony — ha az előző évi utolsó nyugta sorszáma+1 kisebb
+  // az idei legkisebbnél, az évhatáron elmaradt számokat is a FOLYÓ év jelzi.
+  // 2026-07-10 (S5-#4): PLUSZ az előző év BELSŐ hiányzói is áthozódnak — kivéve,
+  // amit a folyó évben már pótoltak (az idei sorszám-készletben szerepel).
   const highestReceiptNumber = numberedRows[numberedRows.length - 1]?.number ?? null
-  if (lowestReceiptNumber != null && highestReceiptNumber != null) {
-    // 2026-07-10 (#7): ALSÓ korlát — ha az előző évi horgony (utolsó nyugta) sorszáma+1
-    // KISEBB az idei legkisebbnél, a hiányzó-keresés a horgony UTÁNI számtól indul
-    // (évhatáron elmaradt nyugták — a FOLYÓ év nézetében). Ha a horgony nem kisebb
-    // (pl. évente újrainduló számozás) vagy nincs, a viselkedés VÁLTOZATLAN.
-    // A FELSŐ korlát az idei legnagyobb (a jövő évi számokat nem találgatjuk).
-    const anchorExtendsDown = prevAnchor != null && prevAnchor.number + 1 < lowestReceiptNumber
-    const lowerBound = anchorExtendsDown ? prevAnchor.number + 1 : lowestReceiptNumber
-    const existing = new Set(numberedRows.map(row => row.number))
-    // #Endre (issue 2): a hiányzó gyülekezeti Irat sz. KERÜLETI számát a legközelebbi ismert
-    // ALSÓ és FELSŐ szomszéd kerületi számai közt lineárisan interpoláljuk (a két sorozat éven
-    // belül együtt lép). Vezető-nulla szélesség = a szomszédok kerületi nyers-szélességének maximuma.
-    // 2026-07-10 (#7): a keresőtérbe az előző évi horgonyt is bevesszük, hogy az évhatáron
-    // elmaradt hiányzóknak is legyen ALSÓ interpolációs szomszédja.
-    const neighborRows = anchorExtendsDown ? [prevAnchor, ...numberedRows] : numberedRows
-    let prevIdx = 0
-    for (let receipt = lowerBound; receipt <= highestReceiptNumber; receipt += 1) {
-      if (existing.has(receipt)) continue
-      missingNumbers.push(receipt)
-      while (prevIdx + 1 < neighborRows.length && neighborRows[prevIdx + 1].number < receipt) prevIdx += 1
-      const prev = neighborRows[prevIdx]?.number < receipt ? neighborRows[prevIdx] : undefined
-      const next = neighborRows.find(r => r.number > receipt)
-      let keruletiSz: string | null = null
-      if (prev?.keruletiNum != null && next?.keruletiNum != null && next.number !== prev.number) {
-        const ratio = (receipt - prev.number) / (next.number - prev.number)
-        const guess = Math.round(prev.keruletiNum + ratio * (next.keruletiNum - prev.keruletiNum))
-        const width = Math.max(
-          prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
-          next.keruletiRaw.match(/\d+/)?.[0].length ?? 0,
-        )
-        keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
-      } else if (prev?.keruletiNum != null) {
-        const guess = prev.keruletiNum + (receipt - prev.number)
-        const width = prev.keruletiRaw.match(/\d+/)?.[0].length ?? 0
-        keruletiSz = width > 0 ? String(guess).padStart(width, '0') : String(guess)
-      }
-      missingReceipts.push({ iratSz: receipt, keruletiSz })
-    }
-  }
+  const currentGaps = collectMissingReceipts(numberedRows, prevAnchor)
+  const existingNow = new Set(numberedRows.map(row => row.number))
+  const carriedNumbers = prevYearGaps.missingNumbers.filter(n => !existingNow.has(n))
+  const carriedSet = new Set(carriedNumbers)
+  const missingNumbers = [
+    ...carriedNumbers,
+    ...currentGaps.missingNumbers.filter(n => !carriedSet.has(n)),
+  ].sort((a, b) => a - b)
+  const missingReceipts = [
+    ...prevYearGaps.missingReceipts.filter(m => carriedSet.has(m.iratSz)),
+    ...currentGaps.missingReceipts.filter(m => !carriedSet.has(m.iratSz)),
+  ].sort((a, b) => a.iratSz - b.iratSz)
 
   for (let index = 1; index < numberedRows.length; index += 1) {
     const previous = numberedRows[index - 1]
@@ -380,6 +411,67 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
     chronologyIssues,
     trackedReceiptCount: numberedRows.length,
     highestReceiptNumber,
+  }
+}
+
+/**
+ * 2026-07-10 (S5-#3): egy TETSZŐLEGES év bevétel/kiadás sorai + nyitó egyenlegei
+ * a Nyomtatási központnak. Eddig a nyomtatási központ saját évválasztója a
+ * memóriában lévő (az OLDAL évére szűrt) sorokat szűrte — múltbeli évre így
+ * MINDEN nyomtatvány (Registru, Csoportnapló, számadás-tényadat) üres volt.
+ * A select-ek és a nyitó-számítás BIT-AZONOSAK az initFinance-ével.
+ */
+export async function getYearFinanceRecords(year: number): Promise<{
+  income?: BefitetesRow[]
+  expense?: KiadasRow[]
+  carryoverCash?: number
+  carryoverBank?: number
+  error?: string
+}> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+  const congregationId = access.effectiveCongregationId
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const supabase = access.supabase
+
+  const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
+    supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+      .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
+  ])
+  const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
+  if (firstErr) return { error: firstErr.message }
+
+  let recCashCur = 0, recCashPrev = 0, hasCashCur = false
+  for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
+    if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
+    else recCashPrev += Number(r.nyito_egyenleg) || 0
+  }
+  let recBankCur = 0, recBankPrev = 0, hasBankCur = false
+  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
+    if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
+    else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+  }
+  let carryoverCashNet = 0, carryoverBankNet = 0
+  ;(prevBevRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg) || 0
+    else carryoverBankNet += Number(r.osszeg) || 0
+  })
+  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg) || 0
+    else carryoverBankNet -= Number(r.osszeg) || 0
+  })
+
+  return {
+    income: (bevRes.data || []) as BefitetesRow[],
+    expense: (kiaRes.data || []) as KiadasRow[],
+    carryoverCash: hasCashCur ? recCashCur : recCashPrev + carryoverCashNet,
+    carryoverBank: hasBankCur ? recBankCur : recBankPrev + carryoverBankNet,
   }
 }
 
