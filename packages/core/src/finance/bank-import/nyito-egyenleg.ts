@@ -258,6 +258,216 @@ export interface CheckYearStartStateInput {
  *   - MEG VAN-E az előző évre az FX revaluation (`valuta_atert` táblában)
  *   - Az új árfolyam egyezik-e a december 31-i használt árfolyammal
  */
+// ─────────────────────────────────────────────────────────────
+// 4. Automatikus áthozás (carryover) az előző évből — 2026-07-10 (Endre).
+//
+// Ha az ELŐZŐ évben már volt import / könyvelt banki forgalom ezen a
+// számlán, az új év nyitó egyenlege NEM kézi adat: a tavalyi záró.
+//   RON számla:  záró = tavalyi nyitó (nyito_egyenleg_ron)
+//                       + tavalyi banki bevételek − tavalyi banki kiadások
+//                (storno + deleted kizárva; a belső mozgás bank-lába
+//                 BELESZÁMÍT — pontosan úgy, ahogy a BankTab és a
+//                 carryoverBank számol, lásd helpers.calculateBalances)
+//   Valutás:     a hiteles záró a december 31-i FX ÁTÉRTÉKELÉS
+//                (valuta_atert): deviza_egyenleg + uj_ron_ertek + uj_arfolyam.
+//                Ha az átértékelés még hiányzik, a deviza-összeget a
+//                forgalomból számoljuk elő (RON-t nem — azt az átértékelés
+//                adja), és a wizard a meglévő fx_revaluation_needed úton
+//                tereli a felhasználót.
+// A `bankszamla_nyito_egyenleg.forrasa='carryover'` érték kezdettől létezik
+// a CHECK-ben — ez a use-case tölti ki először.
+// ─────────────────────────────────────────────────────────────
+
+export interface CarryoverNyitoResult {
+  /** Van-e automatikusan áthozható nyitó egyenleg. */
+  available: boolean
+  /** Ha nem: miért. */
+  reason?: 'no_prev_data' | 'missing_prev_nyito' | 'fx_revaluation_needed'
+  /** A cél (új) év. */
+  eve: number
+  prevYear: number
+  valuta: string
+  /** Az áthozott nyitó a számla valutájában (RON számlán = RON). */
+  nyitoValuta?: number
+  /** Az áthozott nyitó RON-ban (valutásnál az átértékelt záró RON). */
+  nyitoRon?: number
+  arfolyam?: number | null
+  /** Részletezés a UI-nak: tavalyi nyitó + forgalom. */
+  prevNyito?: number
+  prevBevetel?: number
+  prevKiadas?: number
+  prevTetelDb?: number
+  /** fx_revaluation_needed esetén: a forgalomból előszámolt deviza-záró (segéd-előtöltés). */
+  fallbackValuta?: number
+}
+
+export interface ComputeCarryoverNyitoInput {
+  congregationId: string
+  bankszamlaId: number
+  /** A cél (új) év — az előző év (eve-1) adataiból számolunk. */
+  eve: number
+}
+
+/**
+ * Egy számla előző évi banki forgalmának összegzése lapozva (1000/lap),
+ * hogy nagy forgalmú év se csonkuljon a PostgREST sor-limitje miatt.
+ * A `kiadas.datum` timestamp, a `befizetes.datum` date — mindkettőre a
+ * fél-nyílt [jan 1, köv. év jan 1) tartomány helyes.
+ */
+async function sumBankForgalom(
+  supabase: SupabaseClient,
+  table: 'befizetes' | 'kiadas',
+  congregationId: string,
+  bankszamlaId: number,
+  year: number,
+): Promise<{ osszeg: number; db: number } | { error: string }> {
+  const from = `${year}-01-01`
+  const to = `${year + 1}-01-01`
+  let osszeg = 0
+  let db = 0
+  const PAGE = 1000
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('osszeg')
+      .eq('congregation_id', congregationId)
+      .eq('bankszamla_id', bankszamlaId)
+      .eq('deleted', false)
+      .eq('stornozott', false)
+      .gte('datum', from)
+      .lt('datum', to)
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    if (error) return { error: error.message }
+    const rows = (data || []) as Array<{ osszeg: number | string | null }>
+    for (const r of rows) osszeg += Number(r.osszeg) || 0
+    db += rows.length
+    if (rows.length < PAGE) break
+  }
+  return { osszeg, db }
+}
+
+/**
+ * Előző évi záróból számolt nyitó egyenleg az új évre — CSAK számol,
+ * nem ír semmit. A mentés a meglévő upsert-tel történik (forrasa:'carryover').
+ */
+export async function computeCarryoverNyitoEgyenlegUseCase(
+  input: ComputeCarryoverNyitoInput,
+  ctx: BankImportReadCtx,
+): Promise<{ data?: CarryoverNyitoResult; error?: string }> {
+  if (!input.congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const prevYear = input.eve - 1
+  const base: Pick<CarryoverNyitoResult, 'eve' | 'prevYear'> = {
+    eve: input.eve,
+    prevYear,
+  }
+
+  const { data: bs, error: bsErr } = await ctx.supabase
+    .from('bankszamlak')
+    .select('valuta')
+    .eq('id', input.bankszamlaId)
+    .eq('congregation_id', input.congregationId)
+    .maybeSingle()
+  if (bsErr) return { error: bsErr.message }
+  if (!bs) return { error: 'A bankszámla nem található.' }
+  const valuta = (bs.valuta as string) || 'RON'
+
+  // Előző évi nyitó rekord + forgalom — párhuzamosan.
+  const [prevNyitoRes, bevRes, kiadRes] = await Promise.all([
+    ctx.supabase
+      .from('bankszamla_nyito_egyenleg')
+      .select('nyito_egyenleg_valuta, nyito_egyenleg_ron')
+      .eq('bankszamla_id', input.bankszamlaId)
+      .eq('congregation_id', input.congregationId)
+      .eq('eve', prevYear)
+      .maybeSingle(),
+    sumBankForgalom(ctx.supabase, 'befizetes', input.congregationId, input.bankszamlaId, prevYear),
+    sumBankForgalom(ctx.supabase, 'kiadas', input.congregationId, input.bankszamlaId, prevYear),
+  ])
+  if (prevNyitoRes.error) return { error: prevNyitoRes.error.message }
+  if ('error' in bevRes) return { error: bevRes.error }
+  if ('error' in kiadRes) return { error: kiadRes.error }
+
+  const prevNyitoRow = prevNyitoRes.data as
+    | { nyito_egyenleg_valuta: number | string; nyito_egyenleg_ron: number | string }
+    | null
+  const prevTetelDb = bevRes.db + kiadRes.db
+
+  // Semmi tavalyi adat → első import, marad a kézi megadás.
+  if (!prevNyitoRow && prevTetelDb === 0) {
+    return { data: { ...base, available: false, reason: 'no_prev_data', valuta } }
+  }
+
+  if (valuta !== 'RON') {
+    // Valutás számla: a hiteles záró a december 31-i átértékelés.
+    const { data: fxReval, error: fxErr } = await ctx.supabase
+      .from('valuta_atert')
+      .select('deviza_egyenleg, uj_arfolyam, uj_ron_ertek')
+      .eq('bankszamla_id', input.bankszamlaId)
+      .eq('congregation_id', input.congregationId)
+      .eq('ev', prevYear)
+      .eq('deleted', false)
+      .order('arfolyam_datum', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (fxErr) return { error: fxErr.message }
+
+    if (fxReval) {
+      return {
+        data: {
+          ...base,
+          available: true,
+          valuta,
+          nyitoValuta: Number(fxReval.deviza_egyenleg),
+          nyitoRon: Number(fxReval.uj_ron_ertek),
+          arfolyam: Number(fxReval.uj_arfolyam),
+          prevTetelDb,
+        },
+      }
+    }
+    // Nincs még átértékelés → a deviza-összeget előszámoljuk segítségnek.
+    const fallbackValuta =
+      prevNyitoRow != null
+        ? Number(
+            (Number(prevNyitoRow.nyito_egyenleg_valuta) + bevRes.osszeg - kiadRes.osszeg).toFixed(2),
+          )
+        : undefined
+    return {
+      data: {
+        ...base,
+        available: false,
+        reason: 'fx_revaluation_needed',
+        valuta,
+        fallbackValuta,
+        prevTetelDb,
+      },
+    }
+  }
+
+  // RON számla: záró = tavalyi nyitó + bevételek − kiadások.
+  if (!prevNyitoRow) {
+    // Volt tavalyi forgalom, de nincs rögzített tavalyi nyitó → nincs bázis.
+    return {
+      data: { ...base, available: false, reason: 'missing_prev_nyito', valuta, prevTetelDb },
+    }
+  }
+  const prevNyito = Number(prevNyitoRow.nyito_egyenleg_ron)
+  const zaro = Number((prevNyito + bevRes.osszeg - kiadRes.osszeg).toFixed(2))
+  return {
+    data: {
+      ...base,
+      available: true,
+      valuta,
+      nyitoValuta: zaro,
+      nyitoRon: zaro,
+      arfolyam: 1,
+      prevNyito,
+      prevBevetel: Number(bevRes.osszeg.toFixed(2)),
+      prevKiadas: Number(kiadRes.osszeg.toFixed(2)),
+      prevTetelDb,
+    },
+  }
+}
+
 export async function checkYearStartStateUseCase(
   input: CheckYearStartStateInput,
   ctx: BankImportReadCtx,

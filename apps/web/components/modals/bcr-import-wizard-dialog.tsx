@@ -47,8 +47,10 @@ import {
 } from '@/app/(dashboard)/penzugy/bank-import-actions'
 import {
   checkYearStartState,
+  computeCarryoverNyitoEgyenleg,
   getBankszamlaNyitoEgyenleg,
   upsertBankszamlaNyitoEgyenleg,
+  type CarryoverNyitoResult,
   type NyitoEgyenlegRow,
   type YearStartCheckResult,
 } from '@/app/(dashboard)/penzugy/bank-nyito-egyenleg-actions'
@@ -115,6 +117,9 @@ export function BcrImportWizardDialog({
   const [nyitoRon, setNyitoRon] = useState<number | ''>('')
   const [nyitoArfolyam, setNyitoArfolyam] = useState<number | ''>('')
   const [savingNyito, setSavingNyito] = useState(false)
+  /** 2026-07-10 (nyitó-carryover): az előző évi záróból automatikusan
+   *  áthozott nyitó — a banner + a forrasa:'carryover' jelölés alapja. */
+  const [carryover, setCarryover] = useState<CarryoverNyitoResult | null>(null)
   /** BNR árfolyam lekérdezés állapot. */
   const [loadingBnr, setLoadingBnr] = useState(false)
   const [bnrInfo, setBnrInfo] = useState<string | null>(null)
@@ -141,6 +146,7 @@ export function BcrImportWizardDialog({
       // következő megnyitáskor friss automatikus lekérés fusson.
       setBnrInfo(null)
       setBnrAutoKey(null)
+      setCarryover(null)
     } else if (defaultBankAccountId != null) {
       // Per-számla import: a kártyáról indított import erre a számlára áll be.
       setSelectedBankId(defaultBankAccountId)
@@ -197,16 +203,37 @@ export function BcrImportWizardDialog({
       const nyitoRes = await getBankszamlaNyitoEgyenleg(selectedBankId, earliestYear)
       const existing = nyitoRes.data ?? null
       setNyitoExisting(existing)
+      setCarryover(null)
       if (existing) {
         setNyitoValuta(Number(existing.nyito_egyenleg_valuta))
         setNyitoRon(Number(existing.nyito_egyenleg_ron))
         setNyitoArfolyam(existing.arfolyam ? Number(existing.arfolyam) : '')
         setStep('categorize')
       } else {
-        // Alapértékek
-        setNyitoValuta('')
-        setNyitoRon('')
-        setNyitoArfolyam('')
+        // 2026-07-10 (nyitó-carryover): ha az ELŐZŐ évben már volt import /
+        // banki forgalom, a nyitó NEM kézi adat — a tavalyi záróból hozzuk át.
+        // A lépés így is megjelenik (ellenőrizhető + felülírható), de kitöltve.
+        const carryRes = await computeCarryoverNyitoEgyenleg(selectedBankId, earliestYear)
+        const carry = carryRes.data ?? null
+        setCarryover(carry)
+        if (carry?.available && typeof carry.nyitoValuta === 'number') {
+          setNyitoValuta(carry.nyitoValuta)
+          setNyitoRon(typeof carry.nyitoRon === 'number' ? carry.nyitoRon : '')
+          setNyitoArfolyam(typeof carry.arfolyam === 'number' ? carry.arfolyam : '')
+        } else if (
+          carry?.reason === 'fx_revaluation_needed' &&
+          typeof carry.fallbackValuta === 'number'
+        ) {
+          // Deviza-összeg előszámolva; a RON-t a dec. 31-i átértékelés adja majd.
+          setNyitoValuta(carry.fallbackValuta)
+          setNyitoRon('')
+          setNyitoArfolyam('')
+        } else {
+          // Alapértékek
+          setNyitoValuta('')
+          setNyitoRon('')
+          setNyitoArfolyam('')
+        }
         setStep('opening-balance')
       }
 
@@ -348,13 +375,24 @@ export function BcrImportWizardDialog({
     }
     setSavingNyito(true)
     try {
+      // 2026-07-10 (nyitó-carryover): ha az automatikusan áthozott érték
+      // változatlanul megy mentésre, a forrása 'carryover' (nyomon követhető,
+      // hogy a rendszer számolta) — ha a felhasználó átírta, 'manual'.
+      const isUntouchedCarryover =
+        carryover?.available === true &&
+        typeof carryover.nyitoValuta === 'number' &&
+        nyitoValuta === carryover.nyitoValuta
       const res = await upsertBankszamlaNyitoEgyenleg({
         bankszamla_id: selectedBankId,
         eve: nyitoEve,
         nyito_egyenleg_valuta: nyitoValuta,
         nyito_egyenleg_ron: typeof nyitoRon === 'number' ? nyitoRon : null,
         arfolyam: typeof nyitoArfolyam === 'number' ? nyitoArfolyam : null,
-        forrasa: 'manual',
+        forrasa: isUntouchedCarryover ? 'carryover' : 'manual',
+        megjegyzes:
+          isUntouchedCarryover && carryover
+            ? `Automatikusan áthozva a ${carryover.prevYear}. évi záró egyenlegből.`
+            : null,
       })
       if (res.error) {
         toast.error(res.error)
@@ -657,12 +695,75 @@ export function BcrImportWizardDialog({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900 leading-relaxed mb-4">
-                  <strong>Fontos:</strong> A BCR Excel exportban nem szerepel a nyitó egyenleg.
-                  Kérlek ellenőrizd az online bankban (BCR George Banking → &bdquo;Extras&rdquo;
-                  vagy &bdquo;Sold cont&rdquo;) a <strong>{nyitoEve}. január 1-i</strong> záró
-                  egyenleget, és add meg itt.
-                </div>
+                {/* 2026-07-10 (nyitó-carryover): ha tavaly már volt import/forgalom,
+                    a nyitót a rendszer hozza át a tavalyi záróból — a kézi-bekérő
+                    figyelmeztetés helyett zöld összefoglaló + ellenőrzési kérés. */}
+                {carryover?.available ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 leading-relaxed mb-4">
+                    <strong>✓ Automatikusan áthozva a {carryover.prevYear}. évi záró egyenlegből.</strong>{' '}
+                    {typeof carryover.prevNyito === 'number' &&
+                    typeof carryover.prevBevetel === 'number' &&
+                    typeof carryover.prevKiadas === 'number' ? (
+                      <>
+                        Számítás: {carryover.prevYear}. évi nyitó (
+                        {carryover.prevNyito.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ) + banki bevételek (
+                        {carryover.prevBevetel.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ) − banki kiadások (
+                        {carryover.prevKiadas.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ) = <strong>
+                        {(carryover.nyitoValuta ?? 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                        {carryover.valuta}</strong>
+                        {typeof carryover.prevTetelDb === 'number' && ` (${carryover.prevTetelDb} tavalyi tétel)`}.
+                      </>
+                    ) : (
+                      <>
+                        A {carryover.prevYear}. december 31-i évvégi átértékelés szerint:{' '}
+                        <strong>
+                          {(carryover.nyitoValuta ?? 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                          {carryover.valuta}
+                        </strong>
+                        {typeof carryover.nyitoRon === 'number' &&
+                          ` = ${carryover.nyitoRon.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RON`}
+                        .
+                      </>
+                    )}{' '}
+                    Vesd össze az online bank {nyitoEve}. január 1-i egyenlegével — ha eltér
+                    (pl. tavalyi kivonat még nincs importálva), írd át kézzel.
+                  </div>
+                ) : carryover?.reason === 'missing_prev_nyito' ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900 leading-relaxed mb-4">
+                    <strong>Fontos:</strong> A {carryover.prevYear}. évben van banki forgalom
+                    ({carryover.prevTetelDb} tétel), de nincs rögzített {carryover.prevYear}. évi
+                    nyitó egyenleg, ezért az idei nyitót nem tudtuk automatikusan kiszámolni.
+                    Ellenőrizd az online bankban (BCR George Banking → &bdquo;Extras&rdquo; vagy
+                    &bdquo;Sold cont&rdquo;) a <strong>{nyitoEve}. január 1-i</strong> záró
+                    egyenleget, és add meg itt.
+                  </div>
+                ) : carryover?.reason === 'fx_revaluation_needed' ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900 leading-relaxed mb-4">
+                    <strong>Fontos:</strong> A {carryover.prevYear}. évben már volt forgalom ezen
+                    a devizás számlán, de a {carryover.prevYear}. december 31-i évvégi átértékelés
+                    még hiányzik — a pontos RON nyitóhoz előbb azt kell elvégezni (lásd lent).
+                    {typeof carryover.fallbackValuta === 'number' && (
+                      <>
+                        {' '}A deviza-összeget a tavalyi forgalomból előre kiszámoltuk:{' '}
+                        <strong>
+                          {carryover.fallbackValuta.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                          {carryover.valuta}
+                        </strong>
+                        .
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900 leading-relaxed mb-4">
+                    <strong>Fontos:</strong> A BCR Excel exportban nem szerepel a nyitó egyenleg.
+                    Kérlek ellenőrizd az online bankban (BCR George Banking → &bdquo;Extras&rdquo;
+                    vagy &bdquo;Sold cont&rdquo;) a <strong>{nyitoEve}. január 1-i</strong> záró
+                    egyenleget, és add meg itt.
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   {/* Nyitó egyenleg a számla valutájában */}

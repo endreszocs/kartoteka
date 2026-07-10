@@ -69,3 +69,52 @@ select
   (select min(sorszam) from szamok where ev = 2026) as folyo_ev_elso,
   (select min(sorszam) from szamok where ev = 2026)
     - (select max(sorszam) from szamok where ev = 2025) - 1 as hianyzo_db_az_evhataron;
+
+-- ============================================================================
+-- E7 — NYITÓ-CARRYOVER ellenőrzés (2026-07-10): számlánként az előző évi
+-- záró (rögzített nyitó + forgalom) vs a rákövetkező évi rögzített nyitó.
+-- A carryover-számítás PONTOSAN ezt a képletet használja:
+--   záró(N-1) = nyito_egyenleg(N-1) + banki bevételek(N-1) − banki kiadások(N-1)
+--   (deleted=false, stornozott=false; a belső mozgás bank-lába BELESZÁMÍT)
+-- Az "elteres" oszlopnak 0-nak kell lennie ott, ahol az N. évi nyitót a
+-- rendszer hozta át (forrasa='carryover').
+-- ============================================================================
+with cong as (select id from congregations order by created_at limit 1),
+evek as (select distinct eve from bankszamla_nyito_egyenleg where congregation_id = (select id from cong)),
+forgalom as (
+  select b.bankszamla_id, extract(year from b.datum)::int as ev,
+         sum(b.osszeg) as bev, 0::numeric as kiad
+  from befizetes b
+  where b.congregation_id = (select id from cong)
+    and b.bankszamla_id is not null and b.deleted = false and b.stornozott = false
+  group by 1, 2
+  union all
+  select k.bankszamla_id, extract(year from k.datum)::int as ev,
+         0::numeric, sum(k.osszeg)
+  from kiadas k
+  where k.congregation_id = (select id from cong)
+    and k.bankszamla_id is not null and k.deleted = false and k.stornozott = false
+  group by 1, 2
+)
+select
+  bs.bank_neve, bs.valuta, n_prev.eve as elozo_ev,
+  n_prev.nyito_egyenleg_ron as elozo_nyito,
+  coalesce(f.bev, 0) as elozo_bevetel,
+  coalesce(f.kiad, 0) as elozo_kiadas,
+  round(n_prev.nyito_egyenleg_ron + coalesce(f.bev, 0) - coalesce(f.kiad, 0), 2) as szamolt_zaro,
+  n_next.nyito_egyenleg_ron as kovetkezo_evi_rogzitett_nyito,
+  n_next.forrasa,
+  round((n_prev.nyito_egyenleg_ron + coalesce(f.bev, 0) - coalesce(f.kiad, 0))
+        - coalesce(n_next.nyito_egyenleg_ron, 0), 2) as elteres
+from bankszamla_nyito_egyenleg n_prev
+join bankszamlak bs on bs.id = n_prev.bankszamla_id
+left join (
+  select bankszamla_id, ev, sum(bev) as bev, sum(kiad) as kiad
+  from forgalom group by 1, 2
+) f on f.bankszamla_id = n_prev.bankszamla_id and f.ev = n_prev.eve
+left join bankszamla_nyito_egyenleg n_next
+  on n_next.bankszamla_id = n_prev.bankszamla_id
+ and n_next.congregation_id = n_prev.congregation_id
+ and n_next.eve = n_prev.eve + 1
+where n_prev.congregation_id = (select id from cong)
+order by bs.bank_neve, n_prev.eve;

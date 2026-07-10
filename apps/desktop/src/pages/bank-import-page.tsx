@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 
 import {
+  computeCarryoverNyitoEgyenlegUseCase,
   getBankszamlaNyitoEgyenlegUseCase,
   getLatestBankTransactionDateUseCase,
   checkYearStartStateUseCase,
@@ -260,6 +261,22 @@ export function BankImportPage() {
     [congregationId, userId],
   )
 
+  /** 2026-07-10 (nyitó-carryover): az előző évi záróból számolt nyitó. */
+  const handleComputeCarryoverNyito = useCallback(
+    async (bankszamlaId: number, eve: number) => {
+      if (!congregationId) return { error: 'Nincs aktív gyülekezet a profilhoz rendelve.' }
+      try {
+        return await computeCarryoverNyitoEgyenlegUseCase(
+          { congregationId, bankszamlaId, eve },
+          { supabase: getDesktopSupabase(), runtime: 'desktop' },
+        )
+      } catch (err) {
+        return { error: errorMessage(err) }
+      }
+    },
+    [congregationId],
+  )
+
   /** Év eleji állapot-ellenőrzés (FX revaluation megléte stb.). */
   const handleCheckYearStart = useCallback(
     async (args: {
@@ -393,6 +410,7 @@ export function BankImportPage() {
           onUpsertNyitoEgyenleg={handleUpsertNyitoEgyenleg}
           onCheckYearStart={handleCheckYearStart}
           onFetchBnrRate={handleFetchBnrRate}
+          onComputeCarryoverNyito={handleComputeCarryoverNyito}
           onImport={handleImport}
         />
       </div>

@@ -18,6 +18,7 @@ import { revalidatePath } from 'next/cache'
 
 import {
   checkYearStartStateUseCase,
+  computeCarryoverNyitoEgyenlegUseCase,
   getBankszamlaNyitoEgyenlegUseCase,
   upsertBankszamlaNyitoEgyenlegUseCase,
   type UpsertNyitoEgyenlegInput,
@@ -35,7 +36,7 @@ export type { NyitoEgyenlegRow }
 // 2026-06-12: az input/eredmény típusok kanonikus helye a core — itt
 // re-export, hogy a meglévő importok ne törjenek (`export type` törlődik
 // fordításkor, a 'use server' szabályt nem sérti).
-export type { UpsertNyitoEgyenlegInput, YearStartCheckResult } from '@kartoteka/core'
+export type { CarryoverNyitoResult, UpsertNyitoEgyenlegInput, YearStartCheckResult } from '@kartoteka/core'
 
 /**
  * Egy bankszámla éves nyitó egyenlegének lekérdezése.
@@ -96,6 +97,25 @@ export async function upsertBankszamlaNyitoEgyenleg(
 
   if (result.success) revalidatePath('/penzugy')
   return result
+}
+
+/**
+ * 2026-07-10 (nyitó-carryover): az új év nyitó egyenlegének automatikus
+ * kiszámítása az ELŐZŐ évi záróból — ha tavaly már volt import/forgalom,
+ * nem kell kézzel beírni. Csak SZÁMOL, nem ír semmit.
+ */
+export async function computeCarryoverNyitoEgyenleg(
+  bankszamlaId: number,
+  eve: number,
+): Promise<{ data?: import('@kartoteka/core').CarryoverNyitoResult; error?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezve.' }
+  if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
+
+  return computeCarryoverNyitoEgyenlegUseCase(
+    { congregationId: access.effectiveCongregationId, bankszamlaId, eve },
+    { supabase: access.supabase, runtime: 'web', userId: access.user.id },
+  )
 }
 
 /**

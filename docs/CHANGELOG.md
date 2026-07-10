@@ -27,7 +27,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 <!-- key: 2026-07-10-penzugy-harmadik-kor -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, penztaros -->
-<!-- version: web (következő kiadás) -->
+<!-- version: web v0.9.56 -->
 
 ### 🐛 Javítások
 
@@ -45,6 +45,15 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Devizás bankszámla nyitó egyenlegénél az árfolyam automatikusan kitöltődik**
   a megadott dátum szerinti hivatalos BNR árfolyammal (kézzel felülírható), és a
   beviteli mezők jól láthatóak lettek.
+- **Az új év nyitó egyenlege automatikusan áthozódik az előző évből.** Ha tavaly
+  már importáltál kivonatot (vagy volt banki forgalom), az idei januári nyitót
+  nem kell kézzel beírni: a rendszer kiszámolja a tavalyi záróból (tavalyi
+  nyitó + banki bevételek − banki kiadások), kitölti, és zöld sávban megmutatja
+  a számítást — neked csak össze kell vetned az online bank egyenlegével.
+  Devizás számlánál a december 31-i évvégi átértékelés hiteles záró értéke
+  kerül át (ha az még hiányzik, a rendszer előbb oda irányít). Az így áthozott
+  nyitó „carryover" forrás-jelölést kap, tehát később is látszik, hogy a
+  rendszer számolta. A webes és az asztali verzió ugyanígy működik.
 - **Az Oblio-számla figyelmeztetés:** a Tranzakciók fülön a rendszer szól, ha még
   nincs beállítva a KARTOTEKA mappa — eddig csendben nem működött az ellenőrzés.
 
@@ -81,7 +90,7 @@ ANAF-kapcsolat kiépítését javasoljuk; addig a mappás megoldás marad.
 <!-- key: 2026-07-10-penzugy-masodik-kor -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, penztaros -->
-<!-- version: web (következő kiadás) -->
+<!-- version: web v0.9.56 -->
 
 ### 🐛 Javítások — könyvelői pontosság (belső átvilágítás alapján)
 
