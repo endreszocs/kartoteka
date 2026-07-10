@@ -13,7 +13,7 @@
 --
 -- FUTTATÁS: Supabase SQL editor. NEM lett lefuttatva automatikusan —
 -- futtatás előtt ellenőrizd a meglévő koltsegvetes-policykat:
---   select polname, cmd, qual, with_check from pg_policies
+--   select policyname, cmd, qual, with_check from pg_policies
 --   where tablename = 'koltsegvetes';
 -- Ha van már megengedő (permissive) INSERT/UPDATE/DELETE policy, ez a
 -- RESTRICTIVE készlet AZOK MELLETT szigorít (AND-kapcsolat), nem ütközik.
@@ -82,8 +82,8 @@ create policy koltsegvetes_no_delete_when_finalized
 
 -- ── 3) Ellenőrzés ───────────────────────────────────────────────────────────
 -- a) A policyk léteznek:
---   select polname, cmd from pg_policies where tablename = 'koltsegvetes'
---   and polname like 'koltsegvetes_no_%';
+--   select policyname, cmd from pg_policies where tablename = 'koltsegvetes'
+--   and policyname like 'koltsegvetes_no_%';
 -- b) Funkcionális teszt (egy TESZT-gyülekezeten!):
 --   update bealitas set budget_finalized = true
 --     where congregation_id = '<teszt-cong-uuid>' and id = '2026';

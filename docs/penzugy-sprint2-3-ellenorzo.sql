@@ -49,9 +49,11 @@ order by congregation_id, id;
 
 -- E5. (OPCIONÁLIS mélységi védelem) A koltsegvetes RLS-zár telepítése után:
 --     futtasd a migration-docs/sql/2026-07-10-koltsegvetes-zar-rls.sql-t, majd:
-select polname, cmd
+-- (2026-07-10 fix: a pg_policies NÉZET oszlopa `policyname` — a `polname`
+--  a mögöttes pg_policy katalógusé, a nézetben nem létezik.)
+select policyname, cmd
 from pg_policies
-where tablename = 'koltsegvetes' and polname like 'koltsegvetes_no_%';
+where tablename = 'koltsegvetes' and policyname like 'koltsegvetes_no_%';
 -- Elvárt: 3 sor (insert/update/delete).
 
 -- E6. NYUGTAFIGYELŐ évhatár-próba: az előző év utolsó és a folyó év első
@@ -80,7 +82,6 @@ select
 -- rendszer hozta át (forrasa='carryover').
 -- ============================================================================
 with cong as (select id from congregations order by created_at limit 1),
-evek as (select distinct eve from bankszamla_nyito_egyenleg where congregation_id = (select id from cong)),
 forgalom as (
   select b.bankszamla_id, extract(year from b.datum)::int as ev,
          sum(b.osszeg) as bev, 0::numeric as kiad
