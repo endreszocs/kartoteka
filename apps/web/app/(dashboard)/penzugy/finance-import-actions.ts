@@ -775,6 +775,33 @@ export async function executeFinanceImport(
     return { error: 'Nincs importálandó tétel.' }
   }
 
+  // 2026-07-10 (S3-#3): véglegesített évbe az import sem rögzíthet új tételt —
+  // ADMINOKNAK SEM: a zárt évhez előbb feloldás (unlock) kell, csak utána import.
+  // Az összes tétel dátum-évét ellenőrizzük; vegyes éveknél megnevezzük a zártat.
+  const importYears = Array.from(
+    new Set(
+      items
+        .map((i) => Number(String(i.datum || '').slice(0, 4)))
+        .filter((y) => Number.isFinite(y) && y >= 2000),
+    ),
+  )
+  if (importYears.length > 0) {
+    const { data: lockRows } = await auth.access.supabase
+      .from('bealitas')
+      .select('id, accounting_finalized')
+      .eq('congregation_id', auth.congregationId)
+      .in('id', importYears.map(String))
+    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
+      .filter((r) => r.accounting_finalized)
+      .map((r) => Number(r.id))
+      .sort((a, b) => a - b)
+    if (closedYears.length > 0) {
+      return {
+        error: `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+      }
+    }
+  }
+
   // Kliens-oldali items → DB-formátum (RPC kompatibilis JSONB)
   // A `pending-bank-deposit` és `pending-bank-withdrawal` típusokat lefordítjuk
   // a klasszikus `expense`/`income` kassza-oldali rekordra. A `belso_mozgas_xkey`

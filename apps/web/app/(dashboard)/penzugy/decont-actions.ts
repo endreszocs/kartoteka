@@ -220,6 +220,11 @@ export async function saveDecont(input: SaveDecontInput): Promise<
 
   // Alap-validáció
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: 'Érvénytelen dátum.' }
+  // 2026-07-10 (S3-#9): jövőbeli dátum tiltása — ugyanaz a szabály, mint az
+  // incomeSchema zod-refine-ja (lib/validations/finance.ts: datum <= today()).
+  if (input.date > new Date().toISOString().slice(0, 10)) {
+    return { error: 'Jövőbeli dátum nem engedélyezett' }
+  }
   if (!input.personName.trim()) return { error: 'Az elszámoló neve kötelező.' }
   if (!input.defaultCategoryId) return { error: 'Válassz kiadás-kategóriát.' }
 

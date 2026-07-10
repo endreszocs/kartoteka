@@ -118,7 +118,16 @@ export function DesktopFinancePrintDialog({
               iban: b.iban,
             }))}
             categories={cellek
-              .filter((c) => c.kod && !/^[34]/.test(c.kod) && (c.type === 'B' || c.type === 'K'))
+              // 2026-07-10 (S3 #1e, web-paritás): a 100-as fejezet (legacy belső
+              // mozgás) is kizárva — a builder úgyis belsőként hagyja ki.
+              .filter(
+                (c) =>
+                  c.kod &&
+                  !/^[34]/.test(c.kod) &&
+                  c.kod !== '100' &&
+                  !c.kod.startsWith('100.') &&
+                  (c.type === 'B' || c.type === 'K'),
+              )
               .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
               .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))}
             currentYear={currentYear}

@@ -68,6 +68,13 @@ export interface MonetaryTabProps {
    * hiányzik (pl. desktop), a törlés-gomb nem jelenik meg.
    */
   onDeleteTransfer?: (transferId: number) => Promise<{ success?: boolean; error?: string | null }>
+  /**
+   * 2026-07-10 (S3 #2): kompakt megjelenítés a lebegő Monetár-widgethez (jobb
+   * alsó sarok, max-w-md panel) — egyoszlopos elrendezés, kisebb paddingok és
+   * fontok, a hosszabb magyarázó blokkok rejtve. A FUNKCIONALITÁS változatlan:
+   * mentés, nyomtatás és belső-mozgás-törlés kompakt módban is elérhető.
+   */
+  compact?: boolean
 }
 
 function formatRon(value: number) {
@@ -170,6 +177,7 @@ export function MonetaryTab({
   congregationName = '',
   onPrint,
   onDeleteTransfer,
+  compact = false,
 }: MonetaryTabProps) {
   const [denominations, setDenominations] = useState<MonetaryDenomination[]>([])
   const [counts, setCounts] = useState<Record<number, number>>({})
@@ -298,27 +306,32 @@ export function MonetaryTab({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
-        <Card className="border-0 shadow-none">
-          <CardHeader className="pb-3">
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+      {/* 2026-07-10 (S3 #2): compact módban egyoszlopos elrendezés — a lebegő
+          widget max-w-md panelében a kétoszlopos xl-grid nem férne el. */}
+      <div className={compact ? 'grid gap-3' : 'grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]'}>
+        <Card size={compact ? 'sm' : 'default'} className="border-0 shadow-none">
+          <CardHeader className={compact ? 'pb-2' : 'pb-3'}>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-slate-800">
                   <Calculator className="size-4 text-teal-600" />
                   Monetár
                 </CardTitle>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                  Bal oldalon adja meg címletenként, mennyi készpénz van ténylegesen a
-                  pénztárban vagy a lelkésznél. A rendszer azonnal megmutatja, hogy ez
-                  hogyan viszonyul a könyvelt készpénzegyenleghez.
-                </p>
+                {!compact && (
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                    Bal oldalon adja meg címletenként, mennyi készpénz van ténylegesen a
+                    pénztárban vagy a lelkésznél. A rendszer azonnal megmutatja, hogy ez
+                    hogyan viszonyul a könyvelt készpénzegyenleghez.
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 {onPrint && (
                   <Button
                     variant="outline"
-                    className="rounded-full px-5"
+                    size={compact ? 'sm' : 'default'}
+                    className={compact ? 'rounded-full px-4' : 'rounded-full px-5'}
                     onClick={() => setPrintOpen(true)}
                   >
                     <Printer className="mr-2 size-4" />
@@ -326,7 +339,12 @@ export function MonetaryTab({
                   </Button>
                 )}
                 <Button
-                  className="rounded-full bg-teal-600 px-5 hover:bg-teal-700"
+                  size={compact ? 'sm' : 'default'}
+                  className={
+                    compact
+                      ? 'rounded-full bg-teal-600 px-4 hover:bg-teal-700'
+                      : 'rounded-full bg-teal-600 px-5 hover:bg-teal-700'
+                  }
                   onClick={handleSave}
                   disabled={saving}
                 >
@@ -336,19 +354,21 @@ export function MonetaryTab({
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
+          <CardContent className={compact ? 'space-y-3' : 'space-y-4'}>
+            <div className={compact ? 'grid gap-2' : 'grid gap-3 md:grid-cols-3'}>
               <MetricCard
                 label="Szoftver szerint"
                 value={formatRon(expectedCashBalance)}
                 tone="teal"
                 hint="A könyvelt készpénzes tételek alapján"
+                compact={compact}
               />
               <MetricCard
                 label="Fizikailag számolt"
                 value={formatRon(countedTotal)}
                 tone="amber"
                 hint="Az itt rögzített címletek összege"
+                compact={compact}
               />
               <MetricCard
                 label="Eltérés"
@@ -361,6 +381,7 @@ export function MonetaryTab({
                       ? 'Többlet látható a kasszában.'
                       : 'Hiány mutatkozik a kasszában.'
                 }
+                compact={compact}
               />
             </div>
 
@@ -370,6 +391,7 @@ export function MonetaryTab({
               items={grouped.bankjegy}
               counts={counts}
               onChange={updateCount}
+              compact={compact}
             />
 
             <DenominationTable
@@ -378,20 +400,21 @@ export function MonetaryTab({
               items={grouped.erme}
               counts={counts}
               onChange={updateCount}
+              compact={compact}
             />
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
-          <Card className="border-0 shadow-none">
-            <CardHeader className="pb-3">
+        <div className={compact ? 'space-y-3' : 'space-y-4'}>
+          <Card size={compact ? 'sm' : 'default'} className="border-0 shadow-none">
+            <CardHeader className={compact ? 'pb-2' : 'pb-3'}>
               <CardTitle className="flex items-center gap-2 text-slate-800">
                 <Wallet className="size-4 text-violet-600" />
                 Megjegyzések és háttér
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <CardContent className={compact ? 'space-y-3' : 'space-y-4'}>
+              <div className={compact ? 'grid grid-cols-2 gap-2' : 'grid gap-3 sm:grid-cols-2 xl:grid-cols-1'}>
                 <MetricBox label="Aktív bankszámlák" value={`${bankAccounts.length} db`} />
                 <MetricBox
                   label="Használt pénznemek"
@@ -403,38 +426,44 @@ export function MonetaryTab({
                 <MetricBox label="Érmék" value={`${coinCount} db`} />
               </div>
 
-              <div className="rounded-[1.4rem] border border-amber-100 bg-amber-50/85 p-4 text-sm text-amber-900">
-                <div className="flex items-start gap-3">
-                  <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                  <div className="space-y-1.5">
-                    <p className="font-semibold">Mire való a Monetár?</p>
-                    <p className="leading-6 text-amber-800/90">
-                      Ez az ellenőrző felület segít egyeztetni a tényleges készpénzt a
-                      könyvelt készpénzegyenleggel. Ha eltérés van, a pénztár azonnal további
-                      vizsgálatot igényel.
-                    </p>
+              {/* 2026-07-10 (S3 #2): a magyarázó blokkok compact (widget) módban
+                  rejtve — a panelben a lényeg (számolás + mozgások) férjen el. */}
+              {!compact && (
+                <div className="rounded-[1.4rem] border border-amber-100 bg-amber-50/85 p-4 text-sm text-amber-900">
+                  <div className="flex items-start gap-3">
+                    <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                    <div className="space-y-1.5">
+                      <p className="font-semibold">Mire való a Monetár?</p>
+                      <p className="leading-6 text-amber-800/90">
+                        Ez az ellenőrző felület segít egyeztetni a tényleges készpénzt a
+                        könyvelt készpénzegyenleggel. Ha eltérés van, a pénztár azonnal további
+                        vizsgálatot igényel.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="rounded-[1.4rem] border border-white/70 bg-white/88 p-4 shadow-[0_18px_36px_-34px_rgba(15,23,42,0.16)]">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Gyors ellenőrzési rend
-                </p>
-                <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-                  <li>1. Számolja meg külön a bankjegyeket és külön az érméket.</li>
-                  <li>
-                    2. Írja be darabra pontosan az egyes címleteket a bal oldali táblába.
-                  </li>
-                  <li>3. Nézze meg, hogy az eltérés nulla-e, többlet-e vagy hiány.</li>
-                  <li>4. Mentse el a pillanatképet, hogy visszakereshető maradjon.</li>
-                </ol>
-              </div>
+              {!compact && (
+                <div className="rounded-[1.4rem] border border-white/70 bg-white/88 p-4 shadow-[0_18px_36px_-34px_rgba(15,23,42,0.16)]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Gyors ellenőrzési rend
+                  </p>
+                  <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+                    <li>1. Számolja meg külön a bankjegyeket és külön az érméket.</li>
+                    <li>
+                      2. Írja be darabra pontosan az egyes címleteket a bal oldali táblába.
+                    </li>
+                    <li>3. Nézze meg, hogy az eltérés nulla-e, többlet-e vagy hiány.</li>
+                    <li>4. Mentse el a pillanatképet, hogy visszakereshető maradjon.</li>
+                  </ol>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-none">
-            <CardHeader className="pb-3">
+          <Card size={compact ? 'sm' : 'default'} className="border-0 shadow-none">
+            <CardHeader className={compact ? 'pb-2' : 'pb-3'}>
               <CardTitle className="text-slate-800">Legutóbbi belső mozgások</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -563,20 +592,33 @@ function DenominationTable({
   items,
   counts,
   onChange,
+  compact = false,
 }: {
   title: string
   icon: ReactNode
   items: MonetaryDenomination[]
   counts: Record<number, number>
   onChange: (denominationId: number, value: string) => void
+  /** 2026-07-10 (S3 #2): kompakt (widget) mód — kisebb cellák, a Megnevezés oszlop rejtve. */
+  compact?: boolean
 }) {
   const total = items.reduce((sum, item) => sum + item.value * (counts[item.id] || 0), 0)
+  const thClass = compact
+    ? 'px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400'
+    : 'px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400'
+  const tdClass = compact ? 'px-2 py-1.5' : 'px-4 py-3'
 
   return (
-    <div className="space-y-4 rounded-[1.45rem] border border-slate-200/70 bg-white/92 p-4 shadow-[0_20px_40px_-34px_rgba(15,23,42,0.14)]">
+    <div
+      className={
+        compact
+          ? 'space-y-3 rounded-[1.2rem] border border-slate-200/70 bg-white/92 p-3 shadow-[0_20px_40px_-34px_rgba(15,23,42,0.14)]'
+          : 'space-y-4 rounded-[1.45rem] border border-slate-200/70 bg-white/92 p-4 shadow-[0_20px_40px_-34px_rgba(15,23,42,0.14)]'
+      }
+    >
       <div className="flex items-center gap-2 text-slate-800">
         {icon}
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className={compact ? 'text-sm font-semibold' : 'text-base font-semibold'}>{title}</h3>
       </div>
 
       {items.length === 0 ? (
@@ -585,41 +627,34 @@ function DenominationTable({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-[1.2rem] border border-slate-200/70 bg-white/90">
-          <table className="min-w-[520px] w-full text-sm">
+          <table className={compact ? 'w-full text-xs' : 'min-w-[520px] w-full text-sm'}>
             <thead className="border-b border-slate-200/70 bg-slate-50/90">
               <tr>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Címlet
-                </th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Megnevezés
-                </th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Darab
-                </th>
-                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Összesen
-                </th>
+                <th className={thClass}>Címlet</th>
+                {/* Compact módban a Megnevezés oszlop rejtve — a max-w-md panelben nem fér el. */}
+                {!compact && <th className={thClass}>Megnevezés</th>}
+                <th className={thClass}>Darab</th>
+                <th className={`${thClass.replace('text-left', 'text-right')}`}>Összesen</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/60">
               {items.map((item) => (
                 <tr key={item.id}>
-                  <td className="px-4 py-3 font-semibold text-slate-800">
+                  <td className={`${tdClass} font-semibold text-slate-800`}>
                     {item.displayValue}
                   </td>
-                  <td className="px-4 py-3 text-slate-500">{item.name}</td>
-                  <td className="px-4 py-3">
+                  {!compact && <td className={`${tdClass} text-slate-500`}>{item.name}</td>}
+                  <td className={tdClass}>
                     <Input
                       type="number"
                       min="0"
                       step="1"
                       value={counts[item.id] || 0}
                       onChange={(event) => onChange(item.id, event.target.value)}
-                      className="h-10 rounded-xl"
+                      className={compact ? 'h-8 w-20 rounded-lg text-sm' : 'h-10 rounded-xl'}
                     />
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-700">
+                  <td className={`${tdClass} text-right font-semibold text-slate-700`}>
                     {formatRon((counts[item.id] || 0) * item.value)}
                   </td>
                 </tr>
@@ -629,11 +664,19 @@ function DenominationTable({
         </div>
       )}
 
-      <div className="rounded-[1.3rem] bg-slate-50/85 px-4 py-3 ring-1 ring-slate-200/70">
+      <div
+        className={
+          compact
+            ? 'rounded-[1.1rem] bg-slate-50/85 px-3 py-2 ring-1 ring-slate-200/70'
+            : 'rounded-[1.3rem] bg-slate-50/85 px-4 py-3 ring-1 ring-slate-200/70'
+        }
+      >
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {title} összesen
         </p>
-        <p className="mt-1 text-lg font-semibold text-slate-800">{formatRon(total)}</p>
+        <p className={compact ? 'mt-0.5 text-base font-semibold text-slate-800' : 'mt-1 text-lg font-semibold text-slate-800'}>
+          {formatRon(total)}
+        </p>
       </div>
     </div>
   )
@@ -644,11 +687,14 @@ function MetricCard({
   value,
   tone,
   hint,
+  compact = false,
 }: {
   label: string
   value: string
   tone: 'teal' | 'amber' | 'emerald' | 'sky' | 'rose'
   hint: string
+  /** 2026-07-10 (S3 #2): kompakt (widget) mód — egysoros, label balra / érték jobbra. */
+  compact?: boolean
 }) {
   const toneClass = {
     teal: 'bg-teal-50 text-teal-700',
@@ -657,6 +703,18 @@ function MetricCard({
     sky: 'bg-sky-50 text-sky-700',
     rose: 'bg-rose-50 text-rose-700',
   }[tone]
+
+  if (compact) {
+    return (
+      <div
+        className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ${toneClass}`}
+        title={hint}
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-75">{label}</p>
+        <p className="text-sm font-semibold">{value}</p>
+      </div>
+    )
+  }
 
   return (
     <div className={`rounded-[1.35rem] px-4 py-4 ${toneClass}`}>

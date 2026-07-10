@@ -407,6 +407,29 @@ export async function executeGeneralImport(payload: {
   const skippedSet = new Set(parsed.data.skipped ?? [])
   const supabase = auth.access.supabase
 
+  // 2026-07-10 (S3 audit KRITIKUS #3): véglegesített évbe import útján SEM
+  // születhet új tétel — az érintett évek (a sorok dátum-évei) zár-ellenőrzése.
+  const importYears = new Set<number>()
+  for (const r of rows) {
+    const y = Number(String(r.datum || '').slice(0, 4))
+    if (Number.isFinite(y) && y >= 2000) importYears.add(y)
+  }
+  if (importYears.size === 0) importYears.add(year)
+  for (const y of importYears) {
+    const { data: beal } = await supabase
+      .from('bealitas')
+      .select('accounting_finalized')
+      .eq('congregation_id', auth.congregationId)
+      .eq('id', String(y))
+      .maybeSingle()
+    if (beal?.accounting_finalized) {
+      return {
+        ...base,
+        error: `A ${y}. évi számadás már véglegesítve van — új tétel nem rögzíthető (importtal sem). Először kérj javítási engedélyt az egyházmegyétől.`,
+      }
+    }
+  }
+
   const personMaps = await buildAllPersonsLookupMap(supabase, auth.congregationId)
   const resolveCategory = await buildCategoryResolver(supabase, auth.congregationId)
 

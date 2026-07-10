@@ -457,6 +457,35 @@ export async function executeEgyhfImport(
     return result
   }
 
+  // 2026-07-10 (S3-#3): véglegesített évbe az egyházfenntartás-import sem
+  // rögzíthet új tételt — ADMINOKNAK SEM: a zárt évhez előbb feloldás (unlock)
+  // kell. A tételek KÖNYVELÉSI dátum-évét ellenőrizzük (a fizetettev lehet
+  // korábbi év — az nem könyvelési dátum, csak attribútum).
+  const importYears = Array.from(
+    new Set(
+      validatedItems
+        .map((i) => Number(String(i.finalRow.datum || '').slice(0, 4)))
+        .filter((y) => Number.isFinite(y) && y >= 2000),
+    ),
+  )
+  if (importYears.length > 0) {
+    const { data: lockRows } = await supabase
+      .from('bealitas')
+      .select('id, accounting_finalized')
+      .eq('congregation_id', profile.congregation_id)
+      .in('id', importYears.map(String))
+    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
+      .filter((r) => r.accounting_finalized)
+      .map((r) => Number(r.id))
+      .sort((a, b) => a - b)
+    if (closedYears.length > 0) {
+      result.errors.push(
+        `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+      )
+      return result
+    }
+  }
+
   // Befizetescel id lookup (101.01)
   const { data: bcData, error: bcErr } = await supabase
     .from('befizetescel')

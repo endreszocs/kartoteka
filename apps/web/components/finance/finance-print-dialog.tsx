@@ -95,10 +95,20 @@ export function FinancePrintDialog({
     ...budgetTypes,
   ]
 
-  // Csoportnapló jogcím-választó opciói: a számadási célok (belső mozgások — 3xx/4xx — nélkül),
+  // Csoportnapló jogcím-választó opciói: a számadási célok (belső mozgások nélkül),
   // kód szerint numerikusan rendezve.
+  // 2026-07-10 (S3 #1e): a 3xx/4xx mellett a 100-as fejezet (legacy belső mozgás /
+  // pénztármaradvány: 100, 100.01, 100.5x) is kimarad — a buildCsoportNaplo ezeket
+  // belsőként kihagyja, így felkínálásuk MINDIG üres nyomtatványt adott volna.
   const categoryOptions = cellek
-    .filter((c) => c.kod && !/^[34]/.test(c.kod) && (c.type === 'B' || c.type === 'K'))
+    .filter(
+      (c) =>
+        c.kod &&
+        !/^[34]/.test(c.kod) &&
+        c.kod !== '100' &&
+        !c.kod.startsWith('100.') &&
+        (c.type === 'B' || c.type === 'K'),
+    )
     .map((c) => ({ kod: c.kod, nev: c.nev || c.kod, type: c.type as 'B' | 'K' }))
     .sort((a, b) => a.kod.localeCompare(b.kod, undefined, { numeric: true }))
 
@@ -155,13 +165,15 @@ export function FinancePrintDialog({
               const isSzamadas = filters.printType === 'szamadas'
               const actualIncome: Record<string, number> = {}
               const actualExpense: Record<string, number> = {}
+              // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a hivatalos
+              // költségvetés/számadás nyomtatvány tényadatába sem számít.
               for (const r of income) {
-                if (r.deleted) continue
+                if (r.deleted || r.stornozott) continue
                 const code = r.id_befizetescel ? bevCelMap[r.id_befizetescel] : undefined
                 if (code) actualIncome[code] = (actualIncome[code] || 0) + Number(r.osszeg || 0)
               }
               for (const r of expense) {
-                if (r.deleted) continue
+                if (r.deleted || r.stornozott) continue
                 const code = r.id_kiadascel ? kiaCelMap[r.id_kiadascel] : undefined
                 if (code) actualExpense[code] = (actualExpense[code] || 0) + Number(r.osszeg || 0)
               }

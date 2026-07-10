@@ -14,9 +14,9 @@
  * Mobil-barát: kis/közepes képernyőn kártyák (nincs oldalirányú görgetés).
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight } from 'lucide-react'
+import { Plus, Save, Trash2, ArrowLeftRight, Users, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
 import { formatRon } from './ron-in-words'
 import { parseFlexibleDate } from './date-parse'
 import { SearchableSelect } from './SearchableSelect'
@@ -193,6 +193,14 @@ const newRow = (year?: number): EntryRow => ({
 // használjuk a read-only fő-összeghez (>=2 befizető) és az érvényesség-/total-számításhoz.
 const payerSum = (r: EntryRow): number => (r.people ?? []).reduce((s, p) => s + (Number(p.osszeg) || 0), 0)
 
+/** 2026-07-10 (S2-#1b): egy befizető sora a people[] listából — a hint-helperek közös típusa. */
+type PayerLike = EntryRow['people'][number]
+
+/** 2026-07-10 (S2-#1b): a tagra lekért éves járulék (a BEÁLLÍTOTT kedvezményekkel, a rögzítés
+ *  dátuma szerint) — az összeg-mező melletti „Ajánlott összeg" jelzés adata. A reqKey a
+ *  (tag, év, dátum) hármast kódolja: csak a JELENLEGI állapothoz tartozó hint jelenik meg. */
+type JarulekHint = { reqKey: string; expected: number; paid: number; debt: number; hasBase: boolean }
+
 const inputClass =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm ' +
   'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
@@ -352,35 +360,49 @@ export function CombinedEntryBody({
     return typeof kod === 'string' && kod.startsWith('101.01')
   }
 
-  // (B) AUTO-ÖSSZEG: ha egy bevétel-sor jogcíme egyházfenntartói járulék ÉS a befizető regisztrált
-  // tag ÉS van év ÉS az összeg MÉG ÜRES → lekérjük a tag adott évi `debt`-jét és beírjuk. Effekt-alapú
-  // (mindig a FRISS incomeRows-ból dolgozik); a per-befizető `reqKey`-guard megakadályozza az
-  // ismételt/loop-os lekérést és tiszteletben tartja a kézi összeget.
-  const jarulekReqRef = useRef<Map<string, string>>(new Map()) // payer.uid → `${id}:${year}` (már lekérve)
+  // (B) AUTO-ÖSSZEG + AJÁNLOTT ÖSSZEG (2026-07-10, S2-#1b): ha egy bevétel-sor jogcíme
+  // egyházfenntartói járulék ÉS a befizető regisztrált tag ÉS van év → lekérjük a tag adott évi
+  // {expected, paid, debt} értékét a RÖGZÍTÉS DÁTUMÁVAL (így a beállított kedvezmények — korai-
+  // fizetési ablak, kor, foglalkozás, felmentés — prospektíven érvényesülnek). Az eredményt
+  // (1) ÜRES összeg-mezőbe beírjuk (auto-kitöltés, mint eddig), és (2) MINDIG eltároljuk
+  // hint-ként → az összeg mellett „Ajánlott: X RON — átvesz" jelzés látszik; eltérő kézi összeg
+  // NEM blokkolt (részletfizetés!), csak diszkrét jelzést kap. A reqKey a DÁTUMOT is tartalmazza:
+  // dátum-váltáskor (kedvezmény-ablak határa!) újraszámol.
+  const jarulekReqRef = useRef<Map<string, string>>(new Map()) // payer.uid → `${id}:${year}:${datum}` (már lekérve)
+  const [jarulekHints, setJarulekHints] = useState<Map<string, JarulekHint>>(() => new Map())
   useEffect(() => {
     if (tab !== 'income' || !onGetExpectedJarulek) return
     for (const row of incomeRows) {
       if (!isChurchMaintenance(row.categoryId)) continue
       for (const p of row.people ?? []) {
         if (p.id == null) continue // csak regisztrált tag
-        if ((p.osszeg ?? '').trim() !== '') continue // a kézi/meglévő összeget NE bántsuk
         const year = Number(p.evre || row.evre)
         if (!Number.isFinite(year) || year < 1900) continue
-        const reqKey = `${p.id}:${year}`
-        if (jarulekReqRef.current.get(p.uid) === reqKey) continue // ezt a (tag,év)-et már lekértük
+        // J6: a befizetés DÁTUMA (a sor datum-ja) → a korai-fizetés/időszaki kedvezmény prospektív
+        // alkalmazásához (ha a befizetés a határidő előtt van, a kedvezményes összeget ajánljuk).
+        const prospectiveDateIso = parseFlexibleDate(row.datum) || undefined
+        const reqKey = `${p.id}:${year}:${prospectiveDateIso ?? ''}`
+        if (jarulekReqRef.current.get(p.uid) === reqKey) continue // ezt a (tag,év,dátum)-ot már lekértük
         jarulekReqRef.current.set(p.uid, reqKey)
         const rowId = row.id
         const payerUid = p.uid
         const payerId = p.id
         const payerName = p.name
-        // J6: a befizetés DÁTUMA (a sor datum-ja) → a korai-fizetés/időszaki kedvezmény prospektív
-        // alkalmazásához (ha a befizetés a határidő előtt van, a kedvezményes összeget ajánljuk).
-        const prospectiveDateIso = parseFlexibleDate(row.datum) || undefined
+        // 2026-07-10 (S2-#1b): kitöltött összegnél IS lekérjük (az „Ajánlott" jelzéshez), de
+        // auto-kitöltés és toast csak akkor van, ha a mező a KÉRÉSKOR üres volt (a kézit sosem bántjuk).
+        const wasEmpty = (p.osszeg ?? '').trim() === ''
         void onGetExpectedJarulek(payerId, year, prospectiveDateIso)
           .then((res) => {
             if (!res) return
-            if (jarulekReqRef.current.get(payerUid) !== reqKey) return // közben változott a tag/év
+            if (jarulekReqRef.current.get(payerUid) !== reqKey) return // közben változott a tag/év/dátum
+            // 2026-07-10 (S2-#1b): a hint eltárolása — az összeg-mező melletti „Ajánlott" jelzéshez.
+            setJarulekHints((cur) => {
+              const next = new Map(cur)
+              next.set(payerUid, { reqKey, expected: res.expected, paid: res.paid, debt: res.debt, hasBase: res.hasBase !== false })
+              return next
+            })
             if (res.debt > 0) {
+              if (!wasEmpty) return // kézi összeg — a hint jelzi az eltérést, nem írunk felül
               const amount = String(res.debt)
               setIncomeRows((cur) => cur.map((r) => (r.id !== rowId ? r : {
                 ...r,
@@ -391,19 +413,76 @@ export function CombinedEntryBody({
             } else if (res.hasBase === false) {
               // #Endre 2026-07-01: NINCS beállítva az adott évi éves járulék-alap (se bealitas, se
               // congregations.eves_jarulek) → NEM „felmentett", hanem beállítandó. Ajánljuk fel.
-              onToast('warning', `A(z) ${year}. évi éves járulék nincs beállítva — állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt, utána automatikusan kitölti. Addig írd be kézzel.`)
+              if (wasEmpty) onToast('warning', `A(z) ${year}. évi éves járulék nincs beállítva — állítsd be a „Gyülekezetünk adatai → Pénzügy" alatt, utána automatikusan kitölti. Addig írd be kézzel.`)
             } else {
               // M3: rendezve / felmentett → NEM írunk 0-t, de jelezzük (különben néma a mező).
-              onToast('success', res.expected <= 0
+              if (wasEmpty) onToast('success', res.expected <= 0
                 ? `${payerName || 'A tag'}: erre az évre (${year}) felmentett — nincs járulék.`
                 : `${payerName || 'A tag'}: a ${year}. évi járulék már rendezve (nincs hátralék).`)
             }
           })
-          .catch(() => { /* hálózat nélkül nincs auto-kitöltés */ })
+          .catch(() => { /* hálózat nélkül nincs auto-kitöltés / ajánlás */ })
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomeRows, tab, onGetExpectedJarulek])
+
+  // 2026-07-10 (S2-#1b): érvényes hint egy befizetőhöz — CSAK ha a JELENLEGI (jogcím, tag, év,
+  // dátum) állapothoz tartozik (év-/dátumváltás után az elavult hint eltűnik, amíg az új meg nem jön).
+  function jarulekHintFor(row: EntryRow, p: PayerLike): JarulekHint | null {
+    if (tab !== 'income' || !onGetExpectedJarulek) return null
+    if (!isChurchMaintenance(row.categoryId) || p.id == null) return null
+    const year = Number(p.evre || row.evre)
+    if (!Number.isFinite(year) || year < 1900) return null
+    const key = `${p.id}:${year}:${parseFlexibleDate(row.datum) ?? ''}`
+    const h = jarulekHints.get(p.uid)
+    return h && h.reqKey === key && h.hasBase ? h : null
+  }
+
+  /** 2026-07-10 (S2-#1b): „Ajánlott összeg" jelzés az összeg-mező alatt — a tag éves díja a
+   *  rögzítés dátumán érvényes kedvezménnyel, egy kattintással átvehető. Eltérő kézi összeg
+   *  NEM hiba (részletfizetés létezik) — csak diszkrét „eltér" jelzést kap. */
+  function renderJarulekHint(row: EntryRow, p: PayerLike, idx: number): ReactNode {
+    const h = jarulekHintFor(row, p)
+    if (!h) return null
+    const entered = Number(p.osszeg) || 0
+    if (h.debt > 0) {
+      const detail = h.paid > 0
+        ? `Éves díj a rögzítés dátumán érvényes kedvezménnyel: ${formatRon(h.expected)} RON · ebből már befizetve: ${formatRon(h.paid)} RON · még fizetendő: ${formatRon(h.debt)} RON.`
+        : 'A tag éves díja a rögzítés dátumán érvényes kedvezménnyel (korai-fizetési ablak, kor- és foglalkozás-kedvezmény beszámítva).'
+      if (entered === h.debt) {
+        return (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600" title={detail}>
+            ✓ Ajánlott összeg (kedvezménnyel)
+          </span>
+        )
+      }
+      return (
+        <span className="mt-0.5 flex flex-wrap items-center justify-end gap-1">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => updatePayer(row.id, idx, { osszeg: String(h.debt) })}
+            className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
+            title={detail}
+          >
+            Ajánlott: {formatRon(h.debt)} RON — átvesz
+          </button>
+          {entered > 0 && (
+            <span className="text-[10px] text-amber-600" title="Az eltérő összeg megengedett (pl. részletfizetés) — ez csak jelzés.">
+              eltér
+            </span>
+          )}
+        </span>
+      )
+    }
+    // debt = 0: rendezve vagy felmentett — kicsi, semleges jelzés (nem hiba, nem blokkol).
+    return (
+      <span className="mt-0.5 inline-flex text-[10px] text-slate-400">
+        {h.expected <= 0 ? 'Felmentett — nincs járulék erre az évre.' : `A(z) ${Number(p.evre || row.evre)}. évi járulék rendezve.`}
+      </span>
+    )
+  }
 
   function rowValidIn(tabName: 'income' | 'expense', r: EntryRow): boolean {
     // #4: ha vannak befizetők (people[]), a sor összege a tagok összegeinek summája (per-tag
@@ -947,18 +1026,25 @@ export function CombinedEntryBody({
       <datalist id="combined-doctypes">
         {DOC_TYPES.map((t) => (<option key={t} value={t} />))}
       </datalist>
-      {/* Kiemelt fülek */}
+      {/* Kiemelt fülek — 2026-07-10 (S2-#2): a KÉT szekció (Bevétel = zöld, Kiadás = piros)
+          INAKTÍVAN is színkódolt és ikonos, hogy első pillantásra látsszon: egy mentéssel
+          MINDKETTŐ rögzíthető (a számláló-badge a másik fülön is mutatja a kész sorokat). */}
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
-        <button type="button" onClick={() => setTab('income')}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>
-          Bevétel{incomeValid > 0 && <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs">{incomeValid}</span>}
+        <button type="button" onClick={() => setTab('income')} aria-pressed={tab === 'income'}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'income' ? 'bg-emerald-600 text-white shadow-md' : 'text-emerald-700 hover:bg-emerald-50'}`}>
+          <TrendingUp className="size-5 shrink-0" aria-hidden />
+          Bevétel{incomeValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'income' ? 'bg-white/25' : 'bg-emerald-100 text-emerald-700'}`}>{incomeValid}</span>}
         </button>
-        <button type="button" onClick={() => setTab('expense')}
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-white'}`}>
-          Kiadás{expenseValid > 0 && <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs">{expenseValid}</span>}
+        <button type="button" onClick={() => setTab('expense')} aria-pressed={tab === 'expense'}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${tab === 'expense' ? 'bg-red-500 text-white shadow-md' : 'text-rose-600 hover:bg-rose-50'}`}>
+          <TrendingDown className="size-5 shrink-0" aria-hidden />
+          Kiadás{expenseValid > 0 && <span className={`rounded-full px-2 py-0.5 text-xs ${tab === 'expense' ? 'bg-white/25' : 'bg-rose-100 text-rose-600'}`}>{expenseValid}</span>}
         </button>
       </div>
-      <p className="text-xs text-slate-400">Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Készpénzfelvétel/-letétel esetén válaszd ki a bankszámlát is.</p>
+      <p className="text-xs text-slate-400">
+        <span className="font-medium text-slate-600">Egy mentéssel több bevétel ÉS kiadás is rögzíthető</span> — válts a fülek közt, a számláló a rögzítésre kész sorokat mutatja.{' '}
+        Csak készpénzes tételek — a banki tételeket banki kivonatból importáljuk. Készpénzfelvétel/-letétel esetén válaszd ki a bankszámlát is.
+      </p>
 
       {/* #3 — visszaállított vázlat jelzése */}
       {draftRestoredAt !== null && (
@@ -1143,6 +1229,7 @@ export function CombinedEntryBody({
                         updatePayer={updatePayer}
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
+                        renderPayerHint={renderJarulekHint}
                       />
                     )}
                   </td>
@@ -1171,7 +1258,11 @@ export function CombinedEntryBody({
                         {formatRon(payerSum(r))}
                       </div>
                     ) : (
-                      <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={amountOf(r)} onChange={(e) => setAmountOf(r, e.target.value)} />
+                      <>
+                        <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={amountOf(r)} onChange={(e) => setAmountOf(r, e.target.value)} />
+                        {/* 2026-07-10 (S2-#1b): ajánlott járulék-összeg (kedvezménnyel) — egy befizetőnél. */}
+                        {tab === 'income' && (r.people?.length ?? 0) === 1 && renderJarulekHint(r, r.people![0], 0)}
+                      </>
                     )}
                   </td>
                   <td className="px-2 py-1.5"><input className={inputClass} value={r.megjegyzes} onChange={(e) => updateRow(r.id, { megjegyzes: e.target.value })} /></td>
@@ -1220,7 +1311,11 @@ export function CombinedEntryBody({
                   {tab === 'income' && (r.people?.length ?? 0) >= 2 ? (
                     <div className="flex h-9 items-center justify-end rounded-md border border-emerald-200 bg-emerald-50/60 px-2 text-sm font-semibold tabular-nums text-emerald-900" title="A befizetők összegeinek összege (automatikus)">{formatRon(payerSum(r))}</div>
                   ) : (
-                    <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={amountOf(r)} onChange={(e) => setAmountOf(r, e.target.value)} />
+                    <>
+                      <input className={inputClass + ' text-right'} type="number" min={0} step={0.01} value={amountOf(r)} onChange={(e) => setAmountOf(r, e.target.value)} />
+                      {/* 2026-07-10 (S2-#1b): ajánlott járulék-összeg (kedvezménnyel) — egy befizetőnél. */}
+                      {tab === 'income' && (r.people?.length ?? 0) === 1 && renderJarulekHint(r, r.people![0], 0)}
+                    </>
                   )}
                 </label>
                 {tab === 'income' && !dir && (r.people?.length ?? 0) < 2 && (
@@ -1250,6 +1345,7 @@ export function CombinedEntryBody({
                         updatePayer={updatePayer}
                         removePayer={removePayer}
                         focusPayerUid={focusPayerUid}
+                        renderPayerHint={renderJarulekHint}
                       />
                     </label>
                     <label className="text-xs text-slate-500">Irattípus
@@ -1375,6 +1471,7 @@ function PartnerCell({
   updatePayer,
   removePayer,
   focusPayerUid,
+  renderPayerHint,
 }: {
   row: EntryRow
   mode: 'income' | 'expense'
@@ -1394,6 +1491,8 @@ function PartnerCell({
   removePayer: (rowId: string, idx: number) => void
   /** #5: az újonnan hozzáadott befizető uid-je — annak NÉV-mezője fókuszt kap. */
   focusPayerUid?: string | null
+  /** 2026-07-10 (S2-#1b): befizetőnkénti „Ajánlott összeg" jelzés a többfizetős almenüben. */
+  renderPayerHint?: (row: EntryRow, p: PayerLike, idx: number) => ReactNode
 }) {
   // mode szerinti kereső-függvény: bevétel → tag-keresés; kiadás → korábbi partnerek (névlista).
   const searchFn = (query: string): Promise<CombinedMemberHit[]> =>
@@ -1526,57 +1625,73 @@ function PartnerCell({
             <span className="text-center">Év</span>
             <span></span>
           </div>
+          {/* 2026-07-10 (S2-#2): kártyás/csoportosított befizető-lista a dispozitie-incasare-wizard
+              mintájára — kezdőbetűs avatar + sorszám, váltakozó sor-háttér, összegek jobbra igazítva. */}
           {people.map((p, i) => {
             const zero = !(Number(p.osszeg) > 0)
+            const hint = renderPayerHint?.(row, p, i)
             return (
-              <div
-                key={p.uid}
-                className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2 border-b border-slate-50 px-2.5 py-1 last:border-b-0"
-              >
-                <PayerNameSearch
-                  value={p.name}
-                  linked={p.id != null}
-                  onSearch={searchFn}
-                  placeholder="Név — itt keres (vagy szabad szöveg)"
-                  onType={(t) => updatePayer(row.id, i, { name: t, id: null })}
-                  onPick={(h) => updatePayer(row.id, i, { id: h.id, name: h.name })}
-                  autoFocus={focusPayerUid === p.uid}
-                  showUnlinkedBadge
-                />
-                <input
-                  className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={p.osszeg}
-                  placeholder="0"
-                  onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
-                />
-                <input
-                  className={inputClass + ' h-8 px-1 text-center'}
-                  type="number"
-                  inputMode="numeric"
-                  value={p.evre}
-                  onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
-                />
-                <button
-                  type="button"
-                  aria-label="Befizető törlése"
-                  className="flex h-8 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                  onClick={() => removePayer(row.id, i)}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
+              <div key={p.uid} className="border-b border-slate-50 px-2.5 py-1 last:border-b-0 odd:bg-slate-50/40">
+                <div className="grid grid-cols-[1fr_6rem_4.5rem_2rem] items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-[11px] font-semibold text-emerald-700 sm:flex"
+                      title={`${i + 1}. befizető`}
+                    >
+                      {p.name.trim() ? p.name.trim()[0].toUpperCase() : String(i + 1)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <PayerNameSearch
+                        value={p.name}
+                        linked={p.id != null}
+                        onSearch={searchFn}
+                        placeholder="Név — itt keres (vagy szabad szöveg)"
+                        onType={(t) => updatePayer(row.id, i, { name: t, id: null })}
+                        onPick={(h) => updatePayer(row.id, i, { id: h.id, name: h.name })}
+                        autoFocus={focusPayerUid === p.uid}
+                        showUnlinkedBadge
+                      />
+                    </div>
+                  </div>
+                  <input
+                    className={`${inputClass} h-8 text-right tabular-nums ${zero ? 'border-amber-300 bg-amber-50/40' : ''}`}
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={p.osszeg}
+                    placeholder="0"
+                    onChange={(e) => updatePayer(row.id, i, { osszeg: e.target.value })}
+                  />
+                  <input
+                    className={inputClass + ' h-8 px-1 text-center'}
+                    type="number"
+                    inputMode="numeric"
+                    value={p.evre}
+                    onChange={(e) => updatePayer(row.id, i, { evre: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Befizető törlése"
+                    className="flex h-8 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                    onClick={() => removePayer(row.id, i)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+                {/* 2026-07-10 (S2-#1b): befizetőnkénti ajánlott járulék-összeg (kedvezménnyel). */}
+                {/* jobbra igazítva, az Összeg oszlop alá (Év 4.5rem + törlés 2rem + 2 gap 0.5rem). */}
+                {hint && <div className="flex justify-end pb-0.5 pr-[7.5rem] max-sm:pr-0">{hint}</div>}
               </div>
             )
           })}
-          <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-2.5 py-1.5">
-            <span className="text-[11px] text-slate-400">{people.length} befizető — egy nyugta</span>
+          {/* 2026-07-10 (S2-#2): a nyugta ÖSSZESEN sora kiemelve (zöld sáv) — a wizard mintájára. */}
+          <div className="flex items-center justify-between gap-2 border-t border-emerald-100 bg-emerald-50/70 px-2.5 py-2">
+            <span className="text-[11px] font-medium text-emerald-700/80">{people.length} befizető — egy nyugta</span>
             <span
-              className={`text-xs font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
+              className={`text-sm font-bold tabular-nums ${missing ? 'text-amber-600' : 'text-emerald-800'}`}
               title={missing ? 'Van befizető összeg nélkül — az nem mentődik' : undefined}
             >
-              Összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
+              Nyugta összesen: {formatRon(sum)} RON{missing ? ' ⚠' : ''}
             </span>
           </div>
         </div>

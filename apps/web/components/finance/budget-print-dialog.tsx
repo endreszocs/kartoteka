@@ -76,7 +76,10 @@ export function BudgetPrintDialog({
         return d >= periodFrom && d <= periodTo
       }
 
+      // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott tétel a hivatalos
+      // költségvetés/számadás nyomtatvány tény-oszlopába SEM számíthat.
       for (const r of incomeRecords) {
+        if (r.stornozott) continue
         if (!inPeriod(r.datum)) continue
         if (r.id_befizetescel) {
           const code = bevCelMap[r.id_befizetescel]
@@ -86,6 +89,7 @@ export function BudgetPrintDialog({
         }
       }
       for (const r of expenseRecords) {
+        if (r.stornozott) continue
         if (!inPeriod(r.datum)) continue
         if (r.id_kiadascel) {
           const code = kiaCelMap[r.id_kiadascel]

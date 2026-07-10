@@ -18,6 +18,7 @@ export * from './jarulek-calculation'
 export * from './rental-calculation'
 // 2026-06-10 (B-hullám): közös Pénzügy-hero (web ⇄ desktop azonos fejléc)
 export * from './FinanceHero'
+export * from './FinanceLoadingState'
 export * from './FinanceDashboard'
 export * from './DebtTab'
 export * from './AccountingTab'

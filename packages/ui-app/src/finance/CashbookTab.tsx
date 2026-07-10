@@ -739,7 +739,7 @@ export function CashbookTab({
                           onClick={() => toggleSort('iratszam')}
                           className="hidden md:table-cell"
                         >
-                          Irat sz. / Kerületi
+                          Irat sz.
                         </CashSortableTh>
                         <CashSortableTh
                           col="partner"

@@ -309,6 +309,11 @@ export async function saveDispozitie(input: SaveDispozitieInput): Promise<
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: 'Érvénytelen dátum.' }
+  // 2026-07-10 (S3-#9): jövőbeli dátum tiltása (plata ÉS incasare) — ugyanaz a
+  // szabály, mint az incomeSchema zod-refine-ja (lib/validations/finance.ts).
+  if (input.date > new Date().toISOString().slice(0, 10)) {
+    return { error: 'Jövőbeli dátum nem engedélyezett' }
+  }
   if (!input.name.trim()) return { error: 'A név kötelező.' }
   if (!(Number(input.amount) > 0)) return { error: 'Az összeg pozitív szám kell legyen.' }
   if (!input.fromKasszaId && !input.categoryId) {

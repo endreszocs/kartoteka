@@ -206,7 +206,13 @@ export function calculateBalances(
   // növeli a bankot). A BEVÉTEL/KIADÁS összegből viszont KIZÁRJUK a belső mozgást — vagy a
   // `belso_mozgas_xkey`, vagy a belső CÉL-KÓD (3xx/4xx) alapján —, hiszen az nem valós
   // bevétel/kiadás, csak átvezetés; így az összegek a számadással egyeznek.
+  // 2026-07-10 (S3 audit KRITIKUS #1): a STORNÓZOTT (érvénytelenített) tétel
+  // SEM az egyenlegbe, SEM a totálokba nem számít — a stornó a hivatalos
+  // gyakorlatban a tételt teljesen érvényteleníti. Eddig a hero/dashboard
+  // egyenleg tartalmazta, a Kassza/Bank fül viszont nem → a két szám eltért,
+  // és érvénytelenített nyugtával torzítható volt az egyenleg.
   income.forEach((r) => {
+    if ((r as { stornozott?: boolean }).stornozott) return
     const amt = Number(r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||
@@ -217,6 +223,7 @@ export function calculateBalances(
   })
 
   expense.forEach((r) => {
+    if ((r as { stornozott?: boolean }).stornozott) return
     const amt = Number(r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||

@@ -155,6 +155,9 @@ type UnifiedRow = {
   isBm: boolean
   /** 2026-07-10 (ÚJ #8): NULL = készpénz (kassza), kitöltve = banki tétel. */
   bankszamlaId: number | null
+  /** 2026-07-10 (S3 audit #1): stornózott (érvénytelenített) tétel — a listában
+   *  látszik (átlátszóság), de az összesítőkbe NEM számít. */
+  stornozott: boolean
   hasMissingPerson: boolean
   hasMissingCategory: boolean
   rawExpense?: KiadasRow
@@ -304,6 +307,7 @@ export function TransactionsTab({
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
+        stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
       })),
@@ -322,6 +326,7 @@ export function TransactionsTab({
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
+        stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,
         rawExpense: r,
@@ -432,8 +437,11 @@ export function TransactionsTab({
       }
       const g = groups.get(m)!
       g.rows.push(r)
-      if (r.type === 'income') g.monthInc += r.osszeg
-      else g.monthExp += r.osszeg
+      // 2026-07-10 (S3 audit #1): stornózott tétel nem számít a havi összesítőbe.
+      if (!r.stornozott) {
+        if (r.type === 'income') g.monthInc += r.osszeg
+        else g.monthExp += r.osszeg
+      }
     }
 
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
@@ -521,8 +529,9 @@ export function TransactionsTab({
                         <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden md:table-cell">
                           Kategória
                         </th>
+                        {/* 2026-07-10 (S2 #12): egységes, egyszerű címke. */}
                         <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
-                          Kerületi / Irat sz.
+                          Irat sz.
                         </th>
                         {/* 2026-07-10 (ÚJ #9): kétoszlopos Bevétel/Kiadás a közös „Összeg" helyett
                             — a CashbookTab mintája szerint. */}

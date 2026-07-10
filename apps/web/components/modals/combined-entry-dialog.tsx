@@ -74,7 +74,19 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
               </div>
               <div>
                 <DialogTitle className="font-heading text-lg">Tétel rögzítése</DialogTitle>
-                <p className="mt-0.5 text-xs text-zinc-400">Bevételek és kiadások egyszerre, tömegesen — a Mentés dátum szerint rendez.</p>
+                {/* 2026-07-10 (S2-#2): színkódolt jelmagyarázat — egyértelmű, hogy EGY mentéssel
+                    bevétel (zöld) ÉS kiadás (piros) is rögzíthető, tömegesen. */}
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-zinc-400">
+                  Egy mentéssel több
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">
+                    <span className="inline-block size-1.5 rounded-full bg-emerald-500" aria-hidden />bevétel
+                  </span>
+                  és
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 font-medium text-rose-600">
+                    <span className="inline-block size-1.5 rounded-full bg-rose-500" aria-hidden />kiadás
+                  </span>
+                  is rögzíthető — a Mentés dátum szerint rendez.
+                </p>
               </div>
             </div>
           </DialogHeader>

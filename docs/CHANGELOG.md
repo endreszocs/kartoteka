@@ -23,6 +23,64 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-10] — Pénzügy 2. kör: könyvelői pontosság, kedvezmények érvényesítése, új kezelőfelület
+<!-- key: 2026-07-10-penzugy-masodik-kor -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások — könyvelői pontosság (belső átvilágítás alapján)
+
+- **A stornózott (érvénytelenített) tételek mostantól SEHOL nem számítanak bele az
+  összegekbe** — sem az egyenlegekbe, sem a számadásba, sem a hivatalos nyomtatványokba
+  (Registru Casa/Banca/Jurnal, Csoportnapló), sem az egyházmegyének beküldött adatokba.
+  Korábban a stornó a listákból eltűnt, de az összegeket felfújhatta — ez szabálytalanság
+  forrása lehetett volna. A stornózott tétel a listákban látható marad (átláthatóság),
+  csak nem számít.
+- **A véglegesített (lezárt) évet mostantól SEMMILYEN úton nem lehet módosítani** —
+  az új tétel rögzítése mellett a belső mozgás, a bankkivonat-import, a rendszergazdai
+  importok és az árfolyam-átértékelés is tiltott, amíg az egyházmegye javítási engedélyt
+  nem ad. A költségvetés mentése is szerver-oldali ellenőrzést kapott.
+- **A Csoportnapló megjavult:** eddig üres lehetett akkor is, ha volt adat (a program
+  a folyó — még üres — hónapot mutatta, és a besorolatlan tételeket eldobta). Mostantól
+  alapból a teljes évet mutatja, a jogcím nélküli tételek külön „Besorolatlan" csoportba
+  kerülnek figyelmeztetéssel, és a jogcím-választóból kikerültek az oda nem illő
+  belső mozgás kódok.
+- **A Nyugtafigyelő mostantól az előző év végén elmaradt nyugtákat is áthozza a folyó
+  évbe** — ott is pótolhatók (az elszámolás-varázslóval), ahol a munka ténylegesen folyik.
+- **Jövőbeli dátumra nem rögzíthető Decont/Dispoziție**, és a stornózott nyugták nem
+  tolják el a következő nyugtaszámot.
+
+### ✨ Új funkciók és felület
+
+- **Az év-választó a bal oldalra került** (a cím alá) — balról jobbra olvasunk, ott
+  szembeötlőbb.
+- **A nyitó egyenlegek a táblázat részei lettek** (1–3. sor: Múlt évi pénztármaradvány /
+  Készpénz / Bank) — pontosan úgy, mint a hivatalos nyomtatványon, a Költségvetés és a
+  Számadás fülön is.
+- **Egyházfenntartás rögzítésekor a rendszer felajánlja a tag kedvezményes összegét**
+  (a beállított korai-fizetési, kor szerinti, foglalkozási és szociális kedvezmények
+  alapján, a rögzítés dátumához igazítva) — egy kattintással átvehető, de kézzel
+  felülírható (részletfizetés továbbra is lehetséges).
+- **A Kedvezmények beállítása egységes lett** a Gyülekezet beállítása ablakban és az
+  első indításkor — és a beviteli mezők végre jól láthatóak (nem olvadnak a háttérbe).
+- **A Tartozások fül átlátható lett:** összesítő kártyák, keresés, „csak tartozók"
+  szűrő, kibontható részletek — évre pontos kimutatással.
+- **A Monetár fül helyett elegáns lebegő gomb** van a jobb alsó sarokban (csak a
+  Pénzügy oldalon): a Monetár mellett **számológépet** is tartalmaz gyors számolásokhoz.
+- **Az Oblio ellenőrzés a heroból nyílik** (gomb), teljes képernyős ablakban — nem
+  külön fül többé.
+- **Az Áttekintés fülön grafikonok:** havi bevétel–kiadás oszlopdiagram, egyenleg-
+  alakulás görbe és a legnagyobb kiadási jogcímek.
+- **A nyomtatványokon a hivatalos román megnevezések** szerepelnek (pl. „Contribuţia
+  anuală a credincioşilor"), és a Registru-kból kikerült a felesleges utolsó oszlop.
+- **A Költségvetés és Számadás betöltése** szép, logós állapotsávot kapott.
+- **A Súgó frissült** — minden újdonság lelkészi nyelven elmagyarázva.
+- Az asztali verzió is megkapta a nyitó egyenlegeket, az előző évi tényszámokat és a
+  pontosított összesítőket.
+
+---
+
 ## [2026-07-10] — Pénzügy nagytakarítás: pontos egyenlegek, hivatalos számadás-forma, átláthatóbb felület
 <!-- key: 2026-07-10-penzugy-nagytakaritas -->
 <!-- category: bugfix -->

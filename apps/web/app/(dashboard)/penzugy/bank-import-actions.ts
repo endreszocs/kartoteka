@@ -149,6 +149,40 @@ export async function importBcrTransactions(
   if (!access.effectiveCongregationId)
     return { totalItems: 0, imported: 0, skipped: 0, duplicates: 0, errors: [], importedRows: [], error: 'Nincs aktív gyülekezet.' }
 
+  // 2026-07-10 (S3-#3): véglegesített évbe a bank-import sem rögzíthet új tételt.
+  // Az ÖSSZES nem-skip tétel évét ellenőrizzük a bealitas.accounting_finalized
+  // ellen — VEGYES évek esetén a hibaüzenet pontosan megnevezi, melyik év zárt.
+  const activeYears = Array.from(
+    new Set(
+      items
+        .filter((i) => i.action !== 'skip')
+        .map((i) => Number(String(i.date || '').slice(0, 4)))
+        .filter((y) => Number.isFinite(y) && y >= 2000),
+    ),
+  )
+  if (activeYears.length > 0) {
+    const { data: lockRows } = await access.supabase
+      .from('bealitas')
+      .select('id, accounting_finalized')
+      .eq('congregation_id', access.effectiveCongregationId)
+      .in('id', activeYears.map(String))
+    const closedYears = ((lockRows || []) as Array<{ id: string; accounting_finalized: boolean | null }>)
+      .filter((r) => r.accounting_finalized)
+      .map((r) => Number(r.id))
+      .sort((a, b) => a - b)
+    if (closedYears.length > 0) {
+      return {
+        totalItems: items.length,
+        imported: 0,
+        skipped: 0,
+        duplicates: 0,
+        errors: [],
+        importedRows: [],
+        error: `A ${closedYears.join(', ')}. évi számadás már véglegesítve van — az importban ilyen évre eső tétel van, ezért az import blokkolva. Először kérj javítási engedélyt az egyházmegyétől (feloldás), utána próbáld újra.`,
+      }
+    }
+  }
+
   // 2026-07-10 (ÚJ #10): napi árfolyamok deviza-számlákhoz (RON-only
   // importnál üres map + üres warnings → viselkedés változatlan).
   const { dailyRates, warnings } = await collectDailyRates(

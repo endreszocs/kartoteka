@@ -23,6 +23,11 @@ import { Label } from '@/components/ui/label'
 // változatlanul a meglévő helyükről importálódnak.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 2026-07-10 (S2-1d): látható beviteli mezők — a default Input beleolvadt a panel
+// hátterébe; a setup-wizard FIELD_INPUT_CLASS mintáját követjük (fehér + határozott keret).
+const FIELD_INPUT_CLASS =
+  'bg-white border-slate-300 shadow-sm hover:border-slate-400 focus-visible:border-teal-500 focus-visible:ring-teal-500/25'
+
 /** A díj-űrlap belső (kamelt) állapota — bit-azonos a dialog-v2 customFeeForm-jával. */
 interface CustomFeeFormState {
   id: string | undefined
@@ -52,7 +57,15 @@ function getEmptyCustomFeeForm(): CustomFeeFormState {
   }
 }
 
-export function CustomFeesManager({ congregationId }: { congregationId: string }) {
+export function CustomFeesManager({
+  congregationId,
+  onChanged,
+}: {
+  congregationId: string
+  /** 2026-07-10 (S2-1a): opcionális jelzés a szülőnek (pl. congregation-dialog-v2
+   *  fül-badge), hogy a díj-lista megváltozott. */
+  onChanged?: () => void | Promise<void>
+}) {
   const [customFees, setCustomFees] = useState<CustomFeeRow[]>([])
   const [customFeeSchemaReady, setCustomFeeSchemaReady] = useState(true)
   const [customFeeWarning, setCustomFeeWarning] = useState<string | null>(null)
@@ -86,6 +99,8 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
     setCustomFeeWarning('warning' in refreshed ? refreshed.warning || null : null)
     // Form reset — új létrehozás mód
     setCustomFeeForm(getEmptyCustomFeeForm())
+    // 2026-07-10 (S2-1a): a szülő (dialog badge) is frissülhessen
+    void onChanged?.()
   }
 
   async function handleDeleteCustomFee(feeId: string) {
@@ -99,6 +114,8 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
     setCustomFees(refreshed.rows || [])
     setCustomFeeSchemaReady(refreshed.schemaReady !== false)
     setCustomFeeWarning('warning' in refreshed ? refreshed.warning || null : null)
+    // 2026-07-10 (S2-1a): a szülő (dialog badge) is frissülhessen
+    void onChanged?.()
   }
 
   return (
@@ -159,6 +176,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
           <div className="md:col-span-2">
             <Field label="Megnevezés *">
               <Input
+                className={FIELD_INPUT_CLASS}
                 value={customFeeForm.name}
                 onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, name: event.target.value }))}
                 placeholder="pl. Temetős karbantartási díj"
@@ -168,6 +186,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
           <div className="md:col-span-2">
             <Field label="Leírás / hivatkozás (opcionális)">
               <Input
+                className={FIELD_INPUT_CLASS}
                 value={customFeeForm.description}
                 onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, description: event.target.value }))}
                 placeholder="pl. 2025/03. presbitériumi jegyzőkönyv alapján"
@@ -178,6 +197,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
             <Input
               type="number"
               min={0}
+              className={FIELD_INPUT_CLASS}
               value={customFeeForm.amount}
               onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, amount: Number(event.target.value) }))}
             />
@@ -187,6 +207,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
               type="number"
               min={1900}
               max={2999}
+              className={FIELD_INPUT_CLASS}
               value={customFeeForm.yearFrom}
               onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, yearFrom: Number(event.target.value) }))}
             />
@@ -196,6 +217,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
               type="number"
               min={1900}
               max={2999}
+              className={FIELD_INPUT_CLASS}
               value={customFeeForm.yearTo ?? ''}
               onChange={(event) => {
                 const v = event.target.value
@@ -208,6 +230,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
             <Input
               type="number"
               min={0}
+              className={FIELD_INPUT_CLASS}
               value={customFeeForm.korTol ?? ''}
               onChange={(event) => {
                 const v = event.target.value
@@ -220,6 +243,7 @@ export function CustomFeesManager({ congregationId }: { congregationId: string }
             <Input
               type="number"
               min={0}
+              className={FIELD_INPUT_CLASS}
               value={customFeeForm.korIg ?? ''}
               onChange={(event) => {
                 const v = event.target.value

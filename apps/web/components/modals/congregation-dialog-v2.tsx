@@ -4,9 +4,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import {
   BadgePercent,
   Building2,
-  CalendarDays,
   Coins,
-  GraduationCap,
   HandCoins,
   Landmark,
   PiggyBank,
@@ -20,10 +18,7 @@ import {
 
 import {
   deleteCongregationBankAccount,
-  deleteCongregationCustomFee,
-  deleteCongregationFeeDiscount,
   getCongregation,
-  getCongregationAnnualFees,
   getCongregationBankAccounts,
   getCongregationCustomFees,
   getCongregationFeeDiscounts,
@@ -37,16 +32,17 @@ import {
   type OpenTransfer,
   getDioceses,
   saveCongregationBankAccount,
-  saveCongregationCustomFee,
-  saveCongregationFeeDiscount,
   updateCongregation,
   type CustomFeeRow,
 } from '@/app/(dashboard)/congregation/actions'
 import { CongregationSummary, type CongregationSummaryData } from './congregation-summary'
-import {
-  deleteAnnualFee,
-  saveAnnualFee,
-} from '@/app/(dashboard)/penzugy/tartozas-actions'
+// 2026-07-10 (S2-1a): a Kedvezmények / Egyéb díjak / Évenkénti díjak felület MINDKÉT helyen
+// (ez a dialog + a Gyülekezet beállítása wizard) UGYANAZ a megosztott komponens legyen —
+// a korábbi inline másolat elsodródott (hiányzó „él" jelvény, más mentés-utáni viselkedés,
+// „3 típus" szöveg 4 típusnál, láthatatlan input-mezők).
+import { FeeDiscountsManager } from '@/components/congregation/fee-discounts-manager'
+import { CustomFeesManager } from '@/components/congregation/custom-fees-manager'
+import { AnnualFeesManager } from '@/components/congregation/annual-fees-manager'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -62,14 +58,6 @@ interface SimpleDiocese {
   name: string
   district_id: string | null
   district_name: string | null
-}
-
-interface AnnualFeeRow {
-  year: number
-  eves_jarulek: number
-  jarulek_kedvezmenyes: number | null
-  jarulek_hatarid: string | null
-  note: string | null
 }
 
 interface BankAccountRow {
@@ -130,40 +118,19 @@ function getEmptyBankForm() {
   }
 }
 
-function getEmptyDiscountForm(defaultYear: number) {
-  return {
-    id: undefined as string | undefined,
-    ev: defaultYear,
-    tipus: 'idoszak' as 'idoszak' | 'kor' | 'jovedelem' | 'foglalkozas',
-    sorrend: 0,
-    aktiv: true,
-    kezdet: '01-01',
-    hatarid: '07-01',
-    kedvOsszeg: 0,
-    korTol: 65,
-    szazalek: 50,
-    fixOsszeg: 0,
-    jovLeiras: '',
-  }
-}
-
 export function CongregationDialogV2({ open, onOpenChange, congregationId, variant = 'view' }: CongregationDialogProps) {
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [annualRows, setAnnualRows] = useState<AnnualFeeRow[]>([])
-  // annualSchemaReady és annualWarning már nem kell (az Éves előzmények tab
-  // törlésével a megjelenítő UI is megszűnt). A loadData még írja őket —
-  // ha szükséges, a banner itt is megjeleníthető, de most nem renderelünk.
+  // 2026-07-10 (S2-1a): az évenkénti díjak, a kedvezmény-űrlap és az egyéb díj-űrlap
+  // state-je a megosztott manager-komponensekbe költözött (AnnualFeesManager,
+  // FeeDiscountsManager, CustomFeesManager). Itt csak a listák maradnak, amelyek a
+  // fül-badge-ekhez és a read-only összefoglalóhoz kellenek.
   const [dioceses, setDioceses] = useState<SimpleDiocese[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
   const [bankSchemaReady, setBankSchemaReady] = useState(true)
   const [bankWarning, setBankWarning] = useState<string | null>(null)
   const [discounts, setDiscounts] = useState<FeeDiscountRow[]>([])
-  const [discountSchemaReady, setDiscountSchemaReady] = useState(true)
-  const [discountWarning, setDiscountWarning] = useState<string | null>(null)
   const [customFees, setCustomFees] = useState<CustomFeeRow[]>([])
-  const [customFeeSchemaReady, setCustomFeeSchemaReady] = useState(true)
-  const [customFeeWarning, setCustomFeeWarning] = useState<string | null>(null)
   // 2026-06-05: lelkészi szolgálati napló
   const [pastors, setPastors] = useState<CongregationPastorRow[]>([])
   const [pastorsSchemaReady, setPastorsSchemaReady] = useState(true)
@@ -183,22 +150,7 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
   // a „Szerkesztés" gombra vált a meglévő szerkesztő nézetre.
   const [mode, setMode] = useState<'summary' | 'edit'>(variant === 'advanced-edit' ? 'edit' : 'summary')
   const [districtName, setDistrictName] = useState<string | null>(null)
-  const [customFeeForm, setCustomFeeForm] = useState({
-    id: undefined as string | undefined,
-    name: '',
-    description: '',
-    amount: 0,
-    currency: 'RON',
-    yearFrom: new Date().getFullYear(),
-    yearTo: null as number | null,
-    korTol: null as number | null,
-    korIg: null as number | null,
-    aktiv: true,
-  })
-  // historyForm mára elhagyva — az Éves előzmények tab törölve, helyette
-  // az AnnualFeesPanel (inline edit) az Alapdíj al-tabon.
   const [bankForm, setBankForm] = useState(getEmptyBankForm())
-  const [discountForm, setDiscountForm] = useState(getEmptyDiscountForm(new Date().getFullYear()))
   // Publikus oldal (readonly) — a gyülekezet külön modulban állítja be (/publikus-oldal),
   // itt csak megjelenítjük, hogy a lelkész lássa az élő URL-t.
   const [publicSite, setPublicSite] = useState<{ enabled: boolean; slug: string | null }>({
@@ -239,10 +191,9 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
   const loadData = useCallback(async () => {
     if (!congregationId) return
 
-    const [congregation, dioceseList, annualFeeResult, bankResult, discountResult, customFeeResult, pastorResult, transferResult] = await Promise.all([
+    const [congregation, dioceseList, bankResult, discountResult, customFeeResult, pastorResult, transferResult] = await Promise.all([
       getCongregation(congregationId),
       getDioceses(),
-      getCongregationAnnualFees(congregationId),
       getCongregationBankAccounts(congregationId),
       getCongregationFeeDiscounts(congregationId),
       getCongregationCustomFees(congregationId),
@@ -250,29 +201,24 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
       getOpenTransfer(congregationId),
     ])
 
-    if ('error' in annualFeeResult && annualFeeResult.error) toast.error(annualFeeResult.error)
     if ('error' in bankResult && bankResult.error) toast.error(bankResult.error)
     if ('error' in discountResult && discountResult.error) toast.error(discountResult.error)
     if ('error' in customFeeResult && customFeeResult.error) toast.error(customFeeResult.error)
 
     setDioceses(dioceseList)
-    setAnnualRows((annualFeeResult.rows || []) as AnnualFeeRow[])
     setBankAccounts((bankResult.rows || []) as BankAccountRow[])
     setBankSchemaReady(bankResult.schemaReady !== false)
     setBankWarning('warning' in bankResult ? bankResult.warning || null : null)
+    // 2026-07-10 (S2-1a): a kedvezmény/díj listák itt csak a fül-badge-ekhez és az
+    // összefoglalóhoz kellenek — a CRUD a megosztott manager-komponensekben történik.
     setDiscounts((discountResult.rows || []) as FeeDiscountRow[])
-    setDiscountSchemaReady(discountResult.schemaReady !== false)
-    setDiscountWarning('warning' in discountResult ? discountResult.warning || null : null)
     setCustomFees(customFeeResult.rows || [])
-    setCustomFeeSchemaReady(customFeeResult.schemaReady !== false)
-    setCustomFeeWarning('warning' in customFeeResult ? customFeeResult.warning || null : null)
     setPastors(pastorResult.rows || [])
     setPastorsSchemaReady(pastorResult.schemaReady !== false)
     if (pastorResult.error) toast.error(pastorResult.error)
     setOpenTransfer(transferResult.transfer)
 
     if (congregation) {
-      const currentYear = new Date().getFullYear()
       setCongStatus((congregation as { status?: string | null }).status ?? null)
       setDistrictName(
         (congregation as { district?: string | null }).district
@@ -311,7 +257,6 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
         tartozasSzamitasMod: normalizeDebtCalcMode(congregation.tartozas_szamitas_mod),
         cimerUrl: congregation.cimer_url || '',
       })
-      setDiscountForm(getEmptyDiscountForm(currentYear))
       setBankForm(getEmptyBankForm())
     }
   }, [congregationId])
@@ -447,35 +392,17 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
     setBankWarning('warning' in refreshed ? refreshed.warning || null : null)
   }
 
-  async function handleSaveDiscount() {
-    const result = await saveCongregationFeeDiscount(activeCongregationId, discountForm)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-
-    toast.success(result.success)
-    setDiscountForm(getEmptyDiscountForm(new Date().getFullYear()))
+  // 2026-07-10 (S2-1a): a megosztott manager-komponensek mentése/törlése után a dialog
+  // saját listáit frissítjük (fül-badge + MetricCard + read-only összefoglaló), hogy ne
+  // mutassanak elavult darabszámot.
+  async function refreshDiscounts() {
     const refreshed = await getCongregationFeeDiscounts(activeCongregationId)
-    if ('error' in refreshed && refreshed.error) toast.error(refreshed.error)
     setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
-    setDiscountSchemaReady(refreshed.schemaReady !== false)
-    setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
   }
 
-  async function handleDeleteDiscount(discountId: string) {
-    const result = await deleteCongregationFeeDiscount(activeCongregationId, discountId)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-
-    toast.success(result.success)
-    const refreshed = await getCongregationFeeDiscounts(activeCongregationId)
-    if ('error' in refreshed && refreshed.error) toast.error(refreshed.error)
-    setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
-    setDiscountSchemaReady(refreshed.schemaReady !== false)
-    setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
+  async function refreshCustomFees() {
+    const refreshed = await getCongregationCustomFees(activeCongregationId)
+    setCustomFees(refreshed.rows || [])
   }
 
   async function handleInitiateTransfer() {
@@ -564,71 +491,6 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
     } finally {
       setCompleting(false)
     }
-  }
-
-  async function handleSaveCustomFee() {
-    const result = await saveCongregationCustomFee(activeCongregationId, customFeeForm)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-    toast.success(result.success)
-    const refreshed = await getCongregationCustomFees(activeCongregationId)
-    setCustomFees(refreshed.rows || [])
-    setCustomFeeSchemaReady(refreshed.schemaReady !== false)
-    setCustomFeeWarning('warning' in refreshed ? refreshed.warning || null : null)
-    // Form reset — új létrehozás mód
-    setCustomFeeForm({
-      id: undefined,
-      name: '',
-      description: '',
-      amount: 0,
-      currency: 'RON',
-      yearFrom: new Date().getFullYear(),
-      yearTo: null,
-      korTol: null,
-      korIg: null,
-      aktiv: true,
-    })
-  }
-
-  async function handleDeleteCustomFee(feeId: string) {
-    const result = await deleteCongregationCustomFee(activeCongregationId, feeId)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-    toast.success(result.success)
-    const refreshed = await getCongregationCustomFees(activeCongregationId)
-    setCustomFees(refreshed.rows || [])
-    setCustomFeeSchemaReady(refreshed.schemaReady !== false)
-    setCustomFeeWarning('warning' in refreshed ? refreshed.warning || null : null)
-  }
-
-  // Évenkénti díjak — inline edit
-  async function handleSaveAnnualYearFee(year: number, amount: number) {
-    const result = await saveAnnualFee(activeCongregationId, year, amount)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-    toast.success(result.success)
-    const refreshed = await getCongregationAnnualFees(activeCongregationId)
-    setAnnualRows((refreshed.rows || []) as AnnualFeeRow[])
-  }
-
-  async function handleDeleteAnnualYearFee(year: number) {
-    if (!confirm(`Biztosan törlöd a ${year}-es díjat?\n\nFigyelmeztetés: ha van erre az évre befizetés, az "árván" marad (a tartozás-számítás átugorja).`)) {
-      return
-    }
-    const result = await deleteAnnualFee(activeCongregationId, year)
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-    toast.success(result.success)
-    const refreshed = await getCongregationAnnualFees(activeCongregationId)
-    setAnnualRows((refreshed.rows || []) as AnnualFeeRow[])
   }
 
   return (
@@ -1147,244 +1009,24 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                     </div>
                   </form>
 
-                  {/* ─── ÉVENKÉNTI DÍJAK (visszamenőleg) ─── */}
-                  <AnnualFeesPanel
-                    rows={annualRows}
-                    onSave={handleSaveAnnualYearFee}
-                    onDelete={handleDeleteAnnualYearFee}
-                    currentYearAmount={form.evesJarulek}
+                  {/* ─── ÉVENKÉNTI DÍJAK (visszamenőleg) ───
+                      2026-07-10 (S2-1a): a wizarddal közös, self-contained komponens
+                      (látható input-mezőkkel) az inline AnnualFeesPanel helyett. */}
+                  <AnnualFeesManager
+                    congregationId={activeCongregationId}
+                    currentYearFee={form.evesJarulek}
                   />
                 </TabsContent>
 
-                {/* ─── KEDVEZMÉNYEK AL-TAB ─── */}
-                <TabsContent value="kedvezmenyek" className="space-y-4 pt-4">
-                  {!discountSchemaReady && (
-                    <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      A kedvezményrendszer tárolásához még futtatni kell a <code>migration-docs/sql/2026-04-09-god-mode-and-congregation-finance.sql</code> fájlt.
-                    </div>
-                  )}
-                  {discountWarning && (
-                    <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      {discountWarning}
-                    </div>
-                  )}
-
-                  <Panel title="Meglévő kedvezmények">
-                    <div className="mb-3 rounded-[1rem] border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-xs leading-5 text-emerald-900">
-                      <strong>💡 Több kedvezmény egy évben:</strong> Egy évre <strong>több időszaki
-                      kedvezményt</strong> is be lehet állítani — pl. lépcsőzetes korai-fizetés
-                      kedvezménnyel (jún. 1-ig 130 RON, júl. 15-ig 140 RON, aug. 1-ig 160 RON).
-                      A rendszer a <strong>sorrend</strong> szerint alkalmazza: a legalacsonyabb
-                      sorrend-értékű a legjobb kedvezmény.
-                    </div>
-
-                    {discounts.length === 0 ? (
-                      <div className="rounded-[1.2rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                        Még nincs kedvezményszabály. Alul hozhatsz létre újat — 3 típus közül választhatsz, mindhez példát találsz.
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Csoportosítás év szerint, évek csökkenő sorrendben */}
-                        {Array.from(new Set(discounts.map((d) => d.ev)))
-                          .sort((a, b) => b - a)
-                          .map((year) => {
-                            const yearDiscounts = discounts
-                              .filter((d) => d.ev === year)
-                              .sort((a, b) => a.sorrend - b.sorrend)
-                            return (
-                              <div key={year}>
-                                <div className="mb-2 flex items-center gap-2">
-                                  <span className="rounded-full bg-slate-100 px-3 py-0.5 text-sm font-semibold text-slate-700">
-                                    {year}
-                                  </span>
-                                  <span className="text-xs text-slate-500">
-                                    {yearDiscounts.length} kedvezmény
-                                  </span>
-                                </div>
-                                <div className="grid gap-3 lg:grid-cols-2">
-                                  {yearDiscounts.map((discount) => (
-                                    <DiscountCard
-                                      key={discount.id}
-                                      discount={discount}
-                                      onEdit={() =>
-                                        setDiscountForm({
-                                          id: discount.id,
-                                          ev: discount.ev,
-                                          tipus: discount.tipus,
-                                          sorrend: discount.sorrend,
-                                          aktiv: discount.aktiv,
-                                          kezdet: discount.kezdet || '01-01',
-                                          hatarid: discount.hatarid || '07-01',
-                                          kedvOsszeg: discount.kedv_osszeg ?? 0,
-                                          korTol: discount.kor_tol ?? 65,
-                                          szazalek: discount.szazalek ?? 50,
-                                          fixOsszeg: discount.fix_osszeg ?? 0,
-                                          jovLeiras: discount.jov_leiras || '',
-                                        })
-                                      }
-                                      onDelete={() => void handleDeleteDiscount(discount.id)}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            )
-                          })}
-                      </div>
-                    )}
-                  </Panel>
-
-                  <Panel title={discountForm.id ? 'Kedvezmény szerkesztése' : 'Új kedvezmény létrehozása'}>
-                    {/* 3 kártyás típus-választó */}
-                    <div className="mb-4">
-                      <p className="mb-2 text-xs text-slate-500">1. lépés — válaszd ki a kedvezmény típusát:</p>
-                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                        <DiscountTypeCard
-                          icon={<CalendarDays className="size-5" />}
-                          title="Korai fizetés"
-                          description="Határidőhöz kötött kedvezményes összeg."
-                          example="Aki júl. 1-ig fizet, 130 RON-t fizet a 150 helyett."
-                          selected={discountForm.tipus === 'idoszak'}
-                          onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'idoszak' }))}
-                        />
-                        <DiscountTypeCard
-                          icon={<BadgePercent className="size-5" />}
-                          title="Nyugdíjas / kor"
-                          description="Egy korhatárhoz kötött százalékos kedvezmény."
-                          example="65+ éves tag 50%-ot kap — 75 RON-t fizet a 150 helyett."
-                          selected={discountForm.tipus === 'kor'}
-                          onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'kor' }))}
-                        />
-                        <DiscountTypeCard
-                          icon={<GraduationCap className="size-5" />}
-                          title="Foglalkozás"
-                          description="A tag foglalkozása alapján (pl. tanuló, diák)."
-                          example="Tanuló / diák tag 0 RON-t fizet."
-                          selected={discountForm.tipus === 'foglalkozas'}
-                          onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' }))}
-                        />
-                        <DiscountTypeCard
-                          icon={<Coins className="size-5" />}
-                          title="Szociális"
-                          description="Egyedi elbírálás (betegség, nehéz helyzet)."
-                          example="Súlyos beteg tag 100% — 0 RON-t fizet."
-                          selected={discountForm.tipus === 'jovedelem'}
-                          onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'jovedelem' }))}
-                        />
-                      </div>
-                    </div>
-
-                    {/* 2. lépés — típus-specifikus mezők */}
-                    <div className="space-y-3">
-                      <p className="text-xs text-slate-500">2. lépés — add meg az adatokat:</p>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field label="Év">
-                          <Input type="number" value={discountForm.ev} onChange={(event) => setDiscountForm((prev) => ({ ...prev, ev: Number(event.target.value) }))} />
-                        </Field>
-                        <Field label="Sorrend (ha több szabály érvényes)">
-                          <Input type="number" value={discountForm.sorrend} onChange={(event) => setDiscountForm((prev) => ({ ...prev, sorrend: Number(event.target.value) }))} />
-                        </Field>
-                      </div>
-
-                      {discountForm.tipus === 'idoszak' && (
-                        <div className="rounded-[1rem] border border-sky-100 bg-sky-50/40 p-3">
-                          <div className="grid gap-3 md:grid-cols-3">
-                            <Field label="Kezdő dátum (HH-NN)">
-                              <Input value={discountForm.kezdet} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kezdet: event.target.value }))} placeholder="01-01" />
-                            </Field>
-                            <Field label="Vég dátum (HH-NN)">
-                              <Input value={discountForm.hatarid} onChange={(event) => setDiscountForm((prev) => ({ ...prev, hatarid: event.target.value }))} placeholder="07-01" />
-                            </Field>
-                            <Field label="Kedvezményes összeg (RON)">
-                              <Input type="number" min={0} value={discountForm.kedvOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kedvOsszeg: Number(event.target.value) }))} />
-                            </Field>
-                          </div>
-                          <p className="mt-2 text-[11px] text-slate-500">
-                            Aki a <strong>kezdő–vég dátum</strong> időablakban fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett. Több időablak is felvehető (pl. 01-01–07-01 → 160, 07-02–10-31 → 190).
-                          </p>
-                        </div>
-                      )}
-
-                      {discountForm.tipus === 'kor' && (
-                        <div className="rounded-[1rem] border border-amber-100 bg-amber-50/40 p-3">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Korhatár (-től, év)">
-                              <Input type="number" min={0} value={discountForm.korTol} onChange={(event) => setDiscountForm((prev) => ({ ...prev, korTol: Number(event.target.value) }))} />
-                            </Field>
-                            <Field label="Kedvezmény (%)">
-                              <Input type="number" min={0} max={100} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
-                            </Field>
-                          </div>
-                          <p className="mt-2 text-[11px] text-slate-500">
-                            Aki a megadott évek fölött van, a kedvezmény százalékával kevesebbet fizet.
-                          </p>
-                        </div>
-                      )}
-
-                      {discountForm.tipus === 'jovedelem' && (
-                        <div className="rounded-[1rem] border border-rose-100 bg-rose-50/40 p-3">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Kedvezmény (%) — vagy add meg a fix RON-ot">
-                              <Input type="number" min={0} max={100} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
-                            </Field>
-                            <Field label="Fix RON kedvezmény — ha inkább összeg">
-                              <Input type="number" min={0} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
-                            </Field>
-                          </div>
-                          <div className="mt-3">
-                            <Field label="Jogosultsági feltétel (szabad szöveg)">
-                              <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. Tartós betegség presbitériumi döntés alapján" />
-                            </Field>
-                          </div>
-                        </div>
-                      )}
-
-                      {discountForm.tipus === 'foglalkozas' && (
-                        <div className="rounded-[1rem] border border-indigo-100 bg-indigo-50/40 p-3">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Foglalkozás-kulcsszavak (vesszővel)">
-                              <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. tanuló, diák, egyetemista" />
-                            </Field>
-                            <Field label="Fizetendő összeg (RON) — 0 = mentesül">
-                              <Input type="number" min={0} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
-                            </Field>
-                          </div>
-                          <p className="mt-2 text-[11px] text-slate-500">
-                            A tag <strong>foglalkozás</strong> mezőjéhez illeszt (ékezet/kisbetű-érzéketlen, teljes szóra). Aki egyezik, a megadott <strong>fizetendő összeg</strong>et fizeti (0 = teljesen mentesül). Több kulcsszó vesszővel.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Aktív toggle — nem dropdown */}
-                      <label className="flex cursor-pointer items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/40 p-3">
-                        <input
-                          type="checkbox"
-                          checked={discountForm.aktiv}
-                          onChange={(event) => setDiscountForm((prev) => ({ ...prev, aktiv: event.target.checked }))}
-                          className="size-4"
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-slate-800">
-                            {discountForm.aktiv ? 'Aktív kedvezmény' : 'Inaktív (mentve, de nem alkalmazódik)'}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            Egy kedvezmény lehet mentve, de kikapcsolva — pl. ha egy évre felfüggeszted.
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-
-                    <div className="mt-4 flex justify-between gap-2">
-                      <Button type="button" variant="ghost" onClick={() => setDiscountForm(getEmptyDiscountForm(new Date().getFullYear()))}>
-                        <Plus className="mr-2 size-4" />
-                        Új üres
-                      </Button>
-                      <Button type="button" onClick={() => void handleSaveDiscount()}>
-                        <Save className="mr-2 size-4" />
-                        {discountForm.id ? 'Módosítás mentése' : 'Kedvezmény létrehozása'}
-                      </Button>
-                    </div>
-                  </Panel>
+                {/* ─── KEDVEZMÉNYEK AL-TAB ───
+                    2026-07-10 (S2-1a): a Gyülekezet beállítása wizarddal KÖZÖS
+                    FeeDiscountsManager fut itt is — azonos űrlap és mentés-utáni viselkedés
+                    (év+típus megtartása), „él" típus-jelvények, látható input-mezők. */}
+                <TabsContent value="kedvezmenyek">
+                  <FeeDiscountsManager
+                    congregationId={activeCongregationId}
+                    onChanged={refreshDiscounts}
+                  />
                 </TabsContent>
 
                 {/* ─── BANKSZÁMLÁK AL-TAB ─── */}
@@ -1492,182 +1134,13 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                   </Panel>
                 </TabsContent>
 
-                {/* ─── EGYÉB DÍJAK AL-TAB (gyülekezet-specifikus díjak) ─── */}
-                <TabsContent value="egyebdij" className="space-y-4 pt-4">
-                  {!customFeeSchemaReady && (
-                    <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      A gyülekezet-specifikus díjak tárolásához még futtatni kell a{' '}
-                      <code>migration-docs/sql/2026-04-21-congregation-custom-fees.sql</code> fájlt.
-                    </div>
-                  )}
-                  {customFeeWarning && (
-                    <div className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      {customFeeWarning}
-                    </div>
-                  )}
-
-                  <Panel title="Meglévő gyülekezeti díjak">
-                    <div className="mb-3 rounded-[1rem] border border-rose-100 bg-rose-50/60 px-4 py-3 text-xs leading-5 text-rose-900">
-                      <strong>💡 Mi ez?</strong> A gyülekezet által <strong>presbitériumi határozattal</strong>{' '}
-                      megszavazott különdíjak — pl. <em>temetős karbantartás</em>, <em>harangozási díj</em>,{' '}
-                      <em>kántorilletmény</em>. Ezek nem az egyházfenntartás részei, a rendszer a
-                      tartozás számításánál hozzáadja őket.
-                    </div>
-
-                    {customFees.length === 0 ? (
-                      <div className="rounded-[1.2rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                        Még nincs rögzített gyülekezeti díj. Alul hozhatsz létre újat.
-                      </div>
-                    ) : (
-                      <div className="grid gap-3 lg:grid-cols-2">
-                        {customFees.map((fee) => (
-                          <CustomFeeCard
-                            key={fee.id}
-                            fee={fee}
-                            onEdit={() =>
-                              setCustomFeeForm({
-                                id: fee.id,
-                                name: fee.name,
-                                description: fee.description || '',
-                                amount: fee.amount,
-                                currency: fee.currency,
-                                yearFrom: fee.year_from,
-                                yearTo: fee.year_to,
-                                korTol: fee.kor_tol,
-                                korIg: fee.kor_ig,
-                                aktiv: fee.aktiv,
-                              })
-                            }
-                            onDelete={() => void handleDeleteCustomFee(fee.id)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </Panel>
-
-                  <Panel title={customFeeForm.id ? 'Díj szerkesztése' : 'Új gyülekezeti díj'}>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="md:col-span-2">
-                        <Field label="Megnevezés *">
-                          <Input
-                            value={customFeeForm.name}
-                            onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, name: event.target.value }))}
-                            placeholder="pl. Temetős karbantartási díj"
-                          />
-                        </Field>
-                      </div>
-                      <div className="md:col-span-2">
-                        <Field label="Leírás / hivatkozás (opcionális)">
-                          <Input
-                            value={customFeeForm.description}
-                            onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, description: event.target.value }))}
-                            placeholder="pl. 2025/03. presbitériumi jegyzőkönyv alapján"
-                          />
-                        </Field>
-                      </div>
-                      <Field label="Éves összeg (RON / tag)">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={customFeeForm.amount}
-                          onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, amount: Number(event.target.value) }))}
-                        />
-                      </Field>
-                      <Field label="Érvényesség kezdete (év)">
-                        <Input
-                          type="number"
-                          min={1900}
-                          max={2999}
-                          value={customFeeForm.yearFrom}
-                          onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, yearFrom: Number(event.target.value) }))}
-                        />
-                      </Field>
-                      <Field label="Érvényesség vége (év, opcionális)">
-                        <Input
-                          type="number"
-                          min={1900}
-                          max={2999}
-                          value={customFeeForm.yearTo ?? ''}
-                          onChange={(event) => {
-                            const v = event.target.value
-                            setCustomFeeForm((prev) => ({ ...prev, yearTo: v ? Number(v) : null }))
-                          }}
-                          placeholder="Üresen = visszavonásig"
-                        />
-                      </Field>
-                      <Field label="Korhatár — (tól, év, opcionális)">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={customFeeForm.korTol ?? ''}
-                          onChange={(event) => {
-                            const v = event.target.value
-                            setCustomFeeForm((prev) => ({ ...prev, korTol: v ? Number(v) : null }))
-                          }}
-                          placeholder="pl. 18 (csak nagykorúak)"
-                        />
-                      </Field>
-                      <Field label="Korhatár — (ig, év, opcionális)">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={customFeeForm.korIg ?? ''}
-                          onChange={(event) => {
-                            const v = event.target.value
-                            setCustomFeeForm((prev) => ({ ...prev, korIg: v ? Number(v) : null }))
-                          }}
-                          placeholder="üresen = felső határ nincs"
-                        />
-                      </Field>
-                    </div>
-
-                    {/* Aktív toggle */}
-                    <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/40 p-3">
-                      <input
-                        type="checkbox"
-                        checked={customFeeForm.aktiv}
-                        onChange={(event) => setCustomFeeForm((prev) => ({ ...prev, aktiv: event.target.checked }))}
-                        className="size-4"
-                      />
-                      <div>
-                        <div className="text-sm font-medium text-slate-800">
-                          {customFeeForm.aktiv ? 'Aktív díj' : 'Inaktív (mentve, de nem számítjuk tartozásnak)'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Ha felfüggesztesz egy díjat — pl. átmenetileg — kapcsold ki a toggle-val,
-                          ne töröld. Így a régi adatok megmaradnak.
-                        </div>
-                      </div>
-                    </label>
-
-                    <div className="mt-4 flex justify-between gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() =>
-                          setCustomFeeForm({
-                            id: undefined,
-                            name: '',
-                            description: '',
-                            amount: 0,
-                            currency: 'RON',
-                            yearFrom: new Date().getFullYear(),
-                            yearTo: null,
-                            korTol: null,
-                            korIg: null,
-                            aktiv: true,
-                          })
-                        }
-                      >
-                        <Plus className="mr-2 size-4" />
-                        Új üres
-                      </Button>
-                      <Button type="button" onClick={() => void handleSaveCustomFee()}>
-                        <Save className="mr-2 size-4" />
-                        {customFeeForm.id ? 'Módosítás mentése' : 'Díj létrehozása'}
-                      </Button>
-                    </div>
-                  </Panel>
+                {/* ─── EGYÉB DÍJAK AL-TAB (gyülekezet-specifikus díjak) ───
+                    2026-07-10 (S2-1a): a wizarddal KÖZÖS CustomFeesManager fut itt is. */}
+                <TabsContent value="egyebdij">
+                  <CustomFeesManager
+                    congregationId={activeCongregationId}
+                    onChanged={refreshCustomFees}
+                  />
                 </TabsContent>
                 </div>
               </Tabs>
@@ -1699,289 +1172,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/**
- * AnnualFeesPanel — évenkénti egyházfenntartási díjak kezelő panel (2026-04-21k).
- *
- * Az Alapdíj al-tabon jelenik meg. A lelkész **visszamenőlegesen** is
- * rögzíthet éveket (akár 20-30 évet). Régebbi évekhez **nincs kedvezmény** —
- * csak az összeg állítható.
- *
- * Default nézet: 10 év visszafelé. A "+ Régebbi év" gombbal bővíthető.
- */
-function AnnualFeesPanel({
-  rows,
-  onSave,
-  onDelete,
-  currentYearAmount,
-}: {
-  rows: AnnualFeeRow[]
-  onSave: (year: number, amount: number) => Promise<void>
-  onDelete: (year: number) => Promise<void>
-  currentYearAmount: number
-}) {
-  const currentYear = new Date().getFullYear()
-  const [yearsBack, setYearsBack] = useState(10)
-  const [editValues, setEditValues] = useState<Record<number, string>>({})
-
-  // Évek listája: currentYear-től visszafelé yearsBack év
-  const years = Array.from({ length: yearsBack + 1 }, (_, i) => currentYear - i)
-  const rowsByYear = new Map(rows.map((r) => [r.year, r]))
-
-  function handleEditChange(year: number, value: string) {
-    setEditValues((prev) => ({ ...prev, [year]: value }))
-  }
-
-  async function handleRowSave(year: number) {
-    const raw = editValues[year]
-    if (raw === undefined || raw === '') return
-    const amount = Number(raw)
-    if (isNaN(amount) || amount < 0) return
-    await onSave(year, amount)
-    setEditValues((prev) => {
-      const next = { ...prev }
-      delete next[year]
-      return next
-    })
-  }
-
-  return (
-    <Panel title="Évenkénti díjak (visszamenőleg)">
-      <div className="mb-3 rounded-[1rem] border border-slate-100 bg-slate-50/60 px-4 py-3 text-xs leading-5 text-slate-700">
-        <strong>ℹ️ Hogyan működik?</strong> Az egyes évek egyházfenntartási díját itt rögzítheted
-        visszamenőleg — akár 20-30 évig visszafelé. A <strong>régebbi évekhez nincs kedvezmény</strong>,
-        mert azok elmaradásnak számítanak, teljes összegben fizetendők. A rendszer a tartozást
-        csak az <strong>utolsó rögzített befizetéstől</strong> számolja — tehát ha a tag 2020-ban
-        fizetett utoljára, a tartozás 2021-től indul.
-      </div>
-
-      <div className="overflow-hidden rounded-[1rem] border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Év</th>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">Díj (RON)</th>
-              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {years.map((year) => {
-              const row = rowsByYear.get(year)
-              const isCurrentYear = year === currentYear
-              const editing = editValues[year] !== undefined
-              const displayValue = editing
-                ? editValues[year]
-                : row
-                  ? String(Number(row.eves_jarulek))
-                  : isCurrentYear
-                    ? String(currentYearAmount)
-                    : ''
-              const isEmpty = !row && !isCurrentYear && !editing
-              return (
-                <tr
-                  key={year}
-                  className={`border-t border-slate-100 ${
-                    isCurrentYear ? 'bg-emerald-50/40' : row ? 'bg-white' : 'bg-slate-50/30'
-                  }`}
-                >
-                  <td className="px-3 py-2 font-semibold text-slate-700">
-                    {year}
-                    {isCurrentYear && (
-                      <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-800">
-                        Aktuális
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {isEmpty ? (
-                      <span className="text-xs text-slate-400">— nincs rögzítve —</span>
-                    ) : (
-                      <Input
-                        type="number"
-                        min={0}
-                        value={displayValue}
-                        onChange={(e) => handleEditChange(year, e.target.value)}
-                        className="h-8 max-w-28 text-sm"
-                        disabled={isCurrentYear}
-                      />
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {isCurrentYear ? (
-                      <span className="text-[11px] text-slate-400">
-                        ↑ A fenti &bdquo;Teljes éves díj&rdquo; mezőben szerkeszd
-                      </span>
-                    ) : isEmpty ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditValues((prev) => ({ ...prev, [year]: '' }))}
-                      >
-                        <Plus className="mr-1 size-3.5" />
-                        Hozzáadás
-                      </Button>
-                    ) : editing ? (
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => void handleRowSave(year)}
-                        >
-                          <Save className="size-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            setEditValues((prev) => {
-                              const next = { ...prev }
-                              delete next[year]
-                              return next
-                            })
-                          }
-                        >
-                          Mégse
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditValues((prev) => ({ ...prev, [year]: String(Number(row!.eves_jarulek)) }))}
-                        >
-                          Szerkeszt
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void onDelete(year)}
-                        >
-                          <Trash2 className="size-3.5 text-rose-600" />
-                        </Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-3 flex justify-center">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setYearsBack((n) => n + 10)}
-        >
-          + Régebbi 10 év mutatása (jelenleg {yearsBack} év visszafelé)
-        </Button>
-      </div>
-    </Panel>
-  )
-}
-
-/**
- * Gyülekezet-specifikus díj megjelenítő kártya — olvasásra, szerkesztés / törlés gombbal.
- */
-function CustomFeeCard({
-  fee,
-  onEdit,
-  onDelete,
-}: {
-  fee: CustomFeeRow
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  const yearLabel = fee.year_to ? `${fee.year_from}–${fee.year_to}` : `${fee.year_from}-től`
-  const ageLabel =
-    fee.kor_tol !== null && fee.kor_ig !== null
-      ? `${fee.kor_tol}–${fee.kor_ig} évesek`
-      : fee.kor_tol !== null
-        ? `${fee.kor_tol}+ évesek`
-        : fee.kor_ig !== null
-          ? `${fee.kor_ig} éves korig`
-          : 'Minden tag'
-
-  return (
-    <div className={`rounded-[1.1rem] border-2 p-3 ${fee.aktiv ? 'border-rose-200 bg-rose-50/40' : 'border-slate-200 bg-slate-50/70 opacity-70'}`}>
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-800">{fee.name}</div>
-          {fee.description && (
-            <div className="mt-0.5 truncate text-[11px] text-slate-500">{fee.description}</div>
-          )}
-        </div>
-        {!fee.aktiv && (
-          <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-700">
-            inaktív
-          </span>
-        )}
-      </div>
-      <div className="mb-2 flex flex-wrap gap-2 text-xs text-slate-600">
-        <span className="rounded-full bg-white/85 px-2 py-0.5 font-mono">
-          {fee.amount.toLocaleString('hu-HU')} {fee.currency}
-        </span>
-        <span className="rounded-full bg-white/85 px-2 py-0.5">{yearLabel}</span>
-        <span className="rounded-full bg-white/85 px-2 py-0.5">{ageLabel}</span>
-      </div>
-      <div className="flex justify-end gap-1">
-        <Button type="button" size="sm" variant="ghost" onClick={onEdit}>
-          Szerkeszt
-        </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
-          <Trash2 className="size-3.5 text-rose-600" />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Kedvezmény-típus kártya a 3-kártyás típus-választóhoz.
- * Emerald keretre vált, ha a kártya kiválasztott.
- */
-function DiscountTypeCard({
-  icon,
-  title,
-  description,
-  example,
-  selected,
-  onClick,
-}: {
-  icon: ReactNode
-  title: string
-  description: string
-  example: string
-  selected: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-full flex-col items-start gap-2 rounded-[1.1rem] border-2 p-3 text-left transition ${
-        selected
-          ? 'border-emerald-500 bg-emerald-50/80 shadow-sm'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-      }`}
-    >
-      <div className={`flex size-9 items-center justify-center rounded-full ${selected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-        {icon}
-      </div>
-      <div className="text-sm font-semibold text-slate-800">{title}</div>
-      <div className="text-xs text-slate-500">{description}</div>
-      <div className={`mt-auto rounded-md px-2 py-1 text-[11px] leading-tight ${selected ? 'bg-emerald-100/70 text-emerald-900' : 'bg-slate-50 text-slate-500'}`}>
-        <strong>Példa:</strong> {example}
-      </div>
-    </button>
-  )
-}
+// 2026-07-10 (S2-1a): az AnnualFeesPanel, CustomFeeCard, DiscountTypeCard és DiscountCard
+// al-komponensek innen TÖRÖLVE — a megosztott manager-komponensek
+// (components/congregation/{annual-fees,custom-fees,fee-discounts}-manager.tsx) tartalmazzák
+// őket, így a beállítás-dialog és a wizard nem tud többé szétcsúszni.
 
 function MetricCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
@@ -1991,45 +1185,6 @@ function MetricCard({ label, value, icon }: { label: string; value: string; icon
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</span>
       </div>
       <p className="mt-2 text-sm font-semibold text-slate-700">{value}</p>
-    </div>
-  )
-}
-
-function DiscountCard({
-  discount,
-  onEdit,
-  onDelete,
-}: {
-  discount: FeeDiscountRow
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  const description =
-    discount.tipus === 'idoszak'
-      ? `Időablak: ${discount.kezdet || '—'}–${discount.hatarid || '—'} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
-      : discount.tipus === 'kor'
-        ? `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
-        : discount.tipus === 'foglalkozas'
-          ? `Foglalkozás: ${discount.jov_leiras || '—'} · Fizetendő: ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON`
-          : `${discount.szazalek || 0}% vagy ${Number(discount.fix_osszeg || 0).toLocaleString('hu-HU')} RON · ${discount.jov_leiras || 'Szociális kedvezmény'}`
-
-  return (
-    <div className="rounded-[1.2rem] border border-slate-200/70 bg-white/92 p-4 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.16)]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            {discount.ev}. év · {discount.tipus === 'idoszak' ? 'Kedvezményes időszak' : discount.tipus === 'kor' ? 'Fizetés / nyugdíj alapú' : discount.tipus === 'foglalkozas' ? 'Foglalkozás-alapú' : 'Szociális alapú'}
-          </p>
-          <p className="mt-2 text-sm font-semibold text-slate-800">{description}</p>
-          <p className="mt-2 text-xs text-slate-500">{discount.aktiv ? 'Aktív szabály' : 'Inaktív szabály'}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onEdit}>Szerkesztés</Button>
-          <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={onDelete}>
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }

@@ -136,6 +136,14 @@ export function PenzugyPage() {
   const [budgetData, setBudgetData] = useState<Record<string, number>>({})
   const [debtRows, setDebtRows] = useState<DebtRow[]>([])
   const [yearlyFees, setYearlyFees] = useState<Record<number, number>>({})
+  // 2026-07-10 (S2-#5 paritás): előző évi TÉNY szamadasicel-kódonként — a web
+  // getPreviousYearActuals tükre, de a MÁR BETÖLTÖTT lokális előző évi sorokból
+  // számolva (offline is működik, nincs külön hálózati kör). A Számadás/
+  // Költségvetés fül „Előző évi tény" referencia-oszlopát táplálja.
+  const [prevActuals, setPrevActuals] = useState<{
+    income: Record<string, number>
+    expense: Record<string, number>
+  } | null>(null)
   const [congregationName, setCongregationName] = useState('')
   const [congregationNameRo, setCongregationNameRo] = useState('') // hivatalos román név a nyomtatványhoz
 
@@ -200,14 +208,14 @@ export function PenzugyPage() {
         pullDebtData(congId),
       ])
 
-      const cong = await getLocalOwnCongregation(user.id)
-      setCongregationName(cong?.nev_hu || cong?.name || '')
-      setCongregationNameRo((cong as { nev_ro?: string | null } | null)?.nev_ro || '')
-
+      // 2026-07-10 (S2-#5 perf): a getLocalOwnCongregation eddig KÜLÖN await-ként
+      // futott a lokális olvasások előtt — bevonva a párhuzamos hullámba
+      // (1 szekvenciális IPC-körrel kevesebb, a viselkedés változatlan).
       const [
         befLocal, kiaLocal, prevBefLocal, prevKiaLocal,
         bevMap, kiaMap, cells, beal, budget,
         members, exemptions, discounts, yearSettings, fees,
+        cong,
       ] = await Promise.all([
         getLocalBefizetesek(congId, year),
         getLocalKiadasok(congId, year),
@@ -223,7 +231,10 @@ export function PenzugyPage() {
         getLocalDiscounts(congId),
         getLocalYearSettings(congId),
         getLocalYearlyFees(congId),
+        getLocalOwnCongregation(user.id),
       ])
+      setCongregationName(cong?.nev_hu || cong?.name || '')
+      setCongregationNameRo((cong as { nev_ro?: string | null } | null)?.nev_ro || '')
 
       const incomeRows = befLocal.map(toBefitetesRow)
       const expenseRows = kiaLocal.map(toKiadasRow)
@@ -246,6 +257,29 @@ export function PenzugyPage() {
 
       const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), 0, 0, internalCelIds)
       const yearBalances = calculateBalances(incomeRows, expenseRows, prevBalances.cashBalance, prevBalances.bankBalance, internalCelIds)
+
+      // 2026-07-10 (S2-#5 paritás): előző évi TÉNY kódonként — a web
+      // getPreviousYearActuals (actions.ts) aggregálásának tükre, a már betöltött
+      // lokális előző évi sorokból. A belső-mozgás kódok (100.xx/3xx/4xx) a webbel
+      // azonosan kizárva. Ha az előző évből nincs lokálisan szinkronizált sor,
+      // null marad → a referencia-oszlop nem jelenik meg (nem mutatunk hamis 0-kat).
+      const prevIncomeByKod: Record<string, number> = {}
+      for (const b of prevBefLocal) {
+        const kod = bevMap[b.id_befizetescel]
+        if (!kod || isInternalKod(kod)) continue
+        prevIncomeByKod[kod] = (prevIncomeByKod[kod] || 0) + (Number(b.osszeg) || 0)
+      }
+      const prevExpenseByKod: Record<string, number> = {}
+      for (const k of prevKiaLocal) {
+        const kod = kiaMap[k.id_kiadascel]
+        if (!kod || isInternalKod(kod)) continue
+        prevExpenseByKod[kod] = (prevExpenseByKod[kod] || 0) + (Number(k.osszeg) || 0)
+      }
+      setPrevActuals(
+        prevBefLocal.length === 0 && prevKiaLocal.length === 0
+          ? null
+          : { income: prevIncomeByKod, expense: prevExpenseByKod },
+      )
 
       // Paritás #5 — online törzsadatok a Bank/Monetár fülhöz. Hibatűrő:
       // offline vagy lejárt session esetén üres marad (a fülek jelzik).
@@ -346,11 +380,20 @@ export function PenzugyPage() {
   // 2026-06-11 (Endre): aggregát sorok ("(5+...+12)" típusú kategóriafejek) és
   // nem-gyülekezeti szintű tételek kiszűrve — csak a hivatalos 87 levél +
   // a kanonikus belső-mozgás kódok könyvelhetők (web-azonos szabály).
+  // 2026-07-10 (S2-#5 perf): id→cella index EGYSZER (a web finance-tabs 2026-06-30-i
+  // perf-javításának tükre) — a kategória-listák ne O(n*m)-ben (.find soronként)
+  // keressék a szamadasicel nevét/szintjét.
+  const celById = useMemo(() => {
+    const m = new Map<string, SzamadasiCel>()
+    for (const c of szamadasiCellek) m.set(c.id, c)
+    return m
+  }, [szamadasiCellek])
+
   const incomeCategories = useMemo<IncomeCategory[]>(
     () =>
       Object.entries(bevCelMap)
         .map(([id, kod]) => {
-          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const cel = celById.get(kod)
           const nev = (cel?.nev || '').trim()
           return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
         })
@@ -361,14 +404,14 @@ export function PenzugyPage() {
         )
         .map(({ id, kod, nev }) => ({ id, kod, nev }))
         .sort((a, b) => a.kod.localeCompare(b.kod)),
-    [bevCelMap, szamadasiCellek],
+    [bevCelMap, celById],
   )
 
   const expenseCategories = useMemo<ExpenseCategory[]>(
     () =>
       Object.entries(kiaCelMap)
         .map(([id, kod]) => {
-          const cel = szamadasiCellek.find((c) => c.id === kod)
+          const cel = celById.get(kod)
           const nev = (cel?.nev || '').trim()
           return { id: Number(id), kod, nev: nev || kod, szint: cel?.szint }
         })
@@ -379,8 +422,17 @@ export function PenzugyPage() {
         )
         .map(({ id, kod, nev }) => ({ id, kod, nev }))
         .sort((a, b) => a.kod.localeCompare(b.kod)),
-    [kiaCelMap, szamadasiCellek],
+    [kiaCelMap, celById],
   )
+
+  // 2026-07-10 (S2-#5 paritás): a shared BudgetTab `loadPreviousActuals`
+  // callbackje — a load()-ban kiszámolt lokális aggregátumot adja vissza
+  // (nincs külön hálózati/IPC kör). Amíg nincs adat, error-t ad → a shared
+  // komponens elrejti a referencia-oszlopot.
+  const loadPreviousActuals = useCallback(async () => {
+    if (!prevActuals) return { error: 'Nincs lokálisan szinkronizált előző évi adat.' }
+    return { actualIncome: prevActuals.income, actualExpense: prevActuals.expense }
+  }, [prevActuals])
 
   const debtModeLabel = 'akkori évi járulék'
 
@@ -608,6 +660,11 @@ export function PenzugyPage() {
                 settings={settings}
                 currentYear={year}
                 userId={userId}
+                // 2026-07-10 (S2-#5 paritás): web-azonos NYITÓ egyenleg blokk +
+                // „Előző évi tény" oszlop (lokális tükörből, offline is működik).
+                carryoverCash={carryoverCash}
+                carryoverBank={carryoverBank}
+                loadPreviousActuals={loadPreviousActuals}
                 onRefresh={() => void load()}
                 onToast={(msg, kind) => setPageToast({ kind, msg })}
               />
@@ -646,6 +703,12 @@ export function PenzugyPage() {
               currentYear={year}
               budgetData={budgetData}
               loading={false}
+              // 2026-07-10 (S2-#5 paritás): web-azonos NYITÓ egyenleg blokk (EREK
+              // 1–3. sor) + „Előző évi tény" oszlop — a lokális tükörből számolva.
+              carryoverCash={carryoverCash}
+              carryoverBank={carryoverBank}
+              prevActualIncome={prevActuals?.income}
+              prevActualExpense={prevActuals?.expense}
             />
           ) : activeTab === 'debt' ? (
             <DebtTab debtRows={debtRows} yearlyFees={yearlyFees} currentYear={year} debtCalcMode="akkori" />

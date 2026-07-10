@@ -319,7 +319,16 @@ export function FinancePrintDialogBody({
                 <button
                   key={type.id}
                   type="button"
-                  onClick={() => setPrintType(type.id)}
+                  onClick={() => {
+                    // 2026-07-10 (S3 #1e): a Csoportnapló tipikus használata az ÉVES,
+                    // jogcímenkénti lista — típusváltáskor alapból „Teljes év"-re
+                    // állunk, mert az örökölt alapérték (folyó hónap) gyakran üres,
+                    // és a felhasználó hibának látta az üres előnézetet.
+                    if (type.id === 'csoport_naplo' && printType !== 'csoport_naplo') {
+                      setSelectedMonth(null)
+                    }
+                    setPrintType(type.id)
+                  }}
                   title={type.description}
                   className={`flex w-full items-baseline justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
                     active
@@ -416,6 +425,14 @@ export function FinancePrintDialogBody({
             </label>
           )}
 
+          {/* 2026-07-10 (S3 #1e): ha a jogcím-lista üresen érkezik (adathiba /
+              wrapper-hiány), NE tűnjön el némán a választó — magyarázó szöveg. */}
+          {isCsoportNaploMode && categories.length === 0 && (
+            <p className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-400">
+              A jogcím-lista nem érhető el — a nyomtatvány az összes jogcímet tartalmazza.
+            </p>
+          )}
+
           {/* Csoportnapló — jogcím-választó: a kiválasztott jogcím összes tétele az adott évben */}
           {isCsoportNaploMode && categories.length > 0 && (
             <label className="block text-sm font-medium text-slate-700">
@@ -465,6 +482,15 @@ export function FinancePrintDialogBody({
               <div>
                 <span className="font-semibold text-slate-800">Bank:</span>{' '}
                 {bankAccounts.find((b) => b.id === selectedBankId)?.bank_neve}
+              </div>
+            )}
+            {/* 2026-07-10 (S3 #1e): a kiválasztott jogcím visszajelzése */}
+            {isCsoportNaploMode && (
+              <div>
+                <span className="font-semibold text-slate-800">Jogcím:</span>{' '}
+                {selectedCategoryKod
+                  ? `${selectedCategoryKod} — ${categories.find((c) => c.kod === selectedCategoryKod)?.nev ?? ''}`
+                  : 'Mind — összes jogcím'}
               </div>
             )}
             {isNyugtatombMode && (

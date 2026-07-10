@@ -22,6 +22,7 @@ import { ArrowDownCircle, ArrowUpCircle, Check, Lock, Scale } from 'lucide-react
 
 import { Badge, Button } from '@kartoteka/ui'
 
+import { FinanceLoadingState } from './FinanceLoadingState'
 import { formatCurrency, sortCellsHierarchically } from './helpers'
 import type { BealitasRow, BudgetCompatRow, SzamadasiCel } from './types'
 
@@ -48,6 +49,9 @@ export interface BudgetTabProps {
    */
   carryoverCash?: number
   carryoverBank?: number
+
+  /** 2026-07-10 (S2 #9): a betöltő-állapot logója (web: '/kartoteka-icon.png'). */
+  loadingLogoSrc?: string
 
   /**
    * 2026-07-10 (#2): előző évi TÉNY betöltése (szürke referencia-oszlop).
@@ -110,6 +114,7 @@ export function BudgetTab({
   currentYear,
   carryoverCash,
   carryoverBank,
+  loadingLogoSrc,
   loadPreviousActuals,
   loadBudgetRows,
   saveBudgetRows,
@@ -437,11 +442,8 @@ export function BudgetTab({
   }
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-slate-400 animate-pulse">
-        Költségvetés betöltése...
-      </div>
-    )
+    // 2026-07-10 (S2 #9): állapotsávos, logós betöltő.
+    return <FinanceLoadingState label="Költségvetés betöltése…" logoSrc={loadingLogoSrc} />
   }
 
   const showModComparison = mode !== 'base'
@@ -562,43 +564,9 @@ export function BudgetTab({
         )}
       </div>
 
-      {/* 2026-07-10 (#2): NYITÓ egyenlegek — hivatalos EREK-minta (1–3. sor).
-          Display-only: NEM része a budgetData-nak, mentéskor nem íródik sehova. */}
-      {carryoverCash != null && carryoverBank != null && (
-        <div className="card-raised border-slate-100 bg-slate-50/60 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Nyitó egyenlegek — automatikus, nem szerkeszthető
-          </p>
-          <div className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-            <div className="flex items-baseline justify-between gap-3 sm:col-span-3 sm:justify-start">
-              <span className="text-slate-500">
-                Múlt évi pénztármaradvány{' '}
-                <span className="italic text-slate-400">(Disponibil din anul precedent)</span>
-              </span>
-              <span className="font-semibold text-slate-600">
-                {formatCurrency(carryoverCash + carryoverBank)} RON
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <span className="text-slate-500">
-                Készpénz <span className="italic text-slate-400">(Casa)</span>
-              </span>
-              <span className="font-medium text-slate-500">
-                {formatCurrency(carryoverCash)} RON
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <span className="text-slate-500">
-                Banki egyenleg <span className="italic text-slate-400">(Banca)</span>
-              </span>
-              <span className="font-medium text-slate-500">
-                {formatCurrency(carryoverBank)} RON
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* 2026-07-10 (S2 #8): a NYITÓ egyenlegek a hivatalos költségvetés_Minta.pdf
+          szerint a TÁBLÁZAT 1–3. sorai (nem külön kártya) — a Bevételek tábla élén,
+          automatikus, nem szerkeszthető sorokként. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <BudgetCellTable
           icon={<ArrowDownCircle className="size-4 text-emerald-600" />}
@@ -616,6 +584,20 @@ export function BudgetTab({
           canEdit={canEdit}
           setValue={setValue}
           isIncome
+          openingRows={
+            carryoverCash != null && carryoverBank != null
+              ? [
+                  {
+                    nr: '1',
+                    nev: 'Múlt évi pénztármaradvány (Disponibil din anul precedent)',
+                    value: carryoverCash + carryoverBank,
+                    group: true,
+                  },
+                  { nr: '2', nev: 'Készpénz egyenleg (Casa)', value: carryoverCash, group: false },
+                  { nr: '3', nev: 'Banki egyenleg (Banca)', value: carryoverBank, group: false },
+                ]
+              : undefined
+          }
         />
         <BudgetCellTable
           icon={<ArrowUpCircle className="size-4 text-rose-500" />}
@@ -684,6 +666,9 @@ interface BudgetCellTableProps {
   canEdit: boolean
   setValue: (celId: string, val: number) => void
   isIncome: boolean
+  /** 2026-07-10 (S2 #8): a hivatalos nyomtatvány 1–3. NYITÓ sora a tábla élén —
+   *  automatikus, nem szerkeszthető sorok (Disponibil / Casa / Banca). */
+  openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
 }
 
 function BudgetCellTable({
@@ -702,6 +687,7 @@ function BudgetCellTable({
   canEdit,
   setValue,
   isIncome,
+  openingRows,
 }: BudgetCellTableProps) {
   return (
     <div className="card-raised overflow-hidden">
@@ -734,6 +720,31 @@ function BudgetCellTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {/* 2026-07-10 (S2 #8): hivatalos NYITÓ sorok (1–3.) a tábla élén —
+                automatikus, nem szerkeszthető (a mentés nem érinti őket). */}
+            {openingRows?.map((row) => (
+              <tr
+                key={`opening-${row.nr}`}
+                className={row.group ? 'bg-sky-50/60 font-semibold' : 'bg-sky-50/30'}
+                title="Automatikus nyitó egyenleg — az előző évi záróból, nem szerkeszthető"
+              >
+                <td className="p-2 text-xs text-slate-400">{row.nr}</td>
+                <td
+                  className={`p-2 ${
+                    row.group ? 'text-slate-700' : 'pl-6 text-xs text-slate-600'
+                  }`}
+                >
+                  {row.nev}
+                </td>
+                {showModComparison && <td className="p-2 text-right text-xs text-slate-300">–</td>}
+                {showPrevYear && <td className="p-2 text-right text-xs text-slate-300">–</td>}
+                <td className="p-2 text-right">
+                  <span className={row.group ? 'font-semibold text-slate-700' : 'text-slate-600'}>
+                    {formatCurrency(row.value)}
+                  </span>
+                </td>
+              </tr>
+            ))}
             {cells.map((c) => {
               const isGroup = !c.id.includes('.')
               const val = getValue(c.id)

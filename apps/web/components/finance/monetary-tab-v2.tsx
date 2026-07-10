@@ -19,9 +19,12 @@ import {
 } from '@/app/(dashboard)/penzugy/monetary-actions'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 
+// 2026-07-10 (S3 #2): a `compact` prop is átmegy — a lebegő Monetár-widget
+// (monetar-floating-widget.tsx) kompakt módban mountolja ugyanezt a wrappert,
+// így a mentés/nyomtatás/törlés funkcionalitás EGYETLEN helyen él tovább.
 type WebMonetaryTabProps = Pick<
   MonetaryTabProps,
-  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers' | 'congregationName'
+  'expectedCashBalance' | 'currentYear' | 'bankAccounts' | 'internalTransfers' | 'congregationName' | 'compact'
 >
 
 export function MonetaryTabV2(props: WebMonetaryTabProps) {

@@ -21,6 +21,11 @@
  * - Toast callback-en (`onToast`)
  * - Véglegesítés-link `finalizeHref` prop-on (web: `/penzugy?tab=accounting`,
  *   desktop: `/penzugy/szamadas` vagy hasonló)
+ *
+ * 2026-07-10 (S3-sugo): új „Mi változott (2026. július)?" szekció (a lista elején,
+ * ez a nyitó téma), + a júliusi „pénzügy nagytakarítás" változásai bedolgozva a
+ * meglévő témákba is (Tétel rögzítése, Tranzakciók, Bank, Kassza, Költségvetés,
+ * Számadás, Tartozások, Monetár, Oblio, Szűrés/export).
  */
 
 import { useState, type ReactNode } from 'react'
@@ -129,6 +134,141 @@ export type FinanceSugoToastKind = 'success' | 'error' | 'info' | 'warning'
 // ─────────────────────────────────────────────────────────────
 
 const SECTIONS: Section[] = [
+  // ============= 0. MI VÁLTOZOTT (2026. JÚLIUS)? =============
+  // 2026-07-10 (S3-sugo): a júliusi „pénzügy nagytakarítás" (CHANGELOG 2026-07-10)
+  // minden változása lelkészi nyelven. Szándékosan az ELSŐ szekció — amíg a hír
+  // friss, a súgó megnyitásakor ez a téma fogadja a felhasználót.
+  {
+    key: 'mi-valtozott-2026-07',
+    label: 'Mi változott (2026. július)?',
+    description: 'A júliusi fejlesztések — röviden, érthetően',
+    icon: Sparkles,
+    topics: [
+      {
+        key: 'valtozas-pontos-szamok',
+        label: 'Pontosabb egyenlegek és számadás',
+        icon: Scale,
+        color: 'cyan',
+        shortDescription: 'Belső mozgás, nyitó egyenlegek, deviza — a számok mindenhol stimmelnek',
+        intro:
+          'A júliusi frissítés legfontosabb része: a kassza, a bank és a számadás számai mostantól mindenhol ugyanazt — és a valóságot — mutatják, pontosan úgy, ahogy a hivatalos egyházkerületi nyomtatványon szerepelnek.',
+        whenNeeded:
+          'Nem kell tenned semmit — ezek maguktól működnek. Olvasd el, hogy tudd, mi miért néz ki mostantól másképp.',
+        whatItDoes:
+          'A belső mozgások (készpénz a bankba és vissza) helyes kezelése, automatikus nyitó egyenlegek, helyesen számolt záró egyenleg, és napi árfolyamos deviza-átszámítás.',
+        howItWorks: [
+          {
+            text: 'A „Belső mozgás" sorok eltűntek a Számadásból és a Költségvetésből — a pénz kasszából bankba tétele (vagy onnan felvétele) nem bevétel és nem kiadás, ezért a hivatalos nyomtatványon sosem szerepelt tételként. Mostantól a képernyő is pontosan azt mutatja, amit a nyomtatvány.',
+          },
+          {
+            text: 'A belső mozgás rögzítése azonnal átvezet a kasszán ÉS a bankon (kettős könyvelés) — az egyenlegek mindig helyesek, és a tétel a helyzetnek megfelelő nevet kapja: „Készpénzletétel a(z) … számlára", illetve „Készpénzfelvétel a(z) … számláról".',
+            hint: 'Korábban a felületről rögzített banki letétel „elveszett" — a kassza és a bank egyenlege nem változott. Ez javítva.',
+          },
+          {
+            text: 'A nyitó egyenlegek automatikusan megjelennek a Költségvetés és a Számadás fül tetején — a táblázat első 1–3. sora (Múlt évi pénztármaradvány / Készpénz / Bank) magától kitöltődik az előző évi záróból, nem kell kézzel beírni.',
+          },
+          {
+            text: 'Az előző évi tényszámok halványan (szürkén) látszanak tételenként a költségvetés tervezésénél és a számadásban — üres mezőnél előre beírt javaslatként, amit gépeléskor egyszerűen felülírsz.',
+          },
+          {
+            text: 'A Számadás nyomtatványán megjelent a hivatalos nyitó 3 sor, és a záró egyenleg mostantól helyesen számolódik: nyitó + évi bevételek − évi kiadások. (Korábban tévesen a nyitó összeg szerepelt „év végi" egyenlegként.)',
+          },
+          {
+            text: 'Az Excel-exportban a „Várakozik banki egyeztetésre" felirat a VALÓS állapotot mutatja — amint a banki pár beérkezett és párosodott, a felirat eltűnik. A párosítás-figyelő is pontosabb: csak valódi kassza↔bank párokat fogad el.',
+          },
+          {
+            text: 'Devizás bankszámla (pl. EUR) importja mostantól minden tranzakciót az ADOTT NAPI hivatalos BNR árfolyammal számít át lejre — eddig egyetlen éves árfolyam ment mindenre. Ha egy napra nem érhető el árfolyam, a rendszer jelzi.',
+          },
+          {
+            text: 'Az asztali (offline) verzió bevétel/kiadás összesítői is pontosabbak — a belső mozgások ott sem számítanak bele a totálokba.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'tip',
+            text: 'Mindez automatikus — semmit nem kell átállítanod. Ha mégis eltérést látsz egy egyenlegnél, először a párosítatlan belső mozgásokat érdemes megnézni.',
+          },
+        ],
+      },
+      {
+        key: 'valtozas-atlathatobb-felulet',
+        label: 'Átláthatóbb felület',
+        icon: Eye,
+        color: 'blue',
+        shortDescription: 'Év-választó, új oszlopok, jobb nyomtatás — hol mit találsz mostantól',
+        intro:
+          'Több apró, de a mindennapi munkát könnyítő változás történt a felületen — itt találod, mi hova került.',
+        whenNeeded:
+          'Ha valamit „nem találsz a régi helyén", vagy új oszlopot, feliratot látsz — itt a magyarázat.',
+        whatItDoes:
+          'Új helyre került az év-választó, átláthatóbb lett a Tranzakciók és a Kassza fül, szebbek a nyomtatványok, és több apró bosszúság megszűnt.',
+        howItWorks: [
+          {
+            text: 'Év-választó új helyen: a Pénzügy oldalon bal oldalt, közvetlenül a cím alatt találod a „Költségvetési év" vezérlőt — a ◄ ► nyilakkal léptethetsz, a nagy évszám mindig mutatja, melyik évet nézed. Minden fül (Kassza, Bank, Számadás…) ehhez az évhez igazodik.',
+            hint: 'Korábban ez egy kis címkének nézett ki, és könnyen elveszett — most nem téveszthető össze semmivel.',
+          },
+          {
+            text: 'Tranzakciók fül: külön Bevétel és Kiadás oszlop (mint a Kassza fülön), és minden sornál látszik, hogy készpénzes vagy banki a tétel — banki tételnél a bankszámla nevével.',
+          },
+          {
+            text: 'Kassza fül: a gyülekezet saját iratszáma került előre (a kerületi szám kisebb betűvel alatta), és az Excel-export mindig időrendben készül (év elejétől év végéig), akárhogy is rendezted a képernyőn a listát.',
+          },
+          {
+            text: 'Kiadási kísérőív: az előnézet a teljes lapot mutatja görgetés nélkül — pontosan úgy, ahogy nyomtatásban kinéz. A felirata mostantól „Registrul-Jurnal", mert a bizonylaton banki tételek is szerepelnek, így a korábbi „Kasszakönyv" felirat félrevezető volt.',
+          },
+          {
+            text: 'Nyomtatási központ: a nyomtatványok a hivatalos román megnevezésekkel készülnek, és a regiszterek egyszerűsödtek — könnyebb megtalálni, melyiket kell leadni.',
+          },
+          {
+            text: 'Tartozások fül: év szerinti áttekintés — az év-választóval visszalapozva évente látod, ki mennyivel maradt el.',
+          },
+          {
+            text: 'Monetár fül: a belső mozgások (pl. valutaváltás) mostantól törölhetők, ha tévedésből kerültek be — eddig ezt nem engedte a rendszer.',
+          },
+          {
+            text: 'Oblio ellenőrzés: a „Mappa beállítása" gomb most már tényleg megnyitja a mappa-választót, és a rendszer megjegyzi a kiválasztott KARTOTEKA mappát (Chrome vagy Edge böngésző szükséges).',
+          },
+        ],
+      },
+      {
+        key: 'valtozas-nyugtak-bekuldes',
+        label: 'Nyugták, rögzítés és beküldés',
+        icon: Receipt,
+        color: 'emerald',
+        shortDescription: 'Nyugtafigyelő évhatáron át, rugalmasabb pótlás, biztonságosabb beküldés',
+        intro:
+          'A nyugták követése és az egyházmegyei beküldés is megbízhatóbb lett — és a tétel-rögzítés néhány kényelmi funkcióval bővült.',
+        whenNeeded:
+          'Év elején elmaradt nyugtákat kell pótolnod, vagy készülsz a számadás beküldésére.',
+        whatItDoes:
+          'A Nyugtafigyelő átlép az évhatáron, az elmaradt nyugták a Decont-tal pótolhatók, a beküldés pedig „zár először" sorrendben történik.',
+        howItWorks: [
+          {
+            text: 'Nyugtafigyelő évhatáron át: mivel a nyugták sorszáma évek között folytatódik, az ellenőrzés a következő év első nyugtájáig néz — így az év végén „elveszett" sorszámok is előkerülnek, hamis riasztás nélkül, és az elmaradt nyugtákat a figyelő áthozza az új évbe.',
+          },
+          {
+            text: 'Elmaradt nyugták pótlása: a hiányzó nyugtákat a bevételi elszámolással (Decont de încasări) pótolhatod — nyugtánként külön jogcím választható (nem kell mindennek adománynak lennie), befizetőként család is megadható, a kereső gyorsabb és pontosabb, a tag-hozzárendelés pedig továbbra sem kötelező.',
+          },
+          {
+            text: 'Tétel rögzítése: a „+ Tétel rögzítése" ablakban bevételt ÉS kiadást egyszerre rögzíthetsz (két fül, egy közös mentés), egy nyugtára több befizetőt is felvihetsz (család kiválasztásával vagy vesszős felsorolással), egyházfenntartásnál pedig a rendszer felajánlja az ajánlott összeget — a befizető kedvezményeit (kor, jövedelem, felmentés) is figyelembe véve.',
+          },
+          {
+            text: 'Beküldés az egyházmegyének: a rendszer előbb véglegesíti (lezárja) az évet, és csak utána küldi be — így nem fordulhat elő, hogy a beküldött és a helyben látott számok eltérnek. A dokumentum mindig a gyülekezeted saját egyházmegyéjéhez kerül.',
+          },
+          {
+            text: 'Mit jelent a véglegesítés? A lezárt évbe új tétel nem rögzíthető, és a meglévők nem módosíthatók, nem stornózhatók — a számadás „be van fagyasztva". Újranyitni csak engedéllyel (újranyitási kérelemmel) lehet.',
+          },
+        ],
+        tips: [
+          {
+            kind: 'warning',
+            text: 'Véglegesítés előtt fusd át a Számadás fület: függő sztornók és párosítatlan belső mozgások ne maradjanak — lezárás után már nem tudod javítani őket.',
+          },
+        ],
+      },
+    ],
+  },
+
   // ============= 1. ALAPOK =============
   {
     key: 'alapok',
@@ -290,8 +430,14 @@ const SECTIONS: Section[] = [
             text: 'Beviteli őrök: ha a kerületi iratszám már létezik (vagy kétszer szerepel a listában), piros jelzést kapsz még mentés előtt. Ha a tétel dátuma jövőbeli, vagy korábbi mint a legutóbb rögzített, a rendszer figyelmeztet — így nem marad ki és nem csúszik el a könyvelés.',
           },
           {
+            // 2026-07-10 (S3-sugo): kettős könyvelés + irányfüggő megnevezés
             kind: 'warning',
-            text: 'Belső mozgás (készpénz a bankba / bankból ki): ha ilyen jogcímet választasz, megjelenik a bankszámla-választó, és a tétel belső mozgásként könyvelődik — nem bevételként vagy kiadásként.',
+            text: 'Belső mozgás (készpénz a bankba / bankból ki): ha ilyen jogcímet választasz, megjelenik a bankszámla-választó, és a tétel belső mozgásként könyvelődik — nem bevételként vagy kiadásként. A rögzítés kettős könyveléssel történik: a kassza ÉS a bank egyenlege egyszerre változik, a tétel pedig az iránynak megfelelő nevet kapja („Készpénzletétel a(z) … számlára" / „Készpénzfelvétel a(z) … számláról").',
+          },
+          {
+            // 2026-07-10 (S3-sugo): egyházfenntartás ajánlott összeg
+            kind: 'tip',
+            text: 'Egyházfenntartásnál a rendszer felajánlja az ajánlott összeget — a Beállításokban megadott éves díjból és a befizető kedvezményeiből (kor, jövedelem, felmentés) számolva. Természetesen felülírhatod.',
           },
         ],
         commonMistakes: [
@@ -357,6 +503,11 @@ const SECTIONS: Section[] = [
             kind: 'warning',
             text: 'Ha egy bevétel sornál „⚠ Gyülekezeti tag" szerepel, az azt jelenti, hogy nincs konkrét személyhez kapcsolva. Ez a Tartozások fülön nem fog számolódni — szerkeszd a sort, és válassz nevet.',
           },
+          {
+            // 2026-07-10 (S3-sugo): iratszám-sorrend + időrendi export
+            kind: 'tip',
+            text: 'A listában a gyülekezet saját iratszáma áll elöl (a kerületi szám kisebb betűvel alatta), és az Excel-export mindig időrendben készül (év elejétől év végéig) — akárhogy is rendezted a képernyőn a táblázatot.',
+          },
         ],
         examples: [
           {
@@ -392,6 +543,10 @@ const SECTIONS: Section[] = [
             text: 'Devizás átértékelés (FX): ha EUR számlád is van, év végén a BNR árfolyamon át kell értékelni — ezt a KARTOTEKA automatikusan javasolja.',
           },
           {
+            // 2026-07-10 (S3-sugo): napi árfolyamos import
+            text: 'Devizás számla importja: a banki kivonat beolvasásakor minden tranzakció az ADOTT NAPI hivatalos BNR árfolyammal számítódik át lejre — nem egyetlen éves árfolyammal. Ha egy napra nem érhető el árfolyam, a rendszer jelzi.',
+          },
+          {
             text: 'A piros „⚠" jelzés ugyanúgy működik mint a Kassza fülön — hiányos adatra figyelmeztet.',
           },
         ],
@@ -411,13 +566,18 @@ const SECTIONS: Section[] = [
             text: 'A lista hónapok szerint van bontva. Minden hónap fölött látod a havi össz-bevételt (zöld) és össz-kiadást (piros).',
           },
           {
+            // 2026-07-10 (S3-sugo): külön Bevétel/Kiadás oszlop + készpénz/banki jelzés
+            text: 'Külön Bevétel és Kiadás oszlop van (mint a Kassza fülön), és minden sornál látszik, hogy készpénzes vagy banki a tétel — banki tételnél a bankszámla nevével. Így egy pillantásra kiderül, honnan mozgott a pénz.',
+          },
+          {
             text: 'A 🧾 oszlopban minden befizetésnél: ha bérleti díj és van szerződés-pár → „+ Számla" (e-Factura) gomb. Egyébként az Oblio státusz látszik (zöld pipa = elfogadva, sárga óra = függőben).',
           },
           {
             text: 'A kiadások „🧾" oszlopában: zöld pipa ha a beszállító feltöltötte SPV-be a számlát, sárga ⚠ ha nincs SPV-ben.',
           },
           {
-            text: 'A „Kísérőív" gomb minden napra rendezetten kinyomtatható (sorszámozva).',
+            // 2026-07-10 (S3-sugo): teljes lapos előnézet + Registrul-Jurnal felirat
+            text: 'A „Kísérőív" gomb minden napra rendezetten kinyomtatható (sorszámozva). Az előnézet a teljes lapot mutatja görgetés nélkül, a felirata pedig „Registrul-Jurnal" — a bizonylaton banki tételek is szerepelnek, ezért nem „Kasszakönyv".',
           },
         ],
         tips: [
@@ -473,6 +633,11 @@ const SECTIONS: Section[] = [
           {
             kind: 'tip',
             text: 'A nyugtatömbök az Anyagraktár fülön is megjelennek (Leltár → Anyagraktár) — ott látod az összes tömböt raktárkészlet szempontból.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): Nyugtafigyelő évhatáron át + Decont-pótlás
+            kind: 'tip',
+            text: 'A Nyugtafigyelő átlép az évhatáron: mivel a sorszámok évek között folytatódnak, az ellenőrzés a következő év első nyugtájáig néz — az elmaradt nyugtákat áthozza az új évbe is, és a bevételi elszámolással (Decont de încasări) pótolhatod őket.',
           },
         ],
       },
@@ -555,6 +720,11 @@ const SECTIONS: Section[] = [
           {
             kind: 'tip',
             text: 'Ha nincs szűrő beállítva, a teljes (a hónap-választóval kiválasztott) lista exportálódik.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): párosítás-státusz az exportban
+            kind: 'tip',
+            text: 'Belső mozgásnál az exportban a „Várakozik banki egyeztetésre" felirat a valós állapotot mutatja — amint a banki pár beérkezett és párosodott, a felirat eltűnik.',
           },
         ],
       },
@@ -659,6 +829,18 @@ const SECTIONS: Section[] = [
           'Számadási cél kódonként megadható a tervezett bevétel és kiadás. A rendszer számolja az össz- és kategória-szintű egyenlegeket.',
         howItWorks: [
           {
+            // 2026-07-10 (S3-sugo): év-választó új helye
+            text: 'Az év kiválasztása: a Pénzügy oldalon bal oldalt, közvetlenül a cím alatt találod a „Költségvetési év" vezérlőt — a ◄ ► nyilakkal léptethetsz, a nagy évszám mutatja, melyik évet nézed.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): automatikus nyitó egyenlegek
+            text: 'A táblázat első 1–3. sora (Múlt évi pénztármaradvány / Készpénz / Bank) automatikusan kitöltődik az előző évi záróból — nem kell kézzel beírni.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): előző évi tény szürkén
+            text: 'Az előző évi tényszámok halványan (szürkén) látszanak tételenként — üres mezőnél előre beírt javaslatként, amit gépeléskor felülírhatsz. Így a tervezésnél mindig látod, mennyi volt tavaly.',
+          },
+          {
             text: 'Évente max 3 módosítás vihető be (a presbitériumnak kell jóváhagynia).',
           },
           {
@@ -692,7 +874,19 @@ const SECTIONS: Section[] = [
             text: 'Bármikor megnézheted az aktuális állást — nem kell várni az év végéig.',
           },
           {
-            text: 'A véglegesítés után a számadás zárolódik — utána már csak a presbitérium engedélyével módosítható (újranyitási kérelem).',
+            // 2026-07-10 (S3-sugo): hivatalos nyitó 3 sor + helyes záró egyenleg
+            text: 'A fül (és a nyomtatvány) tetején automatikusan ott a hivatalos nyitó 3 sor: Múlt évi pénztármaradvány / Casa (készpénz) / Banca (bank) — az előző évi záróból. A záró egyenleg a helyes képlettel készül: nyitó + évi bevételek − évi kiadások.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): belső mozgás nem tétel
+            text: 'A belső mozgások (készpénz a bankba és vissza) nem jelennek meg tételként — ahogy a hivatalos nyomtatványon sem. Az előző évi tényszámok szürkén, oszlopként látszanak összehasonlításul.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): beküldés zár-először sorrendben
+            text: 'Beküldés az egyházmegyének: a rendszer ELŐBB véglegesíti (lezárja) az évet, és csak UTÁNA küldi be — így a beküldött és a helyben látott számok mindig ugyanazok. A dokumentum a gyülekezeted saját egyházmegyéjéhez kerül.',
+          },
+          {
+            text: 'A véglegesítés után a számadás zárolódik: a meglévő tételek nem módosíthatók, és új tétel sem rögzíthető a lezárt évbe — utána már csak a presbitérium engedélyével módosítható (újranyitási kérelem).',
           },
         ],
       },
@@ -717,6 +911,10 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'A „pótlás" jelzéssel beérkező befizetések egy korábbi évre számolódnak (nem a folyó évi befizetésbe).',
+          },
+          {
+            // 2026-07-10 (S3-sugo): év szerinti áttekintés
+            text: 'Év szerinti áttekintés: az év-választóval (bal oldalt, a cím alatt) visszalapozhatsz a korábbi évekre — évente látod, ki mennyivel maradt el. A visszamenőleges befizetésnél a Tétel rögzítése „Melyik évre" mezőjével a megfelelő évhez könyvelhetsz.',
           },
         ],
       },
@@ -746,6 +944,10 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'Eltérés esetén: a tényleges és a könyv szerinti különbség szerepel — vissza kell ellenőrizni a befizetéseket / kiadásokat.',
+          },
+          {
+            // 2026-07-10 (S3-sugo): belső mozgás törölhető
+            text: 'A felületről rögzített belső mozgások (pl. valutaváltás) mostantól törölhetők, ha tévedésből kerültek be.',
           },
         ],
       },
@@ -848,6 +1050,10 @@ const SECTIONS: Section[] = [
           },
           {
             text: 'A ZIP-et bele a KARTOTEKA mappájába: `<root>/KARTOTEKA/<gyülekezet>/oblio-ellenorzes/befogadott/`',
+          },
+          {
+            // 2026-07-10 (S3-sugo): működő mappa-beállítás gomb
+            text: 'A „Mappa beállítása" gomb azonnal megnyitja a mappa-választót, és a rendszer megjegyzi a kiválasztott KARTOTEKA mappát — legközelebb már nem kell újra kijelölnöd (Chrome vagy Edge böngésző szükséges).',
           },
           {
             text: '„Frissítés a mappából" gomb → KARTOTEKA kibontja, párosítja az XML-eket a kiadásokkal CUI/név/összeg/dátum alapján.',

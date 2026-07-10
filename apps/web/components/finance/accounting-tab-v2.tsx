@@ -97,6 +97,7 @@ export function AccountingTabV2(props: AccountingTabV2Props) {
       {...props}
       budgetData={budgetData}
       loading={loading}
+      loadingLogoSrc="/kartoteka-icon.png"
       prevActualIncome={prevActuals.income}
       prevActualExpense={prevActuals.expense}
       onRequestUnlock={async (year, reason) => {

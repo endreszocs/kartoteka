@@ -63,9 +63,17 @@ import {
   getFinanceScopeContext,
   isYearFinalized,
   tablesFor,
+  yearValueFor,
   type FinanceScopeContext,
   type FinanceScopeTableMap,
 } from '@/lib/auth/finance-scope'
+// 2026-07-10 (S3-#4): a költségvetés-mentés SZERVER-oldalra kerül — a compat réteg
+// a supabase klienst paraméterként kapja, így a szerver-klienssel is működik.
+import {
+  saveBudgetRowsCompat,
+  saveBudgetModification as saveBudgetModificationCompat,
+  type BudgetCompatRow,
+} from '@/lib/finance/budget-compat'
 // 2026-07-10 (#4/4): a zár-először véglegesítés+beküldés (finalizeAndSubmitAccounting)
 // szerveroldalon hívja a beküldést — server action server actionből hívható.
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
@@ -112,6 +120,37 @@ async function assertYearsNotFinalizedForCreate(
   for (const year of years) {
     if (await isYearFinalized(ctx, year)) {
       return `A ${year}. évi számadás már véglegesítve van — új tétel nem rögzíthető. Először kérj javítási engedélyt az egyházmegyétől.`
+    }
+  }
+  return null
+}
+
+/**
+ * 2026-07-10 (S3-#3): create-zár a getProfileCongregation-os (CSAK gyülekezeti)
+ * utakhoz — közvetlen `bealitas.accounting_finalized` SELECT-tel, ugyanazzal a
+ * hibaüzenettel, mint az assertYearsNotFinalizedForCreate. Olyan action-ökben
+ * használjuk, ahol nincs FinanceScopeContext (saveInternalTransfer,
+ * saveFxRevaluation), de befizetes/kiadas sor jön létre.
+ */
+async function assertYearsNotFinalizedDirect(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  dates: Array<string | null | undefined>,
+): Promise<string | null> {
+  const years = new Set<number>()
+  for (const d of dates) {
+    const y = Number(String(d || '').slice(0, 4))
+    if (Number.isFinite(y) && y >= 2000) years.add(y)
+  }
+  if (years.size === 0) return null
+  const { data } = await supabase
+    .from('bealitas')
+    .select('id, accounting_finalized')
+    .eq('congregation_id', congregationId)
+    .in('id', Array.from(years).map(String))
+  for (const row of (data || []) as Array<{ id: string; accounting_finalized: boolean | null }>) {
+    if (row.accounting_finalized) {
+      return `A ${Number(row.id)}. évi számadás már véglegesítve van — új tétel nem rögzíthető. Először kérj javítási engedélyt az egyházmegyétől.`
     }
   }
   return null
@@ -229,15 +268,19 @@ function extractNumberedReceiptRows(rows: ReceiptHealthInputRow[]): NumberedRece
     .sort((a, b) => a.number - b.number)
 }
 
-function computeReceiptHealth(rows: ReceiptHealthInputRow[], nextYearRows?: ReceiptHealthInputRow[]): ReceiptHealth {
+function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: ReceiptHealthInputRow[]): ReceiptHealth {
   const numberedRows = extractNumberedReceiptRows(rows)
 
-  // 2026-07-10 (ÚJ #6): a gyülekezeti sorszámozás ÉVHATÁRON ÁT folytonos, ezért a KÖVETKEZŐ
-  // év ELSŐ (legkisebb sorszámú) nyugtája FELSŐ horgonyként szolgál: ha az nagyobb az idei
-  // legnagyobbnál, a köztes számok az IDEI év végéről hiányoznak. EGYOLDALÚ (csak felső)
-  // horgony — így az évhatáron átlógó hézag csak a KORÁBBI év nézetében jelenik meg, nem duplán.
-  const nextYearNumbered = nextYearRows?.length ? extractNumberedReceiptRows(nextYearRows) : []
-  const nextAnchor: NumberedReceiptRow | null = nextYearNumbered[0] ?? null
+  // 2026-07-10 (#7 — irányváltás): a gyülekezeti sorszámozás ÉVHATÁRON ÁT folytonos,
+  // ezért az ELŐZŐ év UTOLSÓ (legnagyobb sorszámú) nyugtája ALSÓ horgonyként szolgál:
+  // ha az idei legkisebb sorszám nagyobb, mint a horgony+1, a köztes számok az ELŐZŐ
+  // év végéről MARADTAK EL — és a FOLYÓ év figyelője hozza át őket (a pótlásuk is itt,
+  // a folyó évben történik a Decont-tal). EGYOLDALÚ (csak alsó) horgony — a hézag nem
+  // jelenik meg duplán. (A korábbi ÚJ #6 felső horgonyt használt — az előző év nézetében
+  // mutatta a hézagot —, de a felhasználó a folyó évben várja, jogosan.)
+  const prevYearNumbered = prevYearRows?.length ? extractNumberedReceiptRows(prevYearRows) : []
+  const prevAnchor: NumberedReceiptRow | null =
+    prevYearNumbered.length > 0 ? prevYearNumbered[prevYearNumbered.length - 1] : null
 
   if (numberedRows.length === 0) {
     return {
@@ -278,25 +321,26 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], nextYearRows?: Rece
   const lowestReceiptNumber = numberedRows[0]?.number ?? null
   const highestReceiptNumber = numberedRows[numberedRows.length - 1]?.number ?? null
   if (lowestReceiptNumber != null && highestReceiptNumber != null) {
-    // 2026-07-10 (ÚJ #6): felső korlát — ha a következő évi horgony sorszáma NAGYOBB az idei
-    // legnagyobbnál, a hiányzó-keresés a horgony ELŐTTI számig terjed (évhatáron átlógó hézag).
-    // Ha a horgony nem nagyobb (pl. újrainduló számozás) vagy nincs, a viselkedés VÁLTOZATLAN.
-    // Az ALSÓ korlát változatlan (az azt megelőző számok az ELŐZŐ évből valók).
-    const anchorExtends = nextAnchor != null && nextAnchor.number > highestReceiptNumber
-    const upperBound = anchorExtends ? nextAnchor.number - 1 : highestReceiptNumber
+    // 2026-07-10 (#7): ALSÓ korlát — ha az előző évi horgony (utolsó nyugta) sorszáma+1
+    // KISEBB az idei legkisebbnél, a hiányzó-keresés a horgony UTÁNI számtól indul
+    // (évhatáron elmaradt nyugták — a FOLYÓ év nézetében). Ha a horgony nem kisebb
+    // (pl. évente újrainduló számozás) vagy nincs, a viselkedés VÁLTOZATLAN.
+    // A FELSŐ korlát az idei legnagyobb (a jövő évi számokat nem találgatjuk).
+    const anchorExtendsDown = prevAnchor != null && prevAnchor.number + 1 < lowestReceiptNumber
+    const lowerBound = anchorExtendsDown ? prevAnchor.number + 1 : lowestReceiptNumber
     const existing = new Set(numberedRows.map(row => row.number))
     // #Endre (issue 2): a hiányzó gyülekezeti Irat sz. KERÜLETI számát a legközelebbi ismert
     // ALSÓ és FELSŐ szomszéd kerületi számai közt lineárisan interpoláljuk (a két sorozat éven
     // belül együtt lép). Vezető-nulla szélesség = a szomszédok kerületi nyers-szélességének maximuma.
-    // 2026-07-10 (ÚJ #6): a keresőtérbe a következő évi horgonyt is bevesszük, hogy az évhatáron
-    // átlógó hiányzóknak is legyen FELSŐ interpolációs szomszédja.
-    const neighborRows = anchorExtends ? [...numberedRows, nextAnchor] : numberedRows
+    // 2026-07-10 (#7): a keresőtérbe az előző évi horgonyt is bevesszük, hogy az évhatáron
+    // elmaradt hiányzóknak is legyen ALSÓ interpolációs szomszédja.
+    const neighborRows = anchorExtendsDown ? [prevAnchor, ...numberedRows] : numberedRows
     let prevIdx = 0
-    for (let receipt = lowestReceiptNumber; receipt <= upperBound; receipt += 1) {
+    for (let receipt = lowerBound; receipt <= highestReceiptNumber; receipt += 1) {
       if (existing.has(receipt)) continue
       missingNumbers.push(receipt)
-      while (prevIdx + 1 < numberedRows.length && numberedRows[prevIdx + 1].number < receipt) prevIdx += 1
-      const prev = numberedRows[prevIdx]?.number < receipt ? numberedRows[prevIdx] : undefined
+      while (prevIdx + 1 < neighborRows.length && neighborRows[prevIdx + 1].number < receipt) prevIdx += 1
+      const prev = neighborRows[prevIdx]?.number < receipt ? neighborRows[prevIdx] : undefined
       const next = neighborRows.find(r => r.number > receipt)
       let keruletiSz: string | null = null
       if (prev?.keruletiNum != null && next?.keruletiNum != null && next.number !== prev.number) {
@@ -789,8 +833,8 @@ export async function initFinance(year: number) {
     bevRes, kiaRes, prevBevRes, prevKiaRes,
     bealitasAllRes, membersRes, debtPaymentsRes, exemptionsRes, familiesRes, discountsRes,
     transferRes, congRes,
-    // 2026-07-10 (ÚJ #6): a TÖMB VÉGÉN, hogy a meglévő indexek ne csússzanak el!
-    nextBevRes,
+    // 2026-07-10 (ÚJ #6, #7-tel javítva): a TÖMB VÉGÉN, hogy a meglévő indexek ne csússzanak el!
+    prevAnchorBevRes,
   ] = await Promise.all([
     supabase.from('bealitas').select('*').eq('id', String(year)).eq('congregation_id', congregationId).maybeSingle(),
     // 2026-04-18 JAVÍTÁS (Endre diagnosztikai SQL-je alapján):
@@ -814,8 +858,10 @@ export async function initFinance(year: number) {
     supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
-    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    // 2026-07-10 (S3 audit KRITIKUS #1): a carryover-lánc a stornózott tételeket
+    // is kihagyja — a calculateBalances-szel azonos szemantika.
+    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     supabase
       .from('szemely')
@@ -853,15 +899,17 @@ export async function initFinance(year: number) {
       .select('nev_hu, nev_ro, name, tartozas_szamitas_mod')
       .eq('id', congregationId)
       .single(),
-    // 2026-07-10 (ÚJ #6): a KÖVETKEZŐ év befizetései a nyugtafigyelő évhatár-horgonyához
-    // (a gyülekezeti sorszámozás évhatáron át folytonos — a következő év első nyugtája a
-    // felső horgony). Szűkített mezőlista: csak a computeReceiptHealth bemenete kell.
+    // 2026-07-10 (#7 — irányváltás): az ELŐZŐ év befizetései a nyugtafigyelő
+    // évhatár-horgonyához. A gyülekezeti sorszámozás évhatáron át folytonos; az
+    // előző év UTOLSÓ nyugtája az ALSÓ horgony — az évhatáron elmaradt nyugtákat
+    // a FOLYÓ év nézete hozza át (ott is pótolja őket a pénztáros a Decont-tal).
+    // Szűkített mezőlista: csak a computeReceiptHealth bemenete kell.
     supabase.from('befizetes')
       .select('datum, nyugta, iratszam, irattipus, deleted, belso_mozgas_xkey, bankszamla_id')
       .eq('congregation_id', congregationId)
       .eq('deleted', false)
-      .gte('datum', `${year + 1}-01-01`)
-      .lte('datum', `${year + 1}-12-31`),
+      .gte('datum', `${year - 1}-01-01`)
+      .lte('datum', `${year - 1}-12-31`),
   ])
 
   let internalTransfers: InternalTransferRow[] = []
@@ -1167,10 +1215,11 @@ export async function initFinance(year: number) {
       return a.name.localeCompare(b.name, 'hu')
     })
 
-  // 2026-07-10 (ÚJ #6): a következő évi sorok (nextBevRes) az évhatár-horgonyhoz.
+  // 2026-07-10 (#7): az előző évi sorok az évhatár ALSÓ horgonyához — az előző év
+  // végén elmaradt nyugták a FOLYÓ év figyelőjében jelennek meg.
   const receiptHealth = computeReceiptHealth(
     (bevRes.data || []) as BefitetesRow[],
-    (nextBevRes.data || []) as ReceiptHealthInputRow[],
+    (prevAnchorBevRes.data || []) as ReceiptHealthInputRow[],
   )
 
   return {
@@ -1747,6 +1796,9 @@ export async function getNextReceiptNumber(year: number): Promise<number> {
     .select('iratszam')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    // 2026-07-10 (S3-#12): a stornózott sorok NEM számítanak a MAX-ba — a stornó
+    // után a szám újra kiadható. Or-szűrés, mert a régi sorokban stornozott IS NULL.
+    .or('stornozott.eq.false,stornozott.is.null')
     .is('bankszamla_id', null) // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
@@ -1803,10 +1855,14 @@ export async function getNextReceiptNumbers(
   // '%észpénz%'` szűrő kihagyott. Emiatt nem találta a Chitanță auto-számozás az
   // importból hozott utolsó kerületi/gyülekezeti számot. (Manuális-only gyülekezetnél
   // a halmaz változatlan: a kézi készpénz 'Készpénz' = bankszamla_id NULL.)
+  // 2026-07-10 (S3-#12): mindhárom lekérdezésből kizárjuk a stornózott sorokat —
+  // a stornó után a szám újra kiadható, ne tolja feljebb a MAX-ot. Or-szűrés,
+  // mert a régi (storno-funkció előtti) sorokban a stornozott oszlop NULL.
   let allQ = supabase.from(T.befizetes)
     .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    .or('stornozott.eq.false,stornozott.is.null')
     .is('bankszamla_id', null)
   if (scope.scope === 'congregation') allQ = allQ.is('belso_mozgas_xkey', null)
 
@@ -1817,6 +1873,7 @@ export async function getNextReceiptNumbers(
     .select('iratszam, nyugta')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    .or('stornozott.eq.false,stornozott.is.null') // 2026-07-10 (S3-#12)
     .is('bankszamla_id', null)
     .gte('datum', `${year}-01-01`)
     .lte('datum', `${year}-12-31`)
@@ -1825,6 +1882,7 @@ export async function getNextReceiptNumbers(
     .select('iratszam, nyugta, datum')
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    .or('stornozott.eq.false,stornozott.is.null') // 2026-07-10 (S3-#12)
     .is('bankszamla_id', null)
     .lt('datum', `${year}-01-01`)
     .order('datum', { ascending: false })
@@ -2409,16 +2467,27 @@ export async function finalizeAccounting(
   const categoryColBef = T.categoryColBefizetes
   const categoryColKia = T.categoryColKiadas
 
-  const { data: incomeData } = await supabase.from(T.befizetes)
+  // 2026-07-10 (S3 audit KRITIKUS #2): a véglegesített/beküldött snapshotból a
+  // STORNÓZOTT és (congregation scope-ban) a BELSŐ MOZGÁS (xkey-s) tétel is
+  // kimarad — eddig csak a deleted=false szűrt, így a hivatalos záró-adat
+  // felfújható volt. FIGYELEM: a diocese_befizetes/diocese_kiadas táblában
+  // NINCS belso_mozgas_xkey oszlop — az xkey-szűrő csak congregation-scope!
+  let incomeQ = supabase.from(T.befizetes)
     .select(`${categoryColBef}, osszeg`)
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    .eq('stornozott', false)
     .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)
-  const { data: expenseData } = await supabase.from(T.kiadas)
+  if (scope.scope === 'congregation') incomeQ = incomeQ.is('belso_mozgas_xkey', null)
+  const { data: incomeData } = await incomeQ
+  let expenseQ = supabase.from(T.kiadas)
     .select(`${categoryColKia}, osszeg`)
     .eq(T.scopeCol, scope.scopeId)
     .eq('deleted', false)
+    .eq('stornozott', false)
     .gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`)
+  if (scope.scope === 'congregation') expenseQ = expenseQ.is('belso_mozgas_xkey', null)
+  const { data: expenseData } = await expenseQ
 
   const snapshot: Record<string, unknown> = {
     income: {},
@@ -2526,6 +2595,26 @@ export async function finalizeAndSubmitAccounting(
   },
   snapshot: Record<string, unknown>,
 ): Promise<{ success?: boolean; error?: string }> {
+  // 2026-07-10 (S3-#10): a finalize ELŐTT kiolvassuk a bealitas.szamadas_zaro_adatok
+  // RÉGI értékét — a finalizeAccounting felülírja, és a korábbi rollback csak a
+  // flaget vonta vissza, a felülírt záró-adatok ottmaradtak (adat-korrupció egy
+  // sikertelen beküldés után is). A scope-ot itt EGYSZER kérjük le (a hibaágban
+  // korábban másodszor is lekértük).
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  let previousZaroAdatok: { value: unknown } | null = null
+  if (scope.scope === 'congregation') {
+    const { data: prevRow, error: prevErr } = await scope.supabase
+      .from('bealitas')
+      .select('szamadas_zaro_adatok')
+      .eq('id', String(year))
+      .eq('congregation_id', scope.scopeId)
+      .maybeSingle()
+    if (!prevErr && prevRow) {
+      previousZaroAdatok = { value: (prevRow as Record<string, unknown>).szamadas_zaro_adatok ?? null }
+    }
+  }
+
   // 1) Zár + lokális (kanonikus) snapshot
   const fin = await finalizeAccounting(year, meta, snapshot)
   if (fin.error) return { error: `Véglegesítés sikertelen: ${fin.error}` }
@@ -2533,12 +2622,16 @@ export async function finalizeAndSubmitAccounting(
   // 2) Beküldés az egyházmegyének
   const sub = await submitDocument('szamadas', year, snapshot)
   if (sub.error) {
-    // Rollback: a zár visszavonása, hogy ne maradjon zárt-de-nem-beküldött állapot
-    const scope = await getFinanceScope()
-    if (scope && scope.scope === 'congregation') {
+    // Rollback: a zár visszavonása, hogy ne maradjon zárt-de-nem-beküldött állapot.
+    // 2026-07-10 (S3-#10): a régi szamadas_zaro_adatok-ot IS visszaállítjuk (ha a
+    // finalize előtti kiolvasás sikerült — különben csak a flaget, mint eddig).
+    if (scope.scope === 'congregation') {
       await scope.supabase
         .from('bealitas')
-        .update({ accounting_finalized: false })
+        .update({
+          accounting_finalized: false,
+          ...(previousZaroAdatok ? { szamadas_zaro_adatok: previousZaroAdatok.value } : {}),
+        })
         .eq('id', String(year))
         .eq('congregation_id', scope.scopeId)
       revalidatePath('/penzugy')
@@ -2600,6 +2693,80 @@ export async function finalizeBudgetModification(year: number, modNumber: 1 | 2 
 
   if (error) return { error: `Hiba: ${error.message}` }
 
+  revalidatePath('/penzugy')
+  return { success: true }
+}
+
+// ── 2026-07-10 (S3-#4): költségvetés-mentés SZERVER-oldali zárral ────────────
+// A webes budget-tab eddig KLIENS-oldali supabase-szel írta a koltsegvetes
+// táblát (saveBudgetRowsCompat/saveBudgetModification + createClient), így a
+// budget_finalized / budget_modN_finalized zár csak UI-dísz volt — konzolból
+// megkerülhető. Mostantól a mentés szerver-akció: getFinanceScope + a bealitas
+// zár-flagek ellenőrzése UTÁN hívja a compat save-eket (a compat réteg a
+// supabase klienst paraméterként kapja, ezért szerver-klienssel is megy).
+// A loadBudgetRows olvasás kliens-oldali maradhat (read-only).
+
+export async function saveBudgetRowsAction(
+  year: number,
+  rows: BudgetCompatRow[],
+): Promise<{ success?: boolean; error?: string }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { supabase, T } = scope
+
+  // Zár-ellenőrzés: véglegesített költségvetés nem írható felül (scope-aware flag).
+  const { data: lockRow } = await supabase
+    .from(T.bealitas)
+    .select(T.budgetFinalizedCol)
+    .eq(T.scopeCol, scope.scopeId)
+    .eq(T.yearColBealitas, yearValueFor(scope.scope, year))
+    .maybeSingle()
+  if (lockRow && Boolean((lockRow as Record<string, unknown>)[T.budgetFinalizedCol])) {
+    return {
+      error: `A ${year}. évi költségvetés már véglegesítve van — a mentés nem engedélyezett. Először kérj feloldást az egyházmegyétől.`,
+    }
+  }
+
+  try {
+    await saveBudgetRowsCompat(supabase, year, scope.scopeId, rows, scope.scope)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Mentési hiba' }
+  }
+  revalidatePath('/penzugy')
+  return { success: true }
+}
+
+export async function saveBudgetModificationAction(
+  year: number,
+  modNum: 1 | 2 | 3,
+  rows: Array<{ szamadasicelid: string; value: number }>,
+): Promise<{ success?: boolean; error?: string }> {
+  const scope = await getFinanceScope()
+  if (!scope) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (scope.scope !== 'congregation') {
+    return { error: 'A költségvetés-módosítás egyházmegyei szinten nem támogatott.' }
+  }
+  const { supabase } = scope
+
+  // Zár-ellenőrzés: a MÁR VÉGLEGESÍTETT módosítási kör nem írható felül.
+  const flagKey = `budget_mod${modNum}_finalized`
+  const { data: lockRow } = await supabase
+    .from('bealitas')
+    .select(flagKey)
+    .eq('id', String(year))
+    .eq('congregation_id', scope.scopeId)
+    .maybeSingle()
+  if (lockRow && Boolean((lockRow as unknown as Record<string, unknown>)[flagKey])) {
+    return {
+      error: `A ${year}. évi ${modNum}. költségvetés-módosítás már véglegesítve van — a mentés nem engedélyezett.`,
+    }
+  }
+
+  try {
+    await saveBudgetModificationCompat(supabase, year, scope.scopeId, modNum, rows)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Mentési hiba' }
+  }
   revalidatePath('/penzugy')
   return { success: true }
 }
@@ -2767,6 +2934,13 @@ export async function saveInternalTransfer(data: {
   if (!data.datum || !data.forras || !data.cel) return { error: 'Hiányos adatok.' }
   if (data.forras === data.cel) return { error: 'A forrás és a cél nem lehet ugyanaz.' }
   if (data.osszeg <= 0) return { error: 'Az összeg 0-nál nagyobb kell legyen.' }
+
+  // 2026-07-10 (S3-#3): véglegesített évbe belső mozgás sem rögzíthető — a
+  // kassza↔bank pár KÉT könyvelt sort (kiadas+befizetes) hoz létre, a
+  // belsomozgas-ág pedig az egyenlegekbe számít. A pár mindkét oldala a
+  // data.datum-ra könyvelődik, ezért egyetlen dátum-ellenőrzés elég.
+  const transferLockError = await assertYearsNotFinalizedDirect(supabase, congregationId, [data.datum])
+  if (transferLockError) return { error: transferLockError }
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.id) return { error: 'Nincs bejelentkezett felhasználó.' }
@@ -3141,6 +3315,11 @@ export async function saveFxRevaluation(raw: FxRevaluationInput) {
 
   const d = parsed.data
 
+  // 2026-07-10 (S3-#3): az FX-átértékelés nyereség/veszteség KÖNYVELT sort
+  // (befizetes/kiadas, dátuma az év vége) hoz létre — véglegesített évre tilos.
+  const fxLockError = await assertYearsNotFinalizedDirect(supabase, congregationId, [`${d.ev}-12-31`])
+  if (fxLockError) return { error: fxLockError }
+
   // 2) Bankszámla ellenőrzése
   const { data: bank, error: bankError } = await supabase
     .from('bankszamlak')
@@ -3410,12 +3589,14 @@ export async function getPreviousYearActuals(year: number): Promise<{
     const { supabase, congregationId } = await getProfileCongregation()
     const prevYear = year - 1
 
+    // 2026-07-10 (S3 audit KRITIKUS #1): stornózott tétel a referencia-ténybe sem számít.
     const [bevRes, kiaRes, bevCelRes, kiaCelRes] = await Promise.all([
       supabase
         .from('befizetes')
         .select('id_befizetescel, osszeg')
         .eq('congregation_id', congregationId)
         .eq('deleted', false)
+        .eq('stornozott', false)
         .gte('datum', `${prevYear}-01-01`)
         .lte('datum', `${prevYear}-12-31`),
       supabase
@@ -3423,6 +3604,7 @@ export async function getPreviousYearActuals(year: number): Promise<{
         .select('id_kiadascel, osszeg')
         .eq('congregation_id', congregationId)
         .eq('deleted', false)
+        .eq('stornozott', false)
         .gte('datum', `${prevYear}-01-01`)
         .lte('datum', `${prevYear}-12-31`),
       supabase.from('befizetescel').select('id, id_szamadasicel'),

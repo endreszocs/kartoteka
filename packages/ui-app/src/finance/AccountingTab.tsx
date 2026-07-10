@@ -26,6 +26,7 @@ import { Scale, Send, TrendingDown, TrendingUp } from 'lucide-react'
 
 import { Badge, Button } from '@kartoteka/ui'
 
+import { FinanceLoadingState } from './FinanceLoadingState'
 import { formatCurrency, sortCellsHierarchically } from './helpers'
 import type { BealitasRow, BefitetesRow, KiadasRow, SzamadasiCel } from './types'
 
@@ -57,6 +58,9 @@ export interface AccountingTabProps {
    */
   carryoverCash?: number
   carryoverBank?: number
+
+  /** 2026-07-10 (S2 #9): a betöltő-állapot logója (web: '/kartoteka-icon.png'). */
+  loadingLogoSrc?: string
 
   /**
    * 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — halvány
@@ -115,6 +119,7 @@ export function AccountingTab({
   loading = false,
   carryoverCash,
   carryoverBank,
+  loadingLogoSrc,
   prevActualIncome,
   prevActualExpense,
   onRequestUnlock,
@@ -124,9 +129,13 @@ export function AccountingTab({
 }: AccountingTabProps) {
   const [finalizeWizardOpen, setFinalizeWizardOpen] = useState(false)
 
+  // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott (érvénytelenített) tétel a
+  // számadás tény-összegeibe SEM számíthat bele — eddig felfújta a totálokat és
+  // a beküldött snapshotot is (a wizard summary innen táplálkozik).
   const actualIncome = useMemo(() => {
     const map: Record<string, number> = {}
     incomeRecords.forEach((row) => {
+      if (row.stornozott) return
       const code = bevCelMap[row.id_befizetescel || 0]
       if (code) map[code] = (map[code] || 0) + row.osszeg
     })
@@ -136,6 +145,7 @@ export function AccountingTab({
   const actualExpense = useMemo(() => {
     const map: Record<string, number> = {}
     expenseRecords.forEach((row) => {
+      if (row.stornozott) return
       const code = kiaCelMap[row.id_kiadascel || 0]
       if (code) map[code] = (map[code] || 0) + row.osszeg
     })
@@ -198,9 +208,8 @@ export function AccountingTab({
   const actualBalance = totalActualIncome - totalActualExpense
 
   if (loading) {
-    return (
-      <div className="py-12 text-center text-sm text-slate-400">Számadás betöltése...</div>
-    )
+    // 2026-07-10 (S2 #9): állapotsávos, logós betöltő.
+    return <FinanceLoadingState label="Számadás betöltése…" logoSrc={loadingLogoSrc} />
   }
 
   async function handleRequestUnlock() {
@@ -240,43 +249,8 @@ export function AccountingTab({
 
   return (
     <div className="space-y-4">
-      {/* 2026-07-10 (#2): NYITÓ egyenlegek — hivatalos EREK-minta (1–3. sor).
-          Display-only: nem része a summary-nek / beküldött snapshotnak. */}
-      {carryoverCash != null && carryoverBank != null && (
-        <div className="card-raised border-slate-100 bg-slate-50/60 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Nyitó egyenlegek — automatikus, nem szerkeszthető
-          </p>
-          <div className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-            <div className="flex items-baseline justify-between gap-3 sm:col-span-3 sm:justify-start">
-              <span className="text-slate-500">
-                Múlt évi pénztármaradvány{' '}
-                <span className="italic text-slate-400">(Disponibil din anul precedent)</span>
-              </span>
-              <span className="font-semibold text-slate-600">
-                {formatCurrency(carryoverCash + carryoverBank)} RON
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <span className="text-slate-500">
-                Készpénz <span className="italic text-slate-400">(Casa)</span>
-              </span>
-              <span className="font-medium text-slate-500">
-                {formatCurrency(carryoverCash)} RON
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <span className="text-slate-500">
-                Banki egyenleg <span className="italic text-slate-400">(Banca)</span>
-              </span>
-              <span className="font-medium text-slate-500">
-                {formatCurrency(carryoverBank)} RON
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* 2026-07-10 (S2 #10): a NYITÓ egyenlegek a hivatalos minta szerint a
+          Bevételek tábla 1–3. sorai (lásd lent, openingRows) — a külön kártya megszűnt. */}
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="card-raised p-5">
           <div className="flex items-center gap-2">
@@ -370,6 +344,20 @@ export function AccountingTab({
           actualData={actualIncome}
           prevActualData={prevActualIncome}
           positiveClassName="text-emerald-600"
+          openingRows={
+            carryoverCash != null && carryoverBank != null
+              ? [
+                  {
+                    nr: '1',
+                    nev: 'Múlt évi pénztármaradvány (Disponibil din anul precedent)',
+                    value: carryoverCash + carryoverBank,
+                    group: true,
+                  },
+                  { nr: '2', nev: 'Készpénz egyenleg (Casa)', value: carryoverCash, group: false },
+                  { nr: '3', nev: 'Banki egyenleg (Banca)', value: carryoverBank, group: false },
+                ]
+              : undefined
+          }
         />
         <ComparisonTable
           title="Kiadások - terv és tény"
@@ -506,6 +494,7 @@ function ComparisonTable({
   actualData,
   prevActualData,
   positiveClassName,
+  openingRows,
 }: {
   title: string
   icon: ReactNode
@@ -516,6 +505,9 @@ function ComparisonTable({
   /** 2026-07-10 (#2): előző évi tény kódonként — halvány referencia-oszlop, ha van. */
   prevActualData?: Record<string, number>
   positiveClassName: string
+  /** 2026-07-10 (S2 #10): a hivatalos nyomtatvány 1–3. NYITÓ sora a tábla élén
+   *  (Disponibil / Casa / Banca) — automatikus, nem szerkeszthető. */
+  openingRows?: Array<{ nr: string; nev: string; value: number; group: boolean }>
 }) {
   const showPrevYear = prevActualData != null
   return (
@@ -541,6 +533,28 @@ function ComparisonTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {/* 2026-07-10 (S2 #10): hivatalos NYITÓ sorok (1–3.) a tábla élén — a
+                nyomtatványon a Prevederi ÉS az Executie is a nyitó értéket hordozza. */}
+            {openingRows?.map((row) => (
+              <tr
+                key={`opening-${row.nr}`}
+                className={row.group ? 'bg-sky-50/60 font-semibold' : 'bg-sky-50/30'}
+                title="Automatikus nyitó egyenleg — az előző évi záróból, nem szerkeszthető"
+              >
+                <td className="p-2 text-xs text-slate-400">{row.nr}</td>
+                <td
+                  className={`p-2 ${
+                    row.group ? 'text-slate-700' : 'pl-6 text-xs text-slate-600'
+                  }`}
+                >
+                  {row.nev}
+                </td>
+                {showPrevYear && <td className="p-2 text-right text-xs text-slate-300">–</td>}
+                <td className="p-2 text-right text-slate-600">{formatCurrency(row.value)}</td>
+                <td className="p-2 text-right text-slate-600">{formatCurrency(row.value)}</td>
+                <td className="p-2 text-right text-xs text-slate-300">–</td>
+              </tr>
+            ))}
             {cells.map((cell) => {
               const isGroup = cell.id.split('.').length === 1
               const budget = isGroup

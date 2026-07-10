@@ -143,7 +143,10 @@ function getDescription(row: BefitetesRow | KiadasRow, bevCelMap: Record<number,
   const code = getCategoryCode(row, bevCelMap, kiaCelMap)
   const cel = cellek.find((c) => c.kod === code)
   const name = 'forrasa' in row ? (row as BefitetesRow).forrasa : ('kedvezmenyzett' in row ? (row as KiadasRow).kedvezmenyzett || (row as KiadasRow).atvevo : null)
-  const parts = [name, cel?.nev].filter(Boolean)
+  // 2026-07-10 (S3 #1c): a hivatalos ROMÁN nyomtatványokon (Registru Casa/Banca/
+  // Jurnal) a jogcím ROMÁN neve az elsődleges (pl. „Contribuţia anuală a
+  // credincioşilor" az „Egyházfenntartói járulék" helyett); magyar csak fallback.
+  const parts = [name, cel?.nevro || cel?.nev].filter(Boolean)
   return parts.join(' — ')
 }
 
@@ -225,13 +228,16 @@ export interface FinanceReportData {
 }
 
 
-function filterByMonth<T extends { datum: string; deleted: boolean }>(
+function filterByMonth<T extends { datum: string; deleted: boolean; stornozott?: boolean }>(
   rows: T[],
   year: number,
   month: number,
 ): T[] {
   const prefix = `${year}-${String(month).padStart(2, '0')}`
-  return rows.filter((r) => !r.deleted && (r.datum || '').startsWith(prefix))
+  // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott tétel a hivatalos
+  // regiszterekben (Registru Casa/Banca/Jurnal) SEM szerepelhet — a stornó
+  // a tételt érvényteleníti, a nyomtatott naplóból is ki kell maradnia.
+  return rows.filter((r) => !r.deleted && !r.stornozott && (r.datum || '').startsWith(prefix))
     .sort((a, b) => (a.datum || '').localeCompare(b.datum || ''))
 }
 
@@ -311,6 +317,8 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
     balance += r.income - r.expense
     totalInc += r.income
     totalExp += r.expense
+    // 2026-07-10 (S3 #1b): a "Simb. cont." (költségvetési szám) oszlop ELTÁVOLÍTVA
+    // a felhasználó kérésére — a hivatalos regiszteren nem szükséges.
     tbody += `<tr>
       <td class="text-center">${i + 1}</td>
       <td class="text-center">${r.date}</td>
@@ -321,7 +329,6 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
       <td class="text-right">${r.income ? fmtNum(r.income) : ''}</td>
       <td class="text-right">${r.expense ? fmtNum(r.expense) : ''}</td>
       <td class="text-right">${fmtNum(balance)}</td>
-      <td class="text-center">${esc(r.code)}</td>
     </tr>`
   })
 
@@ -334,14 +341,14 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
     </div>
     <table>
       <thead>
-        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="3">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
+        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="3">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th></tr>
         <tr><th>Fel</th><th>Nr. ker.</th><th>Nr. gyül.</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
       </thead>
       <tbody>
-        <tr class="carry"><td colspan="6" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
+        <tr class="carry"><td colspan="6" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td></tr>
         ${tbody}
-        <tr class="totals"><td colspan="6" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
+        <tr class="totals"><td colspan="6" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td></tr>
       </tbody>
     </table>
     <div class="footer">
@@ -392,7 +399,8 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
     balance += r.income - r.expense
     totalInc += r.income
     totalExp += r.expense
-    tbody += `<tr><td class="text-center">${i + 1}</td><td class="text-center">${r.date}</td><td class="text-center">${esc(r.docType)}</td><td class="text-center">${esc(r.docNum)}</td><td>${esc(r.desc)}</td><td class="text-right">${r.income ? fmtNum(r.income) : ''}</td><td class="text-right">${r.expense ? fmtNum(r.expense) : ''}</td><td class="text-right">${fmtNum(balance)}</td><td class="text-center">${esc(r.code)}</td></tr>`
+    // 2026-07-10 (S3 #1b): "Simb. cont." oszlop eltávolítva.
+    tbody += `<tr><td class="text-center">${i + 1}</td><td class="text-center">${r.date}</td><td class="text-center">${esc(r.docType)}</td><td class="text-center">${esc(r.docNum)}</td><td>${esc(r.desc)}</td><td class="text-right">${r.income ? fmtNum(r.income) : ''}</td><td class="text-right">${r.expense ? fmtNum(r.expense) : ''}</td><td class="text-right">${fmtNum(balance)}</td></tr>`
   })
 
   const bankLabel = bank ? `${bank.bank_neve}${bank.iban ? ` (${bank.iban})` : ''}` : 'Bank'
@@ -405,14 +413,14 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
     </div>
     <table>
       <thead>
-        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th><th rowspan="2">Simb.<br>cont.</th></tr>
+        <tr><th rowspan="2">Nr<br>crt</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Sume</th><th rowspan="2">Sold zi</th></tr>
         <tr><th>Fel</th><th>Numar</th><th>Incasate</th><th>Platite</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td></tr>
       </thead>
       <tbody>
-        <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td><td></td></tr>
+        <tr class="carry"><td colspan="5" class="text-right">Sold luna precedenta:</td><td class="text-right">${fmtNum(carry)}</td><td></td><td class="text-right">${fmtNum(carry)}</td></tr>
         ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td><td></td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">TOTAL LUNA</td><td class="text-right">${fmtNum(totalInc)}</td><td class="text-right">${fmtNum(totalExp)}</td><td class="text-right">${fmtNum(balance)}</td></tr>
       </tbody>
     </table>
     <div class="footer">
@@ -480,6 +488,7 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
   let tbody = ''
   rows.forEach((r, i) => {
     totCI += r.cashInc; totBI += r.bankInc; totCE += r.cashExp; totBE += r.bankExp
+    // 2026-07-10 (S3 #1b): "Simb. cont." oszlop eltávolítva.
     tbody += `<tr>
       <td class="text-center">${prevRowCount + i + 1}</td>
       <td class="text-center">${r.date}</td>
@@ -490,7 +499,6 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
       <td class="text-right">${r.bankInc ? fmtNum(r.bankInc) : ''}</td>
       <td class="text-right">${r.cashExp ? fmtNum(r.cashExp) : ''}</td>
       <td class="text-right">${r.bankExp ? fmtNum(r.bankExp) : ''}</td>
-      <td class="text-center">${esc(r.code)}</td>
     </tr>`
   })
 
@@ -522,16 +530,16 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     </div>
     <table>
       <thead>
-        <tr><th rowspan="2">Nr.<br>crt.</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Incasari</th><th colspan="2">Plati</th><th rowspan="2">Simb.<br>cont.</th></tr>
+        <tr><th rowspan="2">Nr.<br>crt.</th><th rowspan="2">Data<br>inreg.</th><th colspan="2">Document</th><th rowspan="2">Explicatii</th><th colspan="2">Incasari</th><th colspan="2">Plati</th></tr>
         <tr><th>Fel</th><th>Numar</th><th>Numerar</th><th>Banca</th><th>Numerar</th><th>Banca</th></tr>
-        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
+        <tr style="font-size:8px"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
       </thead>
       <tbody>
-        <tr class="carry"><td colspan="5" class="text-right">Report din luna precedenta:</td><td class="text-right">${fmtNum(prevCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(prevBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(prevCE)}</td><td class="text-right">${fmtNum(prevBE)}</td><td></td></tr>
+        <tr class="carry"><td colspan="5" class="text-right">Report din luna precedenta:</td><td class="text-right">${fmtNum(prevCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(prevBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(prevCE)}</td><td class="text-right">${fmtNum(prevBE)}</td></tr>
         ${tbody}
-        <tr class="totals"><td colspan="5" class="text-right">Total luna</td><td class="text-right">${fmtNum(totCI)}</td><td class="text-right">${fmtNum(totBI)}</td><td class="text-right">${fmtNum(totCE)}</td><td class="text-right">${fmtNum(totBE)}</td><td></td></tr>
-        <tr class="totals"><td colspan="5" class="text-right">Total rulaj</td><td class="text-right">${fmtNum(rulCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(rulBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(rulCE)}</td><td class="text-right">${fmtNum(rulBE)}</td><td></td></tr>
-        <tr class="totals"><td colspan="5" class="text-right">Sold numerar (6-8) / Sold banca (7-9)</td><td class="text-right">${fmtNum(soldCash)}</td><td class="text-right">${fmtNum(soldBank)}</td><td colspan="3"></td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">Total luna</td><td class="text-right">${fmtNum(totCI)}</td><td class="text-right">${fmtNum(totBI)}</td><td class="text-right">${fmtNum(totCE)}</td><td class="text-right">${fmtNum(totBE)}</td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">Total rulaj</td><td class="text-right">${fmtNum(rulCI + data.carryoverCash)}</td><td class="text-right">${fmtNum(rulBI + data.carryoverBank)}</td><td class="text-right">${fmtNum(rulCE)}</td><td class="text-right">${fmtNum(rulBE)}</td></tr>
+        <tr class="totals"><td colspan="5" class="text-right">Sold numerar (6-8) / Sold banca (7-9)</td><td class="text-right">${fmtNum(soldCash)}</td><td class="text-right">${fmtNum(soldBank)}</td><td colspan="2"></td></tr>
       </tbody>
     </table>
     <div class="footer">
@@ -746,6 +754,11 @@ function buildNyugtatombKimutatas(data: FinanceReportData, year: number): Financ
 // CSOPORTNAPLÓ — jogcímenkénti (számadási cél) tétellista, román + magyar
 // ---------------------------------------------------------------------------
 
+// 2026-07-10 (S3 #1e): a fel nem oldott jogcímű tételek gyűjtőcsoportjának
+// szentinel-kódja — sosem ütközik valódi számadásicél-kóddal, ezért a
+// jogcím-szűrő (categoryKod) automatikusan kihagyja.
+const CSOPORTNAPLO_BESOROLATLAN_KOD = '—'
+
 /** Számadásicél-kódok hierarchikus rendezése (101.01 < 101.02 < 104.04). */
 function sortCells(a: string, b: string): number {
   const pa = a.split('.').map(Number)
@@ -763,13 +776,16 @@ function sortCells(a: string, b: string): number {
  * tételek listája, jogcímenkénti részösszeggel és végösszeggel. Bevétel + kiadás
  * külön szekcióban, román + magyar felirattal. Az időszak: a kiválasztott hónap,
  * vagy (ha nincs) a TELJES év (NEM hónaponként bontva — jogcím szerint összegyűjtve).
- * A belső mozgások (3xx/4xx kód vagy belső-mozgás kulcs) kimaradnak.
+ * A belső mozgások (3xx/4xx/100-as kód vagy belső-mozgás kulcs) kimaradnak.
+ * 2026-07-10 (S3 #1e): a jogcímre fel nem oldható tételek nem vesznek el —
+ * a szekció végi „Fără capitol — Besorolatlan" csoportba kerülnek, lábjegyzettel.
  */
 function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilters): FinancePrintResult {
   const { year, month } = filters
   const prefix = month ? `${year}-${String(month).padStart(2, '0')}` : `${year}-`
-  const inPeriod = <T extends { datum: string; deleted: boolean }>(rows: T[]): T[] =>
-    rows.filter((r) => !r.deleted && (r.datum || '').startsWith(prefix))
+  // 2026-07-10 (S3 audit KRITIKUS #1): a stornózott tétel a csoportnaplóból is kimarad.
+  const inPeriod = <T extends { datum: string; deleted: boolean; stornozott?: boolean }>(rows: T[]): T[] =>
+    rows.filter((r) => !r.deleted && !r.stornozott && (r.datum || '').startsWith(prefix))
 
   // 2026-07-10 (#3 defense-in-depth): a 100-as fejezet (legacy belső mozgás) is belső.
   const isInternal = (code: string, xkey: unknown) =>
@@ -785,14 +801,35 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     isIncome: boolean,
   ): Group[] => {
     const map = new Map<string, Group>()
+    // 2026-07-10 (S3 #1e) FŐ HIBA-FIX: korábban a fel nem oldott jogcímű sorok
+    // (`id_befizetescel`/`id_kiadascel` NULL, vagy nem oldódik fel a
+    // bev/kiaCelMap-ben) `if (!code) continue`-val ELVESZTEK — emiatt a
+    // csoportnapló ÜRES lehetett, miközben a Registru Casa (ami kód nélkül is
+    // listáz) tele volt. Mostantól ezek egy „Fără capitol — Besorolatlan"
+    // gyűjtőcsoportba kerülnek a szekció VÉGÉN, figyelmeztető lábjegyzettel.
+    let unclassified: Group | null = null
     for (const r of inPeriod(rows)) {
       const id = isIncome ? (r as IncomeRow).id_befizetescel : (r as ExpenseRow).id_kiadascel
       const code = id ? celMap[id] || '' : ''
-      if (!code) continue
+      // Belső mozgás (xkey VAGY 3xx/4xx/100-as kód) továbbra is kimarad — a kód
+      // nélküli, de xkey-es sor is belső mozgás, NEM besorolatlan tétel.
       if (isInternal(code, (r as { belso_mozgas_xkey?: unknown }).belso_mozgas_xkey)) continue
-      const cel = data.cellek.find((c) => c.kod === code && c.type === celType)
-      if (!map.has(code)) map.set(code, { kod: code, nev: cel?.nev || code, items: [], total: 0 })
-      const g = map.get(code)!
+      let g: Group
+      if (!code) {
+        if (!unclassified) {
+          unclassified = {
+            kod: CSOPORTNAPLO_BESOROLATLAN_KOD,
+            nev: 'Fără capitol — Besorolatlan (hiányzó/érvénytelen jogcím)',
+            items: [],
+            total: 0,
+          }
+        }
+        g = unclassified
+      } else {
+        const cel = data.cellek.find((c) => c.kod === code && c.type === celType)
+        if (!map.has(code)) map.set(code, { kod: code, nev: cel?.nev || code, items: [], total: 0 })
+        g = map.get(code)!
+      }
       const amt = Number(r.osszeg || 0)
       g.total += amt
       const partner = isIncome
@@ -807,8 +844,10 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
         osszeg: amt,
       })
     }
-    for (const g of map.values()) g.items.sort((a, b) => a.datum.localeCompare(b.datum))
-    return [...map.values()].sort((a, b) => sortCells(a.kod, b.kod))
+    const groups = [...map.values()].sort((a, b) => sortCells(a.kod, b.kod))
+    if (unclassified) groups.push(unclassified) // mindig a szekció legvégén
+    for (const g of groups) g.items.sort((a, b) => a.datum.localeCompare(b.datum))
+    return groups
   }
 
   const catKod = filters.categoryKod || null
@@ -882,6 +921,10 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
   const periodLabelHu = month ? `${year}. ${month}. hónap` : `${year}. teljes év`
   const balance = bev.total - kia.total
   const empty = bevGroups.length === 0 && kiaGroups.length === 0
+  // 2026-07-10 (S3 #1e): van-e besorolatlan tétel → figyelmeztető lábjegyzet.
+  const hasUnclassified =
+    bevGroups.some((g) => g.kod === CSOPORTNAPLO_BESOROLATLAN_KOD) ||
+    kiaGroups.some((g) => g.kod === CSOPORTNAPLO_BESOROLATLAN_KOD)
 
   const extra = `<style>
     @page { @bottom-right { content: "pg. " counter(page) " / " counter(pages); font-size: 9px; color: #64748b; } }
@@ -891,6 +934,8 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     .cat-block { break-inside: auto; }
     .grand { margin-top: 14px; border-top: 2px solid #334155; padding-top: 8px; display: flex; justify-content: flex-end; gap: 28px; font-size: 12px; font-weight: bold; }
     .grand .lbl { color: #475569; font-weight: normal; }
+    /* 2026-07-10 (S3 #1e): besorolatlan-figyelmeztetés lábjegyzet */
+    .warn-note { margin-top: 10px; font-size: 10px; color: #92400e; border: 1px solid #d97706; border-radius: 4px; padding: 6px 8px; }
   </style>`
 
   const content = `<div class="page">
@@ -901,7 +946,14 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
     </div>
     ${
       empty
-        ? '<p style="text-align:center;margin-top:40px;color:#64748b">Nincs könyvelt tétel ebben az időszakban. / Nu există înregistrări în această perioadă.</p>'
+        ? /* 2026-07-10 (S3 #1e): az üres állapot nevezze meg az időszakot (és a
+             jogcímet), és mondja el, hogyan lehet másik időszakra váltani — így
+             a felhasználó nem hibának, hanem üres időszaknak látja. */
+          `<p style="text-align:center;margin-top:40px;color:#64748b;line-height:1.7">
+            Nincs könyvelt tétel a kiválasztott időszakban: <strong>${esc(periodLabelHu)}</strong>${catKod ? ` — jogcím: <strong>${esc(catKod)}</strong>` : ''}.<br>
+            Válassz másik évet vagy hónapot (vagy „Teljes év" nézetet${catKod ? ', illetve másik jogcímet' : ''}) a bal oldali szűrőkkel.<br>
+            <span style="font-size:11px">Nu există înregistrări în perioada selectată (${esc(periodLabel)}).</span>
+          </p>`
         : bev.html + kia.html
     }
     ${
@@ -912,6 +964,11 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
       <div><span class="lbl">Total cheltuieli / Kiadás:</span> ${fmtNum(kia.total)}</div>
       <div><span class="lbl">Rezultat / Egyenleg:</span> ${fmtNum(balance)}</div>
     </div>`
+    }
+    ${
+      hasUnclassified
+        ? `<p class="warn-note">⚠ Notă / Megjegyzés: a „<strong>Fără capitol — Besorolatlan</strong>" csoport tételeihez nem tartozik érvényes költségvetési jogcím (számadási cél). Összegük a végösszegben szerepel, de fejezet-bontásuk hiányzik — javítsd a tételeket a Pénzügy fülön (jogcím kiválasztása), majd nyomtasd újra a naplót.</p>`
+        : ''
     }
     <div class="footer">
       <div class="footer-item"><div class="footer-line">Conducătorul unității — Lelkész/Gondnok</div></div>

@@ -221,6 +221,9 @@ export interface BealitasRow {
 export interface SzamadasiCel {
   id: string
   nev: string
+  /** 2026-07-10 (S3 #1c): hivatalos ROMÁN megnevezés — a román nyomtatványokon
+   *  (Registru Casa/Banca/Jurnal, Csoportnapló) ez az elsődleges. */
+  nevro?: string | null
   kod: string
   type: 'B' | 'K'
   sorszam: number

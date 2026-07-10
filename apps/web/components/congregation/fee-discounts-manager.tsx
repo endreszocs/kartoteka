@@ -40,6 +40,12 @@ interface FeeDiscountRow {
   jov_leiras: string | null
 }
 
+// 2026-07-10 (S2-1d): látható beviteli mezők — a default Input (bg-card/78 + border-input/90)
+// beleolvadt a panel világos hátterébe (Év/Sorrend/dátum/összeg mezők szinte láthatatlanok).
+// A setup-wizard FIELD_INPUT_CLASS mintáját követjük (fehér háttér + határozott keret + teal fókusz).
+const FIELD_INPUT_CLASS =
+  'bg-white border-slate-300 shadow-sm hover:border-slate-400 focus-visible:border-teal-500 focus-visible:ring-teal-500/25'
+
 // A discountForm belső (camelCase) alakja — a saveCongregationFeeDiscount
 // action ebben a formában várja a payloadot (feeDiscountSchema).
 function getEmptyDiscountForm(defaultYear: number) {
@@ -63,7 +69,15 @@ function getEmptyDiscountForm(defaultYear: number) {
 // FeeDiscountsManager — önálló KEDVEZMÉNYEK panel (jarulek_kedvezmeny CRUD)
 // ─────────────────────────────────────────────────────────────
 
-export function FeeDiscountsManager({ congregationId }: { congregationId: string }) {
+export function FeeDiscountsManager({
+  congregationId,
+  onChanged,
+}: {
+  congregationId: string
+  /** 2026-07-10 (S2-1a): opcionális jelzés a szülőnek (pl. congregation-dialog-v2
+   *  fül-badge + összefoglaló), hogy a kedvezmény-lista megváltozott. */
+  onChanged?: () => void | Promise<void>
+}) {
   const [discounts, setDiscounts] = useState<FeeDiscountRow[]>([])
   const [discountSchemaReady, setDiscountSchemaReady] = useState(true)
   const [discountWarning, setDiscountWarning] = useState<string | null>(null)
@@ -100,6 +114,8 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
     setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
     setDiscountSchemaReady(refreshed.schemaReady !== false)
     setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
+    // 2026-07-10 (S2-1a): a szülő (dialog badge/összefoglaló) is frissülhessen
+    void onChanged?.()
   }
 
   async function handleDeleteDiscount(discountId: string) {
@@ -115,6 +131,8 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
     setDiscounts((refreshed.rows || []) as FeeDiscountRow[])
     setDiscountSchemaReady(refreshed.schemaReady !== false)
     setDiscountWarning('warning' in refreshed ? refreshed.warning || null : null)
+    // 2026-07-10 (S2-1a): a szülő (dialog badge/összefoglaló) is frissülhessen
+    void onChanged?.()
   }
 
   // #Endre (6d): mely kedvezmény-TÍPUSOKBAN van élő (aktív) szabály — a típus-kártya zöld jelöléséhez.
@@ -247,10 +265,10 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
 
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Év">
-              <Input type="number" value={discountForm.ev} onChange={(event) => setDiscountForm((prev) => ({ ...prev, ev: Number(event.target.value) }))} />
+              <Input type="number" className={FIELD_INPUT_CLASS} value={discountForm.ev} onChange={(event) => setDiscountForm((prev) => ({ ...prev, ev: Number(event.target.value) }))} />
             </Field>
             <Field label="Sorrend (ha több szabály érvényes)">
-              <Input type="number" value={discountForm.sorrend} onChange={(event) => setDiscountForm((prev) => ({ ...prev, sorrend: Number(event.target.value) }))} />
+              <Input type="number" className={FIELD_INPUT_CLASS} value={discountForm.sorrend} onChange={(event) => setDiscountForm((prev) => ({ ...prev, sorrend: Number(event.target.value) }))} />
             </Field>
           </div>
 
@@ -258,13 +276,13 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
             <div className="rounded-[1rem] border border-sky-100 bg-sky-50/40 p-3">
               <div className="grid gap-3 md:grid-cols-3">
                 <Field label="Kezdő dátum (HH-NN)">
-                  <Input value={discountForm.kezdet} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kezdet: event.target.value }))} placeholder="01-01" />
+                  <Input className={FIELD_INPUT_CLASS} value={discountForm.kezdet} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kezdet: event.target.value }))} placeholder="01-01" />
                 </Field>
                 <Field label="Vég dátum (HH-NN)">
-                  <Input value={discountForm.hatarid} onChange={(event) => setDiscountForm((prev) => ({ ...prev, hatarid: event.target.value }))} placeholder="07-01" />
+                  <Input className={FIELD_INPUT_CLASS} value={discountForm.hatarid} onChange={(event) => setDiscountForm((prev) => ({ ...prev, hatarid: event.target.value }))} placeholder="07-01" />
                 </Field>
                 <Field label="Kedvezményes összeg (RON)">
-                  <Input type="number" min={0} value={discountForm.kedvOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kedvOsszeg: Number(event.target.value) }))} />
+                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.kedvOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kedvOsszeg: Number(event.target.value) }))} />
                 </Field>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
@@ -277,10 +295,10 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
             <div className="rounded-[1rem] border border-amber-100 bg-amber-50/40 p-3">
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Korhatár (-től, év)">
-                  <Input type="number" min={0} value={discountForm.korTol} onChange={(event) => setDiscountForm((prev) => ({ ...prev, korTol: Number(event.target.value) }))} />
+                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.korTol} onChange={(event) => setDiscountForm((prev) => ({ ...prev, korTol: Number(event.target.value) }))} />
                 </Field>
                 <Field label="Kedvezmény (%)">
-                  <Input type="number" min={0} max={100} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
+                  <Input type="number" min={0} max={100} className={FIELD_INPUT_CLASS} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
                 </Field>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
@@ -293,15 +311,15 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
             <div className="rounded-[1rem] border border-rose-100 bg-rose-50/40 p-3">
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Kedvezmény (%) — vagy add meg a fix RON-ot">
-                  <Input type="number" min={0} max={100} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
+                  <Input type="number" min={0} max={100} className={FIELD_INPUT_CLASS} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
                 </Field>
                 <Field label="Fix RON kedvezmény — ha inkább összeg">
-                  <Input type="number" min={0} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
+                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
                 </Field>
               </div>
               <div className="mt-3">
                 <Field label="Jogosultsági feltétel (szabad szöveg)">
-                  <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. Tartós betegség presbitériumi döntés alapján" />
+                  <Input className={FIELD_INPUT_CLASS} value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. Tartós betegség presbitériumi döntés alapján" />
                 </Field>
               </div>
             </div>
@@ -311,10 +329,10 @@ export function FeeDiscountsManager({ congregationId }: { congregationId: string
             <div className="rounded-[1rem] border border-indigo-100 bg-indigo-50/40 p-3">
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Foglalkozás-kulcsszavak (vesszővel)">
-                  <Input value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. tanuló, diák, egyetemista" />
+                  <Input className={FIELD_INPUT_CLASS} value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. tanuló, diák, egyetemista" />
                 </Field>
                 <Field label="Fizetendő összeg (RON) — 0 = mentesül">
-                  <Input type="number" min={0} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
+                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
                 </Field>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">

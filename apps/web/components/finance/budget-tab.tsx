@@ -17,13 +17,13 @@ import {
   finalizeBudgetModification,
   getPreviousYearActuals,
   requestBudgetUnlock,
+  saveBudgetModificationAction,
+  saveBudgetRowsAction,
 } from '@/app/(dashboard)/penzugy/actions'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
-import {
-  loadBudgetRowsCompat,
-  saveBudgetModification as saveBudgetModificationCompat,
-  saveBudgetRowsCompat,
-} from '@/lib/finance/budget-compat'
+// 2026-07-10 (S3-#4): a MENTÉS szerver-akción megy (zár-ellenőrzéssel) — kliens-oldali
+// compat-hívás csak az OLVASÁSRA (loadBudgetRowsCompat) maradt.
+import { loadBudgetRowsCompat } from '@/lib/finance/budget-compat'
 import { createClient } from '@/lib/supabase/client'
 
 // 2026-07-10 (#2): carryoverCash/carryoverBank (nyitó blokk) átengedése a shared tabnak.
@@ -37,6 +37,8 @@ export function BudgetTab(props: WebBudgetTabProps) {
   return (
     <SharedBudgetTab
       {...props}
+      // 2026-07-10 (S2 #9): logós betöltő-állapot.
+      loadingLogoSrc="/kartoteka-icon.png"
       // 2026-07-10 (#2): előző évi tény betöltése (szürke referencia-oszlop) —
       // a server action a year-1 évet aggregálja szamadasicel-kód szerint.
       loadPreviousActuals={async (year) => await getPreviousYearActuals(year)}
@@ -52,23 +54,16 @@ export function BudgetTab(props: WebBudgetTabProps) {
           }
         }
       }}
-      saveBudgetRows={async (year, congregationId, rows) => {
-        const supabase = createClient()
-        try {
-          await saveBudgetRowsCompat(supabase, year, congregationId, rows)
-          return { success: true }
-        } catch (e) {
-          return { error: e instanceof Error ? e.message : 'Mentési hiba' }
-        }
+      // 2026-07-10 (S3-#4): a mentés SZERVER-akció — a budget_finalized /
+      // budget_modN_finalized zárat a szerver ellenőrzi (a kliens-oldali írás
+      // a zárat megkerülhette). A scope-ot (congregationId) a szerver oldja fel.
+      saveBudgetRows={async (year, _congregationId, rows) => {
+        const result = await saveBudgetRowsAction(year, rows)
+        return result.error ? { error: result.error } : { success: true }
       }}
-      saveBudgetModification={async (year, congregationId, modNum, rows) => {
-        const supabase = createClient()
-        try {
-          await saveBudgetModificationCompat(supabase, year, congregationId, modNum, rows)
-          return { success: true }
-        } catch (e) {
-          return { error: e instanceof Error ? e.message : 'Mentési hiba' }
-        }
+      saveBudgetModification={async (year, _congregationId, modNum, rows) => {
+        const result = await saveBudgetModificationAction(year, modNum, rows)
+        return result.error ? { error: result.error } : { success: true }
       }}
       finalizeBudget={async (year) => {
         const result = await finalizeBudget(year)

@@ -28,9 +28,19 @@ import { isOnlineWithSession } from '../lib/use-session-online'
 import { getLocalBudgetCompatRows, pullFinanceSettings } from '../lib/finance-settings-sync'
 import { getLocalOwnProfile } from '../lib/sync'
 
+// 2026-07-10 (S2-#5 paritás): carryoverCash/carryoverBank (nyitó egyenleg blokk)
+// + loadPreviousActuals („Előző évi tény" oszlop) átengedése a shared tabnak —
+// a web budget-tab.tsx wrapper tükre. Mind opcionális, a {...props} viszi tovább.
 type DesktopBudgetTabProps = Pick<
   BudgetTabProps,
-  'szamadasiCellek' | 'settings' | 'currentYear' | 'onRefresh' | 'onToast'
+  | 'szamadasiCellek'
+  | 'settings'
+  | 'currentYear'
+  | 'carryoverCash'
+  | 'carryoverBank'
+  | 'loadPreviousActuals'
+  | 'onRefresh'
+  | 'onToast'
 > & {
   userId: string
 }
