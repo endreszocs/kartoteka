@@ -26,6 +26,9 @@ export interface InternalMovementRow {
   belso_mozgas_xkey: string | null
   deleted?: boolean
   stornozott?: boolean
+  /** 2026-07-10 (ÚJ #1): kassza (null) vs bank (id) oldal — a párosítás CSAK ellentétes
+   *  helyszínű feleket köthet össze (kassza↔bank, vagy két KÜLÖNBÖZŐ bankszámla). */
+  bankszamla_id?: number | null
 }
 
 export interface UnpairedMovement {
@@ -72,13 +75,31 @@ export function computeInternalMovementHealth(
   const isActive = (r: InternalMovementRow) =>
     !!r.belso_mozgas_xkey && !r.deleted && !r.stornozott && !!r.datum
 
-  type Half = { id: number; datum: string; cents: number; osszeg: number; matched: boolean }
+  type Half = {
+    id: number
+    datum: string
+    cents: number
+    osszeg: number
+    matched: boolean
+    bank: number | null | undefined
+  }
   const incomes: Half[] = income
     .filter(isActive)
-    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
+    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }))
   const expenses: Half[] = expense
     .filter(isActive)
-    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false }))
+    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }))
+
+  // 2026-07-10 (ÚJ #1): egy pár két fele NEM lehet ugyanazon a helyszínen — a letétel
+  // kassza-kiadás + bank-bevétel (ellentétes), bank↔bank mozgásnál pedig KÉT KÜLÖNBÖZŐ
+  // számla. Enélkül egy párosítatlan kasszai letétel tévesen párba állt egy másik,
+  // azonos összegű belső bevétellel. Ha a hívó nem ad bankszamla_id-t (legacy), a
+  // helyszín-ellenőrzés kimarad (régi viselkedés).
+  const sameLocation = (a: Half, b: Half): boolean => {
+    if (a.bank === undefined || b.bank === undefined) return false
+    if (a.bank === null && b.bank === null) return true
+    return a.bank !== null && b.bank !== null && a.bank === b.bank
+  }
 
   for (const e of expenses) {
     let best = -1
@@ -86,6 +107,7 @@ export function computeInternalMovementHealth(
     for (let i = 0; i < incomes.length; i++) {
       const inc = incomes[i]
       if (inc.matched || inc.cents !== e.cents) continue
+      if (sameLocation(e, inc)) continue
       const dist = dayDiff(e.datum, inc.datum)
       if (dist <= PAIRING_WINDOW_DAYS && dist < bestDist) {
         best = i

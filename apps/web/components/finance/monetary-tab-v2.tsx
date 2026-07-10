@@ -7,10 +7,12 @@
  * `@kartoteka/ui-app` shared package `MonetaryTab` komponensébe.
  */
 
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { MonetaryTab, type MonetaryTabProps } from '@kartoteka/ui-app'
 
+import { softDeleteInternalTransferAction } from '@/app/(dashboard)/penzugy/belsomozgas-actions'
 import {
   getMonetarySnapshot,
   saveMonetarySnapshot,
@@ -23,9 +25,17 @@ type WebMonetaryTabProps = Pick<
 >
 
 export function MonetaryTabV2(props: WebMonetaryTabProps) {
+  const router = useRouter()
   return (
     <MonetaryTab
       {...props}
+      // 2026-07-10 (holtkód-javítás): a mester-mozgás (valutacsere/bank↔bank)
+      // törlése — a softDeleteInternalTransferAction eddig hívó nélkül állt.
+      onDeleteTransfer={async (transferId) => {
+        const res = await softDeleteInternalTransferAction(transferId)
+        if (res.success) router.refresh()
+        return { success: res.success, error: res.success ? null : res.error }
+      }}
       onPrint={async ({ mode, html, filename }) => {
         if (mode === 'pdf') {
           await printToPdf(html, filename || 'Monetar.pdf', { format: 'a4', orientation: 'portrait' })

@@ -587,7 +587,7 @@ export function buildKiadasiKiseroiv(params: {
     <div class="header">
       <div class="header-left"><div class="entity">${esc(congregationName)}</div></div>
       <div class="header-center"><div class="title" style="text-decoration:underline">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div></div>
-      <div class="header-right"><div>${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div><div>Kasszak&ouml;nyv</div></div>
+      <div class="header-right"><div>${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div><div>Registrul-Jurnal</div></div>
     </div>
     <table>
       <thead><tr>
@@ -771,7 +771,9 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
   const inPeriod = <T extends { datum: string; deleted: boolean }>(rows: T[]): T[] =>
     rows.filter((r) => !r.deleted && (r.datum || '').startsWith(prefix))
 
-  const isInternal = (code: string, xkey: unknown) => !!xkey || /^[34]/.test(code)
+  // 2026-07-10 (#3 defense-in-depth): a 100-as fejezet (legacy belső mozgás) is belső.
+  const isInternal = (code: string, xkey: unknown) =>
+    !!xkey || /^[34]/.test(code) || code === '100' || code.startsWith('100.')
 
   type Item = { datum: string; docType: string; docNum: string; partner: string; megjegyzes: string; osszeg: number }
   type Group = { kod: string; nev: string; items: Item[]; total: number }

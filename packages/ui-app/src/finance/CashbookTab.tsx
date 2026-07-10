@@ -542,6 +542,9 @@ export function CashbookTab({
   }, [cashRows])
 
   function buildExport() {
+    // 2026-07-10 (ÚJ #1): belső mozgásnál az ÉLŐ párosítási státusz megy az exportba
+    // (ugyanaz, amit a fül mutat) — NEM a rögzítéskor beégetett, elavulható megjegyzés
+    // ("Várakozik banki egyeztetésre" akkor is, ha a banki pár már beérkezett).
     const lines: FinanceExportLine[] = filteredRows.map((r) => ({
       datum: r.datum,
       iratszam: r.iratszam,
@@ -550,7 +553,11 @@ export function CashbookTab({
       type: r.type,
       osszeg: r.osszeg,
       celNev: r.celNev,
-      megjegyzes: r.megjegyzes || '',
+      megjegyzes: r.isBm
+        ? r.unpaired
+          ? '⏳ Várakozik banki egyeztetésre — nincs banki pár'
+          : '✓ Belső mozgás — párosítva'
+        : r.megjegyzes || '',
     }))
     return {
       aoa: buildFinanceExportAoa(lines),
@@ -732,7 +739,7 @@ export function CashbookTab({
                           onClick={() => toggleSort('iratszam')}
                           className="hidden md:table-cell"
                         >
-                          Kerületi / Irat sz.
+                          Irat sz. / Kerületi
                         </CashSortableTh>
                         <CashSortableTh
                           col="partner"
@@ -953,14 +960,18 @@ function CashRow({
       <td className={`p-2.5 text-slate-400 text-xs hidden lg:table-cell ${textStorno}`}>
         {r.irattipus || '—'}
       </td>
+      {/* 2026-07-10 (ÚJ #3): a gyülekezeti saját szám a FŐ érték, a kerületi a másodlagos.
+          Ha nincs külön gyülekezeti szám, a kerületi marad az egyetlen (fő) érték. */}
       <td className={`p-2.5 text-slate-400 text-xs hidden md:table-cell ${textStorno}`}>
-        <span title="Kerületi sz. — a kerülettől kapott, nyomtatott szám">{r.iratszam || '—'}</span>
-        {r.gyulekezetiSzam && (
+        <span title="Irat sz. — a gyülekezet saját sorszáma">
+          {r.gyulekezetiSzam || r.iratszam || '—'}
+        </span>
+        {r.gyulekezetiSzam && r.iratszam && (
           <span
             className="block text-[10px] text-slate-400/80"
-            title="Irat sz. — a gyülekezet saját sorszáma"
+            title="Kerületi sz. — a kerülettől kapott, nyomtatott szám"
           >
-            Irat sz.: {r.gyulekezetiSzam}
+            Ker. sz.: {r.iratszam}
           </span>
         )}
       </td>

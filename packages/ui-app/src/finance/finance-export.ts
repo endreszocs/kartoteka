@@ -50,11 +50,16 @@ function normDate(d: string): string {
  * Sorok → kétdimenziós tömb (aoa) a hivatalos oszloprendben.
  * A bevétel/kiadás összeg + cél a sor típusa szerint a megfelelő oszlopba kerül,
  * a másik oldal üresen marad (ahogy a hivatalos Excelben is).
+ *
+ * 2026-07-10 (ÚJ #2): az export MINDIG dátum szerint NÖVEKVŐ (év elejétől év
+ * végéig), függetlenül a fül aktuális UI-rendezésétől — a hivatalos kasszakönyv
+ * időrendjét követve. A bemenetet nem mutáljuk (másolaton rendezünk).
  */
 export function buildFinanceExportAoa(
   lines: FinanceExportLine[],
 ): (string | number)[][] {
-  const body = lines.map((l): (string | number)[] => {
+  const sorted = [...lines].sort((a, b) => normDate(a.datum).localeCompare(normDate(b.datum)))
+  const body = sorted.map((l): (string | number)[] => {
     const isIncome = l.type === 'income'
     const amount = Number(l.osszeg) || 0
     return [

@@ -583,6 +583,8 @@ export function BankTab({
   }, [bankRows])
 
   function buildExport() {
+    // 2026-07-10 (ÚJ #1): belső mozgásnál az ÉLŐ párosítási státusz megy az exportba
+    // (ugyanaz, amit a fül mutat) — NEM a rögzítéskor beégetett, elavulható megjegyzés.
     const lines: FinanceExportLine[] = filteredDisplayRows.map((r) => ({
       datum: r.datum,
       iratszam: r.iratszam,
@@ -591,7 +593,11 @@ export function BankTab({
       type: r.type,
       osszeg: r.osszeg,
       celNev: r.celNev,
-      megjegyzes: r.megjegyzes || '',
+      megjegyzes: r.isBm
+        ? r.unpaired
+          ? '⏳ Várakozik kassza-egyeztetésre — nincs kassza-oldali pár'
+          : '✓ Belső mozgás — párosítva'
+        : r.megjegyzes || '',
     }))
     return {
       aoa: buildFinanceExportAoa(lines),

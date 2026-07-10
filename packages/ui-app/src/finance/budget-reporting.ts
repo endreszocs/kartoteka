@@ -197,7 +197,8 @@ const totalCols = (mode: BudgetMode) => 4 + valueColCount(mode) // 2 név + sors
 
 export function buildBudgetReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const rows = collectBudgetRows(data, 'single')
+  // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
+  const rows = collectBudgetRows(data, 'single', { openingRows: true })
   const pages = tablePageCount(rows.length, true, false)
   const total = 1 + pages
   const coverPage = buildCoverPage(data, 'KÖLTSÉGVETÉS', 'BUGET DE VENITURI ȘI CHELTUIELI', null, total)
@@ -228,7 +229,8 @@ export function buildBudgetModificationReport(data: BudgetPrintData): BudgetPrin
 
 export function buildSzamadasReport(data: BudgetPrintData): BudgetPrintResult {
   const { year } = data
-  const rows = collectBudgetRows(data, 'szamadas')
+  // 2026-07-10 (#2): a hivatalos forma 1–3. sora a nyitó egyenleg.
+  const rows = collectBudgetRows(data, 'szamadas', { openingRows: true })
   const pages = tablePageCount(rows.length, true, true)
   const total = 1 + pages
   const coverPage = buildCoverPage(data, 'SZÁMADÁS', 'EXECUȚIA BUGETARĂ', null, total)
@@ -401,8 +403,15 @@ function tablePageCount(rowCount: number, withSignatures: boolean, hasExtra: boo
   return Math.max(1, Math.ceil((rowCount + reservedSlots(withSignatures, hasExtra)) / ROWS_PER_PAGE))
 }
 
-/** Összegyűjti a táblázat összes sorát (szekciók, csoport-/végpont-sorok, záró összegek). */
-function collectBudgetRows(data: BudgetPrintData, mode: BudgetMode): string[] {
+/** Összegyűjti a táblázat összes sorát (szekciók, csoport-/végpont-sorok, záró összegek).
+ *  2026-07-10 (#2): `opts.openingRows` — a hivatalos EREK-minta szerint az űrlap
+ *  1–3. sora a NYITÓ egyenleg (Disponibil din anul precedent / Casa / Banca);
+ *  ilyenkor a tétel-sorszámozás 4-től indul, hogy a Nr. rând ne csússzon szét. */
+function collectBudgetRows(
+  data: BudgetPrintData,
+  mode: BudgetMode,
+  opts?: { openingRows?: boolean },
+): string[] {
   const { cellek } = data
   // CSAK a hivatalos költségvetési kódok: bevétel 1xx (101–107), kiadás 2xx (201–207).
   // A belső mozgás (3xx/4xx) NEM része a költségvetésnek. Hierarchikus rendezés:
@@ -417,8 +426,33 @@ function collectBudgetRows(data: BudgetPrintData, mode: BudgetMode): string[] {
   const cols = totalCols(mode)
   const labelCols = cols - 1
   const all: string[] = []
+
+  // 2026-07-10 (#2): 3 nyitósor a bevétel-szekció ELÉ (1–3. sorszám). Az utolsó
+  // értékoszlopba kerül az összeg, az előtte lévő oszlop(ok) „x"-et kapnak
+  // (számadásnál: Prevederi=x, Execuție=érték). Csak akkor, ha van carryover adat.
+  let startNum = 1
+  if (opts?.openingRows && (data.carryoverCash != null || data.carryoverBank != null)) {
+    const cash = data.carryoverCash || 0
+    const bank = data.carryoverBank || 0
+    const openingCells = (v: number) =>
+      `${'<td class="r">x</td>'.repeat(valueColCount(mode) - 1)}<td class="r">${fmtNum(v)}</td>`
+    all.push(`<tr class="grp">
+      <td class="ro">Disponibil din anul precedent</td><td>Múlt évi pénztármaradvány</td>
+      <td class="c">1</td><td class="c"></td>${openingCells(cash + bank)}
+    </tr>`)
+    all.push(`<tr>
+      <td class="ro">Casa</td><td>Készpénz</td>
+      <td class="c">2</td><td class="c"></td>${openingCells(cash)}
+    </tr>`)
+    all.push(`<tr>
+      <td class="ro">Banca</td><td>Banki egyenleg</td>
+      <td class="c">3</td><td class="c"></td>${openingCells(bank)}
+    </tr>`)
+    startNum = 4
+  }
+
   all.push(`<tr class="sec"><td colspan="${cols}">Bevételek / Venituri</td></tr>`)
-  const inc = buildSectionRows(data, incomeCells, mode, 1)
+  const inc = buildSectionRows(data, incomeCells, mode, startNum)
   all.push(...inc.rows)
   all.push(`<tr class="sec"><td colspan="${cols}">Kiadások / Cheltuieli</td></tr>`)
   const exp = buildSectionRows(data, expenseCells, mode, inc.nextNum)
@@ -483,15 +517,32 @@ function renderTablePages(data: BudgetPrintData, mode: BudgetMode, rows: string[
 // ---------------------------------------------------------------------------
 
 function buildSzamadasExtraRows(data: BudgetPrintData): string {
-  const cash = data.carryoverCash || 0
-  const bank = data.carryoverBank || 0
+  // 2026-07-10 (#2): KORÁBBAN HIBÁS volt — a NYITÓ carryover került a
+  // „Sold la finele anului / év végén" (ZÁRÓ) sorba, pedig nyitó ≠ záró.
+  // Helyesen: záró = nyitó (carryoverCash+carryoverBank) + Σ tény-bevétel −
+  // Σ tény-kiadás. A tény-összegek a BudgetPrintData actualIncome/actualExpense
+  // kódonkénti map-jeiből jönnek; a belső mozgás kódok (100.xx, 3xx/4xx)
+  // KIMARADNAK — a képernyős/nyomtatott tétel-szűrővel azonos szabály (#3/A).
+  // A kassza/bank ZÁRÓ BONTÁSHOZ itt nincs oldalankénti (kassza vs. bank)
+  // tény-adat (a map-ek kódonként aggregáltak) → a Casa/Banca sorok „—"-t
+  // mutatnak, hamis szám helyett.
+  const opening = (data.carryoverCash || 0) + (data.carryoverBank || 0)
+  let totalActualIncome = 0
+  for (const [code, v] of Object.entries(data.actualIncome || {})) {
+    if (code.startsWith('1') && !code.startsWith('100')) totalActualIncome += v || 0
+  }
+  let totalActualExpense = 0
+  for (const [code, v] of Object.entries(data.actualExpense || {})) {
+    if (code.startsWith('2')) totalActualExpense += v || 0
+  }
+  const closing = opening + totalActualIncome - totalActualExpense
   return `
     <table class="bt" style="margin-top:6px;">
       <thead><tr><th style="width:60%">Megnevezés / Denumire</th><th style="width:20%">Költségvetés</th><th style="width:20%">Számadás</th></tr></thead>
       <tbody>
-        <tr class="grp"><td>Pénztári és banki egyenleg az év végén / Sold la finele anului</td><td class="r">x</td><td class="r">${fmtNum(cash + bank)}</td></tr>
-        <tr><td>Készpénz egyenleg / Casa</td><td class="r">x</td><td class="r">${fmtNum(cash)}</td></tr>
-        <tr><td>Banki egyenleg / Banca</td><td class="r">x</td><td class="r">${fmtNum(bank)}</td></tr>
+        <tr class="grp"><td>Pénztári és banki egyenleg az év végén / Sold la finele anului</td><td class="r">x</td><td class="r">${fmtNum(closing)}</td></tr>
+        <tr><td>Készpénz egyenleg / Casa</td><td class="r">x</td><td class="r">—</td></tr>
+        <tr><td>Banki egyenleg / Banca</td><td class="r">x</td><td class="r">—</td></tr>
       </tbody>
     </table>
   `

@@ -27,7 +27,18 @@ export async function submitDocument(
 
   const { supabase, profile } = access
   const congregationId = access.effectiveCongregationId
-  const dioceseId = profile?.diocese_id || null
+
+  // 2026-07-10 (#4/8): a diocese_id a GYÜLEKEZET tényleges egyházmegyéjéből jön
+  // (congregations.diocese_id), ne a beküldő profiljából — dual-role (pl. esperes
+  // aki más gyülekezet nevében jár el) esetén a kettő eltérhet, és a dokumentum
+  // rossz egyházmegyéhez került volna. A profil-beli érték csak fallback.
+  let dioceseId: string | null = null
+  const { data: congRow } = await supabase
+    .from('congregations')
+    .select('diocese_id')
+    .eq('id', congregationId)
+    .maybeSingle()
+  dioceseId = (congRow?.diocese_id as string | null) || profile?.diocese_id || null
 
   const { error } = await supabase.from('document_submissions').upsert({
     congregation_id: congregationId,

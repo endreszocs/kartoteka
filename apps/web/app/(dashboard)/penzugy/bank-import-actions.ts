@@ -25,6 +25,7 @@ import {
 } from '@kartoteka/core'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { fetchBnrRates } from '@/lib/finance/bnr-exchange-rate'
 
 // Típus re-exportok — a meglévő import-helyek (pl. bcr-import-wizard-dialog)
 // változatlanul működnek. (`export type` fordításkor törlődik, így a
@@ -55,20 +56,112 @@ export async function getLatestBankTransactionDate(bankszamlaId: number): Promis
   )
 }
 
+/**
+ * 2026-07-10 (ÚJ #10): deviza (nem-RON) számlákra menő tételekhez NAPI
+ * árfolyam-map összegyűjtése (dátum → 1 deviza = X RON). A core use-case
+ * platform-független, ezért az árfolyam-lekérés (fetchBnrRates) ITT, a web
+ * rétegben történik. Csak EUR/HUF devizára van napi forrás (BNR/ECB) —
+ * más devizánál, illetve lekérési hiba esetén a dátum KIMARAD a map-ből,
+ * és a core a meglévő éves nyitó-árfolyamra esik vissza (+ figyelmeztetés).
+ */
+async function collectDailyRates(
+  supabase: Parameters<typeof importBankTransactionsUseCase>[1]['supabase'],
+  congregationId: string,
+  items: BankImportItem[],
+): Promise<{ dailyRates?: Record<string, number>; warnings: string[] }> {
+  const warnings: string[] = []
+  const activeItems = items.filter((i) => i.action !== 'skip')
+  const uniqueBankIds = Array.from(new Set(activeItems.map((i) => i.bankszamlaId)))
+  if (uniqueBankIds.length === 0) return { warnings }
+
+  const { data: banksData } = await supabase
+    .from('bankszamlak')
+    .select('id, valuta')
+    .in('id', uniqueBankIds)
+    .eq('congregation_id', congregationId)
+  const valutaMap = new Map<number, string>()
+  for (const b of banksData || []) {
+    valutaMap.set(b.id as number, ((b.valuta as string) || 'RON').toUpperCase())
+  }
+
+  const nonRonIds = uniqueBankIds.filter((id) => (valutaMap.get(id) || 'RON') !== 'RON')
+  if (nonRonIds.length === 0) return { warnings }
+
+  // A dailyRates kulcsa CSAK a dátum → egy import-menetben csak EGYFÉLE
+  // deviza kezelhető napi árfolyammal. Több különböző deviza esetén
+  // (gyakorlatban nem fordul elő: a wizard számlánként importál) marad
+  // az éves fallback + figyelmeztetés.
+  const currencies = Array.from(new Set(nonRonIds.map((id) => valutaMap.get(id) as string)))
+  if (currencies.length > 1) {
+    warnings.push(
+      `Több különböző devizájú számla (${currencies.join(', ')}) egy importban — a napi árfolyam nem alkalmazható, az éves nyitó-árfolyam marad.`,
+    )
+    return { warnings }
+  }
+  const currency = currencies[0]
+  if (currency !== 'EUR' && currency !== 'HUF') {
+    warnings.push(
+      `A(z) ${currency} devizához nincs napi árfolyam-forrás (csak EUR/HUF, BNR/ECB) — az éves nyitó-árfolyam marad.`,
+    )
+    return { warnings }
+  }
+
+  const nonRonIdSet = new Set(nonRonIds)
+  const dates = Array.from(
+    new Set(activeItems.filter((i) => nonRonIdSet.has(i.bankszamlaId)).map((i) => i.date)),
+  ).sort()
+
+  // Kis batch-ekben (max 3 párhuzamos) — ne terheljük burst-tel a BNR-t /
+  // Frankfurtert; a fetchBnrRates cache-el (next revalidate), így az
+  // ismétlődő évek/napok olcsók.
+  const dailyRates: Record<string, number> = {}
+  const BATCH_SIZE = 3
+  for (let i = 0; i < dates.length; i += BATCH_SIZE) {
+    const chunk = dates.slice(i, i + BATCH_SIZE)
+    const chunkResults = await Promise.all(
+      chunk.map(async (d) => ({ date: d, rates: await fetchBnrRates(d) })),
+    )
+    for (const { date, rates } of chunkResults) {
+      const rate = currency === 'EUR' ? rates.eur : rates.huf
+      if (rate != null && rate > 0) {
+        dailyRates[date] = rate
+      } else {
+        // Kimarad a map-ből → a core éves árfolyam fallback-je él
+        warnings.push(
+          `${date}: nem érhető el napi ${currency} árfolyam${rates.error ? ` (${rates.error})` : ''} — éves nyitó-árfolyam fallback.`,
+        )
+      }
+    }
+  }
+
+  return {
+    dailyRates: Object.keys(dailyRates).length > 0 ? dailyRates : undefined,
+    warnings,
+  }
+}
+
 export async function importBcrTransactions(
   items: BankImportItem[],
-): Promise<BankImportResult & { error?: string }> {
+): Promise<BankImportResult & { error?: string; warnings?: string[] }> {
   const access = await getEffectiveAccessContext()
   if (!access.user)
     return { totalItems: 0, imported: 0, skipped: 0, duplicates: 0, errors: [], importedRows: [], error: 'Nincs bejelentkezve.' }
   if (!access.effectiveCongregationId)
     return { totalItems: 0, imported: 0, skipped: 0, duplicates: 0, errors: [], importedRows: [], error: 'Nincs aktív gyülekezet.' }
 
+  // 2026-07-10 (ÚJ #10): napi árfolyamok deviza-számlákhoz (RON-only
+  // importnál üres map + üres warnings → viselkedés változatlan).
+  const { dailyRates, warnings } = await collectDailyRates(
+    access.supabase,
+    access.effectiveCongregationId,
+    items,
+  )
+
   const result = await importBankTransactionsUseCase(
-    { congregationId: access.effectiveCongregationId, items },
+    { congregationId: access.effectiveCongregationId, items, dailyRates },
     { supabase: access.supabase, runtime: 'web', userId: access.user.id },
   )
 
   revalidatePath('/penzugy')
-  return result
+  return warnings.length > 0 ? { ...result, warnings } : result
 }

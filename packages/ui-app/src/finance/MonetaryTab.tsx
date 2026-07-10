@@ -18,6 +18,7 @@ import {
   Landmark,
   Printer,
   Save,
+  Trash2,
   Wallet,
   X,
 } from 'lucide-react'
@@ -60,6 +61,13 @@ export interface MonetaryTabProps {
   congregationName?: string
   /** Nyomtatás callback (web: printToBrowser / printToPdf). Ha hiányzik, nincs gomb. */
   onPrint?: (params: { mode: 'pdf' | 'browser'; html: string; filename?: string }) => Promise<void>
+  /**
+   * 2026-07-10 (holtkód-javítás): a `belsomozgas` mester-mozgás (valutacsere /
+   * bank↔bank) törlése — eddig a softDeleteInternalTransferAction-nek NEM volt
+   * hívója, a manuálisan rögzített mozgás törölhetetlen volt. Ha a callback
+   * hiányzik (pl. desktop), a törlés-gomb nem jelenik meg.
+   */
+  onDeleteTransfer?: (transferId: number) => Promise<{ success?: boolean; error?: string | null }>
 }
 
 function formatRon(value: number) {
@@ -161,6 +169,7 @@ export function MonetaryTab({
   onToast,
   congregationName = '',
   onPrint,
+  onDeleteTransfer,
 }: MonetaryTabProps) {
   const [denominations, setDenominations] = useState<MonetaryDenomination[]>([])
   const [counts, setCounts] = useState<Record<number, number>>({})
@@ -448,8 +457,33 @@ export function MonetaryTab({
                           {transfer.datum} · {transfer.forras} → {transfer.cel}
                         </p>
                       </div>
-                      <div className="text-right text-sm font-semibold text-slate-700">
-                        {formatRon(transfer.osszeg)}
+                      <div className="flex items-start gap-2">
+                        <div className="text-right text-sm font-semibold text-slate-700">
+                          {formatRon(transfer.osszeg)}
+                        </div>
+                        {/* 2026-07-10: mester-mozgás törlése (valutacsere/bank↔bank) —
+                            eddig nem volt törlési út a webes felületen. */}
+                        {onDeleteTransfer && (
+                          <button
+                            type="button"
+                            title="Belső mozgás törlése"
+                            className="mt-0.5 rounded-lg p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+                            onClick={async () => {
+                              if (
+                                typeof window !== 'undefined' &&
+                                !window.confirm(
+                                  `Törli ezt a belső mozgást?\n${TRANSFER_TYPE_LABELS[transfer.tipus]} · ${transfer.datum} · ${formatRon(transfer.osszeg)}`,
+                                )
+                              )
+                                return
+                              const res = await onDeleteTransfer(transfer.id)
+                              if (res.error) onToast?.(`Törlés sikertelen: ${res.error}`, 'error')
+                              else onToast?.('Belső mozgás törölve.', 'success')
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

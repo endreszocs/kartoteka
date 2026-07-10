@@ -50,8 +50,8 @@ import {
 } from '@/app/(dashboard)/penzugy/finalization-actions'
 import {
   finalizeAccounting,
+  finalizeAndSubmitAccounting,
 } from '@/app/(dashboard)/penzugy/actions'
-import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 import { formatCurrency } from '@/lib/constants/finance'
 
 type WizardStep = 'overview' | 'checks' | 'jegyzokonyv' | 'confirm' | 'done'
@@ -232,26 +232,32 @@ export function AccountingFinalizeWizard({ open, onOpenChange, year, summary, on
         presbiteri_napirendi_pont_id: jkvMode === 'kartoteka' ? selectedNapirendiId : null,
       }
 
-      // 2026-04-18 SCOPE-AWARE:
-      // - Gyülekezeti mód: submitDocument (document_submissions + csengő) + finalizeAccounting
+      // 2026-04-18 SCOPE-AWARE + 2026-07-10 (#4/4): ZÁR-ELŐSZÖR sorrend.
+      // - Gyülekezeti mód: finalizeAndSubmitAccounting — EGY szerver-akció:
+      //   (1) véglegesítés (lock + kanonikus snapshot a lokális záró-adatokba),
+      //   (2) beküldés; beküldési hibánál a zárat szerveroldalon visszavonja.
+      //   Korábban előbb küldött, aztán zárt — a zárás bukása beküldött-de-nyitott
+      //   (elévülő snapshotú) állapotot hagyott.
       // - Diocese mód: CSAK finalizeAccounting (a diocese_annual_reports egy lépésben submission+finalization)
       if (scope === 'congregation') {
-        const submitResult = await submitDocument('szamadas', year, snapshot)
-        if ('error' in submitResult && submitResult.error) {
-          toast.error(`Beküldés sikertelen: ${submitResult.error}`)
+        const result = await finalizeAndSubmitAccounting(
+          year,
+          { jegyzokonyviSzam: finalJkvSzam, targyalasDatuma: finalDatum },
+          snapshot,
+        )
+        if (result.error) {
+          toast.error(result.error)
           return
         }
-      }
-
-      const result = await finalizeAccounting(year, {
-        jegyzokonyviSzam: finalJkvSzam,
-        targyalasDatuma: finalDatum,
-      })
-      if (result.error) {
-        toast.error(scope === 'congregation'
-          ? `Beküldve, de véglegesítés sikertelen: ${result.error}`
-          : `Véglegesítés sikertelen: ${result.error}`)
-        return
+      } else {
+        const result = await finalizeAccounting(year, {
+          jegyzokonyviSzam: finalJkvSzam,
+          targyalasDatuma: finalDatum,
+        })
+        if (result.error) {
+          toast.error(`Véglegesítés sikertelen: ${result.error}`)
+          return
+        }
       }
 
       toast.success(

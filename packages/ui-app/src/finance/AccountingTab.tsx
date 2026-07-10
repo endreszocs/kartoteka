@@ -50,6 +50,22 @@ export interface AccountingTabProps {
   budgetData: Record<string, number>
   loading?: boolean
 
+  /**
+   * 2026-07-10 (#2): NYITÓ egyenlegek (előző évi záró) — display-only blokk a
+   * fül tetején, a hivatalos EREK-minta 1–3. sora szerint. OPCIONÁLIS: ha
+   * undefined (pl. desktop hívó), a blokk nem jelenik meg. NEM kerül mentésre.
+   */
+  carryoverCash?: number
+  carryoverBank?: number
+
+  /**
+   * 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — halvány
+   * „Előző évi tény" referencia-oszlop a terv/tény táblákban. OPCIONÁLIS:
+   * ha undefined, az oszlop nem jelenik meg (desktop hívók változatlanok).
+   */
+  prevActualIncome?: Record<string, number>
+  prevActualExpense?: Record<string, number>
+
   /** Javítási kérelem callback. Web: requestAccountingUnlock server action. */
   onRequestUnlock?: (
     year: number,
@@ -97,6 +113,10 @@ export function AccountingTab({
   currentYear,
   budgetData,
   loading = false,
+  carryoverCash,
+  carryoverBank,
+  prevActualIncome,
+  prevActualExpense,
   onRequestUnlock,
   onRefresh,
   onToast,
@@ -125,10 +145,20 @@ export function AccountingTab({
   const isGyulekezetSzint = (cell: SzamadasiCel) =>
     !cell.szint || cell.szint === 'gyulekezet'
 
+  // 2026-07-10 (#3/A): KOMBINÁLT szűrő — type ÉS kód-tartomány (a nyomtatvány
+  // budget-reporting.ts collectBudgetRows mintája). A 100-as fejezet (Pénztármaradvány /
+  // legacy belső mozgás: 100.01/100.02/100.51/100.52) TELJESEN kizárva — a hivatalos
+  // EREK-formában a bevétel a 101-nél kezdődik, a belső mozgás sosem tétel.
   const incomeCells = useMemo(
     () =>
       szamadasiCellek
-        .filter((cell) => cell.id.startsWith('1') && cell.id !== '100' && isGyulekezetSzint(cell))
+        .filter(
+          (cell) =>
+            cell.type === 'B' &&
+            cell.id.startsWith('1') &&
+            !cell.id.startsWith('100') &&
+            isGyulekezetSzint(cell),
+        )
         .sort((left, right) => sortCellsHierarchically(left.id, right.id)),
     [szamadasiCellek],
   )
@@ -136,7 +166,7 @@ export function AccountingTab({
   const expenseCells = useMemo(
     () =>
       szamadasiCellek
-        .filter((cell) => cell.id.startsWith('2') && isGyulekezetSzint(cell))
+        .filter((cell) => cell.type === 'K' && cell.id.startsWith('2') && isGyulekezetSzint(cell))
         .sort((left, right) => sortCellsHierarchically(left.id, right.id)),
     [szamadasiCellek],
   )
@@ -210,6 +240,43 @@ export function AccountingTab({
 
   return (
     <div className="space-y-4">
+      {/* 2026-07-10 (#2): NYITÓ egyenlegek — hivatalos EREK-minta (1–3. sor).
+          Display-only: nem része a summary-nek / beküldött snapshotnak. */}
+      {carryoverCash != null && carryoverBank != null && (
+        <div className="card-raised border-slate-100 bg-slate-50/60 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Nyitó egyenlegek — automatikus, nem szerkeszthető
+          </p>
+          <div className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+            <div className="flex items-baseline justify-between gap-3 sm:col-span-3 sm:justify-start">
+              <span className="text-slate-500">
+                Múlt évi pénztármaradvány{' '}
+                <span className="italic text-slate-400">(Disponibil din anul precedent)</span>
+              </span>
+              <span className="font-semibold text-slate-600">
+                {formatCurrency(carryoverCash + carryoverBank)} RON
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <span className="text-slate-500">
+                Készpénz <span className="italic text-slate-400">(Casa)</span>
+              </span>
+              <span className="font-medium text-slate-500">
+                {formatCurrency(carryoverCash)} RON
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <span className="text-slate-500">
+                Banki egyenleg <span className="italic text-slate-400">(Banca)</span>
+              </span>
+              <span className="font-medium text-slate-500">
+                {formatCurrency(carryoverBank)} RON
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="card-raised p-5">
           <div className="flex items-center gap-2">
@@ -301,6 +368,7 @@ export function AccountingTab({
           cells={incomeCells}
           budgetData={budgetData}
           actualData={actualIncome}
+          prevActualData={prevActualIncome}
           positiveClassName="text-emerald-600"
         />
         <ComparisonTable
@@ -310,6 +378,7 @@ export function AccountingTab({
           cells={expenseCells}
           budgetData={budgetData}
           actualData={actualExpense}
+          prevActualData={prevActualExpense}
           positiveClassName="text-rose-500"
         />
       </div>
@@ -435,6 +504,7 @@ function ComparisonTable({
   cells,
   budgetData,
   actualData,
+  prevActualData,
   positiveClassName,
 }: {
   title: string
@@ -443,8 +513,11 @@ function ComparisonTable({
   cells: SzamadasiCel[]
   budgetData: Record<string, number>
   actualData: Record<string, number>
+  /** 2026-07-10 (#2): előző évi tény kódonként — halvány referencia-oszlop, ha van. */
+  prevActualData?: Record<string, number>
   positiveClassName: string
 }) {
+  const showPrevYear = prevActualData != null
   return (
     <div className="card-raised overflow-hidden">
       <div className={`flex items-center gap-2 border-b px-4 py-3 ${headerClassName}`}>
@@ -457,6 +530,11 @@ function ComparisonTable({
             <tr>
               <th className="p-2 text-left text-xs font-medium text-slate-500">Kód</th>
               <th className="p-2 text-left text-xs font-medium text-slate-500">Megnevezés</th>
+              {showPrevYear && (
+                <th className="p-2 text-right text-xs font-medium text-slate-400">
+                  Előző évi tény
+                </th>
+              )}
               <th className="p-2 text-right text-xs font-medium text-slate-500">Terv</th>
               <th className="p-2 text-right text-xs font-medium text-slate-500">Tény</th>
               <th className="p-2 text-right text-xs font-medium text-slate-500">%</th>
@@ -479,6 +557,17 @@ function ComparisonTable({
                     )
                     .reduce((s, c) => s + (actualData[c.id] || 0), 0)
                 : actualData[cell.id] || 0
+              // 2026-07-10 (#2): előző évi tény — csoportnál a levelek összege
+              // (a fenti budget/actual aggregáló minta szerint).
+              const prevActual = !showPrevYear
+                ? 0
+                : isGroup
+                  ? cells
+                      .filter(
+                        (c) => c.id.startsWith(cell.id + '.') && c.id.split('.').length === 2,
+                      )
+                      .reduce((s, c) => s + (prevActualData?.[c.id] || 0), 0)
+                  : prevActualData?.[cell.id] || 0
               // Minden tételt mutatunk (a költségvetéshez hasonlóan) — a
               // csoport- és a végpont-sorokat is, akkor is, ha nincs terv/tény.
 
@@ -497,6 +586,11 @@ function ComparisonTable({
                   >
                     {cell.nev}
                   </td>
+                  {showPrevYear && (
+                    <td className="p-2 text-right text-xs text-slate-400">
+                      {prevActual !== 0 ? formatCurrency(prevActual) : '-'}
+                    </td>
+                  )}
                   <td className="p-2 text-right text-slate-500">
                     {budget > 0 ? formatCurrency(budget) : '-'}
                   </td>

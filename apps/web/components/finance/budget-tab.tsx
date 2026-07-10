@@ -15,6 +15,7 @@ import { BudgetTab as SharedBudgetTab, type BudgetTabProps } from '@kartoteka/ui
 import {
   finalizeBudget,
   finalizeBudgetModification,
+  getPreviousYearActuals,
   requestBudgetUnlock,
 } from '@/app/(dashboard)/penzugy/actions'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
@@ -25,9 +26,10 @@ import {
 } from '@/lib/finance/budget-compat'
 import { createClient } from '@/lib/supabase/client'
 
+// 2026-07-10 (#2): carryoverCash/carryoverBank (nyitó blokk) átengedése a shared tabnak.
 type WebBudgetTabProps = Pick<
   BudgetTabProps,
-  'szamadasiCellek' | 'settings' | 'currentYear'
+  'szamadasiCellek' | 'settings' | 'currentYear' | 'carryoverCash' | 'carryoverBank'
 >
 
 export function BudgetTab(props: WebBudgetTabProps) {
@@ -35,6 +37,9 @@ export function BudgetTab(props: WebBudgetTabProps) {
   return (
     <SharedBudgetTab
       {...props}
+      // 2026-07-10 (#2): előző évi tény betöltése (szürke referencia-oszlop) —
+      // a server action a year-1 évet aggregálja szamadasicel-kód szerint.
+      loadPreviousActuals={async (year) => await getPreviousYearActuals(year)}
       loadBudgetRows={async (year, congregationId) => {
         const supabase = createClient()
         try {

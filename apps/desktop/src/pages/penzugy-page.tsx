@@ -227,8 +227,25 @@ export function PenzugyPage() {
 
       const incomeRows = befLocal.map(toBefitetesRow)
       const expenseRows = kiaLocal.map(toKiadasRow)
-      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), 0, 0)
-      const yearBalances = calculateBalances(incomeRows, expenseRows, prevBalances.cashBalance, prevBalances.bankBalance)
+
+      // 2026-07-10 (#3 defense-in-depth): a belső-mozgás cél-id-k kizárása a
+      // bevétel/kiadás TOTÁLOKBÓL — a webes finance-tabs internalCelIds párja.
+      // Eddig a desktop e nélkül hívta a calculateBalances-t, így az xkey nélküli
+      // 3xx/4xx (és legacy 100.xx) tételek a totálokat torzították.
+      const isInternalKod = (kod: string) =>
+        /^[34]/.test(kod) || kod === '100' || kod.startsWith('100.')
+      const internalIncomeCelIds = new Set<number>()
+      const internalExpenseCelIds = new Set<number>()
+      for (const [id, kod] of Object.entries(bevMap)) {
+        if (isInternalKod(String(kod))) internalIncomeCelIds.add(Number(id))
+      }
+      for (const [id, kod] of Object.entries(kiaMap)) {
+        if (isInternalKod(String(kod))) internalExpenseCelIds.add(Number(id))
+      }
+      const internalCelIds = { internalIncomeCelIds, internalExpenseCelIds }
+
+      const prevBalances = calculateBalances(prevBefLocal.map(toBefitetesRow), prevKiaLocal.map(toKiadasRow), 0, 0, internalCelIds)
+      const yearBalances = calculateBalances(incomeRows, expenseRows, prevBalances.cashBalance, prevBalances.bankBalance, internalCelIds)
 
       // Paritás #5 — online törzsadatok a Bank/Monetár fülhöz. Hibatűrő:
       // offline vagy lejárt session esetén üres marad (a fülek jelzik).
@@ -615,6 +632,8 @@ export function PenzugyPage() {
               szamadasiCellek={szamadasiCellek}
               congregationName={congregationName}
               onRefresh={() => void load()}
+              // 2026-07-10 (ÚJ #8): kp/banki chip — a már betöltött bankszámla-listából.
+              bankAccounts={bankAccounts}
             />
           ) : activeTab === 'accounting' ? (
             <AccountingTab

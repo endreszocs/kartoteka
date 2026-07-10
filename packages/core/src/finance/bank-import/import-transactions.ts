@@ -78,6 +78,15 @@ export type BankImportResult = {
 export interface ImportBankTransactionsInput {
   congregationId: string
   items: BankImportItem[]
+  /**
+   * 2026-07-10 (ÚJ #10): NAPI árfolyamok deviza (nem-RON) számlákhoz.
+   * Kulcs: a tranzakció dátuma ("YYYY-MM-DD"), érték: 1 deviza = X RON
+   * (a célszámla devizájában). A HÍVÓ réteg tölti fel (web: fetchBnrRates
+   * napi historikus BNR/ECB árfolyam) — a core platform-független, ezért
+   * itt NEM kérünk le árfolyamot. Ha egy dátum hiányzik a map-ből, a
+   * meglévő éves (bankszamla_nyito_egyenleg) árfolyam a fallback.
+   */
+  dailyRates?: Record<string, number>
 }
 
 export interface ImportBankTransactionsCtx {
@@ -200,8 +209,10 @@ async function isXkeyPairedOnBankSide(
  * párja nélkül hozta létre — ezeket kötjük most össze a banki kivonat tételeivel.)
  *
  * Kritériumok: kassza-oldal (`bankszamla_id IS NULL`), van `belso_mozgas_xkey`, az adott
- * irány (befizetés/kiadás), azonos összeg (±0.01), a dátum ±3 napon belül, NEM törölt, és az
- * xkey-je még NINCS bank-oldalon párosítva.
+ * irány (befizetés/kiadás), azonos összeg (±0.01), a dátum ±7 napon belül (2026-07-10 #3/D:
+ * ±3-ról szélesítve — a valós adatban a kassza- és bank-oldal több nappal is eltérhet, emiatt
+ * a közös-xkey párosítás egyszer sem jött létre; a ±7 az internal-movement-health
+ * PAIRING_WINDOW_DAYS-szel konzisztens), NEM törölt, és az xkey-je még NINCS bank-oldalon párosítva.
  *
  * @returns A megtalált kassza-oldali sor id-je + xkey-je (ezt használjuk a banki sorhoz), vagy null.
  */
@@ -220,8 +231,8 @@ async function findUnpairedCashCounterpart(
     .gte('osszeg', params.amount - 0.01)
     .lte('osszeg', params.amount + 0.01)
     .eq('deleted', false)
-    .gte('datum', addDaysIso(params.date, -3))
-    .lte('datum', addDaysIso(params.date, 3))
+    .gte('datum', addDaysIso(params.date, -7))
+    .lte('datum', addDaysIso(params.date, 7))
 
   if (!candidates || candidates.length === 0) return null
 
@@ -351,6 +362,10 @@ export async function importBankTransactionsUseCase(
   // nyitó egyenleg árfolyam alapján számoljuk. Ha a bankszámla RON, az
   // arfolyam=1 és az osszeg_ron=osszeg.
   //
+  // 2026-07-10 (ÚJ #10): ha a hívó `input.dailyRates`-ben megadta a
+  // tranzakció NAPJÁRA érvényes árfolyamot, deviza-számlánál AZT
+  // használjuk; az éves nyitó-árfolyam csak fallback marad.
+  //
   // A `bankszamlak` táblából egyszer lekérdezzük minden érintett számlát.
   const uniqueBankIds = Array.from(new Set(items.map((i) => i.bankszamlaId)))
   const { data: banksData } = await supabase
@@ -389,9 +404,21 @@ export async function importBankTransactionsUseCase(
   }
 
   function computeOsszegRon(item: BankImportItem): { osszegRon: number; arfolyam: number } {
+    const valuta = bankValutaMap.get(item.bankszamlaId) || 'RON'
+    // 2026-07-10 (ÚJ #10): deviza-számlánál ELSŐDLEGESEN az adott NAPI
+    // árfolyam (a hívó által feltöltött dailyRates map-ből, kulcs: dátum).
+    if (valuta !== 'RON') {
+      const napiArf = input.dailyRates?.[item.date]
+      if (napiArf != null && napiArf > 0) {
+        return {
+          osszegRon: Number((Math.abs(item.amount) * napiArf).toFixed(2)),
+          arfolyam: napiArf,
+        }
+      }
+    }
+    // Fallback: éves nyitó-árfolyam (változatlan viselkedés)
     const year = new Date(item.date).getFullYear()
     const arf = arfolyamMap.get(arfolyamKulcs(item.bankszamlaId, year))
-    const valuta = bankValutaMap.get(item.bankszamlaId) || 'RON'
     if (valuta === 'RON' || !arf || arf <= 0) {
       return { osszegRon: Math.abs(item.amount), arfolyam: 1 }
     }
@@ -567,7 +594,7 @@ export async function importBankTransactionsUseCase(
         //   amount > 0 (jóváírás): a bankba BEMENT → bank-oldal BEVÉTEL
         const isBankToKassza = item.amount < 0
         const absAmount = Math.abs(item.amount)
-        const bmTipus = isKasszaTarget ? (isBankToKassza ? 'bank_kassza' : 'kassza_bank') : 'bank_bank'
+        // (2026-07-10: a bmTipus a belsomozgas audit-inserttel együtt megszűnt — lásd lent)
 
         // A bank-oldal iránya az item.bankszamlaId számlán, és a counterpart (másik oldal) iránya.
         const bankSide: 'income' | 'expense' = isBankToKassza ? 'expense' : 'income'
@@ -701,24 +728,14 @@ export async function importBankTransactionsUseCase(
           }
         }
 
-        // ── BM audit rekord (belsomozgas tábla) ──
-        await supabase.from('belsomozgas').insert({
-          congregation_id: congregationId,
-          datum: item.date,
-          tipus: bmTipus,
-          osszeg: absAmount,
-          forras: isBankToKassza
-            ? String(item.bankszamlaId)
-            : (isKasszaTarget ? 'kassza' : String(counterpartBankId ?? '')),
-          cel: isBankToKassza
-            ? (isKasszaTarget ? 'kassza' : String(counterpartBankId ?? ''))
-            : String(item.bankszamlaId),
-          megjegyzes: counterpartAlreadyExists
-            ? `Párosítva a kassza-import tételével — ${item.megjegyzes || item.description}`
-            : (item.megjegyzes || item.description),
-          created_by: userId,
-          deleted: false,
-        })
+        // 2026-07-10 (#3/B holtkód-tisztítás): a korábbi `belsomozgas` audit-insert
+        // ELTÁVOLÍTVA. Bizonyítottan némán elbukott (a valós DB-ben 16 importált
+        // belső mozgás után is 0 sor volt a táblában — az insert eredményét senki
+        // nem ellenőrizte), és az új, egységes modellben redundáns is: a mozgás
+        // KANONIKUS nyilvántartása a befizetes/kiadas pár közös belso_mozgas_xkey-vel.
+        // A `belsomozgas` mester-tábla kizárólag a manuális valutacsere/bank_bank
+        // mozgásoké (deviza-logika: bank-balance.ts). Így a törlés (xkey-páros)
+        // sem hagyhat árva audit-sort.
 
         result.imported++
       }
