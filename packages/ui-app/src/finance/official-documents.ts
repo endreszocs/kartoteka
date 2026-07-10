@@ -91,7 +91,8 @@ export function buildDecontHtml(d: DecontDocData): string {
     /* Képernyős előnézeten emuláljuk a lap-margót (a @page csak nyomtatásnál hat) */
     @media screen { body { padding: 14mm 12mm; } }
     .sheet { width: 100%; }
-    .unit-band { border: 1px solid #94a3b8; background: #e7f3e7; height: 26px; }
+    /* 2026-07-10 (ÚJ #5): zöld háttér eltávolítva — a hivatalos iraton nincs kiemelés. */
+    .unit-band { border: 1px solid #94a3b8; background: #fff; height: 26px; }
     .unit-label { font-size: 11px; color: #1f3a5f; margin: 2px 0 10px; }
     .title { text-align: center; font-weight: bold; font-size: 15px; line-height: 1.35; }
     .subnum { text-align: center; font-weight: bold; font-size: 14px; }
@@ -328,7 +329,8 @@ export function buildDecontIncasareHtml(d: DecontIncasareDocData): string {
     body { font-family: "Times New Roman", Georgia, serif; color: #14213d; font-size: 12px; margin: 0; }
     @media screen { body { padding: 14mm 12mm; } }
     .sheet { width: 100%; }
-    .unit-band { border: 1px solid #94a3b8; background: #e7f3e7; height: 26px; }
+    /* 2026-07-10 (ÚJ #5): zöld háttér eltávolítva — a hivatalos iraton nincs kiemelés. */
+    .unit-band { border: 1px solid #94a3b8; background: #fff; height: 26px; }
     .unit-label { font-size: 11px; color: #1f3a5f; margin: 2px 0 10px; }
     .title { text-align: center; font-weight: bold; font-size: 15px; line-height: 1.35; }
     .subnum { text-align: center; font-weight: bold; font-size: 14px; }

@@ -120,13 +120,18 @@ export function FinanceTabs({
   // számadási kódra mutatnak (300.01/301.01/400.01/401.01/402.02). Ezeket a bevétel/kiadás
   // ÖSSZEGBŐL kizárjuk (mint a számadás), akkor is, ha a soron nincs belso_mozgas_xkey.
   const internalCelIds = useMemo(() => {
+    // 2026-07-10 (#3 defense-in-depth): a 3xx/4xx mellett a 100-as fejezet
+    // (Pénztármaradvány / legacy belső mozgás: 100.01/100.02/100.51/100.52) is
+    // belsőnek számít — xkey nélküli ilyen tétel se torzítsa a totálokat.
+    const isInternalKod = (kod: string) =>
+      /^[34]/.test(kod) || kod === '100' || kod.startsWith('100.')
     const internalIncomeCelIds = new Set<number>()
     const internalExpenseCelIds = new Set<number>()
     for (const [id, kod] of Object.entries(bevCelMap)) {
-      if (/^[34]/.test(String(kod))) internalIncomeCelIds.add(Number(id))
+      if (isInternalKod(String(kod))) internalIncomeCelIds.add(Number(id))
     }
     for (const [id, kod] of Object.entries(kiaCelMap)) {
-      if (/^[34]/.test(String(kod))) internalExpenseCelIds.add(Number(id))
+      if (isInternalKod(String(kod))) internalExpenseCelIds.add(Number(id))
     }
     return { internalIncomeCelIds, internalExpenseCelIds }
   }, [bevCelMap, kiaCelMap])
@@ -299,7 +304,6 @@ export function FinanceTabs({
                 <Building2 className="size-3.5 text-teal-600" />
                 {congregationName}
               </span>
-              <FinanceYearSelector currentYear={currentYear} availableYears={availableYears} />
               <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
                 <Wallet className="size-3.5" />
                 Tartozásszámítás: {debtModeLabel}
@@ -316,23 +320,28 @@ export function FinanceTabs({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
-              + Tétel rögzítése
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
-              Decont
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
-              Dispoziție
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
-              <Printer className="mr-1 size-3.5" />
-              Nyomtatási központ
-            </Button>
-            {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
-                belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
-            {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
+          {/* 2026-07-10 (#1): az év-választó a chip-sorból ide, a jobb oldali vezérlő-oszlop
+              tetejére került — dedikált, címkézett vezérlőként, az akciógombok fölé. */}
+          <div className="flex flex-col items-start gap-3 xl:items-end">
+            <FinanceYearSelector currentYear={currentYear} availableYears={availableYears} />
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={() => setCombinedOpen(true)}>
+                + Tétel rögzítése
+              </Button>
+              <Button size="sm" variant="outline" className="rounded-xl border-violet-200 text-violet-700 hover:bg-violet-50" onClick={() => setDecontOpen(true)}>
+                Decont
+              </Button>
+              <Button size="sm" variant="outline" className="rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setDispozitieOpen(true)}>
+                Dispoziție
+              </Button>
+              <Button size="sm" variant="outline" className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setPrintDialogOpen(true)}>
+                <Printer className="mr-1 size-3.5" />
+                Nyomtatási központ
+              </Button>
+              {/* A pénzügyi import fülre most közvetlen elérés van a fülsoron
+                  belül a "Rendszergazdai importáló" fülön (rose, első helyen). */}
+              {/* Költségvetés nyomtatás gomb áthelyezve a Költségvetés fülre */}
+            </div>
           </div>
         </div>
       </div>
@@ -347,8 +356,10 @@ export function FinanceTabs({
               <div>
                 <h3 className="text-sm font-semibold text-red-700">Nyugtafigyelő riasztás</h3>
                 <p className="text-sm text-red-600/90">
+                  {/* 2026-07-10 (ÚJ #6): a folytonosság-ellenőrzés évhatáron át fut. */}
                   A rendszer {receiptHealth.trackedReceiptCount} készpénzes nyugtát ellenőrzött ebben az évben —
-                  a gyülekezet saját sorszáma (Irat sz.) alapján, az év első és utolsó nyugtája között.
+                  a gyülekezet saját sorszáma (Irat sz.) alapján, az év első nyugtájától a következő év első
+                  nyugtájáig — a sorszámozás évhatáron át folytatódik.
                 </p>
               </div>
               {receiptHealth.missingNumbers.length > 0 && (
@@ -496,6 +507,7 @@ export function FinanceTabs({
             congregationName={congregationName}
             onRefresh={refreshData}
             rentalContracts={rentalContracts}
+            bankAccounts={bankAccounts}
           />
         </TabsContent>
 
@@ -548,10 +560,18 @@ export function FinanceTabs({
               Költségvetés nyomtatás
             </Button>
           </div>
-          <BudgetTab szamadasiCellek={szamadasiCellek} settings={settings} currentYear={currentYear} />
+          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön. */}
+          <BudgetTab
+            szamadasiCellek={szamadasiCellek}
+            settings={settings}
+            currentYear={currentYear}
+            carryoverCash={carryoverCash}
+            carryoverBank={carryoverBank}
+          />
         </TabsContent>
 
         <TabsContent value="accounting" className="mt-4">
+          {/* 2026-07-10 (#2): carryoverCash/Bank — nyitó egyenleg blokk a fülön. */}
           <AccountingTabV2
             szamadasiCellek={szamadasiCellek}
             incomeRecords={incomeRecords}
@@ -561,6 +581,8 @@ export function FinanceTabs({
             settings={settings}
             currentYear={currentYear}
             scope={scope}
+            carryoverCash={carryoverCash}
+            carryoverBank={carryoverBank}
           />
         </TabsContent>
 

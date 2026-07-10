@@ -440,6 +440,13 @@ export function BcrImportWizardDialog({
         toast.error(res.error)
         return
       }
+      // 2026-07-10 (ÚJ #10): deviza napi-árfolyam figyelmeztetések megjelenítése
+      // (pl. egy adott napra nem jött BNR/ECB árfolyam → éves fallback ment).
+      if (res.warnings && res.warnings.length > 0) {
+        for (const w of res.warnings.slice(0, 3)) {
+          toast(`⚠️ ${w}`, { duration: 12000 })
+        }
+      }
       setImportResult({
         imported: res.imported,
         skipped: res.skipped,

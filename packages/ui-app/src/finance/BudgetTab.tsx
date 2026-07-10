@@ -40,6 +40,27 @@ export interface BudgetTabProps {
   settings: BealitasRow
   currentYear: number
 
+  /**
+   * 2026-07-10 (#2): NYITÓ egyenlegek (előző évi záró) — display-only blokk a
+   * fül tetején, a hivatalos EREK-minta 1–3. sora szerint. OPCIONÁLIS: ha
+   * undefined (pl. desktop hívó nem adja át), a blokk nem jelenik meg.
+   * FONTOS: NEM kerül a budgetData-ba / mentésbe.
+   */
+  carryoverCash?: number
+  carryoverBank?: number
+
+  /**
+   * 2026-07-10 (#2): előző évi TÉNY betöltése (szürke referencia-oszlop).
+   * A `year` a NÉZETT év — a callback maga a `year - 1` évi tényt adja vissza
+   * szamadasicel-kód szerint aggregálva. OPCIONÁLIS: ha nincs, az oszlop
+   * nem jelenik meg (desktop hívók változatlanok).
+   */
+  loadPreviousActuals?: (year: number) => Promise<{
+    actualIncome?: Record<string, number>
+    actualExpense?: Record<string, number>
+    error?: string
+  }>
+
   loadBudgetRows: (
     year: number,
     congregationId: string,
@@ -87,6 +108,9 @@ export function BudgetTab({
   szamadasiCellek,
   settings,
   currentYear,
+  carryoverCash,
+  carryoverBank,
+  loadPreviousActuals,
   loadBudgetRows,
   saveBudgetRows,
   saveBudgetModification,
@@ -101,6 +125,11 @@ export function BudgetTab({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<BudgetMode>('base')
+  // 2026-07-10 (#2): előző évi (currentYear-1) TÉNY kódonként — szürke referencia.
+  const [prevActuals, setPrevActuals] = useState<{
+    income: Record<string, number>
+    expense: Record<string, number>
+  } | null>(null)
 
   const isBaseFinalized = settings.budget_finalized
   const isMod1Finalized = settings.budget_mod1_finalized ?? false
@@ -123,17 +152,22 @@ export function BudgetTab({
           : canEditMod3
 
   const isGyulekezetSzint = (c: SzamadasiCel) => !c.szint || c.szint === 'gyulekezet'
+  // 2026-07-10 (#3/A): a type-guard mellé kód-prefix guard is — a belső mozgás
+  // (100.xx pénztármaradvány + 3xx/4xx átvezetés) SOSEM költségvetési tétel.
   const bevetelCellek = useMemo(
     () =>
       szamadasiCellek
-        .filter((c) => c.type === 'B' && c.id !== '100' && isGyulekezetSzint(c))
+        .filter(
+          (c) =>
+            c.type === 'B' && c.id.startsWith('1') && !c.id.startsWith('100') && isGyulekezetSzint(c),
+        )
         .sort((a, b) => sortCellsHierarchically(a.id, b.id)),
     [szamadasiCellek],
   )
   const kiadasCellek = useMemo(
     () =>
       szamadasiCellek
-        .filter((c) => c.type === 'K' && isGyulekezetSzint(c))
+        .filter((c) => c.type === 'K' && c.id.startsWith('2') && isGyulekezetSzint(c))
         .sort((a, b) => sortCellsHierarchically(a.id, b.id)),
     [szamadasiCellek],
   )
@@ -159,6 +193,24 @@ export function BudgetTab({
       cancelled = true
     }
   }, [currentYear, settings.congregation_id, loadBudgetRows, onToast])
+
+  // 2026-07-10 (#2): előző évi tény betöltése (a callback a currentYear-1 évet
+  // aggregálja). Hiba esetén csendben kimarad — a referencia-oszlop opcionális.
+  useEffect(() => {
+    if (!loadPreviousActuals) return
+    let cancelled = false
+    void (async () => {
+      const result = await loadPreviousActuals(currentYear)
+      if (cancelled || result.error) return
+      setPrevActuals({
+        income: result.actualIncome || {},
+        expense: result.actualExpense || {},
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentYear, loadPreviousActuals])
 
   function getValue(celId: string): number {
     if (!celId.includes('.')) {
@@ -198,6 +250,26 @@ export function BudgetTab({
     if (mode === 'mod2') return row.modositott ?? row.tervezett ?? 0
     if (mode === 'mod3') return row.mod2 ?? row.modositott ?? row.tervezett ?? 0
     return 0
+  }
+
+  // 2026-07-10 (#2): előző ÉVI tény — csoport-soroknál a levelek összege
+  // (a getValue aggregáló mintája). A bevétel (1xx) és kiadás (2xx) kódok
+  // diszjunktak, ezért a két map közös lookupja biztonságos.
+  function getPrevYearActualLeaf(celId: string): number {
+    if (!prevActuals) return 0
+    return prevActuals.income[celId] ?? prevActuals.expense[celId] ?? 0
+  }
+
+  function getPrevYearActualValue(celId: string): number {
+    if (!prevActuals) return 0
+    if (!celId.includes('.')) {
+      const prefix = celId + '.'
+      const children = [...bevetelCellek, ...kiadasCellek].filter(
+        (c) => c.id.startsWith(prefix) && c.id.includes('.'),
+      )
+      return children.reduce((sum, c) => sum + getPrevYearActualLeaf(c.id), 0)
+    }
+    return getPrevYearActualLeaf(celId)
   }
 
   function setValue(celId: string, val: number) {
@@ -285,16 +357,15 @@ export function BudgetTab({
       await handleSave()
 
       const snapshot: Record<string, unknown> = { budgetData, year: currentYear, mode }
-      const submitResult = await submitDocument(docType, currentYear, snapshot, modNum)
-      if (submitResult.error) {
-        onToast?.(`Beküldés sikertelen: ${submitResult.error}`, 'error')
-        return
-      }
 
+      // 2026-07-10 (#4/4): ZÁR-ELŐSZÖR sorrend — előbb a véglegesítés (lock),
+      // utána a beküldés. Korábban fordítva volt: ha a zárás elbukott, a
+      // dokumentum beküldött-de-nyitott maradt, és a beküldött snapshot csendben
+      // elévülhetett (a szerkesztés tovább élt).
       if (mode === 'base') {
         const result = await finalizeBudget(currentYear)
         if (result.error) {
-          onToast?.(`Beküldve, de véglegesítés sikertelen: ${result.error}`, 'error')
+          onToast?.(`Véglegesítés sikertelen: ${result.error}`, 'error')
           return
         }
       } else {
@@ -303,9 +374,19 @@ export function BudgetTab({
           modNum as 1 | 2 | 3,
         )
         if (result.error) {
-          onToast?.(`Beküldve, de véglegesítés sikertelen: ${result.error}`, 'error')
+          onToast?.(`Véglegesítés sikertelen: ${result.error}`, 'error')
           return
         }
+      }
+
+      const submitResult = await submitDocument(docType, currentYear, snapshot, modNum)
+      if (submitResult.error) {
+        onToast?.(
+          `Véglegesítve, de a beküldés sikertelen: ${submitResult.error} — ` +
+            'próbáld újra a beküldést, vagy kérj javítási engedélyt.',
+          'error',
+        )
+        return
       }
 
       onToast?.(
@@ -364,6 +445,9 @@ export function BudgetTab({
   }
 
   const showModComparison = mode !== 'base'
+  // 2026-07-10 (#2): az „Előző évi tény" halvány referencia-oszlop csak base
+  // módban és csak betöltött előző évi adat mellett látszik.
+  const showPrevYear = mode === 'base' && prevActuals !== null
 
   return (
     <div className="space-y-4">
@@ -478,6 +562,43 @@ export function BudgetTab({
         )}
       </div>
 
+      {/* 2026-07-10 (#2): NYITÓ egyenlegek — hivatalos EREK-minta (1–3. sor).
+          Display-only: NEM része a budgetData-nak, mentéskor nem íródik sehova. */}
+      {carryoverCash != null && carryoverBank != null && (
+        <div className="card-raised border-slate-100 bg-slate-50/60 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Nyitó egyenlegek — automatikus, nem szerkeszthető
+          </p>
+          <div className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+            <div className="flex items-baseline justify-between gap-3 sm:col-span-3 sm:justify-start">
+              <span className="text-slate-500">
+                Múlt évi pénztármaradvány{' '}
+                <span className="italic text-slate-400">(Disponibil din anul precedent)</span>
+              </span>
+              <span className="font-semibold text-slate-600">
+                {formatCurrency(carryoverCash + carryoverBank)} RON
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <span className="text-slate-500">
+                Készpénz <span className="italic text-slate-400">(Casa)</span>
+              </span>
+              <span className="font-medium text-slate-500">
+                {formatCurrency(carryoverCash)} RON
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <span className="text-slate-500">
+                Banki egyenleg <span className="italic text-slate-400">(Banca)</span>
+              </span>
+              <span className="font-medium text-slate-500">
+                {formatCurrency(carryoverBank)} RON
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <BudgetCellTable
           icon={<ArrowDownCircle className="size-4 text-emerald-600" />}
@@ -486,10 +607,12 @@ export function BudgetTab({
           totalText="text-emerald-700"
           total={totalIncome}
           showModComparison={showModComparison}
+          showPrevYear={showPrevYear}
           modeLabel={MODE_LABELS[mode]}
           cells={bevetelCellek}
           getValue={getValue}
           getPreviousValue={getPreviousValue}
+          getPrevYearActual={getPrevYearActualValue}
           canEdit={canEdit}
           setValue={setValue}
           isIncome
@@ -501,10 +624,12 @@ export function BudgetTab({
           totalText="text-rose-600"
           total={totalExpense}
           showModComparison={showModComparison}
+          showPrevYear={showPrevYear}
           modeLabel={MODE_LABELS[mode]}
           cells={kiadasCellek}
           getValue={getValue}
           getPreviousValue={getPreviousValue}
+          getPrevYearActual={getPrevYearActualValue}
           canEdit={canEdit}
           setValue={setValue}
           isIncome={false}
@@ -548,10 +673,14 @@ interface BudgetCellTableProps {
   totalText: string
   total: number
   showModComparison: boolean
+  /** 2026-07-10 (#2): halvány „Előző évi tény" referencia-oszlop (base mód). */
+  showPrevYear: boolean
   modeLabel: string
   cells: SzamadasiCel[]
   getValue: (celId: string) => number
   getPreviousValue: (celId: string) => number
+  /** 2026-07-10 (#2): előző évi tény érték (csoportnál levelek összege). */
+  getPrevYearActual: (celId: string) => number
   canEdit: boolean
   setValue: (celId: string, val: number) => void
   isIncome: boolean
@@ -564,10 +693,12 @@ function BudgetCellTable({
   totalText,
   total,
   showModComparison,
+  showPrevYear,
   modeLabel,
   cells,
   getValue,
   getPreviousValue,
+  getPrevYearActual,
   canEdit,
   setValue,
   isIncome,
@@ -592,6 +723,11 @@ function BudgetCellTable({
                   Előző
                 </th>
               )}
+              {showPrevYear && (
+                <th className="p-2 text-right text-xs font-medium text-slate-400 w-28">
+                  Előző évi tény
+                </th>
+              )}
               <th className="p-2 text-right text-xs font-medium text-slate-500 w-32">
                 {showModComparison ? modeLabel : 'Terv (RON)'}
               </th>
@@ -603,6 +739,8 @@ function BudgetCellTable({
               const val = getValue(c.id)
               const prevVal = showModComparison ? getPreviousValue(c.id) : 0
               const diff = showModComparison ? val - prevVal : 0
+              // 2026-07-10 (#2): előző évi tény — halvány oszlop + üres input placeholdere.
+              const prevYearVal = showPrevYear ? getPrevYearActual(c.id) : 0
               const positiveColor = isIncome ? 'text-emerald-600' : 'text-red-500'
               const negativeColor = isIncome ? 'text-red-500' : 'text-emerald-600'
 
@@ -626,6 +764,11 @@ function BudgetCellTable({
                       {formatCurrency(prevVal)}
                     </td>
                   )}
+                  {showPrevYear && (
+                    <td className="p-2 text-right text-xs text-slate-400">
+                      {prevYearVal !== 0 ? formatCurrency(prevYearVal) : '–'}
+                    </td>
+                  )}
                   <td className="p-2 text-right">
                     {isGroup ? (
                       <span className={`font-semibold ${positiveColor}`}>
@@ -636,9 +779,14 @@ function BudgetCellTable({
                         type="number"
                         value={val || ''}
                         onChange={(e) => setValue(c.id, Number(e.target.value) || 0)}
-                        className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm"
+                        className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm placeholder:text-slate-300"
                         step="0.01"
                         min="0"
+                        placeholder={
+                          showPrevYear && prevYearVal !== 0
+                            ? formatCurrency(prevYearVal)
+                            : undefined
+                        }
                       />
                     ) : (
                       <span

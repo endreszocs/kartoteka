@@ -9,16 +9,19 @@
  *   - 5 server action callback
  *   - 4 modal slot (Dialog shell-lel mountolva)
  *   - sonner toast
- *   - `next/navigation` router (`onOpenSettings` → /profile?tab=offline)
+ *   - `onOpenSettings` → HELYBEN nyitja a KARTOTEKA mappa-választót
+ *     (pickRootDirectory + Dexie perzisztálás). 2026-07-10-ig tévesen a
+ *     /profile?tab=offline-ra navigált, amit a profil-oldal nem kezel — a
+ *     lelkésznek sehol nem volt elérhető beállító (a diagnosztika admin-only).
  *
  * A régi 1637 soros implementáció a sharedban él (drift-elkerülés).
  */
 
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { OblioEllenorzesTab as SharedOblioEllenorzesTab } from '@kartoteka/ui-app'
 import { BrowserOblioFileSystem } from '@/lib/finance/oblio/oblio-folder'
+import { isFileSystemAccessSupported, pickRootDirectory } from '@/lib/offline/fs-handle-store'
 import {
   bulkSaveOblioMatches,
   listOblioMatchesAndKiadasok,
@@ -43,8 +46,6 @@ export function OblioEllenorzesTab({
   congregationName,
   currentYear,
 }: OblioEllenorzesTabProps) {
-  const router = useRouter()
-
   return (
     <SharedOblioEllenorzesTab
       congregationSlug={congregationSlug}
@@ -80,8 +81,27 @@ export function OblioEllenorzesTab({
         else if (kind === 'warning') toast.warning(msg)
         else toast(msg)
       }}
-      onOpenSettings={() => {
-        router.push('/profile?tab=offline')
+      onOpenSettings={async () => {
+        // 2026-07-10 (Oblio zsákutca-javítás): a mappa-választó HELYBEN nyílik.
+        // A korábbi /profile?tab=offline cél HALOTT volt (a profil-oldal a `tab`
+        // paramétert nem kezeli), az /offline/diagnostika pedig ADMIN-ONLY —
+        // a lelkésznek sehol nem volt elérhető beállító. A gombkattintás érvényes
+        // user-gesture a showDirectoryPicker-hez; a pickRootDirectory perzisztál
+        // (Dexie), majd reload — a fül mount-kor újraellenőrzi a mappát.
+        if (!isFileSystemAccessSupported()) {
+          toast.error(
+            'Ez a böngésző nem támogatja a mappa-hozzáférést — használj Chrome/Edge böngészőt, vagy az asztali (offline) alkalmazást.',
+          )
+          return
+        }
+        try {
+          const handle = await pickRootDirectory()
+          if (!handle) return // a felhasználó bezárta a választót
+          toast.success(`KARTOTEKA mappa beállítva: ${handle.name}`)
+          window.location.reload()
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : 'A mappa kiválasztása nem sikerült.')
+        }
       }}
       manualMatchDialogSlot={(s) => (
         <OblioManualMatchDialog

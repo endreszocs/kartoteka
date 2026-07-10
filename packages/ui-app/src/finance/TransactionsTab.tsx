@@ -45,6 +45,7 @@ import {
 } from './finance-export'
 import {
   RENTAL_SZAMADASICEL_CODES,
+  type BankAccount,
   type BefitetesRow,
   type KiadasRow,
   type RentalContractRow,
@@ -78,6 +79,11 @@ export interface TransactionsTabProps {
   congregationName: string
   onRefresh: () => void
   rentalContracts?: RentalContractRow[]
+
+  /** 2026-07-10 (ÚJ #8): bankszámlák a kp/banki jelzéshez — a banki tétel chipje
+   *  a bankszámla nevét mutatja. Opcionális: nélküle csak a „Kp" jelzés marad el
+   *  a név-feloldás (fallback: „Bank"). */
+  bankAccounts?: BankAccount[]
 
   /** Tranzakció törlése (web: deleteTransaction action). */
   onDeleteTransaction?: (
@@ -147,6 +153,8 @@ type UnifiedRow = {
   irattipus: string
   megjegyzes: string
   isBm: boolean
+  /** 2026-07-10 (ÚJ #8): NULL = készpénz (kassza), kitöltve = banki tétel. */
+  bankszamlaId: number | null
   hasMissingPerson: boolean
   hasMissingCategory: boolean
   rawExpense?: KiadasRow
@@ -161,6 +169,7 @@ export function TransactionsTab({
   congregationName,
   onRefresh,
   rentalContracts = [],
+  bankAccounts = [],
   onDeleteTransaction,
   loadOblioMatchedExpenseIds,
   onToast,
@@ -271,6 +280,13 @@ export function TransactionsTab({
     return szamadasiCellek.find((c) => c.id === kod)?.nev || kod
   }
 
+  // 2026-07-10 (ÚJ #8): id → bankszámla feloldó a banki chip nevéhez.
+  const bankAccountById = useMemo(() => {
+    const map = new Map<number, BankAccount>()
+    for (const b of bankAccounts) map.set(b.id, b)
+    return map
+  }, [bankAccounts])
+
   const rows: UnifiedRow[] = useMemo(() => {
     const all: UnifiedRow[] = [
       ...incomeRecords.map((r) => ({
@@ -287,6 +303,7 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
+        bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
         hasMissingCategory: !r.id_befizetescel,
       })),
@@ -304,6 +321,7 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
+        bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         hasMissingPerson: false,
         hasMissingCategory: !r.id_kiadascel,
         rawExpense: r,
@@ -506,8 +524,13 @@ export function TransactionsTab({
                         <th className="p-2.5 text-left text-xs font-medium text-slate-500 hidden lg:table-cell">
                           Kerületi / Irat sz.
                         </th>
+                        {/* 2026-07-10 (ÚJ #9): kétoszlopos Bevétel/Kiadás a közös „Összeg" helyett
+                            — a CashbookTab mintája szerint. */}
                         <th className="p-2.5 text-right text-xs font-medium text-slate-500">
-                          Összeg
+                          Bevétel
+                        </th>
+                        <th className="p-2.5 text-right text-xs font-medium text-slate-500">
+                          Kiadás
                         </th>
                         <th
                           className="p-2.5 w-8 text-center text-xs font-medium text-slate-500"
@@ -532,6 +555,8 @@ export function TransactionsTab({
                         <th className="p-1.5 align-top hidden lg:table-cell">
                           <ColumnFilterInput value={colFilters.iratszam || ''} onChange={(v) => setColFilter('iratszam', v)} ariaLabel="Iratszám szűrő" />
                         </th>
+                        {/* 2026-07-10 (ÚJ #9): +1 üres cella a Bevétel/Kiadás oszlop-pár miatt. */}
+                        <th className="p-1.5" />
                         <th className="p-1.5" />
                         <th className="p-1.5" />
                         {onDeleteTransaction && <th className="p-1.5" />}
@@ -550,7 +575,8 @@ export function TransactionsTab({
                           <Fragment key={`${r.type}-${r.id}`}>
                             {showDateHeader && (
                               <tr className="bg-secondary/55">
-                                <td colSpan={7} className="px-2.5 py-1.5">
+                                {/* 2026-07-10 (ÚJ #9): colSpan 7 → 8 a Bevétel/Kiadás oszlop-pár miatt. */}
+                                <td colSpan={8} className="px-2.5 py-1.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-semibold text-slate-500">
                                       {curDate}
@@ -595,14 +621,36 @@ export function TransactionsTab({
                                     {r.label}
                                   </span>
                                 </div>
-                                {r.isBm && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[9px] mt-0.5 border-violet-200 text-violet-600"
-                                  >
-                                    BM
-                                  </Badge>
-                                )}
+                                {/* 2026-07-10 (ÚJ #8): kp/banki jelző chip — NULL bankszamlaId =
+                                    készpénz (zöld „Kp"), kitöltve = banki tétel a bankszámla
+                                    nevével (kék, fallback: „Bank"). */}
+                                <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                  {r.isBm && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[9px] border-violet-200 text-violet-600"
+                                    >
+                                      BM
+                                    </Badge>
+                                  )}
+                                  {r.bankszamlaId == null ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[9px] border-emerald-200 text-emerald-600"
+                                      title="Készpénzes tétel (kassza)"
+                                    >
+                                      Kp
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[9px] border-sky-200 text-sky-600"
+                                      title="Banki tétel"
+                                    >
+                                      {bankAccountById.get(r.bankszamlaId)?.bank_neve || 'Bank'}
+                                    </Badge>
+                                  )}
+                                </div>
                               </td>
                               <td className="p-2.5 hidden md:table-cell text-xs">
                                 <span
@@ -626,13 +674,21 @@ export function TransactionsTab({
                                   </span>
                                 )}
                               </td>
-                              <td
-                                className={`p-2.5 text-right font-bold ${
-                                  r.type === 'income' ? 'text-emerald-600' : 'text-red-500'
-                                }`}
-                              >
-                                {r.type === 'income' ? '+' : '−'}
-                                {formatCurrency(r.osszeg)}
+                              {/* 2026-07-10 (ÚJ #9): kétoszlopos Bevétel/Kiadás — a tétel csak a
+                                  saját oszlopában jelenik meg, előjel nélkül (CashbookTab-minta). */}
+                              <td className="p-2.5 text-right font-bold text-emerald-600">
+                                {r.type === 'income' ? (
+                                  formatCurrency(r.osszeg)
+                                ) : (
+                                  <span className="font-normal text-slate-300">—</span>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-right font-bold text-red-500">
+                                {r.type === 'expense' ? (
+                                  formatCurrency(r.osszeg)
+                                ) : (
+                                  <span className="font-normal text-slate-300">—</span>
+                                )}
                               </td>
                               <td className="p-2.5 text-center">
                                 {r.type === 'income'

@@ -23,6 +23,91 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-10] — Pénzügy nagytakarítás: pontos egyenlegek, hivatalos számadás-forma, átláthatóbb felület
+<!-- key: 2026-07-10-penzugy-nagytakaritas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.55 -->
+
+### 🐛 Javítások — a pénzügyi számok pontossága
+
+- **A „Belső mozgás" sorok eltűntek a Számadásból és a Költségvetésből** — a pénz
+  kasszából bankba tétele (vagy onnan felvétele) nem bevétel és nem kiadás, ezért a
+  hivatalos egyházkerületi nyomtatványon sosem szerepelt tételként. Mostantól a
+  képernyőn sem jelenik meg — a fül pontosan azt mutatja, amit a nyomtatvány.
+- **A belső mozgás rögzítése mostantól azonnal átvezet a kasszán ÉS a bankon** —
+  korábban ha valaki a felületről rögzített egy banki letételt, a kassza és a bank
+  egyenlege nem változott (a mozgás „elveszett"). Mostantól a rögzítés kettős
+  könyveléssel történik (kassza-oldal + bank-oldal, összekapcsolva), így az
+  egyenlegek mindig helyesek, és a tétel a megfelelő megnevezéssel jelenik meg:
+  „Készpénzletétel a(z) … számlára" / „Készpénzfelvétel a(z) … számláról".
+- **Az exportált Excel „Várakozik banki egyeztetésre" felirata mostantól a VALÓS
+  állapotot mutatja** — eddig a rögzítéskor beírt szöveg örökre benne maradt, akkor
+  is, ha a banki pár már régen beérkezett. A párosítás-figyelő is pontosabb lett:
+  csak valódi (kassza↔bank) párokat fogad el.
+- **A Számadás nyomtatványán megjelent a hivatalos nyitó 3 sor** (Múlt évi
+  pénztármaradvány / Casa / Banca), és **a záró egyenleg mostantól helyesen
+  számolódik** (nyitó + évi bevételek − évi kiadások) — korábban tévesen a nyitó
+  összeg szerepelt „év végi" egyenlegként.
+- **A Nyugtafigyelő átlép az évhatáron** — a nyugták sorszáma évek között
+  folytatódik, ezért az ellenőrzés mostantól a következő év első nyugtájáig néz:
+  az év végén „elveszett" sorszámok is kiderülnek, hamis riasztás nélkül.
+- **A beküldés (számadás/költségvetés az egyházmegyének) megbízhatóbb lett:**
+  előbb zár le, utána küld be (nem maradhat beküldött-de-tovább-szerkeszthető
+  állapot); a helyben tárolt és a beküldött számok mostantól ugyanazok; a
+  véglegesített évbe új tétel sem rögzíthető (eddig csak a módosítás volt tiltva);
+  és a dokumentum mindig a gyülekezet saját egyházmegyéjéhez kerül.
+- **Devizás bankszámla (pl. EUR) importja mostantól az ADOTT NAPI hivatalos BNR
+  árfolyammal számolja át lejre** minden tranzakciót — eddig egyetlen éves
+  árfolyam ment mindenre. Ha egy napra nem érhető el árfolyam, a rendszer jelzi.
+- **A kiadási kísérőíven a felirat „Registrul-Jurnal"** — a bizonylaton banki
+  tételek is szerepelnek, ezért a korábbi „Kasszakönyv" felirat félrevezető volt.
+- **Az asztali (offline) verzió bevétel/kiadás összesítői is pontosabbak** —
+  a belső mozgások ott sem számítanak bele a totálokba.
+- **Az Oblio ellenőrzés „Mappa beállítása" gombja mostantól tényleg működik** —
+  eddig egy olyan oldalra vitt, ahol nincs is mappa-beállítás (lelkészként sehol
+  nem lehetett beállítani, így a webes Oblio ellenőrzés el sem indulhatott).
+  Most a gomb azonnal megnyitja a mappa-választót, és a rendszer megjegyzi a
+  kiválasztott KARTOTEKA mappát (Chrome/Edge böngésző szükséges).
+
+### ✨ Új funkciók és 🎨 átláthatóbb felület
+
+- **A költségvetési év választója új, jól látható helyre került** — a Pénzügy
+  oldal jobb felső részén külön vezérlő lett belőle: ◄ nyilakkal léptethető,
+  nagy évszámmal, „Költségvetési év" felirattal. Nem téveszthető össze többé az
+  információs címkékkel.
+- **Az év eleji kezdő egyenlegek automatikusan megjelennek** a Költségvetés és a
+  Számadás fül tetején (Múlt évi pénztármaradvány / Készpénz / Bank) — nem kell
+  kézzel beírni, a rendszer az előző évi záróból hozza.
+- **Az előző évi tényszámok halványan (szürkén) megjelennek** a költségvetés
+  tervezésénél és a számadásban — tételenként látszik, mennyi volt tavaly,
+  üres mezőnél előre beírt javaslatként, amit gépeléskor felülírhatsz.
+- **A Tranzakciók fül átláthatóbb:** külön **Bevétel** és **Kiadás** oszlop (mint
+  a Kassza fülön), és minden soron látszik, hogy **készpénzes vagy banki** a
+  tétel — banki tételnél a bankszámla nevével.
+- **A Kassza fülön a gyülekezet saját iratszáma került előre** (a kerületi szám
+  kisebb betűvel alá) — és az **Excel-export mindig időrendben** (év elejétől év
+  végéig) készül, függetlenül a képernyő rendezésétől.
+- **A kiadási kísérőív előnézete a teljes lapot mutatja** görgetés nélkül,
+  pontosan úgy, ahogy nyomtatásban kinéz.
+- **A hiányzó nyugták elszámolása rugalmasabb:** nyugtánként **külön jogcím**
+  választható (nem kell mindennek adománynak lennie), befizetőként **család is**
+  megadható, a kereső gyorsabb és pontosabb — és a tag-hozzárendelés továbbra
+  sem kötelező. Az előnézetről lekerült az oda nem illő zöld háttércsík.
+- **A Monetár fülön a belső mozgások (pl. valutaváltás) törölhetők** — eddig a
+  felületről rögzített ilyen mozgást nem lehetett törölni.
+
+### ⚙️ Rendszergazdai teendő (egyszeri)
+
+- Két SQL-javítás futtatandó a Supabase SQL editorban (részletek a fájlokban,
+  előbb a beépített ellenőrző lekérdezéssel):
+  `migration-docs/sql/2026-07-10-belso-mozgas-xkey-parositas.sql` (a meglévő
+  belső mozgás-párok összekapcsolása) és
+  `migration-docs/sql/2026-07-10-document-submissions-idempotencia.sql`
+  (a beküldés-duplikátumok megszüntetése).
+
+---
+
 ## [2026-07-02] — UX: „Még egy befizető" — azonnal írható új mező + „nem tag" jelzés
 <!-- key: 2026-07-02-meg-egy-befizeto-fokusz -->
 <!-- category: improvement -->

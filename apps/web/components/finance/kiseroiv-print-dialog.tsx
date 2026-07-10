@@ -5,13 +5,19 @@
  * Bal oldal: info + gombok, jobb oldal: iframe előnézet.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { buildKiadasiKiseroiv } from '@/lib/finance/reporting'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
 import type { KiadasRow, SzamadasiCel } from '@/lib/constants/finance'
+
+// 2026-07-10 (ÚJ #7b): A4 álló szélesség képpontban (96 dpi) + kis ráhagyás,
+// hogy a mm-alapú lap biztosan elférjen az iframe-ben — a FinancePrintDialogBody
+// mintáját követve (210mm≈794px, ráhagyással 812).
+const A4_PORTRAIT_W = 812
+const PREVIEW_BOX_H = 820
 
 interface KiseroivPrintDialogProps {
   open: boolean
@@ -51,6 +57,41 @@ export function KiseroivPrintDialog({
   )
 
   const total = expenses.reduce((s, r) => s + Number(r.osszeg || 0), 0)
+
+  // 2026-07-10 (ÚJ #7b): Fit-to-width előnézet — a konténer szélességét mérjük
+  // (ResizeObserver), és az A4-es lapot arányosan lekicsinyítjük, hogy a TELJES
+  // irat scroll nélkül, pixelhűen látszódjon (mint a FinancePrintDialogBody-ban).
+  const previewRef = useRef<HTMLDivElement>(null)
+  const [boxW, setBoxW] = useState(0)
+  useEffect(() => {
+    const el = previewRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (w > 0) setBoxW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Az iframe tartalmának valódi magasságát betöltéskor mérjük meg, így a
+  // (kicsinyített) lap teljes magasságában látszik — nincs belső görgetés.
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [contentH, setContentH] = useState(PREVIEW_BOX_H)
+  const measurePreview = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    if (h > 0) setContentH(h)
+  }
+
+  const docW = A4_PORTRAIT_W
+  // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
+  // legyen levegő a szélén (ne lógjon ki a széléig).
+  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
+  const scale = Math.min(1, targetW / docW)
+  const scaledW = Math.round(docW * scale)
+  const scaledH = Math.round(contentH * scale)
 
   async function handlePdf() {
     setPrinting(true)
@@ -124,13 +165,28 @@ export function KiseroivPrintDialog({
             </div>
           </div>
 
-          {/* Jobb oldal: előnézet */}
-          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
-            <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
+          {/* Jobb oldal: előnézet — 2026-07-10 (ÚJ #7b): fit-to-width, scroll-mentes A4 kép */}
+          <div
+            ref={previewRef}
+            className="max-h-[80vh] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
+          >
+            <div
+              className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+              style={{ width: scaledW, height: scaledH }}
+            >
               <iframe
+                ref={iframeRef}
+                onLoad={measurePreview}
                 title="Kiadási kísérőív"
                 srcDoc={report.html}
-                className="h-[78vh] min-h-[600px] w-full rounded-[22px] bg-white"
+                style={{
+                  width: docW,
+                  height: contentH,
+                  border: '0',
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                  background: '#fff',
+                }}
               />
             </div>
           </div>

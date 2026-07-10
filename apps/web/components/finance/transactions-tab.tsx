@@ -29,6 +29,8 @@ type WebTransactionsTabProps = Pick<
   | 'congregationName'
   | 'onRefresh'
   | 'rentalContracts'
+  // 2026-07-10 (ÚJ #8): kp/banki jelző chip — a bankszámla-nevek feloldásához.
+  | 'bankAccounts'
 >
 
 export function TransactionsTabWeb(props: WebTransactionsTabProps) {
