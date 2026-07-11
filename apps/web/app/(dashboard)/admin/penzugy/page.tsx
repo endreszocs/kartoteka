@@ -8,7 +8,7 @@ export default function Page() {
     <>
       <AdminPageHeader
         title="Rendszer pénzügyei"
-        description="A platform pénzügyi forgalma, számlázás és határidős fizetések. A gyülekezetek éves díjai egy helyen."
+        description="Előfizetések, könyvelés és árfolyamok egy helyen: gyülekezetenként állíthatod be a hozzáférést, a díjat és a felárat, rögzítheted a bevételeket és a költségeket."
         icon={PiggyBank}
       />
       <div className="card-raised p-4 sm:p-5">

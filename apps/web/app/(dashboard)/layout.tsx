@@ -4,8 +4,10 @@ import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-clie
 import { SyncProvider } from '@/components/offline/sync-provider'
 import { SyncStatusBar } from '@/components/offline/sync-status-bar'
 import { WalkthroughClient } from '@/components/onboarding/walkthrough/walkthrough-client'
+import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-suspended-screen'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getCongregationAccessStatus, shouldGateUser } from '@/lib/auth/subscription-access'
 import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 import { checkCongregationSetupStatus } from '@/app/(dashboard)/congregation/actions'
 import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
@@ -213,6 +215,29 @@ export default async function DashboardLayout({
 
   const { shouldStartWalkthrough, walkthroughFirstName } = onboardingState
   const isGodMode = godMode.active
+
+  // 4b. Előfizetés-gating — UTOLSÓ ellenőrzés a modul-render ELŐTT, minden auth-
+  //     és onboarding-redirect (welcome/pending/onboarding) UTÁN.
+  //     BIZTONSÁGOS DEFAULT: a DB-lekérés CSAK gyülekezeti scope-ú, NEM admin/
+  //     master/kerületi/egyházmegyei usernél fut (shouldGateUser) — így az admin-
+  //     jellegű felhasználók normál betöltését nem lassítja, és SOHA nem is
+  //     blokkolja. A lekérés BÁRMILYEN hibája engedélyező (try/catch → tovább).
+  //     Kizárólag explicit 'suspended' DB-státusz vezet a leállított képernyőhöz.
+  if (shouldGateUser({ master, admin, egyhazkeruletiAdmin, activeScope: activeProfileRole?.scope })) {
+    try {
+      const subscriptionAccess = await getCongregationAccessStatus(access.effectiveCongregationId)
+      if (subscriptionAccess.isBlocked) {
+        return (
+          <SubscriptionSuspendedScreen
+            congregationName={congregationName}
+            reason={subscriptionAccess.reason}
+          />
+        )
+      }
+    } catch {
+      // A gating-lekérés hibája SOHA nem törheti el a layoutot → engedünk tovább.
+    }
+  }
 
   // 5. AI widget
   const hasAiApiKey = !!(
