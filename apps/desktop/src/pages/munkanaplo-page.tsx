@@ -80,6 +80,9 @@ export function MunkanaploPage() {
   const [yearEntries, setYearEntries] = useState<WorklogLocalRow[]>([])
   const [entryCount, setEntryCount] = useState<number>(0)
   const [search, setSearch] = useState('')
+  // A lekérdezésekhez használt, 250 ms-os debounce-szal frissülő keresőérték —
+  // az input azonnali marad, de nem fut 3 SQLite-lekérdezés minden leütésre.
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   // 2026-06-12 (Endre #5 munkanapló): év + hónap szűrő — a webes Munkanapló
   // oldal szűrőjének tükre. A hónap 0 értéke a teljes évet jelenti.
   const now = new Date()
@@ -109,14 +112,20 @@ export function MunkanaploPage() {
     }
   }, [])
 
+  // Kereső-debounce: 250 ms tétlenség után frissül a lekérdezési érték.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
   // Közös lista-szűrő (keresés + év + hónap) — minden frissítési út ezt használja.
   const listOptions = useMemo(
     () => ({
-      search: search.trim() || undefined,
+      search: debouncedSearch.trim() || undefined,
       year,
       month: monthNum === 0 ? undefined : monthNum,
     }),
-    [search, year, monthNum],
+    [debouncedSearch, year, monthNum],
   )
 
   // Közös lista-frissítő: szűrt lista + év-összkép + darabszám a cache-ből.
@@ -249,12 +258,17 @@ export function MunkanaploPage() {
   // teljes év lokális cache-éből (a webes "Lelkészi jelentés" fül számai).
   const yearStats = useMemo(() => {
     const alkalmak = yearEntries.length
-    const totalAttendance = yearEntries.reduce(
+    // Átlagjelenlét — webes paritás (WorklogOverview): CSAK a szolgálat-
+    // kategóriájú alkalmak jelenléte számít (számláló ÉS nevező is), egészre
+    // kerekítve.
+    const szolgalatEntries = yearEntries.filter((e) => categorizeWorklogEntry(e) === 'szolgalat')
+    const attendanceSum = szolgalatEntries.reduce(
       (sum, e) => sum + (e.jelenlet_ferfi ?? 0) + (e.jelenlet_no ?? 0) + (e.jelenlet_gyermek ?? 0),
       0,
     )
     const totalOffering = yearEntries.reduce((sum, e) => sum + Number(e.persely ?? 0), 0)
-    const avgAttendance = alkalmak > 0 ? Math.round((totalAttendance / alkalmak) * 10) / 10 : 0
+    const avgAttendance =
+      szolgalatEntries.length > 0 ? Math.round(attendanceSum / szolgalatEntries.length) : 0
     return { alkalmak, avgAttendance, totalOffering }
   }, [yearEntries])
 
@@ -350,7 +364,10 @@ export function MunkanaploPage() {
                 Persely összesen · {year}
               </p>
               <p className="mt-1 font-heading text-3xl text-foreground">
-                {yearStats.totalOffering.toFixed(2)}
+                {yearStats.totalOffering.toLocaleString('hu-HU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
                 <span className="ml-1 text-sm font-normal text-muted-foreground">RON</span>
               </p>
             </CardContent>
@@ -498,6 +515,10 @@ export function MunkanaploPage() {
               <tbody className="divide-y divide-border">
                 {filtered.map((e) => {
                   const temp = isTempEntry(e)
+                  // Jelleg-cella 2. sora: látogatásnál cím híján a megjegyzés
+                  // — így a látogatás lényegi tartalma is látszik a listában.
+                  const jellegSub =
+                    activeCategory === 'latogatas' ? e.cim || e.megjegyzes : e.cim
                   return (
                     <tr
                       key={e.id}
@@ -524,8 +545,13 @@ export function MunkanaploPage() {
                             </span>
                           )}
                         </div>
-                        {e.cim && (
-                          <div className="mt-0.5 text-xs text-muted-foreground">{e.cim}</div>
+                        {jellegSub && (
+                          <div
+                            title={jellegSub}
+                            className="mt-0.5 max-w-[28rem] truncate text-xs text-muted-foreground"
+                          >
+                            {jellegSub}
+                          </div>
                         )}
                       </td>
                       {showSzolgalatCols && (

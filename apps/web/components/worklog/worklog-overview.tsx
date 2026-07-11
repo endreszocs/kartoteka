@@ -5,13 +5,13 @@ import { CalendarDays, CalendarRange, HandCoins, Users, Wine } from 'lucide-reac
 import type { LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { categorizeWorklogEntry, WORKLOG_CATEGORY_LABELS } from '@/lib/constants/worklog'
+import { categorizeWorklogEntry, formatRon, WORKLOG_CATEGORY_LABELS } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { HU_MONTHS, HU_MONTHS_SHORT } from '@/lib/constants/dashboard'
 
-// hu-RO számformázó — a persely-összeg és a nagyobb darabszámok ezreselválasztós,
-// magyar (romániai) formázásához.
-const NUM_HU = new Intl.NumberFormat('hu-RO', { maximumFractionDigits: 2 })
+// hu számformázó a DARABSZÁMOKHOZ (ezreselválasztós); a pénz-kiírás a közös
+// formatRon helperrel megy (egységes '1 234,56' kimenet a munkanaplóban).
+const NUM_HU = new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 0 })
 
 export interface WorklogOverviewProps {
   /** A kiválasztott év ÖSSZES munkanapló-bejegyzése (nem csak egy hónapé). */
@@ -168,7 +168,7 @@ export function WorklogOverview({ yearEntries, year }: WorklogOverviewProps) {
         <StatCard
           icon={HandCoins}
           label="Persely összesen"
-          value={`${NUM_HU.format(stats.perselySum)} RON`}
+          value={`${formatRon(stats.perselySum)} RON`}
           sub={`${NUM_HU.format(stats.szolgalatCount)} szolgálati alkalomból`}
         />
         <StatCard

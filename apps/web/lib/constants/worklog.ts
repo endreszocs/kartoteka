@@ -1,6 +1,17 @@
 export const WORKLOG_CATEGORIES = ['szolgalat', 'katekezis', 'latogatas'] as const
 export type WorklogCategory = typeof WORKLOG_CATEGORIES[number]
 
+// 2026-07-11: közös persely/RON-formázó — a munkanapló minden pénz-kiírása
+// (fülek, év-összkép, jelentés) ezt használja. Kimenet: '1 234,56'.
+const RON_FORMAT = new Intl.NumberFormat('hu-HU', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+export function formatRon(n: number): string {
+  return RON_FORMAT.format(Number(n) || 0)
+}
+
 export const WORKLOG_CATEGORY_LABELS: Record<WorklogCategory, string> = {
   szolgalat: 'Szolgálat', katekezis: 'Katekézis', latogatas: 'Látogatás',
 }

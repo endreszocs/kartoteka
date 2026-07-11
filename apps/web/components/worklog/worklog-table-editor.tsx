@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
-import { Loader2, Plus, Smartphone, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteWorklog, saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
@@ -37,6 +37,12 @@ export interface WorklogTableEditorProps {
   category: WorklogCategory
   /** Mentés/törlés után a szülő újratölt. */
   onChanged: () => void
+  /**
+   * Dialógusos (űrlapos) szerkesztés megnyitása — a táblázatban nem látható
+   * mezők (pl. Megjegyzés/Cím minden kategóriánál) is szerkeszthetők vele.
+   * Ha meg van adva, a műveletek-cellában ceruza-ikon jelenik meg.
+   */
+  onEditEntry?: (entry: WorklogEntry) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -262,12 +268,14 @@ interface EditorRowProps {
   /** A fókusz elhagyta a sort — mentés, ha piszkos. */
   onRowLeave: () => void
   onDelete?: () => void
+  /** Dialógusos (űrlapos) szerkesztés — minden mező elérhető benne. */
+  onEditForm?: () => void
   dateRef?: Ref<HTMLInputElement>
 }
 
 function EditorRow({
   category, draft, ssz, dirty, saving, deleting, isNew,
-  onField, onCommit, onRowLeave, onDelete, dateRef,
+  onField, onCommit, onRowLeave, onDelete, onEditForm, dateRef,
 }: EditorRowProps) {
   const rowRef = useRef<HTMLTableRowElement | null>(null)
   // A blur-időzítő mindig a legfrissebb handlert hívja (stale closure ellen).
@@ -468,22 +476,40 @@ function EditorRow({
       )}
 
       {/* Műveletek */}
-      <td className="w-10 px-1 py-0.5 text-center align-middle">
-        {!isNew && onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={deleting}
-            aria-label="Bejegyzés törlése"
-            title="Törlés"
-            className={cn(
-              'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
-              'hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              'disabled:pointer-events-none disabled:opacity-50',
+      <td className="w-16 px-1 py-0.5 text-center align-middle">
+        {!isNew && (
+          <span className="inline-flex items-center gap-0.5">
+            {onEditForm && (
+              <button
+                type="button"
+                onClick={onEditForm}
+                aria-label="Szerkesztés űrlapon (minden mező)"
+                title="Szerkesztés űrlapon (minden mező)"
+                className={cn(
+                  'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
+                  'hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                )}
+              >
+                <Pencil className="size-3.5" />
+              </button>
             )}
-          >
-            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-          </button>
+            {onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={deleting}
+                aria-label="Bejegyzés törlése"
+                title="Törlés"
+                className={cn(
+                  'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
+                  'hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'disabled:pointer-events-none disabled:opacity-50',
+                )}
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              </button>
+            )}
+          </span>
         )}
       </td>
     </tr>
@@ -494,7 +520,7 @@ function EditorRow({
 // Fő komponens
 // ---------------------------------------------------------------------------
 
-export function WorklogTableEditor({ yearEntries, year, month, category, onChanged }: WorklogTableEditorProps) {
+export function WorklogTableEditor({ yearEntries, year, month, category, onChanged, onEditEntry }: WorklogTableEditorProps) {
   // Csak a megérintett sorokhoz tárolunk draftot; a megjelenített érték
   // draft ?? entryToDraft(entry). Sikeres mentés után a draft törlődik,
   // a friss adat a szülő újratöltéséből (onChanged) jön.
@@ -655,7 +681,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="w-14 min-w-[3.5rem] text-center" title="Úrvacsorázók betegnél">Úrv. B</Th>
                 <Th className="min-w-[8rem]">Szolgálattevő</Th>
                 <Th className="w-20 min-w-[5rem] text-right" title="Perselypénz (RON)">Persely</Th>
-                <Th className="w-10"><span className="sr-only">Műveletek</span></Th>
+                <Th className="w-16"><span className="sr-only">Műveletek</span></Th>
               </tr>
             ) : category === 'katekezis' ? (
               <tr>
@@ -668,7 +694,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="w-12 min-w-[3rem] text-center" title="Jelenlét — gyermek">Gy</Th>
                 <Th className="min-w-[8rem]">Tartotta</Th>
                 <Th className="w-20 min-w-[5rem] text-right" title="Perselypénz (RON)">Persely</Th>
-                <Th className="w-10"><span className="sr-only">Műveletek</span></Th>
+                <Th className="w-16"><span className="sr-only">Műveletek</span></Th>
               </tr>
             ) : (
               <tr>
@@ -678,7 +704,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                 <Th className="min-w-[10rem]">Cím / család</Th>
                 <Th className="min-w-[8rem]">Lelkész / látogató</Th>
                 <Th className="min-w-[12rem]">Megjegyzés</Th>
-                <Th className="w-10"><span className="sr-only">Műveletek</span></Th>
+                <Th className="w-16"><span className="sr-only">Műveletek</span></Th>
               </tr>
             )}
           </thead>
@@ -711,6 +737,7 @@ export function WorklogTableEditor({ yearEntries, year, month, category, onChang
                   onCommit={() => void saveExistingRow(entry.id)}
                   onRowLeave={() => void saveExistingRow(entry.id)}
                   onDelete={() => void handleDelete(entry)}
+                  onEditForm={onEditEntry ? () => onEditEntry(entry) : undefined}
                 />
               )
             })}

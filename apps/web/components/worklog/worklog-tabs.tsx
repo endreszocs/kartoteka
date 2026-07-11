@@ -15,7 +15,7 @@
 // (a táblázat ott nem is renderelődik — teljesítmény), md-től a soron belül
 // szerkeszthető WorklogTableEditor. Az oldal sosem görget vízszintesen.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileText, NotebookPen, Pencil, Plus, Printer, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -25,6 +25,7 @@ import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
 import {
   categorizeWorklogEntry,
+  formatRon,
   NAPSZAK_OPTIONS,
   WORKLOG_CATEGORIES,
   WORKLOG_CATEGORY_LABELS,
@@ -87,7 +88,9 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
   link.href = url
   link.download = fileName
   link.click()
-  URL.revokeObjectURL(url)
+  // A revoke késleltetve fut — lassabb böngészőben a szinkron visszavonás
+  // megszakíthatja a még el sem indult letöltést.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 /**
@@ -126,6 +129,10 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const [editEntry, setEditEntry] = useState<WorklogEntry | null>(null)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const isMdUp = useIsMdUp()
+  // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
+  // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
+  const yearRef = useRef(year)
+  yearRef.current = year
 
   const period = monthNum === 0 ? String(year) : `${year}-${String(monthNum).padStart(2, '0')}`
 
@@ -151,9 +158,16 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
    * Csendes újratöltés (mentés/törlés/dialógus-zárás után): NEM billenti át a
    * loading state-et, így a táblázatos rögzítő nem unmountol — a fókusz és a
    * még piszkos draftok megmaradnak (a W3-as szerkesztő erre épít).
+   *
+   * Stale-year őr: a hívás pillanatában rögzítjük az évet, és az eredményt
+   * csak akkor írjuk be, ha az év azóta nem változott — különben a lassabban
+   * érkező régi-évi válasz felülírná az év-váltó effect friss adatait.
    */
   function refreshEntries() {
-    void getWorklogs(String(year)).then(setEntries)
+    const requestedYear = year
+    void getWorklogs(String(requestedYear)).then((data) => {
+      if (yearRef.current === requestedYear) setEntries(data)
+    })
   }
 
   // A kiválasztott időszak (hónap vagy egész év) bejegyzései.
@@ -356,7 +370,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
               </h3>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <MiniFact label="Összes jelenlét" value={`${report.totalAttendance} fő`} />
-                <MiniFact label="Összes persely" value={`${report.totalOffering.toFixed(2)} RON`} />
+                <MiniFact label="Összes persely" value={`${formatRon(report.totalOffering)} RON`} />
               </div>
             </div>
 
@@ -369,7 +383,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 {monthNum === 0 ? 'Ebben az évben' : 'Ebben a hónapban'} <strong className="text-foreground">{report.totalEntries}</strong> bejegyzés született, ebből <strong className="text-foreground">{report.szolgalat}</strong> szolgálati,
                 <strong className="text-foreground"> {report.katekezis}</strong> katekézis jellegű és <strong className="text-foreground">{report.latogatas}</strong> látogatási tétel.
                 A rögzített alkalmak összesített jelenléte <strong className="text-foreground">{report.totalAttendance}</strong> fő, a perselybevétel pedig
-                <strong className="text-foreground"> {report.totalOffering.toFixed(2)} RON</strong>.
+                <strong className="text-foreground"> {formatRon(report.totalOffering)} RON</strong>.
               </p>
             </div>
           </div>
@@ -381,10 +395,20 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
             <p className="mt-2 text-sm text-muted-foreground">
               A nyomtatási központban kiválasztható az év, hónap és a nyomtatvány típusa — élő előnézettel.
             </p>
-            <Button className="mt-4" onClick={() => setPrintDialogOpen(true)}>
-              <Printer className="size-4" />
-              Nyomtatási központ megnyitása
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => setPrintDialogOpen(true)}>
+                <Printer className="size-4" />
+                Nyomtatási központ megnyitása
+              </Button>
+              {/* A teljes időszak exportja — mindhárom kategória egyben. */}
+              <Button
+                variant="outline"
+                onClick={() => downloadCsv(periodEntries, `munkanaplo_osszes_${period}.csv`)}
+              >
+                <Download className="size-4" />
+                Export (minden kategória)
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
@@ -423,6 +447,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
                 month={monthNum === 0 ? null : monthNum}
                 category={dialogCategory}
                 onChanged={refreshEntries}
+                onEditEntry={(entry) => { setEditEntry(entry); setDialogOpen(true) }}
               />
             </div>
           )}
@@ -495,7 +520,7 @@ function MobileEntryCard({
   const facts: string[] = []
   if (category === 'szolgalat' && entry.alapige) facts.push(entry.alapige)
   if (category !== 'latogatas' && attendance > 0) facts.push(`${attendance} fő`)
-  if (category !== 'latogatas' && entry.persely) facts.push(`${Number(entry.persely).toFixed(2)} RON`)
+  if (category !== 'latogatas' && entry.persely) facts.push(`${formatRon(Number(entry.persely))} RON`)
   if (category === 'szolgalat' && (entry.uv_templomban != null || entry.uv_betegnel != null)) {
     facts.push(`Úrvacsorázók: ${(entry.uv_templomban ?? 0) + (entry.uv_betegnel ?? 0)} fő`)
   }
