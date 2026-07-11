@@ -10,7 +10,6 @@ export default function Page() {
         title="Rendszer"
         description="Biztonsági beállítások, audit-konfiguráció, rendszerszintű paraméterek. Csak rendkívüli esetben módosíts!"
         icon={ShieldAlert}
-        gradient="from-red-500 to-rose-600"
       />
       <div className="card-raised p-4 sm:p-5">
         <SecuritySettingsTabV2 />

@@ -4,14 +4,15 @@ import Link from 'next/link'
 import {
   ArrowRight,
   Bell,
-  Calculator,
   ChevronRight,
   Church,
   Database,
   Download,
   Eye,
   Flame,
+  History,
   Inbox,
+  LayoutDashboard,
   LifeBuoy,
   PiggyBank,
   ShieldAlert,
@@ -19,11 +20,29 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { AdminPageHeader } from './admin-page-header'
+import { AdminSkeleton } from './_shared/admin-skeleton'
+import { StatusBadge } from './_shared/status-badge'
 import { OverviewTabRefined } from './overview-tab-refined'
 import { getAccessRequestStats } from '@/app/(dashboard)/admin/access-requests-actions'
 import { listBroadcasts } from '@/app/(dashboard)/admin/broadcasts-actions'
+import {
+  getOpenSupportTicketCountAction,
+  getViewerIsSystemAdmin,
+} from '@/app/(dashboard)/admin/support-kpi-actions'
+import { RELEASE_CATEGORY_LABELS } from '@/lib/broadcasts/types'
+import type { BroadcastRow } from '@/lib/broadcasts/types'
+import { cn } from '@/lib/utils'
 
 // ── Akcionálható KPI kártya ────────────────────────────────────────────────
+
+type FocusIntent = 'warning' | 'info' | 'danger'
+
+const FOCUS_ICON: Record<FocusIntent, string> = {
+  warning: 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+  info: 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300',
+  danger: 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300',
+}
 
 function FocusCard({
   href,
@@ -31,7 +50,7 @@ function FocusCard({
   label,
   value,
   description,
-  tone,
+  intent,
   highlight = false,
 }: {
   href: string
@@ -39,38 +58,27 @@ function FocusCard({
   label: string
   value: number | string
   description: string
-  tone: 'amber' | 'rose' | 'emerald' | 'sky' | 'violet'
+  intent: FocusIntent
   highlight?: boolean
 }) {
-  const tones = {
-    amber: 'from-amber-50 to-amber-100/40 ring-amber-200/60 hover:ring-amber-300',
-    rose: 'from-rose-50 to-rose-100/40 ring-rose-200/60 hover:ring-rose-300',
-    emerald: 'from-emerald-50 to-emerald-100/40 ring-emerald-200/60 hover:ring-emerald-300',
-    sky: 'from-sky-50 to-sky-100/40 ring-sky-200/60 hover:ring-sky-300',
-    violet: 'from-violet-50 to-violet-100/40 ring-violet-200/60 hover:ring-violet-300',
-  }
-  const iconBg = {
-    amber: 'bg-amber-500/10 text-amber-600',
-    rose: 'bg-rose-500/10 text-rose-600',
-    emerald: 'bg-emerald-500/10 text-emerald-600',
-    sky: 'bg-sky-500/10 text-sky-600',
-    violet: 'bg-violet-500/10 text-violet-600',
-  }
   return (
     <Link
       href={href}
-      className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${tones[tone]} p-5 ring-1 transition hover:shadow-md ${highlight ? 'ring-2' : ''}`}
+      className={cn(
+        'group relative overflow-hidden rounded-2xl bg-card p-5 ring-1 ring-border transition hover:shadow-md hover:ring-primary/40',
+        highlight && 'ring-2 ring-amber-400/70 dark:ring-amber-500/50',
+      )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className={`flex size-11 items-center justify-center rounded-2xl ${iconBg[tone]}`}>
+        <div className={cn('flex size-11 items-center justify-center rounded-2xl', FOCUS_ICON[intent])}>
           <Icon className="size-5" />
         </div>
-        <ArrowRight className="size-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-600" />
+        <ArrowRight className="size-4 text-muted-foreground/60 transition group-hover:translate-x-0.5 group-hover:text-foreground" />
       </div>
       <div className="mt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-        <p className="mt-1 font-heading text-3xl font-semibold text-slate-800 tabular-nums">{value}</p>
-        <p className="mt-1 text-xs text-slate-500">{description}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+        <p className="mt-1 font-heading text-3xl font-semibold text-foreground tabular-nums">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </div>
     </Link>
   )
@@ -83,136 +91,160 @@ function ModuleLink({
   icon: Icon,
   label,
   description,
-  gradient,
+  tone,
 }: {
   href: string
   icon: React.ComponentType<{ className?: string }>
   label: string
   description: string
-  gradient: string
+  tone?: 'danger'
 }) {
+  const danger = tone === 'danger'
   return (
     <Link
       href={href}
-      className="group flex items-start gap-3 rounded-2xl bg-card p-4 ring-1 ring-border transition hover:shadow-md hover:ring-primary/40"
+      className={cn(
+        'group flex items-start gap-3 rounded-2xl bg-card p-4 ring-1 ring-border transition hover:shadow-md',
+        danger ? 'hover:ring-destructive/40' : 'hover:ring-primary/40',
+      )}
     >
-      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${gradient} text-white shadow-sm`}>
+      <div
+        className="flex size-10 shrink-0 items-center justify-center rounded-xl text-[var(--primary-foreground)] shadow-sm"
+        style={{
+          background: danger
+            ? 'linear-gradient(135deg, var(--destructive), color-mix(in oklab, var(--destructive) 65%, black))'
+            : 'linear-gradient(135deg, var(--primary), var(--accent))',
+        }}
+      >
         <Icon className="size-5" />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-heading text-sm font-semibold text-slate-800">{label}</p>
+      <div className="min-w-0 flex-1">
+        <p className="font-heading text-sm font-semibold text-foreground">{label}</p>
         <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{description}</p>
       </div>
-      <ChevronRight className="size-4 shrink-0 mt-1 text-slate-300 transition group-hover:text-slate-500" />
+      <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground/50 transition group-hover:text-muted-foreground" />
     </Link>
   )
 }
 
-const MODULES = [
+/* 2026-07-11 redesign: az oldalankénti szivárvány-gradientek megszűntek —
+   minden modul-ikonlap a téma tokenjeiből (--primary/--accent) színez, mint az
+   AdminPageHeader; egyedül a Veszélyes zóna kap destructive-árnyalatot. */
+const MODULES: ReadonlyArray<{
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  description: string
+  tone?: 'danger'
+}> = [
   {
     href: '/admin/gyulekezetek',
     icon: Church,
     label: 'Gyülekezetek',
     description: 'A rendszerhez kapcsolt gyülekezetek listája és státusza.',
-    gradient: 'from-emerald-400 to-teal-500',
   },
   {
     href: '/admin/felhasznalok',
     icon: UserCog,
     label: 'Felhasználók és szerepkörök',
     description: 'Felhasználók, várakozó kérelmek, szerepkörök kiosztása egy helyen.',
-    gradient: 'from-violet-500 to-indigo-600',
-  },
-  {
-    href: '/admin/konyvelok',
-    icon: Calculator,
-    label: 'Könyvelők / számvevők',
-    description: 'A pénzügyi feladatkörök kiosztása gyülekezetenként.',
-    gradient: 'from-teal-400 to-cyan-500',
   },
   {
     href: '/admin/eszkozok',
     icon: Database,
     label: 'Eszközök és napló',
     description: 'Asztali eszközök, licensz-kulcsok és aktivitási napló.',
-    gradient: 'from-cyan-400 to-sky-500',
   },
   {
     href: '/admin/frissitesek',
     icon: Bell,
     label: 'Frissítések',
-    description: 'Broadcast üzenetek, hírlevél, changelog közzététel.',
-    gradient: 'from-orange-400 to-amber-500',
+    description: 'Rendszerüzenetek, hírlevél, changelog közzététel.',
   },
   {
     href: '/admin/tamogatas',
     icon: LifeBuoy,
     label: 'Támogatás',
     description: 'Beérkezett támogatási jegyek, nyitott esetek.',
-    gradient: 'from-yellow-400 to-amber-500',
   },
   {
     href: '/admin/import',
     icon: Download,
     label: 'Import',
-    description: 'Tagnyilvántartás importálása rendszergazdai módban.',
-    gradient: 'from-pink-400 to-rose-500',
+    description: 'Tagnyilvántartás importálása Excel-fájlból, varázslóval.',
   },
   {
     href: '/admin/penzugy',
     icon: PiggyBank,
     label: 'Rendszer pénzügyei',
     description: 'A platform pénzügyi forgalma, számlázás, határidők.',
-    gradient: 'from-rose-400 to-pink-500',
   },
   {
     href: '/admin/rendszer',
     icon: ShieldAlert,
     label: 'Rendszer',
     description: 'Biztonsági beállítások, audit, rendszer-paraméterek.',
-    gradient: 'from-red-400 to-rose-500',
+  },
+  {
+    href: '/admin/naplo',
+    icon: History,
+    label: 'Tevékenység-napló',
+    description: 'Rekord-szintű módosítás-történet (audit).',
   },
   {
     href: '/admin/veszelyes-zona',
     icon: Flame,
     label: 'Veszélyes zóna',
     description: 'Adattisztítás, törlés — csak rendkívüli esetben.',
-    gradient: 'from-red-500 to-red-700',
+    tone: 'danger',
   },
-] as const
+]
 
-// ── Friss broadcast lista ─────────────────────────────────────────────────
+// ── Segédek ────────────────────────────────────────────────────────────────
 
-interface RecentBroadcast {
-  id: string
-  title: string
-  created_at: string
-  category: string | null
+/** sent_at lehet null (még nem kiküldött üzenet) vagy hibás — sosem 'Invalid Date'. */
+function formatSentAt(value: string | null | undefined): string | null {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString('hu-HU', { dateStyle: 'long', timeStyle: 'short' })
 }
 
 // ── Fő dashboard ───────────────────────────────────────────────────────────
 
 export function AdminOverviewDashboard() {
   const [pendingRequests, setPendingRequests] = useState<number | null>(null)
-  const [recentBroadcasts, setRecentBroadcasts] = useState<RecentBroadcast[]>([])
+  const [requestsFailed, setRequestsFailed] = useState(false)
+  const [broadcasts, setBroadcasts] = useState<BroadcastRow[] | null>(null)
+  const [broadcastsFailed, setBroadcastsFailed] = useState(false)
+  const [openTickets, setOpenTickets] = useState<number | null>(null)
+  const [ticketsFailed, setTicketsFailed] = useState(false)
+  // Biztonságos default: amíg nem tudjuk (vagy ha a lekérés hibázik), MUTATJUK a
+  // rendszer-szintű modul-kártyákat — a /admin layout-guard úgyis véd. Csak akkor
+  // rejtjük el őket, ha explicit „nem rendszer-admin" választ kaptunk.
+  const [isSystemAdmin, setIsSystemAdmin] = useState(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      getAccessRequestStats().catch(() => ({ data: undefined as { pending?: number } | undefined })),
-      listBroadcasts().then((r) => (r.data || []).slice(0, 5)).catch(() => [] as unknown[]),
-    ]).then(([statsRes, broadcasts]) => {
+      getAccessRequestStats().catch(() => ({ error: 'Hálózati hiba' })),
+      listBroadcasts().catch(() => ({ error: 'Hálózati hiba' })),
+      getOpenSupportTicketCountAction().catch(() => ({ error: 'Hálózati hiba' })),
+      getViewerIsSystemAdmin().catch(() => ({ error: 'Hálózati hiba' })),
+    ]).then(([statsRes, broadcastRes, ticketRes, scopeRes]) => {
       if (cancelled) return
-      setPendingRequests(statsRes?.data?.pending ?? 0)
-      setRecentBroadcasts(
-        (broadcasts as Array<{ id: string; title: string; created_at: string; category?: string | null }>).map((b) => ({
-          id: b.id,
-          title: b.title,
-          created_at: b.created_at,
-          category: b.category ?? null,
-        })),
-      )
+      // FIX 2026-07-11: a hiba korábban némán '0 kérelem / minden feldolgozva'
+      // állapotot mutatott — most megkülönböztetett hiba-állapot jelenik meg.
+      if ('data' in statsRes && statsRes.data) setPendingRequests(statsRes.data.pending)
+      else setRequestsFailed(true)
+      if ('data' in broadcastRes && broadcastRes.data) setBroadcasts(broadcastRes.data)
+      else setBroadcastsFailed(true)
+      if ('data' in ticketRes && ticketRes.data) setOpenTickets(ticketRes.data.open)
+      else setTicketsFailed(true)
+      // Csak explicit „nem rendszer-admin" válaszra rejtünk — hiba esetén marad a
+      // biztonságos default (mutatjuk a kártyákat).
+      if ('data' in scopeRes && scopeRes.data) setIsSystemAdmin(scopeRes.data.isSystemAdmin)
       setLoading(false)
     })
     return () => {
@@ -220,83 +252,147 @@ export function AdminOverviewDashboard() {
     }
   }, [])
 
+  const recentBroadcasts = (broadcasts ?? []).slice(0, 5)
+  const latestSentAt = formatSentAt(broadcasts?.[0]?.sent_at)
+  // Őszinte érték: a lekérdezés összes üzenete (max 100), nem a lista-slice hossza.
+  const broadcastCount =
+    broadcasts === null ? null : broadcasts.length >= 100 ? '100+' : broadcasts.length
+
+  // Biztonsági audit #5: a kerületi adminnak (nem rendszer-szintű) a „Rendszer"
+  // és „Veszélyes zóna" modulkártya rejtve marad — a bal oldali menü is így tesz.
+  const SYSTEM_ONLY_HREFS = new Set(['/admin/rendszer', '/admin/veszelyes-zona'])
+  const visibleModules = isSystemAdmin
+    ? MODULES
+    : MODULES.filter((m) => !SYSTEM_ONLY_HREFS.has(m.href))
+
   return (
     <div className="space-y-6">
+      {/* Oldal-fejléc (h1) — az /admin volt az egyetlen admin-oldal cím nélkül. */}
+      <AdminPageHeader
+        title="Admin Központ"
+        description="Kérelmek elbírálása, gyülekezetek és felhasználók kezelése, rendszerszintű beállítások — minden admin feladat innen indul."
+        icon={LayoutDashboard}
+        eyebrow="Rendszerszint"
+        hideBackLink
+      />
+
       {/* Mi vár ma? — akcionálható KPI-k */}
       <section>
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-heading text-xl text-slate-800">Mi vár ma?</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h2 className="font-heading text-xl text-foreground">Mi vár ma?</h2>
           <p className="text-xs text-muted-foreground">Az aktuális elbírálások és üzenetek egy pillantásra</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FocusCard
-            href="/admin/felhasznalok"
-            icon={Inbox}
-            label="Elbírálandó kérelem"
-            value={loading ? '…' : (pendingRequests ?? 0)}
-            description={
-              loading
-                ? 'Betöltés…'
-                : pendingRequests === 0
-                ? 'Minden kérelem feldolgozva.'
-                : 'Új regisztráció vár jóváhagyásra a Felhasználók oldalon.'
-            }
-            tone="amber"
-            highlight={!!pendingRequests && pendingRequests > 0}
-          />
-          <FocusCard
-            href="/admin/frissitesek"
-            icon={Bell}
-            label="Friss üzenetek"
-            value={loading ? '…' : recentBroadcasts.length}
-            description={
-              loading
-                ? 'Betöltés…'
-                : recentBroadcasts.length === 0
-                ? 'Még nem küldött broadcast-ot.'
-                : 'A legfrissebb broadcast üzenetek.'
-            }
-            tone="sky"
-          />
-        </div>
+        {loading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-2xl bg-card p-5 ring-1 ring-border">
+                <AdminSkeleton rows={2} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <FocusCard
+              href="/admin/felhasznalok"
+              icon={Inbox}
+              label="Elbírálandó kérelem"
+              value={requestsFailed ? '—' : (pendingRequests ?? 0)}
+              description={
+                requestsFailed
+                  ? 'Nem sikerült betölteni a kérelmeket. Frissítse az oldalt, vagy nézze meg a Felhasználók oldalon.'
+                  : pendingRequests === 0
+                  ? 'Minden kérelem feldolgozva.'
+                  : 'Új regisztráció vár jóváhagyásra a Felhasználók oldalon.'
+              }
+              intent={requestsFailed ? 'danger' : 'warning'}
+              highlight={!requestsFailed && !!pendingRequests && pendingRequests > 0}
+            />
+            <FocusCard
+              href="/admin/tamogatas"
+              icon={LifeBuoy}
+              label="Nyitott támogatási jegy"
+              value={ticketsFailed ? '—' : (openTickets ?? 0)}
+              description={
+                ticketsFailed
+                  ? 'Nem sikerült betölteni a jegyeket. Részletek a Támogatás oldalon.'
+                  : openTickets === 0
+                  ? 'Nincs megválaszolatlan támogatási jegy.'
+                  : 'Megválaszolatlan kérdés vár a Támogatás oldalon.'
+              }
+              intent={ticketsFailed ? 'danger' : 'warning'}
+              highlight={!ticketsFailed && !!openTickets && openTickets > 0}
+            />
+            <FocusCard
+              href="/admin/frissitesek"
+              icon={Bell}
+              label="Kiküldött üzenet"
+              value={broadcastsFailed ? '—' : (broadcastCount ?? 0)}
+              description={
+                broadcastsFailed
+                  ? 'Nem sikerült betölteni az üzeneteket. Részletek a Frissítések oldalon.'
+                  : broadcastCount === 0
+                  ? 'Még nem küldött üzenetet a gyülekezeteknek.'
+                  : latestSentAt
+                  ? `Legutóbbi küldés: ${latestSentAt}`
+                  : 'A kiküldött üzenetek a Frissítések oldalon találhatók.'
+              }
+              intent={broadcastsFailed ? 'danger' : 'info'}
+            />
+          </div>
+        )}
       </section>
 
-      {/* Friss broadcast üzenetek lista */}
-      {recentBroadcasts.length > 0 && (
-        <section className="card-raised p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-heading text-base text-slate-800">Legutóbbi üzenetek</h2>
-            <Link href="/admin/frissitesek" className="text-xs font-medium text-primary hover:underline">
+      {/* Friss üzenetek lista — a system_broadcasts VALÓDI mezőivel
+          (cim / sent_at / release_category; FIX 2026-07-11: korábban a nemlétező
+          title/created_at/category mezőket olvasta → üres cím + 'Invalid Date'). */}
+      {(loading || recentBroadcasts.length > 0) && (
+        <section className="card-raised p-4 sm:p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-heading text-base text-foreground">Legutóbbi üzenetek</h2>
+            <Link
+              href="/admin/frissitesek"
+              className="inline-flex min-h-9 items-center rounded-full px-2 text-xs font-medium text-primary hover:underline"
+            >
               Az összes →
             </Link>
           </div>
-          <ul className="divide-y divide-slate-100">
-            {recentBroadcasts.map((b) => (
-              <li key={b.id} className="flex items-start gap-3 py-3">
-                <div className="mt-0.5 flex size-8 items-center justify-center rounded-full bg-amber-50 text-amber-600">
-                  <Bell className="size-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{b.title}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {new Date(b.created_at).toLocaleString('hu-HU', { dateStyle: 'long', timeStyle: 'short' })}
-                    {b.category ? ` · ${b.category}` : ''}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          {loading ? (
+            <AdminSkeleton rows={3} />
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {recentBroadcasts.map((b) => {
+                const sent = formatSentAt(b.sent_at)
+                const category = b.release_category
+                  ? RELEASE_CATEGORY_LABELS[b.release_category] ?? b.release_category
+                  : null
+                return (
+                  <li key={b.id} className="flex items-start gap-3 py-3">
+                    <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                      <Bell className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="min-w-0 truncate text-sm font-semibold text-foreground">{b.cim}</p>
+                        {category && <StatusBadge intent="info">{category}</StatusBadge>}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{sent ?? 'Még nincs kiküldve'}</p>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </section>
       )}
 
       {/* Modulok rácsban */}
       <section>
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-heading text-xl text-slate-800">Admin modulok</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h2 className="font-heading text-xl text-foreground">Admin modulok</h2>
           <p className="text-xs text-muted-foreground">Bármelyik részhez közvetlenül átléphet</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
+          {visibleModules.map((m) => (
             <ModuleLink key={m.href} {...m} />
           ))}
         </div>
@@ -306,27 +402,32 @@ export function AdminOverviewDashboard() {
       <section>
         <div className="mb-3 flex items-baseline gap-2">
           <Eye className="size-4 text-muted-foreground" />
-          <h2 className="font-heading text-xl text-slate-800">Részletes statisztikák</h2>
+          <h2 className="font-heading text-xl text-foreground">Részletes statisztikák</h2>
         </div>
-        <div className="card-raised p-4 sm:p-5">
-          {/* 2026-06-05: az OverviewTabRefined saját loading-állapottal rendelkezik,
-              ezért NEM kapuzzuk a fenti két fetch-re — így a nehéz getAdminOverview
-              lekérdezés PÁRHUZAMOSAN fut a KPI-kkal, nem utánuk. */}
-          <OverviewTabRefined />
-        </div>
+        {/* 2026-06-05: az OverviewTabRefined saját loading-állapottal rendelkezik,
+            ezért NEM kapuzzuk a fenti két fetch-re — így a nehéz getAdminOverview
+            lekérdezés PÁRHUZAMOSAN fut a KPI-kkal, nem utánuk.
+            2026-07-11: a card-raised wrapper megszűnt — a tab saját szekció-
+            kártyákat renderel, nem kell dupla keret. */}
+        <OverviewTabRefined />
       </section>
 
       {/* Adatminőség — SEMLEGES tájékoztató (nem riasztás): nem állítja, hogy
           van hiba, csak megmutatja, hol ellenőrizhető. 2026-06-07. */}
-      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600 flex items-start gap-3">
-        <Eye className="size-5 shrink-0 mt-0.5 text-slate-400" />
+      <div className="flex items-start gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+        <Eye className="mt-0.5 size-5 shrink-0 text-muted-foreground/70" />
         <div>
-          <p className="font-semibold text-slate-700">Tagnyilvántartási adatminőség</p>
+          <p className="font-semibold text-foreground">Tagnyilvántartási adatminőség</p>
           <p className="mt-0.5">
             A tagok esetleges hibás vagy hiányzó mezőit a saját gyülekezet{' '}
-            <Link href="/tagnyilvantartas#errors" className="font-semibold underline">Hibák</Link> fülén
-            ellenőrizheti, vagy bármely másik gyülekezetbe a{' '}
-            <Link href="/admin/gyulekezetek" className="font-semibold underline">Gyülekezetek</Link> oldalon át lépve.
+            <Link href="/tagnyilvantartas#errors" className="font-semibold text-primary hover:underline">
+              Hibák
+            </Link>{' '}
+            fülén ellenőrizheti, vagy bármely másik gyülekezetbe a{' '}
+            <Link href="/admin/gyulekezetek" className="font-semibold text-primary hover:underline">
+              Gyülekezetek
+            </Link>{' '}
+            oldalon át lépve.
           </p>
         </div>
       </div>

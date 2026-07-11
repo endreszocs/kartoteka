@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import {
+  Building2,
   CheckCircle2,
   FileSpreadsheet,
   LockKeyhole,
@@ -14,6 +15,7 @@ import { toast } from 'sonner'
 
 import { activateDelegatedImport, deactivateDelegatedImport } from '@/app/(dashboard)/delegated-import/actions'
 import { wipeFamilyStructure } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
+import { HubMultiSheetImport } from '@/components/admin/import-hub/hub-multi-sheet-import'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -43,6 +45,15 @@ interface ModuleAdminImportTabV2Props {
   importProfiles?: ImportProfile[]
   /** Modul kulcs az import rendszerhez */
   importModule?: ImportModule
+  /**
+   * 2026-07-11 admin import-hub: ha megadva, a komponens „cél-gyülekezet" módba vált —
+   * feltűnő „Cél: {gyülekezet}" banner + a multi-sheet import ehhez a gyülekezethez fut
+   * (a szerver-oldali action ellenőrzi az admin-jogot + hatókört). Enélkül minden a
+   * régi módon működik (backward-compatible; a meglévő gyülekezeti hívások nem változnak).
+   */
+  targetCongregationId?: string | null
+  /** Az import-hub cél-gyülekezetének neve (banner-felirat). */
+  targetCongregationName?: string | null
 }
 
 function getExtension(fileName: string) {
@@ -87,6 +98,8 @@ export function ModuleAdminImportTabV2({
   profiles,
   importProfiles,
   importModule,
+  targetCongregationId,
+  targetCongregationName,
 }: ModuleAdminImportTabV2Props) {
   const router = useRouter()
   const [selectedProfile, setSelectedProfile] = useState(profiles[0]?.value ?? '')
@@ -112,6 +125,46 @@ export function ModuleAdminImportTabV2({
   const supported = ['.xlsx', '.xls', '.csv'].includes(extension)
   const ready = canImport && !!selectedFile && supported
   const remainingLabel = formatRemaining(delegatedExpiresAt)
+
+  // ── Admin import-hub mód ─────────────────────────────────────────────
+  // Ha explicit cél-gyülekezetet kaptunk, a komponens letisztult „hub" nézetet ad:
+  // feltűnő cél-banner + a cél-gyülekezethez futó multi-sheet importáló. A régi
+  // (gyülekezeti / delegált) scaffolding ilyenkor nem jelenik meg.
+  if (targetCongregationId) {
+    const targetName = targetCongregationName || congregationName || 'Kiválasztott gyülekezet'
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:p-5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Building2 className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">
+              Cél gyülekezet
+            </p>
+            <p className="font-heading text-lg text-foreground">{targetName}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              A(z) {moduleLabel} modul importja ehhez a gyülekezethez fut — minden beszúrt sor ide kerül.
+            </p>
+          </div>
+        </div>
+
+        {importProfiles && importProfiles.length > 0 && importModule ? (
+          <HubMultiSheetImport
+            module={importModule}
+            profiles={importProfiles}
+            moduleLabel={moduleLabel}
+            targetCongregationId={targetCongregationId}
+            targetCongregationName={targetName}
+          />
+        ) : (
+          <div className="rounded-2xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            Ehhez a modulhoz még nincs elérhető importprofil.
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (!activeProfile) return null
 

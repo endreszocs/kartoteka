@@ -14,9 +14,12 @@
 
 import { Building2, Castle, Check, Church, Globe, Sparkles } from 'lucide-react'
 
+import { StatusBadge } from '@/components/admin/_shared/status-badge'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -71,27 +74,27 @@ export function RolePermissionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white p-0 overflow-hidden w-[min(96vw,1200px)] sm:w-[min(94vw,1200px)] lg:w-[min(92vw,1200px)] max-w-none sm:max-w-none">
-        <DialogHeader className="px-4 sm:px-6 py-4 border-b border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white">
-          <DialogTitle className="font-heading text-lg sm:text-xl text-slate-800 flex items-center gap-2 flex-wrap">
-            <Sparkles className="size-5 text-indigo-600 shrink-0" />
-            <span className="truncate">Mit lát és mit tehet — {userName}</span>
+      <DialogContent className="w-[min(96vw,1100px)] max-w-[calc(100%-2rem)] sm:max-w-none">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2 pr-8 font-heading text-lg text-foreground sm:text-xl">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-[var(--primary)]">
+              <Sparkles className="size-5" />
+            </span>
+            <span className="min-w-0 truncate">Mit lát és mit tehet — {userName}</span>
           </DialogTitle>
-          {email && (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{email}</p>
-          )}
+          {email && <p className="truncate text-xs text-muted-foreground">{email}</p>}
         </DialogHeader>
 
-        <div className="p-4 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto">
           {/* Aktív szerepkörök listája */}
           {approvedRoles.length === 0 ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-900">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               Ennek a felhasználónak még nincs jóváhagyott szerepköre. Új
-              szerepkört a "+ Új szerepkör" gombbal oszthat ki.
+              szerepkört a „+ Új szerepkör” gombbal oszthat ki.
             </div>
           ) : (
             <section>
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-2">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Jelenlegi szerepkörök ({approvedRoles.length})
               </h3>
               <ul className="space-y-1.5">
@@ -110,16 +113,12 @@ export function RolePermissionsDialog({
                   return (
                     <li
                       key={r.id}
-                      className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2"
+                      className="flex items-center gap-2.5 rounded-xl bg-muted/60 px-3 py-2 ring-1 ring-border"
                     >
-                      <Icon className="size-4 text-slate-500 shrink-0" />
+                      <Icon className="size-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {roleLabel}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {scopeName}
-                        </p>
+                        <p className="text-sm font-semibold text-foreground">{roleLabel}</p>
+                        <p className="truncate text-xs text-muted-foreground">{scopeName}</p>
                       </div>
                     </li>
                   )
@@ -131,16 +130,16 @@ export function RolePermissionsDialog({
           {/* Permissions mátrix — modulok × akciók */}
           {approvedRoles.length > 0 && (
             <section>
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-2">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Jogosultságok modulonként
               </h3>
-              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+              <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
                 A pipa jelenti, hogy az adott művelet engedélyezett. Ha egy
                 felhasználónak több szerepköre van, a jogosultságok összeadódnak
                 — vagyis bármelyik szerepben elérhető a művelet, akkor látja /
                 szerkesztheti.
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
                 {MODULES.map((mod) => {
                   const allowedActions = mod.actions.filter((a) =>
                     hasPermission(merged, mod.key, a),
@@ -151,25 +150,23 @@ export function RolePermissionsDialog({
                       key={mod.key}
                       className={`rounded-xl border p-3 transition ${
                         hasAny
-                          ? 'border-emerald-200 bg-emerald-50/30'
-                          : 'border-slate-200 bg-slate-50/40'
+                          ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/20'
+                          : 'border-border bg-muted/40'
                       }`}
                     >
-                      <div className="flex items-start gap-2 flex-wrap">
-                        <span className="text-base shrink-0">
-                          {mod.emoji ?? '·'}
-                        </span>
-                        <p className="text-sm font-semibold text-slate-800 flex-1 min-w-0 truncate">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <span className="shrink-0 text-base">{mod.emoji ?? '·'}</span>
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                           {mod.label}
                         </p>
                         {hasAny ? (
-                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 shrink-0">
+                          <StatusBadge intent="success" className="uppercase tracking-wide">
                             Hozzáfér
-                          </span>
+                          </StatusBadge>
                         ) : (
-                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 shrink-0">
+                          <StatusBadge intent="neutral" className="uppercase tracking-wide">
                             Nem fér hozzá
-                          </span>
+                          </StatusBadge>
                         )}
                       </div>
                       {hasAny && (
@@ -181,8 +178,8 @@ export function RolePermissionsDialog({
                                 key={a}
                                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
                                   allowed
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-slate-100 text-slate-400 line-through opacity-60'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    : 'bg-muted text-muted-foreground/70 line-through opacity-70'
                                 }`}
                                 title={
                                   allowed
@@ -205,15 +202,11 @@ export function RolePermissionsDialog({
           )}
         </div>
 
-        <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="min-h-9">
             Bezárás
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

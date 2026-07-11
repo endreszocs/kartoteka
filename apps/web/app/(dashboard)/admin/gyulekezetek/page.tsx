@@ -10,7 +10,6 @@ export default function Page() {
         title="Gyülekezetek"
         description="A rendszerhez kapcsolt gyülekezetek listája. Áttekintés, részletes adatok, gyülekezetbe való belépés rendszergazdai módban."
         icon={Church}
-        gradient="from-emerald-500 to-teal-600"
       />
       <div className="card-raised p-4 sm:p-5">
         <CongregationsTab />

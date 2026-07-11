@@ -30,10 +30,10 @@ const BNR_URL = 'https://www.bnr.ro/nbrfxrates.xml'
 const BNR_YEARLY_URL = (year: number) =>
   `https://www.bnr.ro/files/xml/years/nbrfxrates${year}.xml`
 // Frankfurter.app → frankfurter.dev áttéréstől (2026) a /v1/ prefix kell.
-const FRANKFURTER_LATEST_URL = 'https://api.frankfurter.dev/v1/latest?base=RON&symbols=EUR,HUF'
+const FRANKFURTER_LATEST_URL = 'https://api.frankfurter.dev/v1/latest?base=RON&symbols=EUR,HUF,USD'
 /** Historikus Frankfurter URL — ha a dátum nem munkanap, automatikusan a legközelebbi publikáltat adja. */
 const FRANKFURTER_DATE_URL = (dateIso: string) =>
-  `https://api.frankfurter.dev/v1/${dateIso}?base=RON&symbols=EUR,HUF`
+  `https://api.frankfurter.dev/v1/${dateIso}?base=RON&symbols=EUR,HUF,USD`
 const FETCH_TIMEOUT_MS = 8000
 
 export interface BnrFetchResult {
@@ -43,6 +43,8 @@ export interface BnrFetchResult {
   eur: number | null
   /** HUF/RON árfolyam (1 HUF = X RON, már elosztva a multiplier-rel). null, ha nem sikerült. */
   huf: number | null
+  /** USD/RON árfolyam (1 USD = X RON). null, ha nem sikerült beolvasni. */
+  usd: number | null
   /** Forrás: 'bnr' — BNR hivatalos, 'frankfurter' — ECB fallback, 'none' — sikertelen. */
   source?: 'bnr' | 'frankfurter' | 'none'
   /** Egyéb hiba esetén a hibaüzenet. */
@@ -110,7 +112,7 @@ export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult
       if (resp.ok) {
         const xml = await resp.text()
         const parsed = parseBnrXml(xml)
-        if (parsed.eur || parsed.huf) {
+        if (parsed.eur || parsed.huf || parsed.usd) {
           return { ...parsed, source: 'bnr' }
         }
       }
@@ -135,7 +137,7 @@ export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult
         // ami egyszerűen a legnagyobb Cube date az XML-ben (év vége)
         const searchTarget = isoMonthDay === '01-01' ? `${useYearForXml}-12-31` : targetDate!
         const parsed = parseBnrYearlyXml(xml, searchTarget)
-        if (parsed && (parsed.eur || parsed.huf)) {
+        if (parsed && (parsed.eur || parsed.huf || parsed.usd)) {
           return { ...parsed, source: 'bnr' }
         }
       }
@@ -157,6 +159,7 @@ export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult
         date: null,
         eur: null,
         huf: null,
+        usd: null,
         source: 'none',
         error: `BNR nem elérhető, Frankfurter fallback hibakód: ${resp.status} ${resp.statusText}. Írd be az árfolyamot manuálisan.`,
       }
@@ -164,18 +167,21 @@ export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult
 
     const json = (await resp.json()) as {
       date?: string
-      rates?: { EUR?: number; HUF?: number }
+      rates?: { EUR?: number; HUF?: number; USD?: number }
     }
-    // Frankfurter: 1 RON = X EUR, 1 RON = Y HUF → nekünk az inverze kell
-    // 1 EUR = 1/X RON, 1 HUF = 1/Y RON
+    // Frankfurter: 1 RON = X EUR, 1 RON = Y HUF, 1 RON = Z USD → nekünk az inverze kell
+    // 1 EUR = 1/X RON, 1 HUF = 1/Y RON, 1 USD = 1/Z RON
     const ronToEur = json.rates?.EUR
     const ronToHuf = json.rates?.HUF
+    const ronToUsd = json.rates?.USD
     const eur = ronToEur && ronToEur > 0 ? Number((1 / ronToEur).toFixed(4)) : null
     const huf = ronToHuf && ronToHuf > 0 ? Number((1 / ronToHuf).toFixed(4)) : null
+    const usd = ronToUsd && ronToUsd > 0 ? Number((1 / ronToUsd).toFixed(4)) : null
     return {
       date: json.date || null,
       eur,
       huf,
+      usd,
       source: 'frankfurter',
     }
   } catch (e) {
@@ -184,6 +190,7 @@ export async function fetchBnrRates(targetDate?: string): Promise<BnrFetchResult
       date: null,
       eur: null,
       huf: null,
+      usd: null,
       source: 'none',
       error:
         `Sem a BNR, sem a Frankfurter nem elérhető (${msg}). ` +
@@ -248,6 +255,7 @@ export function parseBnrYearlyXml(xml: string, targetDate: string): BnrFetchResu
     date: bestMatch.date,
     eur: extractRate(bestMatch.xml, 'EUR'),
     huf: extractRate(bestMatch.xml, 'HUF'),
+    usd: extractRate(bestMatch.xml, 'USD'),
   }
 }
 
@@ -265,6 +273,7 @@ export function parseBnrXml(xml: string): BnrFetchResult {
     date,
     eur: extractRate(xml, 'EUR'),
     huf: extractRate(xml, 'HUF'),
+    usd: extractRate(xml, 'USD'),
   }
 }
 
@@ -277,7 +286,7 @@ export function parseBnrXml(xml: string): BnrFetchResult {
  *
  * A multiplier-rel osztunk, hogy az árfolyam mindig 1 deviza = X RON formában legyen.
  */
-function extractRate(xml: string, currency: 'EUR' | 'HUF'): number | null {
+function extractRate(xml: string, currency: 'EUR' | 'HUF' | 'USD'): number | null {
   // A regex case-insensitive és toleráns a whitespace-re.
   // A multiplier opcionális — ha hiányzik, 1.
   const pattern = new RegExp(

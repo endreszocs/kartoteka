@@ -8,13 +8,10 @@ export default function Page() {
     <>
       <AdminPageHeader
         title="Eszközök és napló"
-        description="Asztali eszközök regisztrációja, licensz-kulcsok és teljes audit-napló. A naplóbejegyzések sosem törölhetők."
+        description="Asztali eszközök regisztrációja, licenc-kibocsátás és -kezelés, valamint a teljes audit-napló. A naplóbejegyzések sosem törölhetők."
         icon={Database}
-        gradient="from-cyan-500 to-sky-600"
       />
-      <div className="card-raised p-4 sm:p-5">
-        <DevicesLicensesTab />
-      </div>
+      <DevicesLicensesTab />
     </>
   )
 }

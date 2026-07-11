@@ -230,13 +230,20 @@ export async function getGodModeStatus(): Promise<{ active: boolean; expiresAt: 
   return { active: true, expiresAt }
 }
 
+/**
+ * A PIN-beállítások METAADATAI a Rendszer-oldalnak.
+ *
+ * BIZTONSÁGI FIX (2026-07-11, admin-redesign): a tényleges PIN értéke SOHA
+ * nem megy le a kliensre — csak az, hogy be van-e állítva, honnan jön, és
+ * kész-e a séma. A PIN-mező a UI-ban write-only.
+ */
 export async function getGodModePinSettings() {
   const auth = await requireMasterAdmin()
   if ('error' in auth) return { error: auth.error }
 
   const result = await readStoredPin()
   return {
-    pin: result.pin,
+    isSet: Boolean(result.pin),
     source: result.source,
     schemaReady: result.schemaReady,
     warning: result.warning || null,

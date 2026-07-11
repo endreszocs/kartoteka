@@ -1,28 +1,48 @@
 'use client'
 
+/**
+ * Felhasználók és szerepkörök — egyesített admin-nézet
+ * (2026-07-11 admin-redesign: token-first, mobil-first).
+ *
+ * Változások a redesignban:
+ *  - A „+ Új szerepkör" popover Dialog lett (nincs többé overflow-clipping).
+ *  - Gyors jóváhagyás: BÁRMELY approveAccessRequest-hiba után visszaesünk a
+ *    quickApproveUser-re (kerületi admin is tud jóváhagyni); dupla hiba esetén
+ *    mindkét üzenet látszik. Az action `info` figyelmeztetése (pl. invite-hiba)
+ *    toast-ban jelenik meg.
+ *  - A halott „Részletes jóváhagyás" dialog (soha nem nyílt meg) és a
+ *    fölösleges betöltéskori getDioceses + listAssignableProfiles hívások
+ *    eltávolítva.
+ *  - Betöltési hiba: eddig néma volt (üres listának látszott) — most toast +
+ *    újrapróbálható hibaállapot.
+ */
+
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { ArrowDownUp, Download, LayoutGrid, List, Search, Sparkles } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDownUp,
+  Download,
+  Filter,
+  LayoutGrid,
+  List,
+  Search,
+  Sparkles,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
+import { AdminEmptyState } from '@/components/admin/_shared/admin-empty-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import {
-  approveUser,
   deleteUser,
   getAllUsersWithScope,
-  getDioceses,
-  quickApproveUser,
   rejectPendingUser,
   type UserWithScope,
 } from '@/app/(dashboard)/admin/actions'
-import {
-  approveAccessRequest,
-  getAccessRequestDocumentUrl,
-} from '@/app/(dashboard)/admin/access-requests-actions'
+import { getAccessRequestDocumentUrl } from '@/app/(dashboard)/admin/access-requests-actions'
 import {
   createProfileRole,
-  listAssignableProfiles,
   listProfileRoles,
   listScopeOptions,
   revokeProfileRole,
@@ -34,8 +54,8 @@ import {
   type ProfileRoleType,
 } from '@/lib/profile-roles/types'
 
+import { ActivationWizardDialog } from './activation-wizard-dialog'
 import { AdvancedRoleDialog } from './advanced-role-dialog'
-import { ApprovePendingDialog } from './approve-pending-dialog'
 import { DeleteUserDialog } from './delete-user-dialog'
 import { EmptyState } from './empty-state'
 import { RejectPendingDialog } from './reject-pending-dialog'
@@ -80,17 +100,13 @@ interface DistrictLite {
   id: string
   name: string
 }
-interface DioceseSimple {
-  id: string
-  name: string
-}
 
 const STATUS_FILTERS: Array<[StatusFilter, string]> = [
   ['all', 'Mind'],
   ['active', 'Aktív'],
   ['pending', 'Várakozó'],
   ['rejected', 'Elutasítva'],
-  ['other', 'Egyéb'],
+  ['other', 'Törölt / egyéb'],
 ]
 
 const ROLE_FILTER_OPTIONS: Array<[RoleFilter, string]> = [
@@ -106,11 +122,15 @@ const ROLE_FILTER_OPTIONS: Array<[RoleFilter, string]> = [
   ['custom', ROLE_LABELS.custom],
 ]
 
+// Token-alapú select-stílus a rendezéshez/szűrőhöz (dark-safe).
+const SELECT_CLS =
+  'h-9 rounded-xl border border-border bg-card px-2.5 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring dark:bg-input/30'
+
 export function UnifiedUsersTab() {
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [users, setUsers] = useState<UserWithScope[]>([])
   const [allRoles, setAllRoles] = useState<ProfileRoleRow[]>([])
-  const [dioceses, setDioceses] = useState<DioceseSimple[]>([])
   const [scopeData, setScopeData] = useState<{
     congregations: CongLite[]
     dioceses: DioceseLite[]
@@ -123,23 +143,28 @@ export function UnifiedUsersTab() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [sortBy, setSortBy] = useState<SortBy>('newest')
 
-  const [approveTarget, setApproveTarget] = useState<UserWithScope | null>(null)
   const [rejectTarget, setRejectTarget] = useState<UserWithScope | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<UserWithScope | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<{ row: ProfileRoleRow; user: UserWithScope } | null>(null)
   const [advancedTarget, setAdvancedTarget] = useState<UserWithScope | null>(null)
+  // 2026-07-11 (2. kör): a kétlépéses aktiváló wizard célfelhasználója.
+  const [elbiralTarget, setElbiralTarget] = useState<UserWithScope | null>(null)
 
   const [isPending, startTransition] = useTransition()
 
   async function reload() {
-    const [u, d, r, s] = await Promise.all([
+    const [u, r, s] = await Promise.all([
       getAllUsersWithScope(),
-      getDioceses(),
       listProfileRoles(),
       listScopeOptions(),
     ])
-    if ('data' in u && u.data) setUsers(u.data)
-    setDioceses(d)
+    if ('error' in u && u.error) {
+      setLoadError(u.error)
+      toast.error(`A felhasználók betöltése nem sikerült: ${u.error}`)
+    } else if ('data' in u && u.data) {
+      setLoadError(null)
+      setUsers(u.data)
+    }
     if (r.data) setAllRoles(r.data)
     if (s.data) setScopeData(s.data)
     setLoading(false)
@@ -147,20 +172,20 @@ export function UnifiedUsersTab() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      getAllUsersWithScope(),
-      getDioceses(),
-      listProfileRoles(),
-      listScopeOptions(),
-      // listAssignableProfiles is just to warm up the cache — not used here directly
-      listAssignableProfiles(),
-    ])
-      .then(([u, d, r, s]) => {
+    Promise.all([getAllUsersWithScope(), listProfileRoles(), listScopeOptions()])
+      .then(([u, r, s]) => {
         if (cancelled) return
-        if ('data' in u && u.data) setUsers(u.data)
-        setDioceses(d)
+        if ('error' in u && u.error) {
+          setLoadError(u.error)
+          toast.error(`A felhasználók betöltése nem sikerült: ${u.error}`)
+        } else if ('data' in u && u.data) {
+          setUsers(u.data)
+        }
         if (r.data) setAllRoles(r.data)
         if (s.data) setScopeData(s.data)
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Váratlan hálózati hiba történt.')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -351,61 +376,24 @@ export function UnifiedUsersTab() {
     }
   }, [users])
 
-  function handleQuickApprove(user: UserWithScope) {
-    startTransition(async () => {
-      // Ha van regisztrációs kérelme, a TELJES jóváhagyást futtatjuk: ez egy
-      // lépésben aktivál + hozzárendeli a kért gyülekezetet + megerősíti az emailt
-      // (a kérelmet is 'approved'-ra állítja). Egyébként a sima aktiválás.
-      let res: { error?: string; info?: string }
-      if (user.pendingRequest) {
-        res = await approveAccessRequest({ id: user.pendingRequest.accessRequestId })
-        // Ha a kérelem már 'approved' (korábbi, beragadt eset), essünk vissza a
-        // sima aktiválásra, hogy a fiók mégis aktívvá váljon.
-        if (res.error && /pending/i.test(res.error)) {
-          res = await quickApproveUser(user.id)
-        }
-      } else {
-        res = await quickApproveUser(user.id)
-      }
-      if (res.error) {
-        toast.error(res.error)
-        return
-      }
-      if (res.info) {
-        toast.info(res.info)
-      } else {
-        toast.success(`Jóváhagyva és aktiválva: ${user.full_name || user.email}`)
-      }
-      await reload()
-    })
-  }
-
   function handleViewDocument(path: string) {
     // A felugró ablakot SZINKRON nyitjuk (popup-blokkoló elkerülése), majd a
     // rövid életű signed URL megérkezésekor odanavigáljuk.
     const win = window.open('about:blank', '_blank')
+    if (!win) {
+      toast.error(
+        'A böngésző felugróablak-blokkolója megakadályozta a dokumentum megnyitását. Engedélyezze a felugró ablakokat ehhez az oldalhoz.',
+      )
+      return
+    }
     startTransition(async () => {
       const res = await getAccessRequestDocumentUrl(path)
       if (res.error || !res.url) {
         toast.error(res.error || 'A dokumentum nem érhető el.')
-        win?.close()
+        win.close()
         return
       }
-      if (win) win.location.href = res.url
-    })
-  }
-
-  function handleDetailedApprove(dioceseId: string, congregationName: string) {
-    if (!approveTarget) return
-    startTransition(async () => {
-      const res = await approveUser(approveTarget.id, dioceseId, congregationName)
-      if ('error' in res && res.error) {
-        toast.error(res.error)
-      } else {
-        toast.success(`Felhasználó aktiválva: ${approveTarget.full_name || approveTarget.email}`)
-        setApproveTarget(null)
-        await reload()
-      }
+      win.location.href = res.url
     })
   }
 
@@ -531,44 +519,50 @@ export function UnifiedUsersTab() {
 
   return (
     <div className="space-y-5">
-      {/* Pasztorális hero */}
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5">
+      {/* Pasztorális bevezető — téma-tokenekből */}
+      <div className="rounded-2xl bg-primary/5 p-4 ring-1 ring-primary/15 sm:p-5">
         <div className="flex items-start gap-3">
-          <Sparkles className="size-5 text-indigo-600 mt-0.5" />
+          <Sparkles className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
           <div>
-            <h2 className="font-heading text-lg text-slate-800">Felhasználók és szerepkörök</h2>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Egy felhasználónak több szerepköre is lehet (pl. lelkész egy gyülekezetben + esperes egy egyházmegyében). A
-              <strong> „+ Új szerepkör”</strong> gomb két kattintással hozzárendel, a <em>Funkciók</em> gomb megmutatja, mit lát és mit szerkeszthet a felhasználó a jelenlegi szerepkörei alapján. Egy <em>várakozó</em> fiók szerepkör-kiosztással egyúttal aktiválódik is.
+            <h2 className="font-heading text-lg text-foreground">Felhasználók és szerepkörök</h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Egy felhasználónak több szerepköre is lehet (pl. lelkész egy gyülekezetben +
+              esperes egy egyházmegyében). A<strong> „+ Új szerepkör”</strong> gomb két
+              kattintással hozzárendel, a <em>Funkciók</em> gomb megmutatja, mit lát és mit
+              szerkeszthet a felhasználó a jelenlegi szerepkörei alapján. Egy <em>várakozó</em>{' '}
+              fiók szerepkör-kiosztással egyúttal aktiválódik is.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Művelet-sor */}
-      <div className="card-raised p-3 sm:p-4 space-y-3">
+      {/* Művelet-sor — mobil-first: kereső felül teljes szélességben, alatta
+          a szűrők flex-wrap sorban, legalul a státusz-chipek. */}
+      <div className="space-y-3 rounded-2xl border border-border bg-card p-3 shadow-sm sm:p-4">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative flex-1 min-w-[16rem] max-w-xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <div className="relative w-full min-w-0 lg:max-w-xl lg:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Keresés név, email, gyülekezet, megye, kerület alapján…"
+              aria-label="Keresés a felhasználók között"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground tabular-nums">
               {displayed.length} / {users.length}
             </span>
 
             {/* Rendezés */}
-            <label className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-zinc-50 px-2.5 py-1.5 text-xs">
-              <ArrowDownUp className="size-3.5 text-slate-400" />
+            <label className="inline-flex items-center gap-1.5">
+              <ArrowDownUp className="size-3.5 text-muted-foreground" aria-hidden />
+              <span className="sr-only">Rendezés</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortBy)}
-                className="bg-transparent text-xs outline-none"
+                className={SELECT_CLS}
                 aria-label="Rendezés"
               >
                 {SORT_OPTIONS.map(([value, label]) => (
@@ -580,12 +574,15 @@ export function UnifiedUsersTab() {
             </label>
 
             {/* Nézet-váltó: rács / lista */}
-            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+            <div className="inline-flex rounded-xl border border-border bg-card p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition ${
-                  viewMode === 'grid' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                aria-pressed={viewMode === 'grid'}
+                className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  viewMode === 'grid'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title="Kártya-nézet (rács)"
               >
@@ -595,8 +592,11 @@ export function UnifiedUsersTab() {
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
-                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition ${
-                  viewMode === 'list' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                aria-pressed={viewMode === 'list'}
+                className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                  viewMode === 'list'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title="Lista-nézet"
               >
@@ -605,47 +605,58 @@ export function UnifiedUsersTab() {
               </button>
             </div>
 
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-              className="rounded-xl border border-slate-200 bg-zinc-50 px-3 py-1.5 text-xs"
-              aria-label="Szűrés szerepkörre"
-            >
-              {ROLE_FILTER_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <Button size="sm" variant="outline" onClick={handleExport} className="gap-2">
+            <label className="inline-flex items-center gap-1.5">
+              <Filter className="size-3.5 text-muted-foreground" aria-hidden />
+              <span className="sr-only">Szűrés szerepkörre</span>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
+                className={SELECT_CLS}
+                aria-label="Szűrés szerepkörre"
+              >
+                {ROLE_FILTER_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <Button size="sm" variant="outline" onClick={handleExport} className="min-h-9 gap-2">
               <Download className="size-3.5" />
               Excel export
             </Button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <div
+          className="flex flex-wrap items-center gap-2 border-t border-border pt-2"
+          role="group"
+          aria-label="Szűrés státuszra"
+        >
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Státusz:
           </span>
           {STATUS_FILTERS.map(([key, label]) => {
             const count = counts[key]
-            // A "Várakozó" (teendő) chip pirossal kiemelve, ha van mit elbírálni.
+            // A "Várakozó" (teendő) chip amberrel kiemelve, ha van mit elbírálni
+            // — a piros hibát jelezne, a várakozó fiók viszont teendő.
             const isPendingTodo = key === 'pending' && count > 0
             const cls =
               statusFilter === key
                 ? isPendingTodo
-                  ? 'bg-red-600 text-white'
-                  : 'bg-violet-600 text-white'
+                  ? 'bg-amber-500 text-white dark:bg-amber-600'
+                  : 'bg-primary text-primary-foreground'
                 : isPendingTodo
-                  ? 'bg-red-100 text-red-700 ring-1 ring-red-300 hover:bg-red-200'
-                  : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                  ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-100 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-800 dark:hover:bg-amber-950/80'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground'
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => setStatusFilter(key)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${cls}`}
+                aria-pressed={statusFilter === key}
+                className={`min-h-8 rounded-full px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${cls}`}
               >
                 {label} ({count})
               </button>
@@ -656,7 +667,27 @@ export function UnifiedUsersTab() {
 
       {/* Lista / rács */}
       {loading ? (
-        <UserCardSkeleton count={5} />
+        <UserCardSkeleton count={6} />
+      ) : loadError ? (
+        <div className="card-raised">
+          <AdminEmptyState
+            icon={AlertTriangle}
+            title="A felhasználók betöltése nem sikerült"
+            hint={loadError}
+            action={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setLoading(true)
+                  void reload()
+                }}
+              >
+                Újrapróbálás
+              </Button>
+            }
+          />
+        </div>
       ) : displayed.length === 0 ? (
         users.length === 0 ? (
           <EmptyState variant="noUsers" />
@@ -678,7 +709,7 @@ export function UnifiedUsersTab() {
               onQuickAssign={(opt) => handleQuickAssign(u, opt)}
               onAdvanced={() => setAdvancedTarget(u)}
               onRevokeRole={(row) => setRevokeTarget({ row, user: u })}
-              onQuickApprove={() => handleQuickApprove(u)}
+              onElbiral={() => setElbiralTarget(u)}
               onReject={() => setRejectTarget(u)}
               onDelete={() => setDeleteTarget(u)}
               onViewDocument={handleViewDocument}
@@ -686,16 +717,16 @@ export function UnifiedUsersTab() {
           ))}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           {/* Oszlop-fejléc (csak desktopon) — a balra igazított sávokhoz illesztve */}
-          <div className="hidden items-center gap-3 border-b border-l-[3px] border-slate-200 border-l-transparent bg-slate-50/80 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:flex">
+          <div className="hidden items-center gap-3 border-b border-l-[3px] border-border border-l-transparent bg-muted/50 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground md:flex">
             <span className="size-9 shrink-0" aria-hidden />
             <span className="flex-1">Felhasználó</span>
             <span className="w-[15rem] shrink-0">Gyülekezet</span>
             <span className="hidden w-[5.5rem] shrink-0 lg:block">Szerepkör</span>
             <span className="shrink-0 pr-1">Műveletek</span>
           </div>
-          <div className="divide-y divide-slate-100 [&>*:nth-child(even)]:bg-slate-50/50">
+          <div className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-muted/30">
             {displayed.map((u) => (
               <UserListRow
                 key={u.id}
@@ -706,7 +737,7 @@ export function UnifiedUsersTab() {
                 isPending={isPending}
                 onQuickAssign={(opt) => handleQuickAssign(u, opt)}
                 onAdvanced={() => setAdvancedTarget(u)}
-                onQuickApprove={() => handleQuickApprove(u)}
+                onElbiral={() => setElbiralTarget(u)}
                 onReject={() => setRejectTarget(u)}
                 onDelete={() => setDeleteTarget(u)}
                 onViewDocument={handleViewDocument}
@@ -717,15 +748,21 @@ export function UnifiedUsersTab() {
       )}
 
       {/* Modálok */}
-      {approveTarget && (
-        <ApprovePendingDialog
-          open={!!approveTarget}
-          onOpenChange={(o) => !o && setApproveTarget(null)}
-          userName={approveTarget.full_name || ''}
-          userEmail={approveTarget.email}
-          dioceses={dioceses}
-          isPending={isPending}
-          onConfirm={handleDetailedApprove}
+      {elbiralTarget && (
+        <ActivationWizardDialog
+          open={!!elbiralTarget}
+          onOpenChange={(o) => !o && setElbiralTarget(null)}
+          user={elbiralTarget}
+          congregations={scopeData.congregations}
+          dioceses={scopeData.dioceses}
+          districts={scopeData.districts}
+          onReject={() => {
+            const target = elbiralTarget
+            setElbiralTarget(null)
+            setRejectTarget(target)
+          }}
+          onViewDocument={handleViewDocument}
+          onDone={reload}
         />
       )}
 

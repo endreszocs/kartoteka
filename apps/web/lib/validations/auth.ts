@@ -26,8 +26,12 @@ export const forgotPasswordSchema = z.object({
 
 /**
  * OAuth-complete schema — a Google OAuth után kért kiegészítő adatok.
- * Ugyanazt a kategorizálást használja, mint a regisztráció, csak az email
- * és password nem kell (OAuth adja).
+ *
+ * 2026-07-11 (2. kör): PARITÁS a jelszavas úttal. A Google-regisztráló is
+ * megadja a kért szerepkört, a kaszkád kerület→megye→GYÜLEKEZET (UUID-FK)
+ * választást, az indoklást, a „honnan hallott rólunk" mezőt és opcionálisan
+ * egy igazoló dokumentumot — így a completeOAuthProfile ugyanazt az
+ * access_requests-sort tudja beszúrni, mint a jelszavas regisztráció.
  */
 export const oauthCompleteSchema = z.object({
   fullName: z
@@ -40,9 +44,16 @@ export const oauthCompleteSchema = z.object({
     .string()
     .optional()
     .or(z.literal('')),
+  // 2026-07-11 — kért szerepkör (mint a jelszavas úton)
+  requestedRole: z.enum(
+    ['lelkesz', 'esperes', 'egyhazmegyei_admin', 'egyhazkeruleti_admin', 'konyvelo', 'egyhazmegyei_szamvevo'],
+    { message: 'Válassza ki a szerepkört' },
+  ),
+  // A választott egyházközség NEVE (megjelenítéshez, backward-compat a
+  // profiles.congregation TEXT mezőhöz) — a form a kiválasztott elemből tölti.
   congregation: z
     .string()
-    .min(2, 'Az egyházközség nevét adja meg'),
+    .min(2, 'Válassza ki az egyházközséget'),
   // 2026-06-03 — egyházkerület + egyházmegye kötelező (DB FK, UUID)
   districtId: z
     .string()
@@ -50,6 +61,24 @@ export const oauthCompleteSchema = z.object({
   dioceseId: z
     .string()
     .uuid({ message: 'Válassza ki az egyházmegyét' }),
+  // 2026-07-11 — a választott egyházközség UUID-je (congregations FK), mint a
+  // jelszavas úton a requested_congregation_id.
+  requestedCongregationId: z
+    .string()
+    .uuid({ message: 'Válassza ki az egyházközséget' }),
+  justification: z
+    .string()
+    .optional()
+    .or(z.literal('')),
+  referrer: z
+    .string()
+    .optional()
+    .or(z.literal('')),
+  // Opcionális feltöltött igazolás útvonala (access-request-docs bucket).
+  documentPath: z
+    .string()
+    .optional()
+    .or(z.literal('')),
   serviceStartedAt: z
     .string()
     .optional()

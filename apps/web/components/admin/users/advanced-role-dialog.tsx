@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -45,6 +46,10 @@ interface AdvancedRoleDialogProps {
   districts: DistrictLite[]
   onSaved: () => Promise<void>
 }
+
+// Token-alapú select-stílus (dark-safe) — az űrlap-selectekhez.
+const SELECT_CLS =
+  'mt-1 h-9 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring dark:bg-input/30'
 
 export function AdvancedRoleDialog({
   open,
@@ -135,35 +140,37 @@ export function AdvancedRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl bg-white p-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b border-indigo-100 bg-indigo-50/40">
-          <DialogTitle className="font-heading text-xl text-slate-800">
+      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="pr-8 font-heading text-lg text-foreground">
             Részletes szerepkör — {user.full_name || user.email}
           </DialogTitle>
         </DialogHeader>
-        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto">
           {/* D6 banner pending user-nél */}
           {isUserPending && !pastorApprovalNeeded && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex items-start gap-2">
-              <Info className="size-4 mt-0.5 shrink-0 text-amber-600" />
+            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <p className="leading-relaxed">
-                Ennek a felhasználónak a fiókja még <strong>nincs aktiválva</strong>. A szerepkör kiosztása egyúttal aktiválja a fiókot is, és a felhasználó beléphet a rendszerbe.
+                Ennek a felhasználónak a fiókja még <strong>nincs aktiválva</strong>. A szerepkör
+                kiosztása egyúttal aktiválja a fiókot is, és a felhasználó beléphet a rendszerbe.
               </p>
             </div>
           )}
 
           <div>
             <Label>Hatókör</Label>
-            <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(['system', 'district', 'diocese', 'congregation'] as ProfileRoleScope[]).map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => handleScopeChange(s)}
-                  className={`rounded-xl border px-3 py-2 text-sm transition ${
+                  aria-pressed={scope === s}
+                  className={`min-h-9 rounded-xl border px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     scope === s
-                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
+                      ? 'border-[var(--primary)] bg-primary/10 font-medium text-foreground'
+                      : 'border-border bg-card text-muted-foreground hover:border-[color-mix(in_oklab,var(--primary)_35%,var(--border))] hover:text-foreground'
                   }`}
                 >
                   {SCOPE_LABELS[s]}
@@ -174,7 +181,7 @@ export function AdvancedRoleDialog({
 
           {scope !== 'system' && (
             <div>
-              <Label>
+              <Label htmlFor="advanced-scope-id">
                 {scope === 'congregation'
                   ? 'Gyülekezet'
                   : scope === 'diocese'
@@ -182,9 +189,10 @@ export function AdvancedRoleDialog({
                     : 'Egyházkerület'}
               </Label>
               <select
+                id="advanced-scope-id"
                 value={scopeId || ''}
                 onChange={(e) => setScopeId(e.target.value || null)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm"
+                className={SELECT_CLS}
               >
                 <option value="">— Válasszon —</option>
                 {scopeOptions.map((o) => (
@@ -197,11 +205,12 @@ export function AdvancedRoleDialog({
           )}
 
           <div>
-            <Label>Szerepkör</Label>
+            <Label htmlFor="advanced-role">Szerepkör</Label>
             <select
+              id="advanced-role"
               value={role}
               onChange={(e) => setRole(e.target.value as ProfileRoleType)}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm"
+              className={SELECT_CLS}
             >
               {roleOptions.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -213,8 +222,9 @@ export function AdvancedRoleDialog({
 
           {role === 'custom' && (
             <div>
-              <Label>Egyedi szerepkör neve</Label>
+              <Label htmlFor="advanced-custom-label">Egyedi szerepkör neve</Label>
               <Input
+                id="advanced-custom-label"
                 value={customLabel}
                 onChange={(e) => setCustomLabel(e.target.value)}
                 placeholder="Pl.: Titkárnő, Pénztáros, Segédlelkész"
@@ -225,8 +235,9 @@ export function AdvancedRoleDialog({
           )}
 
           <div>
-            <Label>Indoklás (opcionális)</Label>
+            <Label htmlFor="advanced-reason">Indoklás (opcionális)</Label>
             <Input
+              id="advanced-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Miért kapja ezt a szerepkört?"
@@ -235,13 +246,20 @@ export function AdvancedRoleDialog({
           </div>
 
           {pastorApprovalNeeded && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 text-sm text-amber-800">
-              <strong>Lelkészi jóváhagyás szükséges</strong> — a hozzárendelés <em>jóváhagyásra vár</em> állapotban jön létre. A gyülekezet lelkésze a saját <code>/profile/kapcsolatok</code> oldalán hagyja jóvá vagy utasítja el.
+            <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <strong>Lelkészi jóváhagyás szükséges</strong> — a hozzárendelés{' '}
+              <em>jóváhagyásra vár</em> állapotban jön létre. A gyülekezet lelkésze a saját{' '}
+              <code>/profile/kapcsolatok</code> oldalán hagyja jóvá vagy utasítja el.
             </div>
           )}
         </div>
-        <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-3 flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+            className="min-h-9"
+          >
             Mégse
           </Button>
           <Button
@@ -251,12 +269,12 @@ export function AdvancedRoleDialog({
               (scope !== 'system' && !scopeId) ||
               (role === 'custom' && !customLabel.trim())
             }
-            className="bg-indigo-600 hover:bg-indigo-700 gap-2"
+            className="min-h-9 gap-2"
           >
             {isPending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
             Kiosztás
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
