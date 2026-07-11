@@ -3,6 +3,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
+// 2026-07-11 (S6): visszamenőleges kassza↔bank átvezetésnél a következő évi
+// automatikus ('carryover') nyitó újraszámolása.
+import { refreshNextYearCarryoverUseCase } from '@kartoteka/core'
 import {
   incomeSchema,
   expenseSchema,
@@ -3004,6 +3007,22 @@ async function saveKasszaBankTransferPair(
       .eq('id', kiaIns.data?.id as number)
       .eq('congregation_id', congregationId)
     return { error: `Belső mozgás (bevétel-oldal): ${befIns.error.message}` }
+  }
+
+  // 2026-07-11 (S6): ha VISSZAMENŐLEGESEN (pl. 2026-os nézetben 2025-ös dátummal)
+  // rögzítünk átvezetést, a KÖVETKEZŐ évi automatikusan áthozott ('carryover')
+  // banki nyitó elavul — újraszámoljuk. Kézzel rögzített nyitót nem bántunk.
+  // Best-effort: hibája nem buktatja a mentést.
+  try {
+    const changedYear = Number(String(data.datum).slice(0, 4))
+    if (Number.isFinite(changedYear) && changedYear >= 2000) {
+      await refreshNextYearCarryoverUseCase(
+        { congregationId, bankszamlaId: bankId, changedYear },
+        { supabase, runtime: 'web', userId },
+      )
+    }
+  } catch {
+    // néma — kényelmi frissítés
   }
 
   revalidatePath('/penzugy')

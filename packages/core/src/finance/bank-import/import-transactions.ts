@@ -22,6 +22,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// 2026-07-11 (S6): visszamenőleges rögzítésnél a következő évi 'carryover'
+// nyitó újraszámolásához. (A nyito-egyenleg.ts CSAK típusokat importál innen,
+// így futásidejű kör-import nem keletkezik.)
+import { refreshNextYearCarryoverUseCase } from './nyito-egyenleg'
+
 export type BankImportItemAction = 'income' | 'expense' | 'internal-transfer' | 'skip'
 
 export type BankImportItem = {
@@ -270,7 +275,9 @@ async function insertKiadasWithFallback(
     userid: userId,
   }
   let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
-  if (ins.error) ins = await supabase.from('kiadas').insert([canonical]).select('id').single()
+  // 2026-07-11 (S6): a canonical fallback-ba is kell a userid (NOT NULL) —
+  // enélkül a fallback-ág garantáltan elbukott volna.
+  if (ins.error) ins = await supabase.from('kiadas').insert([{ ...canonical, userid: userId }]).select('id').single()
   if (ins.error) return { error: ins.error, id: null }
   return { error: null, id: (ins.data?.id as number | undefined) ?? null }
 }
@@ -495,11 +502,14 @@ export async function importBankTransactionsUseCase(
           continue
         }
         const { osszegRon: incOsszegRon, arfolyam: incArfolyam } = computeOsszegRon(item)
-        // A `befizetes` táblán az `xkey`, `nyugta` ÉS `csalad` oszlopok NOT NULL
-        // (legacy DB séma) — mindenhol meg kell adnunk, különben a beszúrás
-        // constraint-hibával bukik. 2026-07-10 (S4 #8): a `csalad: false` eddig
-        // HIÁNYZOTT → "null value in column csalad" hibával MINDEN banki
-        // bevétel-import elbukott, miközben a wizard "Import sikeres!"-t írt.
+        // A `befizetes` táblán az `xkey`, `nyugta`, `csalad` ÉS `userid` oszlopok
+        // NOT NULL — mindet meg kell adnunk, különben a beszúrás constraint-hibával
+        // bukik. 2026-07-10 (S4 #8): a `csalad: false` hiányzott; 2026-07-11 (S6):
+        // a `userid` is hiányzott — a csalad-fix után EZ volt a következő NOT NULL
+        // hiba ("null value in column userid"), ami minden bevétel-importot elvitt.
+        // Most a TELJES NOT NULL oszloplistát átvizsgáltuk (xkey, forrasa,
+        // id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad,
+        // deleted, fizetettev, userid) — mind szerepel.
         const payload = {
           osszeg: Math.abs(item.amount),
           osszeg_ron: incOsszegRon,
@@ -520,6 +530,7 @@ export async function importBankTransactionsUseCase(
           fizetettev: Number(item.date.slice(0, 4)),
           is_potlas: false,
           xkey: generateXkey20(),
+          userid: userId,
         }
         const ins = await supabase.from('befizetes').insert([payload]).select('id').single()
         if (ins.error) {
@@ -559,6 +570,9 @@ export async function importBankTransactionsUseCase(
           megjegyzes: item.megjegyzes || item.description,
           deleted: false,
           congregation_id: congregationId,
+          // 2026-07-11 (S6): a userid NEM legacy oszlop — a canonical változatban
+          // is kötelező (NOT NULL), különben a fallback-ág sosem sikerülhet.
+          userid: userId,
         }
         const reference: Record<string, unknown> = {
           ...canonical,
@@ -566,7 +580,6 @@ export async function importBankTransactionsUseCase(
           xkey: generateXkey20(),
           atvevo: item.counterparty || item.description.slice(0, 100),
           atvevoid: null,
-          userid: userId,
         }
         let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
         if (ins.error) {
@@ -645,6 +658,7 @@ export async function importBankTransactionsUseCase(
             deleted: false, congregation_id: congregationId,
             fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
             xkey: generateXkey20(),
+            userid: userId, // 2026-07-11 (S6): NOT NULL — enélkül elbukott
           }
           const ins = await supabase.from('befizetes').insert([befPayload]).select('id').single()
           if (ins.error) {
@@ -709,6 +723,7 @@ export async function importBankTransactionsUseCase(
               deleted: false, congregation_id: congregationId,
               fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
               xkey: generateXkey20(),
+              userid: userId, // 2026-07-11 (S6): NOT NULL — enélkül elbukott
             }
             const { error } = await supabase.from('befizetes').insert([befPayload])
             if (error) {
@@ -749,6 +764,29 @@ export async function importBankTransactionsUseCase(
         rowIndex: item.rowIndex,
         error: e instanceof Error ? e.message : String(e),
       })
+    }
+  }
+
+  // 2026-07-11 (S6): VISSZAMENŐLEGES rögzítés kezelése — ha egy KORÁBBI évre
+  // importáltunk (pl. 2026-os költségvetési évben 2025-ös kivonatot), és a
+  // KÖVETKEZŐ év nyitója korábban AUTOMATIKUSAN lett áthozva (forrasa =
+  // 'carryover'), az az érték most elavult: újraszámoljuk a friss tavalyi
+  // záróból. Kézzel rögzített ('manual') vagy importált ('import') nyitót
+  // SOHA nem írunk felül. Best-effort: hibája nem buktatja az importot.
+  if (result.imported > 0) {
+    try {
+      const touched = new Map<string, { bankszamlaId: number; changedYear: number }>()
+      for (const row of result.importedRows) {
+        const y = Number(String(row.date || '').slice(0, 4))
+        if (!Number.isFinite(y) || y < 2000) continue
+        const key = `${row.bankszamlaId}:${y}`
+        if (!touched.has(key)) touched.set(key, { bankszamlaId: row.bankszamlaId, changedYear: y })
+      }
+      for (const t of touched.values()) {
+        await refreshNextYearCarryoverUseCase({ congregationId, ...t }, ctx)
+      }
+    } catch {
+      // Szándékosan némán — a nyitó-frissítés kényelmi lépés, az import már sikerült.
     }
   }
 

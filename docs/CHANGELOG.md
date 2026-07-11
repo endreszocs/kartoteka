@@ -71,6 +71,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Pénzügy gyorsjavítás: banki import hiba + visszamenőleges rögzítés
+<!-- key: 2026-07-11-penzugy-import-hotfix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web (következő kiadás) -->
+
+### 🐛 Javítások
+
+- **⚠️ A banki import bevétel-rögzítése ismét hibával állt le** („null value in
+  column userid") — a korábbi javítás után EZ volt a következő hiányzó kötelező
+  mező. Most nem csak ezt az egyet pótoltuk: a banki import ÖSSZES beszúrási
+  útját (bevétel, kiadás, belső mozgás mindkét oldala) végigellenőriztük az
+  adatbázis TELJES kötelező-mező listája ellen, hogy ne jöjjön sorban a
+  következő ilyen hiba.
+- **A visszamenőleges rögzítés (pl. 2026-os költségvetési évben 2025-ös kivonat
+  importja) mostantól végig rendben van:**
+  - a tételek a SAJÁT dátumuk éve alá kerülnek (nem a képernyőn kiválasztott
+    év alá) — ez eddig is így volt, ellenőriztük;
+  - lezárt (véglegesített) évre az import továbbra is blokkolva, pontos
+    hibaüzenettel;
+  - **ÚJ:** ha a következő év nyitó egyenlegét korábban a rendszer hozta át
+    automatikusan (a tavalyi záróból), az utólag rögzített tavalyi tételek után
+    a rendszer **magától újraszámolja** — banki importnál ÉS kézi
+    kassza↔bank átvezetésnél is. Kézzel beírt nyitót soha nem ír felül.
+
+---
+
 ## [2026-07-10] — Pénzügy 4. kör: múltbeli évek nyomtatása, nyugtafigyelő-áthozás, felület-rendezés
 <!-- key: 2026-07-10-penzugy-negyedik-kor -->
 <!-- category: bugfix -->
