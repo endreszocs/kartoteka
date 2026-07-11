@@ -8,6 +8,7 @@ import { SubscriptionSuspendedScreen } from '@/components/layout/subscription-su
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { getCongregationAccessStatus, shouldGateUser } from '@/lib/auth/subscription-access'
+import { touchLastSeen } from '@/lib/auth/touch-last-seen'
 import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
 import { checkCongregationSetupStatus } from '@/app/(dashboard)/congregation/actions'
 import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
@@ -208,6 +209,10 @@ export default async function DashboardLayout({
           .eq('user_id', user.id)
           .maybeSingle()
           .then((res) => ((res.data as { photo_url: string | null } | null)?.photo_url ?? null)),
+    // "Utoljára aktív" heartbeat — throttled (max óránként ír), a párhuzamos
+    // fetch-ekkel együtt fut, így nem ad extra kört. A visszatérése nincs
+    // destrukturálva (a fenti 6 név után a 7. elem szándékosan ignorált).
+    touchLastSeen(user.id),
   ])
 
   // 4. Redirect az onboarding-state alapján (csak a párhuzamos fetch UTÁN dobható).
