@@ -165,7 +165,11 @@ type UnifiedRow = {
   type: TransactionType
   id: number
   datum: string
+  /** A tétel a számla saját valutájában (devizás banki tételnél pl. EUR). */
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens — az összesítők/megjelenítés EZT használják
+   *  (a könyvelés RON-ban folyik). RON tételnél == osszeg. */
+  osszegRon: number
   label: string
   category: string
   /** Kerületi sz. — a kerülettől kapott, nyomtatott szám (iratszam). */
@@ -185,6 +189,24 @@ type UnifiedRow = {
   hasMissingPerson: boolean
   hasMissingCategory: boolean
   rawExpense?: KiadasRow
+}
+
+/**
+ * 2026-07-11 (S9): a tétel-összeg RON-ban (a könyvelés RON-ban folyik). Devizás
+ * banki tételnél alatta az EREDETI deviza-összeg is látszik a bankkivonat-
+ * egyeztetéshez — pl. „8 890,15" (RON) fölött és „1 788,68 EUR" alatta.
+ */
+function TxnAmount({ row, valuta }: { row: UnifiedRow; valuta: string }) {
+  const isForeign = valuta !== 'RON' && Number(row.osszeg) !== Number(row.osszegRon)
+  if (!isForeign) return <>{formatCurrency(row.osszegRon)}</>
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <span>{formatCurrency(row.osszegRon)}</span>
+      <span className="text-[10px] font-normal text-slate-400">
+        {formatCurrency(row.osszeg)} {valuta}
+      </span>
+    </span>
+  )
 }
 
 export function TransactionsTab({
@@ -326,6 +348,7 @@ export function TransactionsTab({
         id: r.id,
         datum: r.datum,
         osszeg: r.osszeg,
+        osszegRon: Number(r.osszeg_ron ?? r.osszeg) || 0,
         label: r.forrasa || '—',
         category: bevCelMap[r.id_befizetescel || 0]
           ? getCelName(bevCelMap[r.id_befizetescel || 0])
@@ -346,6 +369,7 @@ export function TransactionsTab({
         id: r.id,
         datum: r.datum,
         osszeg: r.osszeg,
+        osszegRon: Number(r.osszeg_ron ?? r.osszeg) || 0,
         label: getExpensePartnerName(r) || '—',
         category: kiaCelMap[r.id_kiadascel || 0]
           ? getCelName(kiaCelMap[r.id_kiadascel || 0])
@@ -403,7 +427,8 @@ export function TransactionsTab({
       irattipus: r.irattipus === '—' ? '' : r.irattipus,
       nev: r.label === '—' ? '' : r.label,
       type: r.type,
-      osszeg: r.osszeg,
+      // 2026-07-11 (S9): a hivatalos RON-formátumú export a RON-ekvivalenst viszi.
+      osszeg: r.osszegRon,
       celNev: r.category === '—' ? '' : r.category,
       megjegyzes: r.isBm
         ? r.unpaired
@@ -478,8 +503,9 @@ export function TransactionsTab({
       g.rows.push(r)
       // 2026-07-10 (S3 audit #1): stornózott tétel nem számít a havi összesítőbe.
       if (!r.stornozott) {
-        if (r.type === 'income') g.monthInc += r.osszeg
-        else g.monthExp += r.osszeg
+        // 2026-07-11 (S9): a havi/éves részösszegek RON-ban (osszegRon).
+        if (r.type === 'income') g.monthInc += r.osszegRon
+        else g.monthExp += r.osszegRon
       }
     }
 
@@ -726,14 +752,14 @@ export function TransactionsTab({
                                   saját oszlopában jelenik meg, előjel nélkül (CashbookTab-minta). */}
                               <td className="p-2.5 text-right font-bold text-emerald-600">
                                 {r.type === 'income' ? (
-                                  formatCurrency(r.osszeg)
+                                  <TxnAmount row={r} valuta={r.bankszamlaId != null ? (bankAccountById.get(r.bankszamlaId)?.valuta || 'RON') : 'RON'} />
                                 ) : (
                                   <span className="font-normal text-slate-300">—</span>
                                 )}
                               </td>
                               <td className="p-2.5 text-right font-bold text-red-500">
                                 {r.type === 'expense' ? (
-                                  formatCurrency(r.osszeg)
+                                  <TxnAmount row={r} valuta={r.bankszamlaId != null ? (bankAccountById.get(r.bankszamlaId)?.valuta || 'RON') : 'RON'} />
                                 ) : (
                                   <span className="font-normal text-slate-300">—</span>
                                 )}

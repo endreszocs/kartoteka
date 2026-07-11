@@ -163,6 +163,10 @@ async function hasExistingBankTransaction(
     .eq('congregation_id', congregationId)
     .eq('bankszamla_id', params.bankszamlaId)
     .eq('datum', params.date)
+    // 2026-07-11 (S9): a STORNÓZOTT (érvénytelenített) tétel NEM blokkolja az
+    // újraimportot — így egy hibás (pl. át nem váltott) tételt stornózni lehet,
+    // majd a javított kivonatot újraimportálni (a stornó a listában marad).
+    .eq('stornozott', false)
     .gte('osszeg', absAmount - 0.01)
     .lte('osszeg', absAmount + 0.01)
     .eq('deleted', false)

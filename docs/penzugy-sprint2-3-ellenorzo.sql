@@ -135,3 +135,29 @@ from bankszamla_nyito_egyenleg n
 join bankszamlak bs on bs.id = n.bankszamla_id
 where n.congregation_id = (select id from congregations order by created_at limit 1)
 order by eve, tipus, bank;
+
+-- ============================================================================
+-- E9 — DEVIZÁS (nem-RON) tételek átváltás-ellenőrzése (2026-07-11, S9).
+-- Megkeresi a devizás bankszámlák tételeit, ahol az osszeg_ron == osszeg ÉS
+-- arfolyam = 1 (vagy NULL) — ezek az ÁT NEM VÁLTOTT sorok (a régi import
+-- csendben 1:1 RON-ként tárolta). Ezeket stornózni + újraimportálni kell,
+-- vagy az árfolyammal újraszámolni (osszeg_ron = osszeg * napi árfolyam).
+-- ============================================================================
+select 'befizetes' as tabla, b.id, bs.bank_neve, bs.valuta, b.datum,
+       b.osszeg, b.osszeg_ron, b.arfolyam
+from befizetes b
+join bankszamlak bs on bs.id = b.bankszamla_id
+where b.congregation_id = (select id from congregations order by created_at limit 1)
+  and b.deleted = false and coalesce(b.stornozott, false) = false
+  and coalesce(bs.valuta, 'RON') <> 'RON'
+  and (b.arfolyam is null or b.arfolyam = 1 or b.osszeg_ron = b.osszeg)
+union all
+select 'kiadas', k.id, bs.bank_neve, bs.valuta, k.datum,
+       k.osszeg, k.osszeg_ron, k.arfolyam
+from kiadas k
+join bankszamlak bs on bs.id = k.bankszamla_id
+where k.congregation_id = (select id from congregations order by created_at limit 1)
+  and k.deleted = false and coalesce(k.stornozott, false) = false
+  and coalesce(bs.valuta, 'RON') <> 'RON'
+  and (k.arfolyam is null or k.arfolyam = 1 or k.osszeg_ron = k.osszeg)
+order by datum;

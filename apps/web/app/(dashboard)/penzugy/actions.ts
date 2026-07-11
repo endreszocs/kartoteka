@@ -457,10 +457,10 @@ export async function getYearFinanceRecords(year: number): Promise<{
   const supabase = access.supabase
 
   const [bevRes, kiaRes, prevBevRes, prevKiaRes, cashNyitoRes, bankNyitoRes] = await Promise.all([
-    supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
     supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
@@ -479,14 +479,16 @@ export async function getYearFinanceRecords(year: number): Promise<{
     if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
     else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
   }
+  // 2026-07-11 (S9): a könyvelés RON-ban — a bank-carryover a RON-ekvivalenst
+  // (osszeg_ron) használja, nem a deviza-összeget. RON számlán osszeg==osszeg_ron.
   let carryoverCashNet = 0, carryoverBankNet = 0
-  ;(prevBevRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
-    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg) || 0
-    else carryoverBankNet += Number(r.osszeg) || 0
+  ;(prevBevRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg_ron ?? r.osszeg) || 0
+    else carryoverBankNet += Number(r.osszeg_ron ?? r.osszeg) || 0
   })
-  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
-    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg) || 0
-    else carryoverBankNet -= Number(r.osszeg) || 0
+  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
+    else carryoverBankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
   })
 
   return {
@@ -969,13 +971,13 @@ export async function initFinance(year: number) {
     // 2026-06-30 (perf): '*' helyett a BefizetesRow/KiadasRow típus mezői (a DB-ben
     // ~31/33 oszlop, de a UI csak ~18/16-ot olvas) — bit-azonos a fogyasztóknak,
     // kevesebb adat-transzfer/deszerializálás nagy gyülekezetnél (sok ezer tétel/év).
-    supabase.from('befizetes').select('id, osszeg, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
-    supabase.from('kiadas').select('id, osszeg, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('befizetes').select('id, osszeg, osszeg_ron, arfolyam, datum, id_befizetescel, id_szemely, id_csalad, forrasa, nyugta, iratszam, irattipus, fizetettev, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+    supabase.from('kiadas').select('id, osszeg, osszeg_ron, arfolyam, datum, id_kiadascel, atvevo, atvevoid, nyugta, iratszam, irattipus, megjegyzes, belso_mozgas_xkey, bankszamla_id, deleted, stornozott, stornozott_indok, stornozott_at').eq('congregation_id', congregationId).eq('deleted', false).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     // Előző évi adatok az átviteli egyenleghez (bankszamla_id: NULL=kassza, egyébként bank)
     // 2026-07-10 (S3 audit KRITIKUS #1): a carryover-lánc a stornózott tételeket
     // is kihagyja — a calculateBalances-szel azonos szemantika.
-    supabase.from('befizetes').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
-    supabase.from('kiadas').select('osszeg, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
+    supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
     supabase
       .from('szemely')
@@ -1190,14 +1192,16 @@ export async function initFinance(year: number) {
     else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
   }
   // Előző évi NETTÓ forgalom — bankszamla_id szerint szétválasztva (NULL=kassza, egyébként bank).
+  // 2026-07-11 (S9): a könyvelés RON-ban — a RON-ekvivalens (osszeg_ron) számít,
+  // nem a deviza-összeg. RON számlán osszeg == osszeg_ron (fallback).
   let carryoverCashNet = 0, carryoverBankNet = 0
-  ;(prevBevRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
-    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg) || 0
-    else carryoverBankNet += Number(r.osszeg) || 0
+  ;(prevBevRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet += Number(r.osszeg_ron ?? r.osszeg) || 0
+    else carryoverBankNet += Number(r.osszeg_ron ?? r.osszeg) || 0
   })
-  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; bankszamla_id: number | null }) => {
-    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg) || 0
-    else carryoverBankNet -= Number(r.osszeg) || 0
+  ;(prevKiaRes.data || []).forEach((r: { osszeg: number; osszeg_ron?: number | null; bankszamla_id: number | null }) => {
+    if (r.bankszamla_id == null) carryoverCashNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
+    else carryoverBankNet -= Number(r.osszeg_ron ?? r.osszeg) || 0
   })
   const carryoverCash = hasCashCur ? recCashCur : recCashPrev + carryoverCashNet
   const carryoverBank = hasBankCur ? recBankCur : recBankPrev + carryoverBankNet
@@ -3737,7 +3741,7 @@ export async function getPreviousYearActuals(year: number): Promise<{
     const [bevRes, kiaRes, bevCelRes, kiaCelRes] = await Promise.all([
       supabase
         .from('befizetes')
-        .select('id_befizetescel, osszeg')
+        .select('id_befizetescel, osszeg, osszeg_ron')
         .eq('congregation_id', congregationId)
         .eq('deleted', false)
         .eq('stornozott', false)
@@ -3745,7 +3749,7 @@ export async function getPreviousYearActuals(year: number): Promise<{
         .lte('datum', `${prevYear}-12-31`),
       supabase
         .from('kiadas')
-        .select('id_kiadascel, osszeg')
+        .select('id_kiadascel, osszeg, osszeg_ron')
         .eq('congregation_id', congregationId)
         .eq('deleted', false)
         .eq('stornozott', false)
@@ -3777,21 +3781,23 @@ export async function getPreviousYearActuals(year: number): Promise<{
     // Belső mozgás kódok kizárása: 100-zal, 3-mal vagy 4-gyel kezdődő kódok.
     const isInternalCode = (code: string) => /^(100|[34])/.test(code)
 
+    // 2026-07-11 (S9): a könyvelés RON-ban — a tény-referencia a RON-ekvivalenst
+    // (osszeg_ron) összegzi. RON számlán osszeg == osszeg_ron (fallback).
     const actualIncome: Record<string, number> = {}
-    ;((bevRes.data || []) as Array<{ id_befizetescel: number | null; osszeg: number }>).forEach(
+    ;((bevRes.data || []) as Array<{ id_befizetescel: number | null; osszeg: number; osszeg_ron?: number | null }>).forEach(
       (r) => {
         const code = r.id_befizetescel != null ? bevMap[r.id_befizetescel] : undefined
         if (!code || isInternalCode(code)) return
-        actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg) || 0)
+        actualIncome[code] = (actualIncome[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
       },
     )
 
     const actualExpense: Record<string, number> = {}
-    ;((kiaRes.data || []) as Array<{ id_kiadascel: number | null; osszeg: number }>).forEach(
+    ;((kiaRes.data || []) as Array<{ id_kiadascel: number | null; osszeg: number; osszeg_ron?: number | null }>).forEach(
       (r) => {
         const code = r.id_kiadascel != null ? kiaMap[r.id_kiadascel] : undefined
         if (!code || isInternalCode(code)) return
-        actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg) || 0)
+        actualExpense[code] = (actualExpense[code] || 0) + (Number(r.osszeg_ron ?? r.osszeg) || 0)
       },
     )
 

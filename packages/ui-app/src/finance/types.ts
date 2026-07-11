@@ -325,6 +325,12 @@ export interface ReceiptHealth {
 export interface BefitetesRow {
   id: number
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens (devizás számlánál osszeg × árfolyam).
+   *  A könyvelés RON-ban folyik — az egyenlegek/registerek/carryover MINDIG
+   *  ezt használják (fallback: `osszeg`, ha null — RON számlán osszeg == osszeg_ron). */
+  osszeg_ron?: number | null
+  /** Az átváltási árfolyam (devizás számlánál; RON-nál 1). */
+  arfolyam?: number | null
   datum: string
   id_befizetescel: number | null
   id_szemely: number | null
@@ -379,6 +385,9 @@ export interface MonetaryDenomination {
 export interface KiadasRow {
   id: number
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens — lásd BefitetesRow.osszeg_ron. */
+  osszeg_ron?: number | null
+  arfolyam?: number | null
   datum: string
   id_kiadascel: number | null
   kedvezmenyzett: string | null

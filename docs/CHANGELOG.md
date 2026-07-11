@@ -23,6 +23,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Devizás számla: a teljes felület lejben (RON) számol és jelenít meg
+<!-- key: 2026-07-11-devizas-ron-megjelenites -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.62 -->
+
+### 🐛 Kritikus javítás — devizás (EUR/HUF) bankszámla
+
+- **⚠️ A devizás számla tételei, egyenlege és nyomtatványai mostantól MINDENHOL
+  lejben (RON) jelennek meg és számolnak.** Eddig a rendszer a deviza-összeget
+  (pl. EUR) számolta bele a RON-egyenlegbe és mutatta a RON-címkével — így egy
+  1 788,68 EUR bevétel 1 788,68 „RON"-ként jelent meg a ~8 890 RON helyett, és
+  az egyenleg is hibás lett. Ez a hiba **az egész pénzügyi felületet érintette**
+  devizás számlánál: a Bank fül egyenleg-mutatói és tétel-listája, a Tranzakciók
+  fül, a hivatalos nyomtatványok (Registru Casa/Banca/Jurnal, Csoportnapló,
+  Számadás tényadatai), az évek közti átvitel és az előző évi tény-referencia.
+  Mostantól mind a **RON-ekvivalenst** (a bejegyzés dátuma szerinti árfolyammal
+  átváltott értéket) használja.
+- **A devizás tételeknél a lista mutatja az eredeti deviza-összeget is** — a RON
+  érték alatt kicsiben (pl. „8 890,15" fölött és „1 788,68 EUR" alatta), hogy a
+  bankkivonattal könnyű legyen egyeztetni.
+- **Stornózott tétel újraimportálható:** ha egy hibás (pl. régi, át nem váltott)
+  banki tételt stornózol, a javított kivonat újraimportálásakor a rendszer már
+  nem tekinti duplikátumnak — a stornó a listában látható marad.
+
+### 🔧 A korábban rosszul rögzített devizás tételek javítása
+
+A frissítés előtt importált, át nem váltott devizás tételek a régi (1:1) RON
+értéket őrzik. Ezek helyreállítása: **stornózd** a hibás tételt a Bank fülön,
+majd **importáld újra** a kivonatot — a varázsló most bekéri a nyitó egyenleget
+és az árfolyamot, és helyesen, lejre váltva rögzíti. (A `docs/penzugy-sprint2-3-
+ellenorzo.sql` **E9** lekérdezése kilistázza az érintett tételeket.)
+
+---
+
 ## [2026-07-11] — Devizás banki import: RON-átváltás és nyitó egyenleg garantálva
 <!-- key: 2026-07-11-devizas-import-ron -->
 <!-- category: bugfix -->
