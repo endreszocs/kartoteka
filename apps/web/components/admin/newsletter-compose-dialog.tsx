@@ -348,29 +348,29 @@ export function NewsletterComposeDialog({
                           className="mt-1 size-4 rounded border-input accent-[var(--primary)]"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-baseline gap-2">
-                            <span className="font-mono text-[10px] text-muted-foreground">
+                          <p className="text-sm font-semibold leading-snug text-foreground">
+                            {e.title}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-xs text-muted-foreground">
                               {e.date}
                             </span>
                             {e.version && (
-                              <Badge variant="outline" className="border-border py-0 text-[10px]">
+                              <Badge variant="outline" className="border-border py-0 text-[11px]">
                                 v{e.version}
                               </Badge>
                             )}
                             {e.category && (
-                              <Badge className="border-transparent bg-primary/10 py-0 text-[10px] text-primary">
+                              <Badge className="border-transparent bg-primary/10 py-0 text-[11px] text-primary">
                                 {RELEASE_CATEGORY_LABELS[e.category]}
                               </Badge>
                             )}
                             {e.alreadySent && (
-                              <StatusBadge intent="warning" className="py-0 text-[10px]">
+                              <StatusBadge intent="warning" className="py-0 text-[11px]">
                                 már elküldve
                               </StatusBadge>
                             )}
                           </div>
-                          <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">
-                            {e.title}
-                          </p>
                         </div>
                       </label>
                     )
@@ -392,7 +392,7 @@ export function NewsletterComposeDialog({
                   placeholder="Pl. Kartotéka — 2026. április fejlesztések"
                   className="mt-1"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Üresen hagyva: &bdquo;Kartotéka — Fejlesztési hírlevél&rdquo;
                 </p>
               </div>
@@ -550,7 +550,7 @@ export function NewsletterComposeDialog({
                   <span className="text-xs font-semibold text-foreground">Élő előnézet</span>
                   {previewBytes != null && (
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                         previewBytes > GMAIL_CLIP_BYTES
                           ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                           : previewBytes > GMAIL_RECOMMEND_BYTES

@@ -26,13 +26,39 @@ async function requireAdmin() {
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/**
+ * Profil-adatok (email, név) betöltése user_id-k alapján, KÜLÖN lekérdezéssel.
+ *
+ * 2026-07-11 fix: a user_devices.user_id és a licenses.user_id az
+ * auth.users(id)-ra mutat, NEM a profiles-ra — így a PostgREST beágyazott
+ * `profiles!user_id(...)` join a schema cache-ben nem talál kapcsolatot
+ * („Could not find a relationship between 'licenses' and 'profiles'").
+ * A profiles.id ugyanaz az UUID, ezért a kétlépéses lookup tökéletes pótlás.
+ */
+async function loadProfileMap(
+  supabase: Awaited<ReturnType<typeof getEffectiveAccessContext>>['supabase'],
+  userIds: string[],
+): Promise<Map<string, { email: string | null; full_name: string | null }>> {
+  const map = new Map<string, { email: string | null; full_name: string | null }>()
+  const unique = Array.from(new Set(userIds.filter(Boolean)))
+  if (unique.length === 0) return map
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, email, full_name')
+    .in('id', unique)
+  for (const p of (data as Array<{ id: string; email: string | null; full_name: string | null }> | null) || []) {
+    map.set(p.id, { email: p.email, full_name: p.full_name })
+  }
+  return map
+}
+
 export async function listUserDevices(filter: { onlyActive?: boolean } = {}) {
   const ctx = await requireAdmin()
   if ('error' in ctx) return { error: ctx.error }
 
   let q = ctx.supabase
     .from('user_devices')
-    .select('*, profiles!user_id(email, full_name)')
+    .select('*')
     .order('registered_at', { ascending: false })
 
   if (filter.onlyActive) q = q.eq('revoked', false)
@@ -40,8 +66,13 @@ export async function listUserDevices(filter: { onlyActive?: boolean } = {}) {
   const { data, error } = await q
   if (error) return { error: error.message }
 
+  const profileMap = await loadProfileMap(
+    ctx.supabase,
+    ((data || []) as Array<{ user_id: string }>).map((r) => r.user_id),
+  )
+
   const result = (data || []).map((row: Record<string, unknown>) => {
-    const profile = row['profiles'] as { email?: string; full_name?: string } | null
+    const profile = profileMap.get(row['user_id'] as string) ?? null
     return {
       id: row['id'] as string,
       user_id: row['user_id'] as string,
@@ -72,22 +103,25 @@ export async function revokeDevice(input: { id: string; reason: string }) {
   const reason = input.reason.trim()
 
   // 1. Sor lekérése a revoke előtt — kelleni fog az email-hez
-  //    (user_id, device_name, platform + csatolt email/full_name)
+  //    (user_id, device_name, platform + KÜLÖN lekért email/full_name)
   const { data: before, error: readErr } = await ctx.supabase
     .from('user_devices')
-    .select('user_id, device_name, platform, revoked, profiles!user_id(email, full_name)')
+    .select('user_id, device_name, platform, revoked')
     .eq('id', input.id)
     .maybeSingle()
 
   if (readErr) return { error: readErr.message }
   if (!before) return { error: 'Az eszköz nem található.' }
 
-  const row = before as unknown as {
+  const base = before as unknown as {
     user_id: string
     device_name: string | null
     platform: string
     revoked: boolean
-    profiles: { email?: string | null; full_name?: string | null } | null
+  }
+  const row = {
+    ...base,
+    profiles: (await loadProfileMap(ctx.supabase, [base.user_id])).get(base.user_id) ?? null,
   }
 
   if (row.revoked) {
@@ -141,22 +175,25 @@ export async function restoreDevice(input: { id: string }) {
   const ctx = await requireAdmin()
   if ('error' in ctx) return { error: ctx.error }
 
-  // 1. Sor lekérése (kell az email-hez)
+  // 1. Sor lekérése (kell az email-hez — a profil KÜLÖN lekérdezéssel)
   const { data: before, error: readErr } = await ctx.supabase
     .from('user_devices')
-    .select('user_id, device_name, platform, revoked, profiles!user_id(email, full_name)')
+    .select('user_id, device_name, platform, revoked')
     .eq('id', input.id)
     .maybeSingle()
 
   if (readErr) return { error: readErr.message }
   if (!before) return { error: 'Az eszköz nem található.' }
 
-  const row = before as unknown as {
+  const base = before as unknown as {
     user_id: string
     device_name: string | null
     platform: string
     revoked: boolean
-    profiles: { email?: string | null; full_name?: string | null } | null
+  }
+  const row = {
+    ...base,
+    profiles: (await loadProfileMap(ctx.supabase, [base.user_id])).get(base.user_id) ?? null,
   }
 
   if (!row.revoked) {
@@ -210,13 +247,18 @@ export async function listLicenses() {
 
   const { data, error } = await ctx.supabase
     .from('licenses')
-    .select('id, user_id, congregation_id, device_limit, valid_from, valid_until, revoked, created_at, updated_at, notes, profiles!user_id(email, full_name)')
+    .select('id, user_id, congregation_id, device_limit, valid_from, valid_until, revoked, created_at, updated_at, notes')
     .order('created_at', { ascending: false })
 
   if (error) return { error: error.message }
 
+  const profileMap = await loadProfileMap(
+    ctx.supabase,
+    ((data || []) as Array<{ user_id: string }>).map((r) => r.user_id),
+  )
+
   const result = (data || []).map((row: Record<string, unknown>) => {
-    const profile = row['profiles'] as { email?: string; full_name?: string } | null
+    const profile = profileMap.get(row['user_id'] as string) ?? null
     return {
       id: row['id'] as string,
       user_id: row['user_id'] as string,

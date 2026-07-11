@@ -113,7 +113,7 @@
   --accent-foreground: #64431b;
   --destructive: #dc5a47;
   --border: #dbece4;
-  --input: #e9f2ee;
+  --input: #a9c2b9; /* 2026-07-11: látható mező-keret (volt: #e9f2ee — beleolvadt) */
   --ring: #2b8e82;
   --chart-1: #3aa8a1;
   --chart-2: #f3c061;
@@ -253,7 +253,9 @@
   /* `modal-input` — a meglévő űrlap-mezők stílusa (60+ használat) */
   .modal-input {
     width: 100%;
-    border: 1px solid var(--border);
+    /* 2026-07-11: --border (8% alpha) -> --input token — a mezők nem olvadnak
+       össze a kártya-háttérrel; a token témánként kontrasztos. */
+    border: 1px solid var(--input);
     border-radius: var(--radius-input, 0.5rem);
     background: var(--card);
     padding: 0.625rem 1rem;

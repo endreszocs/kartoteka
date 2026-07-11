@@ -107,9 +107,15 @@ export function TargetPicker({
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
-      <div className="flex items-center gap-2">
-        <Users className="size-4 text-muted-foreground" aria-hidden />
-        <Label className="mb-0">Kik kapják meg?</Label>
+      <div>
+        <div className="flex items-center gap-2">
+          <Users className="size-4 text-muted-foreground" aria-hidden />
+          <Label className="mb-0">Kik kapják meg?</Label>
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Küldés mindenkinek, egy szerepkörnek, vagy kiválasztott gyülekezeteknek /
+          egyházmegyéknek / egyházkerületeknek.
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2">

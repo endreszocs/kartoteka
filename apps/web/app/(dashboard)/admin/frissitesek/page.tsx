@@ -8,12 +8,13 @@ export default function Page() {
     <>
       <AdminPageHeader
         title="Frissítések"
-        description="Broadcast üzenetek és hírlevél szerkesztése. Új release esetén a changelog-bejegyzések közzétehetők a felhasználóknak."
+        description="Fejlesztési hírek és saját üzenetek kiküldése a felhasználóknak — értesítésként vagy e-mailben, hírlevél-szerkesztővel."
         icon={Bell}
       />
-      <div className="card-raised p-4 sm:p-5">
-        <BroadcastsTab />
-      </div>
+      {/* 2026-07-11 olvashatósági redesign: a szekciók maguk kártyák
+          (BroadcastSectionCard), ezért a korábbi külső card-raised héj
+          (kártya-a-kártyában) kikerült. */}
+      <BroadcastsTab />
     </>
   )
 }
