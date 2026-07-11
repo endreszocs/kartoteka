@@ -15,7 +15,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   if (!user) redirect('/login')
   if (!master && !admin && !egyhazkeruletiAdmin) redirect('/dashboard')
-  if (activeProfileRole && activeProfileRole.scope !== 'system') {
+  // 2026-07-11 fix: a kerületi admin profile_roles-sora definíció szerint
+  // scope='district' (system scope csak role='admin'-nak adható ki), ezért a
+  // korábbi feltétel (scope !== 'system' → redirect) őt MINDIG kizárta a
+  // /admin-ból, hiába engedte be a 17. sor. District-scope + kerületi admin
+  // jogosultság együtt átengedett — a szűkítést az admin-scope.ts végzi.
+  if (
+    activeProfileRole &&
+    activeProfileRole.scope !== 'system' &&
+    !(activeProfileRole.scope === 'district' && egyhazkeruletiAdmin)
+  ) {
     redirect(getHomePathForScope(activeProfileRole.scope))
   }
 

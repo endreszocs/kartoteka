@@ -556,7 +556,15 @@ function SidebarNav({
   const showCongregationSections = hasExplicitScope ? (isCongregationScope || isDioceseScope) : hasCongregation
   const showDioceseSection = hasExplicitScope ? false : isEsperes
   const showDistrictSection = hasExplicitScope ? isDistrictScope : (isEgyhazkeruletiAdmin || isAdmin)
-  const showAdminSection = hasExplicitScope ? (isSystemScope && isAdmin) : isMasterAdmin
+  // 2026-07-11 fix: a kerületi admin (scope='district') is lássa a Rendszerszint
+  // szekciót — az admin server actionök (requireAdminAccess allowDistrictAdmin
+  // default true + admin-scope.ts szűkítés) eddig is támogatták, csak a menü és
+  // az /admin layout-guard zárta ki. A master/veszélyes műveletek oldalait a
+  // lenti szűrő rejti el előle.
+  const isDistrictAdminViewer = isDistrictScope && isEgyhazkeruletiAdmin && !isAdmin
+  const showAdminSection = hasExplicitScope
+    ? ((isSystemScope && isAdmin) || isDistrictAdminViewer)
+    : isMasterAdmin
 
   const dynamicDashboardItem: MenuItem = isDioceseScope
     ? { label: 'Egyházmegyei irányítópult', href: '/dashboard-egyhazmegye', icon: LayoutDashboard, gradient: 'from-teal-400 to-emerald-500' }
@@ -667,9 +675,14 @@ function SidebarNav({
   // főmenüpont a "Rendszerszint" szekcióban, saját ikonokkal. A submenu
   // pattern megszűnt — a felhasználó tisztább, áttekinthetőbb listát kért.
   if (showAdminSection) {
-    const adminMainItems: MenuItem[] = adminSubmenu && adminSubmenu.length > 0
+    // Kerületi adminnak a master-only oldalak (Rendszer, Veszélyes zóna) nem
+    // jelennek meg — a mögöttes actionök (wipe: allowDistrictAdmin=false,
+    // god-mode: requireMasterAdmin) amúgy is elutasítanák.
+    const DISTRICT_ADMIN_HIDDEN = new Set(['/admin/rendszer', '/admin/veszelyes-zona'])
+    const adminMainItems: MenuItem[] = (adminSubmenu && adminSubmenu.length > 0
       ? adminSubmenu.map((m) => ({ ...m })) // shallow copy, children nélkül
       : [adminItems[0]] // fallback: csak az "Admin Panel" link
+    ).filter((m) => !isDistrictAdminViewer || !DISTRICT_ADMIN_HIDDEN.has(m.href))
     sections.push({ title: 'Rendszerszint', items: adminMainItems })
   }
 

@@ -14,7 +14,6 @@ export default function Page() {
         title="Import"
         description="Tagnyilvántartás importálása. A wizard végigvezet a fájl-feltöltésen és az adatok ellenőrzésén."
         icon={Download}
-        gradient="from-pink-500 to-rose-600"
       />
       <div className="card-raised p-4 sm:p-5">
         <div className="space-y-6">

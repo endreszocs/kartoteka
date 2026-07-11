@@ -21,7 +21,6 @@ export default function Page() {
         title="Pénzügyi import"
         description="Az import új helye: a Pénzügy oldal Rendszergazdai importáló füle."
         icon={Wallet}
-        gradient="from-emerald-500 to-teal-600"
       />
       <div className="card-raised p-5">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-5">

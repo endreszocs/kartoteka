@@ -10,7 +10,6 @@ export default function Page() {
         title="Hozzáférés-kérelmek"
         description="Új regisztrációk és felhasználói kérelmek elbírálása. Jóváhagyás után a felhasználó megkapja a rendszer használatának jogát."
         icon={Inbox}
-        gradient="from-amber-500 to-orange-600"
       />
       <div className="card-raised p-4 sm:p-5">
         <AccessRequestsTab />

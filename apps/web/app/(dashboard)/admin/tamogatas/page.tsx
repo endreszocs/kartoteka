@@ -10,7 +10,6 @@ export default function Page() {
         title="Támogatás"
         description="Beérkezett támogatási kérdések és nyitott esetek kezelése. A felhasználók innen kapnak segítséget a rendszergazdától."
         icon={LifeBuoy}
-        gradient="from-yellow-500 to-amber-600"
       />
       <div className="card-raised p-4 sm:p-5">
         <SupportTab />
