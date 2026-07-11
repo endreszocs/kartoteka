@@ -1,10 +1,23 @@
 'use client'
 
+/**
+ * Rendszer (biztonság) fül — rendszergazdai PIN kezelés.
+ *
+ * 2026-07-11 admin-redesign + BIZTONSÁGI FIX:
+ *   - a szerver többé nem küldi le a tényleges PIN-t (getGodModePinSettings
+ *     csak metaadatot ad: isSet/source/schemaReady) — a mező write-only,
+ *     type="password" + autoComplete="new-password";
+ *   - token-alapú színek (dark-safe), mobil-first elrendezés;
+ *   - a veszélyes szekció destructive-tónust kapott.
+ */
+
 import { useEffect, useState } from 'react'
 import { LockKeyhole, ShieldCheck, ShieldEllipsis } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getGodModePinSettings, updateGodModePin } from '@/app/(dashboard)/god-mode/actions-v4'
+import { AdminSkeleton } from '@/components/admin/_shared/admin-skeleton'
+import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,7 +33,9 @@ type PinSource = 'database' | 'env' | 'none'
 export function SecuritySettingsTabV2() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  /** Az ÚJ PIN, amit a rendszergazda beír — a jelenlegi PIN sosem jön le a szerverről. */
   const [pin, setPin] = useState('')
+  const [pinSet, setPinSet] = useState(false)
   const [schemaReady, setSchemaReady] = useState(true)
   const [source, setSource] = useState<PinSource>('none')
   const [warning, setWarning] = useState<string | null>(null)
@@ -38,8 +53,7 @@ export function SecuritySettingsTabV2() {
         return
       }
 
-      // Ha nincs beállított PIN, üres input-ot mutatunk
-      setPin(result.pin || '')
+      setPinSet(result.isSet)
       setSchemaReady(result.schemaReady)
       setSource(result.source)
       setWarning(result.warning)
@@ -64,104 +78,151 @@ export function SecuritySettingsTabV2() {
     }
 
     toast.success(result.success)
+    setPin('')
+    setPinSet(true)
     setSchemaReady(true)
     setSource('database')
     setWarning(null)
   }
 
   if (loading) {
-    return <div className="py-12 text-center text-sm text-slate-500">Rendszerbiztonsági beállítások betöltése...</div>
+    return <AdminSkeleton rows={4} className="py-4" />
   }
 
   return (
-    <div className="mt-4 space-y-6">
+    <div className="space-y-4 sm:space-y-5">
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="card-raised p-5 sm:p-6">
-          <div className="mb-4 flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+        {/* PIN-módosítás — érzékeny művelet, destructive-tónus */}
+        <section className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+          <div className="mb-4 flex items-start gap-3 sm:gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-destructive/10 text-destructive sm:size-12">
               <LockKeyhole className="size-5" />
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-red-500/80">Rendszergazdai PIN</p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-800">6 számjegyű belépőkód</h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                A rendszergazdai mód 2 órás, emelt rendszergazdai jogosultságot ad. Itt módosítható a belépéshez használt PIN-kód.
+            <div className="min-w-0">
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.22em]"
+                style={{ color: 'color-mix(in oklab, var(--destructive) 75%, var(--muted-foreground))' }}
+              >
+                Rendszergazdai PIN
+              </p>
+              <h3 className="mt-1 font-heading text-lg text-foreground sm:text-xl">6 számjegyű belépőkód</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                A rendszergazdai mód 2 órás, emelt jogosultságot ad. Itt állítható be
+                a belépéshez használt PIN-kód — a jelenlegi kód biztonsági okból nem
+                jelenik meg, csak új adható meg helyette.
               </p>
             </div>
           </div>
 
           {warning && (
-            <div className="mb-4 rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-200">
               {warning}
             </div>
           )}
 
           {!schemaReady && (
-            <div className="mb-4 rounded-[1.2rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-              A rendszer jelenleg a környezeti változóból érkező PIN-t használja. A tartós adatbázisos mentéshez futtasd a{' '}
-              <code>migration-docs/sql/2026-04-09-god-mode-and-congregation-finance.sql</code>{' '}
-              fájlt.
+            <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-400/30 dark:bg-sky-950/40 dark:text-sky-200">
+              {source === 'env'
+                ? 'A rendszer jelenleg a szerveren beállított (környezeti változós) PIN-t használja. Az adatbázisos, itt módosítható tároláshoz még telepíteni kell a kiegészítő adatbázis-bővítést.'
+                : 'A PIN adatbázisos tárolója még nincs telepítve, és a szerveren sincs beállítva PIN — a rendszergazdai mód jelenleg nem aktiválható.'}
+              <span className="mt-1 block text-xs opacity-75">
+                Technikai részlet: <code>2026-04-09-god-mode-and-congregation-finance.sql</code>
+              </span>
             </div>
           )}
 
-          <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
             <div className="space-y-2">
-              <Label htmlFor="god-mode-admin-pin">Rendszergazdai PIN</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="god-mode-admin-pin">Új PIN beállítása</Label>
+                <span className="text-xs text-muted-foreground">
+                  A jelenlegi PIN beállítva:{' '}
+                  <span className="font-semibold text-foreground">{pinSet ? 'igen' : 'nem'}</span>
+                </span>
+              </div>
               <Input
                 id="god-mode-admin-pin"
+                type="password"
                 inputMode="numeric"
+                autoComplete="new-password"
                 maxLength={6}
                 value={pin}
                 onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="••••••"
               />
-              <p className="text-xs text-slate-500">
-                Adj meg egy 6 számjegyű PIN-t. Biztonsági okból ne válassz könnyen kitalálható számsort (pl. születési dátum, 123456). A PIN titkosan tárolódik az adatbázisban.
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Adj meg egy 6 számjegyű PIN-t. Ne válassz könnyen kitalálható számsort
+                (pl. születési dátum, 123456). A PIN a rendszerbeállítások közt
+                tárolódik; csak a fő rendszergazda módosíthatja.
               </p>
             </div>
 
-            <Button onClick={handleSave} disabled={saving || pin.length !== 6} className="min-w-40">
-              {saving ? 'Mentés...' : 'PIN mentése'}
+            <Button
+              size="lg"
+              onClick={handleSave}
+              disabled={saving || pin.length !== 6}
+              className="w-full sm:w-auto sm:min-w-36"
+            >
+              {saving ? 'Mentés…' : 'PIN mentése'}
             </Button>
           </div>
-        </div>
+        </section>
 
-        <div className="card-raised p-5 sm:p-6">
-          <div className="mb-4 flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+        {/* Állapot-panel */}
+        <section className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+          <div className="mb-4 flex items-start gap-3 sm:gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary sm:size-12">
               <ShieldCheck className="size-5" />
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500/80">Állapot</p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-800">Rendszergazdai védelem</h3>
+            <div className="min-w-0">
+              <p
+                className="text-[11px] font-semibold uppercase tracking-[0.22em]"
+                style={{ color: 'color-mix(in oklab, var(--primary) 65%, var(--muted-foreground))' }}
+              >
+                Állapot
+              </p>
+              <h3 className="mt-1 font-heading text-lg text-foreground sm:text-xl">Rendszergazdai védelem</h3>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <InfoRow label="PIN forrása" value={SOURCE_LABELS[source]} />
-            <InfoRow label="PIN hossza" value={`${pin.length || 6} számjegy`} />
+            <InfoRow
+              label="Jelenlegi PIN"
+              value={
+                pinSet ? (
+                  <StatusBadge intent="success">Beállítva</StatusBadge>
+                ) : (
+                  <StatusBadge intent="warning">Nincs beállítva</StatusBadge>
+                )
+              }
+            />
             <InfoRow label="Munkamenet időtartama" value="2 óra" />
-            <InfoRow label="Tárolás módja" value={schemaReady ? 'Adatbázis vagy fallback' : 'Fallback mód'} />
+            <InfoRow label="Tárolás módja" value={schemaReady ? 'Adatbázis' : 'Ideiglenes (szerver-beállítás)'} />
           </div>
 
-          <div className="mt-4 rounded-[1.2rem] bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-            A rendszergazdai mód csak főadmin számára használható. A lejárat után a rendszer automatikusan megszünteti a kiemelt hozzáférést.
+          <div className="mt-4 rounded-xl bg-muted/50 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+            A rendszergazdai mód csak a fő rendszergazda számára használható. A lejárat
+            után a rendszer automatikusan megszünteti a kiemelt hozzáférést.
           </div>
-        </div>
+        </section>
       </div>
 
-      <div className="card-raised p-5 sm:p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
+      {/* Ajánlott működési rend */}
+      <section className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
             <ShieldEllipsis className="size-5" />
           </div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800">Javasolt működési rend</h3>
-            <p className="text-sm text-slate-500">A rendszergazdai módot csak tényleges rendszergazdai beavatkozáskor érdemes használni.</p>
+          <div className="min-w-0">
+            <h3 className="font-heading text-base text-foreground sm:text-lg">Javasolt működési rend</h3>
+            <p className="text-sm text-muted-foreground">
+              A rendszergazdai módot csak tényleges rendszergazdai beavatkozáskor érdemes használni.
+            </p>
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
           <GuideCard
             title="Rövid ideig használd"
             text="A kiemelt mód célja az ellenőrzött, ideiglenes adminisztráció. Munka után mindig lépj ki belőle."
@@ -175,25 +236,25 @@ export function SecuritySettingsTabV2() {
             text="A rendszergazdai mód a legvégső eszköz legyen. A normál hozzáféréseket továbbra is jóváhagyási folyamattal kezeld."
           />
         </div>
-      </div>
+      </section>
     </div>
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[1.1rem] border border-slate-100 bg-white/80 px-4 py-3">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className="text-sm font-semibold text-slate-800">{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{value}</span>
     </div>
   )
 }
 
 function GuideCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-[1.2rem] border border-slate-100 bg-white/80 p-4 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.18)]">
-      <p className="text-sm font-semibold text-slate-800">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{text}</p>
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{text}</p>
     </div>
   )
 }

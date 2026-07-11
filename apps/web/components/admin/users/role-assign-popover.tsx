@@ -1,19 +1,37 @@
 'use client'
 
+/**
+ * Szerepkör-kiosztó — „+ Új szerepkör" (2026-07-11 admin-redesign).
+ *
+ * KORÁBBAN kézi popover volt (absolute panel + fixed overlay), ami a lista-nézet
+ * `overflow-hidden` konténerében CSONKOLÓDOTT (rövid listánál használhatatlan),
+ * nem kezelt Escape-et és nem volt fókusz-csapdája. MOST Dialog (@/components/ui/
+ * dialog): portálba renderel (nincs clipping, nincs z-index hack), Escape/fókusz
+ * a primitívből jön, és 375px-es mobilon is teljes értékű.
+ *
+ * A kétlépéses tartalom változatlan: 1) hova tartozik? (kereshető, csoportosított
+ * cél-lista) → 2) szerep választása a hatókörön.
+ */
+
 import { useMemo, useState } from 'react'
 import {
   Building2,
   Castle,
-  ChevronDown,
+  ChevronRight,
   Church,
   Globe,
   Info,
   Plus,
   Search,
-  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import type { ProfileRoleScope, ProfileRoleType } from '@/lib/profile-roles/types'
 
@@ -63,10 +81,9 @@ interface RoleAssignPopoverProps {
   onAssign: (option: QuickOption) => void
   onAdvanced: () => void
   /**
-   * A parent (UserCard) reagálhat az open-állapotra — a card-ot fel kell
-   * emelni `z-50`-re, különben a DOM-rend szerint későbbi testvér-card-ok
-   * elemei átszúrnak a popover felé (a `card-raised` `:hover` transform-ja
-   * stacking context-et hoz létre).
+   * Backward-compat: a régi popover-korszakban a szülő z-index-hackhez
+   * használta. A Dialog portálba renderel, így már nem szükséges, de a
+   * callback-et továbbra is meghívjuk.
    */
   onOpenChange?: (open: boolean) => void
 }
@@ -165,10 +182,6 @@ export function RoleAssignPopover({
     setOpen(false)
   }
 
-  // Egy fixed-positioned overlay z-[100] — a card-on belüli z-40 NEM elég,
-  // mert a `card-raised` testvérek saját stacking context-et nyithatnak
-  // (transform a hover-en). Az overlay és a popover-doboz is fix.
-
   function handleAssign() {
     if (!selectedTarget || !selectedRole) return
     const scopePart =
@@ -187,182 +200,176 @@ export function RoleAssignPopover({
   }
 
   return (
-    <div className="relative">
-      <Button
-        size="sm"
-        onClick={() => {
-          if (open) reset()
-          else setOpen(true)
-        }}
-        className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
-      >
+    <>
+      <Button size="sm" onClick={() => setOpen(true)} className="min-h-9 gap-1">
         <Plus className="size-3.5" />
         Új szerepkör
-        <ChevronDown className={`size-3.5 transition ${open ? 'rotate-180' : ''}`} />
       </Button>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={reset} aria-hidden />
-          <div className="absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white shadow-xl z-40 overflow-hidden">
-            {/* D6 activation banner pending user-nél */}
-            {showActivationBanner && !selectedTarget && (
-              <div className="border-b border-amber-100 bg-amber-50/60 px-4 py-2.5 text-xs text-amber-900 flex items-start gap-2">
-                <Info className="size-3.5 mt-0.5 shrink-0 text-amber-600" />
-                <p className="leading-relaxed">
-                  A felhasználó fiókja még nincs aktiválva. A szerepkör hozzáadása egyúttal aktiválja a fiókot is.
-                </p>
-              </div>
-            )}
+      <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : reset())}>
+        <DialogContent className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="gap-0.5 border-b border-border bg-muted/40 px-4 py-3 pr-12 sm:px-5">
+            <DialogTitle className="font-heading text-base text-foreground">
+              Új szerepkör kiosztása
+            </DialogTitle>
+            <p className="text-xs font-medium text-muted-foreground">
+              {selectedTarget ? '2. lépés — Szerepkör választása' : '1. lépés — Hova tartozik?'}
+            </p>
+          </DialogHeader>
 
-            <div className="border-b border-slate-100 px-4 py-2.5 bg-indigo-50/50 text-xs font-semibold text-indigo-700 flex items-center justify-between">
-              <span>{selectedTarget ? '2. lépés — Szerepkör választása' : '1. lépés — Hova tartozik?'}</span>
-              <button
-                type="button"
-                onClick={reset}
-                className="text-slate-400 hover:text-slate-700"
-                aria-label="Bezárás"
-              >
-                <X className="size-4" />
-              </button>
+          {/* D6 activation banner pending user-nél */}
+          {showActivationBanner && !selectedTarget && (
+            <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50/70 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 sm:px-5">
+              <Info className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <p className="leading-relaxed">
+                A felhasználó fiókja még nincs aktiválva. A szerepkör hozzáadása egyúttal
+                aktiválja a fiókot is.
+              </p>
             </div>
+          )}
 
-            {!selectedTarget && (
-              <>
-                <div className="border-b border-slate-100 p-3">
-                  <div className="flex items-center gap-2">
-                    <Search className="size-4 text-slate-400" />
-                    <Input
-                      autoFocus
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Keresés gyülekezet, megye, kerület…"
-                      className="h-8 border-0 bg-transparent text-sm focus-visible:ring-0 px-0"
-                    />
-                  </div>
+          {!selectedTarget && (
+            <>
+              <div className="border-b border-border p-3 sm:px-5">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    autoFocus
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Keresés gyülekezet, megye, kerület…"
+                    aria-label="Keresés a hatókörök között"
+                    className="pl-9"
+                  />
                 </div>
-                <div className="max-h-[55vh] overflow-y-auto">
-                  {groupedTargets.length === 0 ? (
-                    <p className="p-4 text-xs text-slate-400 italic text-center">
-                      Nincs találat — próbálkozzon más kereséssel.
-                    </p>
-                  ) : (
-                    groupedTargets.map(([groupLabel, group]) => (
-                      <div key={groupLabel} className="py-1">
-                        <p className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                          {groupLabel}
-                        </p>
-                        {group.map((t) => {
-                          const Icon = SCOPE_ICONS[t.scope]
-                          return (
-                            <button
-                              key={t.key}
-                              type="button"
-                              onClick={() => setSelectedTarget(t)}
-                              className="w-full text-left px-4 py-2 text-sm flex items-center gap-3 hover:bg-indigo-50 transition"
-                            >
-                              <Icon className="size-4 shrink-0 text-slate-500" />
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-slate-800 truncate">{t.label}</p>
-                                {t.hint && (
-                                  <p className="text-[11px] text-muted-foreground truncate">{t.hint}</p>
-                                )}
-                              </div>
-                              <ChevronDown className="size-4 -rotate-90 text-slate-300" />
-                            </button>
-                          )
-                        })}
-                      </div>
-                    ))
-                  )}
-                </div>
-                <div className="border-t border-slate-100 p-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      reset()
-                      onAdvanced()
-                    }}
-                    className="w-full text-center text-xs text-indigo-600 hover:text-indigo-800 py-1.5 rounded-md hover:bg-indigo-50 transition"
-                  >
-                    Részletes (egyedi szerep, indoklás) →
-                  </button>
-                </div>
-              </>
-            )}
-
-            {selectedTarget && (
-              <>
-                <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                    Kiválasztott cél
+              </div>
+              <div className="max-h-[min(52vh,26rem)] overflow-y-auto">
+                {groupedTargets.length === 0 ? (
+                  <p className="p-4 text-center text-xs italic text-muted-foreground">
+                    Nincs találat — próbálkozzon más kereséssel.
                   </p>
-                  <div className="mt-1 flex items-center gap-2">
-                    {(() => {
-                      const Icon = SCOPE_ICONS[selectedTarget.scope]
-                      return <Icon className="size-4 text-slate-600 shrink-0" />
-                    })()}
-                    <p className="font-semibold text-slate-800 truncate flex-1">
-                      {selectedTarget.label}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedTarget(null)
-                        setSelectedRole(null)
-                      }}
-                      className="text-xs text-indigo-600 hover:underline"
-                    >
-                      Csere
-                    </button>
-                  </div>
-                </div>
+                ) : (
+                  groupedTargets.map(([groupLabel, group]) => (
+                    <div key={groupLabel} className="py-1">
+                      <p className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground sm:px-5">
+                        {groupLabel}
+                      </p>
+                      {group.map((t) => {
+                        const Icon = SCOPE_ICONS[t.scope]
+                        return (
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => setSelectedTarget(t)}
+                            className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm transition hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none sm:px-5"
+                          >
+                            <Icon className="size-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-medium text-foreground">{t.label}</p>
+                              {t.hint && (
+                                <p className="truncate text-[11px] text-muted-foreground">
+                                  {t.hint}
+                                </p>
+                              )}
+                            </div>
+                            <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="border-t border-border p-2 sm:px-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    reset()
+                    onAdvanced()
+                  }}
+                  className="min-h-9 w-full text-xs text-[var(--primary)]"
+                >
+                  Részletes (egyedi szerep, indoklás) →
+                </Button>
+              </div>
+            </>
+          )}
 
-                <div className="p-4 space-y-2">
-                  <p className="text-sm font-medium text-slate-700">
-                    Mi lesz a szerepe ezen a hatókörön?
+          {selectedTarget && (
+            <>
+              <div className="border-b border-border bg-muted/30 px-4 py-3 sm:px-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Kiválasztott cél
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  {(() => {
+                    const Icon = SCOPE_ICONS[selectedTarget.scope]
+                    return <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  })()}
+                  <p className="min-w-0 flex-1 truncate font-semibold text-foreground">
+                    {selectedTarget.label}
                   </p>
-                  {availableRoles.length === 0 ? (
-                    <p className="text-xs text-amber-700 italic">
-                      Ezen a hatókörön minden lehetséges szerep már ki van osztva ennek a felhasználónak.
-                    </p>
-                  ) : (
-                    availableRoles.map((r) => (
-                      <button
-                        key={r.value}
-                        type="button"
-                        onClick={() => setSelectedRole(r.value)}
-                        className={`w-full text-left rounded-xl border-2 px-3 py-2.5 text-sm transition ${
-                          selectedRole === r.value
-                            ? 'border-indigo-500 bg-indigo-50 text-indigo-800 shadow-sm'
-                            : 'border-slate-200 bg-white hover:border-indigo-200'
-                        }`}
-                      >
-                        <span className="font-semibold">{r.label}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-
-                <div className="border-t border-slate-100 p-3 flex justify-end gap-2 bg-slate-50/30">
-                  <Button size="sm" variant="outline" onClick={reset}>
-                    Mégse
-                  </Button>
                   <Button
-                    size="sm"
-                    onClick={handleAssign}
-                    disabled={!selectedRole}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      setSelectedTarget(null)
+                      setSelectedRole(null)
+                    }}
+                    className="text-xs text-[var(--primary)]"
                   >
-                    <Plus className="size-3.5" />
-                    Hozzáadás
+                    Csere
                   </Button>
                 </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+              </div>
+
+              <div className="max-h-[min(48vh,22rem)] space-y-2 overflow-y-auto p-4 sm:px-5">
+                <p className="text-sm font-medium text-foreground">
+                  Mi lesz a szerepe ezen a hatókörön?
+                </p>
+                {availableRoles.length === 0 ? (
+                  <p className="text-xs italic text-amber-700 dark:text-amber-300">
+                    Ezen a hatókörön minden lehetséges szerep már ki van osztva ennek a
+                    felhasználónak.
+                  </p>
+                ) : (
+                  availableRoles.map((r) => (
+                    <button
+                      key={r.value}
+                      type="button"
+                      onClick={() => setSelectedRole(r.value)}
+                      aria-pressed={selectedRole === r.value}
+                      className={`w-full rounded-xl border-2 px-3 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        selectedRole === r.value
+                          ? 'border-[var(--primary)] bg-primary/10 text-foreground shadow-sm'
+                          : 'border-border bg-card text-foreground hover:border-[color-mix(in_oklab,var(--primary)_35%,var(--border))]'
+                      }`}
+                    >
+                      <span className="font-semibold">{r.label}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-muted/30 p-3 sm:px-5">
+                <Button size="sm" variant="outline" onClick={reset} className="min-h-9">
+                  Mégse
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleAssign}
+                  disabled={!selectedRole}
+                  className="min-h-9 gap-1"
+                >
+                  <Plus className="size-3.5" />
+                  Hozzáadás
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

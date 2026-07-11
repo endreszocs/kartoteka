@@ -31,7 +31,7 @@ export default function Page() {
             A pénzügyi import-rendszer (Kassza + Egyházfenntartás) mostantól a
             normál Pénzügy modulon belül érhető el — egy helyen, együtt a
             pénzügyi munkafelülettel. Aktiváld a rendszergazdai módot, és
-            kattints a "Rendszergazdai importáló" fülre.
+            kattints a „Rendszergazdai importáló” fülre.
           </p>
           <Link
             href="/penzugy"

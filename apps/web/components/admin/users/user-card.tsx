@@ -1,8 +1,19 @@
 'use client'
 
+/**
+ * Felhasználó-kártya a rács-nézethez (2026-07-11 admin-redesign).
+ *
+ * Token-first: a slate/indigo hardkód helyett szemantikus tokenek; a VÁRAKOZÓ
+ * állapot amber (teendő), nem piros (a piros az elutasításé/törlésé maradt).
+ * Az avatar egységesen téma-gradientes (a lista-nézettel azonos — korábban a
+ * két nézet ellentmondó színt adott ugyanannak a felhasználónak).
+ * Mobil-first: az akciógombok 375px-en a fejléc alá törnek, nem lógnak ki.
+ */
+
 import { useState } from 'react'
 import { Building2, Castle, Church, Clock, Eye, FileText, Trash2, UserCheck } from 'lucide-react'
 
+import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { Button } from '@/components/ui/button'
 import { ROLE_LABELS, type ProfileRoleRow, type ProfileRoleType } from '@/lib/profile-roles/types'
 import type { UserWithScope } from '@/app/(dashboard)/admin/actions'
@@ -11,41 +22,7 @@ import { PendingUserActions } from './pending-user-actions'
 import { RoleAssignPopover, type QuickOption } from './role-assign-popover'
 import { RoleBadgeInline } from './role-badge-inline'
 import { RolePermissionsDialog } from './role-permissions-dialog'
-
-// Avatar színe a "legmagasabb" prioritású szerepkör szerint
-function pickAvatarTheme(roles: ProfileRoleRow[], primaryRole: string | null) {
-  const ROLE_PRIORITY = [
-    'admin',
-    'egyhazkeruleti_admin',
-    'esperes',
-    'egyhazmegyei_admin',
-    'egyhazmegyei_szamvevo',
-    'lelkesz',
-    'konyvelo',
-  ]
-  const activeRoles = new Set([
-    ...roles.filter((r) => r.approval_status === 'approved' && r.active).map((r) => r.role),
-    ...(primaryRole ? [primaryRole] : []),
-  ])
-  const top = ROLE_PRIORITY.find((r) => activeRoles.has(r)) || 'lelkesz'
-  const themes: Record<string, string> = {
-    admin: 'bg-gradient-to-br from-slate-700 to-slate-900 text-white',
-    egyhazkeruleti_admin: 'bg-gradient-to-br from-violet-500 to-purple-700 text-white',
-    esperes: 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white',
-    egyhazmegyei_admin: 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white',
-    egyhazmegyei_szamvevo: 'bg-gradient-to-br from-cyan-500 to-teal-600 text-white',
-    lelkesz: 'bg-gradient-to-br from-emerald-500 to-green-600 text-white',
-    konyvelo: 'bg-gradient-to-br from-amber-500 to-orange-500 text-white',
-  }
-  return themes[top] || 'bg-gradient-to-br from-slate-300 to-slate-400 text-white'
-}
-
-function getInitials(name: string | null, email: string | null): string {
-  const source = name || email || '?'
-  const parts = source.split(/\s+/).filter(Boolean)
-  const letters = parts.slice(0, 2).map((p) => p[0]).join('')
-  return letters.toUpperCase() || '?'
-}
+import { AVATAR_GRADIENT, getInitials, getUserStatusMeta } from './user-visuals'
 
 interface UserCardProps {
   user: UserWithScope
@@ -54,7 +31,7 @@ interface UserCardProps {
   quickOptions: QuickOption[]
   isPending: boolean
   onQuickAssign: (option: QuickOption) => void
-  /** Egyedi szerep + indoklás dialóg (a popover-en belüli "Részletes (egyedi szerep)" linkről hívva). */
+  /** Egyedi szerep + indoklás dialóg (a választón belüli "Részletes (egyedi szerep)" linkről hívva). */
   onAdvanced: () => void
   onRevokeRole: (row: ProfileRoleRow) => void
   onQuickApprove: () => void
@@ -78,10 +55,6 @@ export function UserCard({
   onDelete,
   onViewDocument,
 }: UserCardProps) {
-  // A popover open-állapota — ha nyitva van, a card-ot fel kell emelni
-  // `relative z-50`-re, különben a DOM-szerint későbbi testvér-card-ok
-  // saját stacking context-jeikben felülre renderelődnek.
-  const [popoverOpen, setPopoverOpen] = useState(false)
   // Funkciók modal — a "Funkciók" gomb a user szerepköreinek jogosultságait
   // mutatja meg modul × akció bontásban (mit lát, mit írhat, mit szerkeszthet,
   // mihez nem fér hozzá).
@@ -89,25 +62,14 @@ export function UserCard({
   const isActive = user.status === 'active'
   const isUserPending = user.status === 'pending'
   const isRejected = user.status === 'rejected'
+  const isDeleted = user.status === 'deleted'
 
-  const statusChip = isActive
-    ? { label: 'Aktív', cls: 'bg-emerald-100 text-emerald-700' }
-    : isUserPending
-      ? { label: 'Jóváhagyásra vár', cls: 'bg-red-600 text-white' }
-      : isRejected
-        ? { label: 'Elutasítva', cls: 'bg-rose-100 text-rose-700' }
-        : { label: user.status || 'Ismeretlen', cls: 'bg-slate-100 text-slate-500' }
+  const statusMeta = getUserStatusMeta(user.status)
 
-  // Bal oldali státusz-akcentus a gyors vizuális skenneléshez. A VÁRAKOZÓ
-  // (teendő) fiókok PIROSSAL, vastagabban + piros háttér-árnyalattal kiemelve.
-  const statusAccent = isActive
-    ? 'border-l-[3px] border-l-emerald-400'
-    : isUserPending
-      ? 'border-l-4 border-l-red-500'
-      : isRejected
-        ? 'border-l-[3px] border-l-rose-400'
-        : 'border-l-[3px] border-l-slate-300'
-  const cardEmphasis = isUserPending ? 'bg-red-50/50 ring-1 ring-red-200' : ''
+  // A várakozó (teendő) kártya finom amber kiemelést kap.
+  const cardEmphasis = isUserPending
+    ? 'bg-amber-50/50 ring-1 ring-amber-200 dark:bg-amber-950/20 dark:ring-amber-900'
+    : ''
 
   const activeKeys = new Set<string>(
     roles
@@ -127,49 +89,45 @@ export function UserCard({
 
   return (
     <div
-      className={`card-raised ${statusAccent} ${cardEmphasis} p-4 sm:p-5 transition-shadow hover:shadow-md ${popoverOpen ? 'relative z-50' : 'relative'}`}
+      className={`card-raised relative ${statusMeta.accent} ${cardEmphasis} p-4 transition-shadow hover:shadow-md sm:p-5`}
     >
-      <div className="flex items-start gap-3 flex-wrap">
+      <div className="flex flex-wrap items-start gap-3">
         <div
-          className={`flex size-12 shrink-0 items-center justify-center rounded-2xl shadow-md font-bold text-base ${pickAvatarTheme(roles, user.role)} ${
-            isUserPending ? 'opacity-70 saturate-50' : ''
+          className={`flex size-12 shrink-0 items-center justify-center rounded-2xl text-base font-bold shadow-md ${
+            isUserPending ? 'opacity-80' : ''
           }`}
-          title={isActive ? 'Aktív felhasználó' : isUserPending ? 'Várakozó felhasználó' : ''}
+          style={AVATAR_GRADIENT}
+          title={isActive ? 'Aktív felhasználó' : isUserPending ? 'Várakozó felhasználó' : undefined}
         >
           {getInitials(user.full_name, user.email)}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <p className="font-semibold text-slate-800 truncate">
+        <div className="min-w-0 flex-1 basis-40">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-semibold text-foreground">
               {user.full_name || '(nincs név)'}
             </p>
-            <span
-              className={`text-[10px] font-bold uppercase tracking-[0.18em] rounded-full px-2 py-0.5 ${statusChip.cls}`}
-            >
-              {statusChip.label}
-            </span>
+            <StatusBadge intent={statusMeta.intent} dot>
+              {statusMeta.label}
+            </StatusBadge>
           </div>
-          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
           {user.created_at && (
-            <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+            <p className="mt-0.5 text-[11px] text-muted-foreground/70">
               Regisztrált: {new Date(user.created_at).toLocaleString('hu-HU')}
             </p>
           )}
         </div>
 
-        {/* Jobb-oldali action-oszlop — letisztított: csak "+ Új szerepkör"
-            primary + "Funkciók/Törlés" secondary. A pending-akciók (aktiválás)
-            külön banner-be kerültek a card közepére, hogy ne keveredjenek a
-            mindennapi műveletekkel. */}
-        <div className="flex flex-col items-end gap-1.5 min-w-[160px]">
-          {!isRejected && (
+        {/* Akció-oszlop — mobilon (375px) a fejléc alá törik teljes szélességben,
+            sm-től jobbra igazított oszlop. */}
+        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-col sm:items-end">
+          {!isRejected && !isDeleted && (
             <RoleAssignPopover
               quickOptions={quickOptions}
               activeKeys={activeKeys}
               showActivationBanner={isUserPending}
               onAssign={onQuickAssign}
               onAdvanced={onAdvanced}
-              onOpenChange={setPopoverOpen}
             />
           )}
           <div className="flex items-center gap-1.5">
@@ -178,45 +136,49 @@ export function UserCard({
               variant="outline"
               onClick={() => setPermissionsOpen(true)}
               disabled={isPending}
-              className="gap-1"
+              className="min-h-9 gap-1"
               title="Mit lát és mit tehet a felhasználó a szerepkörei alapján"
             >
               <Eye className="size-3.5" />
               Funkciók
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onDelete}
-              disabled={isPending}
-              className="text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 gap-1"
-            >
-              <Trash2 className="size-3.5" />
-              Törlés
-            </Button>
+            {!isDeleted && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={onDelete}
+                disabled={isPending}
+                className="min-h-9 gap-1"
+              >
+                <Trash2 className="size-3.5" />
+                Törlés
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Várakozó fiók banner — a card közepén kiemelve. A regisztrációs kérelem
+      {/* Várakozó fiók banner — a kártya közepén kiemelve. A regisztrációs kérelem
           KONTEXTUSA is itt látszik (gyülekezet, szerep, dokumentum), hogy a
           jóváhagyás + aktiválás EGY helyen történjen, és semmi ne felejtődjön el. */}
       {isUserPending && (
-        <div className="mt-3 rounded-xl border border-red-200 bg-red-50/60 p-3 space-y-3">
+        <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/30">
           {user.pendingRequest && (
-            <div className="rounded-lg border border-red-200 bg-white/70 p-3">
+            <div className="rounded-lg border border-amber-200 bg-card/70 p-3 dark:border-amber-900">
               <div className="mb-2 flex items-center gap-2">
-                <FileText className="size-4 text-red-600" />
-                <p className="text-sm font-semibold text-red-900">Regisztrációs kérelem</p>
+                <FileText className="size-4 text-amber-600 dark:text-amber-400" />
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Regisztrációs kérelem
+                </p>
                 {user.pendingRequest.requestedAt && (
-                  <span className="ml-auto text-[11px] text-red-700/70">
+                  <span className="ml-auto text-[11px] text-amber-800/70 dark:text-amber-300/70">
                     {new Date(user.pendingRequest.requestedAt).toLocaleDateString('hu-HU')}
                   </span>
                 )}
               </div>
               <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
                 <RequestField
-                  icon={<UserCheck className="size-3.5 text-red-600" />}
+                  icon={<UserCheck className="size-3.5 text-amber-600 dark:text-amber-400" />}
                   label="Kért szerepkör"
                   value={
                     user.pendingRequest.requestedRole
@@ -226,23 +188,23 @@ export function UserCard({
                   }
                 />
                 <RequestField
-                  icon={<Church className="size-3.5 text-emerald-600" />}
+                  icon={<Church className="size-3.5 text-muted-foreground" />}
                   label="Gyülekezet"
                   value={user.pendingRequest.requestedCongregationName}
                 />
                 <RequestField
-                  icon={<Building2 className="size-3.5 text-teal-600" />}
+                  icon={<Building2 className="size-3.5 text-muted-foreground" />}
                   label="Egyházmegye"
                   value={user.pendingRequest.requestedDioceseName}
                 />
                 <RequestField
-                  icon={<Castle className="size-3.5 text-indigo-600" />}
+                  icon={<Castle className="size-3.5 text-muted-foreground" />}
                   label="Egyházkerület"
                   value={user.pendingRequest.requestedDistrictName}
                 />
               </div>
               {user.pendingRequest.justification && (
-                <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs italic text-red-900/80">
+                <p className="mt-2 rounded-md bg-amber-100/60 px-2.5 py-1.5 text-xs italic text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
                   „{user.pendingRequest.justification}”
                 </p>
               )}
@@ -250,7 +212,7 @@ export function UserCard({
                 <button
                   type="button"
                   onClick={() => onViewDocument(user.pendingRequest!.documentPath!)}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-red-800 underline hover:text-red-900"
+                  className="mt-2 inline-flex min-h-9 items-center gap-1.5 text-xs font-medium text-amber-900 underline hover:text-amber-950 dark:text-amber-200 dark:hover:text-amber-100"
                 >
                   <FileText className="size-3.5" />
                   Csatolt dokumentum megtekintése
@@ -260,19 +222,20 @@ export function UserCard({
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 text-red-900 mr-2">
-              <Clock className="size-4 shrink-0 text-red-600" />
+            <div className="mr-2 flex items-center gap-2 text-amber-900 dark:text-amber-200">
+              <Clock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <p className="text-sm font-semibold">
                 {user.pendingRequest ? 'Jóváhagyás és aktiválás:' : 'Várakozó fiók — aktiválás:'}
               </p>
             </div>
             <PendingUserActions
               isPending={isPending}
+              hasRequest={!!user.pendingRequest}
               onQuickApprove={onQuickApprove}
               onReject={onReject}
             />
           </div>
-          <p className="text-[11px] text-red-800/80 leading-relaxed">
+          <p className="text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-300/90">
             A jóváhagyás <strong>egy lépésben</strong> aktiválja a fiókot
             {user.pendingRequest ? ' és hozzárendeli a kért gyülekezetet' : ''} — a
             felhasználó utána azonnal beléphet. Külön aktiválásra nincs szükség.
@@ -284,21 +247,23 @@ export function UserCard({
         user.primary_diocese_name ||
         user.primary_congregation_name ||
         roles.length > 0) && (
-        <div className="mt-3 border-t border-slate-100 pt-3 space-y-2">
+        <div className="mt-3 space-y-2 border-t border-border pt-3">
           {(user.primary_district_name ||
             user.primary_diocese_name ||
             user.primary_congregation_name) && (
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               {user.primary_district_name && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 text-indigo-700 px-2.5 py-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-muted-foreground ring-1 ring-border">
                   <Castle className="size-3" />
                   {user.primary_district_name}
                 </span>
               )}
               {user.primary_diocese_name && (
                 <>
-                  {user.primary_district_name && <span className="text-slate-300">›</span>}
-                  <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 text-teal-700 px-2.5 py-1">
+                  {user.primary_district_name && (
+                    <span className="text-muted-foreground/50">›</span>
+                  )}
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-muted-foreground ring-1 ring-border">
                     <Building2 className="size-3" />
                     {user.primary_diocese_name}
                   </span>
@@ -307,9 +272,9 @@ export function UserCard({
               {user.primary_congregation_name && (
                 <>
                   {(user.primary_district_name || user.primary_diocese_name) && (
-                    <span className="text-slate-300">›</span>
+                    <span className="text-muted-foreground/50">›</span>
                   )}
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-foreground ring-1 ring-primary/20">
                     <Church className="size-3" />
                     {user.primary_congregation_name}
                   </span>
@@ -321,10 +286,10 @@ export function UserCard({
           {roles.length > 0 ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-indigo-700">
+                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
                   Kiosztott szerepkörök ({roles.length})
                 </span>
-                <div className="flex-1 h-px bg-gradient-to-r from-indigo-200 to-transparent" />
+                <div className="h-px flex-1 bg-border" />
               </div>
               <div className="flex flex-wrap gap-2">
                 {roles.map((r) => (
@@ -339,7 +304,7 @@ export function UserCard({
             </div>
           ) : (
             isActive && (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-2 text-xs text-slate-500 italic">
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-xs italic text-muted-foreground">
                 Még nincs szerepköre — a „+ Új szerepkör” gombbal oszthat ki egyet.
               </div>
             )
@@ -373,9 +338,11 @@ function RequestField({
     <div className="flex items-start gap-1.5">
       <span className="mt-0.5 shrink-0">{icon}</span>
       <span className="min-w-0">
-        <span className="block text-[10px] uppercase tracking-wide text-red-700/70">{label}</span>
-        <span className="block text-xs font-medium text-slate-800">
-          {value || <span className="italic text-slate-400">nincs megadva</span>}
+        <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        <span className="block text-xs font-medium text-foreground">
+          {value || <span className="italic text-muted-foreground/70">nincs megadva</span>}
         </span>
       </span>
     </div>

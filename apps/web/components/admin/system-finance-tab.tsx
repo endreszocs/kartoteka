@@ -4,27 +4,34 @@
  * Admin → Rendszer pénzügyei fül.
  *
  * Ez a nézet a rendszer pénzügyi áttekintését mutatja a rendszergazdának (Endre):
- *   1. KPI panel — havi bevétel, költség, profit, aktív előfizetések, tag-szám átlag
+ *   1. KPI panel — havi bevétel, költség, profit, aktív előfizetések
  *   2. Havi költségtételek táblázat (szerkeszthető) — Supabase, Railway, Email-szolgáltató, AI szerver, stb.
  *   3. Árazási sávok táblázat (szerkeszthető) — tag-szám szerint, Endre alapelve szerint
- *   4. Gyülekezet előfizetések (szerkeszthető) — ki fizet mennyit
+ *   4. Gyülekezet előfizetések (szerkeszthető, kereshető) — ki fizet mennyit
  *   5. Skálázási előrejelzés — 25/50/100/200/500/1000 gyülekezet szcenáriók
+ *
+ * 2026-07-11 admin-redesign: token-alapú színek, AdminTable (mobil kártya-nézettel),
+ * AdminConfirmDialog a natív confirm() helyett, csendes háttér-frissítés mentés után.
  *
  * Jogosultság: csak `admin` (rendszergazda/master) láthatja — a szerver akciók is ellenőrzik.
  */
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import {
   Banknote, TrendingUp, TrendingDown, Users, Building2, Plus, Edit2,
-  Trash2, CheckCircle2, XCircle, Info, Settings, BarChart3,
+  Trash2, Info, BarChart3, Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ModalField } from '@/components/ui/modal-field'
+import { AdminConfirmDialog } from './admin-confirm-dialog'
+import { AdminTable, type AdminTableColumn } from './_shared/admin-table'
+import { AdminEmptyState } from './_shared/admin-empty-state'
+import { AdminSkeleton } from './_shared/admin-skeleton'
+import { StatusBadge } from './_shared/status-badge'
 import {
   deletePricingTier, deleteSubscription, deleteSystemCost,
   getScalingForecast, getSystemFinanceSummary,
@@ -71,6 +78,35 @@ function formatRon(v: number): string {
   return v.toLocaleString('hu-HU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function formatDateHu(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('hu-HU')
+}
+
+/**
+ * A dij_ron mező egysége az előfizetés-típustól függ (system-finance-actions:
+ * 'havi' → RON/hó, 'eves' → RON/év) — a felületen mindenhol jelezzük,
+ * különben 12x-es félreárazás lehet belőle.
+ */
+function dijUnit(tipus: SubscriptionType): string {
+  if (tipus === 'havi') return 'RON/hó'
+  if (tipus === 'eves') return 'RON/év'
+  return 'RON'
+}
+
+/** Natív select-ek egységes, token-alapú stílusa a dialógusokban/szűrőkben (szélesség nélkül). */
+const SELECT_CLASS =
+  'h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+
+type DeleteTarget = { kind: 'cost' | 'tier' | 'sub'; id: number; name: string }
+
+const DELETE_KIND_LABELS: Record<DeleteTarget['kind'], string> = {
+  cost: 'költségtételt',
+  tier: 'árazási sávot',
+  sub: 'előfizetést',
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 export function SystemFinanceTab() {
   const [summary, setSummary] = useState<SystemFinanceSummary | null>(null)
@@ -78,6 +114,8 @@ export function SystemFinanceTab() {
   const [tiers, setTiers] = useState<SystemPricingTier[]>([])
   const [subs, setSubs] = useState<CongregationSubscription[]>([])
   const [forecast, setForecast] = useState<ScalingScenario[]>([])
+  // Csak az ELSŐ betöltéskor igaz — mentés/törlés utáni frissítés csendben,
+  // a tartalom lecserélése nélkül fut (nincs teljes-oldalas villogás).
   const [loading, setLoading] = useState(true)
 
   const [costDialogOpen, setCostDialogOpen] = useState(false)
@@ -87,8 +125,10 @@ export function SystemFinanceTab() {
   const [subDialogOpen, setSubDialogOpen] = useState(false)
   const [subEditing, setSubEditing] = useState<CongregationSubscription | null>(null)
 
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+
   async function refreshAll() {
-    setLoading(true)
     const [summaryRes, costsRes, tiersRes, subsRes, forecastRes] = await Promise.all([
       getSystemFinanceSummary(),
       listSystemCosts(),
@@ -98,10 +138,14 @@ export function SystemFinanceTab() {
     ])
     if (summaryRes.error) toast.error(`Összegző: ${summaryRes.error}`)
     else if (summaryRes.data) setSummary(summaryRes.data)
-    if (costsRes.data) setCosts(costsRes.data)
-    if (tiersRes.data) setTiers(tiersRes.data)
-    if (subsRes.data) setSubs(subsRes.data)
-    if (forecastRes.data) setForecast(forecastRes.data)
+    if (costsRes.error) toast.error(`Költségek: ${costsRes.error}`)
+    else if (costsRes.data) setCosts(costsRes.data)
+    if (tiersRes.error) toast.error(`Árazási sávok: ${tiersRes.error}`)
+    else if (tiersRes.data) setTiers(tiersRes.data)
+    if (subsRes.error) toast.error(`Előfizetések: ${subsRes.error}`)
+    else if (subsRes.data) setSubs(subsRes.data)
+    if (forecastRes.error) toast.error(`Előrejelzés: ${forecastRes.error}`)
+    else if (forecastRes.data) setForecast(forecastRes.data)
     setLoading(false)
   }
 
@@ -113,8 +157,30 @@ export function SystemFinanceTab() {
     return () => { cancelled = true }
   }, [])
 
+  async function handleDeleteConfirmed() {
+    if (!deleteTarget) return
+    setDeleteBusy(true)
+    const res =
+      deleteTarget.kind === 'cost'
+        ? await deleteSystemCost(deleteTarget.id)
+        : deleteTarget.kind === 'tier'
+          ? await deletePricingTier(deleteTarget.id)
+          : await deleteSubscription(deleteTarget.id)
+    setDeleteBusy(false)
+    if (res.error) toast.error(res.error)
+    else {
+      toast.success('Törölve.')
+      setDeleteTarget(null)
+      void refreshAll()
+    }
+  }
+
   if (loading) {
-    return <div className="py-12 text-center text-sm text-slate-400">Rendszer pénzügyei betöltése…</div>
+    return (
+      <div className="card-raised p-5">
+        <AdminSkeleton rows={6} />
+      </div>
+    )
   }
 
   return (
@@ -123,19 +189,20 @@ export function SystemFinanceTab() {
       {summary && <KpiPanel summary={summary} />}
 
       {/* ─── 2. HAVI KÖLTSÉGTÉTELEK ─── */}
-      <section className="card-raised p-5 space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+      <section className="card-raised space-y-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Banknote className="size-5 text-rose-600" />
-            <h3 className="font-heading text-lg text-slate-800">Havi rendszer-költségek</h3>
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Banknote className="size-4" />
+            </span>
+            <h3 className="font-heading text-lg text-foreground">Havi rendszer-költségek</h3>
           </div>
           <Button
-            size="sm"
             onClick={() => {
               setCostEditing(null)
               setCostDialogOpen(true)
             }}
-            className="rounded-xl bg-rose-600 text-white hover:bg-rose-700 gap-1.5"
+            className="gap-1.5 rounded-xl"
           >
             <Plus className="size-4" />
             Új tétel
@@ -147,39 +214,32 @@ export function SystemFinanceTab() {
             setCostEditing(c)
             setCostDialogOpen(true)
           }}
-          onDelete={async (id) => {
-            if (!confirm('Biztosan törölni szeretnéd ezt a költségtételt?')) return
-            const res = await deleteSystemCost(id)
-            if (res.error) toast.error(res.error)
-            else {
-              toast.success('Törölve.')
-              refreshAll()
-            }
-          }}
+          onDelete={(c) => setDeleteTarget({ kind: 'cost', id: c.id, name: c.nev })}
         />
       </section>
 
       {/* ─── 3. ÁRAZÁSI SÁVOK ─── */}
-      <section className="card-raised p-5 space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+      <section className="card-raised space-y-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Users className="size-5 text-teal-600" />
-            <h3 className="font-heading text-lg text-slate-800">Árazási sávok — tag-szám szerint</h3>
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Users className="size-4" />
+            </span>
+            <h3 className="font-heading text-lg text-foreground">Árazási sávok — tag-szám szerint</h3>
           </div>
           <Button
-            size="sm"
             onClick={() => {
               setTierEditing(null)
               setTierDialogOpen(true)
             }}
-            className="rounded-xl bg-teal-600 text-white hover:bg-teal-700 gap-1.5"
+            className="gap-1.5 rounded-xl"
           >
             <Plus className="size-4" />
             Új sáv
           </Button>
         </div>
-        <p className="text-xs text-slate-500">
-          <Info className="inline size-3.5 mr-1 text-teal-600" />
+        <p className="text-xs text-muted-foreground">
+          <Info className="mr-1 inline size-3.5 text-primary" />
           Endre alapelve: <strong>képesség szerinti elosztás</strong> — kis gyülekezet kevesebbet, nagy gyülekezet többet fizet.
         </p>
         <TierTable
@@ -188,32 +248,25 @@ export function SystemFinanceTab() {
             setTierEditing(t)
             setTierDialogOpen(true)
           }}
-          onDelete={async (id) => {
-            if (!confirm('Biztosan törölni szeretnéd ezt az árazási sávot?')) return
-            const res = await deletePricingTier(id)
-            if (res.error) toast.error(res.error)
-            else {
-              toast.success('Törölve.')
-              refreshAll()
-            }
-          }}
+          onDelete={(t) => setDeleteTarget({ kind: 'tier', id: t.id, name: t.nev })}
         />
       </section>
 
       {/* ─── 4. GYÜLEKEZETI ELŐFIZETÉSEK ─── */}
-      <section className="card-raised p-5 space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+      <section className="card-raised space-y-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Building2 className="size-5 text-indigo-600" />
-            <h3 className="font-heading text-lg text-slate-800">Gyülekezeti előfizetések</h3>
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Building2 className="size-4" />
+            </span>
+            <h3 className="font-heading text-lg text-foreground">Gyülekezeti előfizetések</h3>
           </div>
           <Button
-            size="sm"
             onClick={() => {
               setSubEditing(null)
               setSubDialogOpen(true)
             }}
-            className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 gap-1.5"
+            className="gap-1.5 rounded-xl"
           >
             <Plus className="size-4" />
             Új előfizetés
@@ -225,26 +278,26 @@ export function SystemFinanceTab() {
             setSubEditing(s)
             setSubDialogOpen(true)
           }}
-          onDelete={async (id) => {
-            if (!confirm('Biztosan törölni szeretnéd ezt az előfizetést?')) return
-            const res = await deleteSubscription(id)
-            if (res.error) toast.error(res.error)
-            else {
-              toast.success('Törölve.')
-              refreshAll()
-            }
-          }}
+          onDelete={(s) =>
+            setDeleteTarget({
+              kind: 'sub',
+              id: s.id,
+              name: s.congregation_name || s.congregation_id.slice(0, 8),
+            })
+          }
         />
       </section>
 
       {/* ─── 5. SKÁLÁZÁSI ELŐREJELZÉS ─── */}
-      <section className="card-raised p-5 space-y-3">
+      <section className="card-raised space-y-3 p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <BarChart3 className="size-5 text-violet-600" />
-          <h3 className="font-heading text-lg text-slate-800">Skálázási előrejelzés</h3>
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <BarChart3 className="size-4" />
+          </span>
+          <h3 className="font-heading text-lg text-foreground">Skálázási előrejelzés</h3>
         </div>
-        <p className="text-xs text-slate-500">
-          <Info className="inline size-3.5 mr-1 text-violet-600" />
+        <p className="text-xs text-muted-foreground">
+          <Info className="mr-1 inline size-3.5 text-primary" />
           <strong>Becsült, tájékoztató értékek.</strong> A számítás az aktív árazási sávok
           átlagdíjával + aktív költségtételekkel (becsült skálázódási felárral) dolgozik —
           a tényleges összegek a valós előfizetésektől és szolgáltatói díjaktól függően eltérhetnek.
@@ -260,7 +313,7 @@ export function SystemFinanceTab() {
           editing={costEditing}
           onSaved={() => {
             setCostDialogOpen(false)
-            refreshAll()
+            void refreshAll()
           }}
         />
       )}
@@ -271,7 +324,7 @@ export function SystemFinanceTab() {
           editing={tierEditing}
           onSaved={() => {
             setTierDialogOpen(false)
-            refreshAll()
+            void refreshAll()
           }}
         />
       )}
@@ -283,10 +336,28 @@ export function SystemFinanceTab() {
           tiers={tiers}
           onSaved={() => {
             setSubDialogOpen(false)
-            refreshAll()
+            void refreshAll()
           }}
         />
       )}
+
+      <AdminConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title="Törlés megerősítése"
+        tone="danger"
+        description={
+          deleteTarget ? (
+            <>
+              Biztosan törlöd a(z) <strong>{deleteTarget.name}</strong>{' '}
+              {DELETE_KIND_LABELS[deleteTarget.kind]}? A művelet nem vonható vissza.
+            </>
+          ) : null
+        }
+        confirmLabel="Törlés"
+        loading={deleteBusy}
+        onConfirm={() => void handleDeleteConfirmed()}
+      />
     </div>
   )
 }
@@ -295,58 +366,66 @@ export function SystemFinanceTab() {
 // KPI Panel
 // ─────────────────────────────────────────────────────────────────────────
 function KpiPanel({ summary }: { summary: SystemFinanceSummary }) {
-  const profitGreen = summary.monthlyProfitRon >= 0
+  const profitPositive = summary.monthlyProfitRon >= 0
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
       <KpiCard
         label="Havi bevétel"
         value={`${formatRon(summary.monthlyRevenueRon)} RON`}
         sub={`Éves: ${formatRon(summary.annualRevenueRon)} RON`}
-        tone="emerald"
+        tone="success"
         icon={<TrendingUp className="size-4" />}
       />
       <KpiCard
         label="Havi költség"
         value={`${formatRon(summary.monthlyCostRon)} RON`}
         sub={`Éves: ${formatRon(summary.annualCostRon)} RON`}
-        tone="rose"
+        tone="danger"
         icon={<TrendingDown className="size-4" />}
       />
       <KpiCard
         label="Havi profit"
         value={`${formatRon(summary.monthlyProfitRon)} RON`}
         sub={`Éves: ${formatRon(summary.annualProfitRon)} RON`}
-        tone={profitGreen ? 'emerald' : 'rose'}
+        tone={profitPositive ? 'success' : 'danger'}
         icon={<Banknote className="size-4" />}
       />
       <KpiCard
         label="Aktív előfizetők"
         value={`${summary.activeSubscriptions} / ${summary.totalCongregations}`}
         sub={`${summary.congregationsWithoutSubscription} előfizetés nélkül`}
-        tone="indigo"
+        tone="neutral"
         icon={<Users className="size-4" />}
       />
     </div>
   )
 }
 
+const KPI_TONE_CLASSES = {
+  success:
+    'bg-emerald-50 text-emerald-800 ring-emerald-600/15 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-400/25',
+  danger:
+    'bg-rose-50 text-rose-800 ring-rose-600/15 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-400/25',
+  neutral: 'bg-primary/10 text-foreground ring-border',
+} as const
+
 function KpiCard({ label, value, sub, tone, icon }: {
   label: string; value: string; sub?: string
-  tone: 'emerald' | 'rose' | 'indigo'; icon: React.ReactNode
+  tone: keyof typeof KPI_TONE_CLASSES; icon: React.ReactNode
 }) {
-  const colors = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    rose: 'bg-rose-50 text-rose-700 border-rose-100',
-    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-  }[tone]
   return (
-    <div className={`rounded-2xl border px-4 py-3 ${colors}`}>
+    <div className={`rounded-2xl px-3 py-3 ring-1 ring-inset sm:px-4 ${KPI_TONE_CLASSES[tone]}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] uppercase tracking-[0.18em] opacity-75">{label}</p>
-        {icon}
+        <p className="text-[10px] uppercase tracking-[0.14em] opacity-75 sm:text-[11px] sm:tracking-[0.18em]">
+          {label}
+        </p>
+        <span aria-hidden>{icon}</span>
       </div>
-      <p className="text-xl font-bold mt-1 font-mono truncate">{value}</p>
-      {sub && <p className="text-[11px] mt-1 opacity-75 truncate">{sub}</p>}
+      {/* break-words (truncate helyett): nagy összegnél a szám vége nem vágódik le */}
+      <p className="mt-1 break-words font-heading text-base font-semibold tabular-nums sm:text-xl" title={value}>
+        {value}
+      </p>
+      {sub && <p className="mt-1 break-words text-[11px] tabular-nums opacity-75">{sub}</p>}
     </div>
   )
 }
@@ -354,6 +433,20 @@ function KpiCard({ label, value, sub, tone, icon }: {
 // ─────────────────────────────────────────────────────────────────────────
 // Költségtételek táblázat
 // ─────────────────────────────────────────────────────────────────────────
+const COST_COLUMNS: AdminTableColumn[] = [
+  { key: 'kategoria', label: 'Kategória', hideBelow: 'lg' },
+  { key: 'nev', label: 'Megnevezés' },
+  { key: 'havi_usd', label: 'Havi USD', align: 'right', className: 'tabular-nums' },
+  { key: 'arfolyam', label: 'Árfolyam', align: 'right', hideBelow: 'lg', className: 'tabular-nums' },
+  { key: 'havi_ron', label: 'Havi RON', align: 'right', className: 'tabular-nums' },
+  { key: 'aktiv', label: 'Státusz', align: 'center' },
+  { key: 'actions', label: <span className="sr-only">Műveletek</span>, align: 'right' },
+]
+
+function costRonValue(c: SystemFinanceCost): number {
+  return Number(c.havi_ron) || Number(c.havi_usd) * Number(c.arfolyam_usd)
+}
+
 function CostTable({
   costs,
   onEdit,
@@ -361,76 +454,98 @@ function CostTable({
 }: {
   costs: SystemFinanceCost[]
   onEdit: (c: SystemFinanceCost) => void
-  onDelete: (id: number) => void
+  onDelete: (c: SystemFinanceCost) => void
 }) {
-  const totalUsd = costs.filter((c) => c.aktiv).reduce((s, c) => s + Number(c.havi_usd), 0)
-  const totalRon = costs
-    .filter((c) => c.aktiv)
-    .reduce((s, c) => s + (Number(c.havi_ron) || Number(c.havi_usd) * Number(c.arfolyam_usd)), 0)
+  const active = costs.filter((c) => c.aktiv)
+  const totalUsd = active.reduce((s, c) => s + Number(c.havi_usd), 0)
+  const totalRon = active.reduce((s, c) => s + costRonValue(c), 0)
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="p-2 text-left font-medium text-slate-600">Kategória</th>
-            <th className="p-2 text-left font-medium text-slate-600">Megnevezés</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi USD</th>
-            <th className="p-2 text-right font-medium text-slate-600">Árfolyam</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi RON</th>
-            <th className="p-2 text-center font-medium text-slate-600">Aktív</th>
-            <th className="p-2 text-right font-medium text-slate-600">Művelet</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {costs.length === 0 && (
-            <tr><td colSpan={7} className="p-6 text-center text-slate-400 italic">Nincs költségtétel.</td></tr>
-          )}
-          {costs.map((c) => {
-            const ronCalculated = Number(c.havi_ron) || Number(c.havi_usd) * Number(c.arfolyam_usd)
-            return (
-              <tr key={c.id} className={c.aktiv ? 'hover:bg-slate-50/60' : 'opacity-50 hover:bg-slate-50/60'}>
-                <td className="p-2">
-                  <Badge className="bg-slate-100 text-slate-700 border-0 text-[10px]">
-                    {COST_CATEGORY_LABELS[c.kategoria]}
-                  </Badge>
-                </td>
-                <td className="p-2">
-                  <p className="font-medium text-slate-800">{c.nev}</p>
-                  {c.megjegyzes && <p className="text-[10px] text-slate-400 truncate max-w-[320px]">{c.megjegyzes}</p>}
-                </td>
-                <td className="p-2 text-right font-mono">${formatRon(Number(c.havi_usd))}</td>
-                <td className="p-2 text-right text-slate-500">{Number(c.arfolyam_usd).toFixed(2)}</td>
-                <td className="p-2 text-right font-mono text-rose-700 font-semibold">
-                  {formatRon(ronCalculated)}
-                </td>
-                <td className="p-2 text-center">
-                  {c.aktiv ? <CheckCircle2 className="size-4 text-emerald-600 mx-auto" /> : <XCircle className="size-4 text-slate-400 mx-auto" />}
-                </td>
-                <td className="p-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => onEdit(c)} className="size-7 p-0">
-                      <Edit2 className="size-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => onDelete(c.id)} className="size-7 p-0 text-rose-600">
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-        <tfoot className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-          <tr>
-            <td colSpan={2} className="p-2 text-slate-700">Összesen (aktív)</td>
-            <td className="p-2 text-right font-mono">${formatRon(totalUsd)}</td>
-            <td />
-            <td className="p-2 text-right font-mono text-rose-800">{formatRon(totalRon)} RON</td>
-            <td colSpan={2} />
-          </tr>
-        </tfoot>
-      </table>
+    <div className="space-y-3">
+      <AdminTable
+        columns={COST_COLUMNS}
+        rows={costs}
+        rowKey={(c) => String(c.id)}
+        minWidthClass="min-w-[640px]"
+        empty={
+          <AdminEmptyState
+            icon={Banknote}
+            title="Nincs költségtétel"
+            hint="Az „Új tétel” gombbal rögzítheted a rendszer havi költségeit (Supabase, Railway, email, stb.)."
+          />
+        }
+        renderCell={(c, key) => {
+          switch (key) {
+            case 'kategoria':
+              return <StatusBadge intent="neutral">{COST_CATEGORY_LABELS[c.kategoria]}</StatusBadge>
+            case 'nev':
+              return (
+                <div className={c.aktiv ? '' : 'opacity-60'}>
+                  <p className="font-medium text-foreground">{c.nev}</p>
+                  {c.megjegyzes && (
+                    <p className="max-w-[320px] truncate text-[11px] text-muted-foreground">{c.megjegyzes}</p>
+                  )}
+                </div>
+              )
+            case 'havi_usd':
+              return <span className="text-muted-foreground">{formatRon(Number(c.havi_usd))} USD</span>
+            case 'arfolyam':
+              return <span className="text-muted-foreground">{Number(c.arfolyam_usd).toFixed(2)}</span>
+            case 'havi_ron':
+              return (
+                <span className="font-semibold text-rose-700 dark:text-rose-300">
+                  {formatRon(costRonValue(c))}
+                </span>
+              )
+            case 'aktiv':
+              return (
+                <StatusBadge intent={c.aktiv ? 'success' : 'neutral'}>
+                  {c.aktiv ? 'Aktív' : 'Inaktív'}
+                </StatusBadge>
+              )
+            case 'actions':
+              return <RowActions name={c.nev} onEdit={() => onEdit(c)} onDelete={() => onDelete(c)} />
+            default:
+              return null
+          }
+        }}
+        renderMobileCard={(c) => (
+          <div className={`rounded-xl border border-border bg-card p-3 ${c.aktiv ? '' : 'opacity-70'}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{c.nev}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <StatusBadge intent="neutral">{COST_CATEGORY_LABELS[c.kategoria]}</StatusBadge>
+                  <StatusBadge intent={c.aktiv ? 'success' : 'neutral'}>
+                    {c.aktiv ? 'Aktív' : 'Inaktív'}
+                  </StatusBadge>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-semibold tabular-nums text-foreground">
+                  {formatRon(costRonValue(c))} RON
+                </p>
+                <p className="text-[11px] tabular-nums text-muted-foreground">
+                  {formatRon(Number(c.havi_usd))} USD
+                </p>
+              </div>
+            </div>
+            {c.megjegyzes && <p className="mt-1.5 text-xs text-muted-foreground">{c.megjegyzes}</p>}
+            <MobileCardActions name={c.nev} onEdit={() => onEdit(c)} onDelete={() => onDelete(c)} />
+          </div>
+        )}
+      />
+      {costs.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/60 px-4 py-2.5 ring-1 ring-border">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Összesen (aktív)
+          </span>
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {formatRon(totalRon)} RON
+            <span className="ml-2 font-normal text-muted-foreground">({formatRon(totalUsd)} USD)</span>
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -438,6 +553,16 @@ function CostTable({
 // ─────────────────────────────────────────────────────────────────────────
 // Árazási sávok táblázat
 // ─────────────────────────────────────────────────────────────────────────
+const TIER_COLUMNS: AdminTableColumn[] = [
+  { key: 'nev', label: 'Név' },
+  { key: 'tipus', label: 'Típus', hideBelow: 'sm' },
+  { key: 'tagok', label: 'Taglétszám', align: 'right', className: 'tabular-nums' },
+  { key: 'havi', label: 'Havi RON', align: 'right', className: 'tabular-nums' },
+  { key: 'eves', label: 'Éves RON', align: 'right', hideBelow: 'md', className: 'tabular-nums' },
+  { key: 'aktiv', label: 'Státusz', align: 'center', hideBelow: 'sm' },
+  { key: 'actions', label: <span className="sr-only">Műveletek</span>, align: 'right' },
+]
+
 function TierTable({
   tiers,
   onEdit,
@@ -445,66 +570,87 @@ function TierTable({
 }: {
   tiers: SystemPricingTier[]
   onEdit: (t: SystemPricingTier) => void
-  onDelete: (id: number) => void
+  onDelete: (t: SystemPricingTier) => void
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="p-2 text-left font-medium text-slate-600">Név</th>
-            <th className="p-2 text-left font-medium text-slate-600">Típus</th>
-            <th className="p-2 text-right font-medium text-slate-600">Tagok min</th>
-            <th className="p-2 text-right font-medium text-slate-600">Tagok max</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi RON</th>
-            <th className="p-2 text-right font-medium text-slate-600">Éves RON</th>
-            <th className="p-2 text-center font-medium text-slate-600">Aktív</th>
-            <th className="p-2 text-right font-medium text-slate-600">Művelet</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {tiers.length === 0 && (
-            <tr><td colSpan={8} className="p-6 text-center text-slate-400 italic">Nincs árazási sáv.</td></tr>
-          )}
-          {tiers.map((t) => (
-            <tr key={t.id} className={t.aktiv ? 'hover:bg-slate-50/60' : 'opacity-50 hover:bg-slate-50/60'}>
-              <td className="p-2">
-                <p className="font-medium text-slate-800">{t.nev}</p>
-                {t.megjegyzes && <p className="text-[10px] text-slate-400 truncate max-w-[240px]">{t.megjegyzes}</p>}
-              </td>
-              <td className="p-2">
-                <Badge className="bg-teal-100 text-teal-800 border-0 text-[10px]">
-                  {PRICING_TIER_TYPE_LABELS[t.tipus]}
-                </Badge>
-              </td>
-              <td className="p-2 text-right">{t.min_tagok}</td>
-              <td className="p-2 text-right">{t.max_tagok ?? '∞'}</td>
-              <td className="p-2 text-right font-mono text-emerald-700 font-semibold">{formatRon(Number(t.havi_dij_ron))}</td>
-              <td className="p-2 text-right font-mono text-emerald-700">{formatRon(Number(t.eves_dij_ron))}</td>
-              <td className="p-2 text-center">
-                {t.aktiv ? <CheckCircle2 className="size-4 text-emerald-600 mx-auto" /> : <XCircle className="size-4 text-slate-400 mx-auto" />}
-              </td>
-              <td className="p-2 text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => onEdit(t)} className="size-7 p-0">
-                    <Edit2 className="size-3.5" />
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => onDelete(t.id)} className="size-7 p-0 text-rose-600">
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <AdminTable
+      columns={TIER_COLUMNS}
+      rows={tiers}
+      rowKey={(t) => String(t.id)}
+      empty={
+        <AdminEmptyState
+          icon={Users}
+          title="Nincs árazási sáv"
+          hint="Az „Új sáv” gombbal hozhatod létre a tag-szám szerinti díjsávokat."
+        />
+      }
+      renderCell={(t, key) => {
+        switch (key) {
+          case 'nev':
+            return (
+              <div className={t.aktiv ? '' : 'opacity-60'}>
+                <p className="font-medium text-foreground">{t.nev}</p>
+                {t.megjegyzes && (
+                  <p className="max-w-[240px] truncate text-[11px] text-muted-foreground">{t.megjegyzes}</p>
+                )}
+              </div>
+            )
+          case 'tipus':
+            return <StatusBadge intent="info">{PRICING_TIER_TYPE_LABELS[t.tipus]}</StatusBadge>
+          case 'tagok':
+            return (
+              <span className="text-muted-foreground">
+                {t.min_tagok}&nbsp;–&nbsp;{t.max_tagok ?? '∞'}
+              </span>
+            )
+          case 'havi':
+            return (
+              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {formatRon(Number(t.havi_dij_ron))}
+              </span>
+            )
+          case 'eves':
+            return (
+              <span className="text-emerald-700 dark:text-emerald-300">
+                {formatRon(Number(t.eves_dij_ron))}
+              </span>
+            )
+          case 'aktiv':
+            return (
+              <StatusBadge intent={t.aktiv ? 'success' : 'neutral'}>
+                {t.aktiv ? 'Aktív' : 'Inaktív'}
+              </StatusBadge>
+            )
+          case 'actions':
+            return <RowActions name={t.nev} onEdit={() => onEdit(t)} onDelete={() => onDelete(t)} />
+          default:
+            return null
+        }
+      }}
+    />
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Subscription táblázat
+// Subscription táblázat (kereshető + típus-szűrő)
 // ─────────────────────────────────────────────────────────────────────────
+const SUB_COLUMNS: AdminTableColumn[] = [
+  { key: 'gyulekezet', label: 'Gyülekezet' },
+  { key: 'tagok', label: 'Tagok', align: 'right', hideBelow: 'lg', className: 'tabular-nums' },
+  { key: 'sav', label: 'Árazási sáv', hideBelow: 'md' },
+  { key: 'tipus', label: 'Típus', hideBelow: 'sm' },
+  { key: 'dij', label: 'Díj', align: 'right', className: 'tabular-nums' },
+  { key: 'kezdet', label: 'Kezdet', hideBelow: 'lg' },
+  { key: 'aktiv', label: 'Státusz', align: 'center', hideBelow: 'sm' },
+  { key: 'actions', label: <span className="sr-only">Műveletek</span>, align: 'right' },
+]
+
+/** A Díj cella: érték + egység (RON/hó vagy RON/év) — a dij_ron a típus szerint értelmeződik. */
+function subDijLabel(s: CongregationSubscription): string {
+  if (s.dij_ron != null) return `${formatRon(Number(s.dij_ron))} ${dijUnit(s.tipus)}`
+  return s.pricing_tier_nev ? 'sáv szerint' : '—'
+}
+
 function SubscriptionTable({
   subs,
   onEdit,
@@ -512,65 +658,146 @@ function SubscriptionTable({
 }: {
   subs: CongregationSubscription[]
   onEdit: (s: CongregationSubscription) => void
-  onDelete: (id: number) => void
+  onDelete: (s: CongregationSubscription) => void
 }) {
+  const [query, setQuery] = useState('')
+  const [tipusFilter, setTipusFilter] = useState<'' | SubscriptionType>('')
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return subs.filter((s) => {
+      if (tipusFilter && s.tipus !== tipusFilter) return false
+      if (!needle) return true
+      const hay = `${s.congregation_name ?? ''} ${s.pricing_tier_nev ?? ''} ${s.megjegyzes ?? ''}`.toLowerCase()
+      return hay.includes(needle)
+    })
+  }, [subs, query, tipusFilter])
+
+  const isFiltering = query.trim() !== '' || tipusFilter !== ''
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="p-2 text-left font-medium text-slate-600">Gyülekezet</th>
-            <th className="p-2 text-right font-medium text-slate-600">Tagok</th>
-            <th className="p-2 text-left font-medium text-slate-600">Árazási sáv</th>
-            <th className="p-2 text-left font-medium text-slate-600">Típus</th>
-            <th className="p-2 text-right font-medium text-slate-600">Díj RON</th>
-            <th className="p-2 text-left font-medium text-slate-600">Kezdet</th>
-            <th className="p-2 text-center font-medium text-slate-600">Aktív</th>
-            <th className="p-2 text-right font-medium text-slate-600">Művelet</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {subs.length === 0 && (
-            <tr><td colSpan={8} className="p-6 text-center text-slate-400 italic">Nincs aktív előfizetés.</td></tr>
-          )}
-          {subs.map((s) => (
-            <tr key={s.id} className={s.aktiv ? 'hover:bg-slate-50/60' : 'opacity-50 hover:bg-slate-50/60'}>
-              <td className="p-2">
-                <p className="font-medium text-slate-800">{s.congregation_name || s.congregation_id.slice(0, 8)}</p>
-                {s.megjegyzes && <p className="text-[10px] text-slate-400 truncate max-w-[200px]">{s.megjegyzes}</p>}
-              </td>
-              <td className="p-2 text-right font-mono text-slate-600">{s.congregation_tag_szam ?? '?'}</td>
-              <td className="p-2">
-                <Badge className="bg-teal-50 text-teal-700 border-0 text-[10px]">
-                  {s.pricing_tier_nev || '—'}
-                </Badge>
-              </td>
-              <td className="p-2">
-                <Badge className="bg-indigo-100 text-indigo-800 border-0 text-[10px]">
-                  {SUBSCRIPTION_TYPE_LABELS[s.tipus]}
-                </Badge>
-              </td>
-              <td className="p-2 text-right font-mono">
-                {s.dij_ron != null ? formatRon(Number(s.dij_ron)) : '—'}
-              </td>
-              <td className="p-2 text-slate-500">{s.kezdet}</td>
-              <td className="p-2 text-center">
-                {s.aktiv ? <CheckCircle2 className="size-4 text-emerald-600 mx-auto" /> : <XCircle className="size-4 text-slate-400 mx-auto" />}
-              </td>
-              <td className="p-2 text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => onEdit(s)} className="size-7 p-0">
-                    <Edit2 className="size-3.5" />
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => onDelete(s.id)} className="size-7 p-0 text-rose-600">
-                    <Trash2 className="size-3.5" />
-                  </Button>
+    <div className="space-y-3">
+      {subs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-52">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Keresés gyülekezet szerint…"
+              className="h-10 pl-9"
+              aria-label="Keresés az előfizetések között"
+            />
+          </div>
+          <select
+            value={tipusFilter}
+            onChange={(e) => setTipusFilter(e.target.value as '' | SubscriptionType)}
+            className={`${SELECT_CLASS} w-auto min-w-36 flex-none`}
+            aria-label="Szűrés előfizetés-típus szerint"
+          >
+            <option value="">Minden típus</option>
+            {(Object.keys(SUBSCRIPTION_TYPE_LABELS) as SubscriptionType[]).map((k) => (
+              <option key={k} value={k}>{SUBSCRIPTION_TYPE_LABELS[k]}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <AdminTable
+        columns={SUB_COLUMNS}
+        rows={filtered}
+        rowKey={(s) => String(s.id)}
+        minWidthClass="min-w-[560px]"
+        empty={
+          isFiltering ? (
+            <AdminEmptyState
+              icon={Search}
+              title="Nincs találat"
+              hint="Módosítsd a keresést vagy a típus-szűrőt."
+            />
+          ) : (
+            <AdminEmptyState
+              icon={Building2}
+              title="Nincs aktív előfizetés"
+              hint="Az „Új előfizetés” gombbal rögzítheted, melyik gyülekezet milyen díjat fizet."
+            />
+          )
+        }
+        renderCell={(s, key) => {
+          switch (key) {
+            case 'gyulekezet':
+              return (
+                <div className={s.aktiv ? '' : 'opacity-60'}>
+                  <p className="font-medium text-foreground">
+                    {s.congregation_name || s.congregation_id.slice(0, 8)}
+                  </p>
+                  {s.megjegyzes && (
+                    <p className="max-w-[200px] truncate text-[11px] text-muted-foreground">{s.megjegyzes}</p>
+                  )}
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              )
+            case 'tagok':
+              return <span className="text-muted-foreground">{s.congregation_tag_szam ?? '?'}</span>
+            case 'sav':
+              return s.pricing_tier_nev ? (
+                <StatusBadge intent="neutral">{s.pricing_tier_nev}</StatusBadge>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )
+            case 'tipus':
+              return <StatusBadge intent="info">{SUBSCRIPTION_TYPE_LABELS[s.tipus]}</StatusBadge>
+            case 'dij':
+              return <span className="font-medium">{subDijLabel(s)}</span>
+            case 'kezdet':
+              return <span className="text-muted-foreground">{formatDateHu(s.kezdet)}</span>
+            case 'aktiv':
+              return (
+                <StatusBadge intent={s.aktiv ? 'success' : 'neutral'}>
+                  {s.aktiv ? 'Aktív' : 'Inaktív'}
+                </StatusBadge>
+              )
+            case 'actions':
+              return (
+                <RowActions
+                  name={s.congregation_name || 'előfizetés'}
+                  onEdit={() => onEdit(s)}
+                  onDelete={() => onDelete(s)}
+                />
+              )
+            default:
+              return null
+          }
+        }}
+        renderMobileCard={(s) => (
+          <div className={`rounded-xl border border-border bg-card p-3 ${s.aktiv ? '' : 'opacity-70'}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {s.congregation_name || s.congregation_id.slice(0, 8)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {s.congregation_tag_szam ?? '?'} tag · kezdete: {formatDateHu(s.kezdet)}
+                </p>
+              </div>
+              <p className="shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">
+                {subDijLabel(s)}
+              </p>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <StatusBadge intent="info">{SUBSCRIPTION_TYPE_LABELS[s.tipus]}</StatusBadge>
+              {s.pricing_tier_nev && <StatusBadge intent="neutral">{s.pricing_tier_nev}</StatusBadge>}
+              <StatusBadge intent={s.aktiv ? 'success' : 'neutral'}>
+                {s.aktiv ? 'Aktív' : 'Inaktív'}
+              </StatusBadge>
+            </div>
+            {s.megjegyzes && <p className="mt-1.5 text-xs text-muted-foreground">{s.megjegyzes}</p>}
+            <MobileCardActions
+              name={s.congregation_name || 'előfizetés'}
+              onEdit={() => onEdit(s)}
+              onDelete={() => onDelete(s)}
+            />
+          </div>
+        )}
+      />
     </div>
   )
 }
@@ -578,41 +805,130 @@ function SubscriptionTable({
 // ─────────────────────────────────────────────────────────────────────────
 // Forecast táblázat
 // ─────────────────────────────────────────────────────────────────────────
+const FORECAST_COLUMNS: AdminTableColumn[] = [
+  { key: 'szam', label: 'Gyülekezet', align: 'right', className: 'tabular-nums' },
+  { key: 'bevetel', label: 'Havi bevétel', align: 'right', className: 'tabular-nums' },
+  { key: 'koltseg', label: 'Havi költség', align: 'right', className: 'tabular-nums' },
+  { key: 'profit', label: 'Havi profit', align: 'right', className: 'tabular-nums' },
+  { key: 'eves_profit', label: 'Éves profit', align: 'right', hideBelow: 'md', className: 'tabular-nums' },
+  { key: 'margin', label: 'Margin %', align: 'right' },
+]
+
 function ForecastTable({ forecast }: { forecast: ScalingScenario[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="p-2 text-left font-medium text-slate-600">Gyülekezet</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi bevétel</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi költség</th>
-            <th className="p-2 text-right font-medium text-slate-600">Havi profit</th>
-            <th className="p-2 text-right font-medium text-slate-600">Éves profit</th>
-            <th className="p-2 text-right font-medium text-slate-600">Margin %</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {forecast.map((f) => (
-            <tr key={f.gyulekezet_szam} className={f.havi_profit_ron >= 0 ? 'hover:bg-emerald-50/30' : 'hover:bg-rose-50/30'}>
-              <td className="p-2 font-semibold">{f.gyulekezet_szam}</td>
-              <td className="p-2 text-right font-mono text-emerald-700">{formatRon(f.havi_bevetel_ron)}</td>
-              <td className="p-2 text-right font-mono text-rose-600">{formatRon(f.havi_koltseg_ron)}</td>
-              <td className={`p-2 text-right font-mono font-semibold ${f.havi_profit_ron >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {f.havi_profit_ron >= 0 ? '+' : ''}{formatRon(f.havi_profit_ron)}
-              </td>
-              <td className={`p-2 text-right font-mono font-semibold ${f.eves_profit_ron >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {f.eves_profit_ron >= 0 ? '+' : ''}{formatRon(f.eves_profit_ron)}
-              </td>
-              <td className="p-2 text-right">
-                <Badge className={f.profit_margin >= 50 ? 'bg-emerald-100 text-emerald-800' : f.profit_margin >= 0 ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}>
-                  {f.profit_margin.toFixed(1)}%
-                </Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <AdminTable
+      columns={FORECAST_COLUMNS}
+      rows={forecast}
+      rowKey={(f) => String(f.gyulekezet_szam)}
+      minWidthClass="min-w-[520px]"
+      empty={
+        <AdminEmptyState
+          icon={BarChart3}
+          title="Nincs előrejelzés"
+          hint="Az előrejelzéshez legalább egy aktív árazási sáv és költségtétel szükséges — vagy a lekérés hibázott, ilyenkor a fenti hibaüzenet mutatja az okot."
+        />
+      }
+      renderCell={(f, key) => {
+        switch (key) {
+          case 'szam':
+            return <span className="font-semibold text-foreground">{f.gyulekezet_szam}</span>
+          case 'bevetel':
+            return (
+              <span className="text-emerald-700 dark:text-emerald-300">
+                {formatRon(f.havi_bevetel_ron)}
+              </span>
+            )
+          case 'koltseg':
+            return (
+              <span className="text-rose-700 dark:text-rose-300">{formatRon(f.havi_koltseg_ron)}</span>
+            )
+          case 'profit':
+            return <ProfitValue value={f.havi_profit_ron} />
+          case 'eves_profit':
+            return <ProfitValue value={f.eves_profit_ron} />
+          case 'margin':
+            return (
+              <StatusBadge
+                intent={f.profit_margin >= 50 ? 'success' : f.profit_margin >= 0 ? 'warning' : 'danger'}
+              >
+                {f.profit_margin.toFixed(1)}%
+              </StatusBadge>
+            )
+          default:
+            return null
+        }
+      }}
+    />
+  )
+}
+
+function ProfitValue({ value }: { value: number }) {
+  const positive = value >= 0
+  return (
+    <span
+      className={`font-semibold ${
+        positive ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'
+      }`}
+    >
+      {positive ? '+' : ''}
+      {formatRon(value)}
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sor-műveletek (asztali ikon-gombok + mobil kártya-gombok)
+// ─────────────────────────────────────────────────────────────────────────
+function RowActions({ name, onEdit, onDelete }: { name: string; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onEdit}
+        className="size-9 p-0 text-muted-foreground hover:text-foreground"
+        aria-label={`${name} szerkesztése`}
+        title="Szerkesztés"
+      >
+        <Edit2 className="size-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onDelete}
+        className="size-9 p-0 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+        aria-label={`${name} törlése`}
+        title="Törlés"
+      >
+        <Trash2 className="size-4" />
+      </Button>
+    </div>
+  )
+}
+
+function MobileCardActions({ name, onEdit, onDelete }: { name: string; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="mt-2 flex gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onEdit}
+        className="min-h-11 flex-1 gap-1.5"
+        aria-label={`${name} szerkesztése`}
+      >
+        <Edit2 className="size-3.5" />
+        Szerkesztés
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onDelete}
+        className="min-h-11 flex-1 gap-1.5 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+        aria-label={`${name} törlése`}
+      >
+        <Trash2 className="size-3.5" />
+        Törlés
+      </Button>
     </div>
   )
 }
@@ -639,6 +955,12 @@ function CostEditDialog({
     megjegyzes: editing?.megjegyzes ?? '',
   })
   const [isPending, startTransition] = useTransition()
+
+  // Elavult kategóriát (vercel) új tételhez nem kínálunk fel — csak akkor
+  // jelenik meg, ha egy meglévő (historikus) tétel már ezt használja.
+  const categoryOptions = (Object.keys(COST_CATEGORY_LABELS) as CostCategory[]).filter(
+    (k) => k !== 'vercel' || editing?.kategoria === 'vercel',
+  )
 
   function handleSave() {
     if (!form.nev.trim()) {
@@ -667,9 +989,9 @@ function CostEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[min(560px,96vw)] rounded-2xl border-rose-200">
+      <DialogContent className="!max-w-[min(560px,96vw)] rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-heading text-xl text-slate-800">
+          <DialogTitle className="font-heading text-xl text-foreground">
             {editing ? 'Költségtétel szerkesztése' : 'Új költségtétel'}
           </DialogTitle>
         </DialogHeader>
@@ -678,9 +1000,9 @@ function CostEditDialog({
             <select
               value={form.kategoria}
               onChange={(e) => setForm({ ...form, kategoria: e.target.value as CostCategory })}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              className={`${SELECT_CLASS} w-full`}
             >
-              {(Object.keys(COST_CATEGORY_LABELS) as CostCategory[]).map((k) => (
+              {categoryOptions.map((k) => (
                 <option key={k} value={k}>{COST_CATEGORY_LABELS[k]}</option>
               ))}
             </select>
@@ -688,7 +1010,7 @@ function CostEditDialog({
           <ModalField label="Megnevezés">
             <Input value={form.nev} onChange={(e) => setForm({ ...form, nev: e.target.value })} />
           </ModalField>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModalField label="Havi USD">
               <Input
                 type="number" step="0.01"
@@ -715,29 +1037,30 @@ function CostEditDialog({
           <ModalField label="Megjegyzés">
             <Input value={form.megjegyzes || ''} onChange={(e) => setForm({ ...form, megjegyzes: e.target.value })} />
           </ModalField>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex min-h-11 items-center gap-2 text-sm text-foreground">
               <input
                 type="checkbox"
+                className="size-4 accent-[var(--primary)]"
                 checked={form.aktiv}
                 onChange={(e) => setForm({ ...form, aktiv: e.target.checked })}
               />
               Aktív
             </label>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-slate-500">Sorszám:</span>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Sorszám:</span>
               <Input
                 type="number"
-                className="w-20 h-8"
+                className="h-9 w-20"
                 value={form.sorszam}
                 onChange={(e) => setForm({ ...form, sorszam: Number(e.target.value) })}
               />
-            </div>
+            </label>
           </div>
         </div>
-        <div className="flex gap-2 justify-end border-t border-slate-100 pt-3 -mx-6 px-6">
+        <div className="-mx-6 flex justify-end gap-2 border-t border-border px-6 pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Mégse</Button>
-          <Button onClick={handleSave} disabled={isPending} className="rounded-xl bg-rose-600 text-white hover:bg-rose-700">
+          <Button onClick={handleSave} disabled={isPending} className="rounded-xl">
             {isPending ? 'Mentés…' : 'Mentés'}
           </Button>
         </div>
@@ -795,9 +1118,9 @@ function TierEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[min(560px,96vw)] rounded-2xl border-teal-200">
+      <DialogContent className="!max-w-[min(560px,96vw)] rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-heading text-xl text-slate-800">
+          <DialogTitle className="font-heading text-xl text-foreground">
             {editing ? 'Árazási sáv szerkesztése' : 'Új árazási sáv'}
           </DialogTitle>
         </DialogHeader>
@@ -809,14 +1132,14 @@ function TierEditDialog({
             <select
               value={form.tipus}
               onChange={(e) => setForm({ ...form, tipus: e.target.value as PricingTierType })}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              className={`${SELECT_CLASS} w-full`}
             >
               {(Object.keys(PRICING_TIER_TYPE_LABELS) as PricingTierType[]).map((k) => (
                 <option key={k} value={k}>{PRICING_TIER_TYPE_LABELS[k]}</option>
               ))}
             </select>
           </ModalField>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModalField label="Min. tagok">
               <Input
                 type="number"
@@ -832,15 +1155,15 @@ function TierEditDialog({
               />
             </ModalField>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <ModalField label="Havi díj RON">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <ModalField label="Havi díj (RON/hó)">
               <Input
                 type="number" step="0.01"
                 value={form.havi_dij_ron}
                 onChange={(e) => setForm({ ...form, havi_dij_ron: Number(e.target.value) })}
               />
             </ModalField>
-            <ModalField label="Éves díj RON">
+            <ModalField label="Éves díj (RON/év)">
               <Input
                 type="number" step="0.01"
                 value={form.eves_dij_ron}
@@ -851,29 +1174,30 @@ function TierEditDialog({
           <ModalField label="Megjegyzés">
             <Input value={form.megjegyzes || ''} onChange={(e) => setForm({ ...form, megjegyzes: e.target.value })} />
           </ModalField>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex min-h-11 items-center gap-2 text-sm text-foreground">
               <input
                 type="checkbox"
+                className="size-4 accent-[var(--primary)]"
                 checked={form.aktiv}
                 onChange={(e) => setForm({ ...form, aktiv: e.target.checked })}
               />
               Aktív
             </label>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-slate-500">Sorszám:</span>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Sorszám:</span>
               <Input
                 type="number"
-                className="w-20 h-8"
+                className="h-9 w-20"
                 value={form.sorszam}
                 onChange={(e) => setForm({ ...form, sorszam: Number(e.target.value) })}
               />
-            </div>
+            </label>
           </div>
         </div>
-        <div className="flex gap-2 justify-end border-t border-slate-100 pt-3 -mx-6 px-6">
+        <div className="-mx-6 flex justify-end gap-2 border-t border-border px-6 pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Mégse</Button>
-          <Button onClick={handleSave} disabled={isPending} className="rounded-xl bg-teal-600 text-white hover:bg-teal-700">
+          <Button onClick={handleSave} disabled={isPending} className="rounded-xl">
             {isPending ? 'Mentés…' : 'Mentés'}
           </Button>
         </div>
@@ -935,11 +1259,16 @@ function SubscriptionEditDialog({
     })
   }
 
+  // A dij_ron oszlop a szerveren a típus szerint értelmeződik:
+  // 'havi' → RON/hó, 'eves' → RON/év. A címke és a súgó ezt egyértelműsíti,
+  // különben éves típusnál 12x-es félreárazás lehet a havinak szánt összegből.
+  const egyediDijUnit = dijUnit(form.tipus)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[min(640px,96vw)] rounded-2xl border-indigo-200">
+      <DialogContent className="!max-w-[min(640px,96vw)] rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-heading text-xl text-slate-800">
+          <DialogTitle className="font-heading text-xl text-foreground">
             {editing ? 'Előfizetés szerkesztése' : 'Új előfizetés'}
           </DialogTitle>
         </DialogHeader>
@@ -949,7 +1278,7 @@ function SubscriptionEditDialog({
               value={form.congregation_id}
               onChange={(e) => setForm({ ...form, congregation_id: e.target.value })}
               disabled={!!editing}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              className={`${SELECT_CLASS} w-full`}
             >
               <option value="">— válassz —</option>
               {congregations.map((c) => (
@@ -957,12 +1286,12 @@ function SubscriptionEditDialog({
               ))}
             </select>
           </ModalField>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModalField label="Árazási sáv">
               <select
                 value={form.pricing_tier_id ?? ''}
                 onChange={(e) => setForm({ ...form, pricing_tier_id: e.target.value ? Number(e.target.value) : undefined })}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                className={`${SELECT_CLASS} w-full`}
               >
                 <option value="">— nincs (egyedi díj) —</option>
                 {tiers.filter((t) => t.aktiv).map((t) => (
@@ -976,7 +1305,7 @@ function SubscriptionEditDialog({
               <select
                 value={form.tipus}
                 onChange={(e) => setForm({ ...form, tipus: e.target.value as SubscriptionType })}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                className={`${SELECT_CLASS} w-full`}
               >
                 {(Object.keys(SUBSCRIPTION_TYPE_LABELS) as SubscriptionType[]).map((k) => (
                   <option key={k} value={k}>{SUBSCRIPTION_TYPE_LABELS[k]}</option>
@@ -984,15 +1313,19 @@ function SubscriptionEditDialog({
               </select>
             </ModalField>
           </div>
-          <ModalField label="Egyedi díj RON (opcionális, felülírja a sáv szerintit)">
+          <ModalField label={`Egyedi díj (${egyediDijUnit}) — opcionális, felülírja a sáv szerintit`}>
             <Input
               type="number" step="0.01"
               value={form.dij_ron ?? ''}
               onChange={(e) => setForm({ ...form, dij_ron: e.target.value ? Number(e.target.value) : undefined })}
-              placeholder="Pl. 50 RON"
+              placeholder={form.tipus === 'eves' ? 'Pl. 600 (egész évre)' : 'Pl. 50'}
             />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              A mező a kiválasztott típus szerint értelmeződik: havi típusnál a havi díjat,{' '}
+              <strong>éves típusnál az ÉVES összeget add meg</strong>.
+            </p>
           </ModalField>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ModalField label="Kezdet">
               <Input type="date" value={form.kezdet} onChange={(e) => setForm({ ...form, kezdet: e.target.value })} />
             </ModalField>
@@ -1003,18 +1336,19 @@ function SubscriptionEditDialog({
           <ModalField label="Megjegyzés">
             <Input value={form.megjegyzes || ''} onChange={(e) => setForm({ ...form, megjegyzes: e.target.value })} />
           </ModalField>
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
+              className="size-4 accent-[var(--primary)]"
               checked={form.aktiv}
               onChange={(e) => setForm({ ...form, aktiv: e.target.checked })}
             />
             Aktív
           </label>
         </div>
-        <div className="flex gap-2 justify-end border-t border-slate-100 pt-3 -mx-6 px-6">
+        <div className="-mx-6 flex justify-end gap-2 border-t border-border px-6 pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Mégse</Button>
-          <Button onClick={handleSave} disabled={isPending} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">
+          <Button onClick={handleSave} disabled={isPending} className="rounded-xl">
             {isPending ? 'Mentés…' : 'Mentés'}
           </Button>
         </div>

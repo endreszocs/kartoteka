@@ -9,6 +9,13 @@
  *   - sima megerősítés (igen/nem),
  *   - opcionális INDOK-mező (`reasonLabel` megadásakor) — a `window.prompt`
  *     kiváltására; az onConfirm a beírt szöveget kapja.
+ *
+ * 2026-07-11 admin-redesign (a prop-API változatlan):
+ *   - token-alapú színek (dark-safe), a hardkódolt violet/rose/white kivezetve,
+ *   - a leírás DialogDescription-ként renderelődik (aria-describedby a
+ *     képernyőolvasónak), a megerősítő gomb danger-tónusa a rendszer
+ *     destructive variánsa,
+ *   - mobilon a gombsor egymás alá törik (teljes szélességű, jól koppintható).
  */
 
 import { useEffect, useState } from 'react'
@@ -17,6 +24,8 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -31,7 +40,7 @@ interface AdminConfirmDialogProps {
   description?: React.ReactNode
   confirmLabel?: string
   cancelLabel?: string
-  /** 'danger' → piros megerősítő gomb (visszafordíthatatlan/erős művelet). */
+  /** 'danger' → destruktív megerősítő gomb (visszafordíthatatlan/erős művelet). */
   tone?: 'default' | 'danger'
   loading?: boolean
   /** Ha megadott, INDOK-mező jelenik meg (a window.prompt kiváltására). */
@@ -76,61 +85,67 @@ export function AdminConfirmDialog({
     (!reasonRequired && trimmed.length === 0) ||
     trimmed.length >= Math.max(reasonMinLength, reasonRequired ? 1 : 0)
 
-  const confirmBtnCls =
-    tone === 'danger'
-      ? 'bg-rose-600 hover:bg-rose-700 text-white'
-      : 'bg-violet-600 hover:bg-violet-700 text-white'
+  const danger = tone === 'danger'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b border-slate-100 bg-slate-50/60">
-          <DialogTitle className="flex items-center gap-2 font-heading text-lg text-slate-800">
-            {tone === 'danger' && <AlertTriangle className="size-5 text-rose-600" />}
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 pr-8 text-lg text-foreground">
+            {danger && <AlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden />}
             {title}
           </DialogTitle>
+          {description ? (
+            // render={<div/>} — a leírás tetszőleges ReactNode lehet, de az
+            // aria-describedby bekötés (Base UI Description) így is megmarad.
+            <DialogDescription render={<div />} className="leading-relaxed">
+              {description}
+            </DialogDescription>
+          ) : null}
         </DialogHeader>
 
-        <div className="p-6 space-y-4">
-          {description && <div className="text-sm text-slate-600 leading-relaxed">{description}</div>}
-
-          {reasonLabel && (
-            <div>
-              <Label className="text-sm font-medium text-slate-700">
-                {reasonLabel}
-                {reasonRequired && <span className="text-rose-500"> *</span>}
-              </Label>
-              <Textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder={reasonPlaceholder}
-                rows={3}
-                className="mt-1 bg-white border-slate-300 shadow-sm"
-                autoFocus
-                disabled={loading}
-              />
-              {reasonMinLength > 0 && (
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Legalább {reasonMinLength} karakter ({trimmed.length}/{reasonMinLength})
-                </p>
+        {reasonLabel && (
+          <div className="space-y-1.5">
+            <Label htmlFor="admin-confirm-reason">
+              {reasonLabel}
+              {reasonRequired && (
+                <span className="text-destructive" aria-hidden>
+                  {' '}
+                  *
+                </span>
               )}
-            </div>
-          )}
-        </div>
+            </Label>
+            <Textarea
+              id="admin-confirm-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={reasonPlaceholder}
+              rows={3}
+              autoFocus
+              disabled={loading}
+            />
+            {reasonMinLength > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                Legalább {reasonMinLength} karakter ({trimmed.length}/{reasonMinLength})
+              </p>
+            )}
+          </div>
+        )}
 
-        <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-3 flex items-center justify-end gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             {cancelLabel}
           </Button>
           <Button
+            variant={danger ? 'destructive' : 'default'}
             onClick={() => onConfirm(reasonLabel ? trimmed : undefined)}
             disabled={loading || !reasonOk}
-            className={`gap-2 ${confirmBtnCls}`}
+            className="gap-2"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {confirmLabel}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -21,6 +21,8 @@ interface AdminPageHeaderProps {
   actions?: ReactNode
   /** Kis statisztika-kártyák a fejléc alján */
   stats?: Array<{ label: string; value: string | number }>
+  /** Az /admin főoldalon a „Vissza az áttekintőhöz" link önmagára mutatna — ott rejtjük. */
+  hideBackLink?: boolean
   /**
    * @deprecated 2026-07-11 admin-redesign: a fejléc téma-tokenekből színez
    * (var(--primary)/var(--accent)), az oldalankénti gradient megszűnt.
@@ -46,6 +48,7 @@ export function AdminPageHeader({
   tone = 'default',
   actions,
   stats,
+  hideBackLink = false,
 }: AdminPageHeaderProps) {
   const danger = tone === 'danger'
 
@@ -104,13 +107,15 @@ export function AdminPageHeader({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:flex-col sm:items-end sm:self-end">
-          <Link
-            href="/admin"
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
-          >
-            <ChevronLeft className="size-3.5" />
-            Vissza az áttekintőhöz
-          </Link>
+          {!hideBackLink && (
+            <Link
+              href="/admin"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+            >
+              <ChevronLeft className="size-3.5" />
+              Vissza az áttekintőhöz
+            </Link>
+          )}
           {actions ? (
             <div className="flex flex-wrap items-center gap-2">{actions}</div>
           ) : null}

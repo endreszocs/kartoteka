@@ -1,42 +1,43 @@
 'use client'
 
 /**
- * Admin "Frissítések" fül — broadcast üzenetek küldése és archívum.
+ * Admin „Frissítések" fül — héj: navigáció + adatbetöltés + szekció-router.
  *
- * 3 szekció:
- *  1. Nem elküldött CHANGELOG bejegyzések — egy kattintással kiküldhetők
- *  2. Új üzenet form — kézi broadcast (címzés, tipus, email, hivatkozas)
- *  3. Korábbi broadcastok archív listája
+ * 2026-07-11 admin-redesign: az 1300 soros fájl szét lett bontva a
+ * components/admin/broadcasts/ könyvtárba:
+ *   - broadcasts-overview.tsx      — áttekintő kártyák
+ *   - changelog-send-section.tsx   — fejlesztések kiküldése (+ KÖTELEZŐ bugfix:
+ *                                    a tömeges küldés nem force-újraküld némán)
+ *   - broadcast-compose-section.tsx — kézi üzenet (saját címzés-állapottal)
+ *   - broadcast-archive.tsx        — elküldött üzenetek (kinyitható törzs)
+ *   - broadcast-target-picker.tsx / email-opt-in.tsx / delivery-badges.tsx / format.ts
+ *
+ * További javítások:
+ *   - a kezdeti betöltés hibája többé nem néma (hiba-panel + újrapróbálás);
+ *   - a küldés utáni frissítés nem cseréli az egész felületet betöltő-szövegre
+ *     (a tartalom és a görgetési pozíció megmarad);
+ *   - token-alapú színek (dark-safe), mobil-first navigáció;
+ *   - a duplikált belső hero-fejléc megszűnt (az oldal-fejlécet az
+ *     AdminPageHeader adja).
  */
 
-import { useEffect, useMemo, useState, useTransition, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Bell,
-  ChevronDown,
   ChevronRight,
-  Check,
   Clock,
-  ExternalLink,
   LayoutGrid,
-  Mail,
-  MailWarning,
-  MessageSquare,
+  RefreshCw,
   Send,
   Sparkles,
-  Users,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { AdminSkeleton } from '@/components/admin/_shared/admin-skeleton'
 
 import {
-  sendBroadcast,
-  sendChangelogBroadcast,
   listBroadcasts,
   listChangelogEntries,
   listCongregationsForBroadcast,
@@ -44,50 +45,40 @@ import {
   listDistrictsForBroadcast,
 } from '@/app/(dashboard)/admin/broadcasts-actions'
 
+import type { BroadcastRow, ChangelogEntry } from '@/lib/broadcasts/types'
+
 import { NewsletterComposeDialog } from './newsletter-compose-dialog'
-import { AdminConfirmDialog } from './admin-confirm-dialog'
-
-import {
-  BROADCAST_TARGET_SCOPE_LABELS,
-  BROADCAST_TARGET_ROLE_LABELS,
-  BROADCAST_TIPUS_LABELS,
-  RELEASE_CATEGORY_LABELS,
-  ROLE_OPTIONS,
-  type BroadcastComposeInput,
-  type BroadcastRow,
-  type BroadcastTargetRole,
-  type BroadcastTargetScope,
-  type BroadcastTipus,
-  type ChangelogEntry,
-} from '@/lib/broadcasts/types'
-
-interface CongLite { id: string; name: string; diocese_id: string | null }
-interface DioceseLite { id: string; name: string; district_id: string | null }
-interface DistrictLite { id: string; name: string }
-
-/**
- * 2026-06-05 — Apple-beállítás-stílusú menürend. A korábbi egyetlen hosszú
- * görgetés helyett bal oldali menü + jobb oldali tartalom: minden funkció
- * külön „lapon”, így átláthatóbb, mit mire használunk.
- */
-type SectionId = 'overview' | 'changelog' | 'compose' | 'archive'
+import { BroadcastsOverview, type BroadcastSectionId } from './broadcasts/broadcasts-overview'
+import { ChangelogSendSection } from './broadcasts/changelog-send-section'
+import { BroadcastComposeSection } from './broadcasts/broadcast-compose-section'
+import { BroadcastArchive } from './broadcasts/broadcast-archive'
+import type {
+  CongLite,
+  DioceseLite,
+  DistrictLite,
+} from './broadcasts/broadcast-target-picker'
 
 const NAV_ITEMS: Array<{
-  id: SectionId
+  id: BroadcastSectionId
   label: string
   icon: LucideIcon
   hint: string
 }> = [
   { id: 'overview', label: 'Áttekintés', icon: LayoutGrid, hint: 'Mire való ez az oldal' },
-  { id: 'changelog', label: 'Fejlesztések kiküldése', icon: Sparkles, hint: 'Újdonságok és hírlevél a felhasználóknak' },
-  { id: 'compose', label: 'Új üzenet írása', icon: Send, hint: 'Saját broadcast üzenet összeállítása' },
-  { id: 'archive', label: 'Elküldött üzenetek', icon: Clock, hint: 'Korábban kiküldött broadcastok' },
+  {
+    id: 'changelog',
+    label: 'Fejlesztések kiküldése',
+    icon: Sparkles,
+    hint: 'Újdonságok és hírlevél a felhasználóknak',
+  },
+  { id: 'compose', label: 'Új üzenet írása', icon: Send, hint: 'Saját üzenet összeállítása' },
+  { id: 'archive', label: 'Elküldött üzenetek', icon: Clock, hint: 'Korábbi kiküldések' },
 ]
 
 export function BroadcastsTab() {
-  const [isPending, startTransition] = useTransition()
   const [loading, setLoading] = useState(true)
-  const [section, setSection] = useState<SectionId>('overview')
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [section, setSection] = useState<BroadcastSectionId>('overview')
 
   const [entries, setEntries] = useState<ChangelogEntry[]>([])
   const [broadcasts, setBroadcasts] = useState<BroadcastRow[]>([])
@@ -95,29 +86,13 @@ export function BroadcastsTab() {
   const [dioceses, setDioceses] = useState<DioceseLite[]>([])
   const [districts, setDistricts] = useState<DistrictLite[]>([])
 
-  // Compose form
-  const [cim, setCim] = useState('')
-  const [uzenet, setUzenet] = useState('')
-  const [tipus, setTipus] = useState<BroadcastTipus>('info')
-  const [hivatkozas, setHivatkozas] = useState('')
-  const [scope, setScope] = useState<BroadcastTargetScope>('all')
-  const [targetRole, setTargetRole] = useState<BroadcastTargetRole>('lelkesz')
-  const [selectedCongIds, setSelectedCongIds] = useState<string[]>([])
-  const [selectedDioceseIds, setSelectedDioceseIds] = useState<string[]>([])
-  const [selectedDistrictIds, setSelectedDistrictIds] = useState<string[]>([])
-  const [sendEmail, setSendEmail] = useState(false)
   const [newsletterOpen, setNewsletterOpen] = useState(false)
-  const [expandedEntryKeys, setExpandedEntryKeys] = useState<Set<string>>(new Set())
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
-  // 2026-06-07: natív window.confirm helyett közös megerősítő dialógus.
-  const [confirmState, setConfirmState] = useState<{
-    title: string
-    description: ReactNode
-    confirmLabel: string
-    onYes: () => void
-  } | null>(null)
 
-  async function fetchAll() {
+  /**
+   * Az 5 lista lekérése. FIX 2026-07-11: a visszaadott { error }-ok többé nem
+   * vesznek el némán — összegyűjtjük és hiba-panelben mutatjuk.
+   */
+  const fetchAll = useCallback(async () => {
     const [e, b, c, d, di] = await Promise.all([
       listChangelogEntries(),
       listBroadcasts(),
@@ -125,492 +100,204 @@ export function BroadcastsTab() {
       listDiocesesForBroadcast(),
       listDistrictsForBroadcast(),
     ])
-    return { e, b, c, d, di }
-  }
 
-  function applyAll(res: Awaited<ReturnType<typeof fetchAll>>) {
-    if (res.e.data) setEntries(res.e.data)
-    if (res.b.data) setBroadcasts(res.b.data)
-    if (res.c.data) setCongregations(res.c.data)
-    if (res.d.data) setDioceses(res.d.data)
-    if (res.di.data) setDistricts(res.di.data)
-  }
+    if (e.data) setEntries(e.data)
+    if (b.data) setBroadcasts(b.data)
+    if (c.data) setCongregations(c.data)
+    if (d.data) setDioceses(d.data)
+    if (di.data) setDistricts(di.data)
 
-  function reload() {
-    setLoading(true)
-    fetchAll()
-      .then(applyAll)
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    fetchAll()
-      .then((res) => {
-        if (cancelled) return
-        if (res.e.data) setEntries(res.e.data)
-        if (res.b.data) setBroadcasts(res.b.data)
-        if (res.c.data) setCongregations(res.c.data)
-        if (res.d.data) setDioceses(res.d.data)
-        if (res.di.data) setDistricts(res.di.data)
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    const errors = [e.error, b.error, c.error, d.error, di.error].filter(
+      (x): x is string => !!x,
+    )
+    return errors.length > 0 ? Array.from(new Set(errors)).join(' · ') : null
   }, [])
 
-  // Aktív bejegyzések: amiket még kezelünk (kiküldés/újraküldés). A "readMarked"
-  // (küszöb előtti, archivált) bejegyzéseket külön, csak-olvasható csoportban
-  // mutatjuk — ezeket nem küldjük ki hírlevélben.
+  const initialLoad = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    fetchAll()
+      .then((err) => setLoadError(err))
+      .catch((err) =>
+        setLoadError(err instanceof Error ? err.message : 'Ismeretlen betöltési hiba.'),
+      )
+      .finally(() => setLoading(false))
+  }, [fetchAll])
+
+  useEffect(() => {
+    // rAF-deferral — a synchronous setState-in-effect lint elkerülésére
+    // (ugyanaz a minta, mint a support-tab / admin-confirm-dialog esetén).
+    const raf = requestAnimationFrame(() => initialLoad())
+    return () => cancelAnimationFrame(raf)
+  }, [initialLoad])
+
+  /**
+   * Küldés utáni frissítés — NEM üríti ki a felületet (a korábbi teljes
+   * „Adatok betöltése…" csere helyett), csak csendben újratölti a listákat.
+   */
+  const reload = useCallback(() => {
+    fetchAll()
+      .then((err) => {
+        if (err) toast.error(`A lista frissítése részben sikertelen: ${err}`)
+      })
+      .catch(() => toast.error('A lista frissítése nem sikerült.'))
+  }, [fetchAll])
+
+  // Memoizálva — a NewsletterComposeDialog reset-effektje ezekre hivatkozik,
+  // stabil identitás nélkül minden szülő-render kiütné a dialógus állapotát.
   const activeEntries = useMemo(() => entries.filter((e) => !e.readMarked), [entries])
-  const archivedEntries = useMemo(() => entries.filter((e) => e.readMarked), [entries])
   const unsentEntries = useMemo(
-    () => entries.filter((e) => !e.alreadySent && !e.readMarked),
-    [entries],
+    () => activeEntries.filter((e) => !e.alreadySent),
+    [activeEntries],
   )
 
-  function toggleEntry(key: string) {
-    setExpandedEntryKeys((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function toggleSelected(key: string) {
-    setSelectedKeys((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function selectAll() {
-    setSelectedKeys(new Set(activeEntries.map((e) => e.key)))
-  }
-
-  function clearSelection() {
-    setSelectedKeys(new Set())
-  }
-
-  function handleBulkSend() {
-    if (selectedKeys.size === 0) return
-    const scopeLabel = describeScope(scope, targetRole, {
-      congs: selectedCongIds.length,
-      dioceses: selectedDioceseIds.length,
-      districts: selectedDistrictIds.length,
-    })
-    setConfirmState({
-      title: 'Kijelölt frissítések kiküldése',
-      description: (
-        <>
-          <strong>{selectedKeys.size}</strong> kiválasztott frissítés kiküldése a következő
-          címzetteknek: <strong>{scopeLabel}</strong>
-          {sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}.
-        </>
-      ),
-      confirmLabel: 'Kiküldés',
-      onYes: runBulkSend,
-    })
-  }
-
-  function runBulkSend() {
-    if (selectedKeys.size === 0) return
-    startTransition(async () => {
-      let totalRecipients = 0
-      let succeeded = 0
-      let failed = 0
-      for (const e of entries.filter((x) => selectedKeys.has(x.key))) {
-        const result = await sendChangelogBroadcast({
-          changelogKey: e.key,
-          targetScope: scope,
-          targetRole: scope === 'role' ? targetRole : null,
-          targetCongregationIds: scope === 'congregation' ? selectedCongIds : undefined,
-          targetDioceseIds: scope === 'diocese' ? selectedDioceseIds : undefined,
-          targetDistrictIds: scope === 'district' ? selectedDistrictIds : undefined,
-          sendEmail,
-          hivatkozas: null,
-          force: e.alreadySent, // ha már elküldték, force=true
-        })
-        if ('error' in result && result.error) {
-          failed++
-          toast.error(`"${e.title}": ${result.error}`)
-        } else {
-          succeeded++
-          totalRecipients += result.recipientCount || 0
-        }
-      }
-      if (succeeded > 0) {
-        toast.success(`${succeeded} frissítés elküldve ${totalRecipients} címzettnek.`)
-      }
-      if (failed > 0) {
-        toast.error(`${failed} frissítés küldése sikertelen.`)
-      }
-      clearSelection()
-      reload()
-    })
-  }
-
-  function resetForm() {
-    setCim('')
-    setUzenet('')
-    setTipus('info')
-    setHivatkozas('')
-    setScope('all')
-    setTargetRole('lelkesz')
-    setSelectedCongIds([])
-    setSelectedDioceseIds([])
-    setSelectedDistrictIds([])
-    setSendEmail(false)
-  }
-
-  function buildComposeInput(): BroadcastComposeInput {
-    return {
-      cim,
-      uzenet,
-      tipus,
-      hivatkozas: hivatkozas.trim() || null,
-      targetScope: scope,
-      targetRole: scope === 'role' ? targetRole : null,
-      targetCongregationIds: scope === 'congregation' ? selectedCongIds : undefined,
-      targetDioceseIds: scope === 'diocese' ? selectedDioceseIds : undefined,
-      targetDistrictIds: scope === 'district' ? selectedDistrictIds : undefined,
-      sendEmail,
-    }
-  }
-
-  function handleSend() {
-    const input = buildComposeInput()
-    startTransition(async () => {
-      const result = await sendBroadcast(input)
-      if ('error' in result && result.error) {
-        toast.error(result.error)
-        return
-      }
-      toast.success(`Üzenet elküldve ${result.recipientCount} címzettnek.`)
-      resetForm()
-      reload()
-    })
-  }
-
-  function handleChangelogSend(entry: ChangelogEntry, options?: { force?: boolean }) {
-    const force = options?.force ?? false
-    if (force) {
-      setConfirmState({
-        title: 'Frissítés újraküldése',
-        description: (
-          <>
-            Az „<strong>{entry.title}</strong>” frissítést újra kiküldjük minden kiválasztott
-            címzettnek{sendEmail ? ' (értesítés + e-mail)' : ' (csak értesítés)'}.
-          </>
-        ),
-        confirmLabel: 'Újraküldés',
-        onYes: () => runChangelogSend(entry, true),
-      })
-      return
-    }
-    runChangelogSend(entry, false)
-  }
-
-  function runChangelogSend(entry: ChangelogEntry, force: boolean) {
-    startTransition(async () => {
-      const result = await sendChangelogBroadcast({
-        changelogKey: entry.key,
-        targetScope: scope,
-        targetRole: scope === 'role' ? targetRole : null,
-        targetCongregationIds: scope === 'congregation' ? selectedCongIds : undefined,
-        targetDioceseIds: scope === 'diocese' ? selectedDioceseIds : undefined,
-        targetDistrictIds: scope === 'district' ? selectedDistrictIds : undefined,
-        sendEmail,
-        hivatkozas: null,
-        force,
-      })
-      if ('error' in result && result.error) {
-        toast.error(result.error)
-        return
-      }
-      const verb = (result as { resent?: boolean }).resent ? 'újra elküldve' : 'közzétéve'
-      toast.success(`Frissítés ${verb} ${result.recipientCount} címzettnek.`)
-      reload()
-    })
-  }
-
   if (loading) {
-    return <div className="p-10 text-center text-slate-400 animate-pulse">Adatok betöltése…</div>
+    return <AdminSkeleton rows={6} className="py-4" />
   }
 
-  const scopeLabel = describeScope(scope, targetRole, {
-    congs: selectedCongIds.length,
-    dioceses: selectedDioceseIds.length,
-    districts: selectedDistrictIds.length,
-  })
+  if (loadError && entries.length === 0 && broadcasts.length === 0) {
+    // Semmi nem töltődött be — teljes hiba-állapot újrapróbálással.
+    return <LoadErrorPanel message={loadError} onRetry={initialLoad} />
+  }
 
-  const navBadge: Partial<Record<SectionId, number>> = {
-    changelog: unsentEntries.length,
+  const unsentCount = unsentEntries.length
+
+  const navBadge: Partial<Record<BroadcastSectionId, number>> = {
+    changelog: unsentCount,
     archive: broadcasts.length,
   }
 
   return (
-    <div className="space-y-5">
-      {/* Fejléc */}
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-5">
-        <div className="flex items-start gap-3">
-          <Bell className="size-5 text-indigo-600 mt-0.5" />
-          <div>
-            <h2 className="font-heading text-lg text-slate-800">Frissítések és üzenetek</h2>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Innen értesítheted a felhasználókat új fejlesztésekről, vagy küldhetsz saját
-              üzenetet. Válassz a bal oldali menüből, mit szeretnél csinálni.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-4">
+      {loadError && <LoadErrorPanel message={loadError} onRetry={initialLoad} compact />}
 
-      {/* Apple-beállítás-stílusú elrendezés: bal menü + jobb tartalom */}
+      {/* Mobil: vízszintes chip-navigáció */}
+      <nav aria-label="Frissítések szekciók" className="flex flex-wrap gap-2 lg:hidden">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon
+          const active = section === item.id
+          const badge = navBadge[item.id]
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              variant="outline"
+              onClick={() => setSection(item.id)}
+              aria-current={active ? 'page' : undefined}
+              className={`min-h-11 gap-1.5 rounded-xl px-3 ${
+                active
+                  ? 'border-transparent bg-primary/10 font-medium text-primary ring-1 ring-primary/30 hover:bg-primary/15'
+                  : 'text-muted-foreground'
+              }`}
+            >
+              <Icon className="size-4" aria-hidden />
+              {item.label}
+              {badge != null && badge > 0 && (
+                <Badge
+                  className={
+                    active
+                      ? 'border-transparent bg-primary text-primary-foreground'
+                      : 'border-border bg-muted text-muted-foreground'
+                  }
+                >
+                  {badge}
+                </Badge>
+              )}
+            </Button>
+          )
+        })}
+      </nav>
+
       <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
-        {/* BAL: menü */}
-        <nav className="card-raised h-fit overflow-hidden p-2 lg:sticky lg:top-4">
+        {/* Desktop: bal oldali menü */}
+        <nav
+          aria-label="Frissítések szekciók"
+          className="hidden h-fit overflow-hidden rounded-2xl border border-border bg-card p-2 lg:sticky lg:top-4 lg:block"
+        >
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon
             const active = section === item.id
             const badge = navBadge[item.id]
             return (
+              // Teljes-soros menügomb (engedélyezett wrapper-kivétel)
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setSection(item.id)}
+                aria-current={active ? 'page' : undefined}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                   active
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-slate-600 hover:bg-slate-50'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                 }`}
               >
                 <span
                   className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
-                    active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
                   }`}
                 >
-                  <Icon className="size-4" />
+                  <Icon className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium leading-tight">{item.label}</span>
-                  <span className="block truncate text-[11px] text-slate-400">{item.hint}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground/80">
+                    {item.hint}
+                  </span>
                 </span>
                 {badge != null && badge > 0 && (
                   <Badge
                     className={
                       active
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                        ? 'border-transparent bg-primary text-primary-foreground'
+                        : 'border-border bg-muted text-muted-foreground'
                     }
                   >
                     {badge}
                   </Badge>
                 )}
-                <ChevronRight className={`size-4 shrink-0 ${active ? 'text-indigo-400' : 'text-slate-300'}`} />
+                <ChevronRight
+                  className={`size-4 shrink-0 ${active ? 'text-primary/60' : 'text-muted-foreground/40'}`}
+                  aria-hidden
+                />
               </button>
             )
           })}
         </nav>
 
-        {/* JOBB: tartalom */}
+        {/* Tartalom */}
         <div className="min-w-0">
           {section === 'overview' && (
-            <OverviewSection
+            <BroadcastsOverview
               entriesCount={entries.length}
-              unsentCount={unsentEntries.length}
+              unsentCount={unsentCount}
               broadcastsCount={broadcasts.length}
               onGo={setSection}
             />
           )}
 
           {section === 'changelog' && (
-            <section className="card-raised overflow-hidden">
-              <header className="border-b border-slate-100 px-5 py-4 bg-indigo-50/40">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Sparkles className="size-4 text-indigo-600" />
-                  <h3 className="font-heading text-base text-slate-800">Fejlesztések kiküldése</h3>
-                  <Badge className="bg-white text-slate-700 border-slate-200">{entries.length} összesen</Badge>
-                  <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">
-                    {unsentEntries.length} kiküldésre vár
-                  </Badge>
-                  {selectedKeys.size > 0 && (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-                      {selectedKeys.size} kijelölve
-                    </Badge>
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-slate-500 leading-relaxed">
-                  Az új fejlesztéseket a rendszer a <code>CHANGELOG</code>-ból olvassa ki. Jelölj ki
-                  egyet vagy többet és küldd ki értesítésként, vagy állíts össze belőlük egy szép
-                  <strong> hírlevelet</strong> (ott magadnak is küldhetsz tesztet).
-                </p>
-              </header>
-              <div className="p-5 space-y-4">
-                {/* Címzettek a kiküldéshez */}
-                <TargetPicker
-                  scope={scope} setScope={setScope}
-                  targetRole={targetRole} setTargetRole={setTargetRole}
-                  congregations={congregations}
-                  dioceses={dioceses}
-                  districts={districts}
-                  selectedCongIds={selectedCongIds} setSelectedCongIds={setSelectedCongIds}
-                  selectedDioceseIds={selectedDioceseIds} setSelectedDioceseIds={setSelectedDioceseIds}
-                  selectedDistrictIds={selectedDistrictIds} setSelectedDistrictIds={setSelectedDistrictIds}
-                />
-                <label className="flex items-start gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={sendEmail}
-                    onChange={(e) => setSendEmail(e.target.checked)}
-                    className="mt-1 size-4 rounded border-slate-300"
-                  />
-                  <span className="text-sm text-slate-700">
-                    <span className="font-medium inline-flex items-center gap-1.5">
-                      <Mail className="size-3.5" />
-                      Email értesítés is küldése
-                    </span>
-                    <span className="block text-xs text-slate-500">
-                      A címzettek a csengőben is látják, emellett email-ben is megkapják.
-                    </span>
-                  </span>
-                </label>
-
-                {/* Műveletsor */}
-                <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
-                  {activeEntries.length > 0 && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={selectedKeys.size === activeEntries.length ? clearSelection : selectAll}
-                        disabled={isPending}
-                        className="text-xs"
-                      >
-                        {selectedKeys.size === activeEntries.length ? 'Kijelölés törlése' : 'Mind kijelölése'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={handleBulkSend}
-                        disabled={isPending || selectedKeys.size === 0}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-                      >
-                        <Send className="size-3.5" />
-                        Kijelöltek küldése{sendEmail ? ' + email' : ''}
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={() => setNewsletterOpen(true)}
-                    disabled={unsentEntries.length === 0}
-                    className="ml-auto rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 shadow-sm gap-1.5"
-                  >
-                    <Sparkles className="size-3.5" />
-                    Hírlevél összeállítása
-                  </Button>
-                </div>
-
-                {activeEntries.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">
-                    {entries.length === 0
-                      ? 'Még nincs rögzített CHANGELOG bejegyzés.'
-                      : 'Nincs aktív, kiküldhető bejegyzés — a korábbiak archiváltak (lásd lent).'}
-                  </p>
-                ) : (
-                  <div className="grid gap-3 2xl:grid-cols-2">
-                    {activeEntries.map((e) => (
-                      <ChangelogEntryCard
-                        key={e.key}
-                        entry={e}
-                        selected={selectedKeys.has(e.key)}
-                        onToggleSelected={() => toggleSelected(e.key)}
-                        onSend={() => handleChangelogSend(e)}
-                        onResend={() => handleChangelogSend(e, { force: true })}
-                        isPending={isPending}
-                        scopeLabel={scopeLabel}
-                        sendEmail={sendEmail}
-                        expanded={expandedEntryKeys.has(e.key)}
-                        onToggle={() => toggleEntry(e.key)}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Archivált (küszöb előtti) bejegyzések — csak olvasásra */}
-                {archivedEntries.length > 0 && (
-                  <ArchivedEntriesGroup
-                    entries={archivedEntries}
-                    expandedKeys={expandedEntryKeys}
-                    onToggle={toggleEntry}
-                  />
-                )}
-              </div>
-            </section>
+            <ChangelogSendSection
+              entries={entries}
+              congregations={congregations}
+              dioceses={dioceses}
+              districts={districts}
+              onReload={reload}
+              onOpenNewsletter={() => setNewsletterOpen(true)}
+            />
           )}
 
           {section === 'compose' && (
-            <section className="card-raised overflow-hidden">
-              <header className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 bg-slate-50/60">
-                <Send className="size-4 text-slate-700" />
-                <h3 className="font-heading text-base text-slate-800">Új broadcast üzenet</h3>
-              </header>
-              <div className="p-5 space-y-4">
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Saját, egyedi üzenet a felhasználóknak (pl. jogszabályi változás, fontos hír).
-                  Add meg a tartalmat, válaszd ki a címzetteket, és küldd ki.
-                </p>
-                <ComposeForm
-                  cim={cim} setCim={setCim}
-                  uzenet={uzenet} setUzenet={setUzenet}
-                  tipus={tipus} setTipus={setTipus}
-                  hivatkozas={hivatkozas} setHivatkozas={setHivatkozas}
-                  sendEmail={sendEmail} setSendEmail={setSendEmail}
-                />
-                <TargetPicker
-                  scope={scope} setScope={setScope}
-                  targetRole={targetRole} setTargetRole={setTargetRole}
-                  congregations={congregations}
-                  dioceses={dioceses}
-                  districts={districts}
-                  selectedCongIds={selectedCongIds} setSelectedCongIds={setSelectedCongIds}
-                  selectedDioceseIds={selectedDioceseIds} setSelectedDioceseIds={setSelectedDioceseIds}
-                  selectedDistrictIds={selectedDistrictIds} setSelectedDistrictIds={setSelectedDistrictIds}
-                />
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={resetForm} disabled={isPending}>
-                    Mégse
-                  </Button>
-                  <Button
-                    onClick={handleSend}
-                    disabled={isPending || !cim.trim() || !uzenet.trim()}
-                    className="gap-2 bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    <Send className="size-4" />
-                    Elküldés
-                  </Button>
-                </div>
-              </div>
-            </section>
+            <BroadcastComposeSection
+              congregations={congregations}
+              dioceses={dioceses}
+              districts={districts}
+              onSent={reload}
+            />
           )}
 
-          {section === 'archive' && (
-            <section className="card-raised overflow-hidden">
-              <header className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 bg-slate-50/60">
-                <Clock className="size-4 text-slate-700" />
-                <h3 className="font-heading text-base text-slate-800">Elküldött üzenetek</h3>
-                <span className="ml-auto text-xs text-slate-500">{broadcasts.length} db</span>
-              </header>
-              <div className="p-5 space-y-2">
-                {broadcasts.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">Még nincs elküldött üzenet.</p>
-                ) : (
-                  broadcasts.map((b) => <BroadcastHistoryItem key={b.id} broadcast={b} />)
-                )}
-              </div>
-            </section>
-          )}
+          {section === 'archive' && <BroadcastArchive broadcasts={broadcasts} />}
         </div>
       </div>
 
@@ -622,690 +309,41 @@ export function BroadcastsTab() {
         allEntries={activeEntries}
         onSent={reload}
       />
-
-      {/* Közös megerősítő dialógus (kiküldés / újraküldés) */}
-      <AdminConfirmDialog
-        open={!!confirmState}
-        onOpenChange={(o) => !o && setConfirmState(null)}
-        title={confirmState?.title || ''}
-        description={confirmState?.description}
-        confirmLabel={confirmState?.confirmLabel || 'Megerősítés'}
-        loading={isPending}
-        onConfirm={() => {
-          confirmState?.onYes()
-          setConfirmState(null)
-        }}
-      />
     </div>
   )
 }
 
-/**
- * Áttekintő lap — röviden elmagyarázza, mire való minden menüpont, és
- * gyors-belépőket ad. Ez segít, hogy egyértelmű legyen „mit hogyan lehet”.
- */
-function OverviewSection({
-  entriesCount,
-  unsentCount,
-  broadcastsCount,
-  onGo,
+function LoadErrorPanel({
+  message,
+  onRetry,
+  compact,
 }: {
-  entriesCount: number
-  unsentCount: number
-  broadcastsCount: number
-  onGo: (s: SectionId) => void
-}) {
-  const cards: Array<{
-    id: SectionId
-    icon: LucideIcon
-    title: string
-    body: string
-    cta: string
-    stat?: string
-  }> = [
-    {
-      id: 'changelog',
-      icon: Sparkles,
-      title: 'Fejlesztések kiküldése',
-      body:
-        'Az új fejlesztéseket egy kattintással elküldheted a felhasználóknak értesítésként, vagy szép hírlevélbe csomagolva (amit előbb magadnak is letesztelhetsz).',
-      cta: 'Fejlesztések megnyitása',
-      stat: unsentCount > 0 ? `${unsentCount} kiküldésre vár` : `${entriesCount} bejegyzés`,
-    },
-    {
-      id: 'compose',
-      icon: Send,
-      title: 'Új üzenet írása',
-      body:
-        'Saját, egyedi üzenetet állíthatsz össze (cím + szöveg), kiválaszthatod a címzetteket, és kiküldheted értesítésként vagy email-ben is.',
-      cta: 'Üzenet írása',
-    },
-    {
-      id: 'archive',
-      icon: Clock,
-      title: 'Elküldött üzenetek',
-      body:
-        'Itt visszanézheted, mikor, kinek és milyen üzenetet küldtél ki, és hogy az email kézbesítése sikeres volt-e.',
-      cta: 'Archívum megnyitása',
-      stat: `${broadcastsCount} elküldve`,
-    },
-  ]
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {cards.map((c) => {
-        const Icon = c.icon
-        return (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => onGo(c.id)}
-            className="card-raised group flex flex-col gap-3 p-5 text-left transition hover:ring-2 hover:ring-indigo-200"
-          >
-            <span className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <Icon className="size-5" />
-            </span>
-            <div className="flex-1">
-              <h3 className="font-heading text-base text-slate-800">{c.title}</h3>
-              {c.stat && (
-                <p className="mt-0.5 text-xs font-medium text-indigo-600">{c.stat}</p>
-              )}
-              <p className="mt-1.5 text-sm text-slate-600 leading-relaxed">{c.body}</p>
-            </div>
-            <span className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 group-hover:gap-1.5 transition-all">
-              {c.cta}
-              <ChevronRight className="size-4" />
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Részek
-// ---------------------------------------------------------------------------
-
-/**
- * Archivált (küszöb előtti) bejegyzések — összecsukható, csak-olvasható csoport.
- * Ezeket NEM küldjük ki hírlevélben; csak visszanézhetők.
- */
-function ArchivedEntriesGroup({
-  entries,
-  expandedKeys,
-  onToggle,
-}: {
-  entries: ChangelogEntry[]
-  expandedKeys: Set<string>
-  onToggle: (key: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/50">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left"
-      >
-        <Clock className="size-4 text-slate-400" />
-        <span className="text-sm font-medium text-slate-600">Archivált korábbi bejegyzések</span>
-        <Badge className="bg-slate-200 text-slate-600 border-slate-300">{entries.length}</Badge>
-        <span className="ml-1 hidden text-xs text-slate-400 sm:inline">
-          — ezeket nem küldjük ki hírlevélben
-        </span>
-        <ChevronDown
-          className={`ml-auto size-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open && (
-        <div className="divide-y divide-slate-100 border-t border-slate-200">
-          {entries.map((e) => {
-            const expanded = expandedKeys.has(e.key)
-            return (
-              <div key={e.key} className="px-4 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => onToggle(e.key)}
-                  aria-expanded={expanded}
-                  className="flex w-full items-start gap-2 text-left"
-                >
-                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500 ring-1 ring-slate-200">
-                    {e.date}
-                  </span>
-                  <span className="flex-1 text-sm text-slate-600">{e.title}</span>
-                  <ChevronDown
-                    className={`mt-0.5 size-3.5 shrink-0 text-slate-300 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {expanded && (
-                  <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 font-sans text-xs leading-relaxed text-slate-500">
-                    {e.bodyMarkdown || 'Nincs részletes leírás.'}
-                  </pre>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ChangelogEntryCard({
-  entry,
-  selected,
-  onToggleSelected,
-  onSend,
-  onResend,
-  isPending,
-  scopeLabel,
-  sendEmail,
-  expanded,
-  onToggle,
-}: {
-  entry: ChangelogEntry
-  selected: boolean
-  onToggleSelected: () => void
-  onSend: () => void
-  onResend: () => void
-  isPending: boolean
-  scopeLabel: string
-  sendEmail: boolean
-  expanded: boolean
-  onToggle: () => void
-}) {
-  const status = entry.broadcastStatus
-  const cardClass = selected
-    ? 'border-emerald-300 bg-emerald-50/40 ring-2 ring-emerald-200/60'
-    : entry.alreadySent
-      ? 'border-slate-200 bg-white'
-      : 'border-indigo-200 bg-indigo-50/30'
-
-  return (
-    <div className={`rounded-xl border p-4 transition-all ${cardClass}`}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        {/* Checkbox — bal felső sarok */}
-        <label
-          className="flex shrink-0 items-center pt-1 cursor-pointer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggleSelected}
-            className="size-4 rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
-            aria-label="Kijelölés a tömeges küldéshez"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          className="flex flex-1 items-start gap-3 text-left"
-        >
-          <span className="rounded-lg bg-white px-2 py-1 text-xs font-mono text-indigo-700 ring-1 ring-indigo-100 shrink-0">
-            {entry.date}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-start gap-2">
-              <span className="font-semibold text-slate-800">{entry.title}</span>
-              <ChevronDown
-                className={`mt-0.5 size-4 shrink-0 text-slate-400 transition-transform ${
-                  expanded ? 'rotate-180' : ''
-                }`}
-              />
-            </span>
-            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              {entry.version && (
-                <Badge variant="outline" className="border-slate-200">v{entry.version}</Badge>
-              )}
-              {entry.category && (
-                <Badge className="bg-slate-100 text-slate-700 border-slate-200">
-                  {RELEASE_CATEGORY_LABELS[entry.category]}
-                </Badge>
-              )}
-              {entry.targetsHint && <span>{entry.targetsHint}</span>}
-            </span>
-            <span className="mt-3 flex flex-wrap items-center gap-2">
-              <DeliveryBadge
-                icon={entry.alreadySent ? Check : MessageSquare}
-                label={entry.alreadySent ? 'Üzenet elküldve' : 'Üzenet nincs elküldve'}
-                tone={entry.alreadySent ? 'success' : 'muted'}
-              />
-              <EmailDeliveryBadge entry={entry} />
-              {status && (
-                <span className="text-[11px] text-slate-500">
-                  {formatBroadcastScope(status)} · {status.recipientCount} címzett · {formatDateTime(status.sentAt)}
-                </span>
-              )}
-            </span>
-          </span>
-        </button>
-
-        <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
-          {!entry.alreadySent ? (
-            <>
-              <Button
-                size="sm"
-                onClick={onSend}
-                disabled={isPending}
-                className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
-              >
-                <Send className="size-3.5" />
-                Közzététel
-              </Button>
-              <span className="text-[10px] text-slate-400">
-                {scopeLabel}{sendEmail ? ' + email' : ''}
-              </span>
-            </>
-          ) : (
-            <>
-              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                Közzétéve
-              </Badge>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onResend}
-                disabled={isPending}
-                className="gap-1.5 mt-1"
-                title="Újra elküldjük a frissítést a kiválasztott címzetteknek (új értesítés + email)"
-              >
-                <Send className="size-3.5" />
-                Újraküldés
-              </Button>
-              <span className="text-[10px] text-slate-400">
-                {scopeLabel}{sendEmail ? ' + email' : ''}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-      {expanded && (
-        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-          <pre className="whitespace-pre-wrap text-xs text-slate-600 leading-relaxed font-sans">
-            {entry.bodyMarkdown || 'Ehhez a bejegyzéshez nincs részletes leírás.'}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DeliveryBadge({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon
-  label: string
-  tone: 'success' | 'warning' | 'danger' | 'muted'
-}) {
-  const toneClass = {
-    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    warning: 'bg-amber-50 text-amber-700 border-amber-200',
-    danger: 'bg-rose-50 text-rose-700 border-rose-200',
-    muted: 'bg-slate-100 text-slate-600 border-slate-200',
-  }[tone]
-
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${toneClass}`}>
-      <Icon className="size-3" />
-      {label}
-    </span>
-  )
-}
-
-function EmailDeliveryBadge({ entry }: { entry: ChangelogEntry }) {
-  const status = entry.broadcastStatus
-  if (!entry.alreadySent) {
-    return (
-      <DeliveryBadge
-        icon={Mail}
-        label="Email nincs elküldve"
-        tone="muted"
-      />
-    )
-  }
-
-  if (!status?.sendEmail) {
-    return (
-      <DeliveryBadge
-        icon={Mail}
-        label="Email nem volt kérve"
-        tone="muted"
-      />
-    )
-  }
-
-  if (status.emailError) {
-    return (
-      <DeliveryBadge
-        icon={MailWarning}
-        label="Email hiba"
-        tone="danger"
-      />
-    )
-  }
-
-  if (status.emailSentAt) {
-    return (
-      <DeliveryBadge
-        icon={Mail}
-        label={`Email elküldve · ${formatDateTime(status.emailSentAt)}`}
-        tone="success"
-      />
-    )
-  }
-
-  return (
-    <DeliveryBadge
-      icon={Clock}
-      label="Email függőben"
-      tone="warning"
-    />
-  )
-}
-
-function ComposeForm({
-  cim, setCim,
-  uzenet, setUzenet,
-  tipus, setTipus,
-  hivatkozas, setHivatkozas,
-  sendEmail, setSendEmail,
-}: {
-  cim: string; setCim: (v: string) => void
-  uzenet: string; setUzenet: (v: string) => void
-  tipus: BroadcastTipus; setTipus: (v: BroadcastTipus) => void
-  hivatkozas: string; setHivatkozas: (v: string) => void
-  sendEmail: boolean; setSendEmail: (v: boolean) => void
+  message: string
+  onRetry: () => void
+  compact?: boolean
 }) {
   return (
-    <div className="space-y-4">
-      <div>
-        <Label>Cím</Label>
-        <Input
-          value={cim}
-          onChange={(e) => setCim(e.target.value)}
-          placeholder="Pl.: Új funkció: automata számla-párosítás"
-          maxLength={120}
-          className="mt-1"
-        />
-      </div>
-      <div>
-        <Label>Üzenet</Label>
-        <Textarea
-          value={uzenet}
-          onChange={(e) => setUzenet(e.target.value)}
-          placeholder="A részletes üzenet szövege…"
-          rows={5}
-          className="mt-1"
-        />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label>Típus</Label>
-          <select
-            value={tipus}
-            onChange={(e) => setTipus(e.target.value as BroadcastTipus)}
-            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            {(Object.keys(BROADCAST_TIPUS_LABELS) as BroadcastTipus[]).map((t) => (
-              <option key={t} value={t}>{BROADCAST_TIPUS_LABELS[t]}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label>Hivatkozás <span className="text-slate-400 font-normal">(opcionális)</span></Label>
-          <Input
-            value={hivatkozas}
-            onChange={(e) => setHivatkozas(e.target.value)}
-            placeholder="pl. /penzugy"
-            className="mt-1"
-          />
-        </div>
-      </div>
-      <label className="flex items-start gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={sendEmail}
-          onChange={(e) => setSendEmail(e.target.checked)}
-          className="mt-1 size-4 rounded border-slate-300"
-        />
-        <span className="text-sm text-slate-700">
-          <span className="font-medium inline-flex items-center gap-1.5">
-            <Mail className="size-3.5" />
-            Email értesítés is küldése
-          </span>
-          <span className="block text-xs text-slate-500">
-            A címzettek a csengőben is látják, emellett email-ben is megkapják (Resend integráció).
-          </span>
-        </span>
-      </label>
+    <div
+      role="alert"
+      className={`rounded-2xl border border-rose-200 bg-rose-50/60 text-center dark:border-rose-900 dark:bg-rose-950/30 ${
+        compact ? 'p-4' : 'p-6'
+      }`}
+    >
+      <p className="font-semibold text-rose-800 dark:text-rose-300">
+        {compact
+          ? 'Az adatok egy része nem töltődött be'
+          : 'A frissítések betöltése nem sikerült'}
+      </p>
+      <p className="mt-1 text-sm text-rose-700 dark:text-rose-400">{message}</p>
+      <Button onClick={onRetry} variant="outline" className="mt-3 gap-2">
+        <RefreshCw className="size-4" aria-hidden />
+        Újrapróbálom
+      </Button>
     </div>
   )
 }
 
-function TargetPicker({
-  scope, setScope,
-  targetRole, setTargetRole,
-  congregations, dioceses, districts,
-  selectedCongIds, setSelectedCongIds,
-  selectedDioceseIds, setSelectedDioceseIds,
-  selectedDistrictIds, setSelectedDistrictIds,
-}: {
-  scope: BroadcastTargetScope; setScope: (v: BroadcastTargetScope) => void
-  targetRole: BroadcastTargetRole; setTargetRole: (v: BroadcastTargetRole) => void
-  congregations: CongLite[]
-  dioceses: DioceseLite[]
-  districts: DistrictLite[]
-  selectedCongIds: string[]; setSelectedCongIds: (v: string[]) => void
-  selectedDioceseIds: string[]; setSelectedDioceseIds: (v: string[]) => void
-  selectedDistrictIds: string[]; setSelectedDistrictIds: (v: string[]) => void
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <Users className="size-4 text-slate-600" />
-        <Label className="mb-0">Címzettek</Label>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-5">
-        {(Object.keys(BROADCAST_TARGET_SCOPE_LABELS) as BroadcastTargetScope[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setScope(s)}
-            className={`rounded-xl border px-3 py-2 text-sm transition ${
-              scope === s
-                ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
-            }`}
-          >
-            {BROADCAST_TARGET_SCOPE_LABELS[s]}
-          </button>
-        ))}
-      </div>
-
-      {scope === 'role' && (
-        <div>
-          <Label>Szerepkör</Label>
-          <select
-            value={targetRole}
-            onChange={(e) => setTargetRole(e.target.value as BroadcastTargetRole)}
-            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            {ROLE_OPTIONS.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {scope === 'congregation' && (
-        <MultiSelectList
-          label="Gyülekezet(ek) kiválasztása"
-          items={congregations.map((c) => ({ id: c.id, label: c.name }))}
-          selected={selectedCongIds}
-          onChange={setSelectedCongIds}
-        />
-      )}
-
-      {scope === 'diocese' && (
-        <MultiSelectList
-          label="Egyházmegyé(k) kiválasztása"
-          items={dioceses.map((d) => ({ id: d.id, label: d.name }))}
-          selected={selectedDioceseIds}
-          onChange={setSelectedDioceseIds}
-        />
-      )}
-
-      {scope === 'district' && (
-        <MultiSelectList
-          label="Egyházkerület(ek) kiválasztása"
-          items={districts.map((d) => ({ id: d.id, label: d.name }))}
-          selected={selectedDistrictIds}
-          onChange={setSelectedDistrictIds}
-        />
-      )}
-    </div>
-  )
-}
-
-function MultiSelectList({
-  label,
-  items,
-  selected,
-  onChange,
-}: {
-  label: string
-  items: Array<{ id: string; label: string }>
-  selected: string[]
-  onChange: (v: string[]) => void
-}) {
-  const [search, setSearch] = useState('')
-  const filtered = items.filter((i) => i.label.toLowerCase().includes(search.toLowerCase()))
-
-  function toggle(id: string) {
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
-  }
-
-  return (
-    <div>
-      <Label>{label}</Label>
-      <Input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Keresés…"
-        className="mt-1 h-9"
-      />
-      <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
-        {filtered.length === 0 ? (
-          <p className="p-3 text-sm text-slate-400 italic">Nincs találat.</p>
-        ) : (
-          filtered.map((item) => (
-            <label
-              key={item.id}
-              className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50"
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(item.id)}
-                onChange={() => toggle(item.id)}
-                className="size-4 rounded border-slate-300"
-              />
-              <span className="flex-1 truncate">{item.label}</span>
-            </label>
-          ))
-        )}
-      </div>
-      <p className="mt-1 text-xs text-slate-500">Kiválasztva: {selected.length}</p>
-    </div>
-  )
-}
-
-function BroadcastHistoryItem({ broadcast }: { broadcast: BroadcastRow }) {
-  const sentDate = new Date(broadcast.sent_at).toLocaleString('hu-HU')
-  return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/30 p-3">
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={tipusBadgeClass(broadcast.tipus)}>{BROADCAST_TIPUS_LABELS[broadcast.tipus]}</Badge>
-            <p className="font-medium text-sm text-slate-800 truncate">{broadcast.cim}</p>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            {sentDate} · {BROADCAST_TARGET_SCOPE_LABELS[broadcast.target_scope]} · {broadcast.recipient_count} címzett
-            {broadcast.send_email && (
-              broadcast.email_sent_at
-                ? <> · <Mail className="inline size-3 text-emerald-600" /> email elküldve</>
-                : broadcast.email_error
-                  ? <> · <MailWarning className="inline size-3 text-rose-600" /> email hiba</>
-                  : <> · <Mail className="inline size-3 text-slate-400" /> email függő</>
-            )}
-          </p>
-          {broadcast.email_error && (
-            <p className="mt-1 text-xs text-rose-600 italic">Email hiba: {broadcast.email_error}</p>
-          )}
-          {broadcast.hivatkozas && (
-            <a
-              href={broadcast.hivatkozas}
-              className="mt-1 inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
-            >
-              {broadcast.hivatkozas}
-              <ExternalLink className="size-3" />
-            </a>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function tipusBadgeClass(t: BroadcastTipus): string {
-  const map: Record<BroadcastTipus, string> = {
-    info: 'bg-sky-100 text-sky-700 border-sky-200',
-    success: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    warning: 'bg-amber-100 text-amber-700 border-amber-200',
-    danger: 'bg-rose-100 text-rose-700 border-rose-200',
-    release: 'bg-violet-100 text-violet-700 border-violet-200',
-  }
-  return `${map[t]} border`
-}
-
-function describeScope(
-  scope: BroadcastTargetScope,
-  role: BroadcastTargetRole,
-  counts: { congs: number; dioceses: number; districts: number },
-): string {
-  switch (scope) {
-    case 'all':
-      return 'Mindenkinek'
-    case 'role':
-      return `Szerep: ${role}`
-    case 'congregation':
-      return `${counts.congs} gyülekezet`
-    case 'diocese':
-      return `${counts.dioceses} egyházmegye`
-    case 'district':
-      return `${counts.districts} egyházkerület`
-  }
-}
-
-function formatBroadcastScope(status: NonNullable<ChangelogEntry['broadcastStatus']>): string {
-  if (status.targetScope === 'role' && status.targetRole) {
-    return BROADCAST_TARGET_ROLE_LABELS[status.targetRole]
-  }
-
-  return BROADCAST_TARGET_SCOPE_LABELS[status.targetScope]
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString('hu-HU', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+// A régi (egy fájlos) implementáció al-komponenseinek helye mostantól:
+// components/admin/broadcasts/*. Ez a típus-re-export a meglévő importok
+// kedvéért marad (ha valahol a CongLite-ot innen várnák).
+export type { CongLite, DioceseLite, DistrictLite }

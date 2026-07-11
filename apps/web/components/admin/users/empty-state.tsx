@@ -1,7 +1,15 @@
 'use client'
 
+/**
+ * Üres állapotok a Felhasználók oldalhoz (2026-07-11 redesign) — a közös
+ * AdminEmptyState-re épül, a variánsok (nincs user / nincs találat / szűrés
+ * üres) megmaradtak. A "nincs találat" tanács most a keresés VALÓS képességét
+ * tükrözi (név, email, gyülekezet, megye, kerület, szerepkör-név).
+ */
+
 import { Inbox, SearchX, UserSearch } from 'lucide-react'
 
+import { AdminEmptyState } from '@/components/admin/_shared/admin-empty-state'
 import { Button } from '@/components/ui/button'
 
 type Variant = 'noUsers' | 'noSearchMatch' | 'filteredEmpty'
@@ -26,23 +34,23 @@ export function EmptyState({ variant, searchQuery, onClearFilters }: EmptyStateP
     variant === 'noUsers'
       ? 'Amint új lelkipásztor regisztrál, itt fog megjelenni — itt lehet majd jóváhagyni és szerepkört rendelni hozzá.'
       : variant === 'noSearchMatch'
-        ? 'Próbálja más kereszt- vagy gyülekezet-névvel. Lehet, hogy a keresett felhasználó még nincs a rendszerben.'
+        ? 'A keresés a névre, emailre, gyülekezetre, egyházmegyére, egyházkerületre és a szerepkör-nevekre is rákeres — próbálja rövidebb részlettel, vagy törölje a szűrőket.'
         : 'Lazítson a szűrőkön, hogy szélesebb listát lásson.'
 
   return (
-    <div className="card-raised p-8 sm:p-10 text-center space-y-4">
-      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-        <Icon className="size-7" />
-      </div>
-      <div className="space-y-1.5">
-        <p className="font-heading text-lg text-slate-800">{title}</p>
-        <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">{hint}</p>
-      </div>
-      {onClearFilters && variant !== 'noUsers' && (
-        <Button size="sm" variant="outline" onClick={onClearFilters}>
-          Szűrők törlése
-        </Button>
-      )}
+    <div className="card-raised">
+      <AdminEmptyState
+        icon={Icon}
+        title={title}
+        hint={hint}
+        action={
+          onClearFilters && variant !== 'noUsers' ? (
+            <Button size="sm" variant="outline" onClick={onClearFilters}>
+              Szűrők törlése
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   )
 }

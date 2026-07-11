@@ -1,19 +1,11 @@
-import { Inbox } from 'lucide-react'
+import { redirect } from 'next/navigation'
 
-import { AccessRequestsTab } from '@/components/admin/access-requests-tab'
-import { AdminPageHeader } from '@/components/admin/admin-page-header'
-
+// 2026-07-11 (admin-redesign): a Hozzáférés-kérelmek önálló oldala megszűnt.
+// Az oldal 2026-06-06 óta nem szerepelt a menüben (csak direkt URL-lel volt
+// elérhető), és a pending kérelmek teljes elbírálása — a kért gyülekezet/
+// egyházmegye/egyházkerület kontextus, az indoklás, a csatolt dokumentum
+// megnyitása, a jóváhagyás és az indoklásos elutasítás — a Felhasználók
+// oldal kérelem-bannerében él. A régi URL átirányít (szerepkorok-minta).
 export default function Page() {
-  return (
-    <>
-      <AdminPageHeader
-        title="Hozzáférés-kérelmek"
-        description="Új regisztrációk és felhasználói kérelmek elbírálása. Jóváhagyás után a felhasználó megkapja a rendszer használatának jogát."
-        icon={Inbox}
-      />
-      <div className="card-raised p-4 sm:p-5">
-        <AccessRequestsTab />
-      </div>
-    </>
-  )
+  redirect('/admin/felhasznalok')
 }

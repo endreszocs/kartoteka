@@ -19,10 +19,14 @@ import {
   UserCircle,
   Users,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { AdminConfirmDialog } from './admin-confirm-dialog'
+import { AdminEmptyState } from './_shared/admin-empty-state'
+import { AdminSkeleton } from './_shared/admin-skeleton'
+import { StatusBadge, type StatusIntent } from './_shared/status-badge'
 import { Input } from '@/components/ui/input'
 import {
   enterCongregation,
@@ -33,18 +37,17 @@ import {
 
 type SortMode = 'name' | 'members-desc' | 'users-desc'
 
-const ROLE_THEME: Record<
-  string,
-  { bg: string; text: string; ring: string; icon: React.ComponentType<{ className?: string }> }
-> = {
-  lelkesz: { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200', icon: Church },
-  konyvelo: { bg: 'bg-amber-50', text: 'text-amber-700', ring: 'ring-amber-200', icon: Calculator },
-  esperes: { bg: 'bg-indigo-50', text: 'text-indigo-700', ring: 'ring-indigo-200', icon: Crown },
-  egyhazmegyei_admin: { bg: 'bg-indigo-50', text: 'text-indigo-700', ring: 'ring-indigo-200', icon: Building2 },
-  egyhazmegyei_szamvevo: { bg: 'bg-cyan-50', text: 'text-cyan-700', ring: 'ring-cyan-200', icon: Calculator },
-  egyhazkeruleti_admin: { bg: 'bg-violet-50', text: 'text-violet-700', ring: 'ring-violet-200', icon: ShieldCheck },
-  admin: { bg: 'bg-slate-100', text: 'text-slate-800', ring: 'ring-slate-300', icon: ShieldCheck },
-  custom: { bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', ring: 'ring-fuchsia-200', icon: Sparkles },
+// Szerepkör → intent + ikon: a StatusBadge-dzsel egységes megjelenés
+// (2026-07-11 redesign — korábban kézi ring-pill-ek voltak, dark-pár nélkül).
+const ROLE_META: Record<string, { intent: StatusIntent; icon: LucideIcon }> = {
+  lelkesz: { intent: 'success', icon: Church },
+  konyvelo: { intent: 'warning', icon: Calculator },
+  esperes: { intent: 'info', icon: Crown },
+  egyhazmegyei_admin: { intent: 'info', icon: Building2 },
+  egyhazmegyei_szamvevo: { intent: 'warning', icon: Calculator },
+  egyhazkeruleti_admin: { intent: 'info', icon: ShieldCheck },
+  admin: { intent: 'neutral', icon: ShieldCheck },
+  custom: { intent: 'neutral', icon: Sparkles },
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -115,7 +118,7 @@ export function CongregationsTab() {
       .filter((d) => d.congregations.length > 0)
   }, [dioceses, search])
 
-  // Sortolás minden egyházmegye gyülekezetein
+  // Rendezés minden egyházmegye gyülekezetein
   const sortedDioceses = useMemo(() => {
     const sortFn = (a: CongregationByDioceseRow, b: CongregationByDioceseRow) => {
       if (sortMode === 'members-desc') return b.memberCount - a.memberCount
@@ -128,6 +131,21 @@ export function CongregationsTab() {
     }))
   }, [filteredDioceses, sortMode])
 
+  // A stat-chipek MINDIG a teljes rendszert mutatják (nem a szűrt listát) —
+  // a szűrt találat-szám külön sorban jelenik meg keresés közben.
+  const totals = useMemo(() => {
+    const congregations = dioceses.reduce((s, d) => s + d.congregations.length, 0)
+    const users = dioceses.reduce(
+      (s, d) => s + d.congregations.reduce((s2, c) => s2 + c.users.length, 0),
+      0,
+    )
+    const members = dioceses.reduce(
+      (s, d) => s + d.congregations.reduce((s2, c) => s2 + c.memberCount, 0),
+      0,
+    )
+    return { dioceses: dioceses.length, congregations, users, members }
+  }, [dioceses])
+
   function toggleDiocese(id: string) {
     setExpandedDioceses((current) => {
       const next = new Set(current)
@@ -138,7 +156,9 @@ export function CongregationsTab() {
   }
 
   function expandAll() {
-    setExpandedDioceses(new Set(sortedDioceses.map((d) => d.id)))
+    // A TELJES listát nyitja (nem csak a szűrt találatokat) — így a keresés
+    // törlése után is minden egyházmegye nyitva marad.
+    setExpandedDioceses(new Set(dioceses.map((d) => d.id)))
   }
 
   function collapseAll() {
@@ -147,9 +167,11 @@ export function CongregationsTab() {
 
   if (error) {
     return (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-6 text-center">
-        <p className="font-semibold text-rose-800">A gyülekezetek betöltése nem sikerült</p>
-        <p className="mt-1 text-sm text-rose-700">{error}</p>
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-6 text-center dark:border-rose-900 dark:bg-rose-950/30">
+        <p className="font-semibold text-rose-800 dark:text-rose-200">
+          A gyülekezetek betöltése nem sikerült
+        </p>
+        <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{error}</p>
         <Button onClick={load} variant="outline" className="mt-3 gap-2">
           <RefreshCw className="size-4" />
           Újrapróbálom
@@ -159,53 +181,45 @@ export function CongregationsTab() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" />
-        <span>Gyülekezetek betöltése…</span>
-      </div>
-    )
+    return <AdminSkeleton rows={6} className="py-4" />
   }
 
-  const totalCongregations = sortedDioceses.reduce((s, d) => s + d.congregations.length, 0)
-  const totalUsers = sortedDioceses.reduce(
+  const filteredCongCount = sortedDioceses.reduce((s, d) => s + d.congregations.length, 0)
+  const filteredUserCount = sortedDioceses.reduce(
     (s, d) => s + d.congregations.reduce((s2, c) => s2 + c.users.length, 0),
     0,
   )
-  const totalMembers = sortedDioceses.reduce(
-    (s, d) => s + d.congregations.reduce((s2, c) => s2 + c.memberCount, 0),
-    0,
-  )
+  const searching = search.trim().length > 0
 
   return (
     <div className="space-y-5">
       {/* Bevezető info */}
-      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/60 to-white p-5">
+      <div className="rounded-2xl border border-border bg-muted/40 p-4 sm:p-5">
         <div className="flex items-start gap-3">
-          <Sparkles className="size-5 text-emerald-600 mt-0.5" />
+          <Sparkles className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
           <div>
-            <h2 className="font-heading text-lg text-slate-800">Gyülekezetek áttekintése</h2>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+            <h2 className="font-heading text-lg text-foreground">Gyülekezetek áttekintése</h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
               A gyülekezetek egyházmegyénként csoportosítva, a hozzájuk tartozó felhasználókkal és
               szerepkörökkel. A keresés a gyülekezet, egyházmegye és a felhasználók nevére is
-              ráilleszt — sortolhatsz név, tagszám vagy felhasználó-szám szerint.
+              ráilleszt — rendezhetsz név, tagszám vagy felhasználó-szám szerint.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Stat-csíp */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatChip label="Egyházmegye" value={sortedDioceses.length} icon={Building2} tone="indigo" />
-        <StatChip label="Gyülekezet" value={totalCongregations} icon={Church} tone="emerald" />
-        <StatChip label="Felhasználó" value={totalUsers} icon={UserCircle} tone="violet" />
+      {/* Stat-chipek — mindig a teljes rendszer számai */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <StatChip label="Egyházmegye" value={totals.dioceses} icon={Building2} />
+        <StatChip label="Gyülekezet" value={totals.congregations} icon={Church} />
+        <StatChip label="Felhasználó" value={totals.users} icon={UserCircle} />
       </div>
 
-      {/* Művelet-sor: keresés + sort + expand/collapse */}
-      <div className="card-raised p-3 sm:p-4 space-y-3">
+      {/* Művelet-sor: keresés + rendezés + expand/collapse */}
+      <div className="space-y-3 rounded-2xl border border-border bg-muted/30 p-3 sm:p-4">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          <div className="relative flex-1 min-w-[16rem]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Keresés gyülekezet, egyházmegye vagy felhasználó alapján…"
               value={search}
@@ -213,7 +227,7 @@ export function CongregationsTab() {
               className="pl-9"
             />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-1.5">
             <SortButton
               active={sortMode === 'name'}
               onClick={() => setSortMode('name')}
@@ -243,16 +257,41 @@ export function CongregationsTab() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {totalCongregations} gyülekezet · {totalUsers} felhasználó · {totalMembers.toLocaleString('hu-HU')} tag
+          {searching ? (
+            <>
+              Találat: {filteredCongCount} gyülekezet · {filteredUserCount} felhasználó
+              {' — '}a fenti összesítő a teljes rendszert mutatja.
+            </>
+          ) : (
+            <>
+              {totals.congregations} gyülekezet · {totals.users} felhasználó ·{' '}
+              {totals.members.toLocaleString('hu-HU')} tag
+            </>
+          )}
         </p>
       </div>
 
       {/* Egyházmegyék listája */}
       <div className="space-y-3">
         {sortedDioceses.length === 0 ? (
-          <div className="card-raised p-8 text-center text-sm text-slate-500 italic">
-            {search ? 'Nincs találat a keresésre.' : 'Még nincs egyházmegye a rendszerben.'}
-          </div>
+          searching ? (
+            <AdminEmptyState
+              icon={Search}
+              title="Nincs találat a keresésre"
+              hint="Próbálj rövidebb vagy másképp írt gyülekezet-, egyházmegye- vagy felhasználónevet."
+              action={
+                <Button variant="outline" onClick={() => setSearch('')}>
+                  Keresés törlése
+                </Button>
+              }
+            />
+          ) : (
+            <AdminEmptyState
+              icon={Building2}
+              title="Még nincs egyházmegye a rendszerben"
+              hint="Az egyházmegyék és gyülekezetek a rendszer-inicializálás (seed) során kerülnek be."
+            />
+          )
         ) : (
           sortedDioceses.map((d) => (
             <DioceseGroupCard
@@ -285,18 +324,22 @@ function DioceseGroupCard({
   const totalUsers = diocese.congregations.reduce((s, c) => s + c.users.length, 0)
 
   return (
-    <div className="card-raised overflow-hidden">
-      {/* Egyházmegye fejléc — kattintható accordion */}
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      {/* Egyházmegye fejléc — kattintható accordion (teljes-sáv gomb) */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 sm:px-5 py-3 bg-gradient-to-r from-indigo-50/60 via-white to-white hover:from-indigo-100/70 transition text-left"
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 bg-muted/40 px-4 py-3 text-left transition hover:bg-muted/60 sm:px-5"
       >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-sm">
+        <div
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl text-[var(--primary-foreground)] shadow-sm"
+          style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+        >
           <Building2 className="size-5" />
         </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-heading text-base sm:text-lg text-slate-800 truncate">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-heading text-base text-foreground sm:text-lg">
             {diocese.name}
           </h3>
           <p className="text-xs text-muted-foreground">
@@ -304,17 +347,17 @@ function DioceseGroupCard({
           </p>
         </div>
         {expanded ? (
-          <ChevronDown className="size-5 shrink-0 text-slate-400" />
+          <ChevronDown className="size-5 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="size-5 shrink-0 text-slate-400" />
+          <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
         )}
       </button>
 
       {/* Gyülekezetek lista */}
       {expanded && (
-        <div className="border-t border-slate-100 p-3 sm:p-4 space-y-2 bg-white">
+        <div className="space-y-2 border-t border-border bg-card p-3 sm:p-4">
           {diocese.congregations.length === 0 ? (
-            <p className="text-sm text-slate-500 italic px-3 py-2">
+            <p className="px-3 py-2 text-sm italic text-muted-foreground">
               Még nincs gyülekezet ehhez az egyházmegyéhez.
             </p>
           ) : (
@@ -343,6 +386,8 @@ function CongregationCard({
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // 2026-06-07: window.prompt helyett szép, indok-mezős dialógus.
+  // 2026-07-11: catch-ág — hálózati/szerver-hiba esetén is kap visszajelzést
+  // az admin (korábban unhandled rejection volt, nyitva maradó dialógussal).
   async function doEnter(reason?: string) {
     setEnterPending(true)
     try {
@@ -358,28 +403,32 @@ function CongregationCard({
         return
       }
       toast.success(result.message || 'A hozzáférési kérelem elküldve.')
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Nem sikerült elküldeni a hozzáférési kérelmet.',
+      )
     } finally {
       setEnterPending(false)
     }
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 hover:border-emerald-300 hover:shadow-sm transition">
-      <div className="flex items-start gap-3 flex-wrap">
+    <div className="rounded-xl border border-border bg-card p-3 transition hover:border-primary/40 hover:shadow-sm sm:p-4">
+      <div className="flex flex-wrap items-start gap-3">
         {/* Sorszám + ikon */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="inline-flex size-7 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600 tabular-nums">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="inline-flex size-7 items-center justify-center rounded-full bg-muted text-[11px] font-bold tabular-nums text-muted-foreground">
             {index}
           </span>
-          <div className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 text-white shadow-sm">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-[var(--primary)]">
             <Church className="size-4" />
           </div>
         </div>
 
         {/* Név + statisztika */}
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-800 truncate">{congregation.name}</p>
-          <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-foreground">{congregation.name}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Users className="size-3" />
               {congregation.memberCount.toLocaleString('hu-HU')} tag
@@ -396,14 +445,14 @@ function CongregationCard({
           variant="outline"
           onClick={() => setConfirmOpen(true)}
           disabled={enterPending}
-          className="gap-1.5"
+          className="min-h-9 gap-1.5"
         >
           {enterPending ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : (
             <ExternalLink className="size-3.5" />
           )}
-          Hozzáférés
+          Hozzáférés kérése
         </Button>
       </div>
 
@@ -414,7 +463,10 @@ function CongregationCard({
         description={
           <>
             Hozzáférést kérsz a(z) <strong>{congregation.name}</strong> gyülekezet adataihoz.
-            A gyülekezet lelkésze értesítést kap a kérésről. Add meg az okot:
+            Ha a gyülekezetnek van lelkésze, ő értesítést kap, és a jóváhagyásáig a kérés
+            függőben marad. Ha nincs lelkésze (vagy rendszergazdai God-mód aktív), a
+            hozzáférés azonnal, 2 órára nyílik meg, és a rendszer a gyülekezeti nézetbe
+            irányít át. Add meg az okot:
           </>
         }
         reasonLabel="A hozzáférés oka"
@@ -428,8 +480,8 @@ function CongregationCard({
 
       {/* Felhasználók */}
       {congregation.users.length > 0 && (
-        <div className="mt-3 pl-2 sm:pl-12 space-y-1.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+        <div className="mt-3 space-y-1.5 pl-2 sm:pl-12">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
             Felhasználók ({congregation.users.length})
           </p>
           <div className="flex flex-col gap-1.5">
@@ -468,34 +520,34 @@ function UserRow({
         : []
 
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-slate-50/60 px-2.5 py-1.5 text-sm">
-      <UserCircle className="size-4 shrink-0 text-slate-400" />
-      <div className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
-        <span className="font-medium text-slate-800 truncate">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-2.5 py-1.5 text-sm">
+      <UserCircle className="size-4 shrink-0 text-muted-foreground" />
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-2">
+        <span className="truncate font-medium text-foreground">
           {user.full_name || user.email || 'Ismeretlen'}
         </span>
         {user.status === 'pending' && (
-          <span className="text-[9px] font-bold uppercase tracking-wide rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5">
+          <StatusBadge intent="warning" className="px-1.5 text-[10px]">
             Várakozó
-          </span>
+          </StatusBadge>
         )}
       </div>
-      <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex flex-wrap items-center gap-1">
         {displayRoles.length === 0 ? (
-          <span className="text-[10px] text-slate-400 italic">nincs szerepkör</span>
+          <span className="text-[10px] italic text-muted-foreground">nincs szerepkör</span>
         ) : (
           displayRoles.map((r, idx) => {
-            const theme = ROLE_THEME[r.role] || ROLE_THEME.custom
+            const meta = ROLE_META[r.role] || ROLE_META.custom
             const label = r.role === 'custom' ? r.customLabel || 'Egyedi' : ROLE_LABEL[r.role] || r.role
-            const Icon = theme.icon
             return (
-              <span
+              <StatusBadge
                 key={idx}
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${theme.bg} ${theme.text} ${theme.ring}`}
+                intent={meta.intent}
+                icon={meta.icon}
+                className="px-2 text-[10px]"
               >
-                <Icon className="size-2.5" />
                 {label}
-              </span>
+              </StatusBadge>
             )
           })
         )}
@@ -505,41 +557,29 @@ function UserRow({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Stat-chip
+// Stat-chip — token-alapú, 375px-en is olvasható (mobilon oszlopba rendeződik)
 // ─────────────────────────────────────────────────────────────────────────
 
 function StatChip({
   label,
   value,
   icon: Icon,
-  tone,
 }: {
   label: string
   value: number
   icon: React.ComponentType<{ className?: string }>
-  tone: 'indigo' | 'emerald' | 'violet'
 }) {
-  const tones = {
-    indigo: 'from-indigo-50 to-indigo-100/40 ring-indigo-200/60',
-    emerald: 'from-emerald-50 to-emerald-100/40 ring-emerald-200/60',
-    violet: 'from-violet-50 to-violet-100/40 ring-violet-200/60',
-  }[tone]
-  const iconBg = {
-    indigo: 'bg-indigo-500/10 text-indigo-600',
-    emerald: 'bg-emerald-500/10 text-emerald-600',
-    violet: 'bg-violet-500/10 text-violet-600',
-  }[tone]
   return (
-    <div className={`rounded-2xl bg-gradient-to-br ${tones} p-3 sm:p-4 ring-1`}>
-      <div className="flex items-center gap-2">
-        <div className={`flex size-8 items-center justify-center rounded-lg ${iconBg}`}>
+    <div className="rounded-2xl border border-border bg-card p-2.5 sm:p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[var(--primary)]">
           <Icon className="size-4" />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+          <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
             {label}
           </p>
-          <p className="font-heading text-xl text-slate-800 tabular-nums">{value}</p>
+          <p className="font-heading text-xl tabular-nums text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -547,7 +587,7 @@ function StatChip({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Sort button
+// Rendezés-gomb (Button primitív, aria-pressed állapottal)
 // ─────────────────────────────────────────────────────────────────────────
 
 function SortButton({
@@ -562,17 +602,16 @@ function SortButton({
   label: string
 }) {
   return (
-    <button
+    <Button
       type="button"
+      size="sm"
+      variant={active ? 'default' : 'outline'}
+      aria-pressed={active}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-        active
-          ? 'bg-emerald-600 text-white shadow-sm'
-          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-      }`}
+      className="gap-1.5 text-xs"
     >
       <Icon className="size-3.5" />
       {label}
-    </button>
+    </Button>
   )
 }

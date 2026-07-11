@@ -1,5 +1,14 @@
 'use client'
 
+/**
+ * Kiosztott szerepkör jelvénye a felhasználó-kártyán (2026-07-11 redesign).
+ *
+ * A korábbi szerep-szerinti szivárvány-gradientek helyett token-alapú, téma- és
+ * dark-kompatibilis megjelenés: a szerep az IKONJÁRÓL ismerhető fel, a státusz
+ * a StatusBadge intent-színeiből. A visszavonó X többé nem hover-only — érintő-
+ * képernyőn (tablet) is látható és elérhető, min. 36px-es találati felülettel.
+ */
+
 import {
   BookOpenCheck,
   Building2,
@@ -18,7 +27,10 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
+import { StatusBadge, type StatusIntent } from '@/components/admin/_shared/status-badge'
+import { Button } from '@/components/ui/button'
 import {
   APPROVAL_STATUS_LABELS,
   ROLE_LABELS,
@@ -47,95 +59,25 @@ const ROLE_ICONS: Record<ProfileRoleType, React.ComponentType<{ className?: stri
   custom: Sparkles,
 }
 
-// Szerep-szerinti gradient + szöveg-szín. Erős vizuális kategorizálás:
-// - rendszergazda → slate-dark (technikai)
-// - kerületi admin → violet (vezetői)
-// - esperes/megyei → indigo (egyházmegyei)
-// - lelkész → emerald (gyülekezeti, leggyakoribb)
-// - könyvelő → amber (pénzügyi)
-// - számvevő → cyan (audit)
-// - egyedi → fuchsia
-const ROLE_THEME: Record<
-  ProfileRoleType,
-  { gradient: string; iconBg: string; iconColor: string; text: string; border: string }
-> = {
-  admin: {
-    gradient: 'from-slate-700 to-slate-900',
-    iconBg: 'bg-slate-100',
-    iconColor: 'text-slate-700',
-    text: 'text-slate-50',
-    border: 'border-slate-700',
-  },
-  egyhazkeruleti_admin: {
-    gradient: 'from-violet-600 to-purple-700',
-    iconBg: 'bg-violet-100',
-    iconColor: 'text-violet-700',
-    text: 'text-white',
-    border: 'border-violet-600',
-  },
-  egyhazmegyei_admin: {
-    gradient: 'from-indigo-500 to-blue-600',
-    iconBg: 'bg-indigo-100',
-    iconColor: 'text-indigo-700',
-    text: 'text-white',
-    border: 'border-indigo-500',
-  },
-  esperes: {
-    gradient: 'from-indigo-600 to-violet-600',
-    iconBg: 'bg-indigo-100',
-    iconColor: 'text-indigo-700',
-    text: 'text-white',
-    border: 'border-indigo-600',
-  },
-  egyhazmegyei_szamvevo: {
-    gradient: 'from-cyan-500 to-teal-600',
-    iconBg: 'bg-cyan-100',
-    iconColor: 'text-cyan-700',
-    text: 'text-white',
-    border: 'border-cyan-500',
-  },
-  lelkesz: {
-    gradient: 'from-emerald-500 to-green-600',
-    iconBg: 'bg-emerald-100',
-    iconColor: 'text-emerald-700',
-    text: 'text-white',
-    border: 'border-emerald-500',
-  },
-  konyvelo: {
-    gradient: 'from-amber-500 to-orange-500',
-    iconBg: 'bg-amber-100',
-    iconColor: 'text-amber-700',
-    text: 'text-white',
-    border: 'border-amber-500',
-  },
-  custom: {
-    gradient: 'from-fuchsia-500 to-pink-600',
-    iconBg: 'bg-fuchsia-100',
-    iconColor: 'text-fuchsia-700',
-    text: 'text-white',
-    border: 'border-fuchsia-500',
-  },
-}
-
 const STATUS_OVERLAY: Record<ApprovalStatus, string> = {
-  pending: 'opacity-70 saturate-50',
+  pending: 'opacity-80',
   approved: '',
-  rejected: 'opacity-50 saturate-0 line-through',
-  revoked: 'opacity-50 saturate-0 line-through',
+  rejected: 'opacity-60 [&_[data-role-label]]:line-through',
+  revoked: 'opacity-60 [&_[data-role-label]]:line-through',
 }
 
-const STATUS_ICON: Record<ApprovalStatus, React.ComponentType<{ className?: string }>> = {
+const STATUS_ICON: Record<ApprovalStatus, LucideIcon> = {
   pending: Clock,
   approved: Check,
   rejected: XCircle,
   revoked: ShieldOff,
 }
 
-const STATUS_TONE: Record<ApprovalStatus, string> = {
-  pending: 'bg-amber-100 text-amber-800',
-  approved: 'bg-white/25 text-white',
-  rejected: 'bg-red-100 text-red-800',
-  revoked: 'bg-slate-100 text-slate-700',
+const STATUS_INTENT: Record<ApprovalStatus, StatusIntent> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  revoked: 'neutral',
 }
 
 interface RoleBadgeInlineProps {
@@ -147,51 +89,55 @@ interface RoleBadgeInlineProps {
 export function RoleBadgeInline({ row, scopeName, onRevoke }: RoleBadgeInlineProps) {
   const ScopeIcon = SCOPE_ICONS[row.scope]
   const RoleIcon = ROLE_ICONS[row.role] || Settings
-  const theme = ROLE_THEME[row.role] || ROLE_THEME.custom
   const status = row.approval_status as ApprovalStatus
   const StatusIconComp = STATUS_ICON[status]
   const roleLabel = row.role === 'custom' ? row.custom_label || 'Egyedi szerep' : ROLE_LABELS[row.role]
 
   return (
     <div
-      className={`group relative inline-flex items-center gap-2 rounded-xl border ${theme.border} bg-gradient-to-br ${theme.gradient} px-3 py-1.5 shadow-sm hover:shadow-md transition ${STATUS_OVERLAY[status]}`}
+      className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5 shadow-sm transition hover:shadow-md ${STATUS_OVERLAY[status]}`}
       title={`${roleLabel}${scopeName ? ' — ' + scopeName : ''} (${APPROVAL_STATUS_LABELS[status]})`}
     >
-      {/* Bal: szerep-ikon kerek háttéren */}
-      <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${theme.iconBg} ${theme.iconColor}`}>
+      {/* Bal: szerep-ikon primary-árnyalatú lapkán */}
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[var(--primary)]">
         <RoleIcon className="size-4" />
       </div>
 
       {/* Közép: szerep neve + scope */}
-      <div className={`flex flex-col leading-tight ${theme.text}`}>
-        <span className="text-[12px] font-bold tracking-tight">{roleLabel}</span>
+      <div className="flex flex-col leading-tight">
+        <span data-role-label className="text-[12px] font-bold tracking-tight text-foreground">
+          {roleLabel}
+        </span>
         {scopeName && (
-          <span className="text-[10px] font-medium opacity-90 inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
             <ScopeIcon className="size-2.5" />
             {scopeName}
           </span>
         )}
       </div>
 
-      {/* Jobb: státusz-chip */}
-      <span
-        className={`ml-1 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${STATUS_TONE[status]}`}
+      {/* Jobb: státusz-jelvény */}
+      <StatusBadge
+        intent={STATUS_INTENT[status]}
+        icon={StatusIconComp}
+        className="ml-0.5 px-1.5 text-[9px] uppercase tracking-wide"
       >
-        <StatusIconComp className="size-2.5" />
         {APPROVAL_STATUS_LABELS[status]}
-      </span>
+      </StatusBadge>
 
-      {/* Visszavonás (csak approved + active esetén, hover-en jelenik meg) */}
+      {/* Visszavonás (csak approved + active esetén) — mindig látható, hogy
+          érintőképernyőn is felfedezhető legyen (korábban hover-only volt). */}
       {onRevoke && status === 'approved' && row.active && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-lg"
           onClick={onRevoke}
-          className="ml-0.5 -mr-1 size-5 shrink-0 rounded-full bg-white/20 text-white/80 hover:bg-red-500 hover:text-white inline-flex items-center justify-center transition opacity-0 group-hover:opacity-100 focus:opacity-100"
+          className="-my-1 -mr-1.5 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           title="Szerepkör visszavonása"
           aria-label="Szerepkör visszavonása"
         >
-          <X className="size-3" />
-        </button>
+          <X className="size-3.5" />
+        </Button>
       )}
     </div>
   )

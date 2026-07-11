@@ -50,7 +50,13 @@ export function AccessRequestApproveDialog({
         toast.error(`Hiba: ${res.error}`)
         return
       }
-      toast.success(`${request.full_name} kérelme elfogadva.`)
+      // 2026-07-11 fix: az action figyelmeztetése (pl. invite-email hiba) eddig
+      // néma volt — a kliens most toast-ban mutatja, hogy az admin tudjon róla.
+      if (res.info) {
+        toast.warning(`A kérelem jóváhagyva, DE: ${res.info}`, { duration: 12000 })
+      } else {
+        toast.success(`${request.full_name} kérelme elfogadva.`)
+      }
       setNotes('')
       onApproved()
       onOpenChange(false)

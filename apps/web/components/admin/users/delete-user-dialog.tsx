@@ -7,9 +7,12 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 interface DeleteUserDialogProps {
   open: boolean
@@ -32,54 +35,67 @@ export function DeleteUserDialog({
   const ready = confirmText.trim() === 'TÖRLÉS'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b border-rose-100 bg-rose-50/40">
-          <DialogTitle className="font-heading text-xl text-slate-800 flex items-center gap-2">
-            <AlertTriangle className="size-5 text-rose-600" />
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) setConfirmText('')
+        onOpenChange(o)
+      }}
+    >
+      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 pr-8 font-heading text-lg text-foreground">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+              <AlertTriangle className="size-5" />
+            </span>
             Felhasználó törlése
           </DialogTitle>
         </DialogHeader>
-        <div className="p-6 space-y-4">
-          <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-900">
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto">
+          <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
             <p className="font-semibold">Ez a művelet visszafordíthatatlan!</p>
-            <p className="mt-1 text-rose-800">
+            <p className="mt-1">
               A felhasználó <strong>személyes adatai</strong> (név, email, telefon)
               véglegesen <strong>anonimizálódnak</strong>, és a <strong>belépése
               megszűnik</strong>. A kiosztott szerepkörök visszavonódnak.
             </p>
-            <p className="mt-2 text-rose-800">
+            <p className="mt-2">
               A <strong>gyülekezet adatai</strong> (tagok, pénzügy, anyakönyv) és a
               <strong> lelkészi szolgálati napló</strong> NEM törlődnek — a
               gyülekezetet más veszi át. A naplóban a korábbi szolgálat
               (a névvel) megmarad, lezárva.
             </p>
           </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
             Törlés után az <strong>email-cím felszabadul</strong> — ha hiba miatt
             kell, az illető <strong>újra regisztrálhat</strong> ugyanazzal a címmel.
           </div>
-          <div className="rounded-xl bg-slate-50 p-3 text-sm">
-            <p className="font-semibold text-slate-800">{userName || '(nincs név)'}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{userEmail}</p>
+          <div className="rounded-xl bg-muted/60 p-3 text-sm ring-1 ring-border">
+            <p className="font-semibold text-foreground">{userName || '(nincs név)'}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{userEmail}</p>
           </div>
-          <div>
-            <label className="text-xs font-medium text-slate-600">
-              A megerősítéshez írja be: <strong>TÖRLÉS</strong>
-            </label>
-            <input
+          <div className="space-y-1">
+            <Label htmlFor="delete-confirm" className="text-xs font-medium text-muted-foreground">
+              A megerősítéshez írja be: <strong className="text-foreground">TÖRLÉS</strong>
+            </Label>
+            <Input
+              id="delete-confirm"
               type="text"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-zinc-50 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
               autoComplete="off"
               autoFocus
               disabled={isPending}
             />
           </div>
         </div>
-        <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-3 flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+            className="min-h-9"
+          >
             Mégse
           </Button>
           <Button
@@ -87,12 +103,12 @@ export function DeleteUserDialog({
               if (ready) onConfirm()
             }}
             disabled={!ready || isPending}
-            className="bg-rose-600 hover:bg-rose-700 text-white gap-2"
+            className="min-h-9 gap-2 bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600"
           >
             {isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             Végleges törlés
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -20,6 +20,7 @@ import {
   Flame,
   Heart,
   HelpCircle,
+  History,
   Home,
   Inbox,
   Landmark,
@@ -107,6 +108,9 @@ const WEB_ADMIN_SUBMENU = [
   { label: 'Támogatás', href: '/admin/tamogatas', icon: LifeBuoy, gradient: 'from-yellow-400 to-amber-500' },
   { label: 'Import', href: '/admin/import', icon: Download, gradient: 'from-pink-400 to-rose-500' },
   { label: 'Rendszer pénzügyei', href: '/admin/penzugy', icon: PiggyBank, gradient: 'from-rose-400 to-pink-500' },
+  // 2026-07-11 (admin-redesign): a Tevékenység-napló (rekord-szintű audit) újra
+  // elérhető — a halott AdminTabsV3-ból önálló /admin/naplo oldalra költözött.
+  { label: 'Tevékenység-napló', href: '/admin/naplo', icon: History, gradient: 'from-slate-400 to-slate-600' },
   { label: 'Rendszer', href: '/admin/rendszer', icon: ShieldAlert, gradient: 'from-red-400 to-rose-500' },
   { label: 'Veszélyes zóna', href: '/admin/veszelyes-zona', icon: Flame, gradient: 'from-red-500 to-red-700' },
 ] as const

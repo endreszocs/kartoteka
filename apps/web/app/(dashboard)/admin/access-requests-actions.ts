@@ -147,7 +147,7 @@ export async function getAccessRequestDocumentUrl(
  */
 export async function approveAccessRequest(
   input: ApproveInput,
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; info?: string }> {
   const ctx = await requireAdmin()
   if ('error' in ctx) return { error: ctx.error }
 
@@ -396,7 +396,10 @@ export async function approveAccessRequest(
   }
 
   revalidatePath('/admin')
-  return {}
+  // FIX 2026-07-11 (admin-redesign): az invite-hiba eddig CSAK console.warn-ba
+  // ment, a return üres siker volt — az admin sosem tudta meg, hogy a user nem
+  // jött létre / nem kapott meghívót. Az `info` mezőt a kliens toastban mutatja.
+  return inviteWarning ? { info: inviteWarning } : {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────
