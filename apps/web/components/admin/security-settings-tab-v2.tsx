@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { LockKeyhole, ShieldCheck, ShieldEllipsis } from 'lucide-react'
+import { LockKeyhole, ShieldAlert, ShieldCheck, ShieldEllipsis } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getGodModePinSettings, updateGodModePin } from '@/app/(dashboard)/god-mode/actions-v4'
@@ -33,6 +33,12 @@ type PinSource = 'database' | 'env' | 'none'
 export function SecuritySettingsTabV2() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  /**
+   * Ha a szerver megtagadja a PIN-metaadatok kiadását (nem fő rendszergazda),
+   * a szerkeszthetőnek látszó, de valójában működésképtelen PIN-panel HELYETT
+   * magyarázó kártyát mutatunk (a Veszélyes zóna nem-admin kártyájának mintájára).
+   */
+  const [accessError, setAccessError] = useState<string | null>(null)
   /** Az ÚJ PIN, amit a rendszergazda beír — a jelenlegi PIN sosem jön le a szerverről. */
   const [pin, setPin] = useState('')
   const [pinSet, setPinSet] = useState(false)
@@ -48,7 +54,9 @@ export function SecuritySettingsTabV2() {
       if (cancelled) return
 
       if ('error' in result) {
-        toast.error(result.error)
+        // Nem fő rendszergazda: NEM mutatunk működésképtelen PIN-panelt,
+        // hanem a lenti magyarázó kártyát (toast nélkül — a kártya elmagyarázza).
+        setAccessError(result.error ?? 'Ehhez a művelethez nincs jogosultságod.')
         setLoading(false)
         return
       }
@@ -87,6 +95,29 @@ export function SecuritySettingsTabV2() {
 
   if (loading) {
     return <AdminSkeleton rows={4} className="py-4" />
+  }
+
+  // Nem fő rendszergazda — magyarázó kártya a nem-működő PIN-panel helyett.
+  if (accessError) {
+    return (
+      <div className="rounded-2xl border border-border bg-muted/30 p-4 sm:p-5">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-destructive/10 text-destructive sm:size-12">
+            <ShieldAlert className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-heading text-base text-foreground sm:text-lg">
+              A rendszergazdai PIN kezelése csak a fő rendszergazdának érhető el
+            </h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              A te szerepköröddel a rendszer nem engedélyezi a rendszergazdai PIN
+              megtekintését vagy módosítását — ezért a beállító panel nem jelenik meg.
+              Ha PIN-változtatásra van szükség, kérd a fő rendszergazda segítségét.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

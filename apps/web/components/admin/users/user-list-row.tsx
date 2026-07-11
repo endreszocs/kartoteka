@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react'
-import { Church, Eye, FileText, Trash2 } from 'lucide-react'
+import { CalendarClock, Church, Eye, FileText, Trash2 } from 'lucide-react'
 
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { Button } from '@/components/ui/button'
@@ -21,7 +21,7 @@ import type { UserWithScope } from '@/app/(dashboard)/admin/actions'
 import { PendingUserActions } from './pending-user-actions'
 import { RoleAssignPopover, type QuickOption } from './role-assign-popover'
 import { RolePermissionsDialog } from './role-permissions-dialog'
-import { AVATAR_GRADIENT, getInitials, getUserStatusMeta } from './user-visuals'
+import { AVATAR_GRADIENT, formatRelativeTime, getInitials, getUserStatusMeta } from './user-visuals'
 
 interface UserListRowProps {
   user: UserWithScope
@@ -31,7 +31,8 @@ interface UserListRowProps {
   isPending: boolean
   onQuickAssign: (option: QuickOption) => void
   onAdvanced: () => void
-  onQuickApprove: () => void
+  /** A kétlépéses aktiváló wizard megnyitása (pending fiók fő akciója). */
+  onElbiral: () => void
   onReject: () => void
   onDelete: () => void
   onViewDocument?: (path: string) => void
@@ -45,7 +46,7 @@ export function UserListRow({
   isPending,
   onQuickAssign,
   onAdvanced,
-  onQuickApprove,
+  onElbiral,
   onReject,
   onDelete,
   onViewDocument,
@@ -115,6 +116,17 @@ export function UserListRow({
             </StatusBadge>
           </div>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          <p
+            className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground/70"
+            title={
+              user.lastActiveAt
+                ? `Utoljára aktív: ${new Date(user.lastActiveAt).toLocaleString('hu-HU')}`
+                : 'A felhasználó még egyszer sem lépett be'
+            }
+          >
+            <CalendarClock className="size-3 shrink-0" aria-hidden />
+            <span className="truncate">Utoljára aktív: {formatRelativeTime(user.lastActiveAt)}</span>
+          </p>
         </div>
 
         {/* Hely (gyülekezet) — balra igazítva, fix sávban (md-től) */}
@@ -208,12 +220,7 @@ export function UserListRow({
             </button>
           )}
           <div className="ml-auto">
-            <PendingUserActions
-              isPending={isPending}
-              hasRequest={!!user.pendingRequest}
-              onQuickApprove={onQuickApprove}
-              onReject={onReject}
-            />
+            <PendingUserActions isPending={isPending} onElbiral={onElbiral} onReject={onReject} />
           </div>
         </div>
       )}

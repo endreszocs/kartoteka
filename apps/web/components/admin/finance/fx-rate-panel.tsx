@@ -68,10 +68,9 @@ export function FxRatePanel({
   const [editing, setEditing] = useState<FxPair | null>(null)
 
   useEffect(() => {
-    if (initialRates) {
-      setRates(initialRates)
-      return
-    }
+    // Ha a szülő már átadta a rátákat, a kezdőérték a useState-ből jön —
+    // nincs szükség szinkron prop-sync-re (a panel önálló, Frissítéssel újratölt).
+    if (initialRates) return
     void getFxRates().then((r) => {
       if (r.data) setRates(r.data)
       else if (r.error) toast.error(`Árfolyam: ${r.error}`)
@@ -187,9 +186,14 @@ function FxRateCard({
   const [draft, setDraft] = useState(String(rawValue))
   const [isPending, startTransition] = useTransition()
 
-  useEffect(() => {
+  // A szerkesztésbe lépéskor a draft a friss rawValue-ra áll — render közbeni
+  // korrekció (React ajánlott minta a prop-változásra) az effekt-alapú
+  // szinkron setState helyett, ami cascading rendert okozna.
+  const [wasEditing, setWasEditing] = useState(editing)
+  if (editing !== wasEditing) {
+    setWasEditing(editing)
     if (editing) setDraft(String(rawValue))
-  }, [editing, rawValue])
+  }
 
   function handleSave() {
     const num = Number(draft)

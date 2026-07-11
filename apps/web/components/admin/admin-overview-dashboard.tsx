@@ -27,6 +27,10 @@ import { StatusBadge } from './_shared/status-badge'
 import { OverviewTabRefined } from './overview-tab-refined'
 import { getAccessRequestStats } from '@/app/(dashboard)/admin/access-requests-actions'
 import { listBroadcasts } from '@/app/(dashboard)/admin/broadcasts-actions'
+import {
+  getOpenSupportTicketCountAction,
+  getViewerIsSystemAdmin,
+} from '@/app/(dashboard)/admin/support-kpi-actions'
 import { RELEASE_CATEGORY_LABELS } from '@/lib/broadcasts/types'
 import type { BroadcastRow } from '@/lib/broadcasts/types'
 import { cn } from '@/lib/utils'
@@ -220,6 +224,12 @@ export function AdminOverviewDashboard() {
   const [requestsFailed, setRequestsFailed] = useState(false)
   const [broadcasts, setBroadcasts] = useState<BroadcastRow[] | null>(null)
   const [broadcastsFailed, setBroadcastsFailed] = useState(false)
+  const [openTickets, setOpenTickets] = useState<number | null>(null)
+  const [ticketsFailed, setTicketsFailed] = useState(false)
+  // Biztonságos default: amíg nem tudjuk (vagy ha a lekérés hibázik), MUTATJUK a
+  // rendszer-szintű modul-kártyákat — a /admin layout-guard úgyis véd. Csak akkor
+  // rejtjük el őket, ha explicit „nem rendszer-admin" választ kaptunk.
+  const [isSystemAdmin, setIsSystemAdmin] = useState(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -227,7 +237,9 @@ export function AdminOverviewDashboard() {
     Promise.all([
       getAccessRequestStats().catch(() => ({ error: 'Hálózati hiba' })),
       listBroadcasts().catch(() => ({ error: 'Hálózati hiba' })),
-    ]).then(([statsRes, broadcastRes]) => {
+      getOpenSupportTicketCountAction().catch(() => ({ error: 'Hálózati hiba' })),
+      getViewerIsSystemAdmin().catch(() => ({ error: 'Hálózati hiba' })),
+    ]).then(([statsRes, broadcastRes, ticketRes, scopeRes]) => {
       if (cancelled) return
       // FIX 2026-07-11: a hiba korábban némán '0 kérelem / minden feldolgozva'
       // állapotot mutatott — most megkülönböztetett hiba-állapot jelenik meg.
@@ -235,6 +247,11 @@ export function AdminOverviewDashboard() {
       else setRequestsFailed(true)
       if ('data' in broadcastRes && broadcastRes.data) setBroadcasts(broadcastRes.data)
       else setBroadcastsFailed(true)
+      if ('data' in ticketRes && ticketRes.data) setOpenTickets(ticketRes.data.open)
+      else setTicketsFailed(true)
+      // Csak explicit „nem rendszer-admin" válaszra rejtünk — hiba esetén marad a
+      // biztonságos default (mutatjuk a kártyákat).
+      if ('data' in scopeRes && scopeRes.data) setIsSystemAdmin(scopeRes.data.isSystemAdmin)
       setLoading(false)
     })
     return () => {
@@ -247,6 +264,13 @@ export function AdminOverviewDashboard() {
   // Őszinte érték: a lekérdezés összes üzenete (max 100), nem a lista-slice hossza.
   const broadcastCount =
     broadcasts === null ? null : broadcasts.length >= 100 ? '100+' : broadcasts.length
+
+  // Biztonsági audit #5: a kerületi adminnak (nem rendszer-szintű) a „Rendszer"
+  // és „Veszélyes zóna" modulkártya rejtve marad — a bal oldali menü is így tesz.
+  const SYSTEM_ONLY_HREFS = new Set(['/admin/rendszer', '/admin/veszelyes-zona'])
+  const visibleModules = isSystemAdmin
+    ? MODULES
+    : MODULES.filter((m) => !SYSTEM_ONLY_HREFS.has(m.href))
 
   return (
     <div className="space-y-6">
@@ -266,16 +290,15 @@ export function AdminOverviewDashboard() {
           <p className="text-xs text-muted-foreground">Az aktuális elbírálások és üzenetek egy pillantásra</p>
         </div>
         {loading ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl bg-card p-5 ring-1 ring-border">
-              <AdminSkeleton rows={2} />
-            </div>
-            <div className="rounded-2xl bg-card p-5 ring-1 ring-border">
-              <AdminSkeleton rows={2} />
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-2xl bg-card p-5 ring-1 ring-border">
+                <AdminSkeleton rows={2} />
+              </div>
+            ))}
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <FocusCard
               href="/admin/felhasznalok"
               icon={Inbox}
@@ -290,6 +313,21 @@ export function AdminOverviewDashboard() {
               }
               intent={requestsFailed ? 'danger' : 'warning'}
               highlight={!requestsFailed && !!pendingRequests && pendingRequests > 0}
+            />
+            <FocusCard
+              href="/admin/tamogatas"
+              icon={LifeBuoy}
+              label="Nyitott támogatási jegy"
+              value={ticketsFailed ? '—' : (openTickets ?? 0)}
+              description={
+                ticketsFailed
+                  ? 'Nem sikerült betölteni a jegyeket. Részletek a Támogatás oldalon.'
+                  : openTickets === 0
+                  ? 'Nincs megválaszolatlan támogatási jegy.'
+                  : 'Megválaszolatlan kérdés vár a Támogatás oldalon.'
+              }
+              intent={ticketsFailed ? 'danger' : 'warning'}
+              highlight={!ticketsFailed && !!openTickets && openTickets > 0}
             />
             <FocusCard
               href="/admin/frissitesek"
@@ -361,7 +399,7 @@ export function AdminOverviewDashboard() {
           <p className="text-xs text-muted-foreground">Bármelyik részhez közvetlenül átléphet</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
+          {visibleModules.map((m) => (
             <ModuleLink key={m.href} {...m} />
           ))}
         </div>

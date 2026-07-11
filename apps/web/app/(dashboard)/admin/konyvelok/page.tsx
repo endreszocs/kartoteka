@@ -1,19 +1,11 @@
-import { Calculator } from 'lucide-react'
+import { redirect } from 'next/navigation'
 
-import { AdminPageHeader } from '@/components/admin/admin-page-header'
-import { ProfileCongregationsTab } from '@/components/admin/profile-congregations-tab'
-
+/**
+ * 2026-07-11 (admin-redesign 2. kör): a „Könyvelők és számvevők" oldal
+ * beolvadt a Felhasználók oldalba (második fül: „Könyvelői hozzárendelések").
+ * Ez az útvonal átirányít — a régi könyvjelzők és belső hivatkozások így
+ * továbbra is működnek, és nincs kettős karbantartás.
+ */
 export default function Page() {
-  return (
-    <>
-      <AdminPageHeader
-        title="Könyvelők és számvevők"
-        description="A pénzügyi feladatkörök kiosztása gyülekezetenként. A könyvelők és számvevők a kijelölt gyülekezetek pénzügyeit kezelhetik."
-        icon={Calculator}
-      />
-      <div className="card-raised p-4 sm:p-5">
-        <ProfileCongregationsTab />
-      </div>
-    </>
-  )
+  redirect('/admin/felhasznalok?tab=konyvelok')
 }

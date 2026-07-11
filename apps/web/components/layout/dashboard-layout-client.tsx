@@ -8,7 +8,6 @@ import {
   Bell,
   BookMarked,
   Building2,
-  Calculator,
   Church,
   ClipboardList,
   Coins,
@@ -101,8 +100,11 @@ const WEB_ADMIN_SUBMENU = [
   // történik (a függőben lévő kérelmek kontextusa ott látszik). Az útvonal
   // (/admin/hozzaferes-kerelmek) megmarad archívumként/visszafordíthatóságért.
   { label: 'Gyülekezetek', href: '/admin/gyulekezetek', icon: Church, gradient: 'from-emerald-400 to-teal-500' },
+  // 2026-07-11 (2. kör): a „Könyvelők / számvevők" külön menüpont MEGSZŰNT — a
+  // könyvelői/számvevői hozzárendelések a Felhasználók oldal második fülére
+  // („Könyvelői hozzárendelések") kerültek. Az /admin/konyvelok útvonal a
+  // Felhasználók oldalra irányít át (visszafordíthatóság + régi könyvjelzők).
   { label: 'Felhasználók', href: '/admin/felhasznalok', icon: UserCog, gradient: 'from-violet-500 to-indigo-600' },
-  { label: 'Könyvelők / számvevők', href: '/admin/konyvelok', icon: Calculator, gradient: 'from-teal-400 to-cyan-500' },
   { label: 'Eszközök és napló', href: '/admin/eszkozok', icon: Database, gradient: 'from-cyan-400 to-sky-500' },
   { label: 'Frissítések', href: '/admin/frissitesek', icon: Bell, gradient: 'from-orange-400 to-amber-500' },
   { label: 'Támogatás', href: '/admin/tamogatas', icon: LifeBuoy, gradient: 'from-yellow-400 to-amber-500' },

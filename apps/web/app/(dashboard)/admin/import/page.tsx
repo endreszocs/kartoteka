@@ -1,26 +1,41 @@
 import { Download } from 'lucide-react'
 
 import { AdminPageHeader } from '@/components/admin/admin-page-header'
-import { TagnyilvantartasImportWizard } from '@/components/members/tagnyilvantartas-import-wizard'
+import { ImportHub } from '@/components/admin/import-hub/import-hub'
 import { ImportLogList } from '@/components/admin/import-log-list'
+import {
+  FILING_PROFILES,
+  FINANCE_PROFILES,
+  REGISTRY_PROFILES,
+  WORKLOG_PROFILES,
+  type ImportModule,
+  type ImportProfile,
+} from '@/lib/import/import-profiles'
 
 // Endre kérése (2026-05-04): a god mode aktiválás kivéve. Az admin layout
-// (requireAdminAccess) már garantálja, hogy csak rendszergazda léphet ide be —
-// duplán védelmezés-kötelezve nincs szükség. A wizard azonnal használható.
+// (requireAdminAccess) már garantálja, hogy csak rendszergazda léphet ide be.
+//
+// 2026-07-11 (admin-redesign, import-hub): az oldal gyülekezet-választós központtá
+// alakult — a rendszergazda bármelyik gyülekezethez importálhat tagokat, anyakönyvet,
+// pénzügyet, munkanaplót, iktatót. A multi-sheet import-profilokat szerver oldalon
+// olvassuk be és adjuk át a kliens hubnak (a members modul saját vezetett varázslóval megy).
+const IMPORT_PROFILES_BY_MODULE: Partial<Record<ImportModule, ImportProfile[]>> = {
+  registry: REGISTRY_PROFILES,
+  finance: FINANCE_PROFILES,
+  worklog: WORKLOG_PROFILES,
+  filing: FILING_PROFILES,
+}
+
 export default function Page() {
   return (
     <>
       <AdminPageHeader
-        title="Import"
-        description="Tagnyilvántartás importálása. A wizard végigvezet a fájl-feltöltésen és az adatok ellenőrzésén."
+        title="Import központ"
+        description="Válassz cél-gyülekezetet, majd importálj hozzá tagokat, anyakönyvet, pénzügyet, munkanaplót vagy iktatót. Minden futás bekerül az import előzményekbe."
         icon={Download}
       />
-      <div className="card-raised p-4 sm:p-5">
-        <div className="space-y-6">
-          <TagnyilvantartasImportWizard mode="admin" />
-          <ImportLogList />
-        </div>
-      </div>
+      <ImportHub importProfilesByModule={IMPORT_PROFILES_BY_MODULE} />
+      <ImportLogList />
     </>
   )
 }

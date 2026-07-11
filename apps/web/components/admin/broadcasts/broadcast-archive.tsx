@@ -15,9 +15,10 @@
  */
 
 import { useState } from 'react'
-import { ChevronDown, Clock, ExternalLink, Inbox, Newspaper } from 'lucide-react'
+import { ChevronDown, Clock, ExternalLink, Eye, Inbox, Newspaper } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { AdminEmptyState } from '@/components/admin/_shared/admin-empty-state'
 
@@ -30,6 +31,7 @@ import {
   isSafeHivatkozas,
 } from './format'
 import { EmailStatusBadge } from './delivery-badges'
+import { EmailPreviewDialog } from './email-preview-dialog'
 
 /** A listBroadcasts szerver-oldali limitje — ennyinél többet nem kapunk. */
 const LIST_LIMIT = 100
@@ -37,6 +39,9 @@ const LIST_LIMIT = 100
 export function BroadcastArchive({ broadcasts }: { broadcasts: BroadcastRow[] }) {
   const mainItems = broadcasts.filter((b) => !b.cim.startsWith(NEWSLETTER_MARKER_PREFIX))
   const markerItems = broadcasts.filter((b) => b.cim.startsWith(NEWSLETTER_MARKER_PREFIX))
+
+  // E-mail előnézet — egyetlen közös dialógus, a kiválasztott sorral.
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -59,16 +64,32 @@ export function BroadcastArchive({ broadcasts }: { broadcasts: BroadcastRow[] })
             hint="Az első kiküldés után itt jelenik meg, mikor, kinek és mit küldtél."
           />
         ) : (
-          mainItems.map((b) => <ArchiveItem key={b.id} broadcast={b} />)
+          mainItems.map((b) => (
+            <ArchiveItem key={b.id} broadcast={b} onPreview={() => setPreviewId(b.id)} />
+          ))
         )}
 
         {markerItems.length > 0 && <NewsletterMarkerGroup items={markerItems} />}
       </div>
+
+      <EmailPreviewDialog
+        open={!!previewId}
+        onOpenChange={(o) => {
+          if (!o) setPreviewId(null)
+        }}
+        broadcastId={previewId}
+      />
     </section>
   )
 }
 
-function ArchiveItem({ broadcast }: { broadcast: BroadcastRow }) {
+function ArchiveItem({
+  broadcast,
+  onPreview,
+}: {
+  broadcast: BroadcastRow
+  onPreview: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const showLink = !!broadcast.hivatkozas && isSafeHivatkozas(broadcast.hivatkozas)
 
@@ -114,6 +135,14 @@ function ArchiveItem({ broadcast }: { broadcast: BroadcastRow }) {
                 v{broadcast.release_version}
               </Badge>
             )}
+            <Button
+              variant="outline"
+              onClick={onPreview}
+              className="ml-auto min-h-9 gap-1.5"
+            >
+              <Eye className="size-4" aria-hidden />
+              Előnézet
+            </Button>
           </div>
           {broadcast.email_error && (
             <p className="text-xs italic text-rose-600 dark:text-rose-400">

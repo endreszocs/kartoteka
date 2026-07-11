@@ -73,3 +73,39 @@ export const AVATAR_GRADIENT: CSSProperties = {
   background: 'linear-gradient(135deg, var(--primary), var(--accent))',
   color: 'var(--primary-foreground)',
 }
+
+/**
+ * „Utoljára aktív" — magyar relatív idő (2026-07-11, 2. kör).
+ *
+ * A getAllUsersWithScope által számolt `lastActiveAt`-hoz (a profiles.last_seen_at
+ * heartbeat és az auth last_sign_in_at közül a frissebb). null → „még nem lépett be".
+ * Rövid, lelkész-barát: „az imént", „3 perce", „2 órája", „tegnap", „5 napja",
+ * ezen túl konkrét dátum.
+ */
+export function formatRelativeTime(iso: string | null): string {
+  if (!iso) return 'még nem lépett be'
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return 'ismeretlen'
+  const diffMs = Date.now() - t
+  if (diffMs < 0) return 'az imént'
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return 'az imént'
+  if (min < 60) return `${min} perce`
+  const hours = Math.floor(min / 60)
+  if (hours < 24) return `${hours} órája`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'tegnap'
+  if (days < 7) return `${days} napja`
+  if (days < 30) {
+    const weeks = Math.floor(days / 7)
+    return weeks === 1 ? 'egy hete' : `${weeks} hete`
+  }
+  // Egy hónapon túl: konkrét dátum (év csak ha nem az idei).
+  const d = new Date(t)
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('hu-HU', {
+    year: sameYear ? undefined : 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}

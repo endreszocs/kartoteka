@@ -47,24 +47,39 @@ export function WipeCongregationPanel({ congregations, onWiped }: WipeCongregati
   const [typedName, setTypedName] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  // Az eredmény mellé eltesszük a törölt gyülekezet nevét is, hogy a
-  // visszajelzés a form-reset után is megnevezze, MI törlődött (audit-barát).
-  const [lastWipe, setLastWipe] = useState<{ name: string; result: WipeResult } | null>(null)
+  // Az eredmény mellé eltesszük a törölt gyülekezet nevét (és a megadott
+  // indoklást) is, hogy a visszajelzés a form-reset után is megnevezze,
+  // MI és MIÉRT törlődött (audit-barát).
+  const [lastWipe, setLastWipe] = useState<
+    { name: string; reason?: string; result: WipeResult } | null
+  >(null)
 
   const selected = congregations.find((c) => c.id === selectedId)
   const expectedName = selected?.nev ?? ''
   const typedMatch = typedName.trim() === expectedName && expectedName.length > 0
   const canSubmit = !!selected && typedMatch && !busy
 
-  async function doWipe() {
+  // A wipe-RPC a foreign_key_violation-t elnyeli, és az érintett táblát
+  // „<tábla> (FK hiba)" néven, 0 sorral adja vissza. Ha van ilyen tábla, a
+  // törlés csak RÉSZLEGESEN sikerült — a siker-panel sárga (figyelmeztető),
+  // nem zöld. Csak minden-tábla-siker esetén marad a zöld visszajelzés.
+  const resultTables = lastWipe?.result.deletedTables ?? []
+  const failedTables = resultTables.filter((t) => t.table.includes('(FK hiba)'))
+  const okTables = resultTables.filter((t) => !t.table.includes('(FK hiba)') && t.rows > 0)
+  const isPartial = !!lastWipe?.result.success && failedTables.length > 0
+
+  async function doWipe(reason?: string) {
     if (!selected || !typedMatch) return
 
     setBusy(true)
     setLastWipe(null)
     const wipedName = selected.nev
+    const wipedReason = reason?.trim() || undefined
     try {
+      // Megj.: az indoklást egyelőre CSAK a UI rögzíti (a visszajelző panelen
+      // jelenítjük meg). Az action-be vezetése + data_wipe_log-ba írása külön kör.
       const res = await wipeCongregationDataAction(selected.id, typedName.trim())
-      setLastWipe({ name: wipedName, result: res })
+      setLastWipe({ name: wipedName, reason: wipedReason, result: res })
       if (res.success) {
         setTypedName('')
         setSelectedId('')
@@ -73,6 +88,7 @@ export function WipeCongregationPanel({ congregations, onWiped }: WipeCongregati
     } catch (err) {
       setLastWipe({
         name: wipedName,
+        reason: wipedReason,
         result: {
           success: false,
           error: err instanceof Error ? err.message : String(err),
@@ -223,11 +239,15 @@ export function WipeCongregationPanel({ congregations, onWiped }: WipeCongregati
         confirmLabel="Igen, végleges törlés"
         cancelLabel="Mégse"
         loading={busy}
-        onConfirm={() => void doWipe()}
+        reasonLabel="Indoklás (a törlés oka)"
+        reasonPlaceholder="Miért törlöd a gyülekezet minden beviteli adatát? (pl. teszt-fázis lezárása élesítés előtt)"
+        reasonRequired
+        reasonMinLength={8}
+        onConfirm={(reason) => void doWipe(reason)}
       />
 
-      {/* Eredmény */}
-      {lastWipe && lastWipe.result.success && (
+      {/* Eredmény — TELJES siker (minden tábla törölve) */}
+      {lastWipe && lastWipe.result.success && !isPartial && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
           <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200">
             <CheckCircle2 className="size-5 shrink-0" />
@@ -236,33 +256,69 @@ export function WipeCongregationPanel({ congregations, onWiped }: WipeCongregati
           <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
             A(z) <strong>{lastWipe.name}</strong> gyülekezet adatai törölve — összesen{' '}
             <strong>{lastWipe.result.rowsTotal?.toLocaleString('hu-HU')}</strong> sor
-            {lastWipe.result.deletedTables
-              ? `, ${lastWipe.result.deletedTables.filter((t) => t.rows > 0).length} táblából`
-              : ''}
-            .
+            {`, ${okTables.length} táblából`}.
           </p>
-          {lastWipe.result.deletedTables &&
-            lastWipe.result.deletedTables.filter((t) => t.rows > 0).length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs text-emerald-800 hover:underline dark:text-emerald-300">
-                  Részletek (táblák szerint)
-                </summary>
-                <ul className="mt-2 grid grid-cols-1 gap-1 text-xs text-emerald-900 dark:text-emerald-200 sm:grid-cols-2 md:grid-cols-3">
-                  {lastWipe.result.deletedTables
-                    .filter((t) => t.rows > 0)
-                    .sort((a, b) => b.rows - a.rows)
-                    .map((t) => (
-                      <li key={t.table} className="break-all">
-                        <span className="font-mono">{t.table}</span>:{' '}
-                        <strong>{t.rows.toLocaleString('hu-HU')}</strong>
-                      </li>
-                    ))}
-                </ul>
-              </details>
-            )}
+          {lastWipe.reason && (
+            <p className="mt-1 text-xs text-emerald-800/90 dark:text-emerald-300/90">
+              Megadott indoklás: <span className="italic">{lastWipe.reason}</span>
+            </p>
+          )}
+          {okTables.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-emerald-800 hover:underline dark:text-emerald-300">
+                Részletek (táblák szerint)
+              </summary>
+              <ul className="mt-2 grid grid-cols-1 gap-1 text-xs text-emerald-900 dark:text-emerald-200 sm:grid-cols-2 md:grid-cols-3">
+                {[...okTables]
+                  .sort((a, b) => b.rows - a.rows)
+                  .map((t) => (
+                    <li key={t.table} className="break-all">
+                      <span className="font-mono">{t.table}</span>:{' '}
+                      <strong>{t.rows.toLocaleString('hu-HU')}</strong>
+                    </li>
+                  ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 
+      {/* Eredmény — RÉSZLEGES siker (a törlés lefutott, de FK-hiba miatt maradt tábla) */}
+      {lastWipe && lastWipe.result.success && isPartial && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800/60 dark:bg-amber-950/30">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+            <AlertTriangle className="size-5 shrink-0" />
+            <p className="text-sm font-semibold">Részlegesen sikerült</p>
+          </div>
+          <p className="mt-1 text-sm text-amber-800 dark:text-amber-200/90">
+            A(z) <strong>{lastWipe.name}</strong> gyülekezet adatainak nagy része törölve
+            (<strong>{lastWipe.result.rowsTotal?.toLocaleString('hu-HU')}</strong> sor,{' '}
+            {okTables.length} táblából), de{' '}
+            <strong>{failedTables.length}</strong> tábla nem törlődött hivatkozási
+            (foreign key) korlátozás miatt. Ezeket manuálisan, a hivatkozó adatok
+            eltávolítása után lehet törölni.
+          </p>
+          {lastWipe.reason && (
+            <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/80">
+              Megadott indoklás: <span className="italic">{lastWipe.reason}</span>
+            </p>
+          )}
+          <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-100/50 p-2.5 dark:border-amber-800/50 dark:bg-amber-900/20">
+            <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+              Nem törölt táblák:
+            </p>
+            <ul className="mt-1 grid grid-cols-1 gap-0.5 text-xs text-amber-900 dark:text-amber-200/90 sm:grid-cols-2">
+              {failedTables.map((t) => (
+                <li key={t.table} className="break-all">
+                  <span className="font-mono">{t.table.replace(' (FK hiba)', '')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Eredmény — HIBA (a törlés egyáltalán nem futott le) */}
       {lastWipe && !lastWipe.result.success && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
           <div className="flex items-center gap-2">

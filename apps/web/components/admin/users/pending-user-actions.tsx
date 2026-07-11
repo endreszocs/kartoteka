@@ -1,52 +1,37 @@
 'use client'
 
-import { UserCheck, UserX } from 'lucide-react'
+import { ClipboardCheck, UserX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 
 interface PendingUserActionsProps {
   isPending: boolean
-  /**
-   * Van-e regisztrációs kérelme a felhasználónak. Ha igen, a jóváhagyás a
-   * TELJES kérelem-elbírálást futtatja (aktiválás + kért gyülekezet
-   * hozzárendelése + email) — a gombfelirat ezt tükrözi. (2026-07-11 fix: a
-   * korábbi tooltip épp az ellenkezőjét állította.)
-   */
-  hasRequest?: boolean
-  onQuickApprove: () => void
+  /** Az „Elbírálás" gomb a kétlépéses aktiváló wizardot nyitja meg. */
+  onElbiral: () => void
+  /** Gyors elutasítás — közvetlenül az elutasító dialógust nyitja. */
   onReject: () => void
 }
 
 /**
- * Pending fiók akciói. A "+ Új szerepkör" választó egyetlen kattintással
- * már aktivál + gyülekezet-hozzárendelést is végez (D6, activate-on-role-assign),
- * ezért az "Aktiválás gyülekezettel" külön gombra nincs szükség.
+ * Pending fiók akciói (2026-07-11 admin-redesign 2. kör).
  *
- * Két út marad:
- * - Jóváhagyás — kérelemmel: teljes elbírálás; kérelem nélkül: sima aktiválás
- * - "Elutasítás" — pending → rejected
+ * A FŐ akció az „Elbírálás" — kétlépéses wizard: 1) a regisztrációs kérelem
+ * áttekintése, 2) aktiválás + szerepkör-kiosztás egy lépésben. Az „Elutasítás"
+ * gyors út a pending → rejected váltáshoz (ugyanez a wizard 1. lépéséből is
+ * elérhető).
  */
-export function PendingUserActions({
-  isPending,
-  hasRequest = false,
-  onQuickApprove,
-  onReject,
-}: PendingUserActionsProps) {
+export function PendingUserActions({ isPending, onElbiral, onReject }: PendingUserActionsProps) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Button
         size="sm"
-        onClick={onQuickApprove}
+        onClick={onElbiral}
         disabled={isPending}
         className="min-h-9 gap-1 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
-        title={
-          hasRequest
-            ? 'A kérelem jóváhagyása egy lépésben: aktiválja a fiókot, hozzárendeli a kért gyülekezetet és értesítő emailt küld.'
-            : 'A fiók aktiválódik gyülekezet és szerepkör nélkül. Gyülekezetet és szerepkört a „+ Új szerepkör” gombbal rendelhet hozzá (az egyúttal aktivál is).'
-        }
+        title="Kétlépéses elbírálás: a kérelem áttekintése, majd aktiválás és szerepkör-kiosztás egy lépésben."
       >
-        <UserCheck className="size-3.5" />
-        {hasRequest ? 'Jóváhagyás és aktiválás' : 'Felhasználó aktiválása'}
+        <ClipboardCheck className="size-3.5" />
+        Elbírálás
       </Button>
       <Button
         size="sm"

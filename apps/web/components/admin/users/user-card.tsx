@@ -11,7 +11,17 @@
  */
 
 import { useState } from 'react'
-import { Building2, Castle, Church, Clock, Eye, FileText, Trash2, UserCheck } from 'lucide-react'
+import {
+  Building2,
+  CalendarClock,
+  Castle,
+  Church,
+  Clock,
+  Eye,
+  FileText,
+  Trash2,
+  UserCheck,
+} from 'lucide-react'
 
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { Button } from '@/components/ui/button'
@@ -22,7 +32,7 @@ import { PendingUserActions } from './pending-user-actions'
 import { RoleAssignPopover, type QuickOption } from './role-assign-popover'
 import { RoleBadgeInline } from './role-badge-inline'
 import { RolePermissionsDialog } from './role-permissions-dialog'
-import { AVATAR_GRADIENT, getInitials, getUserStatusMeta } from './user-visuals'
+import { AVATAR_GRADIENT, formatRelativeTime, getInitials, getUserStatusMeta } from './user-visuals'
 
 interface UserCardProps {
   user: UserWithScope
@@ -34,7 +44,8 @@ interface UserCardProps {
   /** Egyedi szerep + indoklás dialóg (a választón belüli "Részletes (egyedi szerep)" linkről hívva). */
   onAdvanced: () => void
   onRevokeRole: (row: ProfileRoleRow) => void
-  onQuickApprove: () => void
+  /** A kétlépéses aktiváló wizard megnyitása (pending fiók fő akciója). */
+  onElbiral: () => void
   onReject: () => void
   onDelete: () => void
   /** A regisztrációhoz feltöltött dokumentum megnyitása (signed URL). */
@@ -50,7 +61,7 @@ export function UserCard({
   onQuickAssign,
   onAdvanced,
   onRevokeRole,
-  onQuickApprove,
+  onElbiral,
   onReject,
   onDelete,
   onViewDocument,
@@ -116,6 +127,17 @@ export function UserCard({
               Regisztrált: {new Date(user.created_at).toLocaleString('hu-HU')}
             </p>
           )}
+          <p
+            className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70"
+            title={
+              user.lastActiveAt
+                ? `Utoljára aktív: ${new Date(user.lastActiveAt).toLocaleString('hu-HU')}`
+                : 'A felhasználó még egyszer sem lépett be'
+            }
+          >
+            <CalendarClock className="size-3 shrink-0" aria-hidden />
+            Utoljára aktív: {formatRelativeTime(user.lastActiveAt)}
+          </p>
         </div>
 
         {/* Akció-oszlop — mobilon (375px) a fejléc alá törik teljes szélességben,
@@ -225,20 +247,19 @@ export function UserCard({
             <div className="mr-2 flex items-center gap-2 text-amber-900 dark:text-amber-200">
               <Clock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <p className="text-sm font-semibold">
-                {user.pendingRequest ? 'Jóváhagyás és aktiválás:' : 'Várakozó fiók — aktiválás:'}
+                {user.pendingRequest ? 'Kérelem elbírálása:' : 'Várakozó fiók — elbírálás:'}
               </p>
             </div>
             <PendingUserActions
               isPending={isPending}
-              hasRequest={!!user.pendingRequest}
-              onQuickApprove={onQuickApprove}
+              onElbiral={onElbiral}
               onReject={onReject}
             />
           </div>
           <p className="text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-300/90">
-            A jóváhagyás <strong>egy lépésben</strong> aktiválja a fiókot
-            {user.pendingRequest ? ' és hozzárendeli a kért gyülekezetet' : ''} — a
-            felhasználó utána azonnal beléphet. Külön aktiválásra nincs szükség.
+            Az <strong>Elbírálás</strong> kétlépéses: előbb a{' '}
+            {user.pendingRequest ? 'kérelem' : 'profil'} áttekintése, majd aktiválás és
+            szerepkör-kiosztás <strong>egy lépésben</strong> — a felhasználó utána azonnal beléphet.
           </p>
         </div>
       )}

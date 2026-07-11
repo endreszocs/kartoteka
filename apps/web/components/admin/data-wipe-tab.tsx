@@ -133,12 +133,12 @@ export function DataWipeTab() {
 
   if (error) {
     return (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50/60 p-6 text-center dark:border-rose-900 dark:bg-rose-950/30">
-        <p className="font-semibold text-rose-800 dark:text-rose-200">
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5 text-center sm:p-6">
+        <p className="font-semibold text-destructive">
           Nem sikerült betölteni a gyülekezet-listát
         </p>
-        <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{error}</p>
-        <Button onClick={load} variant="outline" className="mt-3 gap-2">
+        <p className="mt-1 break-words text-sm text-muted-foreground">{error}</p>
+        <Button onClick={load} variant="outline" className="mt-3 w-full gap-2 sm:w-auto">
           <RefreshCw className="size-4" />
           Újrapróbálom
         </Button>

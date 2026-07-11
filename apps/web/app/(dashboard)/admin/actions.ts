@@ -572,6 +572,15 @@ export interface UserWithScope {
   role: string | null
   status: string | null
   created_at: string | null
+  // 2026-07-11 (admin-redesign 2. kör): a profil telefonszáma + a szabad
+  // szöveges gyülekezet-mező (régi OAuth-regisztrálók töltötték ki) — az
+  // elbíráló wizard kérelem NÉLKÜLI (fallback) nézetéhez.
+  phone: string | null
+  congregation_text: string | null
+  // 2026-07-11 (2. kör): „Utoljára aktív" — a legfrissebb a profiles.last_seen_at
+  // (heartbeat a layoutból) ÉS az auth last_sign_in_at közül. null = még soha
+  // nem lépett be / nincs adat.
+  lastActiveAt: string | null
   // Profile-szintű elsődleges hozzárendelés
   primary_congregation_id: string | null
   primary_congregation_name: string | null
@@ -596,8 +605,17 @@ export interface UserWithScope {
     requestedCongregationName: string | null
     requestedDioceseName: string | null
     requestedDistrictName: string | null
+    // 2026-07-11 (2. kör): a kért hatókör UUID-jai — az elbíráló wizard
+    // 2. lépése ezekből tölti elő a szerepkör-kiosztást.
+    requestedCongregationId: string | null
+    requestedDioceseId: string | null
+    requestedDistrictId: string | null
     documentPath: string | null
     justification: string | null
+    // 2026-07-11 (2. kör): a regisztrációkor megadott telefonszám és a
+    // „honnan hallott rólunk" mező — eddig a select se hozta le.
+    phone: string | null
+    referrer: string | null
     requestedAt: string | null
   } | null
 }
@@ -626,8 +644,11 @@ export async function getAllUsersWithScope(): Promise<{
     email: string
     role: string | null
     status: string | null
+    phone: string | null
+    congregation: string | null
     congregation_id: string | null
     created_at: string | null
+    last_seen_at: string | null
     congregations?: {
       nev_hu?: string | null
       name?: string | null
@@ -642,7 +663,7 @@ export async function getAllUsersWithScope(): Promise<{
   const { data: profilesRaw, error: pErr } = await supabase
     .from('profiles')
     .select(
-      'id, full_name, email, role, status, congregation_id, created_at, ' +
+      'id, full_name, email, role, status, phone, congregation, congregation_id, created_at, last_seen_at, ' +
         'congregations:congregation_id(nev_hu, name, diocese_id, dioceses:diocese_id(name, district_id, districts:district_id(name)))',
     )
     .order('created_at', { ascending: false })
@@ -730,10 +751,14 @@ export async function getAllUsersWithScope(): Promise<{
     requested_role: string | null
     document_path: string | null
     justification: string | null
+    phone: string | null
+    referrer: string | null
     created_at: string | null
     congName: string | null
     dioName: string | null
     distName: string | null
+    congId: string | null
+    dioId: string | null
     distId: string | null
   }
   const reqByEmail = new Map<string, ReqLite>()
@@ -742,7 +767,7 @@ export async function getAllUsersWithScope(): Promise<{
       .from('access_requests')
       .select(
         'id, email, requested_role, requested_congregation_id, requested_diocese_id, ' +
-          'requested_district_id, document_path, justification, created_at, status, ' +
+          'requested_district_id, document_path, justification, phone, referrer, created_at, status, ' +
           'congregation:congregations!requested_congregation_id(name, nev_hu), ' +
           'diocese:dioceses!requested_diocese_id(name), ' +
           'district:districts!requested_district_id(name)',
@@ -760,10 +785,14 @@ export async function getAllUsersWithScope(): Promise<{
         requested_role: (raw.requested_role as string | null) ?? null,
         document_path: (raw.document_path as string | null) ?? null,
         justification: (raw.justification as string | null) ?? null,
+        phone: (raw.phone as string | null) ?? null,
+        referrer: (raw.referrer as string | null) ?? null,
         created_at: (raw.created_at as string | null) ?? null,
         congName: cong?.nev_hu || cong?.name || null,
         dioName: dio?.name ?? null,
         distName: dist?.name ?? null,
+        congId: (raw.requested_congregation_id as string | null) ?? null,
+        dioId: (raw.requested_diocese_id as string | null) ?? null,
         distId: (raw.requested_district_id as string | null) ?? null,
       })
     }
@@ -788,6 +817,35 @@ export async function getAllUsersWithScope(): Promise<{
     return false
   }
 
+  // 4/d. „Utoljára aktív" — az auth `last_sign_in_at` EGYETLEN batch-hívással
+  //      (nem per-user!), lapozva. A profiles.last_seen_at heartbeat-tel a
+  //      frissebbet vesszük. Best-effort: ha a service-role kliens nem elérhető
+  //      (pl. hiányzó SUPABASE_SERVICE_ROLE_KEY), marad a last_seen_at.
+  const lastSignInByUser = new Map<string, string>()
+  try {
+    const { getSupabaseAdminClient } = await import('@/lib/supabase/admin-client')
+    const adminClient = getSupabaseAdminClient()
+    const perPage = 1000
+    for (let page = 1; page <= 20; page++) {
+      const { data: authList, error: authErr } = await adminClient.auth.admin.listUsers({
+        page,
+        perPage,
+      })
+      if (authErr || !authList) break
+      for (const au of authList.users) {
+        if (au.id && au.last_sign_in_at) lastSignInByUser.set(au.id, au.last_sign_in_at)
+      }
+      if (authList.users.length < perPage) break
+    }
+  } catch {
+    // best-effort — a lista a last_seen_at-tal is helyes marad
+  }
+  const maxIso = (a: string | null, b: string | null): string | null => {
+    if (!a) return b
+    if (!b) return a
+    return Date.parse(a) >= Date.parse(b) ? a : b
+  }
+
   // 5. Eredmény-objektumok
   const result: UserWithScope[] = profiles.filter(userInScope).map((p) => {
     const congRel = p.congregations || null
@@ -799,6 +857,9 @@ export async function getAllUsersWithScope(): Promise<{
       role: p.role,
       status: p.status,
       created_at: p.created_at,
+      phone: p.phone ?? null,
+      congregation_text: p.congregation ?? null,
+      lastActiveAt: maxIso(p.last_seen_at ?? null, lastSignInByUser.get(p.id) ?? null),
       primary_congregation_id: p.congregation_id,
       primary_congregation_name: congRel?.nev_hu || congRel?.name || null,
       primary_diocese_name: congRel?.dioceses?.name ?? null,
@@ -811,8 +872,13 @@ export async function getAllUsersWithScope(): Promise<{
             requestedCongregationName: pr.congName,
             requestedDioceseName: pr.dioName,
             requestedDistrictName: pr.distName,
+            requestedCongregationId: pr.congId,
+            requestedDioceseId: pr.dioId,
+            requestedDistrictId: pr.distId,
             documentPath: pr.document_path,
             justification: pr.justification,
+            phone: pr.phone,
+            referrer: pr.referrer,
             requestedAt: pr.created_at,
           }
         : null,

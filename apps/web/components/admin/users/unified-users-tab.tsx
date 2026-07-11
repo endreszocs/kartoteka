@@ -37,14 +37,10 @@ import { Input } from '@/components/ui/input'
 import {
   deleteUser,
   getAllUsersWithScope,
-  quickApproveUser,
   rejectPendingUser,
   type UserWithScope,
 } from '@/app/(dashboard)/admin/actions'
-import {
-  approveAccessRequest,
-  getAccessRequestDocumentUrl,
-} from '@/app/(dashboard)/admin/access-requests-actions'
+import { getAccessRequestDocumentUrl } from '@/app/(dashboard)/admin/access-requests-actions'
 import {
   createProfileRole,
   listProfileRoles,
@@ -58,6 +54,7 @@ import {
   type ProfileRoleType,
 } from '@/lib/profile-roles/types'
 
+import { ActivationWizardDialog } from './activation-wizard-dialog'
 import { AdvancedRoleDialog } from './advanced-role-dialog'
 import { DeleteUserDialog } from './delete-user-dialog'
 import { EmptyState } from './empty-state'
@@ -150,6 +147,8 @@ export function UnifiedUsersTab() {
   const [deleteTarget, setDeleteTarget] = useState<UserWithScope | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<{ row: ProfileRoleRow; user: UserWithScope } | null>(null)
   const [advancedTarget, setAdvancedTarget] = useState<UserWithScope | null>(null)
+  // 2026-07-11 (2. kör): a kétlépéses aktiváló wizard célfelhasználója.
+  const [elbiralTarget, setElbiralTarget] = useState<UserWithScope | null>(null)
 
   const [isPending, startTransition] = useTransition()
 
@@ -376,64 +375,6 @@ export function UnifiedUsersTab() {
       ).length,
     }
   }, [users])
-
-  function handleQuickApprove(user: UserWithScope) {
-    startTransition(async () => {
-      const displayName = user.full_name || user.email
-
-      // Ha van regisztrációs kérelme, a TELJES jóváhagyást futtatjuk: ez egy
-      // lépésben aktivál + hozzárendeli a kért gyülekezetet + megerősíti az
-      // emailt (a kérelmet is 'approved'-ra állítja).
-      if (user.pendingRequest) {
-        const reqRes = await approveAccessRequest({
-          id: user.pendingRequest.accessRequestId,
-        })
-        if (!reqRes.error) {
-          if (reqRes.info) {
-            // Bugfix 2026-07-11: az action `info` figyelmeztetése (pl. néma
-            // invite-hiba) most már eljut az adminhoz.
-            toast.warning(`A kérelem jóváhagyva, DE: ${reqRes.info}`, { duration: 12000 })
-          } else {
-            toast.success(`Jóváhagyva és aktiválva: ${displayName}`)
-          }
-          await reload()
-          return
-        }
-
-        // Bugfix 2026-07-11: BÁRMELY kérelem-jóváhagyási hibánál (pl. kerületi
-        // admin, akit az approveAccessRequest guardja nem enged; vagy már
-        // 'approved' kérelem) visszaesünk a sima aktiválásra — korábban egy
-        // törékeny /pending/i regex döntött, és a kerületi admin mindig hibát
-        // kapott.
-        const fallback = await quickApproveUser(user.id)
-        if ('error' in fallback && fallback.error) {
-          toast.error(
-            `A kérelem jóváhagyása nem sikerült: ${reqRes.error} — A fiók aktiválása is hibázott: ${fallback.error}`,
-            { duration: 12000 },
-          )
-          return
-        }
-        toast.warning(
-          `A fiók aktiválva (${displayName}), de a kérelem teljes jóváhagyása nem sikerült: ${reqRes.error}`,
-          { duration: 12000 },
-        )
-        await reload()
-        return
-      }
-
-      const res = await quickApproveUser(user.id)
-      if ('error' in res && res.error) {
-        toast.error(res.error)
-        return
-      }
-      if ('info' in res && res.info) {
-        toast.info(res.info)
-      } else {
-        toast.success(`Jóváhagyva és aktiválva: ${displayName}`)
-      }
-      await reload()
-    })
-  }
 
   function handleViewDocument(path: string) {
     // A felugró ablakot SZINKRON nyitjuk (popup-blokkoló elkerülése), majd a
@@ -768,7 +709,7 @@ export function UnifiedUsersTab() {
               onQuickAssign={(opt) => handleQuickAssign(u, opt)}
               onAdvanced={() => setAdvancedTarget(u)}
               onRevokeRole={(row) => setRevokeTarget({ row, user: u })}
-              onQuickApprove={() => handleQuickApprove(u)}
+              onElbiral={() => setElbiralTarget(u)}
               onReject={() => setRejectTarget(u)}
               onDelete={() => setDeleteTarget(u)}
               onViewDocument={handleViewDocument}
@@ -796,7 +737,7 @@ export function UnifiedUsersTab() {
                 isPending={isPending}
                 onQuickAssign={(opt) => handleQuickAssign(u, opt)}
                 onAdvanced={() => setAdvancedTarget(u)}
-                onQuickApprove={() => handleQuickApprove(u)}
+                onElbiral={() => setElbiralTarget(u)}
                 onReject={() => setRejectTarget(u)}
                 onDelete={() => setDeleteTarget(u)}
                 onViewDocument={handleViewDocument}
@@ -807,6 +748,24 @@ export function UnifiedUsersTab() {
       )}
 
       {/* Modálok */}
+      {elbiralTarget && (
+        <ActivationWizardDialog
+          open={!!elbiralTarget}
+          onOpenChange={(o) => !o && setElbiralTarget(null)}
+          user={elbiralTarget}
+          congregations={scopeData.congregations}
+          dioceses={scopeData.dioceses}
+          districts={scopeData.districts}
+          onReject={() => {
+            const target = elbiralTarget
+            setElbiralTarget(null)
+            setRejectTarget(target)
+          }}
+          onViewDocument={handleViewDocument}
+          onDone={reload}
+        />
+      )}
+
       {rejectTarget && (
         <RejectPendingDialog
           open={!!rejectTarget}

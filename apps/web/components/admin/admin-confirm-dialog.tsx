@@ -133,14 +133,19 @@ export function AdminConfirmDialog({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={loading}
+            className="w-full sm:w-auto"
+          >
             {cancelLabel}
           </Button>
           <Button
             variant={danger ? 'destructive' : 'default'}
             onClick={() => onConfirm(reasonLabel ? trimmed : undefined)}
             disabled={loading || !reasonOk}
-            className="gap-2"
+            className="w-full gap-2 sm:w-auto"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {confirmLabel}

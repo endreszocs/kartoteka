@@ -19,6 +19,7 @@ import { useMemo, useState, useTransition, type ReactNode } from 'react'
 import {
   ChevronDown,
   Clock,
+  Eye,
   Inbox,
   RotateCcw,
   Send,
@@ -32,6 +33,7 @@ import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/admin/_shared/status-badge'
 import { AdminEmptyState } from '@/components/admin/_shared/admin-empty-state'
 import { AdminConfirmDialog } from '@/components/admin/admin-confirm-dialog'
+import { EmailPreviewDialog } from './email-preview-dialog'
 
 import { sendChangelogBroadcast } from '@/app/(dashboard)/admin/broadcasts-actions'
 import {
@@ -78,6 +80,8 @@ export function ChangelogSendSection({
 
   const [expandedEntryKeys, setExpandedEntryKeys] = useState<Set<string>>(new Set())
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  // E-mail előnézet — a kiválasztott bejegyzés kulcsa (vázlatnál „Így fog kinézni").
+  const [previewKey, setPreviewKey] = useState<string | null>(null)
   const [confirmState, setConfirmState] = useState<{
     title: string
     description: ReactNode
@@ -385,6 +389,7 @@ export function ChangelogSendSection({
                 onToggleSelected={() => toggleSelected(e.key)}
                 onSend={() => handleSingleSend(e)}
                 onResend={() => handleSingleSend(e, { force: true })}
+                onPreview={() => setPreviewKey(e.key)}
                 isPending={isPending}
                 sendDisabled={incompleteTarget}
                 scopeLabel={scopeLabel}
@@ -417,6 +422,15 @@ export function ChangelogSendSection({
           setConfirmState(null)
         }}
       />
+
+      {/* E-mail előnézet — vázlatnál „Így fog kinézni", kiküldöttnél a tényleges levél. */}
+      <EmailPreviewDialog
+        open={!!previewKey}
+        onOpenChange={(o) => {
+          if (!o) setPreviewKey(null)
+        }}
+        changelogKey={previewKey}
+      />
     </section>
   )
 }
@@ -429,6 +443,7 @@ function ChangelogEntryCard({
   onToggleSelected,
   onSend,
   onResend,
+  onPreview,
   isPending,
   sendDisabled,
   scopeLabel,
@@ -441,6 +456,7 @@ function ChangelogEntryCard({
   onToggleSelected: () => void
   onSend: () => void
   onResend: () => void
+  onPreview: () => void
   isPending: boolean
   sendDisabled: boolean
   scopeLabel: string
@@ -564,6 +580,19 @@ function ChangelogEntryCard({
               </span>
             </>
           )}
+          <Button
+            variant="ghost"
+            onClick={onPreview}
+            className="min-h-9 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            title={
+              entry.alreadySent
+                ? 'A kiküldött levél előnézete'
+                : 'Így fog kinézni a levél a címzetteknél'
+            }
+          >
+            <Eye className="size-3.5" aria-hidden />
+            {entry.alreadySent ? 'Előnézet' : 'Így fog kinézni'}
+          </Button>
         </div>
       </div>
       {expanded && (
