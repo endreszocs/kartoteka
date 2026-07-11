@@ -23,6 +23,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Nyugtafigyelő: az előző évből áthozott hiányzók külön jelölve
+<!-- key: 2026-07-11-nyugtafigyelo-athozas-jelzes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.60 -->
+
+### 🎨 Pontosabb jelzés
+
+- **A Nyugtafigyelő riasztás mostantól külön sorban, borostyán kiemeléssel
+  jelzi az előző évből áthozott elmaradt nyugtákat** — pl. „↪ Az előző (2025.)
+  évből áthozott elmaradt nyugták: 101, 102 — ezek tavaly maradtak el, a
+  pótlásuk itt, a folyó évben történik." Az idei év hiányzói külön sorban
+  szerepelnek, így első pillantásra látszik, mi honnan való. Az évhatáron
+  (a tavalyi utolsó és az idei első nyugta között) elmaradt sorszámok is
+  tavalyiként jelöltek.
+
+---
+
 ## [2026-07-11] — Admin felület megújítása + előfizetés-kezelés
 <!-- key: 2026-07-11-admin-megujitas -->
 <!-- category: feature -->

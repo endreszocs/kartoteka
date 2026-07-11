@@ -315,6 +315,11 @@ export interface ReceiptHealth {
   chronologyIssues: ReceiptChronologyIssue[]
   trackedReceiptCount: number
   highestReceiptNumber: number | null
+  /** 2026-07-11 (S7): az ELŐZŐ évből áthozott hiányzó sorszámok (a missingNumbers
+   *  részhalmaza) — a riasztás külön jelöli, hogy ezek nem az idei évből valók. */
+  prevYearMissingNumbers?: number[]
+  /** Az előző év, amelyből az áthozott hiányzók származnak (null = nincs adat). */
+  prevYear?: number | null
 }
 
 export interface BefitetesRow {

@@ -340,6 +340,12 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
     ? collectMissingReceipts(prevYearNumbered, null)
     : { missingNumbers: [] as number[], missingReceipts: [] as MissingReceipt[] }
 
+  // 2026-07-11 (S7): az előző év ÉVE — a riasztás kiírja, honnan jött az áthozott hiányzó.
+  const prevYear =
+    prevYearNumbered.length > 0
+      ? Number(String(prevYearNumbered[prevYearNumbered.length - 1].date).slice(0, 4)) || null
+      : null
+
   if (numberedRows.length === 0) {
     // 2026-07-10 (S5-#4): eddig itt MINDEN kiürült — pedig év elején (amikor még
     // nincs idei nyugta) a tavalyi hiányzók riasztása pont a legfontosabb.
@@ -350,6 +356,9 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
       chronologyIssues: [],
       trackedReceiptCount: 0,
       highestReceiptNumber: null,
+      // 2026-07-11 (S7): ilyenkor MINDEN hiányzó az előző évből áthozott.
+      prevYearMissingNumbers: prevYearGaps.missingNumbers,
+      prevYear,
     }
   }
 
@@ -407,6 +416,14 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
     }
   }
 
+  // 2026-07-11 (S7): melyik hiányzó jött az ELŐZŐ évből? Minden olyan sorszám,
+  // ami az idei LEGKISEBB meglévő nyugta alatt van — ez lefedi a tavalyi éven
+  // BELÜLI hézagokat ÉS az évhatáron (tavalyi utolsó → idei első közt) elmaradt
+  // számokat is; egyik sem az idei évben maradt el.
+  const lowestNow = numberedRows[0]?.number ?? null
+  const prevYearMissingNumbers =
+    lowestNow != null ? missingNumbers.filter(n => n < lowestNow) : []
+
   return {
     missingNumbers,
     missingReceipts,
@@ -414,6 +431,8 @@ function computeReceiptHealth(rows: ReceiptHealthInputRow[], prevYearRows?: Rece
     chronologyIssues,
     trackedReceiptCount: numberedRows.length,
     highestReceiptNumber,
+    prevYearMissingNumbers,
+    prevYear,
   }
 }
 

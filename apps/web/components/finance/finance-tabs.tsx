@@ -311,6 +311,11 @@ export function FinanceTabs({
 
   const debtModeLabel = debtCalcMode === 'aktualis' ? 'Aktuális évi besorolás' : 'Akkori évi besorolás'
   const hasReceiptWarnings = receiptHealth.missingNumbers.length > 0 || receiptHealth.duplicateNumbers.length > 0 || receiptHealth.chronologyIssues.length > 0
+  // 2026-07-11 (S7): a hiányzók kettébontva — az ELŐZŐ évből áthozottak külön
+  // jelölést kapnak, hogy látszódjon: nem az idei évben maradtak el.
+  const prevYearMissing = receiptHealth.prevYearMissingNumbers ?? []
+  const prevYearMissingSet = new Set(prevYearMissing)
+  const currentYearMissing = receiptHealth.missingNumbers.filter((n) => !prevYearMissingSet.has(n))
 
   // Belső mozgás párosítás-egészség — párosítatlan kassza↔bank letétel/felvét (red flag).
   const internalMovementHealth = useMemo(
@@ -444,13 +449,28 @@ export function FinanceTabs({
               </div>
               {receiptHealth.missingNumbers.length > 0 && (
                 <div className="space-y-1.5">
-                  <p className="text-sm text-slate-700">
-                    Hiányzó nyugták (Irat sz.):{' '}
-                    <strong>{receiptHealth.missingNumbers.slice(0, 50).join(', ')}</strong>
-                    {receiptHealth.missingNumbers.length > 50 && (
-                      <span className="text-slate-500"> … (+{receiptHealth.missingNumbers.length - 50} további)</span>
-                    )}
-                  </p>
+                  {/* 2026-07-11 (S7): külön sor az IDEI és külön az ELŐZŐ évből
+                      áthozott hiányzóknak — a lelkész lássa, melyik honnan való. */}
+                  {currentYearMissing.length > 0 && (
+                    <p className="text-sm text-slate-700">
+                      Hiányzó nyugták az idei évből (Irat sz.):{' '}
+                      <strong>{currentYearMissing.slice(0, 50).join(', ')}</strong>
+                      {currentYearMissing.length > 50 && (
+                        <span className="text-slate-500"> … (+{currentYearMissing.length - 50} további)</span>
+                      )}
+                    </p>
+                  )}
+                  {prevYearMissing.length > 0 && (
+                    <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm text-amber-800">
+                      ↪ Az előző{receiptHealth.prevYear ? ` (${receiptHealth.prevYear}.)` : ''} évből
+                      áthozott elmaradt nyugták (Irat sz.):{' '}
+                      <strong>{prevYearMissing.slice(0, 50).join(', ')}</strong>
+                      {prevYearMissing.length > 50 && (
+                        <span className="text-amber-600"> … (+{prevYearMissing.length - 50} további)</span>
+                      )}{' '}
+                      — ezek tavaly maradtak el, a pótlásuk itt, a folyó évben történik.
+                    </p>
+                  )}
                   {/* #Endre 2026-07-02: a hiányzó nyugták BEVÉTELEK → bevételi elszámolás (Decont
                       de încasări) élő előnézettel; minden hiányzó Irat sz. külön bevételi tétel a
                       KASSZÁBA és a SZÁMADÁSba, a Kerületi sz. a szomszédokból kikövetkeztetve. */}
