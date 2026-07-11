@@ -6,8 +6,8 @@ import type { FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 
 async function getCongId() {
-  const { supabase, congregationId } = await getEffectiveCongregationContext()
-  return { supabase, congId: congregationId }
+  const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
+  return { supabase, congId: congregationId, userId }
 }
 
 export async function getFilingEntries(year: number, direction: string): Promise<FilingEntry[]> {
@@ -152,7 +152,7 @@ export async function getYearClosure(year: number): Promise<IktatoYearlyClosure 
  * Csak a folyó év vagy korábbi év zárható le (jövőre vonatkozó lezárás tilos).
  */
 export async function closeFilingYear(params: { year: number; closingNote?: string }) {
-  const { supabase, congId } = await getCongId()
+  const { supabase, congId, userId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
   const currentYear = new Date().getFullYear()
   if (params.year > currentYear) {
@@ -163,13 +163,15 @@ export async function closeFilingYear(params: { year: number; closingNote?: stri
     return { error: `A ${params.year}-es év már lezárva (${existing.closed_at?.slice(0, 10)}).` }
   }
   // A lezárás pillanatában lévő bejegyzések száma — audit-célból tároljuk.
-  const { data: countData } = await supabase
+  // 2026-07-11 P2: head:true mellett a data mindig null — a darabszám a válasz
+  // `count` mezőjében jön, onnan kell olvasni.
+  const { count } = await supabase
     .from('iktato')
     .select('id', { count: 'exact', head: true })
     .eq('congregation_id', congId)
     .eq('year', params.year)
     .eq('deleted', false)
-  const totalEntries = (countData as unknown as { count?: number })?.count ?? null
+  const totalEntries = count ?? null
 
   const { error } = await supabase.from('iktato_yearly_closures').insert([
     {
@@ -177,6 +179,8 @@ export async function closeFilingYear(params: { year: number; closingNote?: stri
       year: params.year,
       closing_note: params.closingNote || null,
       total_entries_at_close: totalEntries,
+      // 2026-07-11 P2: audit — ki zárta le (profiles.id = auth user id).
+      closed_by_profile_id: userId ?? null,
     },
   ])
   if (error) return { error: `Lezárás sikertelen: ${error.message}` }
@@ -185,18 +189,34 @@ export async function closeFilingYear(params: { year: number; closingNote?: stri
 }
 
 /**
- * Évvégi lezárás feloldása. Csak god mode / admin használhatja (a UI gating
- * + RLS POLICY együtt biztosítja). Ha a frontend hív, az RLS dönti el.
+ * Évvégi lezárás feloldása. A jogosultság-ellenőrzést és a törlést a
+ * SECURITY DEFINER `reopen_iktato_year` RPC végzi — a korábbi direkt
+ * DELETE az RLS DELETE-policy hiánya miatt néma no-op volt (2026-07-11 P2).
  */
 export async function reopenFilingYear(year: number) {
   const { supabase, congId } = await getCongId()
   if (!congId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  const { error } = await supabase
-    .from('iktato_yearly_closures')
-    .delete()
-    .eq('congregation_id', congId)
-    .eq('year', year)
-  if (error) return { error: `Feloldás sikertelen: ${error.message}` }
+  const { data, error } = await supabase.rpc('reopen_iktato_year', {
+    p_congregation_id: congId,
+    p_year: year,
+  })
+  if (error) {
+    // PGRST202 = a PostgREST nem találja a függvényt, 42883 = undefined function
+    const rpcMissing =
+      error.code === 'PGRST202' ||
+      error.code === '42883' ||
+      /could not find the function/i.test(error.message)
+    return {
+      error: rpcMissing
+        ? 'A feloldó funkció (reopen_iktato_year) még nincs telepítve az adatbázisban — futtasd le a hozzá tartozó migrációt, majd próbáld újra.'
+        : `Feloldás sikertelen: ${error.message}`,
+    }
+  }
+  // Az RPC FOUND-ot ad vissza: false = nem volt lezárás-sor erre az évre
+  // (jogosultsági hiba esetén az RPC kivételt dob, azt a fenti error-ág kezeli).
+  if (data === false) {
+    return { error: 'Ez az év nem volt lezárva — nincs mit feloldani. Frissítsd a listát.' }
+  }
   revalidatePath('/iktato')
   return { success: true }
 }

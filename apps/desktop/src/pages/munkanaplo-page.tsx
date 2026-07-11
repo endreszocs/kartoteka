@@ -39,6 +39,12 @@ const HU_MONTHS = [
   'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December',
 ] as const
 
+// Offline létrehozott, még nem szinkronizált bejegyzés: ideiglenes NEGATÍV
+// id-vel áll a lokális tükörben (lásd sync.ts createWorklogEntry). Szerver-id
+// hiányában nem szerkeszthető / törölhető, amíg a sync le nem fut.
+const isTempEntry = (e: WorklogLocalRow) => e.id < 0
+const TEMP_ENTRY_HINT = 'Szinkronizálás után szerkeszthető / törölhető.'
+
 export function MunkanaploPage() {
   const [user, setUser] = useState<User | null>(null)
   const [entries, setEntries] = useState<WorklogLocalRow[]>([])
@@ -106,6 +112,7 @@ export function MunkanaploPage() {
 
   // M9 — edit handler: dialog megnyitása pre-filled módban
   const handleEdit = useCallback((entry: WorklogLocalRow) => {
+    if (isTempEntry(entry)) return // temp sor: sync-ig nem szerkeszthető
     setEditingEntry(entry)
     setCreateOpen(true)
   }, [])
@@ -114,6 +121,7 @@ export function MunkanaploPage() {
   const handleDelete = useCallback(
     async (entry: WorklogLocalRow) => {
       if (!user) return
+      if (isTempEntry(entry)) return // temp sor: sync-ig nem törölhető
       const title = entry.cim || '(nincs cím)'
       const datum = entry.idopont ?? 'ismeretlen dátum'
       const ok = window.confirm(
@@ -127,7 +135,9 @@ export function MunkanaploPage() {
       setDeletingId(entry.id)
       try {
         const res = await deleteWorklogEntry(user.id, entry.id, entry.revision)
-        if (res.conflict) {
+        if (res.error) {
+          setCreateBanner(`⚠ ${res.error}`)
+        } else if (res.conflict) {
           setCreateBanner(
             '⚠ Konfliktus: a bejegyzés időközben megváltozott (másik eszközről vagy webről). ' +
               'A lista frissítésre került — próbáld újra.',
@@ -349,6 +359,14 @@ export function MunkanaploPage() {
                             délután
                           </span>
                         )}
+                        {isTempEntry(e) && (
+                          <span
+                            title={TEMP_ENTRY_HINT}
+                            className="rounded-full bg-sky-100 px-2.5 py-0.5 text-sky-700"
+                          >
+                            szinkronizálásra vár
+                          </span>
+                        )}
                         {e.szolgalt && <span className="text-muted-foreground">— {e.szolgalt}</span>}
                       </CardDescription>
                     </div>
@@ -367,8 +385,8 @@ export function MunkanaploPage() {
                         <button
                           type="button"
                           onClick={() => handleEdit(e)}
-                          disabled={deletingId === e.id}
-                          title="Szerkesztés"
+                          disabled={deletingId === e.id || isTempEntry(e)}
+                          title={isTempEntry(e) ? TEMP_ENTRY_HINT : 'Szerkesztés'}
                           aria-label={`Bejegyzés szerkesztése: ${e.cim ?? ''}`}
                           className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-white text-slate-600 transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
                         >
@@ -377,8 +395,8 @@ export function MunkanaploPage() {
                         <button
                           type="button"
                           onClick={() => handleDelete(e)}
-                          disabled={deletingId === e.id}
-                          title="Törlés (kukába)"
+                          disabled={deletingId === e.id || isTempEntry(e)}
+                          title={isTempEntry(e) ? TEMP_ENTRY_HINT : 'Törlés (kukába)'}
                           aria-label={`Bejegyzés törlése: ${e.cim ?? ''}`}
                           className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-white text-slate-500 transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                         >

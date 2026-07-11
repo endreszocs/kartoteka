@@ -1,10 +1,10 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { FileText, Files, Lock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
+import { Files, Lock, Unlock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
@@ -16,6 +16,7 @@ import {
   getFilingStats,
   getNextSequenceNumber,
   closeFilingYear,
+  reopenFilingYear,
   getYearClosure,
 } from '@/app/(dashboard)/iktato/actions'
 import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLDER_LABELS } from '@/lib/constants/filing'
@@ -81,6 +82,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [fHasDuplicate, setFHasDuplicate] = useState(false)
   const [yearClosure, setYearClosure] = useState<IktatoYearlyClosure | null>(null)
   const [closing, setClosing] = useState(false)
+  const [reopening, setReopening] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -170,10 +172,31 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       setFValaszIktatoszam('')
       setFUgykorKod('')
       setFHasDuplicate(false)
-      getNextSequenceNumber(year).then(setFSeqNum)
+      // Az előnézeti sorszámot a kelt-évet követő useEffect kéri le (P3-fix).
+      setFSeqNum(0)
     }
     setDialogOpen(true)
   }
+
+  // 2026-07-11 P3: az iktatás a KELT évére történik (saveFilingEntry), ezért az
+  // előnézeti sorszámnak is a dialógusban megadott kelt dátum évét kell követnie
+  // — nem a lista-szűrő évét. Kelt-változáskor (évváltásnál) újrakérjük.
+  const keltYear = useMemo(() => {
+    const y = Number(fKelt?.slice(0, 4))
+    return Number.isFinite(y) && y >= 1800 && y <= 2200 ? y : currentYear
+  }, [fKelt, currentYear])
+
+  useEffect(() => {
+    if (!dialogOpen || editEntry) return
+    let cancelled = false
+    setFSeqNum(0)
+    getNextSequenceNumber(keltYear).then((n) => {
+      if (!cancelled) setFSeqNum(n)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dialogOpen, editEntry, keltYear])
 
   // 2026-05-29 Fázis 3: hivatali út validáció (figyelmeztetés)
   const hivataliUtWarnings: HivataliUtWarning[] = useMemo(
@@ -206,6 +229,23 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       void load()
     }
     setClosing(false)
+  }
+
+  // 2026-07-11 P2: lezárt év feloldása (reopen_iktato_year RPC, admin/master).
+  async function handleReopenYear() {
+    if (!yearClosure) return
+    const ok = window.confirm(
+      `Biztosan feloldod a ${year}-es iktatókönyv lezárását?\n\nA feloldás után újra lehet bejegyzést felvenni és a meglévőket szerkeszteni. A művelet csak admin/master jogosultsággal hajtható végre.`,
+    )
+    if (!ok) return
+    setReopening(true)
+    const result = await reopenFilingYear(year)
+    if (result.error) toast.error(result.error)
+    else {
+      toast.success(`A ${year}-es iktatókönyv lezárása feloldva.`)
+      void load()
+    }
+    setReopening(false)
   }
 
   async function handleSave() {
@@ -296,22 +336,35 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       />
 
       {yearClosure && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
-          <Lock className="size-4 mt-0.5 shrink-0" />
-          <div>
-            <strong>A {year}-es iktatókönyv lezárt.</strong>{' '}
-            Lezárva: <span className="font-mono">{yearClosure.closed_at?.slice(0, 19).replace('T', ' ')}</span>
-            {yearClosure.total_entries_at_close != null && ` · ${yearClosure.total_entries_at_close} bejegyzés`}
-            {yearClosure.closing_note && (
-              <>
-                {' · '}
-                <em>„{yearClosure.closing_note}"</em>
-              </>
-            )}
-            <div className="text-xs mt-0.5 text-amber-800">
-              Új bejegyzés vagy módosítás nem lehetséges. A lezárás feloldása csak admin/master jogosultsággal.
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-col gap-2 sm:flex-row sm:items-start">
+          <div className="flex flex-1 items-start gap-2">
+            <Lock className="size-4 mt-0.5 shrink-0" />
+            <div>
+              <strong>A {year}-es iktatókönyv lezárt.</strong>{' '}
+              Lezárva: <span className="font-mono">{yearClosure.closed_at?.slice(0, 19).replace('T', ' ')}</span>
+              {yearClosure.total_entries_at_close != null && ` · ${yearClosure.total_entries_at_close} bejegyzés`}
+              {yearClosure.closing_note && (
+                <>
+                  {' · '}
+                  <em>„{yearClosure.closing_note}"</em>
+                </>
+              )}
+              <div className="text-xs mt-0.5 text-amber-800">
+                Új bejegyzés vagy módosítás nem lehetséges. A lezárás feloldása csak admin/master jogosultsággal.
+              </div>
             </div>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleReopenYear}
+            disabled={reopening}
+            className="self-start shrink-0 border-amber-400 text-amber-800 hover:bg-amber-100"
+          >
+            <Unlock className="size-3.5 mr-1.5" />
+            {reopening ? 'Feloldás folyamatban…' : 'Év feloldása'}
+          </Button>
         </div>
       )}
 
@@ -360,7 +413,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editEntry ? 'Irat szerkesztése' : `Új irat - ${year}/${fSeqNum}`}</DialogTitle>
+            <DialogTitle>
+              {editEntry ? 'Irat szerkesztése' : `Új irat - ${keltYear}/${fSeqNum > 0 ? fSeqNum : '…'} (várható)`}
+            </DialogTitle>
+            {!editEntry && (
+              <DialogDescription>
+                Az iktatószám a kelt dátum évét követi, és csak a mentéskor véglegesedik — a fenti szám előnézet, nem foglalt.
+              </DialogDescription>
+            )}
           </DialogHeader>
           <div className="space-y-4">
             {/* ─── Alapinformációk ─── */}

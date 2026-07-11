@@ -26,12 +26,23 @@ export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
   const { supabase, congId } = await getCongId()
   if (!congId) return []
   const isFullYear = /^\d{4}$/.test(period)
-  const startDate = isFullYear ? `${period}-01-01` : `${period}-01`
-  const endDate = isFullYear ? `${period}-12-31` : `${period}-31`
+  // 2026-07-11 (P1 hónap-vég): a korábbi `${period}-31` februárra/30-napos
+  // hónapokra Postgres 'date/time field value out of range' hibát dobott →
+  // üres lista. Helyette exkluzív felső határ: a következő időszak 1-je.
+  let startDate: string
+  let endExclusive: string
+  if (isFullYear) {
+    startDate = `${period}-01-01`
+    endExclusive = `${Number(period) + 1}-01-01`
+  } else {
+    const [y, m] = period.split('-').map(Number)
+    startDate = `${period}-01`
+    endExclusive = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+  }
 
   const base = () => supabase.from('munkanaplo').select('*')
     .eq('congregation_id', congId)
-    .gte('idopont', startDate).lte('idopont', endDate)
+    .gte('idopont', startDate).lt('idopont', endExclusive)
     .order('idopont', { ascending: false })
 
   let res = await base().eq('deleted', false)
@@ -74,23 +85,37 @@ export async function saveWorklog(data: WorklogInput) {
     jelenlet_osszesen: sumJelenlet,
     szolgalt: d.szolgalt || null,
     persely: d.persely ?? null,
-    mediapath: d.mediapath || null,
     du: d.du ?? false,
     megjegyzes: d.megjegyzes || null,
     deleted: false,
     congregation_id: congId,
   }
+  // 2026-07-11 (mediapath-védelem): a dialog sosem küld mediapath-ot — ha a
+  // kulcs feltétel nélkül szerepelne, minden szerkesztés NULL-ra írná a
+  // meglévő csatolmány-útvonalat. Csak akkor írjuk, ha ténylegesen érkezett.
+  if (d.mediapath !== undefined) record.mediapath = d.mediapath || null
   if (d.id) {
     // 2026-06-12: szerkesztéskor az id_jellege-t NEM nulláznánk ki — abban él
     // az anyakönyvi forrás-marker (pl. `keresztseg:123`). A dialog nem küldi,
     // ezért csak akkor írjuk, ha ténylegesen jött érték.
     if (!d.id_jellege) delete record.id_jellege
-    let upd = await supabase.from('munkanaplo').update(record).eq('id', d.id).eq('congregation_id', congId)
+    // 2026-07-11 (konkurencia): ha a kliens revision-t küld, csak az azonos
+    // revision-ű sort frissítjük (a DB bump-triggere lépteti) — így a
+    // desktop/web párhuzamos szerkesztés nem írja felül egymást némán.
+    const runUpdate = () => {
+      let q = supabase.from('munkanaplo').update(record).eq('id', d.id!).eq('congregation_id', congId)
+      if (d.revision !== undefined) q = q.eq('revision', d.revision)
+      return q.select('id')
+    }
+    let upd = await runUpdate()
     if (upd.error && isMissingDeletedColumn(upd.error)) {
       delete record.deleted
-      upd = await supabase.from('munkanaplo').update(record).eq('id', d.id).eq('congregation_id', congId)
+      upd = await runUpdate()
     }
     if (upd.error) return { error: `Hiba: ${upd.error.message}` }
+    if (!upd.data || upd.data.length === 0) {
+      return { error: 'A bejegyzést időközben máshol módosították. Frissítse a listát, és próbálja újra.' }
+    }
   } else {
     let ins = await supabase.from('munkanaplo').insert([record])
     if (ins.error && isMissingDeletedColumn(ins.error)) {

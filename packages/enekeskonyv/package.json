@@ -1,0 +1,14 @@
+{
+  "name": "@kartoteka/enekeskonyv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Erdélyi Református Énekeskönyv — 513 ének (1–150 genfi zsoltár + 151–504 dicséret) strukturált adata és ékezet-toleráns kereső API a munkanapló/iktató és a desktop UI számára. Forrás: ERE.dtx (Diatár), konverter: scripts/convert-ere-dtx.mjs.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

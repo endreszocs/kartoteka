@@ -84,21 +84,29 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
       return
     }
     setLoading(true)
+    // 2026-07-11: kategória-tudatos payload — ami az adott kategória űrlapján
+    // nem látható mező, az null-ként megy (különben a state-ben ragadt korábbi
+    // érték rejtetten mentődne). A szolgalt mindhárom kategóriánál látható
+    // (Szolgálatot vezette / Tartotta / Lelkész), a persely a látogatásnál nem.
+    const isSzolgalat = category === 'szolgalat'
     const result = await saveWorklog({
       id: editEntry?.id,
+      // Optimista zárolás: a betöltött revision megy vissza — ha közben más
+      // (pl. a desktop) módosított, a mentés hibával jelez.
+      revision: editEntry?.revision ?? undefined,
       idopont,
       jellege,
       kategoria: category,
       cim: cim || null,
-      bibliaolvasas: bibliaolvasas || null,
-      alapige: alapige || null,
-      enekek: enekek || null,
+      bibliaolvasas: isSzolgalat ? bibliaolvasas || null : null,
+      alapige: isSzolgalat ? alapige || null : null,
+      enekek: isSzolgalat ? enekek || null : null,
       szolgalt: szolgalt || null,
       jelenlet_ferfi: ferfi || null,
       jelenlet_no: no || null,
       jelenlet_gyermek: gyermek || null,
-      persely: persely || null,
-      du,
+      persely: category === 'latogatas' ? null : persely || null,
+      du: isSzolgalat ? du : false,
       megjegyzes: megj || null,
     })
     if (result.error) toast.error(result.error)
@@ -120,7 +128,22 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Kategória</Label>
-              <select value={category} onChange={e => { setCategory(e.target.value as WorklogCategory); setJellege('') }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <select
+                value={category}
+                onChange={e => {
+                  setCategory(e.target.value as WorklogCategory)
+                  setJellege('')
+                  // 2026-07-11: kategóriaváltáskor a kategória-specifikus mezők
+                  // ürülnek — különben a rejtett értékek átszivárognának a mentésbe.
+                  setAlapige('')
+                  setBibliaolvasas('')
+                  setEnekek('')
+                  setSzolgalt('')
+                  setPersely(0)
+                  setDu(false)
+                }}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
                 <option value="szolgalat">Szolgálat</option>
                 <option value="katekezis">Katekézis</option>
                 <option value="latogatas">Látogatás</option>

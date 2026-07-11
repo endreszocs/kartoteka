@@ -128,21 +128,22 @@ function ServiceContent() {
   return (
     <>
       <p>
-        Az <strong>Igehirdetés</strong> fülön a szolgálati alkalmakat rögzíted. 8 típus érhető el:
+        Az <strong>Igehirdetés</strong> fülön a szolgálati alkalmakat rögzíted. 12 típus érhető el:
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>Istentisztelet (vasárnap-délelőtti, délutáni)</li>
         <li>Igehirdetés</li>
         <li>Úrvacsora</li>
-        <li>Bibliaóra</li>
+        <li>Bibliaóra (felnőtt alkalom — az ifjúsági/IKE bibliaóra a Katekézis fülön)</li>
         <li>Imaóra</li>
         <li>Esti áhítat</li>
-        <li>Alkalmi istentisztelet (esketés, temetés, keresztelés)</li>
+        <li>Alkalmi istentisztelet</li>
+        <li>Keresztelő, Esketés, Temetés, Konfirmáció (az anyakönyvi rögzítésből automatikusan is ide kerülnek)</li>
         <li>Egyéb szolgálat</li>
       </ul>
       <S>Mit érdemes minden alkalomhoz rögzíteni?</S>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Időpont</strong> — dátum és óra</li>
+        <li><strong>Időpont</strong> — az alkalom dátuma</li>
         <li><strong>Cím</strong> — pl. „A jó pásztor példázata"</li>
         <li><strong>Alapige</strong> — pl. „Lk 15,1-7"</li>
         <li><strong>Bibliaolvasás</strong> — az alkalmon felolvasott szakasz</li>
@@ -164,15 +165,17 @@ function CatechesisContent() {
   return (
     <>
       <p>
-        A <strong>Katekézis</strong> fülön a hitoktatás óráit rögzíted. 6 típus érhető el:
+        A <strong>Katekézis</strong> fülön a hitoktatás óráit rögzíted. 8 típus érhető el:
       </p>
       <ul className="list-disc pl-5 space-y-1">
-        <li>Bibliaóra</li>
+        <li>Ifjúsági bibliaóra (IKE)</li>
         <li>Hittan (iskolai)</li>
+        <li>Vallásóra</li>
+        <li>Kátéóra</li>
         <li>Konfirmáció előkészítő</li>
         <li>Ifjúsági óra</li>
         <li>Gyermek foglalkozás</li>
-        <li>Egyéb katekázis</li>
+        <li>Egyéb katekézis</li>
       </ul>
       <S>Megjegyzések</S>
       <ul className="list-disc pl-5 space-y-1">
@@ -197,10 +200,11 @@ function VisitsContent() {
   return (
     <>
       <p>
-        A <strong>Családlátogatás</strong> fülön a pásztori látogatásokat rögzíted. 5 típus:
+        A <strong>Családlátogatás</strong> fülön a pásztori látogatásokat rögzíted. 6 típus:
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>Családlátogatás (otthoni)</li>
+        <li>Beteglátogatás</li>
         <li>Kórházlátogatás</li>
         <li>Idősek otthona</li>
         <li>Börtönlátogatás</li>
@@ -214,8 +218,8 @@ function VisitsContent() {
         <li><strong>Megjegyzés</strong> — rövid pásztori jegyzet (érzékeny ügyek, követendő)</li>
       </ul>
       <p>
-        A megjegyzés bizalmas — csak a saját felhasználói munkamenetéből érhető el.
-        Ne tartalmazzon olyan adatot, ami GDPR szempontból érzékeny lenne.
+        A megjegyzés a gyülekezeti nyilvántartás része — ne tartalmazzon olyan
+        adatot, ami GDPR szempontból érzékeny lenne.
       </p>
 
       <S>Statisztika</S>
@@ -232,13 +236,13 @@ function FieldsContent() {
     <>
       <S>Kötelező mezők (minden bejegyzéshez)</S>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Időpont</strong> — dátum (és óra ajánlott)</li>
+        <li><strong>Dátum</strong> — az alkalom napja</li>
         <li><strong>Típus</strong> — a 3 kategória egyik altípusa</li>
-        <li><strong>Cím</strong> — az alkalom rövid leírása</li>
       </ul>
 
       <S>Opcionális mezők</S>
       <ul className="list-disc pl-5 space-y-1">
+        <li>Cím — az alkalom rövid leírása (erősen ajánlott)</li>
         <li>Alapige, bibliaolvasás (igehirdetésnél javallott)</li>
         <li>Énekek</li>
         <li>Szolgálatvezető — ha NEM a fő-lelkész vezette (pl. legátus)</li>
@@ -270,15 +274,15 @@ function ReportContent() {
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>Összes bejegyzés</strong> — az időszakra eső összes szolgálati alkalom</li>
         <li><strong>Igehirdetés / Katekézis / Látogatás</strong> kategóriánkénti bontás</li>
-        <li><strong>Jelenlét</strong> — összes résztvevő férfi/nő/gyermek bontásban</li>
+        <li><strong>Jelenlét</strong> — összes résztvevő (férfi + nő + gyermek együtt)</li>
         <li><strong>Persely</strong> — összes perselyi bevétel RON-ban</li>
       </ul>
 
       <S>Időszak kiválasztása</S>
       <p>
-        Alapesetben az aktuális hónap látható. A felül lévő hónapválasztóval bármely
-        elmúlt hónapot lehet megnézni. Az éves jelentéshez a 12 hónapot kell áttekinteni
-        — vagy az export funkciót használni.
+        Alapesetben az aktuális hónap látható. A felül lévő év- és hónapválasztóval
+        bármely elmúlt időszakot meg lehet nézni; a hónapválasztó „Egész év" opciójával
+        a teljes éves összesítés is egyben megjelenik.
       </p>
     </>
   )
@@ -296,12 +300,14 @@ function PrintContent() {
 
       <S>Nyomtatási központ</S>
       <p>
-        A „Nyomtatási központ" gomb a hivatalos lelkészi jelentés űrlapját generálja
-        PDF formátumban. Két változat érhető el:
+        A „Nyomtatási központ" gombbal év/hónap választás és élő előnézet mellett
+        4 nyomtatvány készíthető — PDF-ként menthető vagy közvetlenül nyomtatható:
       </p>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Egyszerű űrlap</strong> — a hivatalos sorrendben</li>
-        <li><strong>Munkanapló-egybeépített</strong> — minden naplóbejegyzés is megjelenik a jelentés mellett</li>
+        <li><strong>Szolgálati összesítő</strong> — istentiszteletek, igehirdetések jelenléttel és perselypénzzel</li>
+        <li><strong>Katekétikai összesítő</strong> — a katekézis alkalmak létszámmal</li>
+        <li><strong>Diakóniai összesítő</strong> — a lelkipásztori látogatások listája</li>
+        <li><strong>Éves lelkészi jelentés</strong> — a hivatalos leadandó jelentés aláírási résszel</li>
       </ul>
 
       <S>Beküldés</S>

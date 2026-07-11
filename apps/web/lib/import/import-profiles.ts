@@ -38,6 +38,8 @@ export type AutoColumnSource =
   | 'user_id'
   | 'now'
   | 'current_year'
+  /** A sor `kelt` mezőjének éve; ha nincs/hibás, fallback a folyó év (iktató-import, 2026-07-11 P2). */
+  | 'year_from_kelt'
   | 'true'
   | 'false'
 
@@ -969,14 +971,16 @@ export const PROFILE_FILING: ImportProfile = {
   ],
   autoColumns: [
     { dbColumn: 'congregation_id', source: 'congregation_id' },
-    { dbColumn: 'year', source: 'current_year' },
+    // 2026-07-11 P2: historikus iratoknál a year a sor KELT évéből származik —
+    // a korábbi 'current_year' minden régi iratot a folyó évre könyvelt volna.
+    { dbColumn: 'year', source: 'year_from_kelt' },
     { dbColumn: 'userid', source: 'user_id' },
     { dbColumn: 'deleted', source: 'false' },
   ],
   hints: [
     'Az EREK sablon "Iktato" füle automatikusan felismerhető.',
     'Az iktatószám opcionális — ha üres, a rendszer automatikusan sorszámozza.',
-    'A dátum kötelező (Kelt oszlop).',
+    'A dátum kötelező (Kelt oszlop) — az irat a kelt évének iktatókönyvébe kerül.',
   ],
   sheetHints: ['Iktato', 'Iktatás', 'Iktatószám', 'Filing'],
 }
