@@ -23,6 +23,54 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Admin felület megújítása + előfizetés-kezelés
+<!-- key: 2026-07-11-admin-megujitas -->
+<!-- category: feature -->
+<!-- targets: rendszergazda, lelkesz -->
+<!-- version: web v0.9.58 -->
+
+### 🔒 Biztonsági javítások
+
+- **A rendszergazdai (god-mode) PIN mostantól nem szivárog ki.** Korábban a PIN
+  a háttéradatbázisban bármely bejelentkezett felhasználó számára olvasható volt
+  — ezt bezártuk, és a PIN a felületen sem jelenik meg többé (csak beállítani lehet).
+
+### ✨ Új funkciók
+
+- **Előfizetés-kezelés gyülekezetenként.** A rendszergazda a „Rendszer pénzügyei"
+  oldalon minden gyülekezethez egyénileg állíthat be előfizetést: egyedi díjat és
+  külön felárat a speciális igényekre, egyszeri kifizetéseket és adományokat
+  rögzíthet, és külön kezelheti a bevételeket és kiadásokat. Az árfolyamok (RON,
+  EUR, HUF, USD) automatikusan frissülnek a Nemzeti Banktól, kézzel is felülírhatók.
+- **Előfizetés-alapú hozzáférés.** A rendszergazda teljes szabadsággal indíthat,
+  leállíthat, teszt-időszakra vagy ingyenes használatra állíthat egy gyülekezetet.
+  Ha egy előfizetés szünetel, az adott gyülekezet felhasználói egy tájékoztató
+  képernyőt látnak a modulok helyett, amíg a rendszergazda újra nem aktiválja.
+- **Teljes körű regisztráció Google-fiókkal is.** Aki Google-lel regisztrál,
+  mostantól ugyanúgy megadja a kért szerepkört, az egyházkerület–egyházmegye–
+  gyülekezet adatait és a csatolható igazolást, mint a jelszavas regisztrációnál —
+  így a rendszergazda az elbíráláshoz minden szükséges adatot lát.
+- **Felhasználó-elbíráló varázsló.** A várakozó regisztrációk jóváhagyása mostantól
+  átlátható, kétlépéses folyamat: előbb a beküldött adatok áttekintése, majd az
+  aktiválás és a szerepkör kiosztása egy helyen.
+- **Eszközök és licencek kezelése.** Az „Eszközök és napló" oldalon a licencek
+  kibocsáthatók, hosszabbíthatók, visszavonhatók; áttekintő mutatók jelzik a
+  hamarosan lejáró licenceket és a rég nem használt eszközöket; az aktivitási napló
+  szűrhető és exportálható.
+- **Import bármely gyülekezethez.** A rendszergazdai Import oldal mostantól
+  gyülekezet-választós központ: tagnyilvántartás, anyakönyv, pénzügy, munkanapló és
+  iktató is importálható bármelyik gyülekezethez.
+- **Utoljára aktív jelzés.** A felhasználó-listában látható, ki mikor használta
+  utoljára a rendszert.
+
+### 🎨 Felület-frissítés
+
+- **Az egész rendszergazdai felület egységes, letisztult megjelenést kapott**, és
+  telefonon is tökéletesen használható. A színek automatikusan követik a világos és
+  sötét témát. Elküldött rendszerüzenetek mostantól előnézetben megtekinthetők.
+
+---
+
 ## [2026-07-10] — Pénzügy 4. kör: múltbeli évek nyomtatása, nyugtafigyelő-áthozás, felület-rendezés
 <!-- key: 2026-07-10-penzugy-negyedik-kor -->
 <!-- category: bugfix -->

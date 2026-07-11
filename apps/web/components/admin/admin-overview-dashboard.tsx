@@ -4,7 +4,6 @@ import Link from 'next/link'
 import {
   ArrowRight,
   Bell,
-  Calculator,
   ChevronRight,
   Church,
   Database,
@@ -149,12 +148,6 @@ const MODULES: ReadonlyArray<{
     icon: UserCog,
     label: 'Felhasználók és szerepkörök',
     description: 'Felhasználók, várakozó kérelmek, szerepkörök kiosztása egy helyen.',
-  },
-  {
-    href: '/admin/konyvelok',
-    icon: Calculator,
-    label: 'Könyvelők / számvevők',
-    description: 'A pénzügyi feladatkörök kiosztása gyülekezetenként.',
   },
   {
     href: '/admin/eszkozok',
