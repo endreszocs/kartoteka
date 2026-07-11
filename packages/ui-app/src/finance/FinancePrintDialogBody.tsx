@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FinanceLoadingState } from './FinanceLoadingState'
 import type {
   FinancePrintType,
   FinancePrintTypeMeta,
@@ -120,6 +121,9 @@ export interface FinancePrintDialogBodyProps {
   /** UI-feedback (sonner / Tauri toast / iOS native banner). */
   onToast?: (msg: string, kind: FinancePrintToastKind) => void
 
+  /** 2026-07-11 (S6-#2): a betöltő-állapot logója (web: '/kartoteka-icon.png'). */
+  loadingLogoSrc?: string
+
   /** Bezárás (Dialog onOpenChange(false) hívás). */
   onClose: () => void
 
@@ -137,6 +141,7 @@ export function FinancePrintDialogBody({
   onLoadSavedDocs,
   onLoadBudgetRows,
   onLoadYearRecords,
+  loadingLogoSrc,
   onPrintToBrowser,
   onPrintToPdf,
   onToast,
@@ -565,6 +570,14 @@ export function FinancePrintDialogBody({
         className="overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
         style={{ maxHeight: PREVIEW_BOX_H + 40 }}
       >
+        {/* 2026-07-11 (S6-#2): amíg a NEM-folyó év tételei töltődnek, a szép
+            logós betöltő látszik az üres/fehér előnézet helyett. */}
+        {needsYearRecords && yearRecords == null && onLoadYearRecords ? (
+          <FinanceLoadingState
+            label={`A(z) ${selectedYear}. évi adatok betöltése…`}
+            logoSrc={loadingLogoSrc}
+          />
+        ) : (
         <div className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" style={{ width: scaledW, height: scaledH }}>
           <iframe
             ref={iframeRef}
@@ -581,6 +594,7 @@ export function FinancePrintDialogBody({
             }}
           />
         </div>
+        )}
       </div>
     </div>
   )

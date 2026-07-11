@@ -299,6 +299,7 @@ export function FinancePrintDialog({
               return {}
             }
           }}
+          loadingLogoSrc="/kartoteka-icon.png"
           onPrintToBrowser={(html) => printToBrowser(html)}
           onPrintToPdf={(html, filename, options) =>
             printToPdf(html, filename, {

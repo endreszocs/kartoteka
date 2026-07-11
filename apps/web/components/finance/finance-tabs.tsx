@@ -590,6 +590,9 @@ export function FinanceTabs({
             onRefresh={refreshData}
             rentalContracts={rentalContracts}
             bankAccounts={bankAccounts}
+            // 2026-07-11 (S6-#1): élő párosítási státusz az exporthoz — a
+            // beégetett „Várakozik banki egyeztetésre" helyett (mint a Kassza fülön).
+            unpairedInternalIds={internalMovementHealth.unpairedIds}
           />
         </TabsContent>
 

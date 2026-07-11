@@ -51,6 +51,24 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   mostantól irányonként pontosan egy belső mozgás opció jelenik meg.
 - **Az asztali verzió számadás-nyomtatványának tényadatából a stornózott
   tételek is kimaradnak** (a webes javítás párja — eddig csak a webben volt meg).
+- **A Tranzakciók fül exportja is az ÉLŐ párosítási állapotot mutatja** a belső
+  mozgásoknál — eddig a rögzítéskor beégetett „⏳ Várakozik banki egyeztetésre"
+  szöveg örökre a megjegyzésben maradt, akkor is, ha a banki pár már régen
+  beérkezett. Mostantól ugyanaz a valós státusz megy az Excelbe, mint a Kassza
+  fül exportjában: „✓ Belső mozgás — párosítva" vagy „⏳ Várakozik…".
+
+### ✨ Új funkciók
+
+- **Nyitó egyenlegek szerkesztése a Gyülekezet beállításaiban** (Pénzügy →
+  Nyitó egyenlegek fül): a legelső — és bármely — év január 1-i készpénz- és
+  bankszámla-egyenlegei itt rögzíthetők/javíthatók, hogy a rendszer biztosan
+  jó bázisról számolja az egyenleg-láncot évről évre. Látszik, honnan
+  származik az érték (kézzel rögzítve / importból / előző évből áthozva);
+  devizás számlánál árfolyammal együtt adható meg. Véglegesített (lezárt) év
+  nyitója védett — ahhoz javítási engedély kell.
+- **A szép, logós betöltő-állapot több helyen:** a Pénzügy oldal év-váltásánál
+  (eddig a régi oldal némán „befagyva" állt, amíg az új év adatai megjöttek)
+  és a Nyomtatási központban a múltbeli évek adatainak betöltése alatt.
 
 ### 🎨 Felület
 

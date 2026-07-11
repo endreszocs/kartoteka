@@ -119,3 +119,19 @@ left join bankszamla_nyito_egyenleg n_next
  and n_next.eve = n_prev.eve + 1
 where n_prev.congregation_id = (select id from cong)
 order by bs.bank_neve, n_prev.eve;
+
+-- ============================================================================
+-- E8 — NYITÓ EGYENLEGEK áttekintése (2026-07-11): a készpénz- és bankszámla-
+-- évkezdők évenként, forrás-jelöléssel (manual/import/carryover). A Gyülekezet
+-- beállításai → Pénzügy → Nyitó egyenlegek fül ugyanezt mutatja/szerkeszti.
+-- ============================================================================
+select 'keszpenz' as tipus, null::text as bank, eve,
+       nyito_egyenleg as nyito_ron, forrasa
+from keszpenz_nyito_egyenleg
+where congregation_id = (select id from congregations order by created_at limit 1)
+union all
+select 'bank', bs.bank_neve, n.eve, n.nyito_egyenleg_ron, n.forrasa
+from bankszamla_nyito_egyenleg n
+join bankszamlak bs on bs.id = n.bankszamla_id
+where n.congregation_id = (select id from congregations order by created_at limit 1)
+order by eve, tipus, bank;

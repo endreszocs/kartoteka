@@ -37,6 +37,8 @@ type WebTransactionsTabProps = Pick<
   | 'rentalContracts'
   // 2026-07-10 (ÚJ #8): kp/banki jelző chip — a bankszámla-nevek feloldásához.
   | 'bankAccounts'
+  // 2026-07-11 (S6-#1): élő párosítási státusz az exporthoz (mint a Kassza fülön).
+  | 'unpairedInternalIds'
 >
 
 export function TransactionsTabWeb(props: WebTransactionsTabProps) {

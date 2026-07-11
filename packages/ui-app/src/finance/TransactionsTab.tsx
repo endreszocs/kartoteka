@@ -154,6 +154,11 @@ export interface TransactionsTabProps {
     onOpenChange: (open: boolean) => void
     contract: RentalContractRow | null
   }) => ReactNode
+
+  /** 2026-07-11 (S6-#1): a párosítatlan belső-mozgás sorok id-jai (mint a
+   *  CashbookTab-nál) — az export ebből számolja az ÉLŐ párosítási státuszt,
+   *  nem a rögzítéskor beégetett „Várakozik banki egyeztetésre" megjegyzésből. */
+  unpairedInternalIds?: Set<number>
 }
 
 type UnifiedRow = {
@@ -170,6 +175,8 @@ type UnifiedRow = {
   irattipus: string
   megjegyzes: string
   isBm: boolean
+  /** 2026-07-11 (S6-#1): ÉLŐ párosítási státusz — true = nincs meg a másik oldal. */
+  unpaired: boolean
   /** 2026-07-10 (ÚJ #8): NULL = készpénz (kassza), kitöltve = banki tétel. */
   bankszamlaId: number | null
   /** 2026-07-10 (S3 audit #1): stornózott (érvénytelenített) tétel — a listában
@@ -201,6 +208,7 @@ export function TransactionsTab({
   oblioInvoiceDialogSlot,
   oblioFolderReady,
   oblioFolderWarningSlot,
+  unpairedInternalIds,
 }: TransactionsTabProps) {
   const [monthFilter, setMonthFilter] = useState<number | ''>('')
   /** Oszloponkénti szabad-szöveges szűrők (kulcs = oszlop). */
@@ -327,6 +335,7 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: !r.id_szemely && !r.id_csalad && !r.belso_mozgas_xkey,
@@ -346,6 +355,7 @@ export function TransactionsTab({
         irattipus: r.irattipus || '—',
         megjegyzes: r.megjegyzes || '',
         isBm: !!r.belso_mozgas_xkey,
+        unpaired: !!r.belso_mozgas_xkey && !!unpairedInternalIds?.has(r.id), // 2026-07-11 (S6-#1)
         bankszamlaId: r.bankszamla_id ?? null, // 2026-07-10 (ÚJ #8)
         stornozott: r.stornozott === true, // 2026-07-10 (S3 audit #1)
         hasMissingPerson: false,
@@ -364,7 +374,7 @@ export function TransactionsTab({
 
     return filtered.sort((a, b) => b.datum.localeCompare(a.datum))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomeRecords, expenseRecords, monthFilter, bevCelMap, kiaCelMap])
+  }, [incomeRecords, expenseRecords, monthFilter, bevCelMap, kiaCelMap, unpairedInternalIds])
 
   // Oszloponkénti szabad-szöveges szűrés.
   const filteredRows = useMemo(
@@ -383,6 +393,10 @@ export function TransactionsTab({
   )
 
   function buildExport() {
+    // 2026-07-11 (S6-#1): belső mozgásnál az ÉLŐ párosítási státusz megy az exportba
+    // (mint a Kassza fülön) — NEM a rögzítéskor beégetett, elavulható megjegyzés.
+    // A rögzítéskori „⏳ Várakozik banki egyeztetésre…" szöveg örökre a megjegyzésben
+    // maradt akkor is, ha a banki pár már RÉGEN beérkezett.
     const lines: FinanceExportLine[] = filteredRows.map((r) => ({
       datum: r.datum,
       iratszam: r.iratszam === '—' ? '' : r.iratszam,
@@ -391,7 +405,11 @@ export function TransactionsTab({
       type: r.type,
       osszeg: r.osszeg,
       celNev: r.category === '—' ? '' : r.category,
-      megjegyzes: r.megjegyzes,
+      megjegyzes: r.isBm
+        ? r.unpaired
+          ? '⏳ Várakozik banki egyeztetésre — nincs banki pár'
+          : '✓ Belső mozgás — párosítva'
+        : r.megjegyzes,
     }))
     return {
       aoa: buildFinanceExportAoa(lines),

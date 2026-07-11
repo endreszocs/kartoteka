@@ -43,6 +43,7 @@ import { CongregationSummary, type CongregationSummaryData } from './congregatio
 import { FeeDiscountsManager } from '@/components/congregation/fee-discounts-manager'
 import { CustomFeesManager } from '@/components/congregation/custom-fees-manager'
 import { AnnualFeesManager } from '@/components/congregation/annual-fees-manager'
+import { OpeningBalancesManager } from '@/components/congregation/opening-balances-manager'
 import { AddressForm, type AddressValue } from '@/components/ui/address-form'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -942,6 +943,12 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
                       </span>
                     )}
                   </TabsTrigger>
+                  {/* 2026-07-11 (S6-#3): évkezdő (nyitó) egyenlegek szerkesztése —
+                      a legelső készpénz- és banki egyenlegek, az egyenleg-lánc bázisa. */}
+                  <TabsTrigger value="nyitok" className="md:w-full md:justify-start md:px-3 md:py-2">
+                    <PiggyBank className="mr-2 size-4" />
+                    Nyitó egyenlegek
+                  </TabsTrigger>
                   <TabsTrigger value="egyebdij" className="md:w-full md:justify-start md:px-3 md:py-2">
                     <HandCoins className="mr-2 size-4" />
                     <span className="flex-1 text-left">Egyéb díjak</span>
@@ -1136,6 +1143,10 @@ export function CongregationDialogV2({ open, onOpenChange, congregationId, varia
 
                 {/* ─── EGYÉB DÍJAK AL-TAB (gyülekezet-specifikus díjak) ───
                     2026-07-10 (S2-1a): a wizarddal KÖZÖS CustomFeesManager fut itt is. */}
+                <TabsContent value="nyitok" className="pt-4">
+                  <OpeningBalancesManager bankAccounts={bankAccounts} />
+                </TabsContent>
+
                 <TabsContent value="egyebdij">
                   <CustomFeesManager
                     congregationId={activeCongregationId}
