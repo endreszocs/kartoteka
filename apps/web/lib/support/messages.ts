@@ -40,22 +40,27 @@ type ModernRow = {
   created_at: string
 }
 
-function isMissingColumnError(message?: string): boolean {
-  if (!message) return false
-  return (
-    message.includes('schema cache') ||
-    message.includes('column') ||
-    message.includes('relationship') ||
-    message.includes('Could not find')
-  )
-}
+/**
+ * 2026-07-11 fix: a korábbi felismerés a LEGACY oszlopokra (content/type/
+ * parent_id) futtatott HEAD+count próbát, és a hibából következtetett modern
+ * sémára. A HEAD-kérésen viszont a PostgREST nem mindig validálja az
+ * oszlopokat → a próba „sikerült", a kód legacy-nak hitte a DB-t, majd az
+ * éles (modern sémájú) táblán a legacy select elszállt:
+ * „column support_messages.content does not exist".
+ * Az új felismerés a MODERN oszlopot (message) kérdezi le VALÓDI GET-tel —
+ * ha létezik, modern; ha hiányzik, legacy. A pozitív eredményt cache-eljük
+ * (átmeneti hibát nem), így nincs plusz kör minden híváskor.
+ */
+let cachedSchemaMode: SupportSchemaMode | null = null
 
 async function detectSchemaMode(supabase: SupabaseClient): Promise<SupportSchemaMode> {
-  const probe = await supabase
-    .from('support_messages')
-    .select('id, content, type, parent_id', { count: 'exact', head: true })
-
-  return probe.error && isMissingColumnError(probe.error.message) ? 'modern' : 'legacy'
+  if (cachedSchemaMode === 'modern') return 'modern'
+  const probe = await supabase.from('support_messages').select('message').limit(1)
+  if (!probe.error) {
+    cachedSchemaMode = 'modern'
+    return 'modern'
+  }
+  return 'legacy'
 }
 
 async function getProfileMap(supabase: SupabaseClient, userIds: string[]) {

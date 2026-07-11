@@ -1,41 +1,35 @@
 'use client'
 
 /**
- * Admin „Frissítések" fül — héj: navigáció + adatbetöltés + szekció-router.
+ * Admin „Frissítések" fül — héj: adatbetöltés + szekció-elrendezés.
  *
- * 2026-07-11 admin-redesign: az 1300 soros fájl szét lett bontva a
- * components/admin/broadcasts/ könyvtárba:
- *   - broadcasts-overview.tsx      — áttekintő kártyák
- *   - changelog-send-section.tsx   — fejlesztések kiküldése (+ KÖTELEZŐ bugfix:
- *                                    a tömeges küldés nem force-újraküld némán)
- *   - broadcast-compose-section.tsx — kézi üzenet (saját címzés-állapottal)
- *   - broadcast-archive.tsx        — elküldött üzenetek (kinyitható törzs)
- *   - broadcast-target-picker.tsx / email-opt-in.tsx / delivery-badges.tsx / format.ts
+ * 2026-07-11 olvashatósági redesign: a korábbi bal-oldali menü + szekció-
+ * router (külön „Áttekintés" lépcsővel) helyett az oldal FELÜLRŐL LEFELÉ
+ * olvasható, a teendők sorrendjében:
  *
- * További javítások:
- *   - a kezdeti betöltés hibája többé nem néma (hiba-panel + újrapróbálás);
- *   - a küldés utáni frissítés nem cseréli az egész felületet betöltő-szövegre
- *     (a tartalom és a görgetési pozíció megmarad);
- *   - token-alapú színek (dark-safe), mobil-first navigáció;
- *   - a duplikált belső hero-fejléc megszűnt (az oldal-fejlécet az
- *     AdminPageHeader adja).
+ *   1. Gyors-áttekintő sáv        — van-e kiküldetlen fejlesztés? (ugrás)
+ *   2. Fejlesztések kiküldése     — a következő teendő, nyitva indul
+ *   3. Új üzenet írása            — összecsukva indul
+ *   4. Elküldött üzenetek         — összecsukva indul
+ *
+ * Így egyszerre mindig egy dolog dominál a képernyőn, és semmi nincs
+ * elrejtve egy külön navigációs lépcső mögé.
+ *
+ * A korábbi javítások változatlanul érvényben:
+ *   - a kezdeti betöltés hibája nem néma (hiba-panel + újrapróbálás);
+ *   - a küldés utáni frissítés nem cseréli az egész felületet betöltő-
+ *     szövegre (a tartalom és a görgetési pozíció megmarad);
+ *   - a tömeges küldés biztonsági viselkedése (alapból csak kiküldetlenek)
+ *     a ChangelogSendSection-ben él tovább, érintetlenül.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ChevronRight,
-  Clock,
-  LayoutGrid,
-  RefreshCw,
-  Send,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react'
+import { Clock, RefreshCw, Send, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AdminSkeleton } from '@/components/admin/_shared/admin-skeleton'
+import { StatusBadge } from '@/components/admin/_shared/status-badge'
 
 import {
   listBroadcasts,
@@ -48,7 +42,8 @@ import {
 import type { BroadcastRow, ChangelogEntry } from '@/lib/broadcasts/types'
 
 import { NewsletterComposeDialog } from './newsletter-compose-dialog'
-import { BroadcastsOverview, type BroadcastSectionId } from './broadcasts/broadcasts-overview'
+import { BroadcastsSummaryNav, type BroadcastSectionId } from './broadcasts/broadcasts-overview'
+import { BroadcastSectionCard } from './broadcasts/section-card'
 import { ChangelogSendSection } from './broadcasts/changelog-send-section'
 import { BroadcastComposeSection } from './broadcasts/broadcast-compose-section'
 import { BroadcastArchive } from './broadcasts/broadcast-archive'
@@ -58,27 +53,23 @@ import type {
   DistrictLite,
 } from './broadcasts/broadcast-target-picker'
 
-const NAV_ITEMS: Array<{
-  id: BroadcastSectionId
-  label: string
-  icon: LucideIcon
-  hint: string
-}> = [
-  { id: 'overview', label: 'Áttekintés', icon: LayoutGrid, hint: 'Mire való ez az oldal' },
-  {
-    id: 'changelog',
-    label: 'Fejlesztések kiküldése',
-    icon: Sparkles,
-    hint: 'Újdonságok és hírlevél a felhasználóknak',
-  },
-  { id: 'compose', label: 'Új üzenet írása', icon: Send, hint: 'Saját üzenet összeállítása' },
-  { id: 'archive', label: 'Elküldött üzenetek', icon: Clock, hint: 'Korábbi kiküldések' },
-]
+const SECTION_DOM_ID: Record<BroadcastSectionId, string> = {
+  changelog: 'frissitesek-fejlesztesek',
+  compose: 'frissitesek-uj-uzenet',
+  archive: 'frissitesek-elkuldott',
+}
 
 export function BroadcastsTab() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [section, setSection] = useState<BroadcastSectionId>('overview')
+
+  // Melyik szekció van kinyitva — a teendő (fejlesztések) nyitva indul,
+  // a másodlagosak összecsukva, hogy az oldal első ránézésre átlátható legyen.
+  const [openSections, setOpenSections] = useState<Record<BroadcastSectionId, boolean>>({
+    changelog: true,
+    compose: false,
+    archive: false,
+  })
 
   const [entries, setEntries] = useState<ChangelogEntry[]>([])
   const [broadcasts, setBroadcasts] = useState<BroadcastRow[]>([])
@@ -143,6 +134,20 @@ export function BroadcastsTab() {
       .catch(() => toast.error('A lista frissítése nem sikerült.'))
   }, [fetchAll])
 
+  const toggleSection = useCallback((id: BroadcastSectionId) => {
+    setOpenSections((current) => ({ ...current, [id]: !current[id] }))
+  }, [])
+
+  /** Gyorsnavigáció: kinyitja a szekciót és odagörget. */
+  const goToSection = useCallback((id: BroadcastSectionId) => {
+    setOpenSections((current) => ({ ...current, [id]: true }))
+    requestAnimationFrame(() => {
+      document
+        .getElementById(SECTION_DOM_ID[id])
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [])
+
   // Memoizálva — a NewsletterComposeDialog reset-effektje ezekre hivatkozik,
   // stabil identitás nélkül minden szülő-render kiütné a dialógus állapotát.
   const activeEntries = useMemo(() => entries.filter((e) => !e.readMarked), [entries])
@@ -152,7 +157,12 @@ export function BroadcastsTab() {
   )
 
   if (loading) {
-    return <AdminSkeleton rows={6} className="py-4" />
+    // A szekciók maguk kártyák, ezért a betöltő is kap egy kártya-hátteret.
+    return (
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <AdminSkeleton rows={6} className="py-2" />
+      </div>
+    )
   }
 
   if (loadError && entries.length === 0 && broadcasts.length === 0) {
@@ -162,144 +172,74 @@ export function BroadcastsTab() {
 
   const unsentCount = unsentEntries.length
 
-  const navBadge: Partial<Record<BroadcastSectionId, number>> = {
-    changelog: unsentCount,
-    archive: broadcasts.length,
-  }
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:space-y-5">
       {loadError && <LoadErrorPanel message={loadError} onRetry={initialLoad} compact />}
 
-      {/* Mobil: vízszintes chip-navigáció */}
-      <nav aria-label="Frissítések szekciók" className="flex flex-wrap gap-2 lg:hidden">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon
-          const active = section === item.id
-          const badge = navBadge[item.id]
-          return (
-            <Button
-              key={item.id}
-              type="button"
-              variant="outline"
-              onClick={() => setSection(item.id)}
-              aria-current={active ? 'page' : undefined}
-              className={`min-h-11 gap-1.5 rounded-xl px-3 ${
-                active
-                  ? 'border-transparent bg-primary/10 font-medium text-primary ring-1 ring-primary/30 hover:bg-primary/15'
-                  : 'text-muted-foreground'
-              }`}
-            >
-              <Icon className="size-4" aria-hidden />
-              {item.label}
-              {badge != null && badge > 0 && (
-                <Badge
-                  className={
-                    active
-                      ? 'border-transparent bg-primary text-primary-foreground'
-                      : 'border-border bg-muted text-muted-foreground'
-                  }
-                >
-                  {badge}
-                </Badge>
-              )}
-            </Button>
-          )
-        })}
-      </nav>
+      {/* Gyors-áttekintő sáv: mi a helyzet, hova érdemes ugrani */}
+      <BroadcastsSummaryNav
+        unsentCount={unsentCount}
+        broadcastsCount={broadcasts.length}
+        onGo={goToSection}
+      />
 
-      <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
-        {/* Desktop: bal oldali menü */}
-        <nav
-          aria-label="Frissítések szekciók"
-          className="hidden h-fit overflow-hidden rounded-2xl border border-border bg-card p-2 lg:sticky lg:top-4 lg:block"
-        >
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            const active = section === item.id
-            const badge = navBadge[item.id]
-            return (
-              // Teljes-soros menügomb (engedélyezett wrapper-kivétel)
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSection(item.id)}
-                aria-current={active ? 'page' : undefined}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                  active
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                }`}
-              >
-                <span
-                  className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
-                    active
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  <Icon className="size-4" aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium leading-tight">{item.label}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground/80">
-                    {item.hint}
-                  </span>
-                </span>
-                {badge != null && badge > 0 && (
-                  <Badge
-                    className={
-                      active
-                        ? 'border-transparent bg-primary text-primary-foreground'
-                        : 'border-border bg-muted text-muted-foreground'
-                    }
-                  >
-                    {badge}
-                  </Badge>
-                )}
-                <ChevronRight
-                  className={`size-4 shrink-0 ${active ? 'text-primary/60' : 'text-muted-foreground/40'}`}
-                  aria-hidden
-                />
-              </button>
-            )
-          })}
-        </nav>
+      {/* (a) A következő teendő: fejlesztések kiküldése */}
+      <BroadcastSectionCard
+        id={SECTION_DOM_ID.changelog}
+        icon={Sparkles}
+        title="Fejlesztések kiküldése"
+        description="A fejlesztési napló bejegyzései — értesítésként vagy szép hírlevélbe csomagolva küldheted ki őket."
+        badges={
+          unsentCount > 0 ? (
+            <StatusBadge intent="warning">{unsentCount} kiküldésre vár</StatusBadge>
+          ) : undefined
+        }
+        open={openSections.changelog}
+        onToggle={() => toggleSection('changelog')}
+      >
+        <ChangelogSendSection
+          entries={entries}
+          congregations={congregations}
+          dioceses={dioceses}
+          districts={districts}
+          onReload={reload}
+          onOpenNewsletter={() => setNewsletterOpen(true)}
+        />
+      </BroadcastSectionCard>
 
-        {/* Tartalom */}
-        <div className="min-w-0">
-          {section === 'overview' && (
-            <BroadcastsOverview
-              entriesCount={entries.length}
-              unsentCount={unsentCount}
-              broadcastsCount={broadcasts.length}
-              onGo={setSection}
-            />
-          )}
+      {/* (b) Új üzenet írása */}
+      <BroadcastSectionCard
+        id={SECTION_DOM_ID.compose}
+        icon={Send}
+        title="Új üzenet írása"
+        description="Saját, egyedi üzenet (cím + szöveg) a kiválasztott címzetteknek — értesítésként vagy e-mailben."
+        open={openSections.compose}
+        onToggle={() => toggleSection('compose')}
+      >
+        <BroadcastComposeSection
+          congregations={congregations}
+          dioceses={dioceses}
+          districts={districts}
+          onSent={reload}
+        />
+      </BroadcastSectionCard>
 
-          {section === 'changelog' && (
-            <ChangelogSendSection
-              entries={entries}
-              congregations={congregations}
-              dioceses={dioceses}
-              districts={districts}
-              onReload={reload}
-              onOpenNewsletter={() => setNewsletterOpen(true)}
-            />
-          )}
-
-          {section === 'compose' && (
-            <BroadcastComposeSection
-              congregations={congregations}
-              dioceses={dioceses}
-              districts={districts}
-              onSent={reload}
-            />
-          )}
-
-          {section === 'archive' && <BroadcastArchive broadcasts={broadcasts} />}
-        </div>
-      </div>
+      {/* (c) Előzmények */}
+      <BroadcastSectionCard
+        id={SECTION_DOM_ID.archive}
+        icon={Clock}
+        title="Elküldött üzenetek"
+        description="Mikor, kinek és mit küldtél ki — előnézettel és e-mail kézbesítési státusszal."
+        badges={
+          broadcasts.length > 0 ? (
+            <StatusBadge intent="neutral">{broadcasts.length}</StatusBadge>
+          ) : undefined
+        }
+        open={openSections.archive}
+        onToggle={() => toggleSection('archive')}
+      >
+        <BroadcastArchive broadcasts={broadcasts} />
+      </BroadcastSectionCard>
 
       {/* Fejlesztési hírlevél szerkesztő */}
       <NewsletterComposeDialog

@@ -3,7 +3,7 @@
 /**
  * Fejlesztések kiküldése — CHANGELOG-bejegyzések értesítésként / hírlevélként.
  *
- * 2026-07-11 admin-redesign + KÖTELEZŐ BUGFIX:
+ * 2026-07-11 admin-redesign + KÖTELEZŐ BUGFIX (változatlanul érvényben):
  *  - a „Mind kijelölése" alapból CSAK a még el nem küldött bejegyzéseket
  *    jelöli ki (korábban a már elküldötteket is, amiket a tömeges küldés
  *    némán force-újraküldött);
@@ -13,6 +13,11 @@
  *    gombbal) lehetséges.
  *  - A célzás-állapot a szekció SAJÁTJA — nem szivárog át az „Új üzenet"
  *    űrlapba és vissza.
+ *
+ * 2026-07-11 olvashatósági kör: a külső kártya-héjat és a fejlécet a
+ * BroadcastSectionCard adja; a bejegyzés-kártyák egy oszlopban, nagyobb
+ * címmel, rendezett metaadat-sorral és olvasható (text-sm, leading-relaxed,
+ * max-w-prose) törzs-szöveggel jelennek meg.
  */
 
 import { useMemo, useState, useTransition, type ReactNode } from 'react'
@@ -256,159 +261,145 @@ export function ChangelogSendSection({
   ).length
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card">
-      <header className="border-b border-border bg-muted/40 px-4 py-4 sm:px-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Sparkles className="size-4 text-primary" aria-hidden />
-          <h3 className="font-heading text-base text-foreground">Fejlesztések kiküldése</h3>
-          <Badge className="border-border bg-card text-muted-foreground">
-            {entries.length} összesen
-          </Badge>
-          {unsentEntries.length > 0 && (
-            <StatusBadge intent="warning">{unsentEntries.length} kiküldésre vár</StatusBadge>
-          )}
-          {selectedKeys.size > 0 && (
-            <StatusBadge intent="info">{selectedKeys.size} kijelölve</StatusBadge>
-          )}
-        </div>
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          Az új fejlesztéseket a rendszer a fejlesztési naplóból (CHANGELOG) olvassa ki. Jelölj ki
-          egyet vagy többet és küldd ki értesítésként, vagy állíts össze belőlük egy szép{' '}
-          <strong>hírlevelet</strong> (ott magadnak is küldhetsz tesztet).
-        </p>
-      </header>
+    <div className="space-y-4">
+      <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
+        Az új fejlesztéseket a rendszer a fejlesztési naplóból (CHANGELOG) olvassa ki. Jelölj ki
+        egyet vagy többet és küldd ki értesítésként, vagy állíts össze belőlük egy szép{' '}
+        <strong className="font-medium text-foreground">hírlevelet</strong> (ott magadnak is
+        küldhetsz tesztet).
+      </p>
 
-      <div className="space-y-4 p-4 sm:p-5">
-        {/* Címzés — összecsukható, hogy a lista maradjon a főszereplő */}
-        <div className="overflow-hidden rounded-xl border border-border">
-          <button
-            type="button"
-            onClick={() => setTargetingOpen((v) => !v)}
-            aria-expanded={targetingOpen}
-            className="flex min-h-11 w-full items-center gap-2 bg-muted/40 px-3 py-2.5 text-left transition hover:bg-muted/60"
-          >
-            <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="min-w-0 flex-1 text-sm text-foreground">
-              <span className="font-medium">Címzés:</span>{' '}
-              <span className="text-muted-foreground">
-                {scopeLabel}
-                {sendEmail ? ' · értesítés + e-mail' : ' · csak értesítés'}
-              </span>
+      {/* Címzés — összecsukható, hogy a lista maradjon a főszereplő */}
+      <div className="overflow-hidden rounded-xl border border-border">
+        <button
+          type="button"
+          onClick={() => setTargetingOpen((v) => !v)}
+          aria-expanded={targetingOpen}
+          className="flex min-h-11 w-full items-center gap-2 bg-muted/40 px-3 py-2.5 text-left transition hover:bg-muted/60"
+        >
+          <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 text-sm text-foreground">
+            <span className="font-medium">Címzés:</span>{' '}
+            <span className="text-muted-foreground">
+              {scopeLabel}
+              {sendEmail ? ' · értesítés + e-mail' : ' · csak értesítés'}
             </span>
-            <ChevronDown
-              className={`size-4 shrink-0 text-muted-foreground transition-transform ${targetingOpen ? 'rotate-180' : ''}`}
-              aria-hidden
+          </span>
+          <ChevronDown
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${targetingOpen ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+        {targetingOpen && (
+          <div className="space-y-3 border-t border-border p-3">
+            <TargetPicker
+              value={target}
+              onChange={setTarget}
+              congregations={congregations}
+              dioceses={dioceses}
+              districts={districts}
             />
-          </button>
-          {targetingOpen && (
-            <div className="space-y-3 border-t border-border p-3">
-              <TargetPicker
-                value={target}
-                onChange={setTarget}
-                congregations={congregations}
-                dioceses={dioceses}
-                districts={districts}
-              />
-              <EmailOptIn checked={sendEmail} onChange={setSendEmail} />
-            </div>
-          )}
-        </div>
-
-        {incompleteTarget && (
-          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            A kiválasztott címzés-módhoz még nincs kijelölt{' '}
-            {target.scope === 'congregation'
-              ? 'gyülekezet'
-              : target.scope === 'diocese'
-                ? 'egyházmegye'
-                : 'egyházkerület'}{' '}
-            — a küldés addig nem indítható.
-          </p>
-        )}
-
-        {/* Műveletsor */}
-        {activeEntries.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-            {unsentEntries.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={selectedKeys.size > 0 ? clearSelection : selectAllUnsent}
-                disabled={isPending}
-              >
-                {selectedKeys.size > 0
-                  ? 'Kijelölés törlése'
-                  : 'Még nem küldöttek kijelölése'}
-              </Button>
-            )}
-            <Button
-              onClick={handleBulkSend}
-              disabled={isPending || selectedKeys.size === 0 || incompleteTarget}
-              className="gap-1.5"
-            >
-              <Send className="size-3.5" aria-hidden />
-              Kijelöltek küldése{sendEmail ? ' + e-mail' : ''}
-            </Button>
-            {selectedResendCount > 0 && (
-              <StatusBadge intent="warning" icon={RotateCcw}>
-                {selectedResendCount} újraküldés a kijelöltek közt
-              </StatusBadge>
-            )}
-            <Button
-              variant="outline"
-              onClick={onOpenNewsletter}
-              disabled={unsentEntries.length === 0}
-              className="gap-1.5 sm:ml-auto"
-            >
-              <Sparkles className="size-3.5 text-primary" aria-hidden />
-              Hírlevél összeállítása
-            </Button>
+            <EmailOptIn checked={sendEmail} onChange={setSendEmail} />
           </div>
-        )}
-
-        {activeEntries.length === 0 ? (
-          <AdminEmptyState
-            icon={entries.length === 0 ? Inbox : Sparkles}
-            title={
-              entries.length === 0
-                ? 'Még nincs rögzített fejlesztési bejegyzés'
-                : 'Nincs kiküldésre váró frissítés'
-            }
-            hint={
-              entries.length === 0
-                ? 'Új CHANGELOG-bejegyzés után itt jelennek meg a kiküldhető frissítések.'
-                : 'A korábbi bejegyzések archiváltak — lent visszanézhetők.'
-            }
-          />
-        ) : (
-          <div className="grid gap-3 2xl:grid-cols-2">
-            {activeEntries.map((e) => (
-              <ChangelogEntryCard
-                key={e.key}
-                entry={e}
-                selected={selectedKeys.has(e.key)}
-                onToggleSelected={() => toggleSelected(e.key)}
-                onSend={() => handleSingleSend(e)}
-                onResend={() => handleSingleSend(e, { force: true })}
-                onPreview={() => setPreviewKey(e.key)}
-                isPending={isPending}
-                sendDisabled={incompleteTarget}
-                scopeLabel={scopeLabel}
-                sendEmail={sendEmail}
-                expanded={expandedEntryKeys.has(e.key)}
-                onToggle={() => toggleEntry(e.key)}
-              />
-            ))}
-          </div>
-        )}
-
-        {archivedEntries.length > 0 && (
-          <ArchivedEntriesGroup
-            entries={archivedEntries}
-            expandedKeys={expandedEntryKeys}
-            onToggle={toggleEntry}
-          />
         )}
       </div>
+
+      {incompleteTarget && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          A kiválasztott címzés-módhoz még nincs kijelölt{' '}
+          {target.scope === 'congregation'
+            ? 'gyülekezet'
+            : target.scope === 'diocese'
+              ? 'egyházmegye'
+              : 'egyházkerület'}{' '}
+          — a küldés addig nem indítható.
+        </p>
+      )}
+
+      {/* Műveletsor */}
+      {activeEntries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          {unsentEntries.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={selectedKeys.size > 0 ? clearSelection : selectAllUnsent}
+              disabled={isPending}
+              className="min-h-9"
+            >
+              {selectedKeys.size > 0
+                ? 'Kijelölés törlése'
+                : 'Még nem küldöttek kijelölése'}
+            </Button>
+          )}
+          <Button
+            onClick={handleBulkSend}
+            disabled={isPending || selectedKeys.size === 0 || incompleteTarget}
+            className="min-h-9 gap-1.5"
+          >
+            <Send className="size-3.5" aria-hidden />
+            Kijelöltek küldése{sendEmail ? ' + e-mail' : ''}
+            {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ''}
+          </Button>
+          {selectedResendCount > 0 && (
+            <StatusBadge intent="warning" icon={RotateCcw}>
+              {selectedResendCount} újraküldés a kijelöltek közt
+            </StatusBadge>
+          )}
+          <Button
+            variant="outline"
+            onClick={onOpenNewsletter}
+            disabled={unsentEntries.length === 0}
+            className="min-h-9 gap-1.5 sm:ml-auto"
+          >
+            <Sparkles className="size-3.5 text-primary" aria-hidden />
+            Hírlevél összeállítása
+          </Button>
+        </div>
+      )}
+
+      {activeEntries.length === 0 ? (
+        <AdminEmptyState
+          icon={entries.length === 0 ? Inbox : Sparkles}
+          title={
+            entries.length === 0
+              ? 'Még nincs rögzített fejlesztési bejegyzés'
+              : 'Nincs kiküldésre váró frissítés'
+          }
+          hint={
+            entries.length === 0
+              ? 'Új CHANGELOG-bejegyzés után itt jelennek meg a kiküldhető frissítések.'
+              : 'A korábbi bejegyzések archiváltak — lent visszanézhetők.'
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {activeEntries.map((e) => (
+            <ChangelogEntryCard
+              key={e.key}
+              entry={e}
+              selected={selectedKeys.has(e.key)}
+              onToggleSelected={() => toggleSelected(e.key)}
+              onSend={() => handleSingleSend(e)}
+              onResend={() => handleSingleSend(e, { force: true })}
+              onPreview={() => setPreviewKey(e.key)}
+              isPending={isPending}
+              sendDisabled={incompleteTarget}
+              scopeLabel={scopeLabel}
+              sendEmail={sendEmail}
+              expanded={expandedEntryKeys.has(e.key)}
+              onToggle={() => toggleEntry(e.key)}
+            />
+          ))}
+        </div>
+      )}
+
+      {archivedEntries.length > 0 && (
+        <ArchivedEntriesGroup
+          entries={archivedEntries}
+          expandedKeys={expandedEntryKeys}
+          onToggle={toggleEntry}
+        />
+      )}
 
       <AdminConfirmDialog
         open={!!confirmState}
@@ -431,7 +422,7 @@ export function ChangelogSendSection({
         }}
         changelogKey={previewKey}
       />
-    </section>
+    </div>
   )
 }
 
@@ -474,58 +465,65 @@ function ChangelogEntryCard({
       ? 'border-border bg-card'
       : 'border-primary/25 bg-primary/5'
 
+  const scopeHint = `${scopeLabel}${sendEmail ? ' + e-mail' : ''}`
+
   return (
-    <div className={`rounded-xl border p-4 transition-all ${cardClass}`}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        <label
-          className="flex min-h-11 shrink-0 cursor-pointer items-start pt-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggleSelected}
-            className="size-4 cursor-pointer rounded border-input accent-[var(--primary)]"
-            aria-label={
-              entry.alreadySent
-                ? 'Kijelölés ÚJRAKÜLDÉSRE (a címzettek ismét értesítést kapnak)'
-                : 'Kijelölés a tömeges küldéshez'
-            }
-          />
-        </label>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-start gap-3 text-left"
-        >
-          <span className="shrink-0 rounded-lg bg-muted px-2 py-1 font-mono text-xs text-foreground ring-1 ring-border">
-            {entry.date}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-start gap-2">
-              <span className="font-semibold text-foreground">{entry.title}</span>
+    <div className={`rounded-xl border p-4 transition-all sm:p-5 ${cardClass}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <label
+            className="flex min-h-11 shrink-0 cursor-pointer items-start pt-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelected}
+              className="size-4 cursor-pointer rounded border-input accent-[var(--primary)]"
+              aria-label={
+                entry.alreadySent
+                  ? 'Kijelölés ÚJRAKÜLDÉSRE (a címzettek ismét értesítést kapnak)'
+                  : 'Kijelölés a tömeges küldéshez'
+              }
+            />
+          </label>
+
+          {/* Cím + metaadatok + státusz — kattintva nyílik a részletes leírás */}
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              className="flex w-full items-start justify-between gap-2 text-left"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold leading-snug text-foreground">
+                  {entry.title}
+                </span>
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="font-mono">{entry.date}</span>
+                  {entry.version && (
+                    <Badge variant="outline" className="border-border">
+                      v{entry.version}
+                    </Badge>
+                  )}
+                  {entry.category && (
+                    <Badge className="border-border bg-muted text-muted-foreground">
+                      {RELEASE_CATEGORY_LABELS[entry.category]}
+                    </Badge>
+                  )}
+                  {entry.targetsHint && <span>{entry.targetsHint}</span>}
+                </span>
+              </span>
               <ChevronDown
                 className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${
                   expanded ? 'rotate-180' : ''
                 }`}
                 aria-hidden
               />
-            </span>
-            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              {entry.version && (
-                <Badge variant="outline" className="border-border">
-                  v{entry.version}
-                </Badge>
-              )}
-              {entry.category && (
-                <Badge className="border-border bg-muted text-muted-foreground">
-                  {RELEASE_CATEGORY_LABELS[entry.category]}
-                </Badge>
-              )}
-              {entry.targetsHint && <span>{entry.targetsHint}</span>}
-            </span>
-            <span className="mt-3 flex flex-wrap items-center gap-2">
+            </button>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <NotificationStatusBadge sent={entry.alreadySent} />
               <EmailStatusBadge
                 requested={!!status?.sendEmail}
@@ -536,49 +534,46 @@ function ChangelogEntryCard({
                 }
               />
               {status && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {formatBroadcastScope(status)} · {status.recipientCount} címzett ·{' '}
                   {formatDateTime(status.sentAt)}
                 </span>
               )}
-            </span>
-          </span>
-        </button>
+            </div>
 
-        <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+            {expanded && (
+              <div className="mt-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                  {entry.bodyMarkdown || 'Ehhez a bejegyzéshez nincs részletes leírás.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Műveletek — asztali nézetben jobbra, mobilon a tartalom alatt */}
+        <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 border-t border-border/60 pt-3 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
           {!entry.alreadySent ? (
-            <>
-              <Button
-                onClick={onSend}
-                disabled={isPending || sendDisabled}
-                className="gap-1.5"
-              >
-                <Send className="size-3.5" aria-hidden />
-                Kiküldés
-              </Button>
-              <span className="text-[10px] text-muted-foreground">
-                {scopeLabel}
-                {sendEmail ? ' + e-mail' : ''}
-              </span>
-            </>
+            <Button
+              onClick={onSend}
+              disabled={isPending || sendDisabled}
+              className="min-h-9 gap-1.5"
+              title={`Kiküldés: ${scopeHint}`}
+            >
+              <Send className="size-3.5" aria-hidden />
+              Kiküldés
+            </Button>
           ) : (
-            <>
-              <StatusBadge intent="success">Kiküldve</StatusBadge>
-              <Button
-                variant="outline"
-                onClick={onResend}
-                disabled={isPending || sendDisabled}
-                className="mt-1 gap-1.5"
-                title="Újra elküldjük a frissítést a kiválasztott címzetteknek — a korábbi címzettek ismét értesítést kapnak"
-              >
-                <RotateCcw className="size-3.5" aria-hidden />
-                Újraküldés
-              </Button>
-              <span className="text-[10px] text-muted-foreground">
-                {scopeLabel}
-                {sendEmail ? ' + e-mail' : ''}
-              </span>
-            </>
+            <Button
+              variant="outline"
+              onClick={onResend}
+              disabled={isPending || sendDisabled}
+              className="min-h-9 gap-1.5"
+              title={`Újraküldés: ${scopeHint} — a korábbi címzettek ismét értesítést kapnak`}
+            >
+              <RotateCcw className="size-3.5" aria-hidden />
+              Újraküldés
+            </Button>
           )}
           <Button
             variant="ghost"
@@ -593,15 +588,11 @@ function ChangelogEntryCard({
             <Eye className="size-3.5" aria-hidden />
             {entry.alreadySent ? 'Előnézet' : 'Így fog kinézni'}
           </Button>
+          <span className="w-full text-xs text-muted-foreground sm:w-auto sm:text-right">
+            Címzés: {scopeHint}
+          </span>
         </div>
       </div>
-      {expanded && (
-        <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
-          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-muted-foreground">
-            {entry.bodyMarkdown || 'Ehhez a bejegyzéshez nincs részletes leírás.'}
-          </pre>
-        </div>
-      )}
     </div>
   )
 }
@@ -650,21 +641,23 @@ function ArchivedEntriesGroup({
                   type="button"
                   onClick={() => onToggle(e.key)}
                   aria-expanded={expanded}
-                  className="flex min-h-11 w-full items-start gap-2 text-left"
+                  className="flex min-h-11 w-full items-start gap-2.5 text-left"
                 >
-                  <span className="shrink-0 rounded bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">
+                  <span className="shrink-0 pt-0.5 font-mono text-xs text-muted-foreground">
                     {e.date}
                   </span>
-                  <span className="flex-1 text-sm text-muted-foreground">{e.title}</span>
+                  <span className="flex-1 text-sm leading-snug text-muted-foreground">
+                    {e.title}
+                  </span>
                   <ChevronDown
                     className={`mt-0.5 size-3.5 shrink-0 text-muted-foreground/60 transition-transform ${expanded ? 'rotate-180' : ''}`}
                     aria-hidden
                   />
                 </button>
                 {expanded && (
-                  <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-border bg-card p-3 font-sans text-xs leading-relaxed text-muted-foreground">
+                  <p className="mt-2 max-w-prose whitespace-pre-wrap rounded-lg border border-border bg-card px-4 py-3 text-sm leading-relaxed text-muted-foreground">
                     {e.bodyMarkdown || 'Nincs részletes leírás.'}
-                  </pre>
+                  </p>
                 )}
               </div>
             )

@@ -41,7 +41,7 @@
   --accent2: #9bbf6e;
   --destructive: #c44a3a;
   --border: rgba(28, 42, 38, 0.08);
-  --input: #ffffff;
+  --input: rgba(28, 42, 38, 0.26); /* 2026-07-11: látható mező-keret (volt: #ffffff — beleolvadt) */
   --ring: #264e4a;
   --sidebar: #143030;
   --sidebar-foreground: rgba(228, 232, 222, 0.85);
@@ -91,7 +91,7 @@
   --accent2: #b6cf8c;
   --destructive: #d96a5a;
   --border: rgba(232, 225, 210, 0.08);
-  --input: rgba(232, 225, 210, 0.05);
+  --input: rgba(232, 225, 210, 0.22); /* 2026-07-11: látható mező-keret (volt: 5%) */
   --ring: #9bbf6e;
   --sidebar: #0e1f1f;
   --sidebar-foreground: rgba(228, 232, 222, 0.85);
@@ -130,7 +130,7 @@
   --accent2: #a4c98a;
   --destructive: #a3551c;
   --border: rgba(31, 58, 58, 0.08);
-  --input: rgba(31, 58, 58, 0.05);
+  --input: rgba(31, 58, 58, 0.26); /* 2026-07-11: látható mező-keret (volt: 5% — beleolvadt) */
   --ring: #1f3a3a;
   --sidebar: #1f3a3a;
   --sidebar-foreground: rgba(247, 243, 234, 0.85);
@@ -182,7 +182,7 @@
   --accent2: #c0dfa6;
   --destructive: #d97a4f;
   --border: rgba(232, 225, 210, 0.08);
-  --input: rgba(232, 225, 210, 0.05);
+  --input: rgba(232, 225, 210, 0.22); /* 2026-07-11: látható mező-keret (volt: 5%) */
   --ring: #a4c98a;
   --sidebar: #131e1d;
   --sidebar-foreground: rgba(247, 243, 234, 0.85);
@@ -220,7 +220,7 @@
   --accent2: #c97a3f;
   --destructive: #a3551c;
   --border: rgba(42, 34, 24, 0.1);
-  --input: rgba(255, 255, 255, 0.5);
+  --input: rgba(42, 34, 24, 0.28); /* 2026-07-11: látható mező-keret (volt: fehér 50% — beleolvadt) */
   --ring: #2c4a3e;
   --sidebar: #2a2218;
   --sidebar-foreground: rgba(246, 239, 225, 0.85);
@@ -270,7 +270,7 @@
   --accent2: #e09661;
   --destructive: #d97a4f;
   --border: rgba(232, 225, 210, 0.1);
-  --input: rgba(232, 225, 210, 0.05);
+  --input: rgba(232, 225, 210, 0.22); /* 2026-07-11: látható mező-keret (volt: 5%) */
   --ring: #c97a3f;
   --sidebar: #15110d;
   --sidebar-foreground: rgba(246, 239, 225, 0.85);

@@ -1,88 +1,107 @@
 'use client'
 
 /**
- * Áttekintő lap — röviden elmagyarázza, mire való minden menüpont, és
- * gyors-belépőket ad. (Kiemelve a broadcasts-tab.tsx-ből, 2026-07-11.)
+ * Gyors-áttekintő sáv a Frissítések oldal tetején
+ * (2026-07-11 olvashatósági redesign).
+ *
+ * A korábbi teljes képernyős „Áttekintés" lépcső (3 nagy kártya, amelyekre
+ * még rá kellett kattintani) helyett egy kompakt sáv: egy pillantásra
+ * látszik, van-e teendő (kiküldetlen fejlesztés), és egy koppintással a
+ * megfelelő szekcióhoz görget.
  */
 
-import { ChevronRight, Clock, Send, Sparkles, type LucideIcon } from 'lucide-react'
+import { ArrowRight, Clock, Send, Sparkles, type LucideIcon } from 'lucide-react'
 
-export type BroadcastSectionId = 'overview' | 'changelog' | 'compose' | 'archive'
+export type BroadcastSectionId = 'changelog' | 'compose' | 'archive'
 
-export function BroadcastsOverview({
-  entriesCount,
+export function BroadcastsSummaryNav({
   unsentCount,
   broadcastsCount,
   onGo,
 }: {
-  entriesCount: number
   unsentCount: number
   broadcastsCount: number
   onGo: (s: BroadcastSectionId) => void
 }) {
-  const cards: Array<{
+  const items: Array<{
     id: BroadcastSectionId
     icon: LucideIcon
-    title: string
-    body: string
-    cta: string
-    stat?: string
+    label: string
+    value: string
+    highlight?: boolean
   }> = [
     {
       id: 'changelog',
       icon: Sparkles,
-      title: 'Fejlesztések kiküldése',
-      body: 'Az új fejlesztéseket egy kattintással elküldheted a felhasználóknak értesítésként, vagy szép hírlevélbe csomagolva (amit előbb magadnak is letesztelhetsz).',
-      cta: 'Fejlesztések megnyitása',
-      stat: unsentCount > 0 ? `${unsentCount} kiküldésre vár` : `${entriesCount} bejegyzés`,
+      label: 'Következő teendő',
+      value:
+        unsentCount > 0
+          ? `${unsentCount} fejlesztés kiküldésre vár`
+          : 'Minden fejlesztés kiküldve',
+      highlight: unsentCount > 0,
     },
     {
       id: 'compose',
       icon: Send,
-      title: 'Új üzenet írása',
-      body: 'Saját, egyedi üzenetet állíthatsz össze (cím + szöveg), kiválaszthatod a címzetteket, és kiküldheted értesítésként vagy e-mailben is.',
-      cta: 'Üzenet írása',
+      label: 'Saját üzenet',
+      value: 'Új üzenet írása',
     },
     {
       id: 'archive',
       icon: Clock,
-      title: 'Elküldött üzenetek',
-      body: 'Itt visszanézheted, mikor, kinek és milyen üzenetet küldtél ki, és hogy az e-mail kézbesítése sikeres volt-e.',
-      cta: 'Elküldött üzenetek megnyitása',
-      stat: `${broadcastsCount} elküldve`,
+      label: 'Előzmények',
+      value: `${broadcastsCount} elküldött üzenet`,
     },
   ]
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {cards.map((c) => {
-        const Icon = c.icon
+    <nav aria-label="Frissítések gyorsnavigáció" className="grid gap-2.5 sm:grid-cols-3">
+      {items.map((item) => {
+        const Icon = item.icon
         return (
           // Teljes-kártya gomb (engedélyezett kivétel a nyers <button> alól)
           <button
-            key={c.id}
+            key={item.id}
             type="button"
-            onClick={() => onGo(c.id)}
-            className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={() => onGo(item.id)}
+            className={`group flex min-h-14 items-center gap-3 rounded-2xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:p-3.5 ${
+              item.highlight
+                ? 'border-amber-300 bg-amber-50/70 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-950/30 dark:hover:border-amber-700'
+                : 'border-border bg-card hover:border-primary/30 hover:shadow-sm'
+            }`}
           >
             <span
-              className="flex size-11 items-center justify-center rounded-xl text-[var(--primary-foreground)] shadow-sm"
-              style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+              className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
+                item.highlight
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
+                  : 'bg-primary/10 text-primary'
+              }`}
             >
               <Icon className="size-5" aria-hidden />
             </span>
-            <div className="flex-1">
-              <h3 className="font-heading text-base text-foreground">{c.title}</h3>
-              {c.stat && <p className="mt-0.5 text-xs font-medium text-primary">{c.stat}</p>}
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
-            </div>
-            <span className="inline-flex items-center gap-1 text-sm font-medium text-primary transition-all group-hover:gap-1.5">
-              {c.cta}
-              <ChevronRight className="size-4" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {item.label}
+              </span>
+              <span
+                className={`block text-sm font-medium leading-snug ${
+                  item.highlight ? 'text-amber-800 dark:text-amber-300' : 'text-foreground'
+                }`}
+              >
+                {item.value}
+              </span>
             </span>
+            <ArrowRight
+              className={`size-4 shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                item.highlight
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-muted-foreground/50'
+              }`}
+              aria-hidden
+            />
           </button>
         )
       })}
-    </div>
+    </nav>
   )
 }
