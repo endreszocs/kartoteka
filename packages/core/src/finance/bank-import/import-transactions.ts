@@ -410,29 +410,41 @@ export async function importBankTransactionsUseCase(
     }
   }
 
-  function computeOsszegRon(item: BankImportItem): { osszegRon: number; arfolyam: number } {
+  // 2026-07-11 (S8): a `unconverted` jelző — ha egy DEVIZÁS számla tételéhez
+  // SEMMILYEN árfolyam nem áll rendelkezésre (sem napi BNR/ECB, sem éves nyitó),
+  // a rendszer NEM tárolja csendben 1:1-ben RON-ként (ez elrontaná a könyvelést)
+  // — a sort HIBÁVAL kihagyjuk, és a felhasználó megkapja az okot.
+  function computeOsszegRon(item: BankImportItem): {
+    osszegRon: number
+    arfolyam: number
+    unconverted?: boolean
+    valuta?: string
+  } {
     const valuta = bankValutaMap.get(item.bankszamlaId) || 'RON'
-    // 2026-07-10 (ÚJ #10): deviza-számlánál ELSŐDLEGESEN az adott NAPI
-    // árfolyam (a hívó által feltöltött dailyRates map-ből, kulcs: dátum).
-    if (valuta !== 'RON') {
-      const napiArf = input.dailyRates?.[item.date]
-      if (napiArf != null && napiArf > 0) {
-        return {
-          osszegRon: Number((Math.abs(item.amount) * napiArf).toFixed(2)),
-          arfolyam: napiArf,
-        }
-      }
-    }
-    // Fallback: éves nyitó-árfolyam (változatlan viselkedés)
-    const year = new Date(item.date).getFullYear()
-    const arf = arfolyamMap.get(arfolyamKulcs(item.bankszamlaId, year))
-    if (valuta === 'RON' || !arf || arf <= 0) {
+    if (valuta === 'RON') {
+      // RON számla: az összeg már RON, árfolyam = 1.
       return { osszegRon: Math.abs(item.amount), arfolyam: 1 }
     }
-    return {
-      osszegRon: Number((Math.abs(item.amount) * arf).toFixed(2)),
-      arfolyam: arf,
+    // 2026-07-10 (ÚJ #10): deviza-számlánál ELSŐDLEGESEN az adott NAPI
+    // árfolyam (a hívó által feltöltött dailyRates map-ből, kulcs: dátum).
+    const napiArf = input.dailyRates?.[item.date]
+    if (napiArf != null && napiArf > 0) {
+      return {
+        osszegRon: Number((Math.abs(item.amount) * napiArf).toFixed(2)),
+        arfolyam: napiArf,
+      }
     }
+    // Fallback: éves nyitó-árfolyam.
+    const year = new Date(item.date).getFullYear()
+    const arf = arfolyamMap.get(arfolyamKulcs(item.bankszamlaId, year))
+    if (arf && arf > 0) {
+      return {
+        osszegRon: Number((Math.abs(item.amount) * arf).toFixed(2)),
+        arfolyam: arf,
+      }
+    }
+    // 2026-07-11 (S8): NINCS árfolyam — NEM tárolunk 1:1 RON-t némán.
+    return { osszegRon: Math.abs(item.amount), arfolyam: 0, unconverted: true, valuta }
   }
 
   for (const item of items) {
@@ -501,7 +513,15 @@ export async function importBankTransactionsUseCase(
           result.errors.push({ rowIndex: item.rowIndex, error: 'Hiányzó kategória (bevétel)' })
           continue
         }
-        const { osszegRon: incOsszegRon, arfolyam: incArfolyam } = computeOsszegRon(item)
+        const { osszegRon: incOsszegRon, arfolyam: incArfolyam, unconverted: incUnc, valuta: incVal } = computeOsszegRon(item)
+        // 2026-07-11 (S8): devizás számla árfolyam nélkül — NEM tárolunk 1:1 RON-t.
+        if (incUnc) {
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error: `Nincs ${incVal} → RON árfolyam a ${item.date} dátumra. Add meg a nyitó egyenleg árfolyamát a bankszámlához (vagy ellenőrizd a BNR-kapcsolatot), majd indítsd újra az importot.`,
+          })
+          continue
+        }
         // A `befizetes` táblán az `xkey`, `nyugta`, `csalad` ÉS `userid` oszlopok
         // NOT NULL — mindet meg kell adnunk, különben a beszúrás constraint-hibával
         // bukik. 2026-07-10 (S4 #8): a `csalad: false` hiányzott; 2026-07-11 (S6):
@@ -556,7 +576,15 @@ export async function importBankTransactionsUseCase(
           result.errors.push({ rowIndex: item.rowIndex, error: 'Hiányzó kategória (kiadás)' })
           continue
         }
-        const { osszegRon: expOsszegRon, arfolyam: expArfolyam } = computeOsszegRon(item)
+        const { osszegRon: expOsszegRon, arfolyam: expArfolyam, unconverted: expUnc, valuta: expVal } = computeOsszegRon(item)
+        // 2026-07-11 (S8): devizás számla árfolyam nélkül — NEM tárolunk 1:1 RON-t.
+        if (expUnc) {
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error: `Nincs ${expVal} → RON árfolyam a ${item.date} dátumra. Add meg a nyitó egyenleg árfolyamát a bankszámlához (vagy ellenőrizd a BNR-kapcsolatot), majd indítsd újra az importot.`,
+          })
+          continue
+        }
         const canonical: Record<string, unknown> = {
           osszeg: Math.abs(item.amount),
           osszeg_ron: expOsszegRon,

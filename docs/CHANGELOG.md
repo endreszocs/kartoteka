@@ -23,6 +23,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Devizás banki import: RON-átváltás és nyitó egyenleg garantálva
+<!-- key: 2026-07-11-devizas-import-ron -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.61 -->
+
+### 🐛 Javítások — devizás (EUR/HUF stb.) bankszámla importja
+
+- **⚠️ A devizás banki tételek mostantól MINDIG lejre (RON) váltódnak — a
+  bejegyzés dátuma szerinti árfolyammal.** Korábban előfordulhatott, hogy a
+  rendszer a deviza-összeget 1:1-ben, RON-ként tárolta (átváltás nélkül), ami
+  elrontotta a könyvelést. Mostantól: elsődlegesen a tranzakció napjára érvényes
+  hivatalos BNR/ECB árfolyam, ha az nem elérhető, a nyitó egyenleghez megadott
+  éves árfolyam. Ha egyik sincs, a rendszer NEM tárol hibás 1:1 értéket — a
+  tételt érthető hibaüzenettel kihagyja, és megmondja, mit kell pótolni.
+- **Az importvarázsló mostantól bekéri a kezdő (nyitó) egyenleget devizás
+  számlánál, ha még nincs hozzá árfolyam.** Eddig, ha a számlához létezett egy
+  nyitó rekord árfolyam nélkül, a varázsló átugrotta ezt a lépést — így nem volt
+  mihez viszonyítani az évi mozgást, és az átváltás is elmaradhatott. Az árfolyam
+  automatikusan betöltődik a BNR-ből (kézzel felülírható).
+
+### ℹ️ Miért fontos a nyitó egyenleg?
+
+A könyvelést lejben (RON) vezetjük. Az éves pénzügyi mozgás mindig a **kezdő
+egyenleghez** adódik hozzá (nyitó + bevételek − kiadások = záró). Ha a kezdő
+egyenleg hiányzik, a záró egyenleg pontatlan lesz — ezért a rendszer most
+gondoskodik róla, hogy devizás számlánál is meglegyen a nyitó és az árfolyam.
+
+---
+
 ## [2026-07-11] — Nyugtafigyelő: az előző évből áthozott hiányzók külön jelölve
 <!-- key: 2026-07-11-nyugtafigyelo-athozas-jelzes -->
 <!-- category: improvement -->
