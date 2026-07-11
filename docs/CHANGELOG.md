@@ -75,7 +75,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 <!-- key: 2026-07-11-penzugy-import-hotfix -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, penztaros -->
-<!-- version: web (következő kiadás) -->
+<!-- version: web v0.9.59 -->
 
 ### 🐛 Javítások
 
