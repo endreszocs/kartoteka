@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Monetár (címletszámláló) mentés-hiba javítva
+<!-- key: 2026-07-11-monetar-mentes-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.63 -->
+
+### 🐛 Javítás
+
+- **A Monetár (címletszámláló) mentése ismét működik.** Egyes rendszereken a
+  mentés hibával állt le, mert a háttérben a címlet-törzs (a lej-címletek
+  listája) nem volt feltöltve, és a rendszer emiatt nem tudta melyik címlethez
+  rögzíteni a darabszámot. Mostantól a rendszer a mentéskor (és a Monetár
+  megnyitásakor) **automatikusan pótolja a hiányzó címleteket**, és a korábban
+  megnyitott számláló is menthető marad újratöltés nélkül. Ha az önjavítás nem
+  fut le (a rendszergazda még nem telepítette a szükséges adatbázis-frissítést),
+  a hibaüzenet mostantól pontosan megmondja, mit kell tennie.
+
+---
+
 ## [2026-07-11] — Devizás számla: a teljes felület lejben (RON) számol és jelenít meg
 <!-- key: 2026-07-11-devizas-ron-megjelenites -->
 <!-- category: bugfix -->
