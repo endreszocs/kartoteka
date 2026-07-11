@@ -1362,8 +1362,14 @@ export interface WorklogLocalRow {
   megjegyzes: string | null
   mediapath: string | null
   kategoria: string | null
-  /** SQLite INTEGER (0/1). */
+  /** SQLite INTEGER (0/1). Legacy — az új `napszak` finomítja (du = napszak==='du'). */
   du: number
+  /** 2026-07-11 (F2/W5): napszak — 'de' | 'du' | 'este' | NULL (legacy sorok). */
+  napszak: string | null
+  /** Úrvacsorázók a templomban — csak szolgálat kategóriánál értelmezett. */
+  uv_templomban: number | null
+  /** Úrvacsorázók betegnél — csak szolgálat kategóriánál értelmezett. */
+  uv_betegnel: number | null
   /** SQLite INTEGER (0/1). Soft-delete flag — a UI-ban rejtjük. */
   deleted: number
   congregation_id: string | null
@@ -1391,6 +1397,12 @@ interface WorklogSupabaseRow {
   mediapath: string | null
   kategoria: string | null
   du: boolean | null
+  // 2026-07-11 (F2/W5): napszak + úrvacsorázók — a szerver-oldali migráció
+  // után léteznek; opcionálisak, hogy a régi payload-ok is feldolgozhatók
+  // legyenek (pl. korábban enqueue-olt outbox-sorok).
+  napszak?: string | null
+  uv_templomban?: number | null
+  uv_betegnel?: number | null
   deleted: boolean | null
   congregation_id: string | null
   revision?: number
@@ -1400,7 +1412,8 @@ interface WorklogSupabaseRow {
 const WORKLOG_SELECT_COLS =
   'id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek, ' +
   'jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen, ' +
-  'szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted, ' +
+  'szolgalt, persely, megjegyzes, mediapath, kategoria, du, napszak, ' +
+  'uv_templomban, uv_betegnel, deleted, ' +
   'congregation_id, revision, updated_at'
 
 const LAST_PULL_WORKLOG_KEY_PREFIX = 'sync:worklog:last_pull:'
@@ -1418,13 +1431,15 @@ async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
     `INSERT INTO munkanaplo_local
        (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
         jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-        szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
+        szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+        napszak, uv_templomban, uv_betegnel, deleted,
         congregation_id, revision, updated_at, synced_at)
      VALUES
        (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
         ?9, ?10, ?11, ?12,
-        ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-        ?20, ?21, ?22, datetime('now'))
+        ?13, ?14, ?15, ?16, ?17, ?18,
+        ?19, ?20, ?21, ?22,
+        ?23, ?24, ?25, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        idopont = excluded.idopont,
        jellege = excluded.jellege,
@@ -1443,6 +1458,9 @@ async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
        mediapath = excluded.mediapath,
        kategoria = excluded.kategoria,
        du = excluded.du,
+       napszak = excluded.napszak,
+       uv_templomban = excluded.uv_templomban,
+       uv_betegnel = excluded.uv_betegnel,
        deleted = excluded.deleted,
        congregation_id = excluded.congregation_id,
        revision = excluded.revision,
@@ -1467,6 +1485,9 @@ async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
       row.mediapath,
       row.kategoria,
       row.du ? 1 : 0,
+      row.napszak ?? null,
+      row.uv_templomban ?? null,
+      row.uv_betegnel ?? null,
       row.deleted ? 1 : 0,
       row.congregation_id,
       row.revision ?? 0,
@@ -1644,7 +1665,8 @@ export async function getLocalWorklogOfOwnCongregation(
   return dbSelect<WorklogLocalRow>(
     `SELECT id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
             jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-            szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
+            szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+            napszak, uv_templomban, uv_betegnel, deleted,
             congregation_id, revision, updated_at, synced_at
        FROM munkanaplo_local
       WHERE ${where}
@@ -1691,7 +1713,12 @@ export interface WorklogInput {
   jelenlet_gyermek?: number | null
   persely?: number | null
   megjegyzes?: string | null
+  /** Legacy délután-jelző — az adat-kontraktus szerint du = napszak==='du'. */
   du?: boolean
+  // 2026-07-11 (F2/W5): napszak + úrvacsorázók (közös adat-kontraktus a webbel)
+  napszak?: 'de' | 'du' | 'este' | null
+  uv_templomban?: number | null
+  uv_betegnel?: number | null
 }
 
 export interface WorklogCreateResult {
@@ -1761,7 +1788,12 @@ export async function createWorklogEntry(
     jelenlet_osszesen: jelenletOsszesen,
     persely: input.persely ?? null,
     megjegyzes: input.megjegyzes ?? null,
-    du: input.du ?? false,
+    // Adat-kontraktus (2026-07-11 F2): ha van napszak, a legacy `du` abból
+    // számítódik (du = napszak==='du') — a web saveWorklog-jával azonosan.
+    du: input.napszak != null ? input.napszak === 'du' : (input.du ?? false),
+    napszak: input.napszak ?? null,
+    uv_templomban: input.uv_templomban ?? null,
+    uv_betegnel: input.uv_betegnel ?? null,
     deleted: false,
     congregation_id: profile.congregation_id,
   }
@@ -1804,13 +1836,15 @@ export async function createWorklogEntry(
       `INSERT INTO munkanaplo_local
          (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
           jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-          szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
+          szolgalt, persely, megjegyzes, mediapath, kategoria, du,
+          napszak, uv_templomban, uv_betegnel, deleted,
           congregation_id, revision, updated_at, synced_at)
        VALUES
          (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7,
           ?8, ?9, ?10, ?11,
-          ?12, ?13, ?14, NULL, ?15, ?16, 0,
-          ?17, 0, NULL, datetime('now'))`,
+          ?12, ?13, ?14, NULL, ?15, ?16,
+          ?17, ?18, ?19, 0,
+          ?20, 0, NULL, datetime('now'))`,
       [
         tempId,
         input.idopont,
@@ -1827,7 +1861,11 @@ export async function createWorklogEntry(
         input.persely ?? null,
         input.megjegyzes ?? null,
         input.kategoria ?? 'szolgalat',
-        input.du ? 1 : 0,
+        // du a napszakkal szinkronban (a `record`-dal azonos szabály)
+        (input.napszak != null ? input.napszak === 'du' : (input.du ?? false)) ? 1 : 0,
+        input.napszak ?? null,
+        input.uv_templomban ?? null,
+        input.uv_betegnel ?? null,
         profile.congregation_id,
       ],
     )
@@ -1877,6 +1915,13 @@ export async function updateWorklogEntry(
   const effectivePatch: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(patch)) {
     if (value !== undefined) effectivePatch[key] = value
+  }
+
+  // Adat-kontraktus (2026-07-11 F2): ha a patch napszakot tartalmaz, a legacy
+  // `du` boolean szinkronban megy vele (du = napszak==='du') — akkor is, ha a
+  // hívó a du-t nem küldte külön.
+  if (patch.napszak !== undefined && patch.napszak !== null) {
+    effectivePatch.du = patch.napszak === 'du'
   }
 
   if (jelenletChanged) {

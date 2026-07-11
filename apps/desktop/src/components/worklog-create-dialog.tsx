@@ -12,7 +12,7 @@
  * Kategória (szolgalat / katekezis / latogatas) alapján dinamikus mezők.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -22,6 +22,11 @@ import {
   Input,
   Label,
 } from '@kartoteka/ui'
+// 2026-07-11 (F2/W5): élő visszajelzés a rögzítéskor — ének-cím az
+// énekeskönyvből, kanonikus igehely-alak a biblia-parserből. Desktopon a
+// statikus import rendben van (offline app, a bundle-méret nem kritikus).
+import { getEnek } from '@kartoteka/enekeskonyv'
+import { formatReference, parseMultiReference, validateReference } from '@kartoteka/biblia'
 
 import {
   createWorklogEntry,
@@ -34,7 +39,7 @@ import {
 // 2026-06-12 (Endre #5 munkanapló): a webes bővítés tükre — a kazuáliák
 // (Keresztelő, Esketés, Temetés, Konfirmáció) a szolgálati típusok közé
 // kerültek, a katekézis Vallásóra/Kátéóra-val, a látogatás Beteglátogatás-sal bővült.
-const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
+export const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
   szolgalat: [
     'Istentisztelet',
     'Igehirdetés',
@@ -71,7 +76,33 @@ const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> =
   ],
 }
 
-type WorklogCategory = keyof typeof WORKLOG_TYPES
+export type WorklogCategory = keyof typeof WORKLOG_TYPES
+
+// 2026-07-11 (F2/W5): napszak-opciók — a webes lib/constants/worklog.ts
+// NAPSZAK_OPTIONS tükre. Adat-kontraktus: du = napszak === 'du'.
+export const NAPSZAK_OPTIONS = [
+  { value: 'de', label: 'Délelőtt' },
+  { value: 'du', label: 'Délután' },
+  { value: 'este', label: 'Este' },
+] as const
+
+export type Napszak = (typeof NAPSZAK_OPTIONS)[number]['value']
+
+/** Rövid napszak-felirat a lista/táblázat-cellákhoz ('de.' / 'du.' / 'este'). */
+export const NAPSZAK_SHORT_LABELS: Record<Napszak, string> = {
+  de: 'de.',
+  du: 'du.',
+  este: 'este',
+}
+
+/**
+ * SQLite-sor → napszak: az új `napszak` oszlop az elsődleges, a legacy `du`
+ * (0/1) a fallback — a közös kontraktus szerint: napszak ?? (du ? 'du' : 'de').
+ */
+export function napszakFromRow(row: { napszak?: string | null; du?: number | null }): Napszak {
+  if (row.napszak === 'de' || row.napszak === 'du' || row.napszak === 'este') return row.napszak
+  return row.du === 1 ? 'du' : 'de'
+}
 
 /**
  * A webes `categorizeWorklogEntry` tükre (lib/constants/worklog.ts):
@@ -81,7 +112,7 @@ type WorklogCategory = keyof typeof WORKLOG_TYPES
  *     'szolgalat'-tal jött létre, a legacy soroknál nem megbízható);
  *  3. alapértelmezés: 'szolgalat'.
  */
-function categorizeWorklogEntry(e: { kategoria?: string | null; jellege?: string | null }): WorklogCategory {
+export function categorizeWorklogEntry(e: { kategoria?: string | null; jellege?: string | null }): WorklogCategory {
   if (e.kategoria === 'katekezis' || e.kategoria === 'latogatas') return e.kategoria
   for (const cat of Object.keys(WORKLOG_TYPES) as WorklogCategory[]) {
     if (e.jellege && WORKLOG_TYPES[cat].includes(e.jellege)) return cat
@@ -127,7 +158,14 @@ export function WorklogCreateDialog({
   const [no, setNo] = useState<number>(0)
   const [gyermek, setGyermek] = useState<number>(0)
   const [persely, setPersely] = useState<number>(0)
-  const [du, setDu] = useState(false)
+  // 2026-07-11 (F2/W5): a korábbi "Délutáni alkalom" checkbox (legacy `du`)
+  // helyett napszak-választó (de/du/este) — a mentés a `du`-t szinkronban
+  // tartja (du = napszak === 'du'). A webes WorklogDialog tükre.
+  const [napszak, setNapszak] = useState<Napszak>('de')
+  // Úrvacsorázók — templomban / betegnél. String state: '' = nincs adat
+  // (null-t tárolunk), a beírt 0 viszont értelmes érték marad.
+  const [uvTemplomban, setUvTemplomban] = useState('')
+  const [uvBetegnel, setUvBetegnel] = useState('')
   const [megjegyzes, setMegjegyzes] = useState('')
 
   const [loading, setLoading] = useState(false)
@@ -152,7 +190,11 @@ export function WorklogCreateDialog({
       setNo(editEntry.jelenlet_no ?? 0)
       setGyermek(editEntry.jelenlet_gyermek ?? 0)
       setPersely(editEntry.persely ?? 0)
-      setDu(editEntry.du === 1)
+      // Napszak: az új oszlop az elsődleges, a legacy `du` a fallback
+      // (kontraktus: napszak ?? (du ? 'du' : 'de')).
+      setNapszak(napszakFromRow(editEntry))
+      setUvTemplomban(editEntry.uv_templomban != null ? String(editEntry.uv_templomban) : '')
+      setUvBetegnel(editEntry.uv_betegnel != null ? String(editEntry.uv_betegnel) : '')
       setMegjegyzes(editEntry.megjegyzes ?? '')
     } else {
       // Create mód — default értékek
@@ -168,11 +210,52 @@ export function WorklogCreateDialog({
       setNo(0)
       setGyermek(0)
       setPersely(0)
-      setDu(false)
+      setNapszak('de')
+      setUvTemplomban('')
+      setUvBetegnel('')
       setMegjegyzes('')
     }
     setError(null)
   }, [open, editEntry])
+
+  // 2026-07-11 (F2/W5): élő ének-cím visszajelzés — az "Énekek" mező vesszővel /
+  // pontosvesszővel tagolt számait az énekeskönyvben oldjuk fel (pl. '458, 372'
+  // vagy '400b'). A zsoltároknál (nincs cím) az első sor a gyakorlati cím.
+  const enekTalalatok = useMemo(() => {
+    const raw = enekek.trim()
+    if (!raw) return []
+    return raw
+      .split(/[,;]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .map((token) => {
+        const enek = getEnek(token)
+        return { token, cim: enek ? (enek.cim ?? enek.elsoSor) : null }
+      })
+  }, [enekek])
+
+  // 2026-07-11 (F2/W5): kanonikus igehely-alak az alapige mező alatt — a
+  // @kartoteka/biblia parser + formatter (pl. 'jn 3:16' → 'Jn 3,16'). Több
+  // hivatkozás ';'-vel tagolható. Hibás alaknál magyar hibaüzenet.
+  const alapigeInfo = useMemo(() => {
+    const raw = alapige.trim()
+    if (!raw) return null
+    const results = parseMultiReference(raw)
+    if (results.length === 0) return null
+    const kanonikus: string[] = []
+    const problemak: string[] = []
+    for (const res of results) {
+      if (!res.ok) {
+        problemak.push(res.error.message)
+        continue
+      }
+      const validation = validateReference(res.segments)
+      if (!validation.valid) problemak.push(...validation.problemak)
+      kanonikus.push(formatReference(res.segments))
+    }
+    return { kanonikus: kanonikus.join('; '), problemak }
+  }, [alapige])
 
   async function handleSubmit() {
     if (!idopont || !jellege) {
@@ -199,7 +282,12 @@ export function WorklogCreateDialog({
         jelenlet_gyermek: gyermek || null,
         persely: persely || null,
         megjegyzes: megjegyzes || null,
-        du,
+        // Napszak + legacy `du` szinkronban (adat-kontraktus: du = napszak==='du')
+        napszak,
+        du: napszak === 'du',
+        // Úrvacsorázók: üres mező → null (a beírt 0 értelmes adat, azt tároljuk)
+        uv_templomban: uvTemplomban === '' ? null : Number(uvTemplomban),
+        uv_betegnel: uvBetegnel === '' ? null : Number(uvBetegnel),
       }
 
       if (editEntry) {
@@ -260,8 +348,22 @@ export function WorklogCreateDialog({
               <select
                 value={category}
                 onChange={(e) => {
-                  setCategory(e.target.value as WorklogCategory)
+                  const next = e.target.value as WorklogCategory
+                  setCategory(next)
                   setJellege('')
+                  // 2026-07-11 (web-tükör): váltáskor az ÚJ kategóriában nem
+                  // látható mezők ürülnek — különben a rejtett értékek
+                  // átszivárognának a mentésbe. A szolgalt mindhárom űrlapon
+                  // látható, ezért marad.
+                  if (next !== 'szolgalat') {
+                    setAlapige('')
+                    setBibliaolvasas('')
+                    setEnekek('')
+                    setNapszak('de')
+                    setUvTemplomban('')
+                    setUvBetegnel('')
+                  }
+                  if (next === 'latogatas') setPersely(0)
                 }}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
@@ -376,6 +478,14 @@ export function WorklogCreateDialog({
                     onChange={(e) => setAlapige(e.currentTarget.value)}
                     placeholder="Pl. Jn 3,16"
                   />
+                  {/* Kanonikus igehely-alak / hibaüzenet a biblia-parserből */}
+                  {alapigeInfo && (
+                    alapigeInfo.problemak.length > 0 ? (
+                      <p className="text-xs text-destructive">{alapigeInfo.problemak[0]}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">✓ {alapigeInfo.kanonikus}</p>
+                    )
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -396,6 +506,21 @@ export function WorklogCreateDialog({
                     onChange={(e) => setEnekek(e.currentTarget.value)}
                     placeholder="Pl. 458, 372"
                   />
+                  {/* Ének-cím visszajelzés az énekeskönyvből (szám → cím) */}
+                  {enekTalalatok.length > 0 && (
+                    <ul className="space-y-0.5 text-xs">
+                      {enekTalalatok.map((t, i) => (
+                        <li
+                          key={`${t.token}-${i}`}
+                          className={t.cim ? 'text-muted-foreground' : 'text-destructive'}
+                        >
+                          {t.cim
+                            ? `${t.token} — ${t.cim}`
+                            : `${t.token} — nincs ilyen ének az énekeskönyvben`}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -407,15 +532,49 @@ export function WorklogCreateDialog({
                     onChange={(e) => setSzolgalt(e.currentTarget.value)}
                   />
                 </div>
-                <label className="mt-6 flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={du}
-                    onChange={(e) => setDu(e.currentTarget.checked)}
-                    className="size-4"
+                {/* 2026-07-11 (F2/W5): a "Délutáni alkalom" checkbox helyett
+                    napszak-választó — a webes WorklogDialog tükre. */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="wl-napszak">Napszak</Label>
+                  <select
+                    id="wl-napszak"
+                    value={napszak}
+                    onChange={(e) => setNapszak(e.currentTarget.value as Napszak)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {NAPSZAK_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {/* Úrvacsorázók — templomban / betegnél (csak szolgálatnál) */}
+              <div className="space-y-1.5">
+                <Label>Úrvacsorázók — templomban / betegnél</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    id="wl-uv-templomban"
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    placeholder="Templomban"
+                    aria-label="Úrvacsorázók templomban"
+                    value={uvTemplomban}
+                    onChange={(e) => setUvTemplomban(e.currentTarget.value)}
                   />
-                  <span className="text-foreground">Délutáni alkalom</span>
-                </label>
+                  <Input
+                    id="wl-uv-betegnel"
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    placeholder="Betegnél"
+                    aria-label="Úrvacsorázók betegnél"
+                    value={uvBetegnel}
+                    onChange={(e) => setUvBetegnel(e.currentTarget.value)}
+                  />
+                </div>
               </div>
             </>
           )}

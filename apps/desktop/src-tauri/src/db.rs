@@ -2048,8 +2048,32 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("v31 migráció (szemely avatar) sikertelen: {e}"))?;
     }
 
+    // v32 (2026-07-11, F2/W5 — munkanapló napszak + úrvacsorázók): a Supabase
+    // `munkanaplo` tábla új oszlopainak lokális tükre (a szerver-oldali
+    // 2026-07-11-es munkanapló-migráció párja).
+    //   - napszak TEXT — 'de' / 'du' / 'este' (a legacy `du` 0/1 finomítása;
+    //     adat-kontraktus: du = napszak == 'du', a TS-oldali mentés tartja
+    //     szinkronban)
+    //   - uv_templomban INTEGER — úrvacsorázók a templomban (NULL = nincs adat)
+    //   - uv_betegnel INTEGER — úrvacsorázók betegnél (NULL = nincs adat)
+    // Idempotencia: a `PRAGMA user_version` kapuzás garantálja, hogy az
+    // ALTER TABLE-ök csak egyszer futnak (a v7/v31 ALTER-minta betűre követve).
+    if current < 32 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE munkanaplo_local ADD COLUMN napszak TEXT;
+            ALTER TABLE munkanaplo_local ADD COLUMN uv_templomban INTEGER;
+            ALTER TABLE munkanaplo_local ADD COLUMN uv_betegnel INTEGER;
+            PRAGMA user_version = 32;
+            COMMIT;
+            "#,
+        )
+        .map_err(|e| format!("v32 migráció (munkanaplo napszak/úrvacsorázók) sikertelen: {e}"))?;
+    }
+
     // Jövőbeli migrációk ide:
-    // if current < 32 { ... PRAGMA user_version = 32; }
+    // if current < 33 { ... PRAGMA user_version = 33; }
 
     Ok(())
 }
