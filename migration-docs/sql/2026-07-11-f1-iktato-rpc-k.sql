@@ -94,14 +94,17 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  -- Auth check a next_iktato_sequence mintájára: saját gyülekezet VAGY
-  -- master admin.
+  -- Auth check: a feloldás jogosultsága a LEZÁRÁSÉT tükrözi (az
+  -- iktato_yearly_closures INSERT-policy-ja role IN ('admin','lelkesz')
+  -- megkötésű, 2026-05-29) — puszta gyülekezeti tagság (pl. könyvelő)
+  -- NEM elég a hivatalos pecsét feltöréséhez. Master admin kivétel.
   IF NOT public.is_master_admin() AND NOT EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
       AND p.congregation_id = p_congregation_id
+      AND p.role IN ('admin', 'lelkesz')
   ) THEN
-    RAISE EXCEPTION 'Nincs jogosultság ehhez a gyülekezethez (% / %)',
+    RAISE EXCEPTION 'Nincs jogosultság a lezárás feloldásához (% / %)',
       auth.uid(), p_congregation_id
       USING ERRCODE = '42501'; -- insufficient_privilege
   END IF;
@@ -118,7 +121,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.reopen_iktato_year(uuid, integer) IS
-  '2026-07-11 F1: évvégi iktató-lezárás feloldása (iktato_yearly_closures sor törlése). Saját gyülekezet vagy master admin. true = törölt, false = nem volt lezárva.';
+  '2026-07-11 F1: évvégi iktató-lezárás feloldása (iktato_yearly_closures sor törlése). Saját gyülekezet admin/lelkesz szerepe vagy master admin (a lezárás-policy tükre). true = törölt, false = nem volt lezárva.';
 
 GRANT EXECUTE ON FUNCTION public.reopen_iktato_year(uuid, integer) TO authenticated;
 

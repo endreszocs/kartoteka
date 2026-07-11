@@ -272,17 +272,21 @@ export async function executeBatchImport(
           const y = Number(rec['year'])
           if (Number.isFinite(y) && y >= 1800 && y <= 2200) affectedYears.add(y)
         }
-        for (const y of affectedYears) {
-          const { error: syncError } = await supabase.rpc('sync_iktato_sequence_pointer', {
-            p_congregation_id: access.effectiveCongregationId,
-            p_year: y,
-          })
-          if (syncError) {
-            console.warn(
-              `[executeBatchImport] Iktató sorszám-pointer szinkron sikertelen (${y}. év): ${syncError.message}`,
-            )
-          }
-        }
+        // Az évek függetlenek — párhuzamosan szinkronizálhatók (sok-éves
+        // archívum-importnál a soros változat éveként egy kört várna).
+        await Promise.allSettled(
+          [...affectedYears].map(async (y) => {
+            const { error: syncError } = await supabase.rpc('sync_iktato_sequence_pointer', {
+              p_congregation_id: access.effectiveCongregationId,
+              p_year: y,
+            })
+            if (syncError) {
+              console.warn(
+                `[executeBatchImport] Iktató sorszám-pointer szinkron sikertelen (${y}. év): ${syncError.message}`,
+              )
+            }
+          }),
+        )
       }
     }
 

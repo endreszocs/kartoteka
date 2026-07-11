@@ -235,7 +235,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   async function handleReopenYear() {
     if (!yearClosure) return
     const ok = window.confirm(
-      `Biztosan feloldod a ${year}-es iktatókönyv lezárását?\n\nA feloldás után újra lehet bejegyzést felvenni és a meglévőket szerkeszteni. A művelet csak admin/master jogosultsággal hajtható végre.`,
+      `Biztosan feloldod a ${year}-es iktatókönyv lezárását?\n\nA feloldás után újra lehet bejegyzést felvenni és a meglévőket szerkeszteni. A művelet lelkészi vagy admin jogosultsághoz kötött.`,
     )
     if (!ok) return
     setReopening(true)
@@ -350,7 +350,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                 </>
               )}
               <div className="text-xs mt-0.5 text-amber-800">
-                Új bejegyzés vagy módosítás nem lehetséges. A lezárás feloldása csak admin/master jogosultsággal.
+                Új bejegyzés vagy módosítás nem lehetséges. A lezárás feloldása lelkészi vagy admin jogosultsághoz kötött.
               </div>
             </div>
           </div>
@@ -574,7 +574,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-1.5">
                 <Lock className="size-3.5 mt-0.5 shrink-0" />
                 <span>
-                  Ez az év (<strong>{year}</strong>) lezárva — a mentés nem fog sikerülni. Csak admin/master jogosultsággal oldható fel.
+                  Ez az év (<strong>{year}</strong>) lezárva — a mentés nem fog sikerülni. A lezárás lelkészi vagy admin jogosultsággal oldható fel.
                 </span>
               </div>
             )}

@@ -1714,6 +1714,14 @@ export interface WorklogCreateResult {
  * A web `saveWorklog` action-jét tükrözi — `deleted: false` + `congregation_id`
  * automatikusan. A `jelenlet_osszesen` NOT NULL kényszer miatt mindig számított.
  */
+// Szigorúan csökkenő temp id: a puszta -Date.now() két azonos ezredmásodperces
+// létrehozásnál PK-ütközne a tükörben (a hibát a lenyelő catch elrejtené).
+let lastWorklogTempId = 0
+function nextWorklogTempId(): number {
+  lastWorklogTempId = Math.min(-Date.now(), lastWorklogTempId - 1)
+  return lastWorklogTempId
+}
+
 export async function createWorklogEntry(
   userId: string,
   input: WorklogInput,
@@ -1790,7 +1798,7 @@ export async function createWorklogEntry(
   // Ideiglenes NEGATÍV id: a szerver-id még nem ismert, de a lista így is
   // azonnal mutatja a bejegyzést. A temp id az outbox `target_id`-jába kerül,
   // hogy a `processOutbox` a sikeres insert után célzottan törölhesse.
-  const tempId = -Date.now()
+  const tempId = nextWorklogTempId()
   try {
     await dbExecute(
       `INSERT INTO munkanaplo_local
