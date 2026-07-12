@@ -23,6 +23,28 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-12] — A Missziós Műhely teljesen megújult
+<!-- key: 2026-07-12-misszios-muhely-ujratervezes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, admin -->
+<!-- version: web v0.9.64 -->
+
+### ✨ Önálló, játékos alkotótér
+
+- **Új, otthonos és mobil-first felület:** a Missziós Műhely most önálló
+  weboldalélményt, kényelmes mobilnavigációt, finom animációkat és 320 px-től
+  használható elrendezést kapott.
+- **Ötletből közös szolgálat:** az ötletgazda 14 napos szavazást indíthat; öt
+  egyedi támogatónál az ötlet automatikusan közös projektté válik, feladatokkal,
+  mérföldkövekkel és segédanyagokkal.
+- **Játékos jutalmazás:** animált jelvények, pontok, szintek és ünnepi
+  visszajelzések teszik láthatóvá a közösségi hozzájárulást.
+- **Biztonságos munkafolyamat:** a pontozás és a státuszváltás adatbázis-szinten
+  atomikus, a lezárt projekt pedig csak teljes feladatlista után jelölhető
+  megvalósultnak.
+
+---
+
 ## [2026-07-11] — Monetár (címletszámláló) mentés-hiba javítva
 <!-- key: 2026-07-11-monetar-mentes-fix -->
 <!-- category: bugfix -->
