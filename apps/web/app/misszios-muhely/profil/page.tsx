@@ -12,8 +12,10 @@ import {
   Sprout,
 } from 'lucide-react'
 
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { MissionBadge } from '@/components/muhely/rewards/mission-badge'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getProfileAvatarUrl } from '@/lib/auth/profile-avatar'
 import { getMissionProgress } from '@/lib/missions/gamification'
 import { getMissionBadge, isMissionBadgeCode } from '@/lib/missions/badges'
 
@@ -54,7 +56,7 @@ export default async function ProfilPage() {
   const { user } = await getEffectiveAccessContext()
   if (!user) redirect('/login')
 
-  const data = await loadProfilePage()
+  const [data, avatarUrl] = await Promise.all([loadProfilePage(), getProfileAvatarUrl()])
   if ('error' in data) redirect('/login')
 
   const points = data.myStats.osszpontszam || 0
@@ -80,7 +82,12 @@ export default async function ProfilPage() {
         <div className={styles.botanicalCorner} aria-hidden="true" />
         <div className={styles.identity}>
           <div className={styles.avatar} aria-hidden="true">
-            <span>{initials(data.viewer.fullName)}</span>
+            <Avatar className={styles.avatarImage}>
+              {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
+              <AvatarFallback className={styles.avatarFallback}>
+                {initials(data.viewer.fullName)}
+              </AvatarFallback>
+            </Avatar>
           </div>
           <div>
             <span className={styles.eyebrow}><Sprout aria-hidden="true" /> Saját műhelynaplóm</span>

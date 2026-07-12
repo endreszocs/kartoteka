@@ -1,9 +1,11 @@
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import type { MissionLevel } from '@/lib/missions/gamification'
 
 interface MuhelyUserBadgeProps {
   fullName: string
+  avatarUrl: string | null
   level: MissionLevel
   points: number
   percent: number
@@ -21,7 +23,13 @@ function getInitials(fullName: string) {
     .toLocaleUpperCase('hu-HU')
 }
 
-export function MuhelyUserBadge({ fullName, level, points, percent }: MuhelyUserBadgeProps) {
+export function MuhelyUserBadge({
+  fullName,
+  avatarUrl,
+  level,
+  points,
+  percent,
+}: MuhelyUserBadgeProps) {
   const safePercent = Math.max(0, Math.min(100, percent))
 
   return (
@@ -30,9 +38,12 @@ export function MuhelyUserBadge({ fullName, level, points, percent }: MuhelyUser
       className="muhely-user-badge"
       aria-label={`${fullName} profilja. ${level.name}, ${points} pont.`}
     >
-      <span className="muhely-user-avatar" aria-hidden="true">
-        {getInitials(fullName)}
-      </span>
+      <Avatar className="muhely-user-avatar" aria-hidden="true">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
+        <AvatarFallback className="muhely-user-avatar-fallback">
+          {getInitials(fullName)}
+        </AvatarFallback>
+      </Avatar>
 
       <span className="muhely-user-copy">
         <span className="muhely-user-name">{fullName}</span>

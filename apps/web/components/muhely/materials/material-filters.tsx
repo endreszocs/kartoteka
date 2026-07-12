@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, SlidersHorizontal } from 'lucide-react'
+import { BookOpen, Plus, SlidersHorizontal, UserRound } from 'lucide-react'
 import { MuhelySearchBar } from '../shared/muhely-search-bar'
 import { MuhelyCategoryPills } from '../shared/muhely-category-pills'
 
@@ -17,6 +17,10 @@ interface MaterialFiltersProps {
   selectedCategoryId: number | null
   onCategoryChange: (id: number | null) => void
   onUploadClick: () => void
+  view: 'kozos' | 'sajat'
+  onViewChange: (view: 'kozos' | 'sajat') => void
+  sharedCount: number
+  ownCount: number
 }
 
 export function MaterialFilters({
@@ -26,10 +30,53 @@ export function MaterialFilters({
   selectedCategoryId,
   onCategoryChange,
   onUploadClick,
+  view,
+  onViewChange,
+  sharedCount,
+  ownCount,
 }: MaterialFiltersProps) {
   return (
     <div className="relative space-y-4 overflow-hidden rounded-[1.6rem_1.1rem_1.8rem_1.3rem] border border-[#ddcfbb] bg-[#fffdf7]/95 p-4 shadow-[0_14px_34px_-26px_rgba(55,45,31,0.7)] sm:p-5">
       <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[#d3a45e]/10 blur-2xl" aria-hidden="true" />
+      <div
+        className="relative grid grid-cols-2 gap-1 rounded-2xl border border-[#ded1be] bg-[#f4ebdd]/75 p-1"
+        role="group"
+        aria-label="Műhelypolc nézete"
+      >
+        <button
+          type="button"
+          aria-pressed={view === 'kozos'}
+          onClick={() => onViewChange('kozos')}
+          className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e]/70 sm:text-sm ${
+            view === 'kozos'
+              ? 'bg-white text-[#314b3b] shadow-sm'
+              : 'text-[#73786f] hover:bg-white/55 hover:text-[#405444]'
+          }`}
+        >
+          <BookOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">Közös polc</span>
+          <span className="shrink-0 rounded-full bg-[#e8ede2] px-2 py-0.5 text-[10px] tabular-nums text-[#647a52]">
+            {sharedCount}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === 'sajat'}
+          onClick={() => onViewChange('sajat')}
+          className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e]/70 sm:text-sm ${
+            view === 'sajat'
+              ? 'bg-white text-[#314b3b] shadow-sm'
+              : 'text-[#73786f] hover:bg-white/55 hover:text-[#405444]'
+          }`}
+        >
+          <UserRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">Saját polcom</span>
+          <span className="shrink-0 rounded-full bg-[#f2e5d3] px-2 py-0.5 text-[10px] tabular-nums text-[#9a684c]">
+            {ownCount}
+          </span>
+        </button>
+      </div>
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex-1">
           <MuhelySearchBar

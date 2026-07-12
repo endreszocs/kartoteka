@@ -18,7 +18,7 @@ export default async function ForumPage() {
         eyebrow="Ötletasztal"
         title="Tedd le az asztalra, ami benned formálódik."
         description="Itt egy félmondatból közös terv, egy kérdésből pedig új út születhet. Hozd az ötletedet, hallgasd meg a többieket, és találjatok egymásra a szolgálatban."
-        imageSrc="/misszios-muhely/24-craft.png"
+        imageSrc="/misszios-muhely/idea-table-illustration-v2.png"
       >
         <div className="flex flex-wrap gap-2.5 text-xs text-[#5f655d]">
           <span className="inline-flex items-center gap-2 rounded-full border border-[#ded1be] bg-white/70 px-3 py-1.5">

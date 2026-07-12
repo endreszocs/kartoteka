@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
 interface MuhelyNavbarProps {
   viewer: {
     fullName: string
+    avatarUrl: string | null
     level: MissionLevel
     points: number
     percent: number
@@ -106,6 +107,7 @@ export function MuhelyNavbar({ viewer }: MuhelyNavbarProps) {
 
           <MuhelyUserBadge
             fullName={viewer.fullName}
+            avatarUrl={viewer.avatarUrl}
             level={viewer.level}
             points={viewer.points}
             percent={viewer.percent}

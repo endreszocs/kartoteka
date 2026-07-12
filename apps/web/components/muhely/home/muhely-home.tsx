@@ -235,7 +235,7 @@ export function MuhelyHome({ data }: MuhelyHomeProps) {
         <div className={styles.heroStillLife} aria-hidden="true">
           <div className={styles.sunWash} />
           <Image
-            src="/misszios-muhely/hero-mug.png"
+            src="/misszios-muhely/hero-still-life-v2.png"
             alt=""
             width={900}
             height={620}

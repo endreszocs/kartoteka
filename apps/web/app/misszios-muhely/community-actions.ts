@@ -35,7 +35,7 @@ function getGamificationClient() {
   return null
 }
 
-type WorkshopCategory = {
+export type WorkshopCategory = {
   id: number
   nev: string
   ikon: string
@@ -44,7 +44,7 @@ type WorkshopCategory = {
   sorrend: number
 }
 
-type WorkshopMaterial = {
+export type WorkshopMaterial = {
   id: string
   cim: string
   leiras: string | null
@@ -55,8 +55,13 @@ type WorkshopMaterial = {
   feltolto_nev: string | null
   feltolto_gyulekezet: string | null
   letoltes_szam: number
+  atlag_ertekeles: number | null
+  ertekelesek_szama: number | null
   csatolmany_url: string | null
+  aktiv: boolean | null
   created_at: string
+  updated_at: string | null
+  sajat_ertekeles: number | null
   mm_segedanyag_kategoriak: {
     kategoria_id: number
     mm_kategoriak: { nev: string; ikon: string; szin: string } | null
@@ -164,17 +169,42 @@ const DEFAULT_STATS: MissionUserStats = {
 
 async function getWorkshopAccess() {
   const access = await getEffectiveAccessContext()
+  const role = access.profile?.role
   return {
     supabase: access.supabase,
     userId: access.user?.id || null,
     fullName: access.fullName || '',
     congregationName: access.congregationName || '',
-    // Ugyanaz a DB-ben is ellenőrizhető admin-predikátum, mint a workflow guardban.
-    isAdmin: access.profile?.status === 'active' && access.profile.role === 'admin',
+    // Pontosan ugyanaz a szerepkörhalmaz, mint a DB
+    // current_user_has_global_access() predikátumában.
+    isAdmin:
+      access.profile?.status === 'active' &&
+      Boolean(role && ['admin', 'esperes', 'egyhazmegyei_admin'].includes(role)),
   }
 }
 
 const workshopUuidSchema = z.string().uuid('Érvénytelen műhelyazonosító.')
+
+const materialFormatSchema = z.enum(['PDF', 'DOCX', 'PPTX', 'video', 'link', 'csomag'])
+
+const materialSaveSchema = z.object({
+  materialId: z.string().uuid('Érvénytelen segédanyag-azonosító.').nullable().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  cim: z.string().trim().min(1, 'A cím kötelező.').max(200, 'A cím legfeljebb 200 karakter lehet.'),
+  leiras: z.string().max(50000, 'A tartalom legfeljebb 50 000 karakter lehet.'),
+  kategoriaIds: z.array(z.number().int().positive()).max(50),
+  forrasUrl: z
+    .string()
+    .trim()
+    .max(2048, 'A forráshivatkozás túl hosszú.')
+    .refine(
+      (value) => !value || isSafeHttpUrl(value),
+      'Csak biztonságos http:// vagy https:// URL adható meg.',
+    )
+    .optional(),
+  forrasNev: z.string().trim().max(200, 'A forrás neve legfeljebb 200 karakter lehet.').optional(),
+  formatum: materialFormatSchema.default('link'),
+})
 
 function parseWorkshopUuid(value: unknown) {
   const parsed = workshopUuidSchema.safeParse(value)
@@ -185,6 +215,13 @@ function revalidateWorkshopIdea(ideaId: string) {
   revalidatePath('/misszios-muhely')
   revalidatePath('/misszios-muhely/forum')
   revalidatePath(`/misszios-muhely/forum/${ideaId}`)
+  revalidatePath('/misszios-muhely/jutalmak')
+}
+
+function revalidateWorkshopMaterials() {
+  revalidatePath('/misszios-muhely')
+  revalidatePath('/misszios-muhely/segedanyagok')
+  revalidatePath('/misszios-muhely/profil')
   revalidatePath('/misszios-muhely/jutalmak')
 }
 
@@ -470,38 +507,109 @@ export async function loadMaterialsPage(search?: string, categoryId?: number) {
   const { supabase, userId } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const query = supabase
-    .from('mm_segedanyagok')
-    .select('*, mm_segedanyag_kategoriak(kategoria_id, mm_kategoriak(nev, ikon, szin))')
-    .eq('aktiv', true)
-    .order('created_at', { ascending: false })
-
-  const { data: materials, error } = await query
-  if (error) return { error: error.message }
-
-  const { data: categories } = await supabase.from('mm_kategoriak').select('*').order('sorrend')
-
-  let filtered = (materials || []) as unknown as WorkshopMaterial[]
-
-  if (search) {
-    const lc = search.toLowerCase()
-    filtered = filtered.filter(
-      (m) =>
-        m.cim.toLowerCase().includes(lc) ||
-        (m.leiras && m.leiras.toLowerCase().includes(lc)) ||
-        (m.feltolto_nev && m.feltolto_nev.toLowerCase().includes(lc)),
-    )
+  const normalizedSearch = search?.trim() || null
+  if (normalizedSearch && normalizedSearch.length > 100) {
+    return { error: 'A keresés legfeljebb 100 karakter lehet.' }
   }
-  if (categoryId) {
-    filtered = filtered.filter((m) =>
-      m.mm_segedanyag_kategoriak.some((k) => k.kategoria_id === categoryId),
-    )
+  if (categoryId !== undefined && (!Number.isInteger(categoryId) || categoryId <= 0)) {
+    return { error: 'Érvénytelen témakör.' }
   }
+
+  const [materialsResult, categoriesResult, ownRatingsResult] = await Promise.all([
+    supabase.rpc('mm_list_segedanyagok', {
+      p_search: normalizedSearch,
+      p_category_id: categoryId || null,
+    }),
+    supabase.from('mm_kategoriak').select('*').order('sorrend'),
+    supabase
+      .from('mm_segedanyag_ertekelesek')
+      .select('segedanyag_id, pontszam')
+      .eq('user_id', userId),
+  ])
+
+  if (materialsResult.error) {
+    if (materialsResult.error.code === '42883' || materialsResult.error.code === 'PGRST202') {
+      return { error: 'A segédanyaglista adatbázis-migrációja még nem futott le.' }
+    }
+    return { error: materialsResult.error.message }
+  }
+  if (categoriesResult.error) return { error: categoriesResult.error.message }
+  if (ownRatingsResult.error) return { error: ownRatingsResult.error.message }
+
+  const materialRows = (materialsResult.data || []) as unknown as Omit<WorkshopMaterial, 'sajat_ertekeles'>[]
+  const categories = categoriesResult.data
+  const ownRatings = ownRatingsResult.data
+
+  const ownRatingMap = new Map(
+    (ownRatings || []).map((rating) => [rating.segedanyag_id, rating.pontszam]),
+  )
+
+  const listedMaterials: WorkshopMaterial[] = materialRows.map((material) => ({
+    ...material,
+    sajat_ertekeles: ownRatingMap.get(material.id) ?? null,
+  }))
 
   return {
-    materials: filtered,
+    // Az RPC már az adatbázisban 420 karakterre rövidíti a kivonatot, de a
+    // keresést a teljes törzsön végzi. A teljes anyag csak kinyitáskor érkezik.
+    materials: listedMaterials,
     categories: (categories || []) as WorkshopCategory[],
   }
+}
+
+export async function loadMaterialDetail(materialId: string) {
+  const safeMaterialId = parseWorkshopUuid(materialId)
+  if (!safeMaterialId) return { error: 'Érvénytelen segédanyag-azonosító.' }
+
+  const { supabase, userId } = await getWorkshopAccess()
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data: material, error } = await supabase
+    .from('mm_segedanyagok')
+    .select('*, mm_segedanyag_kategoriak(kategoria_id, mm_kategoriak(nev, ikon, szin))')
+    .eq('id', safeMaterialId)
+    .eq('aktiv', true)
+    .maybeSingle()
+
+  if (error) return { error: error.message }
+  if (!material) return { error: 'A segédanyag nem található vagy már archivált.' }
+
+  const { data: ownRating, error: ownRatingError } = await supabase
+    .from('mm_segedanyag_ertekelesek')
+    .select('pontszam')
+    .eq('segedanyag_id', safeMaterialId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (ownRatingError) return { error: ownRatingError.message }
+
+  return {
+    material: {
+      ...(material as unknown as Omit<WorkshopMaterial, 'sajat_ertekeles'>),
+      sajat_ertekeles: ownRating?.pontszam ?? null,
+    } satisfies WorkshopMaterial,
+  }
+}
+
+export async function recordMaterialDownload(materialId: string) {
+  const safeMaterialId = parseWorkshopUuid(materialId)
+  if (!safeMaterialId) return { error: 'Érvénytelen segédanyag-azonosító.' }
+
+  const { supabase, userId } = await getWorkshopAccess()
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data, error } = await supabase.rpc('mm_record_material_download', {
+    p_material_id: safeMaterialId,
+  })
+
+  if (error) {
+    if (error.code === '42883' || error.code === 'PGRST202') {
+      return { error: 'A letöltésszámláló adatbázis-migrációja még nem futott le.' }
+    }
+    return { error: workflowErrorMessage(error) }
+  }
+
+  return { success: true, downloadCount: Number(data || 0) }
 }
 
 export async function loadForumPage(search?: string, categoryId?: number, status?: string) {
@@ -630,48 +738,50 @@ export async function loadProfilePage() {
 }
 
 export async function rateMaterial(materialId: string, pontszam: number, velemeny?: string) {
+  const safeMaterialId = parseWorkshopUuid(materialId)
+  const safeRating = z.number().int().min(1).max(5).safeParse(pontszam)
+  if (!safeMaterialId || !safeRating.success) return { error: 'Érvénytelen értékelés.' }
+
   const { supabase, userId } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (pontszam < 1 || pontszam > 5) return { error: 'Érvénytelen értékelés.' }
   if (velemeny && velemeny.length > 1000) {
     return { error: 'A vélemény túl hosszú (max 1000 karakter).' }
   }
 
   // Ellenőrzés: a segédanyag létezik és aktív
-  const { data: material } = await supabase
+  const { data: material, error: materialError } = await supabase
     .from('mm_segedanyagok')
     .select('id, aktiv, feltolto_id')
-    .eq('id', materialId)
+    .eq('id', safeMaterialId)
     .maybeSingle()
+  if (materialError) return { error: materialError.message }
   if (!material || !material.aktiv) {
     return { error: 'A segédanyag nem található.' }
   }
-  // Saját segédanyagot nem értékelhetünk
-  if (material.feltolto_id === userId) {
-    return { error: 'Nem értékelheted a saját segédanyagodat.' }
-  }
+  const isOwnMaterial = material.feltolto_id === userId
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('mm_segedanyag_ertekelesek')
     .select('id')
-    .eq('segedanyag_id', materialId)
+    .eq('segedanyag_id', safeMaterialId)
     .eq('user_id', userId)
     .maybeSingle()
+  if (existingError) return { error: existingError.message }
 
   let isNewRating = false
 
   if (existing) {
     const { error } = await supabase
       .from('mm_segedanyag_ertekelesek')
-      .update({ pontszam, velemeny: velemeny?.trim() || null })
+      .update({ pontszam: safeRating.data, velemeny: velemeny?.trim() || null })
       .eq('id', existing.id)
       .eq('user_id', userId) // belt-and-braces: RLS védelem mellett
     if (error) return { error: error.message }
   } else {
     const { error } = await supabase.from('mm_segedanyag_ertekelesek').insert({
-      segedanyag_id: materialId,
+      segedanyag_id: safeMaterialId,
       user_id: userId,
-      pontszam,
+      pontszam: safeRating.data,
       velemeny: velemeny?.trim() || null,
     })
     if (error) {
@@ -684,43 +794,45 @@ export async function rateMaterial(materialId: string, pontszam: number, velemen
     isNewRating = true
   }
 
-  // Update average on the material — admin klienssel, mert az mm_segedanyagok
-  // UPDATE policy csak a feltöltőnek engedi (ami nem a user!)
-  const { data: allRatings } = await supabase
-    .from('mm_segedanyag_ertekelesek')
-    .select('pontszam')
-    .eq('segedanyag_id', materialId)
+  // Az átlagot és a darabszámot az értékelés INSERT/UPDATE tranzakciójában
+  // futó DB-trigger frissíti. Itt már csak az autoritatív eredményt olvassuk.
+  const { data: aggregate, error: aggregateError } = await supabase
+    .from('mm_segedanyagok')
+    .select('atlag_ertekeles, ertekelesek_szama')
+    .eq('id', safeMaterialId)
+    .single()
+  if (aggregateError) return { error: aggregateError.message }
 
-  if (allRatings && allRatings.length > 0) {
-    const avg = allRatings.reduce((sum, r) => sum + r.pontszam, 0) / allRatings.length
-    const adminClient = getGamificationClient()
-    if (adminClient) {
-      await adminClient
-        .from('mm_segedanyagok')
-        .update({
-          atlag_ertekeles: Math.round(avg * 10) / 10,
-          ertekelesek_szama: allRatings.length,
-        })
-        .eq('id', materialId)
-    }
-  }
+  const averageRating = aggregate.atlag_ertekeles === null
+    ? null
+    : Number(aggregate.atlag_ertekeles)
+  const ratingCount = Number(aggregate.ertekelesek_szama || 0)
 
-  const reward = isNewRating
-    ? await awardMissionEvent(userId, 'ertekeles_adva', materialId)
+  const reward = isNewRating && !isOwnMaterial
+    ? await awardMissionEvent(userId, 'ertekeles_adva', safeMaterialId)
     : null
 
-  revalidatePath('/misszios-muhely')
-  return { success: true, reward }
+  revalidateWorkshopMaterials()
+  return {
+    success: true,
+    reward,
+    ownTestRating: isOwnMaterial,
+    averageRating,
+    ratingCount,
+  }
 }
 
 export async function deleteMaterial(materialId: string) {
+  const safeMaterialId = parseWorkshopUuid(materialId)
+  if (!safeMaterialId) return { error: 'Érvénytelen segédanyag-azonosító.' }
+
   const { supabase, userId, isAdmin } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const { data: material } = await supabase
     .from('mm_segedanyagok')
     .select('id, feltolto_id, aktiv')
-    .eq('id', materialId)
+    .eq('id', safeMaterialId)
     .maybeSingle()
 
   if (!material) return { error: 'Nem található a segédanyag.' }
@@ -734,10 +846,10 @@ export async function deleteMaterial(materialId: string) {
   const { error } = await supabase
     .from('mm_segedanyagok')
     .update({ aktiv: false })
-    .eq('id', materialId)
+    .eq('id', safeMaterialId)
   if (error) return { error: error.message }
 
-  revalidatePath('/misszios-muhely')
+  revalidateWorkshopMaterials()
   return { success: true }
 }
 
@@ -1207,55 +1319,93 @@ export async function supportIdea(ideaId: string) {
   }
 }
 
+export type MaterialSaveInput = z.input<typeof materialSaveSchema>
+
+export async function saveMissionMaterial(data: MaterialSaveInput) {
+  const parsed = materialSaveSchema.safeParse(data)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message || 'Érvénytelen segédanyag-adatok.' }
+  }
+
+  const input = parsed.data
+  const safeMaterialId = input.materialId || null
+  const categoryIds = Array.from(new Set(input.kategoriaIds))
+  const { supabase, userId, isAdmin } = await getWorkshopAccess()
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  if (safeMaterialId) {
+    const { data: existing, error: existingError } = await supabase
+      .from('mm_segedanyagok')
+      .select('id, feltolto_id, updated_at')
+      .eq('id', safeMaterialId)
+      .maybeSingle()
+
+    if (existingError) return { error: existingError.message }
+    if (!existing) return { error: 'A segédanyag nem található.' }
+    if (existing.feltolto_id !== userId && !isAdmin) {
+      return { error: 'Csak a feltöltő vagy rendszergazda szerkesztheti ezt a segédanyagot.' }
+    }
+  }
+
+  const { data: saved, error } = await supabase
+    .rpc('mm_save_segedanyag_atomic', {
+      p_material_id: safeMaterialId,
+      p_expected_updated_at: input.expectedUpdatedAt || null,
+      p_cim: input.cim,
+      p_leiras: input.leiras,
+      p_forras_url: input.forrasUrl || null,
+      p_forras_nev: input.forrasNev || null,
+      p_formatum: input.formatum,
+      p_kategoria_ids: categoryIds,
+    })
+    .single()
+
+  if (error) {
+    if (error.code === '40001') {
+      return { error: 'A segédanyagot közben valaki módosította. Frissítsd az oldalt, majd próbáld újra.' }
+    }
+    if (error.code === '42883' || error.code === 'PGRST202') {
+      return { error: 'A segédanyag-szerkesztő adatbázis-migrációja még nem futott le.' }
+    }
+    return { error: workflowErrorMessage(error) }
+  }
+
+  const savedMaterial = saved as {
+    material_id: string
+    material_updated_at: string
+    was_created: boolean
+  }
+  const reward = savedMaterial.was_created
+    ? await awardMissionEvent(userId, 'segedanyag_feltoltes', savedMaterial.material_id)
+    : null
+
+  revalidateWorkshopMaterials()
+  return {
+    success: true,
+    materialId: savedMaterial.material_id,
+    updatedAt: savedMaterial.material_updated_at,
+    created: savedMaterial.was_created,
+    reward,
+  }
+}
+
+/** Kompatibilitási belépési pont a korábbi feltöltő komponenseknek. */
 export async function shareMissionMaterial(data: {
   cim: string
   leiras: string
   kategoriaIds: number[]
   forrasUrl?: string
+  forrasNev?: string
   formatum?: string
 }) {
-  const { supabase, userId, fullName, congregationName } = await getWorkshopAccess()
-  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (!data.cim.trim()) return { error: 'A cím kötelező.' }
-  if (data.cim.length > 200) return { error: 'A cím túl hosszú (max 200 karakter).' }
-  if (data.leiras.length > 5000) return { error: 'A leírás túl hosszú (max 5000 karakter).' }
-
-  // URL biztonsági validáció
-  if (data.forrasUrl && data.forrasUrl.trim()) {
-    if (!isSafeHttpUrl(data.forrasUrl.trim())) {
-      return { error: 'Érvénytelen URL — csak https:// vagy http:// engedélyezett.' }
-    }
-  }
-
-  const { data: inserted, error } = await supabase
-    .from('mm_segedanyagok')
-    .insert({
-      cim: data.cim.trim(),
-      leiras: data.leiras.trim() || null,
-      feltolto_id: userId,
-      feltolto_nev: fullName,
-      feltolto_gyulekezet: congregationName,
-      forras_url: data.forrasUrl?.trim() || null,
-      formatum: data.formatum || 'link',
-      aktiv: true,
-    })
-    .select('id')
-    .single()
-
-  if (error) return { error: error.message }
-
-  if (inserted && data.kategoriaIds.length > 0) {
-    await supabase.from('mm_segedanyag_kategoriak').insert(
-      data.kategoriaIds.map((categoryId) => ({
-        segedanyag_id: inserted.id,
-        kategoria_id: categoryId,
-      })),
-    )
-  }
-
-  const reward = await awardMissionEvent(userId, 'segedanyag_feltoltes', inserted.id)
-  revalidatePath('/misszios-muhely')
-  return { success: true, materialId: inserted.id, reward }
+  return saveMissionMaterial({
+    ...data,
+    materialId: null,
+    expectedUpdatedAt: null,
+    formatum: materialFormatSchema.safeParse(data.formatum).success
+      ? (data.formatum as z.infer<typeof materialFormatSchema>)
+      : 'link',
+  })
 }
 
 export async function submitMissionIdea(data: {

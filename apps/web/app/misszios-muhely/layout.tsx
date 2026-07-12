@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { MuhelyFooter } from '@/components/muhely/layout/muhely-footer'
 import { MuhelyNavbar } from '@/components/muhely/layout/muhely-navbar'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getProfileAvatarUrl } from '@/lib/auth/profile-avatar'
 import { getMissionProgress } from '@/lib/missions/gamification'
 import './muhely.css'
 
@@ -25,11 +26,14 @@ export default async function MuhelyLayout({ children }: { children: React.React
   if (!user || !profile) redirect('/login')
   if (profile.status !== 'active' && !master) redirect('/login')
 
-  const { data: stats } = await supabase
-    .from('mm_felhasznalo_statisztika')
-    .select('osszpontszam')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const [{ data: stats }, avatarUrl] = await Promise.all([
+    supabase
+      .from('mm_felhasznalo_statisztika')
+      .select('osszpontszam')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    getProfileAvatarUrl(),
+  ])
 
   const points = stats?.osszpontszam ?? 0
   const progress = getMissionProgress(points)
@@ -70,6 +74,7 @@ export default async function MuhelyLayout({ children }: { children: React.React
       <MuhelyNavbar
         viewer={{
           fullName: fullName || 'Felhasználó',
+          avatarUrl,
           level: progress.current,
           points,
           percent: progress.percent,

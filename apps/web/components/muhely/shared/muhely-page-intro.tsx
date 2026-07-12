@@ -24,11 +24,11 @@ export function MuhelyPageIntro({
         aria-hidden="true"
         style={{
           backgroundImage:
-            'radial-gradient(circle at 12% 16%, rgba(211,164,94,.16), transparent 26%), radial-gradient(circle at 82% 74%, rgba(100,122,82,.12), transparent 32%), repeating-linear-gradient(0deg, rgba(72,61,44,.025) 0, rgba(72,61,44,.025) 1px, transparent 1px, transparent 5px)',
+            'radial-gradient(circle at 12% 16%, rgba(211,164,94,.16), transparent 26%), radial-gradient(circle at 82% 74%, rgba(100,122,82,.12), transparent 32%)',
         }}
       />
 
-      <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid items-center gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)] sm:gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="relative z-10 max-w-3xl">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d9c8ab] bg-[#f4ebdd] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#647a52]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#d3a45e]" aria-hidden="true" />
@@ -43,14 +43,15 @@ export function MuhelyPageIntro({
           {children && <div className="mt-6">{children}</div>}
         </div>
 
-        <div className="pointer-events-none relative hidden h-48 lg:block" aria-hidden="true">
+        <div className="pointer-events-none relative mx-auto h-32 w-full max-w-56 sm:h-40 sm:max-w-none lg:h-48" aria-hidden="true">
           <div className="absolute inset-2 rounded-[45%] bg-[#e8dcc9]/60 blur-2xl" />
           <Image
             src={imageSrc}
             alt={imageAlt}
             fill
-            sizes="280px"
-            className="object-contain opacity-90 drop-shadow-[0_16px_20px_rgba(65,56,42,0.12)]"
+            sizes="(max-width: 639px) 224px, (max-width: 1023px) 192px, 280px"
+            loading="eager"
+            className="object-contain opacity-95 drop-shadow-[0_16px_20px_rgba(65,56,42,0.12)]"
           />
         </div>
       </div>

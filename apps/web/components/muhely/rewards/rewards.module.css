@@ -638,7 +638,7 @@
   font-size: 0.59rem;
 }
 
-/* ── A kód-native, antikbronz–zománc jelvénycsalád ───────────── */
+/* ── Egyedi, generált PNG-jelvények állapot- és fényrétegei ──── */
 
 .badgeRoot {
   position: relative;
@@ -649,13 +649,44 @@
   isolation: isolate;
 }
 
-.badgeSvg {
+.badgeImageShell {
   position: relative;
   z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
-  overflow: visible;
+  transform-origin: center;
+}
+
+.badgeImage {
+  object-fit: contain;
+  filter: drop-shadow(0 0.32rem 0.22rem rgba(61, 37, 15, 0.24));
+  user-select: none;
+}
+
+.badgeLockOverlay {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: clamp(2.15rem, 28%, 2.8rem);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid rgba(255, 250, 237, 0.64);
+  border-radius: 50%;
+  color: #665d50;
+  background: rgba(240, 234, 221, 0.86);
+  box-shadow:
+    0 0 0 0.28rem rgba(81, 70, 56, 0.08),
+    0 0.45rem 1rem rgba(58, 48, 36, 0.2);
+  transform: translate(-50%, -50%);
+}
+
+.badgeLockOverlay svg {
+  width: 48%;
+  height: 48%;
+  stroke-width: 1.8;
 }
 
 .badgeHalo {
@@ -683,95 +714,9 @@
   transform: rotate(24deg) translateX(-180%);
 }
 
-.medallion {
-  transform-origin: 72px 68px;
-}
-
-.enamelTexture {
-  fill: #fff1c2;
-  opacity: 0.3;
-}
-
-.motif,
-.laurel {
-  color: #f5d78b;
-  filter: drop-shadow(0 1.2px 0 rgba(54, 31, 10, 0.78));
-}
-
-.motifStroke,
-.lightRay,
-.checkStroke,
-.laurel {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.motifStroke {
-  stroke-width: 2.3;
-}
-
-.lightRay {
-  stroke-width: 1.6;
-  opacity: 0.76;
-}
-
-.motifFill,
-.rockFill,
-.fruitFill,
-.checkFill {
-  fill: color-mix(in srgb, currentColor 24%, transparent);
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.rockFill {
-  fill: color-mix(in srgb, currentColor 18%, #6f4d27);
-}
-
-.fruitFill {
-  fill: color-mix(in srgb, currentColor 30%, #7e2e20);
-}
-
-.checkFill {
-  fill: #efd285;
-  stroke: #5e3a17;
-}
-
-.checkStroke {
-  stroke: #4f4a21;
-  stroke-width: 2.5;
-}
-
-.motifDot {
-  fill: currentColor;
-  stroke: #654116;
-  stroke-width: 0.8;
-}
-
-.lanternGlow {
-  fill: #fff0a5;
-  stroke: #ffe9a0;
-  stroke-width: 1;
-  filter: drop-shadow(0 0 5px #ffd95c);
-}
-
-.laurel {
-  stroke-width: 1.55;
-  opacity: 0.88;
-}
-
-.locked .medallion {
+.locked .badgeImageShell {
   filter: grayscale(0.72) sepia(0.32) contrast(0.84) brightness(0.82);
   opacity: 0.57;
-}
-
-.locked .motif,
-.locked .laurel {
-  opacity: 0.62;
 }
 
 .earned .badgeHalo {
@@ -784,29 +729,12 @@
   animation: badgeHaloReveal 1.2s both;
 }
 
-.new .medallion {
+.new .badgeImageShell {
   animation: badgeSpring 1.2s both;
 }
 
-.new .motifStroke,
-.new .motifStroke path,
-.new .motifStroke circle,
-.new .lightRay,
-.new .checkStroke,
-.new .laurel,
-.new .laurel path {
-  animation: motifDraw 500ms 350ms both;
-  stroke-dasharray: 260;
-  stroke-dashoffset: 260;
-}
-
-.new .motifFill,
-.new .rockFill,
-.new .fruitFill,
-.new .checkFill,
-.new .motifDot,
-.new .lanternGlow {
-  animation: motifFillReveal 500ms 350ms both;
+.new .badgeImage {
+  animation: badgeImageReveal 560ms 260ms both;
 }
 
 .new .badgeSweep {
@@ -855,22 +783,14 @@
   }
 }
 
-@keyframes motifDraw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes motifFillReveal {
+@keyframes badgeImageReveal {
   from {
-    fill-opacity: 0;
     opacity: 0;
-    transform: translateY(2px);
+    filter: brightness(1.8) saturate(0.65) blur(1px) drop-shadow(0 0.32rem 0.22rem rgba(61, 37, 15, 0.12));
   }
   to {
-    fill-opacity: 1;
     opacity: 1;
-    transform: translateY(0);
+    filter: brightness(1) saturate(1) blur(0) drop-shadow(0 0.32rem 0.22rem rgba(61, 37, 15, 0.24));
   }
 }
 
@@ -1434,20 +1354,8 @@
   }
 
   .new .badgeHalo,
-  .new .medallion,
-  .new .motifStroke,
-  .new .motifStroke path,
-  .new .motifStroke circle,
-  .new .lightRay,
-  .new .checkStroke,
-  .new .laurel,
-  .new .laurel path,
-  .new .motifFill,
-  .new .rockFill,
-  .new .fruitFill,
-  .new .checkFill,
-  .new .motifDot,
-  .new .lanternGlow,
+  .new .badgeImageShell,
+  .new .badgeImage,
   .new .badgeSweep,
   .ceremonyOverlay,
   .ceremonyStage,
@@ -1463,25 +1371,14 @@
     transform: scale(1.05);
   }
 
-  .new .medallion,
-  .new .motifStroke,
-  .new .motifStroke path,
-  .new .motifStroke circle,
-  .new .lightRay,
-  .new .checkStroke,
-  .new .laurel,
-  .new .laurel path {
+  .new .badgeImageShell {
     opacity: 1;
-    stroke-dashoffset: 0;
+    transform: none;
   }
 
-  .new .motifFill,
-  .new .rockFill,
-  .new .fruitFill,
-  .new .checkFill,
-  .new .motifDot,
-  .new .lanternGlow {
+  .new .badgeImage {
     opacity: 1;
+    filter: drop-shadow(0 0.32rem 0.22rem rgba(61, 37, 15, 0.24));
   }
 
   .ceremonyOverlay,

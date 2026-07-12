@@ -37,6 +37,10 @@
   overflow: hidden;
   border-radius: 30px 30px 42px 26px;
   isolation: isolate;
+  background:
+    radial-gradient(circle at 16% 12%, rgba(255, 247, 220, .72), transparent 34%),
+    radial-gradient(circle at 88% 82%, rgba(100, 122, 82, .1), transparent 35%),
+    linear-gradient(145deg, color-mix(in oklab, var(--milk) 96%, white), color-mix(in oklab, var(--paper) 88%, white));
 }
 
 .hero::before,
@@ -49,10 +53,10 @@
 
 .hero::before {
   inset: 0;
-  opacity: .18;
-  background-image: radial-gradient(color-mix(in oklab, var(--ink) 12%, transparent) .7px, transparent .7px);
-  background-size: 7px 7px;
-  mask-image: linear-gradient(90deg, #000, transparent 70%);
+  opacity: 1;
+  background:
+    radial-gradient(ellipse at 8% 78%, rgba(211, 164, 94, .09), transparent 30%),
+    radial-gradient(ellipse at 64% 0%, rgba(255, 255, 255, .48), transparent 36%);
 }
 
 .hero::after {
@@ -60,8 +64,9 @@
   height: 260px;
   left: -80px;
   bottom: -100px;
-  opacity: .15;
-  background: url('/misszios-muhely/30-leaves1.png') center / contain no-repeat;
+  opacity: .32;
+  border-radius: 46% 54% 64% 36%;
+  background: radial-gradient(ellipse at 66% 32%, rgba(100, 122, 82, .2), transparent 66%);
 }
 
 .heroCopy {
@@ -140,10 +145,38 @@
 .communityNumbers dt { color: color-mix(in oklab, var(--ink) 56%, white); font-size: 11px; }
 .communityNumbers dd { margin: 0; font-family: var(--font-serif), Georgia, serif; font-size: 24px; font-weight: 650; }
 
-.heroStillLife { position: relative; min-height: 430px; overflow: hidden; background: linear-gradient(125deg, #d9c8aa, #f7eddc 64%); }
-.heroStillLife::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, var(--milk), transparent 18%); }
-.heroStillLife img { position: absolute; z-index: 2; width: 115%; height: 115%; max-width: none; right: -7%; bottom: -7%; object-fit: contain; filter: drop-shadow(0 24px 38px rgba(56, 43, 27, .14)); }
-.sunWash { position: absolute; inset: 0; background: radial-gradient(circle at 72% 18%, rgba(255,255,255,.95), transparent 28%), linear-gradient(140deg, rgba(255,255,255,.1), rgba(211,164,94,.18)); }
+.heroStillLife {
+  --hero-art-gutter: clamp(10px, 1.8vw, 26px);
+  position: relative;
+  min-height: 430px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 72% 14%, rgba(255, 255, 255, .9), transparent 30%),
+    radial-gradient(ellipse at 78% 90%, rgba(211, 164, 94, .14), transparent 42%),
+    linear-gradient(125deg, #e4d4ba, #f8efdf 64%);
+}
+.heroStillLife::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--milk) 0, rgba(255, 253, 247, .76) 8%, transparent 25%),
+    linear-gradient(0deg, rgba(244, 235, 221, .34), transparent 15%);
+}
+.heroStillLife img {
+  position: absolute;
+  z-index: 2;
+  inset: var(--hero-art-gutter) var(--hero-art-gutter) 0;
+  width: calc(100% - var(--hero-art-gutter) - var(--hero-art-gutter));
+  height: calc(100% - var(--hero-art-gutter));
+  max-width: none;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(0 24px 38px rgba(56, 43, 27, .14));
+}
+.sunWash { position: absolute; inset: 0; background: radial-gradient(circle at 72% 18%, rgba(255,255,255,.82), transparent 30%), linear-gradient(140deg, rgba(255,255,255,.1), rgba(211,164,94,.12)); }
 
 .firstRow,
 .secondRow { display: grid; gap: 18px; margin-top: 18px; }
@@ -267,8 +300,7 @@
   .home { padding-inline: 12px; }
   .hero { grid-template-columns: 1fr; min-height: 0; }
   .heroCopy { padding: 36px 24px 26px; }
-  .heroStillLife { min-height: 280px; }
-  .heroStillLife img { width: 108%; height: 108%; }
+  .heroStillLife { --hero-art-gutter: 10px; min-height: clamp(240px, 76vw, 310px); }
   .communityNumbers { grid-template-columns: repeat(2, 1fr); }
   .featuredIdeaBody { grid-template-columns: 108px 1fr; }
   .ideaNext { grid-column: 1 / -1; }

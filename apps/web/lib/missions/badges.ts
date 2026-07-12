@@ -19,9 +19,11 @@ export const MISSION_BADGE_CODES = [
 
 export type MissionBadgeCode = (typeof MISSION_BADGE_CODES)[number]
 export type MissionBadgeState = 'locked' | 'earned' | 'new'
+export type MissionBadgeImageSrc = `/misszios-muhely/badges/${MissionBadgeCode}.png`
 
 export interface MissionBadgeDefinition {
   code: MissionBadgeCode
+  imageSrc: MissionBadgeImageSrc
   name: string
   description: string
   condition: string
@@ -45,6 +47,7 @@ export interface MissionBadgeDefinition {
 export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   {
     code: 'elso_otlet',
+    imageSrc: '/misszios-muhely/badges/elso_otlet.png',
     name: 'Első Ötlet',
     description: 'Beküldted az első ötletedet!',
     condition: '1 ötlet beküldve',
@@ -56,6 +59,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'otletgyaros',
+    imageSrc: '/misszios-muhely/badges/otletgyaros.png',
     name: 'Ötletgyáros',
     description: 'Kimeríthetetlen kreativitás — 5 ötlet beküldve!',
     condition: '5 ötlet beküldve',
@@ -67,6 +71,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'tamogato',
+    imageSrc: '/misszios-muhely/badges/tamogato.png',
     name: 'Lelkes Támogató',
     description: 'Aktívan támogatod mások ötleteit!',
     condition: '10 ötlet támogatva',
@@ -78,6 +83,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'tamogato_bajnok',
+    imageSrc: '/misszios-muhely/badges/tamogato_bajnok.png',
     name: 'Támogató Bajnok',
     description: 'A közösség egyik legerősebb támasza!',
     condition: '25 ötlet támogatva',
@@ -89,6 +95,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'kozossegi',
+    imageSrc: '/misszios-muhely/badges/kozossegi.png',
     name: 'Közösségi Ember',
     description: 'Aktívan részt veszel a közös munkában!',
     condition: '3 projekthez csatlakozott',
@@ -99,6 +106,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'feltolto',
+    imageSrc: '/misszios-muhely/badges/feltolto.png',
     name: 'Segédanyag Feltöltő',
     description: 'Értékes anyagokkal gazdagítod a közösséget!',
     condition: '5 segédanyag feltöltve',
@@ -110,6 +118,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'siker',
+    imageSrc: '/misszios-muhely/badges/siker.png',
     name: 'Siker-kő',
     description: 'Az első ötleted megvalósult!',
     condition: '1 ötlet megvalósult',
@@ -121,6 +130,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'nagy_siker',
+    imageSrc: '/misszios-muhely/badges/nagy_siker.png',
     name: 'Nagy Siker',
     description: 'Három ötleted is megvalósult — igazi vezető vagy!',
     condition: '3 ötlet megvalósult',
@@ -132,6 +142,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'top_ertekelo',
+    imageSrc: '/misszios-muhely/badges/top_ertekelo.png',
     name: 'Top Értékelő',
     description: 'Visszajelzéseid segítik a közösséget fejlődni!',
     condition: '20 segédanyag értékelve',
@@ -143,6 +154,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'hozzaszolo',
+    imageSrc: '/misszios-muhely/badges/hozzaszolo.png',
     name: 'Hozzászóló-király',
     description: 'Aktívan részt veszel a párbeszédben!',
     condition: '50 hozzászólás összesen',
@@ -154,6 +166,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'mentor',
+    imageSrc: '/misszios-muhely/badges/mentor.png',
     name: 'Mentor',
     description: 'Megbízható munkatárs — 10 feladat teljesítve!',
     condition: '10 feladat teljesítve',
@@ -165,6 +178,7 @@ export const MISSION_BADGES: readonly MissionBadgeDefinition[] = [
   },
   {
     code: 'megbizhato',
+    imageSrc: '/misszios-muhely/badges/megbizhato.png',
     name: 'Megbízható',
     description: 'Minden feladatot időben teljesítettél!',
     condition: 'Minden feladat időben teljesítve 3 projektben',

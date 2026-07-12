@@ -6,8 +6,11 @@ import { MuhelyPageIntro } from '@/components/muhely/shared/muhely-page-intro'
 import { BookOpen, LibraryBig } from 'lucide-react'
 
 export default async function SegedanyagokPage() {
-  const { user, admin } = await getEffectiveAccessContext()
+  const { user, profile } = await getEffectiveAccessContext()
   if (!user) redirect('/login')
+  const isWorkshopAdmin =
+    profile?.status === 'active' &&
+    ['admin', 'esperes', 'egyhazmegyei_admin'].includes(profile.role)
 
   const data = await loadMaterialsPage()
   if ('error' in data) redirect('/login')
@@ -18,7 +21,7 @@ export default async function SegedanyagokPage() {
         eyebrow="Műhelypolc"
         title="Kézbe vehető segítség a szolgálathoz."
         description="Prédikációvázlatok, liturgiai ötletek és kipróbált gyülekezeti anyagok egy napfényes közös polcon. Nézz körül nyugodtan — vagy tedd mellé azt, ami nálatok már gyümölcsöt termett."
-        imageSrc="/misszios-muhely/25-book.png"
+        imageSrc="/misszios-muhely/workshop-shelf-illustration-v2.png"
       >
         <div className="flex flex-wrap gap-2.5 text-xs text-[#5f655d]">
           <span className="inline-flex items-center gap-2 rounded-full border border-[#ded1be] bg-white/70 px-3 py-1.5">
@@ -36,7 +39,7 @@ export default async function SegedanyagokPage() {
         materials={data.materials}
         categories={data.categories}
         currentUserId={user.id}
-        isAdmin={admin}
+        isAdmin={isWorkshopAdmin}
       />
     </div>
   )

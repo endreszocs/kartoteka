@@ -23,6 +23,40 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-12] — A Missziós Műhelyből alkotótér lett
+<!-- key: 2026-07-12-misszios-muhely-alkototer -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.65 -->
+
+### ✨ Segédanyag készítése és használata
+
+- **A megnyitott segédanyag most már valódi olvasóoldal:** a hosszabb szöveg
+  levegősen, jól elkülönülő részekkel jelenik meg, telefonon és nagy képernyőn
+  egyaránt kényelmesen olvasható.
+- **A segédanyag Word- vagy PDF-dokumentumként is elmenthető.** A letöltött
+  változat egységes A4-es tördelést, címet, szerzőt, gyülekezetet, dátumot és
+  témaköröket kap, így továbbadható vagy kinyomtatható.
+- **Saját alkotófelület készült:** egy helyen láthatod a feltöltött anyagaidat,
+  új segédanyagot készíthetsz, a saját korábbi anyagaidat pedig szerkesztheted
+  vagy archiválhatod.
+- **Érthetőbb lett a csillagos értékelés:** már választás közben is látható,
+  hány csillagnál jársz. A próbaidőszak alatt a saját anyagodon is kipróbálhatod
+  az értékelést; ez a saját próba nem ad pontot vagy jelvényt.
+
+### 🎨 Otthonosabb, személyesebb műhely
+
+- **A kezdőlap nyitóképe természetesebben simul a felületbe:** a teljes kép
+  látható marad, és eltűnt mögüle a zavaró kockás hatás.
+- **Az Ötletasztal és a Műhelypolc saját, áttetsző hátterű illusztrációt kapott,**
+  amely telefonon sem vesz el helyet a fontos tartalomtól.
+- **Mind a tizenkét jelvény külön képi világot kapott,** így az elért állomások
+  karakteresebbek, játékosabbak és ünnepibbek lettek.
+- **A beállított profilfotó a műhelyben is elkísér:** megjelenik a fejlécben és
+  a Műhelyprofilomon; ha nincs fénykép, továbbra is a monogram segít azonosítani.
+
+---
+
 ## [2026-07-12] — A Missziós Műhely teljesen megújult
 <!-- key: 2026-07-12-misszios-muhely-ujratervezes -->
 <!-- category: feature -->
