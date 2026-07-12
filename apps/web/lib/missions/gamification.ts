@@ -8,11 +8,23 @@ export interface MissionLevel {
 
 export type MissionPointEvent =
   | 'otlet_bekuldve'
+  | 'otlet_tovabbjutott'
+  | 'otlet_megvalosult'
   | 'szavazat_adva'
   | 'csatlakozas'
   | 'hozzaszolas'
   | 'segedanyag_feltoltes'
+  | 'ertekeles_adva'
   | 'feladat_teljesitve'
+
+export interface MissionRewardOutcome {
+  applied: boolean
+  points: number
+  totalPoints: number | null
+  previousLevel: string | null
+  newLevel: string | null
+  newBadges: string[]
+}
 
 export interface MissionUserStats {
   user_id: string
@@ -79,10 +91,13 @@ export const MISSION_POINT_RULES: Record<
   { points: number; statKey: keyof MissionUserStats | null }
 > = {
   otlet_bekuldve: { points: 10, statKey: 'otletek_szama' },
+  otlet_tovabbjutott: { points: 25, statKey: 'elfogadott_otletek' },
+  otlet_megvalosult: { points: 50, statKey: 'megvalosult_otletek' },
   szavazat_adva: { points: 2, statKey: 'tamogatasok_adva' },
   csatlakozas: { points: 5, statKey: null },
   hozzaszolas: { points: 3, statKey: 'hozzaszolasok_szama' },
   segedanyag_feltoltes: { points: 8, statKey: 'segedanyagok_feltoltve' },
+  ertekeles_adva: { points: 1, statKey: 'ertekelesek_adva' },
   feladat_teljesitve: { points: 10, statKey: 'feladatok_teljesitve' },
 }
 

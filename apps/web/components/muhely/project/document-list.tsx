@@ -8,7 +8,6 @@ import {
   FileSpreadsheet,
   FileText,
   Files,
-  Pencil,
   Plus,
   Trash2,
   UserCircle2,
@@ -49,15 +48,15 @@ function formatDate(iso: string): string {
 function getIconAndColor(category: DocumentCategory) {
   switch (category) {
     case 'pdf':
-      return { Icon: FileText, color: 'text-red-600 bg-red-50' }
+      return { Icon: FileText, color: 'border-[#d9b0a2] text-[#a7523f] bg-[#f7e9e3]' }
     case 'kep':
-      return { Icon: FileImage, color: 'text-purple-600 bg-purple-50' }
+      return { Icon: FileImage, color: 'border-[#cfc0cf] text-[#735f73] bg-[#f2edf2]' }
     case 'doc':
-      return { Icon: FileText, color: 'text-blue-600 bg-blue-50' }
+      return { Icon: FileText, color: 'border-[#b9c7b2] text-[#526943] bg-[#edf2e9]' }
     case 'tabla':
-      return { Icon: FileSpreadsheet, color: 'text-emerald-600 bg-emerald-50' }
+      return { Icon: FileSpreadsheet, color: 'border-[#aebfa5] text-[#526943] bg-[#e8efe4]' }
     default:
-      return { Icon: File, color: 'text-slate-500 bg-slate-50' }
+      return { Icon: File, color: 'border-[#d6cec1] text-[#72746e] bg-[#f2efe9]' }
   }
 }
 
@@ -70,16 +69,9 @@ export function DocumentList({
   onChange,
 }: DocumentListProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editing, setEditing] = useState<ProjectDocument | null>(null)
   const [isPending, startTransition] = useTransition()
 
   function openNew() {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-
-  function openEdit(d: ProjectDocument) {
-    setEditing(d)
     setDialogOpen(true)
   }
 
@@ -98,13 +90,13 @@ export function DocumentList({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <section className="py-5 sm:py-6" aria-labelledby="documents-title">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-2">
-          <Files className="h-5 w-5 text-cyan-600" />
+          <Files className="h-5 w-5 text-[#735f73]" />
           <div>
-            <h3 className="font-heading text-lg text-slate-800">Dokumentumok</h3>
-            <p className="text-xs text-slate-500">
+            <h3 id="documents-title" className="font-heading text-xl text-[#26382f]">Közös irattartó</h3>
+            <p className="text-xs text-[#747b72]">
               {documents.length === 0
                 ? 'Még nincsenek dokumentumok'
                 : `${documents.length} ${documents.length === 1 ? 'fájl' : 'fájl'} megosztva`}
@@ -115,7 +107,7 @@ export function DocumentList({
         {canEdit && (
           <Button
             size="sm"
-            className="rounded-xl bg-cyan-600 hover:bg-cyan-700"
+            className="min-h-11 w-full rounded-full bg-[#735f73] text-white shadow-sm hover:bg-[#5f4d5f] sm:w-auto"
             onClick={openNew}
           >
             <Plus className="mr-1 h-4 w-4" />
@@ -125,7 +117,7 @@ export function DocumentList({
       </div>
 
       {documents.length === 0 ? (
-        <p className="py-8 text-center text-sm italic text-slate-400">
+        <p className="rounded-xl border border-dashed border-[#d8cbb8] bg-[#f8f2e9] py-8 text-center text-sm italic text-[#858a80]">
           {canEdit
             ? 'Még nincs dokumentum — oszd meg az első anyagot a csapattal!'
             : 'A csapat még nem osztott meg dokumentumokat.'}
@@ -141,10 +133,10 @@ export function DocumentList({
             return (
               <li
                 key={d.id}
-                className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white p-3 transition hover:border-cyan-200 hover:shadow-sm"
+                className="flex flex-wrap items-start gap-3 rounded-[0.95rem_0.75rem_1.05rem_0.8rem] border border-[#ded2c0] bg-[#fffdf7] p-3 transition hover:-translate-y-0.5 hover:border-[#b8a5b8] hover:shadow-sm min-[390px]:flex-nowrap motion-reduce:transition-none"
               >
                 <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${color}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${color}`}
                 >
                   <Icon className="h-5 w-5" />
                 </div>
@@ -154,13 +146,13 @@ export function DocumentList({
                     href={d.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group inline-flex items-center gap-1.5 text-sm font-medium text-slate-800 hover:text-cyan-700"
+                    className="group inline-flex min-h-11 max-w-full items-center gap-1.5 text-sm font-semibold text-[#35443a] hover:text-[#735f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e]/60"
                   >
                     <span className="truncate">{d.nev}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 transition group-hover:opacity-100" />
                   </a>
 
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#747b72]">
                     {d.feltolto_nev && (
                       <span className="inline-flex items-center gap-1">
                         <UserCircle2 className="h-3 w-3" />
@@ -172,30 +164,19 @@ export function DocumentList({
                   </div>
                 </div>
 
-                {canEdit && (
-                  <div className="flex shrink-0 gap-1">
+                {canEdit && canDeleteThis && (
+                  <div className="ml-[3.25rem] flex basis-full justify-end gap-1 min-[390px]:ml-0 min-[390px]:basis-auto">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-slate-400 hover:text-cyan-600"
-                      onClick={() => openEdit(d)}
+                      className="h-11 w-11 rounded-full text-[#8b8f87] hover:bg-[#f7e9e3] hover:text-[#a7523f]"
+                      onClick={() => handleDelete(d)}
                       disabled={isPending}
-                      title="Szerkesztés"
+                      title="Törlés és új link feltöltése"
+                      aria-label={`${d.nev} dokumentum törlése`}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
-                    {canDeleteThis && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-red-600"
-                        onClick={() => handleDelete(d)}
-                        disabled={isPending}
-                        title="Törlés"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
                   </div>
                 )}
               </li>
@@ -208,9 +189,8 @@ export function DocumentList({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         ideaId={ideaId}
-        existing={editing}
         onSaved={onChange}
       />
-    </div>
+    </section>
   )
 }

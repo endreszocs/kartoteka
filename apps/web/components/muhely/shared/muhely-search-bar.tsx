@@ -10,15 +10,16 @@ interface MuhelySearchBarProps {
 
 export function MuhelySearchBar({ value, onChange, placeholder = 'Keresés...' }: MuhelySearchBarProps) {
   return (
-    <div className="relative">
-      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+    <label className="relative block">
+      <span className="sr-only">{placeholder}</span>
+      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#788075]" />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full pl-10 pr-4 py-2.5 rounded-full bg-white border border-slate-200 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 transition-all"
+        className="w-full rounded-full border border-[#d8cbb8] bg-[#fffdf7] py-3 pl-11 pr-4 text-sm text-[#26382f] shadow-[inset_0_1px_3px_rgba(77,64,45,0.04)] outline-none transition placeholder:text-[#8b8f86] hover:border-[#b9ad99] focus:border-[#8a9a74] focus:ring-4 focus:ring-[#647a52]/10 motion-reduce:transition-none"
       />
-    </div>
+    </label>
   )
 }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { supportIdea } from '@/app/misszios-muhely/community-actions'
 
 async function getProfile() {
   const access = await getEffectiveAccessContext()
@@ -125,36 +126,7 @@ export async function saveIdea(data: { cim: string; leiras: string; kategoriaIds
 }
 
 export async function voteIdea(ideaId: string) {
-  const { supabase, userId } = await getProfile()
-  if (!userId) return { error: 'Nincs bejelentkezve.' }
-
-  const { data: existing } = await supabase
-    .from('mm_szavazatok')
-    .select('id')
-    .eq('otlet_id', ideaId)
-    .eq('user_id', userId)
-    .eq('tipus', 'tamogatas')
-    .maybeSingle()
-  if (existing) return { error: 'Már szavazott erre az ötletre.' }
-
-  const { error: insertError } = await supabase
-    .from('mm_szavazatok')
-    .insert({ otlet_id: ideaId, user_id: userId, tipus: 'tamogatas' })
-  if (insertError) return { error: insertError.message }
-
-  const { count, error: countError } = await supabase
-    .from('mm_szavazatok')
-    .select('*', { count: 'exact', head: true })
-    .eq('otlet_id', ideaId)
-    .eq('tipus', 'tamogatas')
-  if (countError) return { error: countError.message }
-
-  const { error: updateError } = await supabase
-    .from('mm_otletek')
-    .update({ tamogatasok_szama: count || 0 })
-    .eq('id', ideaId)
-  if (updateError) return { error: updateError.message }
-
-  revalidatePath('/misszios-muhely')
-  return { success: true }
+  // Régi komponensek kompatibilitási útvonala: ugyanazt a versenybiztos,
+  // DB-triggerrel őrzött akciót használja, mint az új Ötletasztal.
+  return supportIdea(ideaId)
 }
