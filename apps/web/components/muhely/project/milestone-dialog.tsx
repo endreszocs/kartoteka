@@ -59,6 +59,7 @@ export function MilestoneDialog({
     startTransition(async () => {
       const result = await saveMilestone({
         id: existing?.id,
+        expected_revision: existing?.revision,
         otlet_id: ideaId,
         cim: cim.trim(),
         leiras: leiras.trim() || null,
@@ -78,43 +79,49 @@ export function MilestoneDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto p-0">
-        <DialogHeader className="flex flex-row items-center gap-3 border-b border-slate-100 bg-gradient-to-br from-amber-500 to-orange-600 px-5 py-4 text-white">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
-            <Flag className="h-5 w-5 text-white" />
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl">
+        <DialogHeader className="flex flex-row items-center gap-3 border-b border-[#d8c9b4] bg-[#fbf0d8] px-4 py-4 text-[#26382f] sm:px-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfc48f] bg-[#fffdf7]">
+            <Flag className="h-5 w-5 text-[#b77d35]" />
           </div>
           <div className="flex-1">
-            <DialogTitle className="font-heading text-lg text-white">
+            <DialogTitle className="font-heading text-xl text-[#26382f]">
               {existing ? 'Mérföldkő szerkesztése' : 'Új mérföldkő'}
             </DialogTitle>
-            <p className="text-xs text-white/80">
+            <p className="text-xs text-[#7d755f]">
               Jelöld a projekt kulcsfontosságú állomásait.
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/20"
+            className="h-11 w-11 rounded-full text-[#7d755f] hover:bg-[#fffdf7] hover:text-[#26382f]"
             onClick={() => onOpenChange(false)}
+            aria-label="Mérföldkő ablak bezárása"
           >
             <X className="h-5 w-5" />
           </Button>
         </DialogHeader>
 
-        <div className="space-y-4 px-5 py-4">
-          <ModalField label="Cím" required>
+        <div className="space-y-4 px-4 py-4 sm:px-5">
+          <ModalField label="Cím" htmlFor="project-milestone-title" required>
             <input
+              id="project-milestone-title"
               type="text"
+              required
+              aria-required="true"
               value={cim}
               onChange={e => setCim(e.target.value)}
               placeholder="Pl. Programfüzet véglegesítése"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+              className="min-h-11 w-full rounded-xl border border-[#d8cbb8] bg-white px-3 py-2.5 text-sm text-[#26382f] outline-none focus:border-[#c89b5d] focus:ring-4 focus:ring-[#d3a45e]/10"
               maxLength={200}
             />
           </ModalField>
 
-          <ModalField label="Leírás">
+          <ModalField label="Leírás" htmlFor="project-milestone-description">
             <Textarea
+              id="project-milestone-description"
+              className="border-[#d8cbb8] bg-white text-[#26382f] focus-visible:border-[#c89b5d] focus-visible:ring-[#d3a45e]/10"
               value={leiras}
               onChange={e => setLeiras(e.target.value)}
               placeholder="Mire gondolsz ennél a mérföldkőnél? Mi a konkrét eredmény?"
@@ -123,27 +130,28 @@ export function MilestoneDialog({
             />
           </ModalField>
 
-          <ModalField label="Határidő">
+          <ModalField label="Határidő" htmlFor="project-milestone-deadline">
             <input
+              id="project-milestone-deadline"
               type="date"
               value={hatarido}
               onChange={e => setHatarido(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+              className="min-h-11 w-full rounded-xl border border-[#d8cbb8] bg-white px-3 py-2.5 text-sm text-[#26382f] outline-none focus:border-[#c89b5d] focus:ring-4 focus:ring-[#d3a45e]/10"
             />
           </ModalField>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-[#ded2c0] bg-[#f7f0e5]/95 px-4 py-3 backdrop-blur-sm sm:flex sm:justify-end sm:px-5">
           <Button
             variant="outline"
-            className="rounded-xl"
+            className="min-h-11 rounded-full border-[#d4c7b5] bg-[#fffdf7] text-[#657065] hover:bg-white"
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
             Mégse
           </Button>
           <Button
-            className="rounded-xl bg-amber-600 hover:bg-amber-700"
+            className="min-h-11 rounded-full bg-[#b77d35] text-white hover:bg-[#996527]"
             onClick={handleSubmit}
             disabled={isPending || !cim.trim()}
           >

@@ -1,15 +1,15 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   getMissionLevel,
-  MISSION_POINT_RULES,
-  type MissionPointEvent,
   type MissionUserStats,
 } from '@/lib/missions/gamification'
+import { awardMissionEvent } from '@/lib/missions/reward-server'
 
 /**
  * Biztonsági helper: csak https:// vagy http:// protokollú URL-t enged.
@@ -26,10 +26,8 @@ function isSafeHttpUrl(value: string): boolean {
 }
 
 /**
- * Admin (service_role) kliens a gamifikációs írásokhoz.
- * Az mm_felhasznalo_statisztika és mm_felhasznalo_jelveny RLS szerint csak
- * service_role írhat. Ha nincs SUPABASE_SERVICE_ROLE_KEY, a gamifikáció
- * visszafog a normál kliensre, ami RLS hiba esetén csendesen elbukik.
+ * Admin (service_role) kliens a hiányzó statisztikasor inicializálásához.
+ * A pontozást nem ez végzi: azt kizárólag az atomikus DB-trigger írhatja.
  */
 function getGamificationClient() {
   const admin = createAdminClient()
@@ -72,6 +70,8 @@ type WorkshopIdea = {
   celcsoport: string | null
   becsult_ido: string | null
   statusz: string | null
+  szavazas_kezdete: string | null
+  szavazas_vege: string | null
   tamogatasok_szama: number | null
   csatlakozok_szama: number | null
   hozzaszolasok_szama: number | null
@@ -162,19 +162,6 @@ const DEFAULT_STATS: MissionUserStats = {
   frissitve: null,
 }
 
-const BADGE_RULES: Array<{ kod: string; isEarned: (stats: MissionUserStats) => boolean }> = [
-  { kod: 'elso_otlet', isEarned: (stats) => stats.otletek_szama >= 1 },
-  { kod: 'otletgyaros', isEarned: (stats) => stats.otletek_szama >= 5 },
-  { kod: 'tamogato', isEarned: (stats) => stats.tamogatasok_adva >= 10 },
-  { kod: 'tamogato_bajnok', isEarned: (stats) => stats.tamogatasok_adva >= 25 },
-  { kod: 'feltolto', isEarned: (stats) => stats.segedanyagok_feltoltve >= 5 },
-  { kod: 'siker', isEarned: (stats) => stats.megvalosult_otletek >= 1 },
-  { kod: 'nagy_siker', isEarned: (stats) => stats.megvalosult_otletek >= 3 },
-  { kod: 'top_ertekelo', isEarned: (stats) => stats.ertekelesek_adva >= 20 },
-  { kod: 'hozzaszolo', isEarned: (stats) => stats.hozzaszolasok_szama >= 10 },
-  { kod: 'mentor', isEarned: (stats) => stats.feladatok_teljesitve >= 10 },
-]
-
 async function getWorkshopAccess() {
   const access = await getEffectiveAccessContext()
   return {
@@ -182,8 +169,33 @@ async function getWorkshopAccess() {
     userId: access.user?.id || null,
     fullName: access.fullName || '',
     congregationName: access.congregationName || '',
-    isAdmin: access.admin,
+    // Ugyanaz a DB-ben is ellenőrizhető admin-predikátum, mint a workflow guardban.
+    isAdmin: access.profile?.status === 'active' && access.profile.role === 'admin',
   }
+}
+
+const workshopUuidSchema = z.string().uuid('Érvénytelen műhelyazonosító.')
+
+function parseWorkshopUuid(value: unknown) {
+  const parsed = workshopUuidSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+function revalidateWorkshopIdea(ideaId: string) {
+  revalidatePath('/misszios-muhely')
+  revalidatePath('/misszios-muhely/forum')
+  revalidatePath(`/misszios-muhely/forum/${ideaId}`)
+  revalidatePath('/misszios-muhely/jutalmak')
+}
+
+function workflowErrorMessage(error: { code?: string; message: string }) {
+  if (error.code === '42501') {
+    return 'Ehhez a művelethez nincs jogosultságod.'
+  }
+  if (error.code === '23514' || error.code === '23505') {
+    return error.message
+  }
+  return `A művelet nem sikerült: ${error.message}`
 }
 
 async function ensureStats(userId: string) {
@@ -222,112 +234,6 @@ async function ensureStats(userId: string) {
     .single()
 
   return ((inserted as MissionUserStats | null) || { ...DEFAULT_STATS, user_id: userId }) as MissionUserStats
-}
-
-async function awardPoints(userId: string, event: MissionPointEvent) {
-  const rules = MISSION_POINT_RULES[event]
-  const current = await ensureStats(userId)
-
-  const updated: MissionUserStats = {
-    ...current,
-    osszpontszam: (current.osszpontszam || 0) + rules.points,
-    frissitve: new Date().toISOString(),
-  }
-
-  if (rules.statKey) {
-    const currentValue = Number(updated[rules.statKey] || 0)
-    ;(updated[rules.statKey] as number) = currentValue + 1
-  }
-
-  updated.szint = getMissionLevel(updated.osszpontszam).name
-
-  // Admin klienssel írunk — RLS csak service_role-t enged
-  const adminClient = getGamificationClient()
-  if (!adminClient) {
-    console.warn('[awardPoints] SUPABASE_SERVICE_ROLE_KEY hiányzik, pontok nem frissülnek')
-    return
-  }
-
-  await adminClient
-    .from('mm_felhasznalo_statisztika')
-    .upsert(updated, { onConflict: 'user_id' })
-
-  await awardBadges(userId, updated)
-}
-
-async function awardBadges(userId: string, stats: MissionUserStats) {
-  const { supabase } = await getWorkshopAccess()
-  const adminClient = getGamificationClient()
-
-  const [typesRes, earnedRes] = await Promise.all([
-    supabase.from('mm_jelveny_tipusok').select('*').order('sorrend'),
-    supabase.from('mm_felhasznalo_jelveny').select('jelveny_id').eq('user_id', userId),
-  ])
-
-  const types = (typesRes.data || []) as WorkshopBadgeType[]
-  const earnedIds = new Set((earnedRes.data || []).map((badge: { jelveny_id: number }) => badge.jelveny_id))
-
-  const missingBadgeIds = BADGE_RULES.flatMap((rule) => {
-    const badgeType = types.find((type) => type.kod === rule.kod)
-    if (!badgeType || earnedIds.has(badgeType.id) || !rule.isEarned(stats)) {
-      return []
-    }
-    return [badgeType.id]
-  })
-
-  if (missingBadgeIds.length === 0) return
-
-  if (!adminClient) {
-    console.warn('[awardBadges] SUPABASE_SERVICE_ROLE_KEY hiányzik, jelvények nem kerülnek be')
-    return
-  }
-
-  // UNIQUE index (user_id, jelveny_id) — duplikáció ellen
-  await adminClient.from('mm_felhasznalo_jelveny').upsert(
-    missingBadgeIds.map((badgeId) => ({
-      user_id: userId,
-      jelveny_id: badgeId,
-    })),
-    { onConflict: 'user_id,jelveny_id', ignoreDuplicates: true },
-  )
-}
-
-async function refreshIdeaCounters(ideaId: string) {
-  const { supabase } = await getWorkshopAccess()
-  // Olvasás az authenticated klienssel (számláló lekérdezés)
-  const [supportRes, joinRes, commentRes] = await Promise.all([
-    supabase
-      .from('mm_szavazatok')
-      .select('*', { count: 'exact', head: true })
-      .eq('otlet_id', ideaId)
-      .eq('tipus', 'tamogatas'),
-    supabase
-      .from('mm_szavazatok')
-      .select('*', { count: 'exact', head: true })
-      .eq('otlet_id', ideaId)
-      .eq('tipus', 'csatlakozas'),
-    supabase
-      .from('mm_hozzaszolasok')
-      .select('*', { count: 'exact', head: true })
-      .eq('otlet_id', ideaId),
-  ])
-
-  // Az mm_otletek frissítéshez admin client kell, mert a UPDATE policy csak
-  // a tulajdonosnak engedi. Itt viszont a rendszer frissít egy számlálót.
-  const adminClient = getGamificationClient()
-  if (!adminClient) {
-    console.warn('[refreshIdeaCounters] SUPABASE_SERVICE_ROLE_KEY hiányzik, számlálók nem frissülnek')
-    return
-  }
-
-  await adminClient
-    .from('mm_otletek')
-    .update({
-      tamogatasok_szama: supportRes.count || 0,
-      csatlakozok_szama: joinRes.count || 0,
-      hozzaszolasok_szama: commentRes.count || 0,
-    })
-    .eq('id', ideaId)
 }
 
 /* ── What's New loader ─────────────────────────────────────────────────── */
@@ -434,9 +340,12 @@ export async function loadHomePageData() {
   const [
     materialsRes,
     ideasRes,
+    activeProjectsRes,
     leaderboardRes,
     categoriesRes,
     totalMembersRes,
+    badgeTypesRes,
+    myBadgesRes,
   ] = await Promise.all([
     supabase
       .from('mm_segedanyagok')
@@ -451,6 +360,13 @@ export async function loadHomePageData() {
       .order('hozzaszolasok_szama', { ascending: false })
       .limit(3),
     supabase
+      .from('mm_otletek')
+      .select('*, mm_otlet_kategoriak(kategoria_id, mm_kategoriak(nev, ikon, szin))')
+      .eq('aktiv', true)
+      .in('statusz', ['kozos_munka', 'megvalosult'])
+      .order('updated_at', { ascending: false })
+      .limit(12),
+    supabase
       .from('mm_felhasznalo_statisztika')
       .select('*')
       .order('osszpontszam', { ascending: false })
@@ -459,6 +375,11 @@ export async function loadHomePageData() {
     supabase
       .from('mm_felhasznalo_statisztika')
       .select('*', { count: 'exact', head: true }),
+    supabase.from('mm_jelveny_tipusok').select('*').order('sorrend'),
+    supabase
+      .from('mm_felhasznalo_jelveny')
+      .select('*, mm_jelveny_tipusok(*)')
+      .eq('user_id', userId),
   ])
 
   const [totalMaterialsRes, totalIdeasRes, totalCommentsRes] = await Promise.all([
@@ -506,6 +427,10 @@ export async function loadHomePageData() {
     (votesRes.data || []).filter((v: { tipus: string }) => v.tipus === 'csatlakozas').map((v: { otlet_id: string }) => v.otlet_id),
   )
 
+  const myProjects = ((activeProjectsRes.data || []) as unknown as WorkshopIdea[])
+    .filter((idea) => idea.otletgazda_id === userId || myJoinIds.has(idea.id))
+    .slice(0, 3)
+
   return {
     viewer: { id: userId, fullName, congregationName, isAdmin },
     recentMaterials: (materialsRes.data || []) as unknown as WorkshopMaterial[],
@@ -535,6 +460,9 @@ export async function loadHomePageData() {
     },
     categories: (categoriesRes.data || []) as WorkshopCategory[],
     myStats,
+    myProjects,
+    badgeCatalog: (badgeTypesRes.data || []) as WorkshopBadgeType[],
+    myBadges: (myBadgesRes.data || []) as unknown as WorkshopBadge[],
   }
 }
 
@@ -730,6 +658,8 @@ export async function rateMaterial(materialId: string, pontszam: number, velemen
     .eq('user_id', userId)
     .maybeSingle()
 
+  let isNewRating = false
+
   if (existing) {
     const { error } = await supabase
       .from('mm_segedanyag_ertekelesek')
@@ -751,6 +681,7 @@ export async function rateMaterial(materialId: string, pontszam: number, velemen
       }
       return { error: error.message }
     }
+    isNewRating = true
   }
 
   // Update average on the material — admin klienssel, mert az mm_segedanyagok
@@ -774,8 +705,12 @@ export async function rateMaterial(materialId: string, pontszam: number, velemen
     }
   }
 
+  const reward = isNewRating
+    ? await awardMissionEvent(userId, 'ertekeles_adva', materialId)
+    : null
+
   revalidatePath('/misszios-muhely')
-  return { success: true }
+  return { success: true, reward }
 }
 
 export async function deleteMaterial(materialId: string) {
@@ -941,18 +876,152 @@ export async function loadWorkshopExperience(): Promise<WorkshopExperience | { e
 }
 
 export async function getIdeaComments(ideaId: string) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  if (!safeIdeaId) return { error: 'Érvénytelen ötletazonosító.' }
+
   const { supabase } = await getWorkshopAccess()
+  const { data: idea } = await supabase
+    .from('mm_otletek')
+    .select('id, aktiv')
+    .eq('id', safeIdeaId)
+    .maybeSingle()
+  if (!idea?.aktiv) return { error: 'Az ötlet nem található vagy inaktív.' }
+
   const { data, error } = await supabase
     .from('mm_hozzaszolasok')
     .select('*')
-    .eq('otlet_id', ideaId)
+    .eq('otlet_id', safeIdeaId)
     .order('created_at', { ascending: true })
 
   if (error) return { error: error.message }
   return { data: (data || []) as WorkshopComment[] }
 }
 
+/** Az ötletgazda egyszer elindítja a pontosan 14 napos támogatási időszakot.
+ * A dátumokat kizárólag a DB-trigger írja. */
+export async function startIdeaVoting(ideaId: string) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  if (!safeIdeaId) return { error: 'Érvénytelen ötletazonosító.' }
+
+  const { supabase, userId } = await getWorkshopAccess()
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data: idea, error: ideaError } = await supabase
+    .from('mm_otletek')
+    .select(
+      'id, aktiv, otletgazda_id, statusz, szavazas_kezdete, szavazas_vege, revision',
+    )
+    .eq('id', safeIdeaId)
+    .maybeSingle()
+
+  if (ideaError) return { error: workflowErrorMessage(ideaError) }
+  if (!idea || !idea.aktiv) return { error: 'Az ötlet nem található vagy inaktív.' }
+  if (idea.otletgazda_id !== userId) {
+    return { error: 'Csak az ötletgazda indíthat szavazást.' }
+  }
+
+  if (idea.statusz !== 'uj') {
+    return { error: 'Ehhez az ötlethez a 14 napos szavazást már elindították.' }
+  }
+
+  const { data: updated, error } = await supabase
+    .from('mm_otletek')
+    .update({ statusz: 'szavazas' })
+    .eq('id', safeIdeaId)
+    .eq('statusz', idea.statusz)
+    .eq('revision', idea.revision)
+    .select('statusz, szavazas_kezdete, szavazas_vege')
+    .maybeSingle()
+
+  if (error) return { error: workflowErrorMessage(error) }
+  if (!updated) {
+    return {
+      error: 'Az ötlet közben megváltozott. Frissítsd az oldalt, majd próbáld újra.',
+    }
+  }
+
+  revalidateWorkshopIdea(safeIdeaId)
+  return {
+    success: true,
+    voteStart: updated.szavazas_kezdete,
+    voteEnd: updated.szavazas_vege,
+  }
+}
+
+/** A közös projekt csak legalább egy, maradéktalanul kész feladattal zárható.
+ * A szerveres előellenőrzés barátságos hibát ad; a DB-trigger a végső kapu. */
+export async function markIdeaRealized(ideaId: string) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  if (!safeIdeaId) return { error: 'Érvénytelen projektazonosító.' }
+
+  const { supabase, userId, isAdmin } = await getWorkshopAccess()
+  if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data: idea, error: ideaError } = await supabase
+    .from('mm_otletek')
+    .select('id, aktiv, otletgazda_id, statusz, revision')
+    .eq('id', safeIdeaId)
+    .maybeSingle()
+
+  if (ideaError) return { error: workflowErrorMessage(ideaError) }
+  if (!idea || !idea.aktiv) return { error: 'A projekt nem található vagy inaktív.' }
+  if (idea.otletgazda_id !== userId && !isAdmin) {
+    return { error: 'Csak az ötletgazda vagy rendszergazda zárhatja le a projektet.' }
+  }
+  if (idea.statusz !== 'kozos_munka') {
+    return { error: 'Csak közös munka állapotú projekt jelölhető megvalósultnak.' }
+  }
+
+  const { data: tasks, error: taskError } = await supabase
+    .from('mm_feladatok')
+    .select('id, statusz')
+    .eq('otlet_id', safeIdeaId)
+
+  if (taskError) return { error: `A feladatok ellenőrzése sikertelen: ${taskError.message}` }
+  if (!tasks?.length) {
+    return { error: 'A lezáráshoz előbb hozzatok létre legalább egy feladatot.' }
+  }
+
+  const unfinishedCount = tasks.filter((task) => task.statusz !== 'kesz').length
+  if (unfinishedCount > 0) {
+    return {
+      error: `Még ${unfinishedCount} feladat nincs kész. A projekt ezek lezárása után valósítható meg.`,
+    }
+  }
+
+  const { data: updated, error } = await supabase
+    .from('mm_otletek')
+    .update({ statusz: 'megvalosult' })
+    .eq('id', safeIdeaId)
+    .eq('statusz', 'kozos_munka')
+    .eq('revision', idea.revision)
+    .select('id, statusz')
+    .maybeSingle()
+
+  if (error) return { error: workflowErrorMessage(error) }
+  if (!updated) {
+    return {
+      error: 'A projekt vagy valamelyik feladat közben megváltozott. Frissítsd az oldalt.',
+    }
+  }
+
+  const reward = await awardMissionEvent(
+    idea.otletgazda_id,
+    'otlet_megvalosult',
+    safeIdeaId,
+  )
+  revalidateWorkshopIdea(safeIdeaId)
+  return { success: true, reward, taskCount: tasks.length }
+}
+
 export async function saveIdeaComment(ideaId: string, text: string, parentId?: string | null) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  const safeParentId = parentId ? parseWorkshopUuid(parentId) : null
+  if (typeof text !== 'string') return { error: 'Érvénytelen hozzászólás.' }
+  if (!safeIdeaId || (parentId && !safeParentId)) {
+    return { error: 'Érvénytelen hozzászólás-azonosító.' }
+  }
+
   const { supabase, userId, fullName, congregationName } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
   if (!text.trim()) return { error: 'Az üzenet nem lehet üres.' }
@@ -962,59 +1031,68 @@ export async function saveIdeaComment(ideaId: string, text: string, parentId?: s
   const { data: idea } = await supabase
     .from('mm_otletek')
     .select('id, aktiv')
-    .eq('id', ideaId)
+    .eq('id', safeIdeaId)
     .maybeSingle()
   if (!idea || !idea.aktiv) {
     return { error: 'Az ötlet nem található vagy már archivált.' }
   }
 
   // Ha parentId meg van adva, ellenőrizzük, hogy ugyanahhoz az ötlethez tartozik
-  if (parentId) {
+  if (safeParentId) {
     const { data: parent } = await supabase
       .from('mm_hozzaszolasok')
       .select('otlet_id')
-      .eq('id', parentId)
+      .eq('id', safeParentId)
       .maybeSingle()
-    if (!parent || parent.otlet_id !== ideaId) {
+    if (!parent || parent.otlet_id !== safeIdeaId) {
       return { error: 'Érvénytelen szülő hozzászólás.' }
     }
   }
 
-  const { error } = await supabase.from('mm_hozzaszolasok').insert({
-    otlet_id: ideaId,
-    user_id: userId,
-    user_nev: fullName,
-    user_gyulekezet: congregationName,
-    szoveg: text.trim(),
-    szulo_id: parentId || null,
-  })
+  const { data: insertedComment, error } = await supabase
+    .from('mm_hozzaszolasok')
+    .insert({
+      otlet_id: safeIdeaId,
+      user_id: userId,
+      user_nev: fullName,
+      user_gyulekezet: congregationName,
+      szoveg: text.trim(),
+      szulo_id: safeParentId,
+    })
+    .select('id')
+    .single()
 
   if (error) return { error: error.message }
 
-  await awardPoints(userId, 'hozzaszolas')
-  await refreshIdeaCounters(ideaId)
-  revalidatePath('/misszios-muhely')
-  return { success: true }
+  const reward = await awardMissionEvent(userId, 'hozzaszolas', insertedComment.id)
+  revalidateWorkshopIdea(safeIdeaId)
+  return { success: true, reward }
 }
 
 export async function toggleIdeaJoin(ideaId: string) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  if (!safeIdeaId) return { error: 'Érvénytelen ötletazonosító.' }
+
   const { supabase, userId } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  // Ellenőrzés: az ötlet létezik
-  const { data: idea } = await supabase
+  const { data: idea, error: ideaError } = await supabase
     .from('mm_otletek')
-    .select('id, aktiv')
-    .eq('id', ideaId)
+    .select('id, aktiv, otletgazda_id, statusz')
+    .eq('id', safeIdeaId)
     .maybeSingle()
+  if (ideaError) return { error: workflowErrorMessage(ideaError) }
   if (!idea || !idea.aktiv) {
     return { error: 'Az ötlet nem található.' }
+  }
+  if (idea.otletgazda_id === userId) {
+    return { error: 'Az ötletgazda automatikusan a projektcsapat tagja.' }
   }
 
   const { data: existing, error: existingError } = await supabase
     .from('mm_szavazatok')
     .select('id')
-    .eq('otlet_id', ideaId)
+    .eq('otlet_id', safeIdeaId)
     .eq('user_id', userId)
     .eq('tipus', 'csatlakozas')
     .maybeSingle()
@@ -1022,64 +1100,78 @@ export async function toggleIdeaJoin(ideaId: string) {
   if (existingError) return { error: existingError.message }
 
   if (existing) {
-    // Kilépés — NEM adunk pontot és NEM is vonunk vissza. A pont-exploit ellen
-    // a csatlakozási naplót is ellenőrizzük: ha egy user valaha már csatlakozott
-    // ehhez az ötlethez, az első csatlakozáskor kapott pontot "kiérdemelte",
-    // ez a logika megmarad.
+    if (idea.statusz !== 'kozos_munka') {
+      return { error: 'Lezárt projekt csapattagsága már nem módosítható.' }
+    }
+
     const { error } = await supabase.from('mm_szavazatok').delete().eq('id', existing.id)
-    if (error) return { error: error.message }
-    await refreshIdeaCounters(ideaId)
-    revalidatePath('/misszios-muhely')
+    if (error) return { error: workflowErrorMessage(error) }
+    revalidateWorkshopIdea(safeIdeaId)
     return { success: true, joined: false }
   }
 
-  // Csatlakozás — UNIQUE constraint miatt egy duplikációs kérés elutasításra kerül
+  if (idea.statusz !== 'kozos_munka') {
+    return { error: 'Csatlakozni akkor lehet, amikor az ötlet közös munkává érett.' }
+  }
+
   const { error } = await supabase
     .from('mm_szavazatok')
-    .insert({ otlet_id: ideaId, user_id: userId, tipus: 'csatlakozas' })
+    .insert({ otlet_id: safeIdeaId, user_id: userId, tipus: 'csatlakozas' })
 
   if (error) {
     // Duplicate key violation → már csatlakozott
     if (error.code === '23505') {
       return { error: 'Már csatlakoztál ehhez az ötlethez.' }
     }
-    return { error: error.message }
+    return { error: workflowErrorMessage(error) }
   }
 
-  // Pont-exploit ellen: csak az első csatlakozáskor adunk pontot (a
-  // `mm_felhasznalo_statisztika` sort-rel ellenőrizzük, hogy volt-e már
-  // csatlakozási esemény). Egyszerű megoldás: nem tároljuk a kilépéseket,
-  // de a statisztikában nyomon követjük. Jelenleg ez lehetetlen, mert
-  // a statKey='csatlakozas' esetén null. Ez a legjobb, amit tehetünk:
-  // pontot adunk minden új csatlakozáskor.
-  // A duplikáció-ellenes UNIQUE constraint + az audit-lista megakadályozza
-  // a számolatlan exploit-ot: csak akkor adhat pontot, ha újonnan csatlakozik.
-  // Ha ugyanazt az ötletet újra-csatlakozza (kilépés után), akkor igen, kap pontot
-  // — ez jelen állás szerint rendben van, de dokumentálva.
-  await awardPoints(userId, 'csatlakozas')
-  await refreshIdeaCounters(ideaId)
-  revalidatePath('/misszios-muhely')
-  return { success: true, joined: true }
+  const reward = await awardMissionEvent(userId, 'csatlakozas', safeIdeaId)
+  revalidateWorkshopIdea(safeIdeaId)
+  return { success: true, joined: true, reward }
 }
 
 export async function supportIdea(ideaId: string) {
+  const safeIdeaId = parseWorkshopUuid(ideaId)
+  if (!safeIdeaId) return { error: 'Érvénytelen ötletazonosító.' }
+
   const { supabase, userId } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  // Ellenőrzés: az ötlet létezik és aktív
-  const { data: idea } = await supabase
+  const { data: idea, error: ideaError } = await supabase
     .from('mm_otletek')
-    .select('id, aktiv')
-    .eq('id', ideaId)
+    .select('id, aktiv, otletgazda_id, statusz, szavazas_kezdete, szavazas_vege')
+    .eq('id', safeIdeaId)
     .maybeSingle()
+  if (ideaError) return { error: workflowErrorMessage(ideaError) }
   if (!idea || !idea.aktiv) {
     return { error: 'Az ötlet nem található.' }
+  }
+  if (idea.otletgazda_id === userId) {
+    return { error: 'A saját ötletedet nem támogathatod.' }
+  }
+
+  const now = Date.now()
+  const voteStart = idea.szavazas_kezdete
+    ? new Date(idea.szavazas_kezdete).getTime()
+    : Number.NaN
+  const voteEnd = idea.szavazas_vege
+    ? new Date(idea.szavazas_vege).getTime()
+    : Number.NaN
+  if (
+    idea.statusz !== 'szavazas' ||
+    !Number.isFinite(voteStart) ||
+    !Number.isFinite(voteEnd) ||
+    now < voteStart ||
+    now >= voteEnd
+  ) {
+    return { error: 'Támogatni csak az aktív, 14 napos szavazás alatt lehet.' }
   }
 
   const { data: existing, error: existingError } = await supabase
     .from('mm_szavazatok')
     .select('id')
-    .eq('otlet_id', ideaId)
+    .eq('otlet_id', safeIdeaId)
     .eq('user_id', userId)
     .eq('tipus', 'tamogatas')
     .maybeSingle()
@@ -1089,20 +1181,30 @@ export async function supportIdea(ideaId: string) {
 
   const { error } = await supabase
     .from('mm_szavazatok')
-    .insert({ otlet_id: ideaId, user_id: userId, tipus: 'tamogatas' })
+    .insert({ otlet_id: safeIdeaId, user_id: userId, tipus: 'tamogatas' })
 
   if (error) {
     // UNIQUE constraint violation (race condition ellen)
     if (error.code === '23505') {
       return { error: 'Ezt az ötletet már támogatod.' }
     }
-    return { error: error.message }
+    return { error: workflowErrorMessage(error) }
   }
 
-  await awardPoints(userId, 'szavazat_adva')
-  await refreshIdeaCounters(ideaId)
-  revalidatePath('/misszios-muhely')
-  return { success: true }
+  const reward = await awardMissionEvent(userId, 'szavazat_adva', safeIdeaId)
+  const { data: updatedIdea } = await supabase
+    .from('mm_otletek')
+    .select('statusz, tamogatasok_szama')
+    .eq('id', safeIdeaId)
+    .maybeSingle()
+
+  revalidateWorkshopIdea(safeIdeaId)
+  return {
+    success: true,
+    reward,
+    promoted: updatedIdea?.statusz === 'kozos_munka',
+    supportCount: updatedIdea?.tamogatasok_szama || 0,
+  }
 }
 
 export async function shareMissionMaterial(data: {
@@ -1151,9 +1253,9 @@ export async function shareMissionMaterial(data: {
     )
   }
 
-  await awardPoints(userId, 'segedanyag_feltoltes')
+  const reward = await awardMissionEvent(userId, 'segedanyag_feltoltes', inserted.id)
   revalidatePath('/misszios-muhely')
-  return { success: true }
+  return { success: true, materialId: inserted.id, reward }
 }
 
 export async function submitMissionIdea(data: {
@@ -1163,6 +1265,8 @@ export async function submitMissionIdea(data: {
   celcsoport?: string
   becsultIdo?: string
 }) {
+  const allowedTargetGroups = ['Fiatalok', 'Felnőttek', 'Idősek', 'Családok', 'Gyerekek', 'Mindenki']
+  const allowedDurations = ['1 hónap', '2-3 hónap', 'Fél év', 'Folyamatos']
   const { supabase, userId, fullName, congregationName } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
   if (!data.cim.trim() || !data.leiras.trim()) {
@@ -1170,14 +1274,20 @@ export async function submitMissionIdea(data: {
   }
   if (data.cim.length > 200) return { error: 'A cím túl hosszú (max 200 karakter).' }
   if (data.leiras.length > 5000) return { error: 'A leírás túl hosszú (max 5000 karakter).' }
+  if (!data.celcsoport || !allowedTargetGroups.includes(data.celcsoport)) {
+    return { error: 'Válassz érvényes célcsoportot.' }
+  }
+  if (!data.becsultIdo || !allowedDurations.includes(data.becsultIdo)) {
+    return { error: 'Válassz érvényes becsült időt.' }
+  }
 
   const { data: inserted, error } = await supabase
     .from('mm_otletek')
     .insert({
       cim: data.cim.trim(),
       leiras: data.leiras.trim(),
-      celcsoport: data.celcsoport || 'Gyülekezeti közösség',
-      becsult_ido: data.becsultIdo || '2-3 hét',
+      celcsoport: data.celcsoport,
+      becsult_ido: data.becsultIdo,
       statusz: 'uj',
       otletgazda_id: userId,
       otletgazda_nev: fullName,
@@ -1201,7 +1311,7 @@ export async function submitMissionIdea(data: {
     )
   }
 
-  await awardPoints(userId, 'otlet_bekuldve')
+  const reward = await awardMissionEvent(userId, 'otlet_bekuldve', inserted.id)
   revalidatePath('/misszios-muhely')
-  return { success: true }
+  return { success: true, ideaId: inserted.id, reward }
 }

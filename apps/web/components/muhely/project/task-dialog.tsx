@@ -60,16 +60,14 @@ export function TaskDialog({
       return
     }
 
-    const felelos = collaborators.find(c => c.user_id === felelosId)
-
     startTransition(async () => {
       const result = await saveTask({
         id: existing?.id,
+        expected_revision: existing?.revision,
         otlet_id: ideaId,
         cim: cim.trim(),
         leiras: leiras.trim() || null,
         felelos_id: felelosId || null,
-        felelos_nev: felelos?.full_name || null,
         hatarido: hatarido || null,
       })
 
@@ -86,43 +84,49 @@ export function TaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto p-0">
-        <DialogHeader className="flex flex-row items-center gap-3 border-b border-slate-100 bg-gradient-to-br from-violet-500 to-fuchsia-600 px-5 py-4 text-white">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
-            <ListTodo className="h-5 w-5 text-white" />
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl">
+        <DialogHeader className="flex flex-row items-center gap-3 border-b border-[#d8c9b4] bg-[#f4ebdd] px-4 py-4 text-[#26382f] sm:px-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#b9c4af] bg-[#edf2e9]">
+            <ListTodo className="h-5 w-5 text-[#526943]" />
           </div>
           <div className="flex-1">
-            <DialogTitle className="font-heading text-lg text-white">
+            <DialogTitle className="font-heading text-xl text-[#26382f]">
               {existing ? 'Feladat szerkesztése' : 'Új feladat'}
             </DialogTitle>
-            <p className="text-xs text-white/80">
+            <p className="text-xs text-[#747b72]">
               Oszd ki a csapatnak a következő lépést.
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/20"
+            className="h-11 w-11 rounded-full text-[#747b72] hover:bg-[#fffdf7] hover:text-[#26382f]"
             onClick={() => onOpenChange(false)}
+            aria-label="Feladat ablak bezárása"
           >
             <X className="h-5 w-5" />
           </Button>
         </DialogHeader>
 
-        <div className="space-y-4 px-5 py-4">
-          <ModalField label="Feladat címe" required>
+        <div className="space-y-4 px-4 py-4 sm:px-5">
+          <ModalField label="Feladat címe" htmlFor="project-task-title" required>
             <input
+              id="project-task-title"
               type="text"
+              required
+              aria-required="true"
               value={cim}
               onChange={e => setCim(e.target.value)}
               placeholder="Pl. Imahét programfüzet tervezése"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+              className="min-h-11 w-full rounded-xl border border-[#d8cbb8] bg-white px-3 py-2.5 text-sm text-[#26382f] outline-none focus:border-[#8a9a74] focus:ring-4 focus:ring-[#647a52]/10"
               maxLength={200}
             />
           </ModalField>
 
-          <ModalField label="Részletes leírás">
+          <ModalField label="Részletes leírás" htmlFor="project-task-description">
             <Textarea
+              id="project-task-description"
+              className="border-[#d8cbb8] bg-white text-[#26382f] focus-visible:border-[#8a9a74] focus-visible:ring-[#647a52]/10"
               value={leiras}
               onChange={e => setLeiras(e.target.value)}
               placeholder="Részletek, szempontok, jegyzetek..."
@@ -132,13 +136,14 @@ export function TaskDialog({
           </ModalField>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <ModalField label="Felelős">
+            <ModalField label="Felelős" htmlFor="project-task-assignee">
               <div className="relative">
                 <UserCircle2 className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <select
+                  id="project-task-assignee"
                   value={felelosId}
                   onChange={e => setFelelosId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                  className="min-h-11 w-full rounded-xl border border-[#d8cbb8] bg-white py-2.5 pl-8 pr-3 text-sm text-[#26382f] outline-none focus:border-[#8a9a74] focus:ring-4 focus:ring-[#647a52]/10"
                 >
                   <option value="">— Nincs kijelölve —</option>
                   {collaborators.map(c => (
@@ -151,28 +156,29 @@ export function TaskDialog({
               </div>
             </ModalField>
 
-            <ModalField label="Határidő">
+            <ModalField label="Határidő" htmlFor="project-task-deadline">
               <input
+                id="project-task-deadline"
                 type="date"
                 value={hatarido}
                 onChange={e => setHatarido(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                className="min-h-11 w-full rounded-xl border border-[#d8cbb8] bg-white px-3 py-2.5 text-sm text-[#26382f] outline-none focus:border-[#8a9a74] focus:ring-4 focus:ring-[#647a52]/10"
               />
             </ModalField>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-[#ded2c0] bg-[#f7f0e5]/95 px-4 py-3 backdrop-blur-sm sm:flex sm:justify-end sm:px-5">
           <Button
             variant="outline"
-            className="rounded-xl"
+            className="min-h-11 rounded-full border-[#d4c7b5] bg-[#fffdf7] text-[#657065] hover:bg-white"
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
             Mégse
           </Button>
           <Button
-            className="rounded-xl bg-violet-600 hover:bg-violet-700"
+            className="min-h-11 rounded-full bg-[#314b3b] text-white hover:bg-[#26382f]"
             onClick={handleSubmit}
             disabled={isPending || !cim.trim()}
           >

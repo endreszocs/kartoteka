@@ -5,16 +5,17 @@ import { cn } from '@kartoteka/ui'
 
 export interface ModalFieldProps {
   label: string
+  htmlFor?: string
   required?: boolean
   hint?: string
   children: ReactNode
   className?: string
 }
 
-export function ModalField({ label, required, hint, children, className }: ModalFieldProps) {
+export function ModalField({ label, htmlFor, required, hint, children, className }: ModalFieldProps) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      <label className="text-sm font-medium text-zinc-700">
+      <label htmlFor={htmlFor} className="text-sm font-medium text-zinc-700">
         {label}
         {required && <span className="ml-0.5 text-amber-700">*</span>}
       </label>
