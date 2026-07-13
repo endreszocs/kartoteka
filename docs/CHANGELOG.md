@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-13] — Frissítés után nem törik meg a navigáció
+<!-- key: 2026-07-13-sw-frissites-ujratoltes -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros, rendszergazda -->
+<!-- version: web v0.9.67 -->
+
+### 🐛 Kritikus javítás
+
+- **Egy frissítés (új verzió) telepítése után a megnyitott fül nem „ragad be"
+  többé.** Eddig, ha a rendszer frissült, miközben nyitva volt az alkalmazás, a
+  fül a régi és az új verzió keverékét futtatta — a bal oldali menüre kattintva
+  nem nyílt meg új oldal (a régi kód olyan fájlt keresett, amit a frissítés már
+  lecserélt). Mostantól a fül a frissítés átvételekor **automatikusan újratölt**
+  a friss verzióra, így a navigáció zökkenőmentes marad. Ha mégis ilyen hibába
+  futna, a rendszer **magától újratölti** a fület (biztonsági háló).
+
+> Ha most is beragadt oldalt látsz, egyszeri **teljes újratöltés** (Ctrl+Shift+R,
+> vagy Mac-en Cmd+Shift+R) azonnal helyreállítja — utána ez a hiba nem tér vissza.
+
+---
+
 ## [2026-07-13] — A Kartotéka neve is rákerült a segédanyagokra
 <!-- key: 2026-07-13-muhely-segedanyag-kartoteka-alairas -->
 <!-- category: bugfix -->
