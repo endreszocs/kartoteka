@@ -27,6 +27,7 @@
     "@tiptap/starter-kit": "^3.22.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cytoscape": "^3.34.0",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "exceljs": "^4.4.0",

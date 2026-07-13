@@ -9,7 +9,6 @@ import {
   BookOpen,
   Building2,
   Castle,
-  ChevronDown,
   ChevronRight,
   ClipboardList,
   FileText,
@@ -131,6 +130,16 @@ function isActivePath(pathname: string, href: string) {
   return pathname.startsWith(`${href}/`)
 }
 
+function isActiveMenuHash(pathname: string, path: string, hash: string) {
+  if (pathname !== path || typeof window === 'undefined') return false
+  const currentHash = window.location.hash
+  if (currentHash === `#${hash}`) return true
+
+  // A családok mostantól a Személyek munkafelület egyik nézete, ezért a
+  // visszafelé kompatibilis #families URL-nél is a Személyek menüpont aktív.
+  return path === '/tagnyilvantartas' && hash === 'persons' && currentHash === '#families'
+}
+
 /**
  * Egy menüpont — kibontható almenüvel, ha van `children`.
  *
@@ -167,11 +176,7 @@ function SidebarItem({
     hasChildren && item.children!.some((c) => {
       const [path, hash] = c.href.split('#')
       if (hash) {
-        return (
-          pathname === path &&
-          typeof window !== 'undefined' &&
-          window.location.hash === `#${hash}`
-        )
+        return isActiveMenuHash(pathname, path, hash)
       }
       // Hash-mentes default-child: csak akkor aktív, ha az URL-en sincs hash
       // (különben az "Áttekintés" mindig aktívnak látszott más hash-fülön is)
@@ -322,9 +327,7 @@ function SidebarItem({
                 // gyermek CSAK akkor aktív, ha az URL-en sincs hash.
                 const siblingHasHash = item.children!.some((c) => c.href.includes('#'))
                 const isChildActive = childHash
-                  ? pathname === childPath &&
-                    typeof window !== 'undefined' &&
-                    window.location.hash === `#${childHash}`
+                  ? isActiveMenuHash(pathname, childPath, childHash)
                   : siblingHasHash
                     ? isActivePath(pathname, child.href) &&
                       (typeof window === 'undefined' || !window.location.hash)
@@ -517,11 +520,17 @@ function SidebarNav({
   useEffect(() => {
     // A három fő-menü amik submenu-kkel rendelkeznek
     const candidates = ['/penzugy', '/tagnyilvantartas', '/anyakonyv']
-    for (const href of candidates) {
-      if (pathname === href || pathname.startsWith(`${href}/`)) {
-        setExpandedHref(href)
-        return
-      }
+    const matchingHref = candidates.find(
+      (href) => pathname === href || pathname.startsWith(`${href}/`),
+    )
+    if (!matchingHref) return
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setExpandedHref(matchingHref)
+    })
+    return () => {
+      cancelled = true
     }
     // Egyébként ne piszkáljuk az állapotot — a felhasználó által nyitva
     // hagyott menü maradjon nyitva navigáció közben is.

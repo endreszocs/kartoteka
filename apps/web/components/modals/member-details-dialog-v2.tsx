@@ -1,13 +1,16 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   BookOpen,
   CalendarDays,
   CreditCard,
   GitBranch,
+  IdCard,
+  Mail,
   MapPin,
+  Pencil,
   Phone,
   Printer,
   ShieldCheck,
@@ -15,7 +18,9 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { MemberAvatar } from '@kartoteka/ui-app'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { getMemberDetails, updateMemberNote, updateRegistryEventNote, updateMemberConsents } from '@/app/(dashboard)/tagnyilvantartas/actions'
@@ -24,6 +29,7 @@ import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
 import { MemberCertificateDialog } from '@/components/members/member-certificate-dialog'
+import { MemberStatusBadge } from '@/components/members/member-status-badge'
 
 interface MemberDetailsDialogProps {
   open: boolean
@@ -74,16 +80,6 @@ function getMemberPrefix(member: Pick<EnrichedMember, 'allapot' | 'namepattern'>
   return prefixes.length > 0 ? prefixes.join(' ') : null
 }
 
-function getInitials(member: EnrichedMember) {
-  return `${(member.csaladnev || '?')[0]}${(member.k_nev || '?')[0]}`.toUpperCase()
-}
-
-function getAvatarClasses(member: EnrichedMember) {
-  return member.ferfi
-    ? 'from-sky-400 to-blue-600 text-white'
-    : 'from-rose-400 to-pink-600 text-white'
-}
-
 function joinAddress(member: EnrichedMember) {
   const parts = [
     member.adrlocality?.name,
@@ -92,6 +88,30 @@ function joinAddress(member: EnrichedMember) {
   ].filter(Boolean)
 
   return parts.length > 0 ? parts.join(', ') : 'Nincs rögzítve'
+}
+
+function getMembershipPresentation(member: EnrichedMember) {
+  const status = (member.member_status || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const religion = (member.vallas || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (member.meghalt || member.paymentStatus === 'elhunyt') {
+    return { label: 'Elhunyt', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' }
+  }
+  if (member.elkoltozott || status === 'elkoltozott' || member.paymentStatus === 'elkoltozott') {
+    return { label: 'Elköltözött', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' }
+  }
+  if (status === 'kitert' || member.paymentStatus === 'kitert') {
+    return { label: 'Kitért', className: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' }
+  }
+  if (status === 'torolt') {
+    return { label: 'Törölt', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' }
+  }
+  if (religion === 'reformatus' || member.hasEverPaid) {
+    return { label: 'Aktív tag', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' }
+  }
+  if (religion) {
+    return { label: 'Más vallású', className: 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' }
+  }
+  return { label: 'Nem aktív', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' }
 }
 
 function buildDirectionsUrl(member: EnrichedMember) {
@@ -119,6 +139,8 @@ export function MemberDetailsDialogV2({
 }: MemberDetailsDialogProps) {
   const [details, setDetails] = useState<MemberDetailsData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
   const [tab, setTab] = useState<Tab>('personal')
   // 2026-06-10 (Fázis 5, P3-3): tagsági igazolás nyomtatása
   const [certOpen, setCertOpen] = useState(false)
@@ -132,19 +154,26 @@ export function MemberDetailsDialogV2({
       if (cancelled) return
       setDetails(null)
       setLoading(true)
+      setLoadError(false)
       setTab('personal')
 
-      getMemberDetails(member.id, familyId).then((data) => {
-        if (cancelled) return
-        setDetails(data)
-        setLoading(false)
-      })
+      getMemberDetails(member.id, familyId)
+        .then((data) => {
+          if (cancelled) return
+          setDetails(data)
+          setLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setLoadError(true)
+          setLoading(false)
+        })
     })
 
     return () => {
       cancelled = true
     }
-  }, [open, member, familyId])
+  }, [open, member, familyId, reloadToken])
 
   const paymentTotal = useMemo(() => {
     return (details?.befizetesek || []).reduce((sum, item) => sum + Number(item.osszeg || 0), 0)
@@ -160,7 +189,7 @@ export function MemberDetailsDialogV2({
   const prefix = getMemberPrefix(member)
   const baseName = getBaseName(member)
   const age = ageFromDate(member.sz_datum)
-  const initials = getInitials(member)
+  const membership = getMembershipPresentation(member)
   const arrearsTotal = (details?.arrearsBreakdown || []).reduce((sum, row) => sum + row.debt, 0)
   const registryEventCount = [
     details?.kereszteles,
@@ -172,86 +201,111 @@ export function MemberDetailsDialogV2({
   ].filter(Boolean).length
   const directionsUrl = buildDirectionsUrl(member)
 
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: Tab) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+
+    const currentIndex = tabs.findIndex((item) => item.value === currentTab)
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : event.key === 'ArrowRight'
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length
+    const nextTab = tabs[nextIndex]?.value
+    if (!nextTab) return
+
+    setTab(nextTab)
+    requestAnimationFrame(() => document.getElementById(`member-tab-${nextTab}`)?.focus())
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[92vh] !w-[min(1080px,calc(100vw-2rem))] !max-w-[min(1080px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1120px,calc(100vw-3rem))] sm:!max-w-[min(1120px,calc(100vw-3rem))]"
+        className="max-h-[calc(100dvh-1rem)] !w-[min(1120px,calc(100vw-1.25rem))] !max-w-[min(1120px,calc(100vw-1.25rem))] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1120px,calc(100vw-3rem))] sm:!max-w-[min(1120px,calc(100vw-3rem))]"
         showCloseButton={false}
       >
-        <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
-          {/* 2026-06-02: háttér-blob-ok csillapítva (30% → 15%, 25% → 12%) —
-              a "kaotikus" érzéshez jelentősen hozzájárultak. */}
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--accent) 15%, transparent)' }} />
-            <div className="absolute -left-8 bottom-0 h-28 w-28 rounded-full blur-3xl" style={{ background: 'color-mix(in oklab, var(--primary) 12%, transparent)' }} />
-          </div>
-
+        <div className="relative flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-[1.75rem] bg-card shadow-[0_36px_90px_-40px_rgba(14,52,48,0.38)] ring-1 ring-border">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-2xl border border-white/70 bg-white/90 text-slate-500 shadow-sm transition hover:text-slate-700 sm:right-4 sm:top-4"
+            className="absolute right-2 top-2 z-20 inline-flex size-11 items-center justify-center rounded-xl border border-border/70 bg-background/85 text-muted-foreground shadow-sm backdrop-blur transition hover:bg-background hover:text-foreground sm:right-4 sm:top-4 motion-reduce:transition-none"
             aria-label="Bezárás"
           >
             <X className="size-4" />
           </button>
 
-          <div className="relative border-b border-slate-200/70 px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0 pr-12 sm:pr-14">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700/70">Személyi karton</p>
+          <header className="relative shrink-0 border-b border-border/60 bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-4 pb-4 pt-4 dark:to-card sm:px-6 sm:pb-5 sm:pt-5 [@media(max-height:600px)]:pb-2 [@media(max-height:600px)]:pt-2">
+            <p className="pr-12 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/75">
+              Személyi karton
+            </p>
 
-                  <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
-                    <div className={`flex size-14 shrink-0 items-center justify-center rounded-[1.2rem] bg-gradient-to-br text-lg font-bold shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem] ${getAvatarClasses(member)}`}>
-                      {initials}
-                    </div>
+            <div className="mt-3 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start [@media(max-height:600px)]:mt-1 [@media(max-height:600px)]:gap-2">
+              <div className="flex min-w-0 items-start gap-4 pr-10 lg:pr-0">
+                <MemberAvatar
+                  name={baseName}
+                  kepUrl={member.photo_url}
+                  meghalt={member.meghalt}
+                  size={72}
+                  ring
+                  className="motion-reduce:hover:scale-100 [@media(max-height:600px)]:hidden"
+                />
+                <div className="min-w-0 pt-0.5">
+                  <DialogTitle className="font-heading text-[1.75rem] font-semibold leading-tight text-foreground sm:text-[2.15rem]">
+                    {prefix && <span className="mr-2 text-primary">{prefix}</span>}
+                    <span className="break-words">{baseName}</span>
+                  </DialogTitle>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 pr-2 sm:pr-4 lg:pr-8">
-                        {prefix && (
-                          <span className="font-heading text-[1.8rem] leading-[1.08] text-violet-600 sm:text-[2.1rem]">
-                            {prefix}
-                          </span>
-                        )}
-                        <DialogTitle className="font-heading break-words text-[1.8rem] leading-[1.08] text-slate-800 sm:text-[2.1rem]">
-                          {baseName}
-                        </DialogTitle>
-                        {age !== null && (
-                          <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 font-heading text-[1.35rem] leading-none text-amber-700 shadow-sm ring-1 ring-amber-100 sm:text-[1.55rem]">
-                            {age} éves
-                          </span>
-                        )}
-                      </div>
-
-                      {member.cnp && (
-                        <p className="mt-3 text-xs font-medium tracking-[0.18em] text-slate-400">
-                          <span className="font-mono tracking-[0.12em] text-slate-500">{member.cnp}</span>
-                        </p>
-                      )}
-                    </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <Badge className={`rounded-full border-0 px-2.5 py-1 text-[11px] font-semibold ${membership.className}`}>
+                      Tagság · {membership.label}
+                    </Badge>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                      <span>Pénzügy</span>
+                      <MemberStatusBadge status={member.paymentStatus} />
+                    </span>
                   </div>
-                </div>
 
-                <div className="grid w-full grid-cols-3 gap-2 pr-12 sm:pr-14 xl:mr-10 xl:w-[29rem] xl:pr-0">
-                  <StatChip label="Befizetés" value={`${details?.befizetesek.length || 0} tétel`} />
-                  <StatChip
-                    label="Anyakönyv"
-                    value={registryEventCount > 0 ? `${registryEventCount} esemény` : 'Nincs'}
-                  />
-                  <StatChip
-                    label={hasArrears ? 'Hátralék' : 'Megjegyzés'}
-                    value={hasArrears ? `${arrearsTotal.toFixed(2)} RON` : member.megjegyzes ? 'Van' : 'Nincs'}
-                  />
+                  {member.cnp && (
+                    <p className="mt-3 inline-flex items-center gap-1.5 font-mono text-xs tracking-[0.09em] text-muted-foreground">
+                      <IdCard className="size-3.5 text-primary/70" /> {member.cnp}
+                    </p>
+                  )}
                 </div>
               </div>
 
+              <div className="grid grid-cols-3 gap-2">
+                <StatChip label="Befizetés" value={loading ? '…' : `${details?.befizetesek.length ?? 0} tétel`} />
+                <StatChip
+                  label="Anyakönyv"
+                  value={loading ? '…' : registryEventCount > 0 ? `${registryEventCount} esemény` : 'Nincs'}
+                />
+                <StatChip
+                  label={hasArrears ? 'Hátralék' : 'Megjegyzés'}
+                  value={loading ? '…' : hasArrears ? `${arrearsTotal.toFixed(2)} RON` : member.megjegyzes ? 'Van' : 'Nincs'}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* 2026-06-02 redesign: prémium tab-bar — gradient underline, mint
-              a családi kartonon. Csendesebb, jobb hierarchy. */}
-          {!loading && (
-            <nav className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-slate-200 bg-white/95 px-3 backdrop-blur-sm sm:px-6">
+            <div className="mt-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4 [@media(max-height:600px)]:hidden">
+              <HeaderFact
+                icon={<CalendarDays className="size-4" />}
+                label="Születés és kor"
+                value={member.sz_datum ? `${formatDisplayDate(member.sz_datum)}${age !== null ? ` · ${age} év` : ''}` : 'Nincs rögzítve'}
+              />
+              <HeaderFact icon={<MapPin className="size-4" />} label="Lakcím" value={joinAddress(member)} />
+              <HeaderFact icon={<Phone className="size-4" />} label="Telefon" value={member.telefon || 'Nincs rögzítve'} />
+              <HeaderFact icon={<Mail className="size-4" />} label="E-mail" value={member.email || 'Nincs rögzítve'} />
+            </div>
+          </header>
+
+          <nav
+            className="sticky top-0 z-10 flex shrink-0 gap-1 overflow-x-auto border-b border-border/60 bg-card/95 px-3 py-2 backdrop-blur-sm sm:px-6"
+            aria-label="Személyi karton részei"
+            aria-orientation="horizontal"
+            role="tablist"
+          >
               {tabs.map(({ value, label, icon: Icon }) => {
                 const active = tab === value
                 const isArrears = value === 'arrears'
@@ -260,86 +314,92 @@ export function MemberDetailsDialogV2({
                     key={value}
                     type="button"
                     onClick={() => setTab(value)}
-                    className={`relative inline-flex items-center gap-2 whitespace-nowrap px-3 py-3 text-[13px] font-medium transition-all sm:px-4 ${
+                    onKeyDown={(event) => handleTabKeyDown(event, value)}
+                    disabled={loading}
+                    id={`member-tab-${value}`}
+                    role="tab"
+                    aria-selected={active}
+                    aria-controls={`member-panel-${value}`}
+                    tabIndex={active ? 0 : -1}
+                    className={`inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-[13px] font-semibold transition disabled:cursor-wait disabled:opacity-60 sm:px-4 motion-reduce:transition-none ${
                       active
                         ? isArrears
-                          ? 'text-red-700'
-                          : 'text-teal-700'
-                        : 'text-slate-500 hover:bg-slate-50/80 hover:text-slate-700'
+                          ? 'bg-rose-100 text-rose-700 shadow-sm dark:bg-rose-950/40 dark:text-rose-300'
+                          : 'bg-background text-primary shadow-sm ring-1 ring-border/60'
+                        : 'text-muted-foreground hover:bg-muted/65 hover:text-foreground'
                     }`}
                   >
                     <Icon className="size-4" />
                     <span>{label}</span>
-                    {active && (
-                      <span
-                        aria-hidden
-                        className={`absolute inset-x-2 bottom-0 h-[3px] rounded-t-full ${
-                          isArrears
-                            ? 'bg-gradient-to-r from-red-500 via-rose-500 to-pink-500 shadow-[0_-1px_4px_rgba(244,63,94,0.4)]'
-                            : 'bg-gradient-to-r from-teal-500 via-emerald-500 to-cyan-500 shadow-[0_-1px_4px_rgba(20,184,166,0.4)]'
-                        }`}
-                      />
-                    )}
                   </button>
                 )
               })}
-            </nav>
-          )}
+          </nav>
 
-          <div className="max-h-[calc(92vh-12.5rem)] overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
+          <div
+            id={`member-panel-${tab}`}
+            role="tabpanel"
+            aria-labelledby={`member-tab-${tab}`}
+            aria-busy={loading}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background/70 px-4 py-5 sm:px-6 sm:py-6"
+          >
             {loading ? (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2" role="status" aria-live="polite" aria-label="Személyi karton betöltése">
                 {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-28 animate-pulse rounded-[1.4rem] bg-white/80 shadow-sm ring-1 ring-slate-200/60" />
+                  <div key={index} className="h-28 animate-pulse rounded-2xl bg-muted/70 ring-1 ring-border/50 motion-reduce:animate-none" />
                 ))}
+              </div>
+            ) : loadError ? (
+              <div className="flex min-h-[16rem] flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/70 px-6 text-center dark:border-rose-900/60 dark:bg-rose-950/20">
+                <AlertTriangle className="size-8 text-rose-600" />
+                <h3 className="mt-3 font-heading text-lg font-semibold text-foreground">A karton részletei nem tölthetők be</h3>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">Az alapadatok láthatók, de az anyakönyvi és pénzügyi adatok lekérése most nem sikerült.</p>
+                <Button variant="outline" className="mt-4 min-h-11 rounded-xl bg-background" onClick={() => setReloadToken((current) => current + 1)}>
+                  Újrapróbálom
+                </Button>
               </div>
             ) : (
               <>
                 {tab === 'personal' && (
-                  <div className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InfoCard
-                        icon={<CalendarDays className="size-4" />}
-                        label="Születési dátum"
-                        value={member.sz_datum ? formatDisplayDate(member.sz_datum) : 'Nincs rögzítve'}
-                      />
-                      <InfoCard
-                        icon={<User className="size-4" />}
-                        label="Foglalkozás"
-                        value={member.foglalkozas || 'Nincs rögzítve'}
-                      />
-                      <InfoCard
-                        icon={<ShieldCheck className="size-4" />}
-                        label="Vallás"
-                        value={member.vallas || 'Református'}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-                      <SoftPanel eyebrow="Szülői adatok" title="Családi háttér" icon={<Users className="size-4" />}>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <MiniFact label="Édesapa" value={member.apjaneve || 'Nincs rögzítve'} />
-                          <MiniFact label="Édesanya" value={member.anyjaneve || 'Nincs rögzítve'} />
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(19rem,0.85fr)]">
+                    <div className="space-y-4">
+                      <SoftPanel eyebrow="Törzsadatok" title="Személyes alapadatok" icon={<IdCard className="size-4" />}>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <InfoCard
+                            icon={<CalendarDays className="size-4" />}
+                            label="Születési dátum"
+                            value={member.sz_datum ? formatDisplayDate(member.sz_datum) : 'Nincs rögzítve'}
+                          />
+                          <InfoCard
+                            icon={<User className="size-4" />}
+                            label="Foglalkozás"
+                            value={member.foglalkozas || 'Nincs rögzítve'}
+                          />
+                          <InfoCard
+                            icon={<ShieldCheck className="size-4" />}
+                            label="Vallás"
+                            value={member.vallas || 'Nincs rögzítve'}
+                          />
                         </div>
                       </SoftPanel>
 
-                      <SoftPanel eyebrow="Kapcsolattartás" title="Elérhetőségek" icon={<Phone className="size-4" />}>
+                      <SoftPanel eyebrow="Kapcsolattartás" title="Elérhetőségek és lakcím" icon={<Phone className="size-4" />}>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <MiniFact label="Telefonszám" value={member.telefon || 'Nincs rögzítve'} />
                           <MiniFact label="E-mail" value={member.email || 'Nincs rögzítve'} />
                           <div className="sm:col-span-2">
-                            <div className="rounded-[1.1rem] bg-secondary/60 px-3.5 py-3 ring-1 ring-white/70">
+                            <div className="rounded-xl border border-border/50 bg-muted/35 px-3.5 py-3">
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Lakcím</p>
-                                  <p className="mt-1 text-sm font-semibold text-slate-700">{joinAddress(member)}</p>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Lakcím</p>
+                                  <p className="mt-1 text-sm font-semibold text-foreground">{joinAddress(member)}</p>
                                 </div>
                                 {directionsUrl && (
                                   <a
                                     href={directionsUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center justify-center gap-2 rounded-full border border-teal-100 bg-white/90 px-3 py-1.5 text-xs font-semibold text-teal-700 shadow-sm transition hover:border-teal-200 hover:bg-teal-50"
+                                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/15 bg-background px-3 py-2 text-xs font-semibold text-primary shadow-sm transition hover:bg-primary/5 motion-reduce:transition-none"
                                   >
                                     <MapPin className="size-3.5" />
                                     Útvonaltervezés
@@ -350,26 +410,33 @@ export function MemberDetailsDialogV2({
                           </div>
                         </div>
                       </SoftPanel>
+
+                      <SoftPanel eyebrow="Szülői adatok" title="Családi háttér" icon={<Users className="size-4" />}>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <MiniFact label="Édesapa" value={member.apjaneve || 'Nincs rögzítve'} />
+                          <MiniFact label="Édesanya" value={member.anyjaneve || 'Nincs rögzítve'} />
+                        </div>
+                      </SoftPanel>
                     </div>
 
-                    {/* 2026-06-10: szerkeszthető megjegyzés-mező (a családi kartonon is megjelenik) */}
-                    <SoftPanel eyebrow="Lelkipásztori emlékeztető" title="Megjegyzés" icon={<BookOpen className="size-4" />}>
-                      <EditableNote
-                        initial={member.megjegyzes}
-                        placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
-                        onSave={(note) => updateMemberNote(member.id, note)}
-                      />
-                    </SoftPanel>
+                    <aside className="space-y-4">
+                      <SoftPanel eyebrow="Lelkipásztori emlékeztető" title="Megjegyzés" icon={<BookOpen className="size-4" />}>
+                        <EditableNote
+                          initial={member.megjegyzes}
+                          placeholder="Pl. látogatási emlékeztető, családi körülmények, imatéma…"
+                          onSave={(note) => updateMemberNote(member.id, note)}
+                        />
+                      </SoftPanel>
 
-                    {/* 2026-06-10 (Fázis 5, P3-5): GDPR-hozzájárulások */}
-                    <SoftPanel eyebrow="Adatvédelem" title="GDPR-hozzájárulások" icon={<ShieldCheck className="size-4" />}>
-                      <ConsentEditor
-                        memberId={member.id}
-                        gdprConsentAt={member.gdpr_consent_at}
-                        photoConsent={member.photo_consent}
-                        mailingConsent={member.mailing_consent}
-                      />
-                    </SoftPanel>
+                      <SoftPanel eyebrow="Adatvédelem" title="GDPR-hozzájárulások" icon={<ShieldCheck className="size-4" />}>
+                        <ConsentEditor
+                          memberId={member.id}
+                          gdprConsentAt={member.gdpr_consent_at}
+                          photoConsent={member.photo_consent}
+                          mailingConsent={member.mailing_consent}
+                        />
+                      </SoftPanel>
+                    </aside>
                   </div>
                 )}
 
@@ -471,28 +538,53 @@ export function MemberDetailsDialogV2({
                     </SoftPanel>
 
                     {details && details.befizetesek.length > 0 ? (
-                      <div className="overflow-x-auto rounded-[1.4rem] bg-white/88 shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-                        <table className="min-w-[760px] w-full text-left text-sm">
-                          <thead className="border-b border-slate-200/70 bg-slate-50/85">
+                      <>
+                        <div className="space-y-2 lg:hidden">
+                          {details.befizetesek.map((payment) => (
+                            <article key={payment.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Dátum</p>
+                                  <p className="mt-1 font-semibold text-foreground">{formatDisplayDate(payment.datum)}</p>
+                                </div>
+                                <p className="shrink-0 font-semibold tabular-nums text-emerald-700">{Number(payment.osszeg).toFixed(2)} RON</p>
+                              </div>
+                              <p className="mt-3 text-sm font-medium text-foreground">{payment.befizetescel?.nev || 'Általános befizetés'}</p>
+                              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs">
+                                <div>
+                                  <p className="text-muted-foreground">Év</p>
+                                  <p className="mt-0.5 font-medium text-foreground">{payment.fizetettev ? `${payment.fizetettev}. év` : 'Nincs megadva'}</p>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-muted-foreground">Bizonylat</p>
+                                  <p className="mt-0.5 break-all font-medium text-foreground">{getTransactionDocumentNumber(payment) || 'Nincs rögzítve'}</p>
+                                </div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                        <div className="hidden overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-[0_18px_45px_-38px_rgba(18,60,54,0.4)] lg:block">
+                          <table className="min-w-[760px] w-full text-left text-sm">
+                          <thead className="border-b border-border/60 bg-muted/45">
                             <tr>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Dátum</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Befizetés típusa</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Év</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Bizonylat</th>
-                              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Összeg</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Dátum</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Befizetés típusa</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Év</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Bizonylat</th>
+                              <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Összeg</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200/60">
+                          <tbody className="divide-y divide-border/45">
                             {details.befizetesek.map((payment) => (
-                              <tr key={payment.id}>
-                                <td className="px-4 py-3 font-medium text-slate-700">{formatDisplayDate(payment.datum)}</td>
-                                <td className="px-4 py-3 text-slate-600">
+                              <tr key={payment.id} className="transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none">
+                                <td className="px-4 py-3 font-medium text-foreground">{formatDisplayDate(payment.datum)}</td>
+                                <td className="px-4 py-3 text-muted-foreground">
                                   {payment.befizetescel?.nev || 'Általános befizetés'}
                                 </td>
-                                <td className="px-4 py-3 text-slate-600">
+                                <td className="px-4 py-3 text-muted-foreground">
                                   {payment.fizetettev ? `${payment.fizetettev}. év` : 'Nincs megadva'}
                                 </td>
-                                <td className="px-4 py-3 text-slate-500">
+                                <td className="px-4 py-3 text-muted-foreground">
                                   {getTransactionDocumentNumber(payment) || 'Nincs rögzítve'}
                                 </td>
                                 <td className="px-4 py-3 text-right font-semibold text-emerald-700">
@@ -501,8 +593,9 @@ export function MemberDetailsDialogV2({
                               </tr>
                             ))}
                           </tbody>
-                        </table>
-                      </div>
+                          </table>
+                        </div>
+                      </>
                     ) : (
                       <EmptyState
                         icon={<CreditCard className="size-10" />}
@@ -533,28 +626,50 @@ export function MemberDetailsDialogV2({
                     </SoftPanel>
 
                     {details && details.arrearsBreakdown.length > 0 ? (
-                      <div className="overflow-x-auto rounded-[1.4rem] bg-white/88 shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-                        <table className="min-w-[620px] w-full text-left text-sm">
-                          <thead className="border-b border-slate-200/70 bg-slate-50/80">
+                      <>
+                        <div className="space-y-2 lg:hidden">
+                          {details.arrearsBreakdown.map((item) => (
+                            <article key={item.year} className="rounded-2xl border border-rose-200/70 bg-card p-4 shadow-sm dark:border-rose-900/60">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Év</p>
+                                  <p className="mt-1 font-heading text-xl font-semibold text-foreground">{item.year}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-600">Tartozás</p>
+                                  <p className="mt-1 font-semibold tabular-nums text-rose-600">{item.debt.toFixed(2)} RON</p>
+                                </div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs">
+                                <div><p className="text-muted-foreground">Elvárt</p><p className="mt-0.5 font-medium text-foreground">{item.yearlyFee.toFixed(2)} RON</p></div>
+                                <div><p className="text-muted-foreground">Befizetve</p><p className="mt-0.5 font-medium text-foreground">{item.paid.toFixed(2)} RON</p></div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                        <div className="hidden overflow-x-auto rounded-2xl border border-border/60 bg-card shadow-[0_18px_45px_-38px_rgba(18,60,54,0.4)] lg:block">
+                          <table className="min-w-[620px] w-full text-left text-sm">
+                          <thead className="border-b border-border/60 bg-muted/45">
                             <tr>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Év</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Elvárt</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Befizetve</th>
-                              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Tartozás</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Év</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Elvárt</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Befizetve</th>
+                              <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tartozás</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200/60">
+                          <tbody className="divide-y divide-border/45">
                             {details.arrearsBreakdown.map((item) => (
-                              <tr key={item.year}>
-                                <td className="px-4 py-3 font-semibold text-slate-800">{item.year}</td>
-                                <td className="px-4 py-3 text-slate-600">{item.yearlyFee.toFixed(2)} RON</td>
-                                <td className="px-4 py-3 text-slate-600">{item.paid.toFixed(2)} RON</td>
+                              <tr key={item.year} className="transition-colors hover:bg-primary/[0.035] motion-reduce:transition-none">
+                                <td className="px-4 py-3 font-semibold text-foreground">{item.year}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{item.yearlyFee.toFixed(2)} RON</td>
+                                <td className="px-4 py-3 text-muted-foreground">{item.paid.toFixed(2)} RON</td>
                                 <td className="px-4 py-3 font-semibold text-red-600">{item.debt.toFixed(2)} RON</td>
                               </tr>
                             ))}
                           </tbody>
-                        </table>
-                      </div>
+                          </table>
+                        </div>
+                      </>
                     ) : (
                       <EmptyState
                         icon={<AlertTriangle className="size-10" />}
@@ -568,13 +683,13 @@ export function MemberDetailsDialogV2({
             )}
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-slate-200/70 bg-white/72 px-5 py-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <footer className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-2 border-t border-border/60 bg-card/95 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="flex flex-wrap gap-2">
               {familyId && onOpenFamily && (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl border-slate-200 bg-white/85"
+                  className="min-h-11 rounded-xl bg-background/80"
                   onClick={() => {
                     onOpenChange(false)
                     setTimeout(() => onOpenFamily(familyId), 150)
@@ -588,7 +703,7 @@ export function MemberDetailsDialogV2({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl border-slate-200 bg-white/85"
+                  className="min-h-11 rounded-xl bg-background/80"
                   onClick={() => {
                     onOpenChange(false)
                     setTimeout(() => onShowFamilyTree(member.id), 150)
@@ -601,18 +716,19 @@ export function MemberDetailsDialogV2({
             </div>
 
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" size="sm" className="rounded-xl border-slate-200 bg-white/85" onClick={() => onOpenChange(false)}>
+              <Button variant="ghost" size="sm" className="min-h-11 rounded-xl" onClick={() => onOpenChange(false)}>
                 Bezárás
               </Button>
-              <Button variant="outline" size="sm" className="rounded-xl border-teal-200 bg-white/85 text-teal-700 hover:bg-teal-50" onClick={() => setCertOpen(true)}>
+              <Button variant="outline" size="sm" className="min-h-11 rounded-xl bg-background/80 text-primary hover:bg-primary/5" onClick={() => setCertOpen(true)}>
                 <Printer className="mr-1.5 size-3.5" />
                 Igazolás
               </Button>
-              <Button size="sm" className="rounded-xl bg-teal-600 text-white hover:bg-teal-700" onClick={onEdit}>
+              <Button size="sm" className="min-h-11 rounded-xl" onClick={onEdit}>
+                <Pencil className="mr-1.5 size-3.5" />
                 Szerkesztés
               </Button>
             </div>
-          </div>
+          </footer>
         </div>
       </DialogContent>
       {/* 2026-06-10 (Fázis 5, P3-3): nyomtatható tagsági igazolás */}
@@ -621,11 +737,25 @@ export function MemberDetailsDialogV2({
   )
 }
 
+function HeaderFact({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5 rounded-2xl border border-white/70 bg-background/70 px-3 py-2.5 shadow-sm backdrop-blur dark:border-border/60">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+        <span className="mt-0.5 block text-xs font-semibold text-foreground [overflow-wrap:anywhere]">{value}</span>
+      </span>
+    </div>
+  )
+}
+
 function StatChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200/70 bg-white/85 px-3 py-2 shadow-sm transition hover:bg-white">
-      <p className="text-[10px] font-medium uppercase leading-tight tracking-[0.16em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold leading-tight text-slate-700">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-white/70 bg-background/75 px-3 py-2.5 shadow-sm backdrop-blur dark:border-border/60">
+      <p className="text-[9px] font-semibold uppercase leading-tight tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs font-semibold leading-tight text-foreground [overflow-wrap:anywhere] sm:text-sm">{value}</p>
     </div>
   )
 }
@@ -642,14 +772,14 @@ function SoftPanel({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-[1.45rem] bg-white/86 p-4 shadow-[0_24px_50px_-36px_rgba(19,73,66,0.34)] ring-1 ring-slate-200/70 sm:p-5">
+    <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-[0_18px_45px_-38px_rgba(16,70,63,0.45)] sm:p-5">
       <div className="mb-4 flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-2xl bg-secondary text-teal-700">
+        <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
           {icon}
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
-          <h3 className="text-base font-semibold text-slate-800">{title}</h3>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{eyebrow}</p>
+          <h3 className="font-heading text-base font-semibold text-foreground">{title}</h3>
         </div>
       </div>
       {children}
@@ -667,14 +797,14 @@ function InfoCard({
   value: string
 }) {
   return (
-    <div className="rounded-[1.25rem] bg-white/86 p-4 shadow-[0_22px_40px_-34px_rgba(21,84,74,0.28)] ring-1 ring-slate-200/70">
+    <div className="rounded-xl border border-border/50 bg-muted/30 p-3.5">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-2xl bg-secondary text-teal-700">
+        <div className="flex size-9 items-center justify-center rounded-xl bg-background text-primary shadow-sm ring-1 ring-border/50">
           {icon}
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-          <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">{value}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -683,9 +813,9 @@ function InfoCard({
 
 function MiniFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.1rem] bg-secondary/60 px-3.5 py-3 ring-1 ring-white/70">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-700">{value}</p>
+    <div className="rounded-xl border border-border/50 bg-muted/35 px-3.5 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   )
 }
@@ -708,30 +838,30 @@ function RegistryEventCard({
   onSaveNote?: (note: string) => Promise<{ error?: string } | { success?: boolean }>
 }) {
   const toneClasses = {
-    sky: 'from-sky-50 to-cyan-50 text-sky-700 ring-sky-100',
-    violet: 'from-violet-50 to-fuchsia-50 text-violet-700 ring-violet-100',
-    teal: 'from-teal-50 to-emerald-50 text-teal-700 ring-teal-100',
-    amber: 'from-amber-50 to-orange-50 text-amber-700 ring-amber-100',
-    rose: 'from-rose-50 to-pink-50 text-rose-700 ring-rose-100',
+    sky: 'from-sky-50/80 to-cyan-50/60 border-sky-100 dark:from-sky-950/25 dark:to-card dark:border-sky-900/50',
+    violet: 'from-violet-50/80 to-fuchsia-50/60 border-violet-100 dark:from-violet-950/25 dark:to-card dark:border-violet-900/50',
+    teal: 'from-teal-50/80 to-emerald-50/60 border-teal-100 dark:from-teal-950/25 dark:to-card dark:border-teal-900/50',
+    amber: 'from-amber-50/80 to-orange-50/60 border-amber-100 dark:from-amber-950/25 dark:to-card dark:border-amber-900/50',
+    rose: 'from-rose-50/80 to-pink-50/60 border-rose-100 dark:from-rose-950/25 dark:to-card dark:border-rose-900/50',
   }[tone]
 
   return (
-    <div className={`rounded-[1.45rem] bg-gradient-to-br ${toneClasses} p-4 shadow-[0_24px_42px_-36px_rgba(21,84,74,0.28)] ring-1 sm:p-5`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{eyebrow}</p>
-      <p className="mt-2 text-lg font-semibold text-slate-800">{title}</p>
+    <div className={`rounded-2xl border bg-gradient-to-br ${toneClasses} p-4 shadow-[0_18px_40px_-36px_rgba(21,84,74,0.35)] sm:p-5`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
+      <p className="mt-2 font-heading text-lg font-semibold text-foreground">{title}</p>
       <div className="mt-3 space-y-1.5">
         {description.length > 0 ? (
           description.map((line) => (
-            <p key={line} className="text-sm text-slate-600">
+            <p key={line} className="text-sm text-muted-foreground">
               {line}
             </p>
           ))
         ) : (
-          <p className="text-sm text-slate-500">Nincs további részlet.</p>
+          <p className="text-sm text-muted-foreground">Nincs további részlet.</p>
         )}
       </div>
       {onSaveNote && (
-        <div className="mt-3 border-t border-white/60 pt-3">
+        <div className="mt-3 border-t border-border/45 pt-3">
           <EditableNote initial={note} placeholder="Megjegyzés ehhez az eseményhez…" onSave={onSaveNote} />
         </div>
       )}
@@ -788,29 +918,30 @@ function ConsentEditor({
 
   return (
     <div className="space-y-2.5">
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-1">
         {toggles.map((t) => (
-          <label key={t.label} className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70">
-            <input type="checkbox" checked={t.checked} onChange={(e) => t.set(e.target.checked)} className="mt-0.5 accent-teal-600" />
+          <label key={t.label} className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-border/55 bg-muted/30 px-3 py-2.5 transition hover:bg-muted/55 motion-reduce:transition-none">
+            <input type="checkbox" checked={t.checked} onChange={(e) => t.set(e.target.checked)} className="mt-0.5 accent-primary" />
             <span className="min-w-0">
-              <span className="text-sm font-medium text-slate-700">{t.label}</span>
-              <span className="block text-[11px] text-slate-400">{t.hint}</span>
+              <span className="text-sm font-medium text-foreground">{t.label}</span>
+              <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
             </span>
           </label>
         ))}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-muted-foreground">
           {consentDate ? `Adatkezelési hozzájárulás kelte: ${new Date(consentDate).toLocaleDateString('hu-HU')}` : 'Nincs rögzített adatkezelési hozzájárulás.'}
         </span>
-        <button
+        <Button
           type="button"
+          size="sm"
           disabled={saving || !dirty}
           onClick={handleSave}
-          className="rounded-full bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-40"
+          className="min-h-11 rounded-xl px-3.5 text-xs"
         >
           {saving ? 'Mentés…' : 'Hozzájárulások mentése'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -864,18 +995,19 @@ function EditableNote({
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder || 'Megjegyzés…'}
         rows={2}
-        className="w-full resize-y rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50"
+        className="w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground shadow-xs outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-[3px] focus:ring-ring/20"
       />
       <div className="flex items-center justify-end gap-2">
         {!dirty && baseline && <span className="text-[11px] font-medium text-emerald-600">Mentve ✓</span>}
-        <button
+        <Button
           type="button"
+          size="sm"
           disabled={saving || !dirty}
           onClick={handleSave}
-          className="rounded-full bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-40"
+          className="min-h-11 rounded-xl px-3.5 text-xs"
         >
           {saving ? 'Mentés…' : 'Megjegyzés mentése'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -891,12 +1023,12 @@ function EmptyState({
   description: string
 }) {
   return (
-    <div className="rounded-[1.45rem] bg-white/88 px-6 py-10 text-center shadow-[0_24px_48px_-38px_rgba(18,60,54,0.28)] ring-1 ring-slate-200/70">
-      <div className="mx-auto flex size-16 items-center justify-center rounded-[1.4rem] bg-secondary text-teal-700">
+    <div className="rounded-2xl border border-border/60 bg-card px-6 py-10 text-center shadow-[0_18px_45px_-38px_rgba(18,60,54,0.4)]">
+      <div className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         {icon}
       </div>
-      <h3 className="mt-4 text-lg font-semibold text-slate-800">{title}</h3>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{description}</p>
+      <h3 className="mt-4 font-heading text-lg font-semibold text-foreground">{title}</h3>
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
     </div>
   )
 }

@@ -11,6 +11,7 @@ import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
 export interface FamilyRow {
   id: number
+  c_utcaid: number | null
   c_szam: string | null
   isaktiv: boolean
   id_csoport: number | null
@@ -251,21 +252,23 @@ export async function getFamilies(): Promise<FamilyRow[]> {
   const utcaNameById = new Map<number, string>(((utcakRaw || []) as any[]).map((u) => [u.id, u.name]))
 
   // cim_id (uuid) → { szam, utca_name } — új modell
-  const cimById = new Map<string, { szam: string | null; utca_name: string | null }>()
+  const cimById = new Map<string, { szam: string | null; utca_id: number | null; utca_name: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const c of (cimekRaw || []) as any[]) {
     cimById.set(c.id, {
       szam: c.szam ?? null,
+      utca_id: c.id_utca ?? null,
       utca_name: c.id_utca != null ? utcaNameById.get(c.id_utca) ?? null : null,
     })
   }
 
   // csalad_id (int) → { szam, utca_name } — régi modell (FALLBACK forrás)
-  const csaladCimById = new Map<number, { szam: string | null; utca_name: string | null }>()
+  const csaladCimById = new Map<number, { szam: string | null; utca_id: number | null; utca_name: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const c of (csaladokRaw || []) as any[]) {
     csaladCimById.set(c.id, {
       szam: c.c_szam ?? null,
+      utca_id: c.c_utcaid ?? null,
       utca_name: c.c_utcaid != null ? utcaNameById.get(c.c_utcaid) ?? null : null,
     })
   }
@@ -318,11 +321,13 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     // (Külön ellenőrzés a szam-ra és az utca-névre, mert előfordulhat hogy
     // az új cim-en csak az egyik mező van kitöltve.)
     const utca_name = ujCim?.utca_name ?? regiCim?.utca_name ?? null
+    const utca_id = ujCim?.utca_id ?? regiCim?.utca_id ?? null
     const szam = ujCim?.szam ?? regiCim?.szam ?? null
 
     const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null, gyerekek: [] }
     return {
       id: h.legacy_csalad_id as number,
+      c_utcaid: utca_id,
       c_szam: szam,
       isaktiv: h.isaktiv as boolean,
       id_csoport: h.id_csoport as number | null,

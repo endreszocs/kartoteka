@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef, type KeyboardEvent } from 'react'
+
 /**
  * ColorTabs — szines pill-tab sor (web es desktop KOZOS, 2026-06-10 B-hullam).
  *
@@ -40,17 +42,55 @@ const colorClasses: Record<string, { active: string; inactive: string; bar: stri
 }
 
 export function ColorTabs({ tabs, active, onChange }: ColorTabsProps) {
+  const tabListRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const activeTab = tabListRef.current?.querySelector<HTMLElement>('[data-active="true"]')
+    if (!activeTab) return
+    activeTab.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    })
+  }, [active])
+
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    const next = tabs[nextIndex]
+    if (!next) return
+    onChange(next.value)
+    requestAnimationFrame(() => {
+      tabListRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-tab-value="${CSS.escape(next.value)}"]`)
+        ?.focus()
+    })
+  }
+
   return (
     <div className="card-raised overflow-x-auto px-3 py-3 sm:px-4">
-      <div className="flex w-max gap-2 md:w-auto md:flex-wrap">
-        {tabs.map(tab => {
+      <div ref={tabListRef} role="tablist" aria-label="Elérhető nézetek" className="flex w-max gap-2 md:w-auto md:flex-wrap">
+        {tabs.map((tab, index) => {
           const isActive = active === tab.value
           const colors = colorClasses[tab.color] || colorClasses.blue
           return (
             <button
               key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              data-active={isActive}
+              data-tab-value={tab.value}
               onClick={() => onChange(tab.value)}
-              className={`relative rounded-full border px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+              onKeyDown={(event) => handleKeyDown(event, index)}
+              className={`relative min-h-11 rounded-full border px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-all duration-200 ${
                 isActive ? colors.active : colors.inactive
               }`}
             >

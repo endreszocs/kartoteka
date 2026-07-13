@@ -1,158 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
 import { AGE_GROUPS } from '@/lib/constants/members'
 import { ageFromDate } from '@/lib/utils/date'
-import { getUpcomingNameDays } from '@/app/(dashboard)/tagnyilvantartas/actions'
-import type { EnrichedMember } from '@/lib/constants/members'
+import type { MemberOverviewSnapshot } from '@/lib/members/member-overview'
 import { Users, Heart, TrendingUp, MapPin, Crown, Baby, UserCheck, GraduationCap, Calendar } from 'lucide-react'
 
 interface OverviewTabProps {
-  members: EnrichedMember[]
+  snapshot: MemberOverviewSnapshot
 }
 
-export function OverviewTab({ members }: OverviewTabProps) {
-  // 2026-06-10 (Fázis 5, P3-1): e havi születésnaposok — köszöntésekhez
-  const birthdays = useMemo(() => {
-    const now = new Date()
-    const month = now.getMonth()
-    return members
-      .filter(m => !m.meghalt && m.sz_datum && new Date(m.sz_datum).getMonth() === month)
-      .map(m => {
-        const bd = new Date(m.sz_datum as string)
-        return {
-          id: m.id,
-          name: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim(),
-          day: bd.getDate(),
-          turning: now.getFullYear() - bd.getFullYear(),
-        }
-      })
-      .sort((a, b) => a.day - b.day)
-  }, [members])
-
-  // 2026-06-10 (Fázis 5, P3-1b): e heti névnapok + köszöntendő tagok
-  const [nameDays, setNameDays] = useState<Awaited<ReturnType<typeof getUpcomingNameDays>> | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      getUpcomingNameDays().then(d => {
-        if (!cancelled) setNameDays(d)
-      })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const nameDayMembers = useMemo(() => {
-    if (!nameDays) return []
-    const nameSet = new Set(nameDays.flatMap(d => d.nevek).map(n => n.toLowerCase()))
-    if (nameSet.size === 0) return []
-    return members
-      .filter(m => !m.meghalt && m.k_nev && nameSet.has(m.k_nev.trim().split(/\s+/)[0].toLowerCase()))
-      .map(m => `${m.csaladnev || ''} ${m.k_nev || ''}`.trim())
-  }, [nameDays, members])
-
-  const stats = useMemo(() => {
-    const curYear = new Date().getFullYear()
-    // 2026-04-30 fix (Endre kérése): a member_status='elkoltozott' és 'kitért'
-    // tagok kizárása az aktív listából. A korábbi szűrő csak az `m.elkoltozott`
-    // boolean-t nézte, ami a szemely táblában nem is létezik (member_status
-    // szöveg-mező a tényleges forrás).
-    const alive = members.filter(m =>
-      !m.meghalt
-      && !m.elkoltozott
-      && m.member_status !== 'elkoltozott'
-      && m.member_status !== 'kitért'
-      && m.member_status !== 'törölt'
-    )
-    // 2026-04-30 (Endre szabálya): "Aktív tag = református VAGY bármikor fizetett
-    // egyházfenntartást." A korábbi szabály az ÜRES vallást is reformátusnak
-    // vette — visszavontuk. Az üres-vallású tag csak akkor aktív, ha valaha
-    // fizetett egyházfenntartást.
-    const reformed = alive.filter(m => {
-      const v = (m.vallas || '').trim().toLowerCase()
-      const isReformatus = v === 'református'
-      return isReformatus || m.hasEverPaid
-    })
-    const total = reformed.length
-    const men = reformed.filter(m => m.ferfi).length
-    const women = total - men
-
-    const groups: Record<string, number> = {}
-    AGE_GROUPS.forEach(g => { groups[g.key] = 0 })
-    let ageSum = 0, ageCount = 0
-    let menAgeSum = 0, menAgeCount = 0
-    let womenAgeSum = 0, womenAgeCount = 0
-
-    reformed.forEach(m => {
-      if (!m.sz_datum) return
-      const age = curYear - new Date(m.sz_datum).getFullYear()
-      if (age < 0) return
-      ageSum += age; ageCount++
-      if (m.ferfi) { menAgeSum += age; menAgeCount++ } else { womenAgeSum += age; womenAgeCount++ }
-      if (age <= 6) groups['0-6']++
-      else if (age <= 12) groups['7-12']++
-      else if (age <= 14) groups['13-14']++
-      else if (age <= 18) groups['15-18']++
-      else if (age <= 30) groups['19-30']++
-      else if (age <= 40) groups['31-40']++
-      else if (age <= 65) groups['41-65']++
-      else if (age <= 75) groups['66-75']++
-      else if (age <= 80) groups['76-80']++
-      else if (age <= 100) groups['81-100']++
-      else groups['100+']++
-    })
-
-    const ageDetails = reformed.filter(m => m.sz_datum).map(m => curYear - new Date(m.sz_datum!).getFullYear())
-    const forecast = (years: number) => {
-      let konfirmando = 0, valaszto = 0, idos75 = 0, idos80 = 0
-      ageDetails.forEach(age => {
-        const future = age + years
-        if (future >= 13 && future <= 15 && age < 13) konfirmando++
-        if (future >= 18 && age < 18) valaszto++
-        if (future > 75) idos75++
-        if (future > 80) idos80++
-      })
-      return { konfirmando, valaszto, idos75, idos80 }
-    }
-
-    let oldest: EnrichedMember | null = null
-    let youngest: EnrichedMember | null = null
-    reformed.forEach(m => {
-      if (!m.sz_datum) return
-      if (!oldest || m.sz_datum < oldest.sz_datum!) oldest = m
-      if (!youngest || m.sz_datum > youngest.sz_datum!) youngest = m
-    })
-
-    const locs: Record<string, number> = {}
-    reformed.forEach(m => { const l = m.adrlocality?.name; if (l) locs[l] = (locs[l] || 0) + 1 })
-    const topLocs = Object.entries(locs).sort((a, b) => b[1] - a[1]).slice(0, 5)
-
-    const dead = members.filter(m => m.meghalt).length
-    // 2026-04-30 fix: m.elkoltozott boolean mező nem létezik a szemely
-    // táblában — a member_status='elkoltozott' a tényleges forrás. A régi
-    // boolean-t is megtartjuk fallback-ként ha valamikor visszaállítják.
-    const moved = members.filter(m => m.member_status === 'elkoltozott' || m.elkoltozott).length
-    const left = members.filter(m => m.member_status === 'kitért').length
-
-    const famNames: Record<string, number> = {}, firstNames: Record<string, number> = {}
-    reformed.forEach(m => {
-      if (m.csaladnev) famNames[m.csaladnev] = (famNames[m.csaladnev] || 0) + 1
-      if (m.k_nev) { const fn = m.k_nev.split(' ')[0]; firstNames[fn] = (firstNames[fn] || 0) + 1 }
-    })
-    const topFam = Object.entries(famNames).sort((a, b) => b[1] - a[1]).slice(0, 10)
-    const topFirst = Object.entries(firstNames).sort((a, b) => b[1] - a[1]).slice(0, 10)
-
-    return {
-      total, men, women, groups, ageSum, ageCount,
-      menAgeSum, menAgeCount, womenAgeSum, womenAgeCount,
-      f5: forecast(5), f10: forecast(10),
-      oldest, youngest, topLocs, dead, moved, left, topFam, topFirst,
-      currentVoters: ageDetails.filter(a => a >= 18).length,
-      currentKonfirmando: groups['13-14'],
-    }
-  }, [members])
+export function OverviewTab({ snapshot }: OverviewTabProps) {
+  const { birthdays, nameDays, nameDayMembers, stats } = snapshot
 
   const avgAge = stats.ageCount > 0 ? (stats.ageSum / stats.ageCount).toFixed(1) : '—'
   const menPct = stats.total > 0 ? Math.round(stats.men / stats.total * 100) : 0
@@ -282,8 +140,8 @@ export function OverviewTab({ members }: OverviewTabProps) {
               <div className="flex items-center gap-3 p-2.5 rounded-xl bg-amber-50/70">
                 <Crown className="w-4 h-4 text-amber-500 shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">{(stats.oldest as EnrichedMember).csaladnev} {(stats.oldest as EnrichedMember).k_nev}</p>
-                  <p className="text-[11px] text-slate-400">Legidősebb tag · {ageFromDate((stats.oldest as EnrichedMember).sz_datum)} éves</p>
+                  <p className="text-sm font-medium text-slate-700 truncate">{stats.oldest.csaladnev} {stats.oldest.k_nev}</p>
+                  <p className="text-[11px] text-slate-400">Legidősebb tag · {ageFromDate(stats.oldest.sz_datum)} éves</p>
                 </div>
               </div>
             )}
@@ -291,8 +149,8 @@ export function OverviewTab({ members }: OverviewTabProps) {
               <div className="flex items-center gap-3 p-2.5 rounded-xl bg-green-50/70">
                 <Baby className="w-4 h-4 text-green-500 shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">{(stats.youngest as EnrichedMember).csaladnev} {(stats.youngest as EnrichedMember).k_nev}</p>
-                  <p className="text-[11px] text-slate-400">Legfiatalabb · {ageFromDate((stats.youngest as EnrichedMember).sz_datum)} éves</p>
+                  <p className="text-sm font-medium text-slate-700 truncate">{stats.youngest.csaladnev} {stats.youngest.k_nev}</p>
+                  <p className="text-[11px] text-slate-400">Legfiatalabb · {ageFromDate(stats.youngest.sz_datum)} éves</p>
                 </div>
               </div>
             )}
@@ -396,25 +254,21 @@ export function OverviewTab({ members }: OverviewTabProps) {
             <p className="text-xs text-slate-400">A következő 7 nap névnapjai — és az érintett, köszöntendő tagok.</p>
           </div>
         </div>
-        {nameDays === null ? (
-          <p className="text-xs text-slate-400 animate-pulse">Névnapok betöltése…</p>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-1.5">
-              {nameDays.map(d => (
-                <span key={`${d.honap}-${d.nap}`} className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
-                  {HONAPOK[d.honap - 1]} {d.nap}. — {d.nevek.length > 0 ? d.nevek.join(', ') : 'nincs adat'}
-                </span>
-              ))}
-            </div>
-            {nameDayMembers.length > 0 && (
-              <div>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Köszöntendő tagok ({nameDayMembers.length})</p>
-                <p className="text-sm leading-6 text-slate-700">{nameDayMembers.join(' · ')}</p>
-              </div>
-            )}
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {nameDays.map(d => (
+              <span key={`${d.honap}-${d.nap}`} className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                {HONAPOK[d.honap - 1]} {d.nap}. — {d.nevek.length > 0 ? d.nevek.join(', ') : 'nincs adat'}
+              </span>
+            ))}
           </div>
-        )}
+          {nameDayMembers.length > 0 && (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Köszöntendő tagok ({nameDayMembers.length})</p>
+              <p className="text-sm leading-6 text-slate-700">{nameDayMembers.join(' · ')}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
