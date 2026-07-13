@@ -1,0 +1,584 @@
+.page {
+  width: 100%;
+  max-width: 1380px;
+  margin-inline: auto;
+  padding-bottom: 2rem;
+}
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(570px, 154vw, 650px);
+  overflow: hidden;
+  border: 1px solid rgba(91, 75, 52, 0.2);
+  border-radius: 1.55rem 1.55rem 2.1rem 1.35rem;
+  background: #f7efe2;
+  box-shadow:
+    0 28px 72px -48px rgba(49, 39, 26, 0.78),
+    inset 0 1px rgba(255, 255, 255, 0.88);
+}
+
+.heroBackdrop {
+  position: absolute;
+  z-index: -4;
+  inset: 0;
+  overflow: hidden;
+}
+
+.heroBackdropImage {
+  object-fit: cover;
+  object-position: 74% center;
+  transform: scale(1.015);
+}
+
+.heroVeil {
+  position: absolute;
+  z-index: -3;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 247, 0.99) 0%, rgba(255, 253, 247, 0.96) 48%, rgba(255, 253, 247, 0.72) 69%, rgba(255, 253, 247, 0.18) 100%),
+    radial-gradient(circle at 12% 8%, rgba(255, 242, 194, 0.4), transparent 34%);
+}
+
+.heroSunbeam {
+  position: absolute;
+  z-index: -1;
+  top: -24%;
+  right: 4%;
+  width: min(28rem, 78vw);
+  aspect-ratio: 0.52;
+  pointer-events: none;
+  opacity: 0.3;
+  background: linear-gradient(180deg, rgba(255, 250, 218, 0.02), rgba(255, 239, 176, 0.5), rgba(255, 246, 215, 0));
+  filter: blur(12px);
+  transform: rotate(17deg);
+  animation: shelf-sun-drift 13s ease-in-out infinite alternate;
+}
+
+.heroCopy {
+  position: relative;
+  z-index: 3;
+  min-width: 0;
+  max-width: 44rem;
+  padding: 1.8rem 1.15rem 0;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.48rem 0.7rem;
+  border: 1px solid rgba(100, 122, 82, 0.24);
+  border-radius: 999px;
+  color: #647a52;
+  background: rgba(255, 253, 247, 0.75);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.8);
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.eyebrow svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.heroTitle {
+  max-width: 12ch;
+  margin-top: 1rem;
+  color: #26382f;
+  font-family: var(--mm-display), Fraunces, Georgia, serif;
+  font-size: clamp(2.35rem, 11.8vw, 3.2rem);
+  font-weight: 520;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.heroTitleAccent {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  isolation: isolate;
+}
+
+.heroTitleAccent::after {
+  position: absolute;
+  z-index: -1;
+  right: -0.03em;
+  bottom: 0.02em;
+  left: -0.03em;
+  height: 0.16em;
+  border-radius: 60% 34% 70% 38%;
+  content: '';
+  opacity: 0.7;
+  background: linear-gradient(90deg, rgba(211, 164, 94, 0.32), rgba(211, 164, 94, 0.86), rgba(100, 122, 82, 0.38));
+  transform: rotate(-1deg);
+}
+
+.heroDescription {
+  max-width: 39rem;
+  margin-top: 1.15rem;
+  color: #566159;
+  font-size: clamp(0.9rem, 3.8vw, 1.04rem);
+  line-height: 1.68;
+}
+
+.heroStats {
+  display: grid;
+  max-width: 30rem;
+  margin: 1.35rem 0 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.heroStat {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.58rem;
+  padding: 0.72rem 0.75rem;
+  border: 1px solid rgba(91, 75, 52, 0.16);
+  border-radius: 0.95rem 0.95rem 1.1rem 0.78rem;
+  color: #526058;
+  background: rgba(255, 253, 247, 0.76);
+  box-shadow: 0 16px 30px -28px rgba(38, 56, 47, 0.8), inset 0 1px rgba(255, 255, 255, 0.9);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.heroStat svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: #647a52;
+}
+
+.heroStat strong {
+  display: block;
+  margin-bottom: 0.08rem;
+  color: #26382f;
+  font-family: var(--mm-display), Georgia, serif;
+  font-size: 1.12rem;
+  line-height: 1;
+}
+
+.heroCue {
+  display: inline-flex;
+  min-height: 2.75rem;
+  margin-top: 1rem;
+  padding: 0.15rem 0.82rem;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(108, 122, 82, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.82);
+  box-shadow: 0 0.55rem 1.25rem rgba(60, 49, 31, 0.1);
+  color: #405444;
+  font-size: 0.78rem;
+  font-weight: 720;
+  text-decoration: none;
+  text-underline-offset: 0.22rem;
+  backdrop-filter: blur(12px);
+}
+
+.heroCue svg {
+  width: 0.92rem;
+  height: 0.92rem;
+  transition: transform 180ms ease;
+}
+
+.heroCue:hover {
+  border-color: rgba(80, 107, 66, 0.38);
+  background: rgba(255, 253, 247, 0.94);
+}
+
+.heroCue:hover svg {
+  transform: translateY(3px);
+}
+
+.heroVisual {
+  position: absolute;
+  z-index: 2;
+  right: -4.4rem;
+  bottom: -4.7rem;
+  width: min(24rem, 104vw);
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.heroVisual::before {
+  position: absolute;
+  z-index: -1;
+  inset: 20% 10% 12% 2%;
+  border-radius: 50%;
+  content: '';
+  background: radial-gradient(ellipse, rgba(255, 249, 227, 0.92), rgba(211, 164, 94, 0.16) 48%, transparent 72%);
+  filter: blur(10px);
+}
+
+.heroIllustration {
+  object-fit: contain;
+  filter: drop-shadow(0 22px 26px rgba(54, 42, 27, 0.18));
+}
+
+.catalogueDesk {
+  position: relative;
+  z-index: 10;
+  margin: -1.35rem 0.55rem 0;
+  scroll-margin-top: 6rem;
+  overflow: hidden;
+  border: 1px solid rgba(121, 95, 69, 0.22);
+  border-radius: 1.35rem 1rem 1.55rem 1.08rem;
+  background:
+    linear-gradient(135deg, rgba(255, 253, 247, 0.97), rgba(246, 237, 222, 0.94)),
+    #fffdf7;
+  box-shadow:
+    0 22px 54px -38px rgba(55, 42, 27, 0.78),
+    inset 0 1px rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.catalogueDesk::after {
+  position: absolute;
+  right: -2rem;
+  bottom: -2.5rem;
+  width: 9rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  content: '';
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(100, 122, 82, 0.12), transparent 68%);
+}
+
+.viewTabs {
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.74);
+}
+
+.resultWrap {
+  margin-top: clamp(1.3rem, 3vw, 2.15rem);
+}
+
+.resultHeader {
+  margin: 0 0.25rem 0.7rem;
+}
+
+.shelfStage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 1.45rem 0.55rem 0;
+  border: 4px solid #8a6043;
+  border-radius: 1.2rem 1rem 1.45rem 0.95rem;
+  background:
+    linear-gradient(180deg, rgba(225, 202, 174, 0.74), rgba(234, 220, 200, 0.96) 30rem),
+    #eadcc8;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.23),
+    inset 0 16px 30px -26px rgba(50, 31, 19, 0.76),
+    0 28px 54px -36px rgba(54, 38, 25, 0.86);
+}
+
+.shelfStage::before {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 0.35rem;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 236, 208, 0.66), rgba(83, 50, 30, 0.22));
+}
+
+.shelfBackdrop {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: min(34rem, 78vw);
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 100%);
+  animation: shelf-stage-reveal 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.shelfBackdropImage {
+  object-fit: cover;
+  object-position: center top;
+}
+
+.shelfVeil {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(248, 240, 226, 0.28), rgba(248, 240, 226, 0.66) 22rem, #eadcc8 38rem),
+    radial-gradient(circle at 50% 3%, rgba(255, 250, 222, 0.38), transparent 28rem);
+}
+
+.shelfGlow {
+  position: absolute;
+  z-index: 1;
+  top: -8rem;
+  left: 17%;
+  width: 44%;
+  height: 28rem;
+  pointer-events: none;
+  opacity: 0.42;
+  background: radial-gradient(ellipse, rgba(255, 249, 211, 0.7), transparent 68%);
+  transform: translateX(-5%) rotate(-8deg);
+  animation: shelf-glow-drift 14s ease-in-out infinite alternate;
+}
+
+.shelfGrid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-width: 0;
+  gap: 0.9rem;
+  padding: 1.15rem 0.7rem 1.25rem;
+  border: 1px solid rgba(119, 82, 52, 0.3);
+  border-radius: 0.85rem 0.85rem 0.55rem 0.55rem;
+  background: linear-gradient(180deg, rgba(250, 244, 234, 0.7), rgba(234, 220, 200, 0.84));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.64);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.shelfLip {
+  position: relative;
+  z-index: 3;
+  height: 0.7rem;
+  margin: 0 0.65rem;
+  border-radius: 0 0 999px 999px;
+  background:
+    linear-gradient(90deg, rgba(77, 46, 28, 0.22), transparent 12%, transparent 88%, rgba(77, 46, 28, 0.22)),
+    linear-gradient(180deg, #b7865d, #70472f);
+  box-shadow: 0 0.38rem 0.7rem rgba(65, 39, 23, 0.28);
+}
+
+.bookSlot {
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+.materialCard {
+  isolation: isolate;
+}
+
+.materialCard::after {
+  position: absolute;
+  z-index: 4;
+  top: -45%;
+  left: -65%;
+  width: 42%;
+  height: 190%;
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 246, 211, 0.34), transparent);
+  mix-blend-mode: screen;
+  transform: rotate(16deg);
+  transition: left 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease;
+}
+
+.filterPending .shelfGrid {
+  opacity: 0.62;
+  transform: translateY(2px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .materialCard:hover::after {
+    left: 125%;
+    opacity: 1;
+  }
+}
+
+@media (min-width: 640px) {
+  .hero {
+    min-height: 520px;
+  }
+
+  .heroCopy {
+    width: 64%;
+    padding: 2.5rem 0 0 2.25rem;
+  }
+
+  .heroTitle {
+    font-size: clamp(3.2rem, 7vw, 4.1rem);
+  }
+
+  .heroVisual {
+    right: -2.6rem;
+    bottom: -4.3rem;
+    width: min(27rem, 56vw);
+  }
+
+  .heroVeil {
+    background:
+      linear-gradient(90deg, rgba(255, 253, 247, 0.99) 0%, rgba(255, 253, 247, 0.96) 48%, rgba(255, 253, 247, 0.55) 67%, rgba(255, 253, 247, 0.08) 86%),
+      linear-gradient(180deg, rgba(255, 253, 247, 0.18), rgba(255, 253, 247, 0.36));
+  }
+
+  .catalogueDesk {
+    margin: -1.65rem 1.15rem 0;
+  }
+
+  .shelfStage {
+    padding: 1.8rem 0.9rem 0;
+    border-width: 7px;
+  }
+
+  .shelfGrid {
+    padding: 1.35rem 1rem 1.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 900px) {
+  .hero {
+    min-height: 450px;
+    border-radius: 2rem 1.6rem 2.4rem 1.7rem;
+  }
+
+  .heroBackdropImage {
+    object-position: center;
+  }
+
+  .heroCopy {
+    width: 62%;
+    padding: 3rem 0 2.3rem 3rem;
+  }
+
+  .heroTitle {
+    font-size: clamp(3.65rem, 5.7vw, 5rem);
+  }
+
+  .heroDescription {
+    font-size: 1.04rem;
+  }
+
+  .heroStats {
+    max-width: 34rem;
+  }
+
+  .heroVisual {
+    right: -1rem;
+    bottom: -5.3rem;
+    width: min(31rem, 42vw);
+  }
+
+  .catalogueDesk {
+    margin-right: 2rem;
+    margin-left: 2rem;
+  }
+
+  .shelfGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1240px) {
+  .hero {
+    min-height: 480px;
+  }
+
+  .heroCopy {
+    width: 58%;
+    padding-left: 3.75rem;
+  }
+
+  .heroVisual {
+    right: 0.4rem;
+    bottom: -5.8rem;
+    width: 34rem;
+  }
+
+  .shelfGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 359px) {
+  .heroCopy {
+    padding-right: 0.9rem;
+    padding-left: 0.9rem;
+  }
+
+  .heroStat {
+    gap: 0.42rem;
+    padding-inline: 0.58rem;
+    font-size: 0.66rem;
+  }
+
+  .heroVisual {
+    right: -4.8rem;
+  }
+
+  .catalogueDesk {
+    margin-right: 0.25rem;
+    margin-left: 0.25rem;
+  }
+
+  .viewIcon {
+    display: none;
+  }
+}
+
+@keyframes shelf-sun-drift {
+  from {
+    opacity: 0.22;
+    transform: translate3d(-2%, -1%, 0) rotate(16deg);
+  }
+  to {
+    opacity: 0.4;
+    transform: translate3d(4%, 2%, 0) rotate(19deg);
+  }
+}
+
+@keyframes shelf-glow-drift {
+  from {
+    opacity: 0.28;
+    transform: translate3d(-5%, 0, 0) rotate(-8deg);
+  }
+  to {
+    opacity: 0.5;
+    transform: translate3d(9%, 2%, 0) rotate(-5deg);
+  }
+}
+
+@keyframes shelf-stage-reveal {
+  from {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroSunbeam,
+  .shelfBackdrop,
+  .shelfGlow {
+    animation: none;
+  }
+
+  .heroCue svg,
+  .shelfGrid,
+  .materialCard::after {
+    transition: none;
+  }
+}

@@ -23,6 +23,34 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-13] — Élő olvasószobává vált a Műhelypolc
+<!-- key: 2026-07-13-muhelypolc-olvasoszoba-dokumentumjavitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 Barátságosabb böngészés
+
+- **A Műhelypolc napfényes, otthonos olvasószobát kapott:** a könyvek, a fa
+  polckeret és a finoman mozduló fények egy közös térbe rendezik a keresést és
+  a megosztott anyagokat.
+- **A polc mozgásai segítenek, de nem zavarják az olvasást:** a kártyák lágyan
+  érkeznek meg, az apró fényjáték pedig kikapcsol, ha a készüléken csökkentett
+  mozgás van beállítva.
+- **Telefonon is kényelmes marad minden:** 320 képpont szélességtől nincs
+  oldalirányú görgetés; a szűrők és az anyagok egy jól áttekinthető oszlopba
+  rendeződnek.
+
+### 🐛 Szebb dokumentumnézet
+
+- **A megnyitott segédanyag ismét valódi, széles olvasóoldal:** nagy képernyőn
+  a szöveg és az anyag adatai egymás mellett, telefonon egymás alatt jelennek
+  meg, így a mondatok többé nem törnek betűnként keskeny oszlopba.
+- **A szerkesztőablak is megkapta ugyanezt a javítást,** ezért saját anyag
+  készítésekor vagy módosításakor minden mező kényelmesen használható mobilon
+  és asztali gépen is.
+
+---
+
 ## [2026-07-13] — Egyetlen, napfényes tér lett a Műhely nyitóoldala
 <!-- key: 2026-07-13-misszios-muhely-premium-nyitooldal -->
 <!-- category: improvement -->

@@ -147,7 +147,7 @@ export function MaterialContent({ content }: MaterialContentProps) {
   }
 
   return (
-    <div className="min-w-0 [overflow-wrap:anywhere] font-serif text-[1rem] leading-[1.85] text-[#4d5a51] sm:text-[1.08rem]">
+    <div className="min-w-0 hyphens-manual [overflow-wrap:anywhere] [word-break:normal] font-serif text-[1rem] leading-[1.85] text-[#4d5a51] [font-kerning:normal] sm:text-[1.075rem] sm:leading-[1.9]">
       {blocks}
     </div>
   )

@@ -1,6 +1,7 @@
 import { ArrowUpRight, BookOpen, ExternalLink, LoaderCircle, Star } from 'lucide-react'
 
 import type { WorkshopMaterial } from '@/app/misszios-muhely/community-actions'
+import styles from './materials-studio.module.css'
 
 interface MaterialCardProps {
   material: WorkshopMaterial
@@ -25,7 +26,7 @@ export function MaterialCard({ material, onSelect, loading = false, disabled = f
       disabled={disabled || loading}
       aria-busy={loading}
       aria-label={`${material.cim} megnyitása`}
-      className="group relative flex min-h-[286px] w-full flex-col overflow-hidden rounded-[1rem_0.8rem_1.15rem_0.7rem] border border-[#d3c3aa] bg-[#fffdf7] p-5 text-left shadow-[0_12px_28px_-20px_rgba(52,42,29,0.75)] transition duration-300 hover:-translate-y-1.5 hover:rotate-[-0.25deg] hover:border-[#bda987] hover:shadow-[0_20px_36px_-22px_rgba(52,42,29,0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#b68b65] disabled:cursor-wait disabled:hover:translate-y-0 disabled:hover:rotate-0 motion-reduce:transition-none"
+      className={`${styles.materialCard} group relative flex min-h-[286px] w-full flex-col overflow-hidden rounded-[1rem_0.8rem_1.15rem_0.7rem] border border-[#d3c3aa] bg-[#fffdf7] p-5 text-left shadow-[0_12px_28px_-20px_rgba(52,42,29,0.75)] transition duration-300 hover:-translate-y-1.5 hover:rotate-[-0.25deg] hover:border-[#bda987] hover:shadow-[0_20px_36px_-22px_rgba(52,42,29,0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e] focus-visible:ring-offset-2 focus-visible:ring-offset-[#b68b65] disabled:cursor-wait disabled:hover:translate-y-0 disabled:hover:rotate-0 motion-reduce:transition-none`}
     >
       <span
         className="absolute right-5 top-0 h-9 w-4 bg-[#c87552] shadow-sm transition-transform duration-300 group-hover:translate-y-1 motion-reduce:transition-none"

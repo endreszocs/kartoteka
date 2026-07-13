@@ -135,7 +135,7 @@ export function MaterialDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[calc(100dvh-0.75rem)] w-[calc(100%-0.75rem)] max-w-5xl flex-col overflow-hidden rounded-[1.25rem] border-[#d6c6af] bg-[#fffdf7] p-0 shadow-[0_30px_90px_-26px_rgba(46,38,27,.6)] sm:max-h-[94dvh] sm:w-[calc(100%-2rem)] sm:rounded-[1.75rem]"
+        className="flex max-h-[calc(100dvh-0.75rem)] w-[calc(100%-0.75rem)] max-w-none flex-col gap-0 overflow-hidden rounded-[1.25rem] border-[#d6c6af] bg-[#fffdf7] p-0 shadow-[0_30px_90px_-26px_rgba(46,38,27,.6)] sm:max-h-[94dvh] sm:w-[calc(100%-2rem)] sm:max-w-5xl sm:rounded-[1.75rem]"
       >
         <header className="relative shrink-0 overflow-hidden border-b border-[#d8c9b4] bg-[#f4ebdd] p-4 pr-14 sm:p-6 sm:pr-16">
           <BookOpen className="absolute -bottom-10 -right-4 h-36 w-36 rotate-[-8deg] text-[#647a52]/10" aria-hidden="true" />
@@ -166,22 +166,24 @@ export function MaterialDetailDialog({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-8">
             <article className="min-w-0 rounded-[1.1rem] border border-[#e1d7c8] bg-white px-4 py-5 shadow-[0_18px_42px_-34px_rgba(49,42,31,.7)] sm:px-7 sm:py-7 lg:px-10 lg:py-9" aria-label="Segédanyag tartalma">
-              {categories.length > 0 && (
-                <div className="mb-6 flex flex-wrap gap-1.5">
-                  {categories.map((category) => (
-                    <span
-                      key={category.nev}
-                      className="rounded-full border border-[#d8cbb8] bg-[#f4ebdd]/70 px-2.5 py-1 text-xs font-semibold text-[#647a52]"
-                    >
-                      {category.nev}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <MaterialContent content={material.leiras} />
+              <div className="mx-auto w-full max-w-[68ch] min-w-0">
+                {categories.length > 0 && (
+                  <div className="mb-6 flex flex-wrap gap-1.5">
+                    {categories.map((category) => (
+                      <span
+                        key={category.nev}
+                        className="rounded-full border border-[#d8cbb8] bg-[#f4ebdd]/70 px-2.5 py-1 text-xs font-semibold text-[#647a52]"
+                      >
+                        {category.nev}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <MaterialContent content={material.leiras} />
+              </div>
             </article>
 
-            <aside className="grid gap-3 sm:grid-cols-2 lg:sticky lg:top-0 lg:grid-cols-1" aria-label="Segédanyag adatai">
+            <aside className="grid min-w-0 gap-3 sm:grid-cols-2 lg:sticky lg:top-0 lg:grid-cols-1" aria-label="Segédanyag adatai">
               <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
                 <User className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
                 <div className="min-w-0">
@@ -198,21 +200,21 @@ export function MaterialDetailDialog({
               </div>
               <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
                 <Calendar className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#7a8077]">Frissítve</div>
                   <div className="text-sm font-medium text-[#35443a]">{formatDate(material.updated_at || material.created_at)}</div>
                 </div>
               </div>
               <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
                 <Download className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#7a8077]">Letöltések</div>
                   <div className="text-sm font-medium text-[#35443a]">{downloadCount}</div>
                 </div>
               </div>
               <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#d8c79f] bg-[#fbf1dc] p-3.5 sm:col-span-2 lg:col-span-1">
                 <Star className="h-4 w-4 shrink-0 fill-[#d3a45e] text-[#d3a45e]" aria-hidden="true" />
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#8c7550]">Közösségi értékelés</div>
                   <div className="text-sm font-medium text-[#5f4e32]">
                     {ratingCount > 0 ? `${averageRating.toLocaleString('hu-HU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / 5 · ${ratingCount} értékelés` : 'Még nincs értékelés'}
@@ -220,7 +222,7 @@ export function MaterialDetailDialog({
                 </div>
               </div>
               {material.forras_nev && (
-                <p className="px-1 text-xs leading-5 text-[#7d8178] sm:col-span-2 lg:col-span-1">
+                <p className="min-w-0 [overflow-wrap:anywhere] px-1 text-xs leading-5 text-[#7d8178] sm:col-span-2 lg:col-span-1">
                   Forrás: <strong className="font-medium text-[#59635b]">{material.forras_nev}</strong>
                 </p>
               )}

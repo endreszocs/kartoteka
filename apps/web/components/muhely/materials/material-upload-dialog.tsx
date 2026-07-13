@@ -108,7 +108,7 @@ export function MaterialUploadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[calc(100dvh-0.75rem)] w-[calc(100%-0.75rem)] max-w-4xl flex-col overflow-hidden rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[92dvh] sm:w-[calc(100%-2rem)] sm:rounded-[1.6rem]"
+        className="flex max-h-[calc(100dvh-0.75rem)] w-[calc(100%-0.75rem)] max-w-none flex-col gap-0 overflow-hidden rounded-[1.25rem] border-[#d8c9b4] bg-[#fffdf7] p-0 shadow-[0_28px_80px_-24px_rgba(46,38,27,.55)] sm:max-h-[92dvh] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:rounded-[1.6rem]"
       >
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <header className="relative shrink-0 overflow-hidden border-b border-[#d8c9b4] bg-[#f4ebdd] px-4 py-4 pr-14 sm:px-6 sm:py-5 sm:pr-16">
