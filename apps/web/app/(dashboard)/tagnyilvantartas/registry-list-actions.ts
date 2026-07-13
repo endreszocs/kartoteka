@@ -62,7 +62,11 @@ type MemberHouseholdState = {
 }
 
 type PaymentGoalCodeRef = {
-  szamadasicel?: { kod: string | null } | Array<{ kod: string | null }> | null
+  id_szamadasicel?: string | null
+  szamadasicel?:
+    | { id?: string | null; kod?: string | null }
+    | Array<{ id?: string | null; kod?: string | null }>
+    | null
 } | null
 
 type PaymentRow = JarulekPaymentLike & {
@@ -181,7 +185,7 @@ function isActiveMember(member: EnrichedMember) {
 function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
   const normalizedGoal = pickRelation(goal)
   const codeRef = pickRelation(normalizedGoal?.szamadasicel)
-  return codeRef?.kod ?? null
+  return normalizedGoal?.id_szamadasicel ?? codeRef?.id ?? codeRef?.kod ?? null
 }
 
 function isChurchMaintenanceCode(code?: string | null) {
@@ -304,11 +308,11 @@ async function loadMaintenancePayments(supabase: SupabaseClient, congregationId:
       let query = databaseFiltered
         ? supabase
             .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel!inner(szamadasicel!inner(kod))')
-            .like('befizetescel.szamadasicel.kod', '101.01%')
+            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel!inner(id_szamadasicel)')
+            .like('befizetescel.id_szamadasicel', '101.01%')
         : supabase
             .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
+            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)')
 
       query = query
         .eq('congregation_id', congregationId)

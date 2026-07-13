@@ -24,14 +24,18 @@ async function getProfileCongregation() {
 }
 
 type PaymentGoalCodeRef = {
-  szamadasicel?: { kod: string | null } | { kod: string | null }[] | null
+  id_szamadasicel?: string | null
+  szamadasicel?:
+    | { id?: string | null; kod?: string | null }
+    | { id?: string | null; kod?: string | null }[]
+    | null
 } | null
 
 function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
   const normalizedGoal = Array.isArray(goal) ? goal[0] || null : goal || null
   const goalCodeRef = normalizedGoal?.szamadasicel
   const normalizedCodeRef = Array.isArray(goalCodeRef) ? goalCodeRef[0] || null : goalCodeRef || null
-  return normalizedCodeRef?.kod || null
+  return normalizedGoal?.id_szamadasicel || normalizedCodeRef?.id || normalizedCodeRef?.kod || null
 }
 
 function isChurchMaintenanceCode(code?: string | null) {
@@ -101,14 +105,14 @@ export async function getMembers(): Promise<{
     // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
     // néma adatvesztést okozna.
     supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
-    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
+    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
     // 2026-06-30 (perf): a 101.01* kód-szűrés a DB-be került (beágyazott inner-join),
     // korábban MINDEN befizetést lehúzott; a JS-szűrő alább forrás-igazságként marad,
     // és hiba esetén a szűretlen lekérdezésre esünk vissza.
-    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(szamadasicel!inner(kod))').eq('congregation_id', congregationId).like('befizetescel.szamadasicel.kod', '101.01%').or('deleted.eq.false,deleted.is.null'),
+    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(id_szamadasicel)').eq('congregation_id', congregationId).like('befizetescel.id_szamadasicel', '101.01%').or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
     // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
@@ -199,7 +203,7 @@ export async function getMembers(): Promise<{
   let everPaidData = (everPaidRes.data || []) as EverPaidRow[]
   if (everPaidRes.error) {
     const retry = await supabase.from('befizetes')
-      .select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))')
+      .select('id_szemely, id_csalad, befizetescel(id_szamadasicel)')
       .eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null')
     if (retry.error) console.warn('[tagnyilvantartas/lista] everPaid retry (szűretlen) is hibázott:', retry.error.message)
     everPaidData = (retry.data || []) as EverPaidRow[]
