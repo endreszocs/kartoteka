@@ -18,6 +18,27 @@ begin
     raise exception 'Hiányzik a globális hozzáférést ellenőrző adatbázis-függvény.';
   end if;
 
+  if to_regnamespace('mm_private') is null then
+    raise exception 'Hiányzik a jutalmazási migráció által létrehozott mm_private séma.';
+  end if;
+
+  if to_regrole('service_role') is null then
+    raise exception 'Hiányzik a Supabase service_role adatbázis-szerepkör.';
+  end if;
+
+  if not has_table_privilege(
+    'service_role',
+    'public.mm_segedanyagok',
+    'SELECT'
+  ) or not has_table_privilege(
+    'service_role',
+    'public.mm_segedanyagok',
+    'UPDATE'
+  ) then
+    raise exception
+      'A service_role nem rendelkezik SELECT és UPDATE joggal az mm_segedanyagok táblán.';
+  end if;
+
   if not exists (
     select 1
     from pg_policies policy
@@ -320,45 +341,109 @@ revoke all on function public.mm_list_segedanyagok(text, integer)
 grant execute on function public.mm_list_segedanyagok(text, integer)
   to authenticated;
 
--- A generált Word/PDF exportokat egyetlen atomi UPDATE számolja. SECURITY
--- DEFINER szükséges, mert az olvasó jogosan tölthet le aktív anyagot akkor is,
--- ha nem ő a feltöltő; az üres search_path és a teljesen minősített nevek
--- megakadályozzák az objektum-árnyékolást.
+-- A letöltési nyugta nem exponált sémában él. Egy felhasználó ugyanazt az
+-- anyagot és formátumot naponta csak egyszer növelheti, ezért a számláló egy
+-- Server Action ismételgetésével sem fújható fel. A dokumentum ettől még
+-- korlátlanul újramenthető; csak a mérőszám marad idempotens.
+create table if not exists mm_private.mm_material_download_receipts (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  material_id uuid not null references public.mm_segedanyagok(id) on delete cascade,
+  export_format text not null,
+  bucket_date date not null,
+  created_at timestamptz not null default now(),
+  constraint mm_material_download_receipts_format_check
+    check (export_format in ('pdf', 'word')),
+  constraint mm_material_download_receipts_pkey
+    primary key (user_id, material_id, export_format, bucket_date)
+);
+
+alter table mm_private.mm_material_download_receipts enable row level security;
+revoke all on table mm_private.mm_material_download_receipts
+  from public, anon, authenticated;
+grant usage on schema mm_private to service_role;
+grant select, insert on table mm_private.mm_material_download_receipts
+  to service_role;
+
+-- SECURITY INVOKER + service_role-only: a böngésző nem kap írási jogot, és
+-- nem marad privilegizált SECURITY DEFINER belépési pont a public sémában.
+drop function if exists public.mm_record_material_download(uuid);
 create or replace function public.mm_record_material_download(
-  p_material_id uuid
+  p_material_id uuid,
+  p_user_id uuid,
+  p_export_format text
 )
 returns integer
 language plpgsql
-security definer
+security invoker
 set search_path = ''
 as $function$
 declare
   v_download_count integer;
+  v_inserted integer;
 begin
-  if auth.uid() is null then
-    raise exception 'A letöltés rögzítéséhez bejelentkezés szükséges.'
+  if current_user <> 'service_role' then
+    raise exception 'A letöltésszámlálót csak a szerveroldali szolgáltatás hívhatja.'
       using errcode = '42501';
   end if;
 
-  update public.mm_segedanyagok material
-  set letoltes_szam = coalesce(material.letoltes_szam, 0) + 1
+  if p_user_id is null then
+    raise exception 'Hiányzik a letöltő felhasználó azonosítója.'
+      using errcode = '23502';
+  end if;
+
+  p_export_format := lower(btrim(coalesce(p_export_format, '')));
+  if p_export_format not in ('pdf', 'word') then
+    raise exception 'Érvénytelen exportformátum.'
+      using errcode = '23514';
+  end if;
+
+  select coalesce(material.letoltes_szam, 0)
+  into v_download_count
+  from public.mm_segedanyagok material
   where material.id = p_material_id
     and material.aktiv = true
-  returning material.letoltes_szam into v_download_count;
+  for update;
 
   if not found then
     raise exception 'A segédanyag nem található vagy már archivált.'
       using errcode = 'P0002';
   end if;
 
+  insert into mm_private.mm_material_download_receipts (
+    user_id,
+    material_id,
+    export_format,
+    bucket_date,
+    created_at
+  ) values (
+    p_user_id,
+    p_material_id,
+    p_export_format,
+    (statement_timestamp() at time zone 'UTC')::date,
+    statement_timestamp()
+  )
+  on conflict (user_id, material_id, export_format, bucket_date) do nothing;
+
+  get diagnostics v_inserted = row_count;
+
+  if v_inserted = 1 then
+    update public.mm_segedanyagok material
+    set letoltes_szam = coalesce(material.letoltes_szam, 0) + 1
+    where material.id = p_material_id
+    returning material.letoltes_szam into v_download_count;
+  end if;
+
   return v_download_count;
 end
 $function$;
 
-revoke all on function public.mm_record_material_download(uuid)
-  from public, anon;
-grant execute on function public.mm_record_material_download(uuid)
-  to authenticated;
+comment on function public.mm_record_material_download(uuid, uuid, text) is
+  'Napi, felhasználó- és formátumalapú idempotens letöltésszámláló; csak service_role hívhatja.';
+
+revoke all on function public.mm_record_material_download(uuid, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.mm_record_material_download(uuid, uuid, text)
+  to service_role;
 
 commit;
 
@@ -384,9 +469,11 @@ select jsonb_build_object(
     'EXECUTE'
   ),
   'download_counter_exists',
-    to_regprocedure('public.mm_record_material_download(uuid)') is not null,
-  'download_counter_security_definer',
-    coalesce(download_counter.prosecdef, false),
+    to_regprocedure('public.mm_record_material_download(uuid,uuid,text)') is not null,
+  'old_download_counter_removed',
+    to_regprocedure('public.mm_record_material_download(uuid)') is null,
+  'download_counter_security_invoker',
+    not coalesce(download_counter.prosecdef, true),
   'download_counter_search_path_locked',
     exists (
       select 1
@@ -395,13 +482,62 @@ select jsonb_build_object(
     ),
   'download_counter_authenticated_execute', has_function_privilege(
     'authenticated',
-    'public.mm_record_material_download(uuid)',
+    'public.mm_record_material_download(uuid,uuid,text)',
     'EXECUTE'
+  ),
+  'download_counter_service_role_execute', has_function_privilege(
+    'service_role',
+    'public.mm_record_material_download(uuid,uuid,text)',
+    'EXECUTE'
+  ),
+  'download_counter_service_role_select', has_table_privilege(
+    'service_role',
+    'public.mm_segedanyagok',
+    'SELECT'
+  ),
+  'download_counter_service_role_update', has_table_privilege(
+    'service_role',
+    'public.mm_segedanyagok',
+    'UPDATE'
   ),
   'download_counter_anon_execute', has_function_privilege(
     'anon',
-    'public.mm_record_material_download(uuid)',
+    'public.mm_record_material_download(uuid,uuid,text)',
     'EXECUTE'
+  ),
+  'download_receipts_table_exists',
+    to_regclass('mm_private.mm_material_download_receipts') is not null,
+  'download_receipts_rls_enabled',
+    coalesce(receipt_table.relrowsecurity, false),
+  'download_receipts_anon_select', has_table_privilege(
+    'anon',
+    'mm_private.mm_material_download_receipts',
+    'SELECT'
+  ),
+  'download_receipts_anon_insert', has_table_privilege(
+    'anon',
+    'mm_private.mm_material_download_receipts',
+    'INSERT'
+  ),
+  'download_receipts_authenticated_select', has_table_privilege(
+    'authenticated',
+    'mm_private.mm_material_download_receipts',
+    'SELECT'
+  ),
+  'download_receipts_authenticated_insert', has_table_privilege(
+    'authenticated',
+    'mm_private.mm_material_download_receipts',
+    'INSERT'
+  ),
+  'download_receipts_service_role_select', has_table_privilege(
+    'service_role',
+    'mm_private.mm_material_download_receipts',
+    'SELECT'
+  ),
+  'download_receipts_service_role_insert', has_table_privilege(
+    'service_role',
+    'mm_private.mm_material_download_receipts',
+    'INSERT'
   ),
   'list_rpc_exists',
     to_regprocedure('public.mm_list_segedanyagok(text,integer)') is not null,
@@ -426,7 +562,11 @@ select jsonb_build_object(
 ) as mm_segedanyag_szerkeszto_ellenorzes
 from pg_proc procedure
 left join pg_proc download_counter
-  on download_counter.oid = to_regprocedure('public.mm_record_material_download(uuid)')
+  on download_counter.oid = to_regprocedure(
+    'public.mm_record_material_download(uuid,uuid,text)'
+  )
+left join pg_class receipt_table
+  on receipt_table.oid = to_regclass('mm_private.mm_material_download_receipts')
 left join pg_proc list_rpc
   on list_rpc.oid = to_regprocedure('public.mm_list_segedanyagok(text,integer)')
 where procedure.oid = to_regprocedure(

@@ -26,10 +26,11 @@ function isSafeHttpUrl(value: string): boolean {
 }
 
 /**
- * Admin (service_role) kliens a hiányzó statisztikasor inicializálásához.
- * A pontozást nem ez végzi: azt kizárólag az atomikus DB-trigger írhatja.
+ * Admin (service_role) kliens a Műhely kizárólag szerveroldali segédműveleteihez
+ * (például statisztika-inicializálás és letöltésszámlálás). A pontozást nem ez
+ * végzi: azt kizárólag az atomikus DB-trigger írhatja.
  */
-function getGamificationClient() {
+function getMissionAdminClient() {
   const admin = createAdminClient()
   if (admin) return admin
   return null
@@ -186,6 +187,7 @@ async function getWorkshopAccess() {
 const workshopUuidSchema = z.string().uuid('Érvénytelen műhelyazonosító.')
 
 const materialFormatSchema = z.enum(['PDF', 'DOCX', 'PPTX', 'video', 'link', 'csomag'])
+const materialExportFormatSchema = z.enum(['pdf', 'word'])
 
 const materialSaveSchema = z.object({
   materialId: z.string().uuid('Érvénytelen segédanyag-azonosító.').nullable().optional(),
@@ -251,7 +253,7 @@ async function ensureStats(userId: string) {
   }
 
   // Új sor beszúrása admin (service_role) klienssel, hogy RLS ne blokkolja
-  const adminClient = getGamificationClient()
+  const adminClient = getMissionAdminClient()
   if (!adminClient) {
     // Fallback: próbáljuk meg a normál klienssel (ha nincs admin, lehet hogy
     // a RLS policy-k engedik az insert-et — csak saját user_id esetén kéne)
@@ -357,7 +359,7 @@ export async function loadWhatsNew() {
   // Update last visit time — service_role kell, mert az mm_felhasznalo_statisztika
   // RLS csak SELECT-et enged a kliensnek; minden írás csak admin (service_role)
   // klienssel mehet (lásd 2026-04-15-mm-rls-fix-part2.sql).
-  const adminClient = getGamificationClient()
+  const adminClient = getMissionAdminClient()
   if (adminClient) {
     await adminClient
       .from('mm_felhasznalo_statisztika')
@@ -591,15 +593,28 @@ export async function loadMaterialDetail(materialId: string) {
   }
 }
 
-export async function recordMaterialDownload(materialId: string) {
+export async function recordMaterialDownload(materialId: string, exportFormat: 'pdf' | 'word') {
   const safeMaterialId = parseWorkshopUuid(materialId)
-  if (!safeMaterialId) return { error: 'Érvénytelen segédanyag-azonosító.' }
+  const safeExportFormat = materialExportFormatSchema.safeParse(exportFormat)
+  if (!safeMaterialId || !safeExportFormat.success) {
+    return { error: 'Érvénytelen letöltési kérés.' }
+  }
 
-  const { supabase, userId } = await getWorkshopAccess()
+  const { userId } = await getWorkshopAccess()
   if (!userId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
-  const { data, error } = await supabase.rpc('mm_record_material_download', {
+  // A kliens csak a hitelesített Server Actiont érheti el. Maga a számláló-RPC
+  // SECURITY INVOKER és kizárólag service_role számára futtatható, így nem
+  // marad privilegizált SECURITY DEFINER belépési pont az exponált public sémában.
+  const adminClient = getMissionAdminClient()
+  if (!adminClient) {
+    return { error: 'A letöltésszámláló szerverkapcsolata nincs beállítva.' }
+  }
+
+  const { data, error } = await adminClient.rpc('mm_record_material_download', {
     p_material_id: safeMaterialId,
+    p_user_id: userId,
+    p_export_format: safeExportFormat.data,
   })
 
   if (error) {

@@ -44,9 +44,9 @@ export function MaterialActionBar({
   const sourceUrl = safeHttpUrl(material.forras_url)
   const attachmentUrl = safeHttpUrl(material.csatolmany_url)
 
-  async function registerDownload() {
+  async function registerDownload(exportFormat: 'pdf' | 'word') {
     try {
-      const result = await recordMaterialDownload(material.id)
+      const result = await recordMaterialDownload(material.id, exportFormat)
       if ('error' in result) {
         console.warn('[material-export] Download counter update failed:', result.error)
         return
@@ -63,7 +63,7 @@ export function MaterialActionBar({
     try {
       await downloadMaterialAsPdf(material)
       toast.success('A PDF dokumentum elkészült.')
-      void registerDownload()
+      void registerDownload('pdf')
     } catch (error) {
       console.error('[material-export] PDF export failed', error)
       toast.error('A PDF mentése most nem sikerült. Kérlek, próbáld újra!')
@@ -77,7 +77,7 @@ export function MaterialActionBar({
     try {
       downloadMaterialAsWord(material)
       toast.success('A Word dokumentum elkészült.')
-      void registerDownload()
+      void registerDownload('word')
     } catch (error) {
       console.error('[material-export] Word export failed', error)
       toast.error('A Word dokumentum mentése most nem sikerült. Kérlek, próbáld újra!')
