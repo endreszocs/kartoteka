@@ -52,6 +52,12 @@ type Props = {
     id_cel: number | null
     iratszam: string | null
     megjegyzes: string | null
+    /** 2026-07-11 (S11): a számla valutája (RON esetén nincs deviza-blokk). */
+    valuta?: string | null
+    /** RON-ekvivalens (devizás számlánál szerkeszthető). */
+    osszeg_ron?: number | null
+    /** Átváltási árfolyam (devizás számlánál). */
+    arfolyam?: number | null
   }
   categories: Category[]
   onSaved?: () => void | Promise<void>
@@ -68,6 +74,11 @@ export function TransactionEditDialog({
 }: Props) {
   const [datum, setDatum] = useState('')
   const [osszeg, setOsszeg] = useState<number | ''>('')
+  // 2026-07-11 (S11): devizás számla — RON-ekvivalens + árfolyam szerkeszthető.
+  const [osszegRon, setOsszegRon] = useState<number | ''>('')
+  const [arfolyam, setArfolyam] = useState<number | ''>('')
+  const valuta = (initial?.valuta || 'RON').toUpperCase()
+  const isForeign = valuta !== 'RON'
   const [idCel, setIdCel] = useState<number | null>(null)
   const [iratszam, setIratszam] = useState('')
   const [megjegyzes, setMegjegyzes] = useState('')
@@ -106,6 +117,8 @@ export function TransactionEditDialog({
     if (!open || !initial) return
     setDatum(initial.datum?.slice(0, 10) || '')
     setOsszeg(initial.osszeg ?? '')
+    setOsszegRon(typeof initial.osszeg_ron === 'number' ? initial.osszeg_ron : (initial.osszeg ?? ''))
+    setArfolyam(typeof initial.arfolyam === 'number' ? initial.arfolyam : '')
     setIdCel(initial.id_cel ?? null)
     setIratszam(initial.iratszam || '')
     setMegjegyzes(initial.megjegyzes || '')
@@ -139,12 +152,31 @@ export function TransactionEditDialog({
     }
     setSaving(true)
     try {
+      // 2026-07-11 (S11): a könyvelés RON-ban — a osszeg_ron-t is elküldjük.
+      // RON számlán osszeg_ron == osszeg, arfolyam == 1. Devizásnál a felhasználó
+      // által megadott (vagy árfolyamból számolt) tényleges RON-érték + árfolyam megy.
+      const ronToSave = !isForeign
+        ? osszeg
+        : typeof osszegRon === 'number'
+          ? osszegRon
+          : typeof arfolyam === 'number' && arfolyam > 0
+            ? Number((osszeg * arfolyam).toFixed(2))
+            : osszeg
+      const rateToSave = !isForeign
+        ? 1
+        : typeof arfolyam === 'number' && arfolyam > 0
+          ? arfolyam
+          : typeof ronToSave === 'number' && osszeg > 0
+            ? Number((ronToSave / osszeg).toFixed(4))
+            : null
       const res = await updateTransactionBasic({
         type,
         id,
         // Ha a dátum nem szerkeszthető, NE küldjük (megőrizve az eredeti értéket)
         datum: dateEditable ? datum : undefined,
         osszeg,
+        osszeg_ron: ronToSave,
+        arfolyam: rateToSave,
         id_cel: idCel,
         iratszam: iratszam.trim() || null,
         megjegyzes: megjegyzes.trim() || null,
@@ -227,16 +259,69 @@ export function TransactionEditDialog({
             )}
           </ModalField>
 
-          <ModalField label="Összeg (RON)" required>
+          {/* 2026-07-11 (S11): a felirat a SZÁMLA valutáját mutatja (nem fix RON). */}
+          <ModalField label={`Összeg (${valuta})`} required>
             <Input
               type="number"
               step="0.01"
               min="0"
               value={osszeg}
-              onChange={(e) => setOsszeg(e.target.value === '' ? '' : Number(e.target.value))}
+              onChange={(e) => {
+                const v = e.target.value === '' ? '' : Number(e.target.value)
+                setOsszeg(v)
+                // Devizásnál: ha van árfolyam, a RON-értéket frissítjük; RON számlán együtt mozog.
+                if (!isForeign) {
+                  setOsszegRon(v)
+                } else if (typeof v === 'number' && typeof arfolyam === 'number' && arfolyam > 0) {
+                  setOsszegRon(Number((v * arfolyam).toFixed(2)))
+                }
+              }}
               placeholder="0.00"
             />
           </ModalField>
+
+          {/* 2026-07-11 (S11): devizás számlánál a TÉNYLEGES banki átváltás RON-értéke
+              és árfolyama kézzel javítható — a bank adói/rése miatt eltérhet a BNR-től. */}
+          {isForeign && (
+            <div className="grid grid-cols-2 gap-3">
+              <ModalField
+                label={`Árfolyam (RON / ${valuta})`}
+                hint="A tényleges banki átváltás árfolyama."
+              >
+                <Input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={arfolyam}
+                  onChange={(e) => {
+                    const r = e.target.value === '' ? '' : Number(e.target.value)
+                    setArfolyam(r)
+                    if (typeof osszeg === 'number' && typeof r === 'number' && r > 0) {
+                      setOsszegRon(Number((osszeg * r).toFixed(2)))
+                    }
+                  }}
+                  placeholder="pl. 4.9752"
+                />
+              </ModalField>
+              <ModalField label="Érték RON-ban" hint="A könyvelés ezt az összeget használja.">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={osszegRon}
+                  onChange={(e) => {
+                    const ron = e.target.value === '' ? '' : Number(e.target.value)
+                    setOsszegRon(ron)
+                    // A RON-érték kézi javításakor az árfolyamot visszaszámoljuk (tájékoztató).
+                    if (typeof ron === 'number' && typeof osszeg === 'number' && osszeg > 0) {
+                      setArfolyam(Number((ron / osszeg).toFixed(4)))
+                    }
+                  }}
+                  placeholder="0.00"
+                />
+              </ModalField>
+            </div>
+          )}
 
           <ModalField
             label="Jogcím (kategória)"

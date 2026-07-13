@@ -141,6 +141,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-11] — Devizás tétel szerkesztése + bankszámlák közötti (keresztdevizás) párosítás
+<!-- key: 2026-07-11-devizas-szerkesztes-parositas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.66 -->
+
+### 🎨 Devizás számla szerkesztése
+
+- **A tétel-szerkesztő ablak a számla VALÓS pénznemét írja ki** — nem fix „Összeg
+  (RON)", hanem pl. „Összeg (EUR)", ha devizás számláról van szó.
+- **Devizás számlánál a tényleges lej (RON) érték és az árfolyam kézzel javítható.**
+  A könyvelést lejben vezetjük, de a bank tényleges átváltási árfolyama (adók, banki
+  rés miatt) eltérhet a hivatalos BNR-től — ezért a lelkész mostantól beírhatja a
+  **valóban jóváírt RON összeget** (vagy az árfolyamot), és a rendszer ezt használja
+  a könyvelésben. (Eddig szerkesztéskor a RON-érték elavulhatott.)
+
+### 🔗 Bankszámlák közötti párosítás (keresztdevizás is)
+
+- **A bankszámlák közötti mozgások is párosíthatók — a különböző pénznemek között
+  is.** Ha pl. 1000 EUR-t átküldesz a devizás számláról, és az ~4970 RON-ként jelenik
+  meg a lej számlán, a rendszer mostantól **összepárosítja** a két tételt (mint a
+  kassza és bank közötti mozgásokat) — annak ellenére, hogy a két összeg különböző.
+  A párosítás a **lej-egyenértéken** történik, kis toleranciával (a banki és a BNR
+  árfolyam pár százalékos eltérését megengedve). Az azonos pénznemű mozgásoknál marad
+  a pontos összeg-egyeztetés. Így a devizás átutalások „⏳ várakozik" jelzése is
+  eltűnik, amint a másik számla kivonata beérkezik.
+
+### ℹ️ Jó tudni
+
+A kézi bank→bank átvezetés rögzítő felülete (a hozzá tartozó automatikus
+árfolyam-különbözet könyveléssel, 103.04 nyereség / 203.03 veszteség) külön, következő
+lépésként érkezik — a részletes könyvelői terv elkészült (docs/BANK_BANK_ATVEZETES_TERV).
+
+---
+
 ## [2026-07-11] — Monetár (címletszámláló) mentés-hiba javítva
 <!-- key: 2026-07-11-monetar-mentes-fix -->
 <!-- category: bugfix -->

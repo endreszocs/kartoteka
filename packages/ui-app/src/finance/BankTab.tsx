@@ -100,6 +100,8 @@ interface BankTransactionRow {
   /** 2026-07-11 (S9): RON-ekvivalens — az egyenleg és a KPI-k EZT használják
    *  (a könyvelés RON-ban folyik). RON számlán == osszeg. */
   osszegRon: number
+  /** 2026-07-11 (S11): átváltási árfolyam (devizás számlánál; RON-nál 1). */
+  arfolyam: number | null
   partner: string
   celNev: string
   iratszam: string
@@ -209,6 +211,11 @@ export interface BankTabProps {
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      /** 2026-07-11 (S11): a számla valutája + RON-ekvivalens + árfolyam a
+       *  devizás szerkesztéshez (RON számlán elmarad). */
+      valuta?: string | null
+      osszeg_ron?: number | null
+      arfolyam?: number | null
     }
     categories: { id: number; kod: string; nev: string }[]
     onSaved: () => void | Promise<void>
@@ -318,6 +325,10 @@ export function BankTab({
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      // 2026-07-11 (S11): devizás szerkesztés — valuta + RON-érték + árfolyam.
+      valuta?: string | null
+      osszeg_ron?: number | null
+      arfolyam?: number | null
     }
   }>({ open: false, type: 'befizetes', id: null })
   const [stornoDialog, setStornoDialog] = useState<{
@@ -339,6 +350,11 @@ export function BankTab({
         id_cel: r.idCel,
         iratszam: r.iratszam,
         megjegyzes: r.megjegyzes || null,
+        // 2026-07-11 (S11): devizás számla — a valuta + RON-érték + árfolyam is
+        // átmegy, hogy a szerkesztő helyes felirattal és RON-mezővel nyíljon.
+        valuta: r.bankszamlaId != null ? bankValutaById.get(r.bankszamlaId) || 'RON' : 'RON',
+        osszeg_ron: r.osszegRon,
+        arfolyam: r.arfolyam,
       },
     })
   }
@@ -420,6 +436,7 @@ export function BankTab({
         datum: record.datum,
         osszeg: record.osszeg,
         osszegRon: Number(record.osszeg_ron ?? record.osszeg) || 0,
+        arfolyam: record.arfolyam ?? null,
         partner: record.forrasa || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',
@@ -450,6 +467,7 @@ export function BankTab({
         datum: record.datum,
         osszeg: record.osszeg,
         osszegRon: Number(record.osszeg_ron ?? record.osszeg) || 0,
+        arfolyam: record.arfolyam ?? null,
         partner: getExpensePartnerName(record) || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',

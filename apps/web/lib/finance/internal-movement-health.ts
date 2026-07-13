@@ -22,6 +22,13 @@
 export interface InternalMovementRow {
   id: number
   osszeg: number
+  /** 2026-07-11 (S11): RON-ekvivalens — a KERESZT-DEVIZÁS párosításhoz. Egy EUR→RON
+   *  átutalásnál a két fél összege KÜLÖNBÖZŐ (1000 EUR ↔ ~4970 RON), ezért NEM a nyers
+   *  összegre, hanem a RON-értékre kell párosítani. RON számlán == osszeg. */
+  osszeg_ron?: number | null
+  /** Átváltási árfolyam (devizás = ≠1). A tolerancia-alapú (kereszt-devizás) párosítás
+   *  csak akkor lép be, ha legalább az egyik fél devizás. */
+  arfolyam?: number | null
   datum: string | null
   belso_mozgas_xkey: string | null
   deleted?: boolean
@@ -79,16 +86,37 @@ export function computeInternalMovementHealth(
     id: number
     datum: string
     cents: number
+    /** RON-ekvivalens fillérben — a kereszt-devizás párosítás ezen egyezik. */
+    ronCents: number
+    /** Devizás fél? (árfolyam ≠ 1, vagy osszeg_ron ≠ osszeg) → tolerancia-alapú párosítás. */
+    foreign: boolean
     osszeg: number
     matched: boolean
     bank: number | null | undefined
   }
-  const incomes: Half[] = income
-    .filter(isActive)
-    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }))
-  const expenses: Half[] = expense
-    .filter(isActive)
-    .map((r) => ({ id: r.id, datum: r.datum!, cents: Math.round(r.osszeg * 100), osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }))
+  const toHalf = (r: InternalMovementRow): Half => {
+    const ron = Number(r.osszeg_ron ?? r.osszeg) || 0
+    const cents = Math.round(r.osszeg * 100)
+    const ronCents = Math.round(ron * 100)
+    const foreign =
+      (r.arfolyam != null && Number(r.arfolyam) !== 1) ||
+      (r.osszeg_ron != null && ronCents !== cents)
+    return { id: r.id, datum: r.datum!, cents, ronCents, foreign, osszeg: r.osszeg, matched: false, bank: r.bankszamla_id }
+  }
+  const incomes: Half[] = income.filter(isActive).map(toHalf)
+  const expenses: Half[] = expense.filter(isActive).map(toHalf)
+
+  // 2026-07-11 (S11): összeg-egyezés. HA mindkét fél RON (nem devizás) → PONTOS nyers
+  // összeg egyezés (a régi, minden-RON viselkedés, false-pozitívok nélkül). HA legalább
+  // az egyik fél DEVIZÁS → a RON-ekvivalensek közelségét nézzük toleranciával, mert a
+  // banki átváltási árfolyam a BNR-től pár %-kal eltérhet (pl. 1000 EUR ↔ ~4970 RON).
+  const amountsMatch = (a: Half, b: Half): boolean => {
+    if (!a.foreign && !b.foreign) return a.cents === b.cents
+    if (a.ronCents <= 0 || b.ronCents <= 0) return false
+    // Tolerancia: a kisebbik RON-érték 5%-a (banki rés + kerekítés), min. 2 fillér.
+    const tol = Math.max(2, Math.round(Math.min(a.ronCents, b.ronCents) * 0.05))
+    return Math.abs(a.ronCents - b.ronCents) <= tol
+  }
 
   // 2026-07-10 (ÚJ #1): egy pár két fele NEM lehet ugyanazon a helyszínen — a letétel
   // kassza-kiadás + bank-bevétel (ellentétes), bank↔bank mozgásnál pedig KÉT KÜLÖNBÖZŐ
@@ -106,7 +134,7 @@ export function computeInternalMovementHealth(
     let bestDist = Number.POSITIVE_INFINITY
     for (let i = 0; i < incomes.length; i++) {
       const inc = incomes[i]
-      if (inc.matched || inc.cents !== e.cents) continue
+      if (inc.matched || !amountsMatch(e, inc)) continue
       if (sameLocation(e, inc)) continue
       const dist = dayDiff(e.datum, inc.datum)
       if (dist <= PAIRING_WINDOW_DAYS && dist < bestDist) {
