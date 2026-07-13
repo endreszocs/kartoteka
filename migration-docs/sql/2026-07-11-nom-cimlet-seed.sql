@@ -1,16 +1,17 @@
 -- ============================================================================
--- 2026-07-11 (S10) — Monetár címlettörzs (nom_cimlet) feltöltése + önjavító RPC
+-- 2026-07-11 (S10, 2026-07-13 JAVÍTVA) — Monetár címlettörzs (nom_cimlet)
+-- feltöltése + önjavító RPC.
 --
--- HIBA: a Monetár (címletszámláló) MENTÉSE hibával állt le („A címlettörzs
--- hiányos…"), mert a GLOBÁLIS `nom_cimlet` tábla ÜRES volt ezen a telepítésen,
--- és az RLS csak SELECT-et enged (a szerver-akció nem tud beszúrni).
+-- HIBA #1: a Monetár mentése „címlettörzs hiányos" hibával állt le, mert a
+--   `nom_cimlet` tábla hiányos volt.
+-- HIBA #2 (2026-07-13): az első seed-futtatás „duplicate key … id=1 already
+--   exists" hibát dobott, mert a `nom_cimlet_id_seq` SZEKVENCIA nem volt
+--   szinkronban a meglévő sorokkal (explicit id-s import után gyakori) — a
+--   beszúrás auto-id-je ütközött egy létező id-vel.
 --
--- MEGOLDÁS:
---   1) feltöltjük a 12 hivatalos RON címletet (idempotens — ha már van, kihagyja);
---   2) készítünk egy SECURITY DEFINER függvényt (`ensure_cash_denominations`),
---      amit a szerver-akció hívhat: az RLS-t megkerülve, biztonságosan pótolja a
---      hiányzó címleteket — így a Monetár a jövőben ÖNJAVÍTÓ (a tábla véletlen
---      kiürülése esetén is magától helyreáll).
+-- MEGOLDÁS: a beszúrás ELŐTT szinkronizáljuk a szekvenciát a max(id)-hoz, majd
+--   idempotensen (val+divide szerint) pótoljuk a hiányzó 12 hivatalos címletet.
+--   A SECURITY DEFINER függvény az RLS-t megkerülve, önjavítóan fut.
 --
 -- FUTTATÁS: Supabase SQL editor. Biztonságos újra-futtatni.
 -- A `nom_cimlet` érték = val / divide (pl. 50/100 = 0.5 = 50 bani).
@@ -24,6 +25,15 @@ security definer
 set search_path = public
 as $$
 begin
+  -- 2026-07-13: a szekvencia szinkronizálása a meglévő sorokhoz (id-ütközés ellen).
+  --   üres tábla  → next = 1
+  --   nem üres    → next = max(id) + 1
+  perform setval(
+    'nom_cimlet_id_seq',
+    greatest((select coalesce(max(id), 0) from public.nom_cimlet), 1),
+    (select exists (select 1 from public.nom_cimlet))
+  );
+
   insert into public.nom_cimlet (name, val, divide, deleted)
   select d.name, d.val, d.divide, false
   from (values
@@ -52,7 +62,7 @@ grant execute on function public.ensure_cash_denominations() to authenticated;
 -- ── 2) Azonnali feltöltés (a függvényt közvetlenül is meghívjuk) ─────────────
 select public.ensure_cash_denominations();
 
--- ── 3) Ellenőrzés (várt: 12 sor, deleted=false) ─────────────────────────────
+-- ── 3) Ellenőrzés (várt: legalább a 12 hivatalos címlet, deleted=false) ──────
 select id, name, val, divide, (val::numeric / greatest(divide, 1)) as ertek_ron
 from public.nom_cimlet
 where deleted is not true
