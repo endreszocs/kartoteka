@@ -23,6 +23,19 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-13] — A Kartotéka neve is rákerült a segédanyagokra
+<!-- key: 2026-07-13-muhely-segedanyag-kartoteka-alairas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+
+### 🐛 Egységesebb fájlaláírás
+
+- **A Műhelypolcról letöltött Word- és PDF-fájlok alján most már a teljes
+  „Missziós Műhely · Kartotéka” név olvasható,** így továbbküldve vagy
+  kinyomtatva is egyértelmű, honnan származik a segédanyag.
+
+---
+
 ## [2026-07-13] — Élő olvasószobává vált a Műhelypolc
 <!-- key: 2026-07-13-muhelypolc-olvasoszoba-dokumentumjavitas -->
 <!-- category: improvement -->

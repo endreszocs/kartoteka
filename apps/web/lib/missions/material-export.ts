@@ -433,7 +433,7 @@ export function buildMaterialExportHtml(
     </table>
     <article class="content">${renderTextBlocks(material.leiras)}</article>
     ${sourceHtml}
-    <footer class="footer">Közös tapasztalat a szolgálathoz · Missziós Műhely</footer>
+    <footer class="footer">Közös tapasztalat a szolgálathoz · Missziós Műhely · Kartotéka</footer>
   </main>
 </body>
 </html>`
