@@ -23,6 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-13] — Egyetlen, napfényes tér lett a Műhely nyitóoldala
+<!-- key: 2026-07-13-misszios-muhely-premium-nyitooldal -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 Otthonosabb nyitóélmény
+
+- **A köszöntés és a hangulatkép most már egyetlen közös kompozíció:** eltűnt a
+  korábbi, két külön részre osztott elrendezés, így a nyitóoldal egységesebb és
+  nyugodtabb első benyomást ad.
+- **A Biblia, a bögre és az olajágak szervesen belesimulnak a tartalomba:** a kép
+  finoman a szöveg és a közösségi számok mögé fut, miközben minden felirat jól
+  olvasható marad.
+- **Telefonon is teljes értékű a látvány:** a cím, a két fontos műveleti gomb, a
+  közösségi számlálók és a kép 320 képpont szélességtől kényelmesen, levágás és
+  oldalirányú görgetés nélkül rendeződnek el.
+- **Finom belépő animáció teszi barátságosabbá az érkezést,** de a rendszer
+  mozgáscsökkentési beállítását használóknál az animáció automatikusan elmarad.
+
+---
+
 ## [2026-07-12] — A Missziós Műhelyből alkotótér lett
 <!-- key: 2026-07-12-misszios-muhely-alkototer -->
 <!-- category: feature -->

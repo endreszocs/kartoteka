@@ -215,7 +215,9 @@ export function MuhelyHome({ data }: MuhelyHomeProps) {
       <motion.section className={styles.hero} variants={heroVariants} aria-labelledby="muhely-hero-title">
         <div className={styles.heroCopy}>
           <span className={styles.eyebrow}><Sparkles aria-hidden="true" /> Missziós Műhely</span>
-          <h1 id="muhely-hero-title">Itt lesz az ötletből szolgálat.</h1>
+          <h1 id="muhely-hero-title">
+            Itt lesz az ötletből <span className={styles.heroEmphasis}>szolgálat.</span>
+          </h1>
           <p>Jó, hogy itt vagy, {heroName}. Ez a közös tér azért van, hogy a gondolataid társakra, a szolgálati tapasztalataid pedig új otthonra találjanak.</p>
           <div className={styles.heroActions}>
             <Link className={styles.primaryAction} href="/misszios-muhely/forum">
@@ -225,24 +227,30 @@ export function MuhelyHome({ data }: MuhelyHomeProps) {
               <BookOpen aria-hidden="true" /> Megnézem a Műhelypolcot
             </Link>
           </div>
-          <dl className={styles.communityNumbers} aria-label="A műhelyközösség számokban">
-            <div><dt>ötlet</dt><dd>{data.communityStats.totalIdeas}</dd></div>
-            <div><dt>segédanyag</dt><dd>{data.communityStats.totalMaterials}</dd></div>
-            <div><dt>beszélgetés</dt><dd>{data.communityStats.totalComments}</dd></div>
-            <div><dt>alkotótárs</dt><dd>{data.communityStats.totalMembers}</dd></div>
-          </dl>
         </div>
-        <div className={styles.heroStillLife} aria-hidden="true">
+        <motion.div
+          className={styles.heroStillLife}
+          aria-hidden="true"
+          initial={reducedMotion ? false : { opacity: 0, x: 18, scale: 0.985 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          transition={reducedMotion ? { duration: 0 } : { duration: 0.78, ease: [0.22, 1, 0.36, 1], delay: 0.08 }}
+        >
           <div className={styles.sunWash} />
           <Image
             src="/misszios-muhely/hero-still-life-v2.png"
             alt=""
-            width={900}
-            height={620}
-            priority
-            sizes="(max-width: 900px) 100vw, 44vw"
+            width={1536}
+            height={1024}
+            preload
+            sizes="(min-width: 1500px) 1000px, (max-width: 820px) 145vw, (max-width: 1179px) 88vw, 74vw"
           />
-        </div>
+        </motion.div>
+        <dl className={styles.communityNumbers} aria-label="A műhelyközösség számokban">
+          <div><dt>ötlet</dt><dd>{data.communityStats.totalIdeas}</dd></div>
+          <div><dt>segédanyag</dt><dd>{data.communityStats.totalMaterials}</dd></div>
+          <div><dt>beszélgetés</dt><dd>{data.communityStats.totalComments}</dd></div>
+          <div><dt>alkotótárs</dt><dd>{data.communityStats.totalMembers}</dd></div>
+        </dl>
       </motion.section>
 
       <motion.div className={styles.firstRow} variants={heroVariants}>
