@@ -79,6 +79,7 @@ export interface FamilyGraphEdge {
   kind: FamilyGraphEdgeKind
   relationshipType?: FamilyGraphRelationshipType | null
   role?: FamilyGraphMembershipRole | null
+  primary?: boolean
   label?: string | null
 }
 

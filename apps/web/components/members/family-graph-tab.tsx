@@ -43,6 +43,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  createFamilyGalaxyPositions,
+  selectFamilyGalaxyCoreId,
+  type FamilyGalaxyDensity,
+} from '@/lib/members/family-galaxy-layout'
 import { cn } from '@/lib/utils'
 import type {
   FamilyGraphData,
@@ -53,7 +58,7 @@ import type {
 
 type GraphMode = 'global' | 'local'
 type GraphDepth = 1 | 2
-type GraphDensity = 'compact' | 'balanced' | 'airy'
+type GraphDensity = FamilyGalaxyDensity
 type LoadState =
   | { status: 'loading' }
   | { status: 'ready'; data: FamilyGraphData }
@@ -75,10 +80,10 @@ const DEFAULT_FILTERS: GraphFilters = {
   relationshipEdges: true,
 }
 
-const DENSITY_META: Record<GraphDensity, { label: string; edgeLength: number; repulsion: number }> = {
-  compact: { label: 'Sűrű', edgeLength: 58, repulsion: 4_600 },
-  balanced: { label: 'Kiegyensúlyozott', edgeLength: 82, repulsion: 6_500 },
-  airy: { label: 'Levegős', edgeLength: 112, repulsion: 8_600 },
+const DENSITY_META: Record<GraphDensity, { label: string }> = {
+  compact: { label: 'Sűrű' },
+  balanced: { label: 'Kiegyensúlyozott' },
+  airy: { label: 'Levegős' },
 }
 
 const EDGE_LABELS: Record<FamilyGraphEdgeKind, string> = {
@@ -117,7 +122,7 @@ const GRAPH_STYLE: cytoscape.StylesheetJson = [
       color: '#d9f2ed',
       'font-family': 'Geist, Inter, ui-sans-serif, system-ui, sans-serif',
       'font-size': 10,
-      'font-weight': 550,
+      'font-weight': 500,
       'text-wrap': 'ellipsis',
       'text-max-width': '108px',
       'text-valign': 'bottom',
@@ -145,7 +150,7 @@ const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'border-width': 1.8,
       color: '#fff0cd',
       'font-size': 10.5,
-      'font-weight': 650,
+      'font-weight': 600,
       'text-max-width': '122px',
       'text-margin-y': 9,
     },
@@ -156,6 +161,20 @@ const GRAPH_STYLE: cytoscape.StylesheetJson = [
       opacity: 0.52,
       'border-style': 'dashed',
       color: '#c5d4d0',
+    },
+  },
+  {
+    selector: 'node.family.galaxy-core',
+    style: {
+      width: 78,
+      height: 48,
+      'background-color': '#d6a842',
+      'border-color': '#ffe0a0',
+      'border-width': 2.6,
+      'underlay-color': '#f2c65f',
+      'underlay-opacity': 0.17,
+      'underlay-padding': 15,
+      'z-index': 8,
     },
   },
   {
@@ -275,6 +294,18 @@ const GRAPH_STYLE: cytoscape.StylesheetJson = [
     selector: '.hidden-by-view',
     style: { display: 'none' },
   },
+  {
+    selector: 'node.zoom-far',
+    style: { label: '' },
+  },
+  {
+    selector: 'node.person.zoom-medium',
+    style: { label: '' },
+  },
+  {
+    selector: 'edge.zoom-far',
+    style: { 'line-opacity': 0.16 },
+  },
 ]
 
 function normalizeSearch(value: string) {
@@ -295,6 +326,7 @@ function nodeClasses(node: FamilyGraphNode) {
 }
 
 function graphElements(data: FamilyGraphData): cytoscape.ElementDefinition[] {
+  const coreFamilyId = selectFamilyGalaxyCoreId(data)
   const nodes: cytoscape.ElementDefinition[] = data.nodes.map((node) => ({
     data: {
       id: node.id,
@@ -302,7 +334,7 @@ function graphElements(data: FamilyGraphData): cytoscape.ElementDefinition[] {
       kind: node.kind,
       deceased: node.kind === 'person' ? node.deceased : false,
     },
-    classes: nodeClasses(node),
+    classes: `${nodeClasses(node)}${node.id === coreFamilyId ? ' galaxy-core' : ''}`,
   }))
 
   const edges: cytoscape.ElementDefinition[] = data.edges.map((edge) => ({
@@ -311,6 +343,8 @@ function graphElements(data: FamilyGraphData): cytoscape.ElementDefinition[] {
       source: edge.source,
       target: edge.target,
       kind: edge.kind,
+      role: edge.role ?? null,
+      primary: edge.primary === true,
     },
     classes: edge.kind,
   }))
@@ -322,49 +356,80 @@ function reducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-function runGraphLayout(core: cytoscape.Core, density: GraphDensity, randomize = true) {
-  const nodeCount = core.nodes().length
-  const meta = DENSITY_META[density]
-  const largeGraphThreshold = window.matchMedia('(pointer: coarse)').matches ? 320 : 700
+function hasCoarsePointer() {
+  return window.matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0
+}
 
-  if (nodeCount > largeGraphThreshold) {
-    core.layout({
-      name: 'concentric',
-      animate: false,
-      fit: true,
-      padding: 64,
-      avoidOverlap: true,
-      nodeDimensionsIncludeLabels: false,
-      minNodeSpacing: density === 'compact' ? 8 : density === 'balanced' ? 14 : 22,
-      spacingFactor: density === 'compact' ? 0.82 : density === 'balanced' ? 1 : 1.18,
-      concentric: (node) => node.hasClass('family') ? 10 : Math.min(6, node.degree(false)),
-      levelWidth: () => 1,
-    }).run()
-    return
+function galaxyViewportKey(width: number, height: number) {
+  const widthClass = width < 640 ? 'phone' : width < 1_180 ? 'tablet' : 'desktop'
+  const aspect = width / Math.max(height, 1)
+  const aspectClass = aspect >= 1.7
+    ? 'wide'
+    : aspect >= 1.1
+      ? 'landscape'
+      : aspect >= 0.82
+        ? 'square'
+        : 'portrait'
+  return `${widthClass}:${aspectClass}`
+}
+
+function syncGraphZoomDetail(core: cytoscape.Core) {
+  const zoom = core.zoom()
+  const far = zoom < 0.68
+  const medium = !far && zoom < 1.05
+  const container = core.container()
+
+  core.batch(() => {
+    core.nodes().toggleClass('zoom-far', far)
+    core.nodes().toggleClass('zoom-medium', medium)
+    core.edges().toggleClass('zoom-far', far)
+  })
+  if (container) container.dataset.graphZoom = far ? 'far' : medium ? 'medium' : 'near'
+}
+
+function runGraphLayout(
+  core: cytoscape.Core,
+  data: FamilyGraphData,
+  density: GraphDensity,
+  options: { animate?: boolean; entrance?: boolean; variant?: number } = {},
+) {
+  const positions = createFamilyGalaxyPositions(data, {
+    density,
+    width: core.width(),
+    height: core.height(),
+    variant: options.variant,
+  })
+  const animate = options.animate !== false && !reducedMotion()
+  const container = core.container()
+
+  if (options.entrance && animate) {
+    const cosine = Math.cos(-0.15)
+    const sine = Math.sin(-0.15)
+    core.nodes().positions((node) => {
+      const target = positions[node.id()] ?? { x: 0, y: 0 }
+      return {
+        x: (target.x * cosine - target.y * sine) * 0.09,
+        y: (target.x * sine + target.y * cosine) * 0.09,
+      }
+    })
   }
 
-  const shouldAnimate = nodeCount <= 350 && !reducedMotion()
-
-  core.layout({
-    name: 'cose',
-    animate: shouldAnimate,
-    animationDuration: 620,
+  if (container) container.dataset.graphPhase = animate ? 'entering' : 'ready'
+  const layout = core.layout({
+    name: 'preset',
+    positions,
+    animate,
+    animationDuration: options.entrance ? (core.nodes().length > 900 ? 820 : 1_080) : 560,
     animationEasing: 'ease-out-cubic',
-    randomize,
     fit: true,
-    padding: 72,
-    componentSpacing: Math.round(meta.edgeLength * 1.25),
-    nodeRepulsion: meta.repulsion,
-    nodeOverlap: 12,
-    idealEdgeLength: (edge) => edge.data('kind') === 'membership' ? meta.edgeLength : meta.edgeLength * 1.2,
-    edgeElasticity: (edge) => edge.data('kind') === 'membership' ? 90 : 120,
-    gravity: 0.26,
-    numIter: nodeCount > 900 ? 420 : 760,
-    initialTemp: 900,
-    coolingFactor: 0.96,
-    minTemp: 1,
-    nodeDimensionsIncludeLabels: false,
-  }).run()
+    padding: core.width() < 640 ? 36 : 64,
+  })
+
+  layout.one('layoutstop', () => {
+    if (container) container.dataset.graphPhase = 'ready'
+    syncGraphZoomDetail(core)
+  })
+  layout.run()
 }
 
 function displayError(error: unknown) {
@@ -390,18 +455,31 @@ export function FamilyGraphTab() {
   const [familyDialogOpen, setFamilyDialogOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<cytoscape.Core | null>(null)
+  const densityRef = useRef<GraphDensity>('balanced')
+  const layoutVariantRef = useRef(0)
+  const touchEntrancePlayedRef = useRef(false)
 
   useEffect(() => {
-    const pointerQuery = window.matchMedia('(pointer: coarse)')
+    const pointerQuery = window.matchMedia('(any-pointer: coarse)')
     const syncPointerMode = () => {
-      setCoarsePointer(pointerQuery.matches)
-      if (!pointerQuery.matches) setTouchExploreMode(false)
+      const touchCapable = hasCoarsePointer()
+      setCoarsePointer(touchCapable)
+      if (!touchCapable) setTouchExploreMode(false)
     }
 
     syncPointerMode()
     pointerQuery.addEventListener('change', syncPointerMode)
     return () => pointerQuery.removeEventListener('change', syncPointerMode)
   }, [])
+
+  useEffect(() => {
+    if (!touchExploreMode) return
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTouchExploreMode(false)
+    }
+    window.addEventListener('keydown', exitOnEscape)
+    return () => window.removeEventListener('keydown', exitOnEscape)
+  }, [touchExploreMode])
 
   useEffect(() => {
     let cancelled = false
@@ -424,6 +502,10 @@ export function FamilyGraphTab() {
   useEffect(() => {
     if (!data || !containerRef.current) return
 
+    const touchCapable = hasCoarsePointer()
+    layoutVariantRef.current = 0
+    touchEntrancePlayedRef.current = false
+
     const core = cytoscape({
       container: containerRef.current,
       elements: graphElements(data),
@@ -431,16 +513,18 @@ export function FamilyGraphTab() {
       layout: { name: 'preset' },
       minZoom: 0.22,
       maxZoom: 2.8,
-      wheelSensitivity: 0.18,
       boxSelectionEnabled: false,
       selectionType: 'single',
-      hideEdgesOnViewport: data.edges.length > 900,
-      textureOnViewport: data.nodes.length > 700,
-      motionBlur: data.nodes.length < 650,
-      pixelRatio: data.nodes.length > 850 ? 1 : 'auto',
+      hideEdgesOnViewport: data.edges.length > (touchCapable ? 500 : 900),
+      textureOnViewport: data.nodes.length > (touchCapable ? 450 : 700),
+      motionBlur: !touchCapable && data.nodes.length < 650,
+      pixelRatio: data.nodes.length > (touchCapable ? 450 : 850)
+        ? 1
+        : Math.min(window.devicePixelRatio || 1, 1.5),
     })
 
     graphRef.current = core
+    core.on('zoom', () => syncGraphZoomDetail(core))
 
     core.on('tap', 'node', (event) => {
       const node = event.target
@@ -465,12 +549,36 @@ export function FamilyGraphTab() {
       core.on('mouseout', 'node', () => core.elements().removeClass('hover-dim'))
     }
 
-    const resizeObserver = new ResizeObserver(() => core.resize())
+    let layoutReady = false
+    let resizeFrame = 0
+    let viewportKey = galaxyViewportKey(core.width(), core.height())
+    const resizeObserver = new ResizeObserver(() => {
+      core.resize()
+      if (!layoutReady) return
+      const nextViewportKey = galaxyViewportKey(core.width(), core.height())
+      if (nextViewportKey === viewportKey) return
+      viewportKey = nextViewportKey
+      window.cancelAnimationFrame(resizeFrame)
+      resizeFrame = window.requestAnimationFrame(() => {
+        runGraphLayout(core, data, densityRef.current, {
+          animate: false,
+          variant: layoutVariantRef.current,
+        })
+      })
+    })
     resizeObserver.observe(containerRef.current)
-    const layoutFrame = window.requestAnimationFrame(() => runGraphLayout(core, 'balanced'))
+    const layoutFrame = window.requestAnimationFrame(() => {
+      runGraphLayout(core, data, densityRef.current, {
+        animate: !touchCapable,
+        entrance: !touchCapable,
+        variant: layoutVariantRef.current,
+      })
+      layoutReady = true
+    })
 
     return () => {
       window.cancelAnimationFrame(layoutFrame)
+      window.cancelAnimationFrame(resizeFrame)
       resizeObserver.disconnect()
       core.destroy()
       if (graphRef.current === core) graphRef.current = null
@@ -488,6 +596,20 @@ export function FamilyGraphTab() {
       if (enabled) node.grabify()
       else node.ungrabify()
     })
+
+    if (
+      enabled
+      && coarsePointer
+      && touchExploreMode
+      && data
+      && !touchEntrancePlayedRef.current
+    ) {
+      touchEntrancePlayedRef.current = true
+      runGraphLayout(core, data, densityRef.current, {
+        entrance: true,
+        variant: layoutVariantRef.current,
+      })
+    }
   }, [coarsePointer, data, touchExploreMode])
 
   useEffect(() => {
@@ -605,8 +727,13 @@ export function FamilyGraphTab() {
 
   function changeDensity(nextDensity: GraphDensity) {
     setDensity(nextDensity)
+    densityRef.current = nextDensity
     const core = graphRef.current
-    if (core) runGraphLayout(core, nextDensity, false)
+    if (core && data) {
+      runGraphLayout(core, data, nextDensity, {
+        variant: layoutVariantRef.current,
+      })
+    }
   }
 
   function fitGraph() {
@@ -649,20 +776,20 @@ export function FamilyGraphTab() {
       <section className="relative isolate overflow-hidden rounded-[1.75rem] border border-[#b4ddd5]/15 bg-[#071b1c] text-white shadow-[0_28px_80px_-42px_rgba(4,38,37,0.72)] sm:rounded-[2rem]">
         <GraphBackdrop />
 
-        <header className="relative z-20 border-b border-white/[0.08] px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <header className="relative z-20 border-b border-white/[0.08] px-4 py-4 sm:px-5 sm:py-5 lg:px-6 [@media(max-height:600px)]:py-3">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:items-start [@media(max-height:600px)]:justify-between [@media(max-height:600px)]:gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/15 bg-amber-200/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200">
                   <Sparkles className="size-3" />
                   Családi univerzum
                 </span>
-                <span className="hidden text-xs text-teal-50/45 sm:inline">Húzd, nagyítsd és érintsd meg a pontokat</span>
+                <span className="hidden text-xs text-teal-50/45 sm:inline [@media(max-height:600px)]:hidden">Húzd, nagyítsd és érintsd meg a pontokat</span>
               </div>
               <h2 className="mt-2 font-heading text-xl font-semibold tracking-[-0.02em] text-white sm:text-2xl">
                 A gyülekezet kapcsolati hálója
               </h2>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-teal-50/55 sm:text-sm">
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-teal-50/55 sm:text-sm [@media(max-height:600px)]:hidden">
                 A családok arany csomópontként, a személyek pedig a köréjük rendeződő kapcsolatokban jelennek meg.
               </p>
             </div>
@@ -674,7 +801,7 @@ export function FamilyGraphTab() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2.5 lg:flex-row lg:items-center">
+          <div className="mt-4 flex flex-col gap-2.5 lg:flex-row lg:items-center [@media(max-height:600px)]:mt-3 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:items-center">
             <div className="relative min-w-0 flex-1 lg:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-teal-100/45" />
               <Input
@@ -711,7 +838,7 @@ export function FamilyGraphTab() {
               )}
             </div>
 
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:pb-0">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:pb-0">
               <div className="flex shrink-0 rounded-xl border border-white/10 bg-white/[0.045] p-1" aria-label="Gráfnézet">
                 <ModeButton active={mode === 'global'} onClick={() => setMode('global')} icon={<Orbit className="size-3.5" />}>
                   Teljes háló
@@ -737,20 +864,22 @@ export function FamilyGraphTab() {
                 type="button"
                 variant="outline"
                 onClick={() => setNodeListOpen(true)}
-                className="min-h-11 shrink-0 border-white/10 bg-white/[0.045] text-teal-50 hover:bg-white/10 hover:text-white"
+                aria-label="Csomópontlista"
+                className="min-h-11 shrink-0 border-white/10 bg-white/[0.045] text-teal-50 hover:bg-white/10 hover:text-white max-sm:size-11 max-sm:px-0 [@media(max-height:600px)]:size-11 [@media(max-height:600px)]:px-0"
               >
                 <ListTree className="size-4" />
-                Csomópontlista
+                <span className="hidden sm:inline [@media(max-height:600px)]:hidden">Csomópontlista</span>
               </Button>
 
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setFilterOpen(true)}
-                className="min-h-11 shrink-0 border-white/10 bg-white/[0.045] text-teal-50 hover:bg-white/10 hover:text-white"
+                aria-label="Szűrők"
+                className="min-h-11 shrink-0 border-white/10 bg-white/[0.045] text-teal-50 hover:bg-white/10 hover:text-white max-sm:size-11 max-sm:px-0 [@media(max-height:600px)]:size-11 [@media(max-height:600px)]:px-0"
               >
                 <SlidersHorizontal className="size-4" />
-                Szűrők
+                <span className="hidden sm:inline [@media(max-height:600px)]:hidden">Szűrők</span>
                 {activeFilterCount > 0 && (
                   <Badge className="min-w-5 border-0 bg-amber-200 px-1.5 text-[#173331]">{activeFilterCount}</Badge>
                 )}
@@ -769,8 +898,9 @@ export function FamilyGraphTab() {
           </p>
           <div
             ref={containerRef}
+            data-graph-phase="idle"
             className={cn(
-              'h-[calc(100dvh-18rem)] min-h-[31rem] max-h-[48rem] w-full sm:h-[calc(100dvh-16rem)] sm:min-h-[35rem]',
+              'h-[clamp(22rem,62dvh,34rem)] min-h-0 w-full sm:h-[clamp(30rem,68dvh,44rem)] lg:h-[calc(100dvh-16rem)] lg:min-h-[35rem] lg:max-h-[48rem] [@media(max-height:600px)]:h-[20rem] [@media(max-height:600px)]:min-h-0',
               coarsePointer && !touchExploreMode ? 'touch-pan-y' : 'touch-none',
             )}
             role="img"
@@ -820,7 +950,11 @@ export function FamilyGraphTab() {
             onFit={fitGraph}
             onLayout={() => {
               const core = graphRef.current
-              if (core) runGraphLayout(core, density)
+              if (!core || !data) return
+              layoutVariantRef.current = (layoutVariantRef.current + 1) % 12
+              runGraphLayout(core, data, density, {
+                variant: layoutVariantRef.current,
+              })
             }}
           />
 
@@ -894,17 +1028,22 @@ function GraphBackdrop() {
         className="pointer-events-none absolute inset-0 -z-20"
         style={{
           backgroundImage:
-            'radial-gradient(circle at 14% 7%, rgba(55,174,157,.14), transparent 30%), radial-gradient(circle at 91% 15%, rgba(224,169,69,.1), transparent 24%), linear-gradient(145deg, #0a2929 0%, #071b1c 55%, #061517 100%)',
+            'radial-gradient(ellipse at 50% 58%, rgba(50,171,153,.13), transparent 42%), radial-gradient(circle at 14% 7%, rgba(55,174,157,.14), transparent 30%), radial-gradient(circle at 91% 15%, rgba(224,169,69,.1), transparent 24%), linear-gradient(145deg, #0a2929 0%, #071b1c 55%, #061517 100%)',
         }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 opacity-25"
+        className="pointer-events-none absolute inset-0 -z-10 opacity-35"
         style={{
-          backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(210,242,235,.5) 1px, transparent 0)',
-          backgroundSize: '27px 27px',
-          maskImage: 'linear-gradient(to bottom, black 15%, rgba(0,0,0,.55) 65%, transparent)',
+          backgroundImage:
+            'radial-gradient(circle at 17px 19px, rgba(229,249,244,.7) 0 1px, transparent 1.4px), radial-gradient(circle at 61px 43px, rgba(243,202,115,.55) 0 1px, transparent 1.6px), radial-gradient(circle at 83px 71px, rgba(125,215,201,.55) 0 1px, transparent 1.5px)',
+          backgroundSize: '97px 83px, 131px 109px, 173px 149px',
+          maskImage: 'radial-gradient(ellipse at 50% 56%, black 5%, rgba(0,0,0,.76) 55%, transparent 100%)',
         }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-[12%] top-[42%] -z-10 h-[33%] rounded-[50%] border border-teal-100/[0.035] shadow-[0_0_80px_rgba(76,190,171,.055),inset_0_0_70px_rgba(225,178,78,.035)] motion-safe:animate-[spin_52s_linear_infinite] motion-reduce:animate-none"
       />
     </>
   )
@@ -912,10 +1051,10 @@ function GraphBackdrop() {
 
 function GraphStat({ value, label, icon }: { value: number; label: string; icon: React.ReactNode }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-white/[0.045] px-2.5 py-2.5 text-center sm:min-w-[6.25rem] sm:px-3 sm:text-left">
+    <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-white/[0.045] px-2.5 py-2.5 text-center sm:min-w-[6.25rem] sm:px-3 sm:text-left [@media(max-height:600px)]:py-2">
       <div className="flex items-center justify-center gap-1.5 text-teal-100/50 sm:justify-start">
         {icon}
-        <span className="truncate text-[9px] font-semibold uppercase tracking-[0.12em]">{label}</span>
+        <span className="text-[10px] font-semibold uppercase leading-tight tracking-[0.1em]">{label}</span>
       </div>
       <p className="mt-1 font-heading text-lg font-semibold tabular-nums text-white">{value.toLocaleString('hu-HU')}</p>
     </div>
@@ -1023,7 +1162,7 @@ function GraphControls({
     { label: 'Nagyítás', icon: <ZoomIn className="size-4" />, action: onZoomIn },
     { label: 'Kicsinyítés', icon: <ZoomOut className="size-4" />, action: onZoomOut },
     { label: 'Háló középre igazítása', icon: <Maximize2 className="size-4" />, action: onFit },
-    { label: 'Újrarendezés', icon: <RotateCcw className="size-4" />, action: onLayout },
+    { label: 'Galaxis újrarendezése', icon: <RotateCcw className="size-4" />, action: onLayout },
   ]
 
   return (
@@ -1092,7 +1231,7 @@ function GraphDetailPanel({
   return (
     <aside
       aria-label={`${node.label} részletei`}
-      className="absolute inset-x-3 bottom-3 z-30 max-h-[54%] overflow-y-auto overscroll-contain rounded-[1.35rem] border border-white/10 bg-[#0b2929]/94 p-4 shadow-[0_28px_70px_-24px_rgba(0,0,0,.9)] backdrop-blur-xl sm:inset-x-auto sm:bottom-4 sm:right-4 sm:top-4 sm:max-h-none sm:w-[19.5rem] sm:rounded-[1.5rem] sm:p-5"
+      className="fixed inset-x-3 bottom-[max(.75rem,env(safe-area-inset-bottom))] z-50 max-h-[min(58dvh,28rem)] overflow-y-auto overscroll-contain rounded-[1.35rem] border border-white/10 bg-[#0b2929]/94 p-4 shadow-[0_28px_70px_-24px_rgba(0,0,0,.9)] backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:duration-300 lg:absolute lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-4 lg:z-30 lg:max-h-none lg:w-[19.5rem] lg:rounded-[1.5rem] lg:p-5 lg:motion-safe:slide-in-from-right-4"
     >
       <button
         type="button"

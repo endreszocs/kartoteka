@@ -427,6 +427,7 @@ function buildGraph(
       target: `person:${tag.id_szemely}`,
       kind: 'membership',
       role: tag.szerep,
+      primary: tag.is_primary,
     })
   }
 
