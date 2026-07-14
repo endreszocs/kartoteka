@@ -273,7 +273,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           </DialogHeader>
         </div>
 
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-5">
+        <div className="flex min-h-0 flex-col">
 
         {/* Pre-screen: belépés oka */}
         {step === 'choose' && !editMember && (
@@ -299,19 +299,19 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           <form
             onSubmit={handleSubmit(onSubmit, onInvalid)}
             onKeyDown={(e) => {
-              // Wizard-űrlap: az Enter egy szöveges mezőben NE küldje be az egész
-              // űrlapot (eddig a FB-link beírása után az Enter „magától" bezárta és
-              // elmentette). Mentés/tovább CSAK a kifejezett gombokkal. A textarea
-              // (több soros megjegyzés) Enterét nem korlátozzuk.
+              // Wizard-űrlap: az Enter egy szöveges mezőben NE küldje be az űrlapot.
               const el = e.target as HTMLElement
               if (e.key === 'Enter' && el.tagName === 'INPUT') e.preventDefault()
             }}
-            className="space-y-3"
+            className="flex min-h-0 flex-1 flex-col"
           >
             {/* #Endre 2026-07-01: az `id` rejtett mező üres string ÚJ tagnál — a séma z.number().optional()-t
                 vár, a Zod v4 az ""-t NEM ugorja át → "expected number, received string". setValueAs:
                 üres → undefined (INSERT), különben Number (UPDATE). */}
             <input type="hidden" {...register('id', { setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)) })} />
+
+            {/* Görgethető tartalom — a gombok (footer) MINDIG az ablak alján maradnak */}
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
 
             {/* Wizard-stepper indicator (kötelező lépés-sor) */}
             <div className="mb-1 flex items-center justify-between gap-2 sm:gap-4" aria-label="Rögzítési lépések">
@@ -677,9 +677,10 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                 </div>
               </div>
             )}
+            </div>
 
-            {/* Wizard navigáció — alsó footer */}
-            <div className="sticky bottom-0 z-20 -mx-4 flex flex-wrap gap-2 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-[0_-16px_30px_-28px_rgba(15,23,42,0.55)] backdrop-blur sm:-mx-6 sm:px-6 sm:pt-4">
+            {/* Wizard navigáció — alsó footer (MINDIG az ablak alján) */}
+            <div className="flex shrink-0 flex-wrap gap-2 border-t border-border bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-16px_30px_-28px_rgba(15,23,42,0.55)] sm:px-6 sm:pt-4">
               {wizardStep === 1 ? (
                 !editMember && (
                   <Button type="button" variant="ghost" className="min-h-11 rounded-xl" onClick={() => setStep('choose')}>
@@ -714,8 +715,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                 </Button>
               ) : (
                 <Button
-                  type="submit"
+                  type="button"
                   disabled={loading}
+                  onClick={handleSubmit(onSubmit, onInvalid)}
                   className="min-h-11 flex-[2] rounded-xl bg-emerald-600 hover:bg-emerald-700"
                 >
                   {loading ? 'Mentés...' : editMember ? 'Módosítások mentése' : 'Tag mentése'}
