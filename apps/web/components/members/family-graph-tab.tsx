@@ -200,7 +200,11 @@ export function FamilyGraphTab() {
   // nézet kiemelendő csomópont-halmazát számoljuk. A szűrők/denzitás/mozgás
   // propként mennek le, a fókusz/nagyítás a galaxyRef imperatív API-ján át.
   const highlightIds = useMemo(() => {
-    if (mode !== 'local' || !selectedNodeId || !data) return null
+    // Bármely csomópont kiválasztásakor kiemeljük a közvetlen környezetét, a
+    // többi elhalványul — így tisztán látszanak a kapcsolati összefüggések.
+    // Globális nézetben 1 lépés, „Környezet" nézetben a beállított mélység.
+    if (!selectedNodeId || !data) return null
+    const spread = mode === 'local' ? depth : 1
     const adjacency = new Map<string, string[]>()
     const link = (a: string, b: string) => {
       const list = adjacency.get(a)
@@ -213,7 +217,7 @@ export function FamilyGraphTab() {
     }
     const set = new Set<string>([selectedNodeId])
     let frontier = [selectedNodeId]
-    for (let step = 0; step < depth; step += 1) {
+    for (let step = 0; step < spread; step += 1) {
       const next: string[] = []
       for (const id of frontier) {
         for (const neighbor of adjacency.get(id) ?? []) {
