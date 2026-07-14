@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-15] — Import: a családszerkezet-lépés nem ragad be hibánál
+<!-- key: 2026-07-15-import-csaladszerkezet-hibakezeles -->
+<!-- category: bugfix -->
+<!-- targets: rendszergazda, lelkesz -->
+<!-- version: web v0.9.73 -->
+
+### 🐛 Importáló — robusztusabb családszerkezet
+
+- **Ha az automatikus családszerkezet-összeállítás hibázik** (pl. nagy gyülekezetnél
+  időtúllépés), a „Családok" lépés többé **nem ragad be**: érthető üzenet jelenik meg
+  **„Újrapróbálom"** és **„Kihagyom ezt a lépést"** gombbal. A már beimportált személyek
+  és családfők érintetlenek maradnak.
+
+---
+
 ## [2026-07-15] — Tag-szerkesztő: a beágyazott ablakok is bezárulnak
 <!-- key: 2026-07-15-tag-szerkeszto-beagyazott-ablak-zaras -->
 <!-- category: bugfix -->
