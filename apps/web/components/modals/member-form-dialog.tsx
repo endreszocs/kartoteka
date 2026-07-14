@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { memberSchema, type MemberFormValues, type MemberInput } from '@/lib/validations/members'
 import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { fetchSocialAvatarImage, saveMemberAvatar } from '@/app/(dashboard)/tagnyilvantartas/avatar-actions'
+import { AvatarEditorBody } from '@kartoteka/ui-app'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
@@ -551,18 +553,45 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                 {/* #1 (Endre): Adatvédelem + fénykép — a személyi kartonról menthető */}
                 <div className="space-y-2.5 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
                   <h4 className="text-sm font-semibold text-sky-900">Adatvédelem és fénykép</h4>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-social-profile" className="text-xs text-slate-600">Közösségi profil (Facebook) link</Label>
-                    <Input
-                      id="member-social-profile"
-                      {...register('social_profil_url')}
-                      placeholder="https://facebook.com/…"
-                      className={FIELD_CLASS_COMPACT}
-                    />
-                    <p className="text-[11px] text-slate-500">
-                      A profilkép ennek a linknek az alapján tölthető be (a személyi karton fénykép-szerkesztőjében).
-                    </p>
-                  </div>
+                  {editMember ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-slate-600">Profilkép és közösségi profil</Label>
+                      <AvatarEditorBody
+                        personName={[editMember.csaladnev, editMember.k_nev].filter(Boolean).join(' ') || 'Tag'}
+                        currentKepUrl={editMember.photo_url}
+                        currentSocialUrl={editMember.social_profil_url}
+                        onFetchFromSocial={fetchSocialAvatarImage}
+                        onSave={async (params) => {
+                          const res = await saveMemberAvatar(editMember.id, params)
+                          // A mentett linket visszaszinkronizáljuk az űrlapba, hogy a
+                          // „Tag mentése" (saveMember) ne írja felül a régi értékkel.
+                          if (!res.error) setValue('social_profil_url', params.socialUrl ?? '')
+                          return res
+                        }}
+                        onToast={(msg, kind) => {
+                          if (kind === 'error') toast.error(msg)
+                          else if (kind === 'success') toast.success(msg)
+                          else if (kind === 'warning') toast.warning(msg)
+                          else toast.info(msg)
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="member-social-profile" className="text-xs text-slate-600">Közösségi profil (Facebook) link</Label>
+                      <Input
+                        id="member-social-profile"
+                        {...register('social_profil_url')}
+                        placeholder="https://facebook.com/…"
+                        className={FIELD_CLASS_COMPACT}
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        A link mentésre kerül. A <strong>profilképet</strong> a tag mentése után, a
+                        személyi karton szerkesztésénél töltheted fel — Facebook-linkből (best-effort)
+                        vagy közvetlenül a gépedről.
+                      </p>
+                    </div>
+                  )}
                   <div className="space-y-1.5 pt-1">
                     <label className="flex items-start gap-2 text-sm text-slate-700">
                       <input type="checkbox" {...register('gdpr_consent')} className="mt-0.5 size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-400" />
