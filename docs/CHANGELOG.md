@@ -23,6 +23,20 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-15] — Tag-szerkesztő: a beágyazott ablakok is bezárulnak
+<!-- key: 2026-07-15-tag-szerkeszto-beagyazott-ablak-zaras -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.72 -->
+
+### 🐛 Javítás
+
+- **A tag-szerkesztő bezárásakor a benne megnyitott fotó-szerkesztő és
+  kereszt-gyülekezeti ablak is automatikusan bezárul.** Eddig előfordulhatott, hogy
+  X-re kattintva egy beágyazott ablak / a kép „beakadt" a képernyőn.
+
+---
+
 ## [2026-07-15] — Asztali app: fénykép beállítása a tag-nézetből
 <!-- key: 2026-07-15-desktop-tag-fenykep -->
 <!-- category: feature -->
