@@ -140,41 +140,22 @@ export function FamilyLinkStep({ congregationId, congregationName, onBack }: Fam
       {/* Mode-választó */}
       <div className="rounded-[1.5rem] bg-white/85 p-5 ring-1 ring-emerald-100 shadow-[0_18px_40px_-30px_rgba(15,118,110,0.25)]">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">
-          Megbízhatósági szint
+          Biztonságos összekapcsolás
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          Mennyire agresszív legyen az automatikus összekapcsolás? A bizonytalan egyezéseket
-          kézzel utólag is rendezheted a tagnyilvántartáson.
+          A rendszer csak a biztos egyezéseket kapcsolja össze (cím + szülő-név direkt találat),
+          így sosem ront el adatot. A bizonytalan eseteket kézzel, utólag rendezheted a
+          tagnyilvántartáson.
         </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="mt-3">
           <ModeOption
             mode="conservative"
             active={mode === 'conservative'}
             onSelect={handleModeChange}
-            title="Konzervatív"
+            title="Konzervatív egyeztetés"
             desc="Csak biztos egyezések — cím + szülő-név direkt találat. Sose ront el adatot."
           />
-          <ModeOption
-            mode="moderate"
-            active={mode === 'moderate'}
-            onSelect={handleModeChange}
-            title="Mérsékelt"
-            desc="Egyetlen jelölt esetén is bekerül; több jelöltnél manuális dönt."
-            disabled
-          />
-          <ModeOption
-            mode="aggressive"
-            active={mode === 'aggressive'}
-            onSelect={handleModeChange}
-            title="Agresszív"
-            desc="Mindig a legvalószínűbb jelölt — utólag visszavonható."
-            disabled
-          />
         </div>
-        <p className="mt-2 text-xs italic text-slate-400">
-          A {'"'}Mérsékelt{'"'} és {'"'}Agresszív{'"'} módok későbbi fejlesztés alatt — most csak a
-          {' "'}Konzervatív{'" '}működik.
-        </p>
       </div>
 
       {/* Loading */}

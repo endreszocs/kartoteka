@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/server'
 import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
 import type { ParsedWorkbook } from './excel-parser'
 import { PROFILE_FAMILIES_FROM_EXISTING_PERSONS } from './import-profiles'
+import { resolveImportTargetCongregationId } from './import-target'
 import { transformSheet, type AutoColumnContext } from './row-transformer'
 import type { RowIssue, RowIssueSeverity } from './family-head-import-actions'
 
@@ -40,9 +41,14 @@ export async function executeFamiliesFromExistingPersonsImport(
 
   const file = formData.get('file') as File | null
   const sheetName = formData.get('sheetName') as string | null
-  const targetCongregationId =
-    (formData.get('targetCongregationId') as string | null) ||
-    access.effectiveCongregationId
+  // Cél-gyülekezet: alapból az aktív; explicit `targetCongregationId` (admin import-hub)
+  // esetén kötelező a rendszergazda + hatókör-ellenőrzés.
+  const targetResult = await resolveImportTargetCongregationId(
+    formData.get('targetCongregationId') as string | null,
+    access,
+  )
+  if (targetResult.error) return { error: targetResult.error }
+  const targetCongregationId = targetResult.congregationId
 
   if (!file) return { error: 'Nincs fájl kiválasztva.' }
   if (!targetCongregationId) {
