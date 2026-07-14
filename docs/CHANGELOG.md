@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-14] — Tag-szerkesztő: gombok mindig alul + nincs véletlen mentés
+<!-- key: 2026-07-14-tag-szerkeszto-footer-submit-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.70 -->
+
+### 🐛 Tag-szerkesztő javítások
+
+- **A mentés/tovább gombok mostantól MINDIG a szerkesztő-ablak alján vannak** — a tartalom
+  felettük görgethető, lépéstől függetlenül. Nem kell a kurzort fel-le vinni a gombokért.
+- **Az utolsó lépés nem „menti el magát" többé:** a mentés kizárólag a kifejezett „Tag
+  mentése" / „Módosítások mentése" gombra történik — sem az Enter, sem a véletlen fókusz
+  nem indíthatja el, így nyugodtan kitölthető a lap.
+
+---
+
 ## [2026-07-14] — Az importáló nem omlik össze feltöltési hibánál
 <!-- key: 2026-07-14-import-feltoltes-osszeomlas-fix -->
 <!-- category: bugfix -->
