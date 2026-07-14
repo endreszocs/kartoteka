@@ -42,6 +42,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
@@ -198,6 +199,24 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'A személyek lekérése nem sikerült.'
 }
 
+function getAgeFilterError(filters: Pick<PersonFilters, 'ageMin' | 'ageMax'>): string | null {
+  const minAge = filters.ageMin === '' ? null : Number(filters.ageMin)
+  const maxAge = filters.ageMax === '' ? null : Number(filters.ageMax)
+
+  if (
+    (minAge !== null && (!Number.isInteger(minAge) || minAge < 0 || minAge > 120))
+    || (maxAge !== null && (!Number.isInteger(maxAge) || maxAge < 0 || maxAge > 120))
+  ) {
+    return 'Az életkor 0 és 120 közötti egész szám lehet.'
+  }
+
+  if (minAge !== null && maxAge !== null && minAge > maxAge) {
+    return 'A kezdő életkor nem lehet nagyobb a felső határnál.'
+  }
+
+  return null
+}
+
 const FALLBACK_GENDER_OPTIONS: MemberFilterOptions['genders'] = [
   { value: 'all', label: 'Minden nem' },
   { value: 'male', label: 'Férfi' },
@@ -298,11 +317,13 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const activeFilterChips = createFilterChips(filters)
   const localityOptions = filterOptions?.localities ?? []
   const religionOptions = filterOptions?.religions ?? []
-  const statusOptions = filterOptions?.statuses ?? MEMBER_STATUS_FILTERS
-  const genderOptions = filterOptions?.genders ?? FALLBACK_GENDER_OPTIONS
-  const familyOptions = filterOptions?.families ?? FALLBACK_FAMILY_OPTIONS
-  const contactOptions = filterOptions?.contacts ?? FALLBACK_CONTACT_OPTIONS
-  const paymentOptions = filterOptions?.paymentStatuses ?? PAYMENT_OPTIONS
+  const statusOptions = filterOptions?.statuses.length ? filterOptions.statuses : MEMBER_STATUS_FILTERS
+  const genderOptions = filterOptions?.genders.length ? filterOptions.genders : FALLBACK_GENDER_OPTIONS
+  const familyOptions = filterOptions?.families.length ? filterOptions.families : FALLBACK_FAMILY_OPTIONS
+  const contactOptions = filterOptions?.contacts.length ? filterOptions.contacts : FALLBACK_CONTACT_OPTIONS
+  const paymentOptions = filterOptions?.paymentStatuses.length ? filterOptions.paymentStatuses : PAYMENT_OPTIONS
+  const draftFilterCount = createFilterChips(draftFilters).length
+  const draftAgeError = getAgeFilterError(draftFilters)
 
   const fetchFirstPage = useCallback(async ({ preserveMembers = false } = {}) => {
     const requestId = ++requestIdRef.current
@@ -414,15 +435,12 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   }
 
   function applyFilters() {
-    const minAge = draftFilters.ageMin === '' ? null : Number(draftFilters.ageMin)
-    const maxAge = draftFilters.ageMax === '' ? null : Number(draftFilters.ageMax)
-    const next = { ...draftFilters }
-    if (minAge !== null && maxAge !== null && minAge > maxAge) {
-      next.ageMin = String(maxAge)
-      next.ageMax = String(minAge)
+    if (draftAgeError) {
+      document.getElementById('filter-age-min')?.focus()
+      return
     }
     invalidateActiveRequests()
-    setFilters(next)
+    setFilters(draftFilters)
     setFilterOpen(false)
   }
 
@@ -584,6 +602,9 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                 type="button"
                 variant="outline"
                 onClick={openFilterSheet}
+                aria-haspopup="dialog"
+                aria-expanded={filterOpen}
+                aria-controls="persons-detailed-filter"
                 className="h-12 justify-center gap-2 rounded-2xl border-primary/20 bg-background/80 px-4 text-foreground shadow-sm hover:bg-primary/5"
               >
                 <SlidersHorizontal className="size-4 text-primary" />
@@ -823,148 +844,226 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
       )}
 
       <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-        <SheetContent side="right" className="w-[min(94vw,30rem)] gap-0 border-primary/10 bg-card p-0 [&_[data-slot=sheet-close]]:size-11 sm:max-w-[30rem]">
-          <SheetHeader className="shrink-0 border-b border-border/60 bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-5 py-5 dark:to-card">
-            <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/12 text-primary">
-              <SlidersHorizontal className="size-5" />
+        <SheetContent
+          id="persons-detailed-filter"
+          side="right"
+          showCloseButton={false}
+          className="gap-0 border-primary/15 bg-[#fcfbf8] p-0 shadow-[-24px_0_70px_-36px_rgba(4,74,68,0.42)] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] data-[side=right]:h-dvh data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:sm:w-[32rem] data-[side=right]:sm:max-w-[32rem] dark:bg-card motion-reduce:transition-none"
+        >
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={(event) => {
+              event.preventDefault()
+              applyFilters()
+            }}
+          >
+            <SheetHeader className="relative shrink-0 border-b border-primary/10 bg-gradient-to-br from-primary/12 via-[#fcfbf8] to-amber-50/75 px-5 pb-5 pr-16 [padding-top:max(1.25rem,env(safe-area-inset-top))] sm:px-6 sm:pb-6 sm:pr-20 dark:via-card dark:to-card">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/10 bg-primary/10 text-primary shadow-sm">
+                  <SlidersHorizontal className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary/75">Személyek · szűrés</p>
+                  <SheetTitle className="mt-0.5 font-heading text-2xl font-medium tracking-tight">Részletes szűrés</SheetTitle>
+                </div>
+              </div>
+              <SheetDescription className="mt-3 max-w-md leading-6">
+                Szűkítsd a személyeket tagsági, családi, demográfiai és elérhetőségi adatok szerint.
+              </SheetDescription>
+              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+                <span className="inline-flex size-6 items-center justify-center rounded-full bg-primary/10 font-bold tabular-nums text-primary">
+                  {draftFilterCount}
+                </span>
+                feltétel kiválasztva
+              </div>
+              <SheetClose
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] size-11 rounded-2xl border border-transparent text-muted-foreground hover:border-border/70 hover:bg-background/80 hover:text-foreground sm:right-4"
+                  />
+                }
+              >
+                <X className="size-5" />
+                <span className="sr-only">Szűrőpanel bezárása</span>
+              </SheetClose>
+            </SheetHeader>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+              <FilterSection
+                icon={<CheckCircle2 className="size-4" />}
+                title="Tagság"
+                description="Tagsági és befizetési állapot"
+              >
+                <div className="grid gap-3 min-[400px]:grid-cols-2">
+                  <FilterField id="filter-status" label="Tagsági állapot">
+                    <select
+                      id="filter-status"
+                      value={draftFilters.status}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value as MemberStatusFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {statusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </FilterField>
+                  <FilterField id="filter-payment" label="Pénzügyi állapot">
+                    <select
+                      id="filter-payment"
+                      value={draftFilters.payment}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, payment: event.target.value as PaymentFilter }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="all">Minden állapot</option>
+                      {paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+                </div>
+              </FilterSection>
+
+              <FilterSection
+                icon={<Users className="size-4" />}
+                title="Demográfia"
+                description="Életkor, nem és vallás"
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <FilterField id="filter-age-min" label="Életkor ettől">
+                    <Input
+                      id="filter-age-min"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={draftFilters.ageMin}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, ageMin: event.target.value }))}
+                      placeholder="pl. 18"
+                      aria-invalid={Boolean(draftAgeError)}
+                      aria-describedby={draftAgeError ? 'filter-age-error' : undefined}
+                      className="h-11 rounded-xl bg-background/90"
+                    />
+                  </FilterField>
+                  <FilterField id="filter-age-max" label="Életkor eddig">
+                    <Input
+                      id="filter-age-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={draftFilters.ageMax}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, ageMax: event.target.value }))}
+                      placeholder="pl. 65"
+                      aria-invalid={Boolean(draftAgeError)}
+                      aria-describedby={draftAgeError ? 'filter-age-error' : undefined}
+                      className="h-11 rounded-xl bg-background/90"
+                    />
+                  </FilterField>
+                </div>
+                {draftAgeError && (
+                  <p id="filter-age-error" className="mt-2 text-xs font-medium text-destructive" role="alert">
+                    {draftAgeError}
+                  </p>
+                )}
+                <div className="mt-3 grid gap-3 min-[400px]:grid-cols-2">
+                  <FilterField id="filter-gender" label="Nem">
+                    <select
+                      id="filter-gender"
+                      value={draftFilters.gender}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, gender: event.target.value as MemberGenderFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {genderOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+                  <FilterField id="filter-religion" label="Vallás">
+                    <select
+                      id="filter-religion"
+                      value={draftFilters.religion}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, religion: event.target.value }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="">Minden vallás</option>
+                      {religionOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}{option.count === undefined ? '' : ` (${option.count})`}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+                </div>
+              </FilterSection>
+
+              <FilterSection
+                icon={<MapPin className="size-4" />}
+                title="Család és lakóhely"
+                description="Családi kapcsolat és település"
+              >
+                <div className="grid gap-3 min-[400px]:grid-cols-2">
+                  <FilterField id="filter-family" label="Családi kapcsolat">
+                    <select
+                      id="filter-family"
+                      value={draftFilters.family}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, family: event.target.value as MemberFamilyFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {familyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+                  <FilterField id="filter-locality" label="Település">
+                    <select
+                      id="filter-locality"
+                      value={draftFilters.locality}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, locality: event.target.value }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="">Minden település</option>
+                      {localityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}{option.count === undefined ? '' : ` (${option.count})`}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+                </div>
+              </FilterSection>
+
+              <FilterSection
+                icon={<Link2 className="size-4" />}
+                title="Elérhetőség"
+                description="Telefon- és e-mail-adatok megléte"
+              >
+                <FilterField id="filter-contact" label="Elérhetőségi feltétel">
+                  <select
+                    id="filter-contact"
+                    value={draftFilters.contact}
+                    onChange={(event) => setDraftFilters((current) => ({ ...current, contact: event.target.value as MemberContactFilter }))}
+                    className={filterControlClassName}
+                  >
+                    {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </FilterField>
+              </FilterSection>
             </div>
-            <SheetTitle className="mt-2 font-heading text-xl">Részletes szűrés</SheetTitle>
-            <SheetDescription>
-              Szűkítsd a személyeket tagsági, családi, demográfiai és elérhetőségi adatok szerint.
-            </SheetDescription>
-          </SheetHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5">
-            <FilterField id="filter-status" label="Tagsági állapot">
-              <select
-                id="filter-status"
-                value={draftFilters.status}
-                onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value as MemberStatusFilter }))}
-                className={filterControlClassName}
+            <SheetFooter className="shrink-0 border-t border-primary/10 bg-[#fcfbf8]/95 px-4 pt-3 [padding-bottom:max(0.875rem,env(safe-area-inset-bottom))] min-[400px]:grid min-[400px]:grid-cols-[auto_1fr] sm:px-6 dark:bg-card/95">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-12 rounded-xl bg-background/80 px-5"
+                onClick={() => setDraftFilters(DEFAULT_FILTERS)}
+                title="Visszaállítás az alapértelmezett aktívtag-szűrésre"
               >
-                {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FilterField>
-
-            <div className="grid grid-cols-2 gap-3">
-              <FilterField id="filter-age-min" label="Életkor ettől">
-                <Input
-                  id="filter-age-min"
-                  type="number"
-                  min={0}
-                  max={120}
-                  value={draftFilters.ageMin}
-                  onChange={(event) => setDraftFilters((current) => ({ ...current, ageMin: event.target.value }))}
-                  placeholder="pl. 18"
-                  className="h-11 rounded-xl"
-                />
-              </FilterField>
-              <FilterField id="filter-age-max" label="Életkor eddig">
-                <Input
-                  id="filter-age-max"
-                  type="number"
-                  min={0}
-                  max={120}
-                  value={draftFilters.ageMax}
-                  onChange={(event) => setDraftFilters((current) => ({ ...current, ageMax: event.target.value }))}
-                  placeholder="pl. 65"
-                  className="h-11 rounded-xl"
-                />
-              </FilterField>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FilterField id="filter-gender" label="Nem">
-                <select
-                  id="filter-gender"
-                  value={draftFilters.gender}
-                  onChange={(event) => setDraftFilters((current) => ({ ...current, gender: event.target.value as MemberGenderFilter }))}
-                  className={filterControlClassName}
-                >
-                  {genderOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </FilterField>
-              <FilterField id="filter-family" label="Családi kapcsolat">
-                <select
-                  id="filter-family"
-                  value={draftFilters.family}
-                  onChange={(event) => setDraftFilters((current) => ({ ...current, family: event.target.value as MemberFamilyFilter }))}
-                  className={filterControlClassName}
-                >
-                  {familyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </FilterField>
-            </div>
-
-            <FilterField id="filter-locality" label="Település">
-              <select
-                id="filter-locality"
-                value={draftFilters.locality}
-                onChange={(event) => setDraftFilters((current) => ({ ...current, locality: event.target.value }))}
-                className={filterControlClassName}
-              >
-                <option value="">Minden település</option>
-                {localityOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}{option.count === undefined ? '' : ` (${option.count})`}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-
-            <FilterField id="filter-religion" label="Vallás">
-              <select
-                id="filter-religion"
-                value={draftFilters.religion}
-                onChange={(event) => setDraftFilters((current) => ({ ...current, religion: event.target.value }))}
-                className={filterControlClassName}
-              >
-                <option value="">Minden vallás</option>
-                {religionOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}{option.count === undefined ? '' : ` (${option.count})`}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-
-            <FilterField id="filter-payment" label="Pénzügyi állapot">
-              <select
-                id="filter-payment"
-                value={draftFilters.payment}
-                onChange={(event) => setDraftFilters((current) => ({ ...current, payment: event.target.value as PaymentFilter }))}
-                className={filterControlClassName}
-              >
-                <option value="all">Minden állapot</option>
-                {paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </FilterField>
-
-            <FilterField id="filter-contact" label="Elérhetőség">
-              <select
-                  id="filter-contact"
-                  value={draftFilters.contact}
-                  onChange={(event) => setDraftFilters((current) => ({ ...current, contact: event.target.value as MemberContactFilter }))}
-                  className={filterControlClassName}
-                >
-                  {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </FilterField>
-          </div>
-
-          <SheetFooter className="shrink-0 border-t border-border/60 bg-muted/35 px-5 py-4 sm:flex-row">
-            <Button
-              variant="ghost"
-              className="min-h-11 rounded-xl sm:mr-auto"
-              onClick={() => setDraftFilters(DEFAULT_FILTERS)}
-            >
-              Alaphelyzet
-            </Button>
-            <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setFilterOpen(false)}>Mégse</Button>
-            <Button className="min-h-11 rounded-xl px-6" onClick={applyFilters}>Szűrés alkalmazása</Button>
-          </SheetFooter>
+                Alaphelyzet
+              </Button>
+              <Button type="submit" className="min-h-12 rounded-xl px-6 shadow-sm" disabled={Boolean(draftAgeError)}>
+                Szűrés alkalmazása
+              </Button>
+            </SheetFooter>
+          </form>
         </SheetContent>
       </Sheet>
 
@@ -1011,7 +1110,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
 }
 
 const filterControlClassName =
-  'h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none transition focus:border-ring focus:ring-[3px] focus:ring-ring/20'
+  'h-11 w-full rounded-xl border border-input bg-background/90 px-3 text-sm text-foreground shadow-xs outline-none transition focus:border-ring focus:ring-[3px] focus:ring-ring/20 motion-reduce:transition-none'
 
 function RegistryStatCard({
   icon,
@@ -1262,6 +1361,33 @@ function PersonListSkeleton() {
         ))}
       </div>
     </Card>
+  )
+}
+
+function FilterSection({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-primary/10 bg-background/65 p-4 shadow-[0_12px_35px_-30px_rgba(4,74,68,0.65)] sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <h3 className="font-heading text-base font-medium leading-tight text-foreground">{title}</h3>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
   )
 }
 
