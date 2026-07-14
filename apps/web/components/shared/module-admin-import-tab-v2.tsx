@@ -41,6 +41,8 @@ interface ModuleAdminImportTabV2Props {
   isDelegatedImport: boolean
   delegatedExpiresAt?: number | null
   profiles: ModuleImportProfile[]
+  /** Külön importablakban a közös fejléc adja a modul- és célkontextust. */
+  embedded?: boolean
   /** Új multi-sheet import profilok (ha megadva, a fájl feltöltésnél a multi-sheet rendszer indul) */
   importProfiles?: ImportProfile[]
   /** Modul kulcs az import rendszerhez */
@@ -96,6 +98,7 @@ export function ModuleAdminImportTabV2({
   isDelegatedImport,
   delegatedExpiresAt,
   profiles,
+  embedded = false,
   importProfiles,
   importModule,
   targetCongregationId,
@@ -125,6 +128,7 @@ export function ModuleAdminImportTabV2({
   const supported = ['.xlsx', '.xls', '.csv'].includes(extension)
   const ready = canImport && !!selectedFile && supported
   const remainingLabel = formatRemaining(delegatedExpiresAt)
+  const hasExecutableImport = !!(importProfiles?.length && importModule)
 
   // ── Admin import-hub mód ─────────────────────────────────────────────
   // Ha explicit cél-gyülekezetet kaptunk, a komponens letisztult „hub" nézetet ad:
@@ -166,7 +170,7 @@ export function ModuleAdminImportTabV2({
     )
   }
 
-  if (!activeProfile) return null
+  if (!hasExecutableImport && !activeProfile) return null
 
   async function handleActivateDelegatedImport(event: React.FormEvent) {
     event.preventDefault()
@@ -227,27 +231,29 @@ export function ModuleAdminImportTabV2({
 
   return (
     <div className="space-y-4">
-      <div className="card-raised relative overflow-hidden p-5 sm:p-6">
-        <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-red-200/35 blur-3xl" />
-        <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-amber-200/30 blur-3xl" />
+      {!embedded && (
+        <div className="card-raised relative overflow-hidden p-5 sm:p-6">
+          <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-primary/10 blur-3xl" />
+          <div className="absolute bottom-0 left-0 h-24 w-24 rounded-full bg-accent/60 blur-3xl" />
 
-        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-red-700/70">Rendszergazdai importáló</p>
-            <h3 className="font-heading text-3xl text-slate-800">{title}</h3>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">{description}</p>
-          </div>
+          <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Rendszergazdai importáló</p>
+              <h3 className="font-heading text-3xl text-foreground">{title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
+            </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <ImportStat label="Modul" value={moduleLabel} />
-            <ImportStat label="Profilok" value={profiles.length} />
-            <ImportStat
-              label="Állapot"
-              value={accessMode === 'god' ? 'rendszergazdai' : accessMode === 'delegated' ? 'delegált' : 'zárolt'}
-            />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <ImportStat label="Modul" value={moduleLabel} />
+              <ImportStat label="Profilok" value={profiles.length} />
+              <ImportStat
+                label="Állapot"
+                value={accessMode === 'god' ? 'rendszergazdai' : accessMode === 'delegated' ? 'delegált' : 'zárolt'}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div
         className={`rounded-[1.4rem] border p-4 text-sm leading-relaxed ${
@@ -304,7 +310,8 @@ export function ModuleAdminImportTabV2({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.02fr_1.18fr]">
+      {!hasExecutableImport && activeProfile && (
+        <div className="grid gap-4 xl:grid-cols-[1.02fr_1.18fr]">
         <div className="card-raised p-5">
           <h4 className="text-sm font-semibold text-slate-800">Importprofil választása</h4>
           <div className="mt-4 grid gap-3">
@@ -432,10 +439,56 @@ export function ModuleAdminImportTabV2({
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      )}
+
+      {hasExecutableImport && (
+        <section className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5" aria-labelledby={`${moduleKey}-import-templates`}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+            <div>
+              <h4 id={`${moduleKey}-import-templates`} className="font-semibold text-foreground">
+                Mintafájlok és elvárt adatok
+              </h4>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Ha új táblázatot készítesz, ezekkel a mintákkal biztosan a megfelelő oszlopneveket használod.
+              </p>
+            </div>
+            <span className="text-xs font-medium text-muted-foreground">{profiles.length} importprofil</span>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {profiles.map((profile) => (
+              <div key={profile.value} className="rounded-xl border border-border bg-background p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">{profile.label}</p>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{profile.description}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 shrink-0 rounded-xl"
+                    onClick={() => downloadTemplate(moduleLabel, profile)}
+                  >
+                    <FileSpreadsheet className="size-4" aria-hidden="true" />
+                    Minta CSV
+                  </Button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5" aria-label={`${profile.label} elvárt oszlopai`}>
+                  {profile.columns.map((column) => (
+                    <span key={column} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                      {column}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Multi-sheet Excel import ──────────────────────── */}
-      {importProfiles && importModule && canImport && (
+      {hasExecutableImport && importProfiles && importModule && canImport && (
         <MultiSheetImport
           module={importModule}
           profiles={importProfiles}

@@ -19,6 +19,7 @@ import { BurialDialog } from '@/components/modals/burial-dialog'
 import { MovementDialog } from '@/components/modals/movement-dialog'
 import { ConfirmationDialog } from '@/components/modals/confirmation-dialog'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { AnyakonyvHelp } from './anyakonyv-help'
 import { EmleklapDialog } from './emleklap/emleklap-dialog'
 import type { EmleklapType } from '@/lib/constants/emleklap-templates'
@@ -37,10 +38,10 @@ interface RegistryTabsProps {
 
 /**
  * View-state külön az `activeTab`-tól — így a meglévő RegistryTab-alapú logika
- * (loadData, getColumns, hash-routing) érintetlen marad, és a Súgó/Admin-import
- * tabok csak a megjelenítést befolyásolják.
+ * (loadData, getColumns, hash-routing) érintetlen marad, a Súgó pedig csak a
+ * megjelenítést befolyásolja.
  */
-type ActiveView = 'tab' | 'help' | 'admin-import'
+type ActiveView = 'tab' | 'help'
 
 // Hash-routing: a sidebar `/anyakonyv#keresztseg` stb. URL-jeiből közvetlen tab-ugrás.
 const VALID_TAB_HASHES = new Set<string>(REGISTRY_TABS as readonly string[])
@@ -261,7 +262,7 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
   }, [activeTab, loadData])
 
   // Hash-routing — sidebar Link navigációja után visszaállítjuk a tab view-t,
-  // különben a help/admin-import view tovább „ragadna" amikor a felhasználó
+  // különben a help view tovább „ragadna" amikor a felhasználó
   // pl. anyakonyv#konfirmalas-ra navigál.
   useEffect(() => {
     const apply = () => {
@@ -388,13 +389,12 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
   }
 
   /**
-   * 2026-05-25: Súgó és Rendszergazdai importáló tab-ok kezelése.
-   * Ezek nem registry-domain tabok, így nem futtatunk loadData-t / hash-routing-ot.
-   * Külön `activeView` state-ben tartjuk őket, hogy a meglévő RegistryTab-os
-   * logika érintetlen maradjon.
+   * A Súgó nem registry-domain tab, ezért nem futtatunk hozzá loadData-t vagy
+   * hash-routingot. Külön `activeView` state-ben tartjuk, hogy a meglévő
+   * RegistryTab-os logika érintetlen maradjon.
    */
   function handleExtendedTabChange(value: string) {
-    if (value === 'help' || value === 'admin-import') {
+    if (value === 'help') {
       resetViewState()
       setLoading(false)
       setActiveView(value)
@@ -547,28 +547,35 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
         <p className="text-sm text-slate-400">Keresztelések, konfirmációk, esküvők és egyéb bejegyzések</p>
       </div>
 
-      <ColorTabs
-        tabs={[
-          ...REGISTRY_TABS.map(t => {
-            const colors: Record<string, string> = { attekinto: 'blue', keresztseg: 'emerald', konfirmacio: 'violet', hazassag: 'pink', temetes: 'slate', bekoltozott: 'cyan', elkoltozott: 'orange', attert: 'amber', kitert: 'red' }
-            return { value: t, label: REGISTRY_TAB_LABELS[t], color: colors[t] || 'blue' }
-          }),
-          // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
-          { value: 'help', label: 'Súgó', color: 'teal' },
-          ...(showAdminImport ? [
-            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-          ] : []),
-        ]}
-        active={activeView === 'tab' ? activeTab : activeView}
-        onChange={handleExtendedTabChange}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={[
+              ...REGISTRY_TABS.map(t => {
+                const colors: Record<string, string> = { attekinto: 'blue', keresztseg: 'emerald', konfirmacio: 'violet', hazassag: 'pink', temetes: 'slate', bekoltozott: 'cyan', elkoltozott: 'orange', attert: 'amber', kitert: 'red' }
+                return { value: t, label: REGISTRY_TAB_LABELS[t], color: colors[t] || 'blue' }
+              }),
+              { value: 'help', label: 'Súgó', color: 'teal' },
+            ]}
+            active={activeView === 'tab' ? activeTab : activeView}
+            onChange={handleExtendedTabChange}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Anyakönyvek"
+            congregationName={congregationName}
+            description="Anyakönyvi bejegyzések ellenőrzött importálása. A személykapcsolás, településfeloldás és a nyolc meglévő profil változatlanul működik."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
       {activeView === 'help' ? (
         <div className="mt-4">
           <AnyakonyvHelp />
         </div>
-      ) : activeView === 'admin-import' && showAdminImport && adminImportContent ? (
-        <div className="mt-4">{adminImportContent}</div>
       ) : (
       <Tabs value={activeTab} onValueChange={v => handleTabChange(v as RegistryTab)}>
         <TabsContent value="attekinto" className="mt-4">

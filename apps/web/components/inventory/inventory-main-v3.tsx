@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { InventoryAmortizationDialog } from '@/components/inventory/inventory-amortization-dialog'
 import { InventoryGuideTab } from '@/components/inventory/inventory-guide-tab'
@@ -50,11 +51,9 @@ interface InventoryMainProps {
 }
 
 type LeltarTab = 'nyilvantartas' | 'anyagraktar' | 'sugo'
-type ActiveView = 'tab' | 'admin-import'
 
 export function InventoryMain({ congregationName, showAdminImport = false, adminImportContent }: InventoryMainProps) {
   const [activeTab, setActiveTab] = useState<LeltarTab>('nyilvantartas')
-  const [activeView, setActiveView] = useState<ActiveView>('tab')
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -295,30 +294,30 @@ export function InventoryMain({ congregationName, showAdminImport = false, admin
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'amber' | 'teal' }[]}
       />
 
-      <ColorTabs
-        tabs={[
-          { value: 'nyilvantartas', label: 'Leltári nyilvántartás', color: 'teal', count: filtered.length },
-          { value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' },
-          { value: 'sugo', label: 'Súgó', color: 'teal' },
-          // 2026-05-25: Rendszergazdai importáló a sor végén, red-prominent háttérrel
-          ...(showAdminImport ? [
-            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-          ] : []),
-        ]}
-        active={activeView === 'admin-import' ? 'admin-import' : activeTab}
-        onChange={value => {
-          if (value === 'admin-import') {
-            setActiveView('admin-import')
-          } else {
-            setActiveView('tab')
-            setActiveTab(value as LeltarTab)
-          }
-        }}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={[
+              { value: 'nyilvantartas', label: 'Leltári nyilvántartás', color: 'teal', count: filtered.length },
+              { value: 'anyagraktar', label: 'Anyagraktár', color: 'emerald' },
+              { value: 'sugo', label: 'Súgó', color: 'teal' },
+            ]}
+            active={activeTab}
+            onChange={value => setActiveTab(value as LeltarTab)}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Leltár"
+            congregationName={congregationName}
+            description="Leltári adatok előkészítése a jelenlegi importfelület képességeivel. A dizájn nem aktivál új feldolgozási vagy mentési funkciót."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
-      {activeView === 'admin-import' && showAdminImport ? (
-        adminImportContent
-      ) : activeTab === 'sugo' ? (
+      {activeTab === 'sugo' ? (
         <InventoryGuideTab />
       ) : activeTab === 'anyagraktar' ? (
         <MaterialWarehouseTab congregationName={congregationName || ''} />

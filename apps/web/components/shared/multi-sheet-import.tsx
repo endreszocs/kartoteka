@@ -10,7 +10,7 @@
  *  4. Batch import végrehajtás → eredmény kijelzés
  */
 
-import { useCallback, useState, useTransition } from 'react'
+import { useCallback, useRef, useState, useTransition } from 'react'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -82,10 +82,12 @@ export function MultiSheetImport({
   const [importResult, setImportResult] = useState<BatchImportResult | null>(null)
   const [isParsing, startParsing] = useTransition()
   const [isImporting, startImporting] = useTransition()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Fájl kiválasztás ──────────────────────────────────────
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (isParsing || isImporting) return
       const selected = event.target.files?.[0]
       if (!selected) return
 
@@ -128,8 +130,9 @@ export function MultiSheetImport({
           toast.error(result.error)
         }
       })
+      event.target.value = ''
     },
-    [module],
+    [module, isParsing, isImporting],
   )
 
   // ── Sheet profil módosítás ──────────────────────────────────
@@ -214,19 +217,21 @@ export function MultiSheetImport({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={isParsing || isImporting}>
       {/* ── Fejléc ──────────────────────────────────── */}
-      <div className="card-raised relative overflow-hidden p-5">
-        <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-violet-200/30 blur-3xl" />
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="absolute right-0 top-0 h-24 w-24 rounded-full bg-primary/10 blur-3xl" />
         <div className="relative flex items-start gap-3">
-          <FileSpreadsheet className="mt-0.5 size-5 text-violet-600" />
-          <div>
-            <h4 className="font-heading text-lg text-slate-800">
-              Multi-sheet Excel import — {moduleLabel}
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <FileSpreadsheet className="size-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <h4 className="font-heading text-lg text-foreground">
+              {moduleLabel} adatainak feltöltése
             </h4>
-            <p className="mt-1 text-sm text-slate-500">
-              Tölts fel egy Excel fájlt — a rendszer felismeri a füleket,
-              javasol profilt, és batch-ben szúrja be az adatokat.
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Egyetlen fájl is elég: a rendszer felismeri a munkalapokat, profilt javasol,
+              és az import előtt ellenőrizhető előnézetet készít.
             </p>
           </div>
         </div>
@@ -234,28 +239,36 @@ export function MultiSheetImport({
 
       {/* ── 1. Fájl feltöltés ──────────────────────── */}
       {(step === 'upload' || step === 'preview') && (
-        <div className="card-raised p-5">
-          <label className="block text-sm font-semibold text-slate-700">
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <label className="block text-sm font-semibold text-foreground">
             Excel / CSV fájl
           </label>
-          <div className="mt-2 flex items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 w-full rounded-xl sm:w-auto"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isParsing || isImporting}
+            >
               <Upload className="size-4" />
               <span>{file ? 'Másik fájl' : 'Fájl választás'}</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </label>
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileSelect}
+              className="hidden"
+              disabled={isParsing || isImporting}
+            />
             {file && (
-              <span className="text-sm text-slate-500">
+              <span className="min-w-0 break-all text-sm text-muted-foreground sm:break-normal">
                 {file.name} ({(file.size / 1024).toFixed(0)} KB)
               </span>
             )}
             {isParsing && (
-              <span className="flex items-center gap-1.5 text-sm text-violet-600">
+              <span className="flex shrink-0 items-center gap-1.5 text-sm text-primary" role="status">
                 <Loader2 className="size-4 animate-spin" />
                 Elemzés...
               </span>
@@ -267,15 +280,15 @@ export function MultiSheetImport({
       {/* ── 2. Sheet előnézet + profil társítás ────── */}
       {step === 'preview' && parseResult?.sheets && (
         <>
-          <div className="card-raised p-5">
-            <div className="flex items-center justify-between">
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <Layers className="size-4 text-slate-500" />
-                <span className="text-sm font-semibold text-slate-700">
+                <Layers className="size-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-foreground">
                   {parseResult.sheets.length} fül találva
                 </span>
               </div>
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-muted-foreground">
                 {enabledCount} kiválasztva · {totalRows} sor
               </span>
             </div>
@@ -307,11 +320,12 @@ export function MultiSheetImport({
           </div>
 
           {/* Import gomb */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
+              type="button"
               onClick={handleImport}
               disabled={enabledCount === 0 || isImporting}
-              className="rounded-full bg-violet-600 hover:bg-violet-700"
+              className="min-h-11 w-full rounded-xl sm:w-auto"
             >
               {isImporting ? (
                 <Loader2 className="mr-1.5 size-4 animate-spin" />
@@ -322,7 +336,7 @@ export function MultiSheetImport({
                 ? 'Import folyamatban...'
                 : `Import ind\u00edt\u00e1sa (${enabledCount} f\u00fcl, ${totalRows} sor)`}
             </Button>
-            <Button variant="outline" onClick={handleReset} className="rounded-full">
+            <Button type="button" variant="outline" onClick={handleReset} className="min-h-11 w-full rounded-xl sm:w-auto">
               <X className="mr-1 size-4" /> Mégsem
             </Button>
           </div>
@@ -331,9 +345,9 @@ export function MultiSheetImport({
 
       {/* ── 3. Import folyamatban ──────────────────── */}
       {step === 'importing' && (
-        <div className="card-raised flex items-center gap-3 p-8">
-          <Loader2 className="size-6 animate-spin text-violet-600" />
-          <span className="text-lg text-slate-700">Import folyamatban...</span>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-6 sm:p-8" role="status">
+          <Loader2 className="size-6 animate-spin text-primary" />
+          <span className="text-lg text-foreground">Import folyamatban...</span>
         </div>
       )}
 
@@ -341,26 +355,26 @@ export function MultiSheetImport({
       {step === 'result' && importResult && (
         <div className="space-y-3">
           <div
-            className={`card-raised p-5 ${
+            className={`rounded-2xl border p-5 ${
               importResult.success
-                ? 'border-emerald-200 bg-emerald-50/50'
-                : 'border-red-200 bg-red-50/50'
+                ? 'border-primary/25 bg-primary/5'
+                : 'border-destructive/25 bg-destructive/5'
             }`}
           >
             <div className="flex items-start gap-3">
               {importResult.success ? (
-                <CheckCircle2 className="mt-0.5 size-5 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 size-5 text-primary" />
               ) : (
-                <AlertTriangle className="mt-0.5 size-5 text-red-600" />
+                <AlertTriangle className="mt-0.5 size-5 text-destructive" />
               )}
               <div>
-                <p className="font-semibold text-slate-800">
+                <p className="font-semibold text-foreground">
                   {importResult.success
                     ? 'Import sikeresen befejez\u0151d\u00f6tt!'
                     : importResult.error || 'Az import sikertelen.'}
                 </p>
                 {importResult.success && (
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {importResult.insertedCount ?? 0} sor beszúrva
                     {importResult.skippedCount
                       ? ` \u00b7 ${importResult.skippedCount} sor kihagyva`
@@ -373,13 +387,13 @@ export function MultiSheetImport({
 
           {/* Hibás sorok */}
           {importResult.errors && importResult.errors.length > 0 && (
-            <div className="card-raised max-h-60 overflow-y-auto p-4">
-              <p className="mb-2 text-sm font-semibold text-red-700">
+            <div className="max-h-60 overflow-y-auto rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
+              <p className="mb-2 text-sm font-semibold text-destructive">
                 Hibás sorok ({importResult.errors.length}):
               </p>
               <div className="space-y-1">
                 {importResult.errors.map((err, idx) => (
-                  <p key={idx} className="text-xs text-red-600">
+                  <p key={idx} className="text-xs text-destructive">
                     <span className="font-mono">[{err.sheet}:{err.row}]</span>{' '}
                     {err.message}
                   </p>
@@ -388,7 +402,7 @@ export function MultiSheetImport({
             </div>
           )}
 
-          <Button onClick={handleReset} className="rounded-full">
+          <Button type="button" onClick={handleReset} className="min-h-11 w-full rounded-xl sm:w-auto">
             Új import
           </Button>
         </div>
@@ -424,39 +438,42 @@ function SheetCard({
     <div
       className={`rounded-xl border transition-colors ${
         isEnabled
-          ? 'border-violet-200 bg-violet-50/50'
-          : 'border-slate-150 bg-white'
+          ? 'border-primary/30 bg-primary/5'
+          : 'border-border bg-background'
       }`}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          className="flex items-center gap-1.5 text-sm font-medium text-slate-700 hover:text-violet-700"
-        >
-          {expanded ? (
-            <ChevronDown className="size-4" />
-          ) : (
-            <ChevronRight className="size-4" />
-          )}
-          <Table2 className="size-4" />
-          {sheet.sheetName}
-        </button>
+      <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:px-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={expanded}
+            className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg px-1 text-left text-sm font-medium text-foreground transition-colors hover:text-primary"
+          >
+            {expanded ? (
+              <ChevronDown className="size-4 shrink-0" />
+            ) : (
+              <ChevronRight className="size-4 shrink-0" />
+            )}
+            <Table2 className="size-4 shrink-0" />
+            <span className="truncate">{sheet.sheetName}</span>
+          </button>
 
-        <span className="text-xs text-slate-400">
-          {sheet.rowCount} sor · {sheet.headers.length} oszlop
-        </span>
-
-        {hasWarning && (
-          <span className="flex items-center gap-1 text-xs text-amber-600">
-            <AlertTriangle className="size-3" />
-            {sheet.warning}
+          <span className="text-xs text-muted-foreground">
+            {sheet.rowCount} sor · {sheet.headers.length} oszlop
           </span>
-        )}
+
+          {hasWarning && (
+            <span className="flex items-center gap-1 text-xs text-amber-700">
+              <AlertTriangle className="size-3 shrink-0" />
+              {sheet.warning}
+            </span>
+          )}
+        </div>
 
         {!hasWarning && !isEmpty && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
             {/* Profil választó */}
             <select
               value={config?.profileKey || ''}
@@ -464,7 +481,8 @@ function SheetCard({
                 const key = e.target.value || null
                 onUpdateConfig({ profileKey: key, enabled: !!key })
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm"
+              aria-label={`${sheet.sheetName} importprofilja`}
+              className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-foreground shadow-sm sm:flex-none"
             >
               <option value="">--- Kihagyás ---</option>
               {profiles.map((p) => (
@@ -475,7 +493,7 @@ function SheetCard({
             </select>
 
             {/* Enable toggle */}
-            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <label className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
                 checked={isEnabled}
@@ -483,7 +501,7 @@ function SheetCard({
                   onUpdateConfig({ enabled: e.target.checked })
                 }
                 disabled={!config?.profileKey}
-                className="rounded border-slate-300"
+                className="size-4 rounded border-border"
               />
               Import
             </label>
@@ -493,8 +511,8 @@ function SheetCard({
 
       {/* Kinyitott tartalom: fejlécek + mintasorok */}
       {expanded && !hasWarning && sheet.headers.length > 0 && (
-        <div className="border-t border-slate-100 px-4 py-3">
-          <p className="mb-2 text-xs font-semibold text-slate-500">
+        <div className="border-t border-border px-3 py-3 sm:px-4">
+          <p className="mb-2 break-words text-xs font-semibold text-muted-foreground">
             Oszlopok: {sheet.headers.join(' \u00b7 ')}
           </p>
 
@@ -506,7 +524,7 @@ function SheetCard({
                     {sheet.headers.map((h) => (
                       <th
                         key={h}
-                        className="border-b border-slate-100 px-2 py-1 text-left font-medium text-slate-600"
+                        className="border-b border-border px-2 py-1 text-left font-medium text-foreground"
                       >
                         {h}
                       </th>
@@ -515,11 +533,11 @@ function SheetCard({
                 </thead>
                 <tbody>
                   {sheet.sampleRows.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
+                    <tr key={i} className="hover:bg-muted/40">
                       {sheet.headers.map((h) => (
                         <td
                           key={h}
-                          className="border-b border-slate-50 px-2 py-1 text-slate-500"
+                          className="border-b border-border/60 px-2 py-1 text-muted-foreground"
                         >
                           {row[h] != null ? String(row[h]) : '—'}
                         </td>
@@ -533,11 +551,11 @@ function SheetCard({
 
           {/* Profil info */}
           {config?.profileKey && (
-            <div className="mt-3 rounded-lg bg-violet-50/80 px-3 py-2">
-              <p className="text-xs font-semibold text-violet-700">
+            <div className="mt-3 rounded-lg bg-primary/5 px-3 py-2">
+              <p className="text-xs font-semibold text-primary">
                 Profil: {profiles.find((p) => p.key === config.profileKey)?.label}
               </p>
-              <p className="mt-0.5 text-xs text-violet-600/80">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 Céltábla:{' '}
                 {profiles.find((p) => p.key === config.profileKey)?.targetTable}
               </p>

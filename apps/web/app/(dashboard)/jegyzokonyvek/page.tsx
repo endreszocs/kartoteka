@@ -92,6 +92,7 @@ export default async function JegyzokonyvekPage() {
       {/* Tabok a Hero ALATT (Tagnyilvántartás minta) */}
       <MinutesWorkspaceTabs
         showAdminImport={showAdminImport}
+        congregationName={access.congregationName}
         adminImportContent={
           <ModuleAdminImportTabV2
             moduleKey="minutes"
@@ -103,6 +104,7 @@ export default async function JegyzokonyvekPage() {
             isDelegatedImport={delegatedImport.active}
             delegatedExpiresAt={delegatedImport.expiresAt}
             profiles={MINUTES_IMPORT_PROFILES}
+            embedded
           />
         }
       >

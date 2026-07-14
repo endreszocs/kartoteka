@@ -82,6 +82,8 @@ interface CongregationOption {
 interface TagnyilvantartasImportWizardProps {
   /** 'module' = aktív gyülekezetbe; 'admin' = választható gyülekezet */
   mode: 'module' | 'admin'
+  /** Külön importablakban a közös fejléc adja a modul- és célkontextust. */
+  embedded?: boolean
   /** Az aktív gyülekezet (mode='module' esetén kötelező) */
   congregationId?: string | null
   congregationName?: string | null
@@ -178,6 +180,7 @@ function countImportableRows(
 
 export function TagnyilvantartasImportWizard({
   mode,
+  embedded = false,
   congregationId,
   congregationName,
   adminCongregations,
@@ -578,19 +581,21 @@ export function TagnyilvantartasImportWizard({
   // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <PageHero
-        eyebrow={mode === 'admin' ? 'Rendszergazdai importáló' : 'Tagnyilvántartás'}
-        title="Adatok importálása"
-        description="Excel, CSV vagy XML fájlból személyek és családok beolvasása az adatbázisba — egy tisztán végigvezetett folyamatban."
-        Icon={Users}
-        stats={[
-          { label: 'Cél gyülekezet', value: selectedCongName },
-          {
-            label: 'Aktív profil',
-            value: profile.label,
-          },
-        ]}
-      />
+      {!embedded && (
+        <PageHero
+          eyebrow={mode === 'admin' ? 'Rendszergazdai importáló' : 'Tagnyilvántartás'}
+          title="Adatok importálása"
+          description="Excel, CSV vagy XML fájlból személyek és családok beolvasása az adatbázisba — egy tisztán végigvezetett folyamatban."
+          Icon={Users}
+          stats={[
+            { label: 'Cél gyülekezet', value: selectedCongName },
+            {
+              label: 'Aktív profil',
+              value: profile.label,
+            },
+          ]}
+        />
+      )}
 
       {/* 2026-06-02: VESZÉLYZÓNA — családi struktúra törlése (csak module módban) */}
       {mode === 'module' && (

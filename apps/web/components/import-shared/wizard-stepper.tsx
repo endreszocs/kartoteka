@@ -34,68 +34,82 @@ export function WizardStepper({ steps, activeId, completedIds, onStepClick }: Wi
   const safeIndex = activeIndex === -1 ? 0 : activeIndex
 
   return (
-    <div className="rounded-[1.5rem] bg-white/85 px-4 py-3 ring-1 ring-emerald-100 shadow-[0_18px_40px_-30px_rgba(15,118,110,0.35)] sm:px-6 sm:py-4">
-      {/* Mobil: csak aktív lépés szöveggel */}
-      <div className="flex items-center justify-between sm:hidden">
+    <div className="rounded-2xl border border-border bg-card px-4 py-3 sm:px-5 sm:py-4">
+      {/* Telefonon és tableten kompakt állapotjelző, hogy a hétlépéses folyamat se csorduljon túl. */}
+      <div className="flex items-center justify-between gap-4 lg:hidden" aria-live="polite" aria-atomic="true">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-600">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
             {safeIndex + 1}/{steps.length}. lépés
           </p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+          <p className="mt-0.5 text-sm font-semibold text-foreground">
             {steps[safeIndex].label}
           </p>
         </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
           {safeIndex + 1}
         </div>
       </div>
 
       {/* Desktop: full vizuális stepper */}
-      <ol className="hidden sm:flex sm:items-center sm:gap-2">
+      <ol className="hidden min-w-0 items-center lg:flex" aria-label="Az importálás lépései">
         {steps.map((step, idx) => {
           const isActive = step.id === activeId
           const isDone = completedIds.includes(step.id)
           const isClickable = !!onStepClick && (isDone || idx <= safeIndex)
 
           const circle = isDone ? (
-            <Check className="size-3.5" strokeWidth={3} />
+            <Check className="size-3.5" strokeWidth={3} aria-hidden="true" />
           ) : (
             <span>{idx + 1}</span>
           )
 
-          return (
-            <li key={step.id} className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={!isClickable}
-                onClick={() => isClickable && onStepClick?.(step.id)}
-                className={`group flex items-center gap-2.5 rounded-full px-3 py-1.5 transition ${
-                  isClickable ? 'cursor-pointer hover:bg-emerald-50/80' : 'cursor-default'
+          const stepClassName = `group flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors ${
+            isClickable ? 'cursor-pointer hover:bg-muted' : 'cursor-default'
+          }`
+          const stepContent = (
+            <>
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : isDone
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-muted text-muted-foreground'
                 }`}
               >
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition ${
-                    isActive
-                      ? 'bg-emerald-600 text-white shadow-[0_8px_16px_-8px_rgba(5,150,105,0.6)]'
-                      : isDone
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-slate-100 text-slate-400'
-                  }`}
+                {circle}
+              </span>
+              <span
+                className={`truncate text-sm font-medium transition-colors ${
+                  isActive ? 'text-primary' : isDone ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                {step.label}
+              </span>
+            </>
+          )
+
+          return (
+            <li key={step.id} className="flex min-w-0 flex-1 items-center">
+              {isClickable ? (
+                <button
+                  type="button"
+                  onClick={() => onStepClick?.(step.id)}
+                  aria-current={isActive ? 'step' : undefined}
+                  className={stepClassName}
                 >
-                  {circle}
-                </span>
-                <span
-                  className={`text-sm font-medium transition ${
-                    isActive ? 'text-emerald-700' : isDone ? 'text-slate-700' : 'text-slate-400'
-                  }`}
-                >
-                  {step.label}
-                </span>
-              </button>
+                  {stepContent}
+                </button>
+              ) : (
+                <div aria-current={isActive ? 'step' : undefined} className={stepClassName}>
+                  {stepContent}
+                </div>
+              )}
               {idx < steps.length - 1 && (
                 <span
-                  className={`h-px w-6 shrink-0 transition ${
-                    isDone || (isActive && idx < safeIndex) ? 'bg-emerald-300' : 'bg-slate-200'
+                  aria-hidden="true"
+                  className={`mx-1 h-px min-w-3 flex-1 transition-colors ${
+                    isDone || idx < safeIndex ? 'bg-primary/40' : 'bg-border'
                   }`}
                 />
               )}

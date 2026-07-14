@@ -63,6 +63,7 @@ export default async function IktatoPage() {
             isDelegatedImport={delegatedImport.active}
             delegatedExpiresAt={delegatedImport.expiresAt}
             profiles={IKTATO_IMPORT_PROFILES}
+            embedded
             importProfiles={FILING_PROFILES}
             importModule="filing"
           />

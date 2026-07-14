@@ -36,6 +36,7 @@ export default async function TagnyilvantartasPage() {
         initialMemberPage={initialMemberPage}
         isGodMode={godMode.active}
         congregationId={access.effectiveCongregationId}
+        congregationName={access.congregationName}
         userId={access.userId}
         familyGraphUnlock={familyGraphUnlock}
         showAdminImport={showAdminImport}

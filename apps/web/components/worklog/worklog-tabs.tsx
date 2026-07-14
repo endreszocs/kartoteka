@@ -8,6 +8,7 @@ import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
 import { categorizeWorklogEntry } from '@/lib/constants/worklog'
@@ -18,7 +19,7 @@ import { WorklogPrintDialog } from '@/components/worklog/worklog-print-dialog'
 import { MunkanaploHelp } from './munkanaplo-help'
 
 type WorklogTab = WorklogCategory | 'jelentes'
-type ActiveView = 'tab' | 'help' | 'admin-import'
+type ActiveView = 'tab' | 'help'
 
 interface WorklogTabsProps {
   congregationName?: string
@@ -154,11 +155,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     { value: 'latogatas', label: 'Családlátogatás', color: 'violet', count: report.latogatas },
     { value: 'katekezis', label: 'Katekézis', color: 'emerald', count: report.katekezis },
     { value: 'jelentes', label: 'Lelkészi jelentés', color: 'amber', count: entries.length },
-    // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
     { value: 'help', label: 'Súgó', color: 'teal' },
-    ...(showAdminImport ? [
-      { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-    ] : []),
   ]
 
   return (
@@ -197,23 +194,34 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         }
       />
 
-      <ColorTabs
-        tabs={tabs}
-        active={activeView === 'tab' ? activeTab : activeView}
-        onChange={(value) => {
-          if (value === 'help' || value === 'admin-import') {
-            setActiveView(value)
-          } else {
-            setActiveView('tab')
-            setActiveTab(value as WorklogTab)
-          }
-        }}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={tabs}
+            active={activeView === 'tab' ? activeTab : activeView}
+            onChange={(value) => {
+              if (value === 'help') {
+                setActiveView(value)
+              } else {
+                setActiveView('tab')
+                setActiveTab(value as WorklogTab)
+              }
+            }}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Munkanapló"
+            congregationName={congregationName}
+            description="Munkanapló-bejegyzések ellenőrzött importálása a jelenleg bekötött profilok és feldolgozási szabályok megtartásával."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
       {activeView === 'help' ? (
         <MunkanaploHelp />
-      ) : activeView === 'admin-import' && showAdminImport ? (
-        adminImportContent
       ) : activeTab === 'jelentes' ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

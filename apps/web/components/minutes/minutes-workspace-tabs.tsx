@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ColorTabs } from '@/components/ui/color-tabs'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { JegyzokonyvekHelp } from './jegyzokonyvek-help'
 
 /**
@@ -12,16 +13,18 @@ import { JegyzokonyvekHelp } from './jegyzokonyvek-help'
  * (KPI kártyák, Meghívó, MinutesList).
  */
 
-type WorkspaceTab = 'munkafelulet' | 'help' | 'admin-import'
+type WorkspaceTab = 'munkafelulet' | 'help'
 
 interface MinutesWorkspaceTabsProps {
   showAdminImport: boolean
+  congregationName?: string | null
   adminImportContent?: React.ReactNode
   children: React.ReactNode
 }
 
 export function MinutesWorkspaceTabs({
   showAdminImport,
+  congregationName,
   adminImportContent,
   children,
 }: MinutesWorkspaceTabsProps) {
@@ -29,22 +32,31 @@ export function MinutesWorkspaceTabs({
 
   return (
     <>
-      <ColorTabs
-        tabs={[
-          { value: 'munkafelulet', label: 'Jegyzőkönyv munkafelület', color: 'blue' },
-          { value: 'help', label: 'Súgó', color: 'teal' },
-          ...(showAdminImport ? [
-            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-          ] : []),
-        ]}
-        active={activeTab}
-        onChange={(v) => setActiveTab(v as WorkspaceTab)}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={[
+              { value: 'munkafelulet', label: 'Jegyzőkönyv munkafelület', color: 'blue' },
+              { value: 'help', label: 'Súgó', color: 'teal' },
+            ]}
+            active={activeTab}
+            onChange={(v) => setActiveTab(v as WorkspaceTab)}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Jegyzőkönyvek"
+            congregationName={congregationName}
+            description="A jegyzőkönyvi tömeges import jelenlegi előkészítő felülete külön ablakban. A meglévő jegyzőkönyv-rögzítő varázsló ettől változatlanul külön marad."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
       <div className="mt-4 space-y-5">
         {activeTab === 'munkafelulet' && children}
         {activeTab === 'help' && <JegyzokonyvekHelp />}
-        {activeTab === 'admin-import' && showAdminImport && adminImportContent}
       </div>
     </>
   )

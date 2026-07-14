@@ -1,13 +1,14 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { FileText, Files, Lock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
+import { Files, Lock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
 import {
   getFilingEntries,
@@ -18,7 +19,7 @@ import {
   closeFilingYear,
   getYearClosure,
 } from '@/app/(dashboard)/iktato/actions'
-import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLDER_LABELS } from '@/lib/constants/filing'
+import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS } from '@/lib/constants/filing'
 import type { FilingDirection, FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import {
   FILING_UGYKOROK,
@@ -42,7 +43,7 @@ interface FilingMainProps {
   adminImportContent?: React.ReactNode
 }
 
-type FilingTab = 'iratok' | 'sablonok' | 'help' | 'admin-import'
+type FilingTab = 'iratok' | 'sablonok' | 'help'
 
 export function FilingMain({ congregationName, showAdminImport = false, adminImportContent }: FilingMainProps) {
   const currentYear = new Date().getFullYear()
@@ -305,7 +306,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
             {yearClosure.closing_note && (
               <>
                 {' · '}
-                <em>„{yearClosure.closing_note}"</em>
+                <em>„{yearClosure.closing_note}”</em>
               </>
             )}
             <div className="text-xs mt-0.5 text-amber-800">
@@ -315,25 +316,31 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         </div>
       )}
 
-      {/* 2026-05-25: ColorTabs a Hero ALATT (Tagnyilvántartás minta) — Iratok /
-          Sablonok / Súgó / Rendszergazdai importáló. */}
-      <ColorTabs
-        tabs={[
-          { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
-          { value: 'sablonok', label: 'Sablonok', color: 'amber' },
-          { value: 'help', label: 'Súgó', color: 'teal' },
-          ...(showAdminImport ? [
-            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-          ] : []),
-        ]}
-        active={activeTab}
-        onChange={(v) => setActiveTab(v as FilingTab)}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={[
+              { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
+              { value: 'sablonok', label: 'Sablonok', color: 'amber' },
+              { value: 'help', label: 'Súgó', color: 'teal' },
+            ]}
+            active={activeTab}
+            onChange={(v) => setActiveTab(v as FilingTab)}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Iktatás"
+            congregationName={congregationName}
+            description="Iktatási adatok ellenőrzött importálása a jelenleg bekötött általános profillal és változatlan feldolgozási szabályokkal."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
       {activeTab === 'help' ? (
         <IktatoHelp />
-      ) : activeTab === 'admin-import' && showAdminImport ? (
-        adminImportContent
       ) : activeTab === 'sablonok' ? (
         <FilingTemplatesTab />
       ) : (

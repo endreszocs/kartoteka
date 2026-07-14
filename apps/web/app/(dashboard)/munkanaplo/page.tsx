@@ -68,6 +68,7 @@ export default async function MunkanaploPage() {
             isDelegatedImport={delegatedImport.active}
             delegatedExpiresAt={delegatedImport.expiresAt}
             profiles={MUNKANAPLO_IMPORT_PROFILES}
+            embedded
             importProfiles={WORKLOG_PROFILES}
             importModule="worklog"
           />

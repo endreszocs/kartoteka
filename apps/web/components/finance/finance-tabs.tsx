@@ -8,6 +8,7 @@ import { ColorTabs } from '@/components/ui/color-tabs'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { FinanceDashboard } from './dashboard-tab'
 import { OblioStatusChip } from './oblio-status-chip'
 import { FinanceYearSelector } from './finance-year-selector'
@@ -194,7 +195,7 @@ export function FinanceTabs({
   // mount-kor és a `hashchange` event-en is olvassuk az URL hash-t, és
   // beállítjuk az activeTab-ot. A hash értékek pontosan a Tabs `value`-ival
   // egyeznek (dashboard, cashbook, bank, transactions, budget, accounting,
-  // debt, rental, sugo, admin_import).
+  // debt, rental, sugo).
   // 2026-07-10 (S3 #2+#4): a monetary/oblio_ellenorzes fül MEGSZŰNT, de a
   // bejövő hash (pl. sidebar-link, könyvjelző) NEM 404-el: a #monetary /
   // #monetar a lebegő widgetet, a #oblio_ellenorzes a modált nyitja.
@@ -226,7 +227,6 @@ export function FinanceTabs({
         'debt',
         'rental',
         'sugo',
-        'admin_import',
       ] as const
       if ((validTabs as readonly string[]).includes(hash)) {
         setActiveTab(hash)
@@ -545,33 +545,41 @@ export function FinanceTabs({
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <ColorTabs
-          tabs={[
-            { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
-            { value: 'cashbook', label: 'Kassza', color: 'emerald' },
-            { value: 'bank', label: 'Bank', color: 'violet' },
-            { value: 'transactions', label: 'Tranzakciók', color: 'pink' },
-            { value: 'budget', label: 'Költségvetés', color: 'amber' },
-            { value: 'accounting', label: 'Számadás', color: 'cyan' },
-            // Diocese módban ezek a fülek el vannak rejtve (tag-szintűek / gyülekezet-specifikusak)
-            // 2026-07-10 (S3 #2+#4): a Monetár fül a lebegő widgetbe, az Oblio
-            // ellenőrzés fül a hero-gombból nyíló modálba költözött — a fülsorból
-            // mindkettő kikerült.
-            ...(scope === 'diocese' ? [] : [
-              { value: 'debt', label: 'Tartozások', color: 'orange' },
-              { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
-            ]),
-            { value: 'sugo', label: 'Súgó', color: 'teal' },
-            // 2026-05-25: Rendszergazdai importáló a sor VÉGÉN, mindig piros háttérrel
-            // (red-prominent: vizuálisan figyelmeztető, hogy a fül veszélyes műveletet rejt).
-            // Jogosultság a page.tsx-ben kerül kiértékelésre (god mode / delegated / admin).
-            ...(showAdminImport ? [
-              { value: 'admin_import', label: 'Rendszergazdai importáló', color: 'red-prominent' as const },
-            ] : []),
-          ]}
-          active={activeTab}
-          onChange={setActiveTab}
-        />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="min-w-0 flex-1">
+            <ColorTabs
+              tabs={[
+                { value: 'dashboard', label: 'Áttekintés', color: 'blue' },
+                { value: 'cashbook', label: 'Kassza', color: 'emerald' },
+                { value: 'bank', label: 'Bank', color: 'violet' },
+                { value: 'transactions', label: 'Tranzakciók', color: 'pink' },
+                { value: 'budget', label: 'Költségvetés', color: 'amber' },
+                { value: 'accounting', label: 'Számadás', color: 'cyan' },
+                ...(scope === 'diocese' ? [] : [
+                  { value: 'debt', label: 'Tartozások', color: 'orange' },
+                  { value: 'rental', label: 'Bérleti szerződések', color: 'amber' },
+                ]),
+                { value: 'sugo', label: 'Súgó', color: 'teal' },
+              ]}
+              active={activeTab}
+              onChange={setActiveTab}
+            />
+          </div>
+          {showAdminImport && (
+            <AdminImportLauncher
+              moduleLabel="Pénzügy"
+              congregationName={congregationName}
+              description="Pénzforgalmi, egyházfenntartási és nyitóegyenleg-adatok ellenőrzött importálása a meglévő pénzügyi szabályokkal."
+            >
+              <FinanceImportTabs
+                congregationId={congregationId}
+                congregationName={congregationName}
+                showDanger={isGodMode}
+                embedded
+              />
+            </AdminImportLauncher>
+          )}
+        </div>
 
         <TabsContent value="dashboard" className="mt-4">
           {incomeRecords.length === 0 && expenseRecords.length === 0 && (
@@ -716,19 +724,6 @@ export function FinanceTabs({
           <PenzugyHelp />
         </TabsContent>
 
-        {/* Rendszergazdai importáló — a tab-lista végén (Súgó után), red-prominent
-            háttérrel. Jogosultság: god mode / delegated import / admin szerepkör.
-            keepMounted=false: a wizard csak akkor töltődik be, ha aktív a fül,
-            így a böngésző nem dolgozik feleslegesen. */}
-        {showAdminImport && (
-          <TabsContent value="admin_import" className="mt-4">
-            <FinanceImportTabs
-              congregationId={congregationId}
-              congregationName={congregationName}
-              showDanger={isGodMode}
-            />
-          </TabsContent>
-        )}
       </Tabs>
 
       {/* Összevont bevétel/kiadás rögzítő modal — egy gomb, két fül */}

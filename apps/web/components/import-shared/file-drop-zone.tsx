@@ -89,6 +89,7 @@ export function FileDropZone({
 
   const validateAndAccept = useCallback(
     (file: File) => {
+      if (isParsing) return
       const ext = getExt(file.name)
       if (!acceptedExtensions.includes(ext)) {
         toast.error(`Nem támogatott fájltípus (.${ext}). Elfogadott: ${acceptedExtensions.map((e) => `.${e}`).join(', ')}`)
@@ -101,13 +102,14 @@ export function FileDropZone({
       }
       onFileSelected(file)
     },
-    [onFileSelected, acceptedExtensions, maxBytes],
+    [onFileSelected, acceptedExtensions, maxBytes, isParsing],
   )
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
       if (file) validateAndAccept(file)
+      e.target.value = ''
     },
     [validateAndAccept],
   )
@@ -116,10 +118,11 @@ export function FileDropZone({
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       setDragOver(false)
+      if (isParsing) return
       const file = e.dataTransfer.files?.[0]
       if (file) validateAndAccept(file)
     },
-    [validateAndAccept],
+    [validateAndAccept, isParsing],
   )
 
   const ext = selectedFile ? getExt(selectedFile.name) : ''
@@ -132,20 +135,20 @@ export function FileDropZone({
   const limitMb = (maxBytes / 1024 / 1024).toFixed(0)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={isParsing}>
       {/* Drag-drop terület */}
       <div
         onDragOver={(e) => {
           e.preventDefault()
-          setDragOver(true)
+          if (!isParsing) setDragOver(true)
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`group relative cursor-pointer overflow-hidden rounded-[1.5rem] border-2 border-dashed bg-white/80 px-6 py-10 text-center transition ${
+        aria-disabled={isParsing}
+        className={`relative overflow-hidden rounded-2xl border-2 border-dashed px-5 py-8 text-center transition-colors sm:px-6 sm:py-10 ${
           dragOver
-            ? 'border-emerald-400 bg-emerald-50/60'
-            : 'border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+            ? 'border-primary bg-primary/5'
+            : 'border-border bg-muted/20'
         }`}
       >
         <input
@@ -154,45 +157,60 @@ export function FileDropZone({
           accept={acceptAttribute}
           className="hidden"
           onChange={handleInputChange}
+          disabled={isParsing}
         />
 
-        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_18px_36px_-22px_rgba(5,150,105,0.55)]">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <UploadCloud className="size-7" />
         </div>
-        <p className="mt-4 text-base font-semibold text-slate-800">
-          Húzd ide a fájlt, vagy kattints a tallózáshoz
+        <p className="mt-4 text-base font-semibold text-foreground">
+          Húzd ide a fájlt
         </p>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Engedélyezett formátumok: <span className="font-mono text-xs">{formattedExtList}</span> — maximum {limitMb} MB
         </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4 min-h-11 rounded-xl"
+          onClick={() => inputRef.current?.click()}
+          disabled={isParsing}
+        >
+          <FileUp className="size-4" />
+          Fájl kiválasztása
+        </Button>
       </div>
 
       {/* Kiválasztott fájl-kártya */}
       {selectedFile && (
-        <div className="rounded-[1.5rem] bg-white/85 p-5 ring-1 ring-emerald-100 shadow-[0_18px_40px_-30px_rgba(15,118,110,0.35)]">
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <FileIcon className="size-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-800">
+              <p className="truncate text-sm font-semibold text-foreground">
                 {selectedFile.name}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {meta?.label || 'Táblázat'} · {formatBytes(selectedFile.size)}
               </p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={(e) => {
                 e.stopPropagation()
+                if (inputRef.current) inputRef.current.value = ''
                 onClearFile()
               }}
-              className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              disabled={isParsing}
+              className="min-h-11 min-w-11 text-muted-foreground"
               aria-label="Fájl eltávolítása"
             >
               <X className="size-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mt-4 flex justify-end">
@@ -200,7 +218,7 @@ export function FileDropZone({
               type="button"
               onClick={onContinue}
               disabled={isParsing}
-              className="rounded-full bg-emerald-600 hover:bg-emerald-700"
+              className="min-h-11 rounded-xl"
             >
               {isParsing ? (
                 <>

@@ -78,6 +78,8 @@ interface CongregationOption {
 interface RegistryImportWizardProps {
   /** 'module' = anyakönyv-page; 'admin' = admin-import gyülekezet-választóval */
   mode: 'module' | 'admin'
+  /** Külön importablakban a közös fejléc adja a modul- és célkontextust. */
+  embedded?: boolean
   /** Az aktív gyülekezet (mode='module' esetén kötelező) */
   congregationId?: string | null
   congregationName?: string | null
@@ -182,6 +184,7 @@ function buildTransformedRows(
 
 export function RegistryImportWizard({
   mode,
+  embedded = false,
   congregationId,
   congregationName,
   adminCongregations,
@@ -546,7 +549,6 @@ export function RegistryImportWizard({
   const completedIds = stageOrder.slice(0, Math.max(currentIdx, 0)).map((s) => s as string)
 
   // ─── Render ──────────────────────────────────────────────────────
-  const isMovementProfile = profile.key.startsWith('movement_')
   const skipLocality = uniqueLocalityInputs.length === 0
   // 2026-04-30: a special-step CSAK azokra a profilokra jelenik meg, ahol
   // ténylegesen van döntés (konfirmáció, esketés, elkoltozott). A többi
@@ -557,16 +559,18 @@ export function RegistryImportWizard({
 
   return (
     <div className="space-y-4">
-      <PageHero
-        eyebrow={mode === 'admin' ? 'Rendszergazdai importáló' : 'Anyakönyv'}
-        title="Anyakönyvi adatok importálása"
-        description="Excel, CSV vagy XML fájlból keresztelési, konfirmációs, esketési, temetési bejegyzések és tagmozgások beolvasása."
-        Icon={BookOpen}
-        stats={[
-          { label: 'Cél gyülekezet', value: selectedCongName },
-          { label: 'Anyakönyv-típus', value: profile.label },
-        ]}
-      />
+      {!embedded && (
+        <PageHero
+          eyebrow={mode === 'admin' ? 'Rendszergazdai importáló' : 'Anyakönyv'}
+          title="Anyakönyvi adatok importálása"
+          description="Excel, CSV vagy XML fájlból keresztelési, konfirmációs, esketési, temetési bejegyzések és tagmozgások beolvasása."
+          Icon={BookOpen}
+          stats={[
+            { label: 'Cél gyülekezet', value: selectedCongName },
+            { label: 'Anyakönyv-típus', value: profile.label },
+          ]}
+        />
+      )}
 
       <WizardStepper steps={STEPS} activeId={activeStepId} completedIds={completedIds} />
 

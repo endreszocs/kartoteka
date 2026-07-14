@@ -69,6 +69,7 @@ export default async function SirhelyekPage() {
             isDelegatedImport={delegatedImport.active}
             delegatedExpiresAt={delegatedImport.expiresAt}
             profiles={SIRHELYEK_IMPORT_PROFILES}
+            embedded
           />
         }
       />

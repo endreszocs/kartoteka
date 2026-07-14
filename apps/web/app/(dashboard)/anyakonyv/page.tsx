@@ -31,6 +31,7 @@ export default async function AnyakonyvPage() {
         adminImportContent={
           <RegistryImportWizard
             mode="module"
+            embedded
             congregationId={effectiveCongregationId}
             congregationName={congregationName}
           />

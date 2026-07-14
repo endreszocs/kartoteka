@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import { getFamilyGraphUnlockState } from '@/app/(dashboard)/tagnyilvantartas/family-graph-actions'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { FamilyGraphUnlockDialog } from '@/components/members/family-graph-unlock-dialog'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import {
   FAMILY_GRAPH_COUNT_EVENT,
   type FamilyGraphUnlockState,
@@ -39,23 +40,18 @@ const VALID_TAB_HASHES = new Set([
   'voters',
   'errors',
   'help',
-  // 2026-05-25: a "Rendszergazdai importáló" fül a hash-routingban is elérhető,
-  // de a jogosulatlan felhasználónak nem mutatjuk (lásd `showAdminImport` prop).
-  'admin-import',
 ])
 const DEFAULT_TAB = 'overview'
 
 function getTabFromHash(
   hash: string,
   familyGraphUnlocked: boolean,
-  showAdminImport: boolean,
 ): string {
   const clean = hash.replace(/^#/, '')
   // A korábbi közvetlen családi URL-ek a közös, személy-központú
   // munkafelületre mutatnak; a családi adatok a személyi kartonból érhetők el.
   if (clean === 'families') return 'persons'
   if (clean === 'family-network' && !familyGraphUnlocked) return 'persons'
-  if (clean === 'admin-import' && !showAdminImport) return DEFAULT_TAB
   return VALID_TAB_HASHES.has(clean) ? clean : DEFAULT_TAB
 }
 
@@ -64,6 +60,7 @@ interface MemberTabsV4Props {
   initialMemberPage: MemberListPage
   isGodMode: boolean
   congregationId: string | null
+  congregationName?: string | null
   userId: string | null
   familyGraphUnlock: FamilyGraphUnlockState
   /**
@@ -81,6 +78,7 @@ export function MemberTabsV4({
   initialMemberPage,
   isGodMode,
   congregationId,
+  congregationName,
   userId,
   familyGraphUnlock,
   showAdminImport = false,
@@ -100,7 +98,6 @@ export function MemberTabsV4({
   const unlockCeremonyCheckedRef = useRef(false)
   const unlockScopeRef = useRef(unlockScope)
   const unlockRequestVersionRef = useRef(0)
-  const showAdminImportRef = useRef(showAdminImport)
 
   useEffect(() => {
     unlockRequestVersionRef.current += 1
@@ -126,10 +123,6 @@ export function MemberTabsV4({
     unlockCeremonyCheckedRef.current = false
     setUnlockDialogOpen(false)
   }, [unlockScope])
-
-  useEffect(() => {
-    showAdminImportRef.current = showAdminImport
-  }, [showAdminImport])
 
   useEffect(() => {
     graphUnlockedRef.current = graphUnlock.unlocked
@@ -158,19 +151,10 @@ export function MemberTabsV4({
           '',
           `${window.location.pathname}${window.location.search}${lastHash}`,
         )
-      } else if (lastHash === '#admin-import' && !showAdminImportRef.current) {
-        lastHash = ''
-        originalReplaceState.call(
-          window.history,
-          null,
-          '',
-          `${window.location.pathname}${window.location.search}`,
-        )
       }
       setActiveTab(getTabFromHash(
         lastHash,
         graphUnlockedRef.current,
-        showAdminImportRef.current,
       ))
     }
     apply()
@@ -270,17 +254,6 @@ export function MemberTabsV4({
     }
   }, [activeTab, graphUnlock.unlocked])
 
-  useEffect(() => {
-    if (!showAdminImport && activeTab === 'admin-import') {
-      setActiveTab(DEFAULT_TAB)
-      window.history.replaceState(
-        null,
-        '',
-        `${window.location.pathname}${window.location.search}`,
-      )
-    }
-  }, [activeTab, showAdminImport])
-
   // A meglepetés gyülekezetenként és felhasználónként egyszer jelenik meg az
   // adott böngészőben. Adatbázis-migráció nélkül ez a legkisebb, privát állapot.
   useEffect(() => {
@@ -339,7 +312,6 @@ export function MemberTabsV4({
   // Tab váltáskor frissítjük a URL hash-ét is (hogy bookmarkolható legyen)
   const handleTabChange = (next: string) => {
     if (next === 'family-network' && !graphUnlock.unlocked) return
-    if (next === 'admin-import' && !showAdminImport) return
     setActiveTab(next)
     if (typeof window !== 'undefined') {
       const newHash = next === DEFAULT_TAB ? '' : `#${next}`
@@ -364,17 +336,8 @@ export function MemberTabsV4({
       // domain-szabályairól (egyháztagság, családok, járulék, választók, ...).
       { value: 'help', label: 'Súgó', color: 'teal' },
     ]
-    if (showAdminImport) {
-      base.push({
-        value: 'admin-import',
-        label: 'Rendszergazdai importáló',
-        // 'red-prominent' inaktív állapotban is piros háttér — vizuálisan
-        // figyelmeztető, hogy a fül veszélyes műveletet rejt.
-        color: 'red-prominent',
-      })
-    }
     return base
-  }, [graphUnlock.unlocked, showAdminImport])
+  }, [graphUnlock.unlocked])
 
   return (
     <div className="space-y-4">
@@ -410,7 +373,20 @@ export function MemberTabsV4({
         </div>
       </div>
 
-      <ColorTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Tagnyilvántartás"
+            congregationName={congregationName}
+            description="Személyek és családi adatok ellenőrzött importálása. A meglévő település-, irányítószám- és családkapcsolati ellenőrzések változatlanok maradnak."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
       <div>
         {activeTab === 'overview' && <OverviewTab snapshot={overviewSnapshot} />}
@@ -423,7 +399,6 @@ export function MemberTabsV4({
         {activeTab === 'voters' && <VotersTab />}
         {activeTab === 'errors' && <ValidationErrorsTab />}
         {activeTab === 'help' && <TagnyilvantartasHelp />}
-        {activeTab === 'admin-import' && showAdminImport && adminImportContent}
       </div>
 
       <FamilyGraphUnlockDialog

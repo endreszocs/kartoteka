@@ -60,6 +60,7 @@ export default async function LeltarPage() {
             isDelegatedImport={delegatedImport.active}
             delegatedExpiresAt={delegatedImport.expiresAt}
             profiles={LELTAR_IMPORT_PROFILES}
+            embedded
           />
         }
       />

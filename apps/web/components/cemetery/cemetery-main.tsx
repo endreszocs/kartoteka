@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModuleHero } from '@/components/shared/module-hero'
+import { AdminImportLauncher } from '@/components/shared/admin-import-launcher'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { SirhelyekHelp } from './sirhelyek-help'
 import { getCemeteries, saveCemetery, deleteCemetery, getPlots, savePlot, deletePlot, saveRental, saveDeceased } from '@/app/(dashboard)/sirhelyek/actions'
@@ -25,7 +26,7 @@ interface CemeteryMainProps {
   adminImportContent?: React.ReactNode
 }
 
-type CemeteryTab = 'munkafelulet' | 'help' | 'admin-import'
+type CemeteryTab = 'munkafelulet' | 'help'
 
 export function CemeteryMain({ congregationName, showAdminImport = false, adminImportContent }: CemeteryMainProps) {
   const [activeTab, setActiveTab] = useState<CemeteryTab>('munkafelulet')
@@ -255,20 +256,29 @@ export function CemeteryMain({ congregationName, showAdminImport = false, adminI
         ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'sky' }[]}
       />
 
-      {/* 2026-05-25: ColorTabs Hero alatt (Tagnyilvántartás minta) */}
-      <ColorTabs
-        tabs={[
-          { value: 'munkafelulet', label: 'Sírhelyek munkafelület', color: 'blue' },
-          { value: 'help', label: 'Súgó', color: 'teal' },
-          ...(showAdminImport ? [
-            { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-          ] : []),
-        ]}
-        active={activeTab}
-        onChange={(v) => setActiveTab(v as CemeteryTab)}
-      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <ColorTabs
+            tabs={[
+              { value: 'munkafelulet', label: 'Sírhelyek munkafelület', color: 'blue' },
+              { value: 'help', label: 'Súgó', color: 'teal' },
+            ]}
+            active={activeTab}
+            onChange={(v) => setActiveTab(v as CemeteryTab)}
+          />
+        </div>
+        {showAdminImport && adminImportContent && (
+          <AdminImportLauncher
+            moduleLabel="Sírhelyek"
+            congregationName={congregationName}
+            description="A sírhelyadatok jelenlegi import-előkészítő felülete külön ablakban. A dizájn nem kapcsol be új feldolgozási vagy mentési funkciót."
+          >
+            {adminImportContent}
+          </AdminImportLauncher>
+        )}
+      </div>
 
-      {activeTab === 'help' ? <SirhelyekHelp /> : activeTab === 'admin-import' && showAdminImport ? adminImportContent : (<>
+      {activeTab === 'help' ? <SirhelyekHelp /> : (<>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Összesen" value={String(stats.total)} />

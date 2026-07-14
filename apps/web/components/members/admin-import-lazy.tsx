@@ -23,6 +23,7 @@ export function AdminImportLazy({
   return (
     <TagnyilvantartasImportWizard
       mode="module"
+      embedded
       congregationId={congregationId}
       congregationName={congregationName}
     />
