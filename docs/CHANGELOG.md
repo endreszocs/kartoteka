@@ -23,6 +23,22 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-15] — Pénzügy: éves beállítás megadható űrlapon (nincs több zsákutca)
+<!-- key: 2026-07-15-eves-penzugyi-beallitas-urlap -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.75 -->
+
+### 🐛 Pénzügy — éves beállítás
+
+- **Ha egy évre még nincs pénzügyi beállítás (éves egyházfenntartói járulék + fizetési
+  határidő), a Pénzügy fül most egy kitölthető űrlapot mutat, ahol azonnal megadhatod
+  ezeket, és a rendszer létrehozza az évi beállítást.** Eddig — ha a bevezető varázslóban
+  nem adtál meg éves járulékot — csak egy „nem hozható létre automatikusan, kérj segítséget
+  az admintól" zsákutca-üzenet jelent meg. Mostantól a lelkész maga is elindíthatja az évet.
+
+---
+
 ## [2026-07-15] — Import: kereszt-gyülekezeti egyezések összefoglalója
 <!-- key: 2026-07-15-import-kereszt-egyeztetes-osszefoglalo -->
 <!-- category: feature -->
