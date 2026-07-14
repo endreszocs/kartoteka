@@ -23,6 +23,44 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-14] — Prémium családi galaxis + tagnyilvántartás-javítások
+<!-- key: 2026-07-14-galaxis-tagnyilvantartas-javitasok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.68 -->
+
+### ✨ Új: prémium „Családi galaxis"
+
+- **A Családi háló megújult, látványos csillag-galaxissá vált:** mély, obszidián-fekete
+  térben a családok ragyogó arany „napokként", a tagok türkiz/rózsa csillagokként
+  jelennek meg, a rokoni kapcsolatok pedig finom fénylő fonalakként. Húzással
+  mozgatható, görgővel vagy csippentéssel nagyítható.
+- **Egy csillagra kattintva a közvetlen környezete kiemelve marad, a többi elhalványul**
+  — így tisztán látszanak a kapcsolati összefüggések.
+
+### 🐛 Javítások a személyeknél
+
+- **A személyek listája nem tűnik el többé** a tag szerkesztésének bezárásakor (egy
+  ritka betöltési hiba miatt korábban előfordult, hogy üresen maradt a lista).
+- **A tag-felvétel/szerkesztés ablak nem záródik be „magától" és nem ment félbe**, ha a
+  Facebook-link beírása után Enter-t nyomsz — a mentés kizárólag a kifejezett „Módosítások
+  mentése" / „Tag mentése" gombbal történik.
+- **A szerkesztő-ablak mérete minden lépésnél állandó**, így a „Tovább" gomb nem ugrál el.
+
+### ✨ Működő profilkép-eszköz
+
+- **A tag szerkesztésénél új „Profilkép beállítása…" gomb** külön ablakot nyit, ahol a
+  fénykép a gépről feltölthető, vagy (best-effort) a Facebook-linkből letölthető. A
+  Facebook gyakran nem engedi az automatikus letöltést — ilyenkor a kézi feltöltés
+  mindig működik, és a kép csak a saját „Mentés" gombjával kerül mentésre.
+
+### 🔒 Import-biztonság
+
+- **Másik gyülekezetbe importálni már csak rendszergazda** teheti, a saját hatókörén
+  belül — a korábbi útvonalak jogosultság-ellenőrzés nélkül fogadták a cél-gyülekezetet.
+
+---
+
 ## [2026-07-13] — Frissítés után nem törik meg a navigáció
 <!-- key: 2026-07-13-sw-frissites-ujratoltes -->
 <!-- category: bugfix -->

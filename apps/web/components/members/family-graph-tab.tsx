@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import cytoscape from 'cytoscape'
 import {
   AlertTriangle,
   CalendarDays,
@@ -43,11 +42,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import type { FamilyGalaxyDensity } from '@/lib/members/family-galaxy-layout'
 import {
-  createFamilyGalaxyPositions,
-  selectFamilyGalaxyCoreId,
-  type FamilyGalaxyDensity,
-} from '@/lib/members/family-galaxy-layout'
+  FamilyGalaxyCanvas,
+  type FamilyGalaxyHandle,
+} from '@/components/members/family-galaxy-canvas'
 import { cn } from '@/lib/utils'
 import type {
   FamilyGraphData,
@@ -114,199 +113,6 @@ const ROLE_LABELS: Record<string, string> = {
   egyeb: 'Egyéb',
 }
 
-const GRAPH_STYLE: cytoscape.StylesheetJson = [
-  {
-    selector: 'node',
-    style: {
-      label: 'data(label)',
-      color: '#d9f2ed',
-      'font-family': 'Geist, Inter, ui-sans-serif, system-ui, sans-serif',
-      'font-size': 10,
-      'font-weight': 500,
-      'text-wrap': 'ellipsis',
-      'text-max-width': '108px',
-      'text-valign': 'bottom',
-      'text-margin-y': 8,
-      'min-zoomed-font-size': 8,
-      'background-color': '#60a89d',
-      'border-color': '#b5e5dc',
-      'border-width': 1.2,
-      'overlay-opacity': 0,
-      'transition-property': 'opacity, border-width, border-color, background-color',
-      'transition-duration': 160,
-      width: 30,
-      height: 30,
-    },
-  },
-  {
-    selector: 'node.family',
-    style: {
-      shape: 'round-rectangle',
-      width: 68,
-      height: 42,
-      'background-color': '#c99539',
-      'background-opacity': 0.88,
-      'border-color': '#f5cf82',
-      'border-width': 1.8,
-      color: '#fff0cd',
-      'font-size': 10.5,
-      'font-weight': 600,
-      'text-max-width': '122px',
-      'text-margin-y': 9,
-    },
-  },
-  {
-    selector: 'node.family.inactive',
-    style: {
-      opacity: 0.52,
-      'border-style': 'dashed',
-      color: '#c5d4d0',
-    },
-  },
-  {
-    selector: 'node.family.galaxy-core',
-    style: {
-      width: 78,
-      height: 48,
-      'background-color': '#d6a842',
-      'border-color': '#ffe0a0',
-      'border-width': 2.6,
-      'underlay-color': '#f2c65f',
-      'underlay-opacity': 0.17,
-      'underlay-padding': 15,
-      'z-index': 8,
-    },
-  },
-  {
-    selector: 'node.person-male',
-    style: {
-      'background-color': '#4d9c94',
-      'border-color': '#a8dfd5',
-    },
-  },
-  {
-    selector: 'node.person-female',
-    style: {
-      'background-color': '#b47286',
-      'border-color': '#efb7c6',
-    },
-  },
-  {
-    selector: 'node.person-unknown',
-    style: {
-      'background-color': '#81958f',
-      'border-color': '#c8d5d1',
-    },
-  },
-  {
-    selector: 'node.deceased',
-    style: {
-      opacity: 0.48,
-      'border-style': 'dashed',
-      color: '#9aafaa',
-    },
-  },
-  {
-    selector: 'edge',
-    style: {
-      width: 1,
-      'line-color': '#5d8f89',
-      'line-opacity': 0.3,
-      'curve-style': 'bezier',
-      'overlay-opacity': 0,
-      'transition-property': 'opacity, line-color, width',
-      'transition-duration': 160,
-    },
-  },
-  {
-    selector: 'edge.membership',
-    style: {
-      width: 1.2,
-      'line-color': '#5ba89d',
-      'line-opacity': 0.32,
-    },
-  },
-  {
-    selector: 'edge.spouse',
-    style: {
-      width: 2,
-      'line-color': '#d78ba0',
-      'line-opacity': 0.65,
-    },
-  },
-  {
-    selector: 'edge.parent-child, edge.grandparent, edge.adoptive-parent',
-    style: {
-      width: 1.7,
-      'line-color': '#d9ad5b',
-      'line-opacity': 0.56,
-      'target-arrow-color': '#d9ad5b',
-      'target-arrow-shape': 'triangle',
-      'arrow-scale': 0.55,
-    },
-  },
-  {
-    selector: 'edge.sibling',
-    style: {
-      'line-color': '#938bd3',
-      'line-opacity': 0.5,
-      'line-style': 'dashed',
-    },
-  },
-  {
-    selector: 'edge.step-parent, edge.guardian',
-    style: {
-      'line-color': '#88b4a3',
-      'line-opacity': 0.46,
-      'line-style': 'dashed',
-    },
-  },
-  {
-    selector: 'node:selected',
-    style: {
-      'border-color': '#fff0b8',
-      'border-width': 4,
-      'underlay-color': '#f2c45b',
-      'underlay-opacity': 0.17,
-      'underlay-padding': 10,
-      'z-index': 20,
-    },
-  },
-  {
-    selector: 'node.search-match',
-    style: {
-      'border-color': '#fff1b7',
-      'border-width': 3,
-      'underlay-color': '#f0c355',
-      'underlay-opacity': 0.12,
-      'underlay-padding': 7,
-    },
-  },
-  {
-    selector: '.search-dim',
-    style: { opacity: 0.1 },
-  },
-  {
-    selector: '.hover-dim',
-    style: { opacity: 0.12 },
-  },
-  {
-    selector: '.hidden-by-view',
-    style: { display: 'none' },
-  },
-  {
-    selector: 'node.zoom-far',
-    style: { label: '' },
-  },
-  {
-    selector: 'node.person.zoom-medium',
-    style: { label: '' },
-  },
-  {
-    selector: 'edge.zoom-far',
-    style: { 'line-opacity': 0.16 },
-  },
-]
 
 function normalizeSearch(value: string) {
   return value
@@ -316,41 +122,6 @@ function normalizeSearch(value: string) {
     .trim()
 }
 
-function nodeClasses(node: FamilyGraphNode) {
-  if (node.kind === 'family') return `family${node.active ? '' : ' inactive'}`
-  return [
-    'person',
-    `person-${node.gender}`,
-    node.deceased ? 'deceased' : '',
-  ].filter(Boolean).join(' ')
-}
-
-function graphElements(data: FamilyGraphData): cytoscape.ElementDefinition[] {
-  const coreFamilyId = selectFamilyGalaxyCoreId(data)
-  const nodes: cytoscape.ElementDefinition[] = data.nodes.map((node) => ({
-    data: {
-      id: node.id,
-      label: node.label,
-      kind: node.kind,
-      deceased: node.kind === 'person' ? node.deceased : false,
-    },
-    classes: `${nodeClasses(node)}${node.id === coreFamilyId ? ' galaxy-core' : ''}`,
-  }))
-
-  const edges: cytoscape.ElementDefinition[] = data.edges.map((edge) => ({
-    data: {
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      kind: edge.kind,
-      role: edge.role ?? null,
-      primary: edge.primary === true,
-    },
-    classes: edge.kind,
-  }))
-
-  return [...nodes, ...edges]
-}
 
 function reducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -360,77 +131,6 @@ function hasCoarsePointer() {
   return window.matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0
 }
 
-function galaxyViewportKey(width: number, height: number) {
-  const widthClass = width < 640 ? 'phone' : width < 1_180 ? 'tablet' : 'desktop'
-  const aspect = width / Math.max(height, 1)
-  const aspectClass = aspect >= 1.7
-    ? 'wide'
-    : aspect >= 1.1
-      ? 'landscape'
-      : aspect >= 0.82
-        ? 'square'
-        : 'portrait'
-  return `${widthClass}:${aspectClass}`
-}
-
-function syncGraphZoomDetail(core: cytoscape.Core) {
-  const zoom = core.zoom()
-  const far = zoom < 0.68
-  const medium = !far && zoom < 1.05
-  const container = core.container()
-
-  core.batch(() => {
-    core.nodes().toggleClass('zoom-far', far)
-    core.nodes().toggleClass('zoom-medium', medium)
-    core.edges().toggleClass('zoom-far', far)
-  })
-  if (container) container.dataset.graphZoom = far ? 'far' : medium ? 'medium' : 'near'
-}
-
-function runGraphLayout(
-  core: cytoscape.Core,
-  data: FamilyGraphData,
-  density: GraphDensity,
-  options: { animate?: boolean; entrance?: boolean; variant?: number } = {},
-) {
-  const positions = createFamilyGalaxyPositions(data, {
-    density,
-    width: core.width(),
-    height: core.height(),
-    variant: options.variant,
-  })
-  const animate = options.animate !== false && !reducedMotion()
-  const container = core.container()
-
-  if (options.entrance && animate) {
-    const cosine = Math.cos(-0.15)
-    const sine = Math.sin(-0.15)
-    core.nodes().positions((node) => {
-      const target = positions[node.id()] ?? { x: 0, y: 0 }
-      return {
-        x: (target.x * cosine - target.y * sine) * 0.09,
-        y: (target.x * sine + target.y * cosine) * 0.09,
-      }
-    })
-  }
-
-  if (container) container.dataset.graphPhase = animate ? 'entering' : 'ready'
-  const layout = core.layout({
-    name: 'preset',
-    positions,
-    animate,
-    animationDuration: options.entrance ? (core.nodes().length > 900 ? 820 : 1_080) : 560,
-    animationEasing: 'ease-out-cubic',
-    fit: true,
-    padding: core.width() < 640 ? 36 : 64,
-  })
-
-  layout.one('layoutstop', () => {
-    if (container) container.dataset.graphPhase = 'ready'
-    syncGraphZoomDetail(core)
-  })
-  layout.run()
-}
 
 function displayError(error: unknown) {
   if (error instanceof Error && error.message.trim()) return error.message
@@ -453,11 +153,8 @@ export function FamilyGraphTab() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [familyDialogId, setFamilyDialogId] = useState<number | null>(null)
   const [familyDialogOpen, setFamilyDialogOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const graphRef = useRef<cytoscape.Core | null>(null)
-  const densityRef = useRef<GraphDensity>('balanced')
-  const layoutVariantRef = useRef(0)
-  const touchEntrancePlayedRef = useRef(false)
+  const galaxyRef = useRef<FamilyGalaxyHandle | null>(null)
+  const [hoverTip, setHoverTip] = useState<{ node: FamilyGraphNode; x: number; y: number } | null>(null)
 
   useEffect(() => {
     const pointerQuery = window.matchMedia('(any-pointer: coarse)')
@@ -499,175 +196,41 @@ export function FamilyGraphTab() {
 
   const data = loadState.status === 'ready' ? loadState.data : null
 
-  useEffect(() => {
-    if (!data || !containerRef.current) return
-
-    const touchCapable = hasCoarsePointer()
-    layoutVariantRef.current = 0
-    touchEntrancePlayedRef.current = false
-
-    const core = cytoscape({
-      container: containerRef.current,
-      elements: graphElements(data),
-      style: GRAPH_STYLE,
-      layout: { name: 'preset' },
-      minZoom: 0.22,
-      maxZoom: 2.8,
-      boxSelectionEnabled: false,
-      selectionType: 'single',
-      hideEdgesOnViewport: data.edges.length > (touchCapable ? 500 : 900),
-      textureOnViewport: data.nodes.length > (touchCapable ? 450 : 700),
-      motionBlur: !touchCapable && data.nodes.length < 650,
-      pixelRatio: data.nodes.length > (touchCapable ? 450 : 850)
-        ? 1
-        : Math.min(window.devicePixelRatio || 1, 1.5),
-    })
-
-    graphRef.current = core
-    core.on('zoom', () => syncGraphZoomDetail(core))
-
-    core.on('tap', 'node', (event) => {
-      const node = event.target
-      core.nodes().unselect()
-      node.select()
-      setSelectedNodeId(node.id())
-    })
-
-    core.on('tap', (event) => {
-      if (event.target !== core) return
-      core.nodes().unselect()
-      setSelectedNodeId(null)
-      setMode('global')
-    })
-
-    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-      core.on('mouseover', 'node', (event) => {
-        const neighborhood = event.target.closedNeighborhood()
-        core.elements().addClass('hover-dim')
-        neighborhood.removeClass('hover-dim')
-      })
-      core.on('mouseout', 'node', () => core.elements().removeClass('hover-dim'))
+  // A galaxist a FamilyGalaxyCanvas (three.js) renderel; itt már csak a lokális
+  // nézet kiemelendő csomópont-halmazát számoljuk. A szűrők/denzitás/mozgás
+  // propként mennek le, a fókusz/nagyítás a galaxyRef imperatív API-ján át.
+  const highlightIds = useMemo(() => {
+    // Bármely csomópont kiválasztásakor kiemeljük a közvetlen környezetét, a
+    // többi elhalványul — így tisztán látszanak a kapcsolati összefüggések.
+    // Globális nézetben 1 lépés, „Környezet" nézetben a beállított mélység.
+    if (!selectedNodeId || !data) return null
+    const spread = mode === 'local' ? depth : 1
+    const adjacency = new Map<string, string[]>()
+    const link = (a: string, b: string) => {
+      const list = adjacency.get(a)
+      if (list) list.push(b)
+      else adjacency.set(a, [b])
     }
-
-    let layoutReady = false
-    let resizeFrame = 0
-    let viewportKey = galaxyViewportKey(core.width(), core.height())
-    const resizeObserver = new ResizeObserver(() => {
-      core.resize()
-      if (!layoutReady) return
-      const nextViewportKey = galaxyViewportKey(core.width(), core.height())
-      if (nextViewportKey === viewportKey) return
-      viewportKey = nextViewportKey
-      window.cancelAnimationFrame(resizeFrame)
-      resizeFrame = window.requestAnimationFrame(() => {
-        runGraphLayout(core, data, densityRef.current, {
-          animate: false,
-          variant: layoutVariantRef.current,
-        })
-      })
-    })
-    resizeObserver.observe(containerRef.current)
-    const layoutFrame = window.requestAnimationFrame(() => {
-      runGraphLayout(core, data, densityRef.current, {
-        animate: !touchCapable,
-        entrance: !touchCapable,
-        variant: layoutVariantRef.current,
-      })
-      layoutReady = true
-    })
-
-    return () => {
-      window.cancelAnimationFrame(layoutFrame)
-      window.cancelAnimationFrame(resizeFrame)
-      resizeObserver.disconnect()
-      core.destroy()
-      if (graphRef.current === core) graphRef.current = null
+    for (const edge of data.edges) {
+      link(edge.source, edge.target)
+      link(edge.target, edge.source)
     }
-  }, [data])
-
-  useEffect(() => {
-    const core = graphRef.current
-    if (!core) return
-    const enabled = !coarsePointer || touchExploreMode
-
-    core.userPanningEnabled(enabled)
-    core.userZoomingEnabled(enabled)
-    core.nodes().forEach((node) => {
-      if (enabled) node.grabify()
-      else node.ungrabify()
-    })
-
-    if (
-      enabled
-      && coarsePointer
-      && touchExploreMode
-      && data
-      && !touchEntrancePlayedRef.current
-    ) {
-      touchEntrancePlayedRef.current = true
-      runGraphLayout(core, data, densityRef.current, {
-        entrance: true,
-        variant: layoutVariantRef.current,
-      })
-    }
-  }, [coarsePointer, data, touchExploreMode])
-
-  useEffect(() => {
-    const core = graphRef.current
-    if (!core || !data) return
-
-    let localNodeIds: Set<string> | null = null
-    if (mode === 'local' && selectedNodeId) {
-      const selected = core.$id(selectedNodeId)
-      if (selected.nonempty()) {
-        let localNodes = selected.closedNeighborhood().nodes()
-        if (depth === 2) localNodes = localNodes.union(localNodes.neighborhood('node'))
-        localNodeIds = new Set(localNodes.map((node) => node.id()))
+    const set = new Set<string>([selectedNodeId])
+    let frontier = [selectedNodeId]
+    for (let step = 0; step < spread; step += 1) {
+      const next: string[] = []
+      for (const id of frontier) {
+        for (const neighbor of adjacency.get(id) ?? []) {
+          if (!set.has(neighbor)) {
+            set.add(neighbor)
+            next.push(neighbor)
+          }
+        }
       }
+      frontier = next
     }
-
-    core.batch(() => {
-      core.nodes().forEach((node) => {
-        const kind = node.data('kind') as FamilyGraphNode['kind']
-        const hiddenByType = kind === 'family' ? !filters.families : !filters.people
-        const hiddenDeceased = kind === 'person' && node.hasClass('deceased') && !filters.deceased
-        const hiddenByLocalView = localNodeIds !== null && !localNodeIds.has(node.id())
-        node.toggleClass('hidden-by-view', hiddenByType || hiddenDeceased || hiddenByLocalView)
-      })
-
-      core.edges().forEach((edge) => {
-        const membership = edge.data('kind') === 'membership'
-        const hiddenByEdgeType = membership ? !filters.membershipEdges : !filters.relationshipEdges
-        const hiddenEndpoint = edge.source().hasClass('hidden-by-view') || edge.target().hasClass('hidden-by-view')
-        edge.toggleClass('hidden-by-view', hiddenByEdgeType || hiddenEndpoint)
-      })
-    })
-
-    if (mode === 'local' && localNodeIds && localNodeIds.size > 0) {
-      const visible = core.elements().filter((element) => !element.hasClass('hidden-by-view'))
-      if (reducedMotion()) core.fit(visible, 72)
-      else core.animate({ fit: { eles: visible, padding: 72 }, duration: 360, easing: 'ease-out-cubic' })
-    }
-  }, [data, depth, filters, mode, selectedNodeId])
-
-  useEffect(() => {
-    const core = graphRef.current
-    if (!core) return
-    const query = normalizeSearch(search)
-
-    core.batch(() => {
-      core.elements().removeClass('search-dim search-match')
-      if (!query) return
-
-      const matches = core.nodes().filter((node) => {
-        const label = normalizeSearch(String(node.data('label') ?? ''))
-        return label.includes(query)
-      })
-      core.elements().addClass('search-dim')
-      matches.removeClass('search-dim').addClass('search-match')
-      matches.connectedEdges().removeClass('search-dim')
-    })
-  }, [search, data])
+    return set
+  }, [mode, selectedNodeId, depth, data])
 
   const searchResults = useMemo(() => {
     if (!data) return []
@@ -706,53 +269,22 @@ export function FamilyGraphTab() {
   }
 
   function focusNode(nodeId: string) {
-    const core = graphRef.current
-    if (!core) return
-    const node = core.$id(nodeId)
-    if (node.empty()) return
-
-    core.nodes().unselect()
-    node.select()
     setSelectedNodeId(nodeId)
     setSearchOpen(false)
     if (coarsePointer) setTouchExploreMode(true)
-    const zoom = Math.max(core.zoom(), 1.12)
-    if (reducedMotion()) {
-      core.center(node)
-      core.zoom({ level: zoom, position: node.position() })
-    } else {
-      core.animate({ center: { eles: node }, zoom, duration: 420, easing: 'ease-out-cubic' })
-    }
+    galaxyRef.current?.focus(nodeId)
   }
 
   function changeDensity(nextDensity: GraphDensity) {
     setDensity(nextDensity)
-    densityRef.current = nextDensity
-    const core = graphRef.current
-    if (core && data) {
-      runGraphLayout(core, data, nextDensity, {
-        variant: layoutVariantRef.current,
-      })
-    }
   }
 
   function fitGraph() {
-    const core = graphRef.current
-    if (!core) return
-    const visible = core.elements().filter((element) => !element.hasClass('hidden-by-view'))
-    if (reducedMotion()) core.fit(visible, 64)
-    else core.animate({ fit: { eles: visible, padding: 64 }, duration: 360, easing: 'ease-out-cubic' })
+    galaxyRef.current?.fit()
   }
 
   function zoomBy(factor: number) {
-    const core = graphRef.current
-    if (!core) return
-    const nextZoom = Math.min(core.maxZoom(), Math.max(core.minZoom(), core.zoom() * factor))
-    const renderedPosition = {
-      x: core.width() / 2,
-      y: core.height() / 2,
-    }
-    core.zoom({ level: nextZoom, renderedPosition })
+    galaxyRef.current?.zoomBy(factor)
   }
 
   function openFamilyCard(familyId: number) {
@@ -897,16 +429,46 @@ export function FamilyGraphTab() {
             {selectedNode ? `${selectedNode.label} kiválasztva. ${selectedConnections.length} közvetlen kapcsolat.` : ''}
           </p>
           <div
-            ref={containerRef}
-            data-graph-phase="idle"
             className={cn(
-              'h-[clamp(22rem,62dvh,34rem)] min-h-0 w-full sm:h-[clamp(30rem,68dvh,44rem)] lg:h-[calc(100dvh-16rem)] lg:min-h-[35rem] lg:max-h-[48rem] [@media(max-height:600px)]:h-[20rem] [@media(max-height:600px)]:min-h-0',
+              'relative h-[clamp(22rem,62dvh,34rem)] min-h-0 w-full overflow-hidden sm:h-[clamp(30rem,68dvh,44rem)] lg:h-[calc(100dvh-16rem)] lg:min-h-[35rem] lg:max-h-[48rem] [@media(max-height:600px)]:h-[20rem] [@media(max-height:600px)]:min-h-0',
               coarsePointer && !touchExploreMode ? 'touch-pan-y' : 'touch-none',
             )}
             role="img"
             aria-describedby="family-graph-description"
             aria-label={`${loadState.data.stats.familyCount} család és ${loadState.data.stats.personCount} személy kapcsolati hálója.`}
-          />
+          >
+            <FamilyGalaxyCanvas
+              ref={galaxyRef}
+              data={loadState.data}
+              density={density}
+              filters={filters}
+              highlightIds={highlightIds}
+              interactive={!coarsePointer || touchExploreMode}
+              reducedMotion={reducedMotion()}
+              onSelectNode={(id) => {
+                setSelectedNodeId(id)
+                if (!id) setMode('global')
+              }}
+              onHoverNode={(node, x, y) => setHoverTip(node ? { node, x, y } : null)}
+            />
+            {hoverTip && (
+              <div
+                className="pointer-events-none absolute z-30 max-w-[16rem] -translate-x-1/2 -translate-y-[calc(100%+12px)] truncate rounded-xl border border-teal-200/20 bg-[#08181c]/85 px-2.5 py-1.5 text-xs text-teal-50 shadow-xl backdrop-blur"
+                style={{ left: hoverTip.x, top: hoverTip.y }}
+              >
+                <span className="font-semibold">{hoverTip.node.label}</span>
+                <span className="ml-1 text-teal-50/55">
+                  {hoverTip.node.kind === 'family'
+                    ? `· ${hoverTip.node.memberCount} tag`
+                    : hoverTip.node.deceased
+                      ? '· ✝ elhunyt'
+                      : hoverTip.node.birthYear
+                        ? `· ${hoverTip.node.birthYear}`
+                        : ''}
+                </span>
+              </div>
+            )}
+          </div>
 
           {coarsePointer && !touchExploreMode && (
             <div className="absolute inset-0 z-40 flex touch-pan-y items-center justify-center bg-[#071b1c]/32 px-5 backdrop-blur-[1px]">
@@ -948,14 +510,7 @@ export function FamilyGraphTab() {
             onZoomIn={() => zoomBy(1.22)}
             onZoomOut={() => zoomBy(0.82)}
             onFit={fitGraph}
-            onLayout={() => {
-              const core = graphRef.current
-              if (!core || !data) return
-              layoutVariantRef.current = (layoutVariantRef.current + 1) % 12
-              runGraphLayout(core, data, density, {
-                variant: layoutVariantRef.current,
-              })
-            }}
+            onLayout={() => galaxyRef.current?.reset()}
           />
 
           <GraphLegend />
@@ -975,7 +530,6 @@ export function FamilyGraphTab() {
               connections={selectedConnections}
               localMode={mode === 'local'}
               onClose={() => {
-                graphRef.current?.nodes().unselect()
                 setSelectedNodeId(null)
                 setMode('global')
               }}

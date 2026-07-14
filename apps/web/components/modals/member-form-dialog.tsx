@@ -9,12 +9,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { memberSchema, type MemberFormValues, type MemberInput } from '@/lib/validations/members'
 import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
+import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
 import {
   BookOpen,
   CalendarDays,
+  Camera,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -65,6 +67,12 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
     resolver: zodResolver(memberSchema),
     defaultValues: { belepes_oka: 'alap' as const, vallas: '', c_szam: '1', csaladnev: '', k_nev: '', c_helyseg_text: '', c_utca_text: '' },
   })
+
+  // A profilkép-szerkesztő KÜLÖN, portálolt dialógus — így az ott lévő gombok
+  // (letöltés/mentés) sosem a tag-űrlapot küldik be. A közösségi linket az űrlap
+  // menti; a dialógus a kép mentésekor a jelenlegi linket kapja (nincs felülírás).
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false)
+  const watchedSocial = useWatch({ control, name: 'social_profil_url' })
 
   const belepesOka = useWatch({ control, name: 'belepes_oka' })
   // Szülő-összekötés állapota.
@@ -194,8 +202,9 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-0 left-0 grid h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[min(94dvh,58rem)] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11">
+      <DialogContent className="top-0 left-0 grid h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-[min(90dvh,56rem)] sm:max-h-[min(90dvh,56rem)] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11">
         <div className="border-b border-border bg-background/95 px-4 pt-[max(1rem,env(safe-area-inset-top))] pr-16 pb-4 sm:px-6 sm:pt-6 sm:pr-20">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -235,7 +244,18 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
 
         {/* Form — WIZARD MÓD (2026-06-02) */}
         {step === 'form' && (
-          <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-3">
+          <form
+            onSubmit={handleSubmit(onSubmit, onInvalid)}
+            onKeyDown={(e) => {
+              // Wizard-űrlap: az Enter egy szöveges mezőben NE küldje be az egész
+              // űrlapot (eddig a FB-link beírása után az Enter „magától" bezárta és
+              // elmentette). Mentés/tovább CSAK a kifejezett gombokkal. A textarea
+              // (több soros megjegyzés) Enterét nem korlátozzuk.
+              const el = e.target as HTMLElement
+              if (e.key === 'Enter' && el.tagName === 'INPUT') e.preventDefault()
+            }}
+            className="space-y-3"
+          >
             {/* #Endre 2026-07-01: az `id` rejtett mező üres string ÚJ tagnál — a séma z.number().optional()-t
                 vár, a Zod v4 az ""-t NEM ugorja át → "expected number, received string". setValueAs:
                 üres → undefined (INSERT), különben Number (UPDATE). */}
@@ -559,9 +579,28 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
                       placeholder="https://facebook.com/…"
                       className={FIELD_CLASS_COMPACT}
                     />
-                    <p className="text-[11px] text-slate-500">
-                      A profilkép ennek a linknek az alapján tölthető be (a személyi karton fénykép-szerkesztőjében).
-                    </p>
+                    {editMember ? (
+                      <div className="space-y-1 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setAvatarDialogOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-white px-2.5 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-50"
+                        >
+                          <Camera className="size-3.5" />
+                          Profilkép beállítása…
+                        </button>
+                        <p className="text-[11px] leading-relaxed text-slate-500">
+                          A profilkép <strong>külön ablakban</strong> állítható be (Facebook-linkből — best-effort —,
+                          vagy a gépedről), és <strong>csak ott, a saját „Mentés” gombjával</strong> mentődik.
+                          Ez az űrlap a linket a „Módosítások mentése” gombbal menti.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">
+                        A link mentésre kerül. A <strong>profilképet</strong> a tag mentése után, a
+                        szerkesztésénél töltheted fel — Facebook-linkből (best-effort) vagy a gépedről.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1.5 pt-1">
                     <label className="flex items-start gap-2 text-sm text-slate-700">
@@ -636,6 +675,19 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
         </div>
       </DialogContent>
     </Dialog>
+    {editMember && (
+      <AvatarEditorDialog
+        open={avatarDialogOpen}
+        onOpenChange={setAvatarDialogOpen}
+        person={{
+          id: editMember.id,
+          name: [editMember.csaladnev, editMember.k_nev].filter(Boolean).join(' ') || 'Tag',
+          kepUrl: editMember.photo_url,
+          socialUrl: watchedSocial ?? editMember.social_profil_url,
+        }}
+      />
+    )}
+    </>
   )
 }
 

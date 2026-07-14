@@ -411,15 +411,23 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     }
   }, [])
 
+  // A friss fetchFirstPage-et ref-en át hívjuk, hogy az effekt CSAK a queryKey
+  // változására fusson. Enélkül a fetchFirstPage referencia-változása (pl. a
+  // registry-scope váltás a form/eltávolítás bezárásakor) spurious cleanup-ot
+  // indított: a folyamatban lévő újratöltést megszakította → a lista üresen
+  // maradt / „töltés" ragadt (2026-07-14, „eltűnnek a személyek" bug).
+  const fetchFirstPageRef = useRef(fetchFirstPage)
+  fetchFirstPageRef.current = fetchFirstPage
+
   useEffect(() => {
     if (previousQueryKeyRef.current === queryKey) return
     previousQueryKeyRef.current = queryKey
-    void fetchFirstPage()
+    void fetchFirstPageRef.current()
     return () => {
       requestIdRef.current += 1
       loadMoreInFlightRef.current = false
     }
-  }, [fetchFirstPage, queryKey])
+  }, [queryKey])
 
   const loadMore = useCallback(async () => {
     const cursor = pageState.nextCursor
