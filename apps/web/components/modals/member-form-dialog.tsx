@@ -96,7 +96,16 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   const anyjaCnpWatch = useWatch({ control, name: 'id_anyja_cnp' })
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      // A tag-űrlap bezárásakor a beágyazott dialógusokat is zárjuk — különben a
+      // fotó-szerkesztő (előnézeti képpel) vagy a kereszt-gyülekezeti ablak
+      // „beragad" a képernyőn (X-re kattintva a kép beakadt).
+      queueMicrotask(() => {
+        setAvatarDialogOpen(false)
+        setCrossMatch(null)
+      })
+      return
+    }
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
