@@ -33,6 +33,17 @@ export interface CrossMatchCandidate {
   confidence: CrossMatchConfidence
 }
 
+/** A másik gyülekezet LELKÉSZÉNEK hivatalos elérhetősége (kapcsolatfelvételhez). */
+export interface CrossMatchPastorContact {
+  congregation_id: string
+  congregation_name: string
+  pastor_name: string | null
+  pastor_email: string | null
+  pastor_phone: string | null
+  congregation_email: string | null
+  congregation_phone: string | null
+}
+
 export interface CrossMatchNotification {
   id: string
   notification_type: 'new_member' | 'update_match'
@@ -85,6 +96,29 @@ export async function findPotentialCrossMatch(input: {
   }
 
   return { data: (data as CrossMatchCandidate[]) || [] }
+}
+
+// ─── 1b. Lelkész-elérhetőség a talált gyülekezet(ek)hez ───────────────────
+
+export async function getCrossMatchPastorContacts(
+  congregationIds: string[],
+): Promise<{ data?: CrossMatchPastorContact[]; error?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const ids = Array.from(new Set(congregationIds.filter(Boolean)))
+  if (ids.length === 0) return { data: [] }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('get_cross_match_pastor_contacts', {
+    p_congregation_ids: ids,
+  })
+
+  if (error) {
+    return { error: `A lelkész-elérhetőség lekérdezése sikertelen: ${error.message}` }
+  }
+
+  return { data: (data as CrossMatchPastorContact[]) || [] }
 }
 
 // ─── 2. listMyNotifications — a saját gyülekezethez tartozó nyitott találatok ────
