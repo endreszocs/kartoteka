@@ -10,6 +10,13 @@ import { Label } from '@/components/ui/label'
 import { memberSchema, type MemberFormValues, type MemberInput } from '@/lib/validations/members'
 import { saveMember, searchParent } from '@/app/(dashboard)/tagnyilvantartas/actions'
 import { AvatarEditorDialog } from '@/components/modals/avatar-editor-dialog'
+import { CrossCongregationMatchDialog, type CrossMatchAction } from '@/components/members/cross-congregation-match-dialog'
+import {
+  findPotentialCrossMatch,
+  getCrossMatchPastorContacts,
+  type CrossMatchCandidate,
+  type CrossMatchPastorContact,
+} from '@/lib/members/cross-congregation-actions'
 import { ENTRY_REASONS, ENTRY_REASON_LABELS } from '@/lib/constants/members'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { toast } from 'sonner'
@@ -73,6 +80,15 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
   // menti; a dialógus a kép mentésekor a jelenlegi linket kapja (nincs felülírás).
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false)
   const watchedSocial = useWatch({ control, name: 'social_profil_url' })
+
+  // Kereszt-gyülekezeti duplikátum-figyelés (1. fázis): ÚJ tag mentése előtt
+  // ellenőrizzük, hogy a személy szerepel-e már más gyülekezetben; ha igen,
+  // a döntésig (ugyanaz / nem ugyanaz) függőben tartjuk a mentést.
+  const [crossMatch, setCrossMatch] = useState<{
+    candidates: CrossMatchCandidate[]
+    contacts: CrossMatchPastorContact[]
+    pendingData: MemberInput
+  } | null>(null)
 
   const belepesOka = useWatch({ control, name: 'belepes_oka' })
   // Szülő-összekötés állapota.
@@ -139,7 +155,7 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
     setStep('form')
   }
 
-  async function onSubmit(data: MemberInput) {
+  async function persistMember(data: MemberInput) {
     setLoading(true)
     const result = await saveMember(data)
     if (result.error) {
@@ -149,6 +165,42 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
       onOpenChange(false)
     }
     setLoading(false)
+  }
+
+  async function onSubmit(data: MemberInput) {
+    // Kereszt-gyülekezeti előellenőrzés CSAK ÚJ tagnál (szerkesztésnél a DB-trigger figyel).
+    if (!editMember && data.csaladnev?.trim() && data.k_nev?.trim()) {
+      setLoading(true)
+      const match = await findPotentialCrossMatch({
+        csaladnev: data.csaladnev,
+        k_nev: data.k_nev,
+        telefon: data.telefon ?? null,
+        szDatum: data.sz_datum ?? null,
+      })
+      if (match.data && match.data.length > 0) {
+        const congIds = match.data.map((c) => c.matched_congregation_id)
+        const contactsRes = await getCrossMatchPastorContacts(congIds)
+        setLoading(false)
+        setCrossMatch({
+          candidates: match.data,
+          contacts: contactsRes.data ?? [],
+          pendingData: data,
+        })
+        return // várunk a felhasználó döntésére (ugyanaz / nem ugyanaz)
+      }
+      // Ha a keresés hibázna, NEM blokkolunk — a mentés menjen tovább (a DB-trigger amúgy is rögzíti).
+    }
+    await persistMember(data)
+  }
+
+  async function handleCrossDecide(action: CrossMatchAction) {
+    const pending = crossMatch?.pendingData
+    setCrossMatch(null)
+    if (action.kind === 'dismissed') return // mégsem rögzítünk most
+    if (action.kind === 'same_person') {
+      toast.info('Rögzítve. Egyeztess az ottani lelkésszel a kettős tagságról — az egységes lélekszám nem számol duplán.')
+    }
+    if (pending) await persistMember(pending)
   }
 
   // 2026-06-10: ha a zod-validáció elbukik, ugorjunk a hibás mező lépésére és
@@ -687,6 +739,22 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
           kepUrl: editMember.photo_url,
           socialUrl: watchedSocial ?? editMember.social_profil_url,
         }}
+      />
+    )}
+    {crossMatch && (
+      <CrossCongregationMatchDialog
+        open={!!crossMatch}
+        onOpenChange={(o) => { if (!o) setCrossMatch(null) }}
+        triggeringPerson={{
+          csaladnev: crossMatch.pendingData.csaladnev,
+          k_nev: crossMatch.pendingData.k_nev,
+          telefon: crossMatch.pendingData.telefon,
+        }}
+        candidates={crossMatch.candidates}
+        contacts={crossMatch.contacts}
+        context="new_member"
+        onDecide={handleCrossDecide}
+        isPending={loading}
       />
     )}
     </>

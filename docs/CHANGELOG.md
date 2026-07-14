@@ -23,6 +23,25 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-14] — Kereszt-gyülekezeti figyelmeztető új tag rögzítésekor
+<!-- key: 2026-07-14-kereszt-gyulekezeti-figyelmezteto -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.71 -->
+
+### ✨ Új: ugyanaz a személy már más gyülekezetben?
+
+- **Új tag rögzítésekor a rendszer a mentés előtt ellenőrzi, hogy a személy (név +
+  születési dátum vagy telefon) szerepel-e már másik gyülekezetben.** Ha igen, egy ablak
+  jelzi a találatot, és megmutatja **a másik gyülekezet lelkészének hivatalos
+  elérhetőségét** (név, e-mail, telefon — közvetlen kapcsolatfelvételhez). A másik tag
+  személyes adatait (cím, család) NEM látod.
+- Két lehetőség: **„Nem, más személy"** → a rögzítés folytatódik · **„Igen, ugyanaz a
+  személy"** → rögzítés + emlékeztető a lelkészi egyeztetésre. A rendszer a kettős
+  tagságot később nem számolja duplán az egységes lélekszámban.
+
+---
+
 ## [2026-07-14] — Tag-szerkesztő: gombok mindig alul + nincs véletlen mentés
 <!-- key: 2026-07-14-tag-szerkeszto-footer-submit-fix -->
 <!-- category: bugfix -->
