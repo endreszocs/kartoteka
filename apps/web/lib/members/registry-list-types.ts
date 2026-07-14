@@ -76,6 +76,7 @@ export const memberListQuerySchema = z
     status: z.enum(MEMBER_STATUS_FILTERS).default('mind'),
     ageMin: z.number().int().min(0).max(130).nullable().default(null),
     ageMax: z.number().int().min(0).max(130).nullable().default(null),
+    birthdayMonth: z.number().int().min(1).max(12).nullable().default(null),
     gender: z.enum(['all', 'male', 'female', 'unknown']).default('all'),
     family: z.enum(['all', 'with-family', 'without-family']).default('all'),
     locality: z.string().trim().max(120).nullable().default(null),

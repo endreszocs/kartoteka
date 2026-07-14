@@ -51,8 +51,8 @@ function getTabFromHash(
   showAdminImport: boolean,
 ): string {
   const clean = hash.replace(/^#/, '')
-  // A korábbi közvetlen családi URL-ek a közös Személyek munkafelületre
-  // mutatnak. A belső nézetváltó a #families hash alapján családos módban indul.
+  // A korábbi közvetlen családi URL-ek a közös, személy-központú
+  // munkafelületre mutatnak; a családi adatok a személyi kartonból érhetők el.
   if (clean === 'families') return 'persons'
   if (clean === 'family-network' && !familyGraphUnlocked) return 'persons'
   if (clean === 'admin-import' && !showAdminImport) return DEFAULT_TAB

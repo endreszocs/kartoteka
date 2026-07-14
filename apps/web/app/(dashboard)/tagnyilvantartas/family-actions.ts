@@ -22,6 +22,22 @@ export interface FamilyRow {
   gyerekek?: Array<{ id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null; meghalt: boolean | null; kep?: string | null }>
 }
 
+export interface MemberFamilySummaryPerson {
+  id: number
+  csaladnev: string | null
+  k_nev: string | null
+  sz_datum: string | null
+}
+
+export interface MemberFamilySummary {
+  id: number
+  displayName: string
+  memberCount: number
+  adults: MemberFamilySummaryPerson[]
+  children: Array<MemberFamilySummaryPerson & { role: 'gyermek' | 'unoka' }>
+  childrenCount: number
+}
+
 async function getFamilyAccessContext() {
   const { supabase, congregationId, userId } = await getEffectiveCongregationContext()
   return { supabase, congregationId, userId }
@@ -337,6 +353,80 @@ export async function getFamilies(): Promise<FamilyRow[]> {
       gyerekek: entry.gyerekek,
     } satisfies FamilyRow
   })
+}
+
+/**
+ * A személyi kartonhoz szükséges, kis méretű családi összefoglaló.
+ * Csak az aktuális gyülekezet aktív háztartásából olvas, és nem tölti be
+ * a teljes családi karton pénzügyi/anyakönyvi adatait.
+ */
+export async function getMemberFamilySummary(id: number): Promise<MemberFamilySummary | null> {
+  if (!Number.isInteger(id) || id <= 0) return null
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return null
+
+  const householdResult = await supabase
+    .from('haztartas')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('legacy_csalad_id', id)
+    .is('ervenyes_ig', null)
+    .limit(1)
+    .maybeSingle()
+
+  if (householdResult.error) throw new Error('A családi összefoglaló nem tölthető be.')
+  if (!householdResult.data?.id) return null
+
+  const tagResult = await supabase
+    .from('haztartas_tag')
+    .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum)')
+    .eq('congregation_id', congregationId)
+    .eq('id_haztartas', householdResult.data.id)
+    .is('ervenyes_ig', null)
+    .in('szerep', ['csaladfo', 'hazastars', 'gyermek', 'unoka'])
+    .order('id_szemely', { ascending: true })
+
+  if (tagResult.error) {
+    throw new Error('A családi összefoglaló nem tölthető be.')
+  }
+
+  type PersonRelation = MemberFamilySummaryPerson | MemberFamilySummaryPerson[] | null
+  type TagRelation = {
+    szerep: string | null
+    szemely: PersonRelation
+  }
+
+  const pickPerson = (value: PersonRelation): MemberFamilySummaryPerson | null =>
+    Array.isArray(value) ? value[0] ?? null : value
+
+  const adultMap = new Map<number, MemberFamilySummaryPerson>()
+  const childMap = new Map<number, MemberFamilySummary['children'][number]>()
+  for (const row of (tagResult.data ?? []) as unknown as TagRelation[]) {
+    const person = pickPerson(row.szemely)
+    if (!person) continue
+    if (row.szerep === 'csaladfo' || row.szerep === 'hazastars') {
+      adultMap.set(person.id, person)
+    } else if (row.szerep === 'gyermek' || row.szerep === 'unoka') {
+      childMap.set(person.id, { ...person, role: row.szerep })
+    }
+  }
+
+  const adults = [...adultMap.values()]
+  const allChildren = [...childMap.values()]
+  const childrenCount = allChildren.length
+  const children = allChildren.slice(0, 4)
+  const uniqueMembers = new Set([...adultMap.keys(), ...childMap.keys()])
+  const surnames = [...new Set(adults.map((person) => person.csaladnev?.trim()).filter(Boolean))]
+  const displayName = surnames.length > 0 ? `${surnames.join('–')} család` : `Család #${id}`
+
+  return {
+    id,
+    displayName,
+    memberCount: uniqueMembers.size,
+    adults,
+    children,
+    childrenCount,
+  }
 }
 
 export async function getFamilyDetails(id: number) {

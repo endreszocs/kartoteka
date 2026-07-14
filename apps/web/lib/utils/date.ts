@@ -1,5 +1,24 @@
 import { HU_MONTHS, HU_DAYS } from '@/lib/constants/dashboard'
 
+const REGISTRY_TIME_ZONE = 'Europe/Bucharest'
+const registryMonthFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'numeric',
+  timeZone: REGISTRY_TIME_ZONE,
+})
+
+export function currentRegistryMonth(date = new Date()): number {
+  return Number(registryMonthFormatter.format(date))
+}
+
+export function monthFromIsoDate(value: string | null | undefined): number | null {
+  if (!value) return null
+  const match = /^\d{4}-(\d{2})-\d{2}/.exec(value)
+  if (!match) return null
+
+  const month = Number(match[1])
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : null
+}
+
 export function greeting(): string {
   const h = new Date().getHours()
   if (h < 6) return 'Jó éjszakát!'

@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import { MemberAvatar } from '@kartoteka/ui-app'
 import {
   ArrowDown,
@@ -32,6 +33,7 @@ import { toast } from 'sonner'
 
 import {
   getMemberFilterOptions,
+  getMemberRegistrySnapshot,
   getMembersPage,
 } from '@/app/(dashboard)/tagnyilvantartas/registry-list-actions'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
@@ -40,15 +42,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
 import { FamilyTreeDialog } from '@/components/modals/family-tree-dialog'
 import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
@@ -69,7 +62,7 @@ import {
   type MemberStatusFilter,
   type SortDirection,
 } from '@/lib/members/registry-list-types'
-import { ageFromDate } from '@/lib/utils/date'
+import { ageFromDate, currentRegistryMonth, monthFromIsoDate } from '@/lib/utils/date'
 import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers'
 import { cn } from '@/lib/utils'
 
@@ -82,11 +75,13 @@ interface PersonsTabProps {
 }
 
 type PaymentFilter = 'all' | PaymentStatus
+type BirthdayFilter = 'all' | 'this-month'
 
 interface PersonFilters {
   status: MemberStatusFilter
   ageMin: string
   ageMax: string
+  birthday: BirthdayFilter
   gender: MemberGenderFilter
   family: MemberFamilyFilter
   locality: string
@@ -108,6 +103,7 @@ const DEFAULT_FILTERS: PersonFilters = {
   status: 'aktív',
   ageMin: '',
   ageMax: '',
+  birthday: 'all',
   gender: 'all',
   family: 'all',
   locality: '',
@@ -135,11 +131,8 @@ function normalizeText(value: string | null | undefined): string {
     .trim()
 }
 
-function isBirthdayThisMonth(member: MemberListItem): boolean {
-  if (!member.sz_datum) return false
-  const now = new Date()
-  const birthday = new Date(member.sz_datum)
-  return birthday.getMonth() === now.getMonth()
+function isBirthdayInMonth(member: MemberListItem, month: number): boolean {
+  return !member.meghalt && monthFromIsoDate(member.sz_datum) === month
 }
 
 function formatAddress(member: MemberListItem): string {
@@ -162,6 +155,10 @@ function createFilterChips(filters: PersonFilters): ActiveFilterChip[] {
         ? `${filters.ageMin} évtől`
         : `${filters.ageMax} éves korig`
     chips.push({ key: 'age', label: range })
+  }
+
+  if (filters.birthday === 'this-month') {
+    chips.push({ key: 'birthday', label: 'Születésnapos ebben a hónapban' })
   }
 
   const genderLabels: Record<Exclude<MemberGenderFilter, 'all'>, string> = {
@@ -244,10 +241,18 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [filters, setFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
   const [draftFilters, setDraftFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [registryMonth, setRegistryMonth] = useState(() => currentRegistryMonth())
+  const snapshotMonthRef = useRef(registryMonth)
   const [sortCol, setSortCol] = useState<MemberSort>('id')
   const [sortDir, setSortDir] = useState<SortDirection>('desc')
   const [members, setMembers] = useState<MemberListItem[]>(initialPage.members)
   const [pageState, setPageState] = useState<MemberListPage>(initialPage)
+  const [registrySnapshot, setRegistrySnapshot] = useState(() => ({
+    total: initialPage.totalCount,
+    active: initialPage.summary.active,
+    birthdays: initialPage.summary.birthdaysThisMonth,
+    floating: initialPage.summary.withoutFamily,
+  }))
   const [filterOptions, setFilterOptions] = useState<MemberFilterOptions | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -277,6 +282,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     status: filters.status,
     ageMin: filters.ageMin === '' ? null : Number(filters.ageMin),
     ageMax: filters.ageMax === '' ? null : Number(filters.ageMax),
+    birthdayMonth: filters.birthday === 'this-month' ? registryMonth : null,
     gender: filters.gender,
     family: filters.family,
     locality: filters.locality || null,
@@ -285,9 +291,20 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     contact: filters.contact,
     sort: sortCol,
     direction: sortDir,
-  }), [filters, serverSearch, sortCol, sortDir])
+  }), [filters, registryMonth, serverSearch, sortCol, sortDir])
   const queryKey = JSON.stringify(serverQuery)
   const previousQueryKeyRef = useRef(queryKey)
+  const isDefaultRegistryScope = serverSearch === ''
+    && filters.status === DEFAULT_FILTERS.status
+    && filters.ageMin === DEFAULT_FILTERS.ageMin
+    && filters.ageMax === DEFAULT_FILTERS.ageMax
+    && filters.birthday === DEFAULT_FILTERS.birthday
+    && filters.gender === DEFAULT_FILTERS.gender
+    && filters.family === DEFAULT_FILTERS.family
+    && filters.locality === DEFAULT_FILTERS.locality
+    && filters.religion === DEFAULT_FILTERS.religion
+    && filters.payment === DEFAULT_FILTERS.payment
+    && filters.contact === DEFAULT_FILTERS.contact
 
   const everPaidSet = useMemo(() => {
     const result = new Set<number>()
@@ -305,12 +322,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     return result
   }, [crossNotifs])
 
-  const stats = {
-    total: pageState.summary.members,
-    active: pageState.summary.active,
-    birthdays: pageState.summary.birthdaysThisMonth,
-    floating: pageState.summary.withoutFamily,
-  }
+  const stats = registrySnapshot
   const isSearchPending = searchQuery.trim() !== deferredSearchQuery
   const visibleMembers = members
   const hasMore = !isLoading && pageState.hasMore && Boolean(pageState.nextCursor)
@@ -338,6 +350,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
       if (requestIdRef.current !== requestId) return
       setMembers(page.members)
       setPageState(page)
+      if (isDefaultRegistryScope) {
+        setRegistrySnapshot({
+          total: page.totalCount,
+          active: page.summary.active,
+          birthdays: page.summary.birthdaysThisMonth,
+          floating: page.summary.withoutFamily,
+        })
+      }
     } catch (error) {
       if (requestIdRef.current !== requestId) return
       setListError(getErrorMessage(error))
@@ -345,7 +365,37 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     } finally {
       if (requestIdRef.current === requestId) setIsLoading(false)
     }
-  }, [serverQuery])
+  }, [isDefaultRegistryScope, serverQuery])
+
+  const refreshRegistrySnapshot = useCallback(async () => {
+    try {
+      setRegistrySnapshot(await getMemberRegistrySnapshot())
+    } catch {
+      // A lista továbbra is használható; a KPI a következő sikeres frissítésnél szinkronizálódik.
+    }
+  }, [])
+
+  useEffect(() => {
+    const syncRegistryMonth = () => {
+      const nextMonth = currentRegistryMonth()
+      setRegistryMonth((currentMonth) => currentMonth === nextMonth ? currentMonth : nextMonth)
+    }
+    const intervalId = window.setInterval(syncRegistryMonth, 60_000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') syncRegistryMonth()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (snapshotMonthRef.current === registryMonth) return
+    snapshotMonthRef.current = registryMonth
+    void refreshRegistrySnapshot()
+  }, [refreshRegistrySnapshot, registryMonth])
 
   useEffect(() => {
     let cancelled = false
@@ -429,9 +479,9 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     setSortDir('asc')
   }
 
-  function openFilterSheet() {
-    setDraftFilters(filters)
-    setFilterOpen(true)
+  function handleFilterOpenChange(open: boolean) {
+    if (open) setDraftFilters(filters)
+    setFilterOpen(open)
   }
 
   function applyFilters() {
@@ -454,6 +504,8 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         case 'ageMin':
         case 'ageMax':
           return { ...current, ageMin: '', ageMax: '' }
+        case 'birthday':
+          return { ...current, birthday: 'all' }
         case 'gender':
           return { ...current, gender: 'all' }
         case 'family':
@@ -503,14 +555,20 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
     setFormOpen(open)
     if (open) return
     setEditingMember(null)
-    await fetchFirstPage({ preserveMembers: true })
+    await Promise.all([
+      fetchFirstPage({ preserveMembers: true }),
+      ...(isDefaultRegistryScope ? [] : [refreshRegistrySnapshot()]),
+    ])
   }
 
   async function handleRemoveClose(open: boolean) {
     setRemoveOpen(open)
     if (open) return
     setRemovingMember(null)
-    await fetchFirstPage({ preserveMembers: true })
+    await Promise.all([
+      fetchFirstPage({ preserveMembers: true }),
+      ...(isDefaultRegistryScope ? [] : [refreshRegistrySnapshot()]),
+    ])
   }
 
   async function handleExport() {
@@ -560,9 +618,10 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
   }
 
   return (
-    <div className="space-y-5">
-      <section aria-label="Tagnyilvántartási összesítő" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <RegistryStatCard icon={<Users className="size-5" />} label="Szűrt személyek" value={stats.total} tone="teal" />
+    <PopoverPrimitive.Root open={filterOpen} onOpenChange={handleFilterOpenChange} modal="trap-focus">
+      <div className="space-y-4 sm:space-y-5">
+      <section aria-label="Tagnyilvántartási összesítő" className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
+        <RegistryStatCard icon={<Users className="size-5" />} label="Összes személy" value={stats.total} tone="teal" />
         <RegistryStatCard
           icon={<CheckCircle2 className="size-5" />}
           label="Aktív tag"
@@ -570,11 +629,11 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           hint={stats.total > 0 ? `${Math.round((stats.active / stats.total) * 100)}%` : undefined}
           tone="emerald"
         />
-        <RegistryStatCard icon={<Cake className="size-5" />} label="Születésnap e hónapban" value={stats.birthdays} tone="amber" />
+        <RegistryStatCard icon={<Cake className="size-5" />} label="Születésnapos" value={stats.birthdays} tone="amber" />
         <RegistryStatCard icon={<Unlink className="size-5" />} label="Család nélkül" value={stats.floating} tone="rose" />
       </section>
 
-      <Card className="gap-0 border-primary/10 bg-gradient-to-br from-card via-card to-primary/[0.035] py-0">
+      <Card className="gap-0 overflow-hidden border-primary/10 bg-gradient-to-br from-card via-card to-primary/[0.035] py-0 shadow-[0_18px_55px_-46px_rgba(6,78,71,0.52)]">
         <CardContent className="space-y-3 px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
@@ -598,14 +657,14 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                   </button>
                 )}
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={openFilterSheet}
-                aria-haspopup="dialog"
-                aria-expanded={filterOpen}
-                aria-controls="persons-detailed-filter"
-                className="h-12 justify-center gap-2 rounded-2xl border-primary/20 bg-background/80 px-4 text-foreground shadow-sm hover:bg-primary/5"
+              <PopoverPrimitive.Trigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-12 justify-center gap-2 rounded-2xl border-primary/20 bg-background/80 px-4 text-foreground shadow-sm hover:bg-primary/5"
+                  />
+                }
               >
                 <SlidersHorizontal className="size-4 text-primary" />
                 Részletes szűrés
@@ -614,10 +673,10 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                     {activeFilterChips.length}
                   </span>
                 )}
-              </Button>
+              </PopoverPrimitive.Trigger>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
               <p className="mr-auto text-sm text-muted-foreground xl:mr-1" aria-live="polite">
                 <span className="font-semibold tabular-nums text-foreground">{pageState.filteredCount}</span> találat
                 <span className="hidden sm:inline"> · {pageState.totalCount} személyből</span>
@@ -633,7 +692,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                 <Download className="size-4" />
                 <span className="hidden sm:inline">{isExporting ? 'Exportálás…' : 'Export'}</span>
               </Button>
-              <Button className="h-11 gap-2 rounded-xl px-4 shadow-sm" onClick={() => openEdit(null)}>
+              <Button className="h-11 flex-1 gap-2 rounded-xl px-4 shadow-sm sm:flex-none" onClick={() => openEdit(null)}>
                 <UserPlus className="size-4" /> Új személy
               </Button>
             </div>
@@ -696,12 +755,13 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
           </Card>
         )
       ) : (
-        <Card className="gap-0 overflow-hidden py-0">
-          <div className="space-y-2 bg-muted/20 p-2 xl:hidden">
+        <Card className="gap-0 overflow-hidden border-primary/10 py-0 shadow-[0_22px_65px_-52px_rgba(6,78,71,0.5)]">
+          <div className="space-y-2 bg-muted/20 p-2 md:hidden">
             {visibleMembers.map((member) => (
               <MobilePersonCard
                 key={member.id}
                 member={member}
+                registryMonth={registryMonth}
                 active={isActiveMember(member, everPaidSet, everPaidSet)}
                 crossMatched={crossMatchedIds.has(member.id)}
                 onOpen={() => openDetails(member)}
@@ -710,16 +770,16 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
               />
             ))}
           </div>
-          <div className="hidden overflow-x-auto xl:block">
-            <table className="w-full min-w-[680px] text-sm">
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[660px] text-sm">
               <thead className="border-b border-border/60 bg-muted/45">
                 <tr>
                   <SortableHeader column="name" label="Személy" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="min-w-[260px]" />
                   <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Tagság</th>
                   <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Család</th>
                   <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Pénzügy</th>
-                  <SortableHeader column="address" label="Lakcím" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden min-w-[190px] lg:table-cell" />
-                  <SortableHeader column="age" label="Kor" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden xl:table-cell" />
+                  <SortableHeader column="address" label="Lakcím" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden min-w-[190px] xl:table-cell" />
+                  <SortableHeader column="age" label="Kor" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden 2xl:table-cell" />
                   <SortableHeader column="job" label="Foglalkozás" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden 2xl:table-cell" />
                   <th className="w-14 px-3 py-3"><span className="sr-only">Műveletek</span></th>
                 </tr>
@@ -730,13 +790,16 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                   const name = formatNameWithPrefix(member)
                   const address = formatAddress(member)
                   const active = isActiveMember(member, everPaidSet, everPaidSet)
-                  const birthday = isBirthdayThisMonth(member)
+                  const birthday = isBirthdayInMonth(member, registryMonth)
                   const familyId = member.familyId
 
                   return (
                     <tr
                       key={member.id}
-                      className="group bg-card/45 transition-colors duration-150 hover:bg-primary/[0.045] motion-reduce:transition-none"
+                      className={cn(
+                        'group animate-in fade-in bg-card/45 transition-colors duration-200 hover:bg-primary/[0.045] motion-reduce:animate-none motion-reduce:transition-none',
+                        detailsOpen && detailsMember?.id === member.id && 'bg-primary/[0.07]',
+                      )}
                     >
                       <td className="px-4 py-3.5">
                         <button
@@ -781,7 +844,8 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                             aria-label={`${name} családi kartonjának megnyitása, ${familyId}. család`}
                           >
                             <Users className="mr-1.5 size-3.5" />
-                            Családi karton · #{familyId}
+                            <span className="lg:hidden">Család · #{familyId}</span>
+                            <span className="hidden lg:inline">Családi karton · #{familyId}</span>
                           </Button>
                         )}
                       </td>
@@ -799,13 +863,13 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                           )}
                         </div>
                       </td>
-                      <td className="hidden max-w-[260px] px-4 py-3.5 text-xs text-muted-foreground lg:table-cell">
+                      <td className="hidden max-w-[260px] px-4 py-3.5 text-xs text-muted-foreground xl:table-cell">
                         <span className="flex items-center gap-1.5">
                           <MapPin className="size-3.5 shrink-0 text-primary/65" />
                           <span className="truncate">{address || 'Nincs rögzítve'}</span>
                         </span>
                       </td>
-                      <td className="hidden px-4 py-3.5 text-sm tabular-nums text-muted-foreground xl:table-cell">
+                      <td className="hidden px-4 py-3.5 text-sm tabular-nums text-muted-foreground 2xl:table-cell">
                         {age !== null ? `${age} év` : '—'}
                       </td>
                       <td className="hidden max-w-[220px] px-4 py-3.5 text-xs text-muted-foreground 2xl:table-cell">
@@ -843,61 +907,62 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         </Card>
       )}
 
-      <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-        <SheetContent
-          id="persons-detailed-filter"
-          side="right"
-          showCloseButton={false}
-          className="gap-0 border-primary/15 bg-[#fcfbf8] p-0 shadow-[-24px_0_70px_-36px_rgba(4,74,68,0.42)] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] data-[side=right]:h-dvh data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:sm:w-[32rem] data-[side=right]:sm:max-w-[32rem] dark:bg-card motion-reduce:transition-none"
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Positioner
+          side="bottom"
+          align="end"
+          sideOffset={10}
+          collisionPadding={8}
+          positionMethod="fixed"
+          className="z-[70]"
         >
-          <form
-            className="flex min-h-0 flex-1 flex-col"
-            onSubmit={(event) => {
-              event.preventDefault()
-              applyFilters()
-            }}
+          <PopoverPrimitive.Popup
+            id="persons-detailed-filter"
+            className="flex max-h-[min(42rem,var(--available-height))] w-[min(35rem,calc(100vw-1rem))] origin-[var(--transform-origin)] flex-col overflow-hidden rounded-2xl border border-primary/15 bg-popover text-popover-foreground shadow-[0_28px_80px_-32px_rgba(4,74,68,0.52)] outline-none transition-[opacity,transform] duration-150 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0 motion-reduce:transition-none"
           >
-            <SheetHeader className="relative shrink-0 border-b border-primary/10 bg-gradient-to-br from-primary/12 via-[#fcfbf8] to-amber-50/75 px-5 pb-5 pr-16 [padding-top:max(1.25rem,env(safe-area-inset-top))] sm:px-6 sm:pb-6 sm:pr-20 dark:via-card dark:to-card">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/10 bg-primary/10 text-primary shadow-sm">
-                  <SlidersHorizontal className="size-5" />
+            <form
+              className="flex min-h-0 flex-1 flex-col"
+              onSubmit={(event) => {
+                event.preventDefault()
+                applyFilters()
+              }}
+            >
+              <div className="relative shrink-0 border-b border-primary/10 bg-gradient-to-br from-primary/[0.08] via-popover to-accent/[0.07] px-4 py-4 pr-16 sm:px-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <SlidersHorizontal className="size-4.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PopoverPrimitive.Title className="font-heading text-lg font-semibold text-foreground">
+                        Részletes szűrés
+                      </PopoverPrimitive.Title>
+                      <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-primary" aria-live="polite">
+                        {draftFilterCount}
+                      </span>
+                    </div>
+                    <PopoverPrimitive.Description className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Tagsági, családi, demográfiai és elérhetőségi feltételek.
+                    </PopoverPrimitive.Description>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary/75">Személyek · szűrés</p>
-                  <SheetTitle className="mt-0.5 font-heading text-2xl font-medium tracking-tight">Részletes szűrés</SheetTitle>
-                </div>
+                <PopoverPrimitive.Close
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2.5 top-2.5 size-11 rounded-xl text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                    />
+                  }
+                >
+                  <X className="size-4.5" />
+                  <span className="sr-only">Szűrőablak bezárása</span>
+                </PopoverPrimitive.Close>
               </div>
-              <SheetDescription className="mt-3 max-w-md leading-6">
-                Szűkítsd a személyeket tagsági, családi, demográfiai és elérhetőségi adatok szerint.
-              </SheetDescription>
-              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-                <span className="inline-flex size-6 items-center justify-center rounded-full bg-primary/10 font-bold tabular-nums text-primary">
-                  {draftFilterCount}
-                </span>
-                feltétel kiválasztva
-              </div>
-              <SheetClose
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] size-11 rounded-2xl border border-transparent text-muted-foreground hover:border-border/70 hover:bg-background/80 hover:text-foreground sm:right-4"
-                  />
-                }
-              >
-                <X className="size-5" />
-                <span className="sr-only">Szűrőpanel bezárása</span>
-              </SheetClose>
-            </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
-              <FilterSection
-                icon={<CheckCircle2 className="size-4" />}
-                title="Tagság"
-                description="Tagsági és befizetési állapot"
-              >
-                <div className="grid gap-3 min-[400px]:grid-cols-2">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+                <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2">
                   <FilterField id="filter-status" label="Tagsági állapot">
                     <select
                       id="filter-status"
@@ -905,11 +970,10 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value as MemberStatusFilter }))}
                       className={filterControlClassName}
                     >
-                      {statusOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
+                      {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </FilterField>
+
                   <FilterField id="filter-payment" label="Pénzügyi állapot">
                     <select
                       id="filter-payment"
@@ -921,15 +985,30 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       {paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </FilterField>
-                </div>
-              </FilterSection>
 
-              <FilterSection
-                icon={<Users className="size-4" />}
-                title="Demográfia"
-                description="Életkor, nem és vallás"
-              >
-                <div className="grid grid-cols-2 gap-3">
+                  <FilterField id="filter-birthday" label="Születésnap">
+                    <select
+                      id="filter-birthday"
+                      value={draftFilters.birthday}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, birthday: event.target.value as BirthdayFilter }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="all">Minden személy</option>
+                      <option value="this-month">Ebben a hónapban</option>
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-family" label="Családi kapcsolat">
+                    <select
+                      id="filter-family"
+                      value={draftFilters.family}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, family: event.target.value as MemberFamilyFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {familyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+
                   <FilterField id="filter-age-min" label="Életkor ettől">
                     <Input
                       id="filter-age-min"
@@ -946,6 +1025,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       className="h-11 rounded-xl bg-background/90"
                     />
                   </FilterField>
+
                   <FilterField id="filter-age-max" label="Életkor eddig">
                     <Input
                       id="filter-age-max"
@@ -962,13 +1042,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       className="h-11 rounded-xl bg-background/90"
                     />
                   </FilterField>
-                </div>
-                {draftAgeError && (
-                  <p id="filter-age-error" className="mt-2 text-xs font-medium text-destructive" role="alert">
-                    {draftAgeError}
-                  </p>
-                )}
-                <div className="mt-3 grid gap-3 min-[400px]:grid-cols-2">
+
                   <FilterField id="filter-gender" label="Nem">
                     <select
                       id="filter-gender"
@@ -979,6 +1053,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       {genderOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </FilterField>
+
                   <FilterField id="filter-religion" label="Vallás">
                     <select
                       id="filter-religion"
@@ -994,25 +1069,7 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       ))}
                     </select>
                   </FilterField>
-                </div>
-              </FilterSection>
 
-              <FilterSection
-                icon={<MapPin className="size-4" />}
-                title="Család és lakóhely"
-                description="Családi kapcsolat és település"
-              >
-                <div className="grid gap-3 min-[400px]:grid-cols-2">
-                  <FilterField id="filter-family" label="Családi kapcsolat">
-                    <select
-                      id="filter-family"
-                      value={draftFilters.family}
-                      onChange={(event) => setDraftFilters((current) => ({ ...current, family: event.target.value as MemberFamilyFilter }))}
-                      className={filterControlClassName}
-                    >
-                      {familyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </FilterField>
                   <FilterField id="filter-locality" label="Település">
                     <select
                       id="filter-locality"
@@ -1028,48 +1085,51 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
                       ))}
                     </select>
                   </FilterField>
+
+                  <FilterField id="filter-contact" label="Elérhetőség">
+                    <select
+                      id="filter-contact"
+                      value={draftFilters.contact}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, contact: event.target.value as MemberContactFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
                 </div>
-              </FilterSection>
 
-              <FilterSection
-                icon={<Link2 className="size-4" />}
-                title="Elérhetőség"
-                description="Telefon- és e-mail-adatok megléte"
-              >
-                <FilterField id="filter-contact" label="Elérhetőségi feltétel">
-                  <select
-                    id="filter-contact"
-                    value={draftFilters.contact}
-                    onChange={(event) => setDraftFilters((current) => ({ ...current, contact: event.target.value as MemberContactFilter }))}
-                    className={filterControlClassName}
-                  >
-                    {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </FilterField>
-              </FilterSection>
-            </div>
+                {draftAgeError && (
+                  <p id="filter-age-error" className="mt-3 text-xs font-medium text-destructive" role="alert">
+                    {draftAgeError}
+                  </p>
+                )}
+              </div>
 
-            <SheetFooter className="shrink-0 border-t border-primary/10 bg-[#fcfbf8]/95 px-4 pt-3 [padding-bottom:max(0.875rem,env(safe-area-inset-bottom))] min-[400px]:grid min-[400px]:grid-cols-[auto_1fr] sm:px-6 dark:bg-card/95">
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-12 rounded-xl bg-background/80 px-5"
-                onClick={() => setDraftFilters(DEFAULT_FILTERS)}
-                title="Visszaállítás az alapértelmezett aktívtag-szűrésre"
-              >
-                Alaphelyzet
-              </Button>
-              <Button type="submit" className="min-h-12 rounded-xl px-6 shadow-sm" disabled={Boolean(draftAgeError)}>
-                Szűrés alkalmazása
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
+              <div className="grid shrink-0 grid-cols-1 gap-2 border-t border-primary/10 bg-popover/95 p-3 min-[420px]:grid-cols-2 sm:px-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 rounded-xl bg-background/80 px-4"
+                  onClick={() => setDraftFilters(DEFAULT_FILTERS)}
+                  title="Visszaállítás az alapértelmezett aktívtag-szűrésre"
+                >
+                  Alaphelyzet
+                </Button>
+                <Button type="submit" className="min-h-11 rounded-xl px-4 shadow-sm" disabled={Boolean(draftAgeError)}>
+                  Szűrés alkalmazása
+                </Button>
+              </div>
+            </form>
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
 
       <MemberDetailsDialogV2
         open={detailsOpen}
-        onOpenChange={setDetailsOpen}
+        onOpenChange={(open) => {
+          if (!open && treeOpen) return
+          setDetailsOpen(open)
+        }}
         member={detailsMember}
         familyId={detailsMember?.familyId ?? null}
         onEdit={() => detailsMember && openEdit(detailsMember)}
@@ -1101,11 +1161,12 @@ export function PersonsTab({ initialPage }: PersonsTabProps) {
         open={treeOpen}
         onOpenChange={(open) => {
           setTreeOpen(open)
-          if (!open && detailsMember) setDetailsOpen(true)
+          if (!open) setTreeMemberId(null)
         }}
         memberId={treeMemberId}
       />
-    </div>
+      </div>
+    </PopoverPrimitive.Root>
   )
 }
 
@@ -1134,17 +1195,17 @@ function RegistryStatCard({
 
   return (
     <Card className="gap-0 overflow-hidden border-primary/8 bg-gradient-to-br from-card via-card to-primary/[0.025] py-0 transition duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transform-none motion-reduce:transition-none">
-      <CardContent className="flex items-start justify-between gap-3 px-4 py-4 sm:px-5 sm:py-5">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-[11px]">{label}</p>
-          <p className="mt-1.5 font-heading text-2xl font-semibold tabular-nums text-foreground sm:text-3xl">
-            {value}
-            {hint && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{hint}</span>}
-          </p>
-        </div>
+      <CardContent className="flex items-center gap-3 px-3.5 py-3.5 sm:px-5 sm:py-5">
         <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-2xl ring-1 sm:size-11', tones[tone])}>
           {icon}
         </span>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px]">{label}</p>
+          <p className="mt-0.5 font-heading text-2xl font-semibold tabular-nums text-foreground sm:text-3xl">
+            {value}
+            {hint && <span className="ml-1.5 text-xs font-medium text-muted-foreground sm:text-sm">{hint}</span>}
+          </p>
+        </div>
       </CardContent>
     </Card>
   )
@@ -1168,6 +1229,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 
 function MobilePersonCard({
   member,
+  registryMonth,
   active,
   crossMatched,
   onOpen,
@@ -1175,6 +1237,7 @@ function MobilePersonCard({
   onOpenFamily,
 }: {
   member: MemberListItem
+  registryMonth: number
   active: boolean
   crossMatched: boolean
   onOpen: () => void
@@ -1187,7 +1250,7 @@ function MobilePersonCard({
   const familyId = member.familyId
 
   return (
-    <article className="relative rounded-2xl border border-border/60 bg-card px-3 py-3 shadow-sm">
+    <article className="relative animate-in fade-in slide-in-from-bottom-1 rounded-2xl border border-border/60 bg-card px-3 py-3 shadow-sm duration-200 motion-reduce:animate-none">
       <button
         type="button"
         onClick={onOpen}
@@ -1198,7 +1261,7 @@ function MobilePersonCard({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5 font-heading text-base font-semibold text-foreground">
             <span className="truncate">{name}</span>
-            {isBirthdayThisMonth(member) && <Cake className="size-3.5 shrink-0 text-amber-500" aria-label="Születésnapos ebben a hónapban" />}
+            {isBirthdayInMonth(member, registryMonth) && <Cake className="size-3.5 shrink-0 text-amber-500" aria-label="Születésnapos ebben a hónapban" />}
             {crossMatched && <Link2 className="size-3.5 shrink-0 text-amber-600" aria-label="Más gyülekezetben is szerepel" />}
           </span>
           <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -1330,7 +1393,7 @@ const ListProgress = function ListProgress({
             <span>{percent}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-primary/10">
-            <div className="h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
+            <div className="h-full rounded-full bg-primary transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
           </div>
         </div>
         {hasMore ? (
@@ -1350,44 +1413,17 @@ const ListProgress = function ListProgress({
 function PersonListSkeleton() {
   return (
     <Card className="gap-0 overflow-hidden py-0" role="status" aria-live="polite" aria-busy="true" aria-label="Személyek betöltése">
-      <div className="space-y-2 p-3 xl:hidden">
+      <div className="space-y-2 p-3 md:hidden">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="h-28 animate-pulse rounded-2xl bg-muted/70 motion-reduce:animate-none" />
         ))}
       </div>
-      <div className="hidden divide-y divide-border/45 xl:block">
+      <div className="hidden divide-y divide-border/45 md:block">
         {Array.from({ length: 7 }).map((_, index) => (
           <div key={index} className="h-[4.5rem] animate-pulse bg-muted/45 motion-reduce:animate-none" />
         ))}
       </div>
     </Card>
-  )
-}
-
-function FilterSection({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: ReactNode
-  title: string
-  description: string
-  children: ReactNode
-}) {
-  return (
-    <section className="rounded-2xl border border-primary/10 bg-background/65 p-4 shadow-[0_12px_35px_-30px_rgba(4,74,68,0.65)] sm:p-5">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-heading text-base font-medium leading-tight text-foreground">{title}</h3>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      {children}
-    </section>
   )
 }
 

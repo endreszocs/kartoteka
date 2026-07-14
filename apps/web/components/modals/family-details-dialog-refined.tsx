@@ -611,7 +611,6 @@ export function FamilyDetailsDialogRefined({
         }}
         member={memberDialogMember}
         familyId={familyId}
-        onEdit={() => { /* a karton-szerkesztést a tagnyilv. tabnál intézzük */ }}
       />
 
       {/* 2026-06-02: Családi karton szerkesztése (cím, körzet, tagok) */}

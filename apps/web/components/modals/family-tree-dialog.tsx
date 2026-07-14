@@ -32,24 +32,27 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
   useEffect(() => {
     if (!open || !memberId) return
     let cancelled = false
-    setData(null)
-    setError('')
-    setLoading(true)
-    getFamilyTreeDataByMemberId(memberId)
-      .then((result) => {
-        if (cancelled) return
-        setData(result)
-        if (result.members.length === 0) {
-          setError('Nincs elegendő adat a családfa megjelenítéséhez. Rögzítse a szülő-gyermek és házastárs kapcsolatokat az anyakönyvi modulban.')
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Hiba történt a családfa betöltésekor.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    queueMicrotask(() => {
+      if (cancelled) return
+      setData(null)
+      setError('')
+      setLoading(true)
+      getFamilyTreeDataByMemberId(memberId)
+        .then((result) => {
+          if (cancelled) return
+          setData(result)
+          if (result.members.length === 0) {
+            setError('Nincs elegendő adat a családfa megjelenítéséhez. Rögzítse a szülő-gyermek és házastárs kapcsolatokat az anyakönyvi modulban.')
+          }
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          setError(err instanceof Error ? err.message : 'Hiba történt a családfa betöltésekor.')
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    })
     return () => { cancelled = true }
   }, [open, memberId])
 
@@ -76,8 +79,9 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
               </div>
             </div>
             <button
+              type="button"
               onClick={() => onOpenChange(false)}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="flex size-11 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Bezárás"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -112,7 +116,7 @@ export function FamilyTreeDialog({ open, onOpenChange, memberId }: FamilyTreeDia
             <Button
               variant="outline"
               size="sm"
-              className="rounded-xl bg-muted hover:bg-muted/70 text-muted-foreground border-border"
+              className="min-h-11 rounded-xl border-border bg-muted text-muted-foreground hover:bg-muted/70"
               onClick={() => onOpenChange(false)}
             >
               Vissza az adatlaphoz

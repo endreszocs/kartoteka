@@ -31,7 +31,7 @@ import {
   type ParsedFamilyListQuery,
   type ParsedMemberListQuery,
 } from '@/lib/members/registry-list-types'
-import { ageFromDate } from '@/lib/utils/date'
+import { ageFromDate, currentRegistryMonth, monthFromIsoDate } from '@/lib/utils/date'
 
 const DB_BATCH_SIZE = 500
 const IN_FILTER_BATCH_SIZE = 100
@@ -582,6 +582,10 @@ function filterMembers(
     const age = ageFromDate(member.sz_datum)
     if (query.ageMin != null && (age == null || age < query.ageMin)) return false
     if (query.ageMax != null && (age == null || age > query.ageMax)) return false
+    if (
+      query.birthdayMonth != null
+      && (member.meghalt || monthFromIsoDate(member.sz_datum) !== query.birthdayMonth)
+    ) return false
 
     if (query.gender === 'male' && member.ferfi !== true) return false
     if (query.gender === 'female' && member.ferfi !== false) return false
@@ -651,8 +655,10 @@ function sortMembers(
   })
 }
 
-function summarizeMembers(members: EnrichedMember[]): MemberListKpiSummary {
-  const currentMonth = new Date().getMonth() + 1
+function summarizeMembers(
+  members: EnrichedMember[],
+  birthdayMonth = currentRegistryMonth(),
+): MemberListKpiSummary {
   return {
     scope: 'filtered',
     members: members.length,
@@ -666,9 +672,34 @@ function summarizeMembers(members: EnrichedMember[]): MemberListKpiSummary {
     women: members.filter((member) => member.ferfi === false).length,
     birthdaysThisMonth: members.filter((member) => {
       if (member.meghalt || !member.sz_datum) return false
-      const month = Number(member.sz_datum.slice(5, 7))
-      return Number.isInteger(month) && month === currentMonth
+      return monthFromIsoDate(member.sz_datum) === birthdayMonth
     }).length,
+  }
+}
+
+/**
+ * Szűréstől független felső KPI-snapshot a személyek munkafelületéhez.
+ * A részmutatók ugyanabból a teljes gyülekezeti univerzumból indulnak,
+ * az aktív tagokra vonatkozó szabályokkal egyezően.
+ */
+export async function getMemberRegistrySnapshot(): Promise<{
+  total: number
+  active: number
+  birthdays: number
+  floating: number
+}> {
+  const { supabase, congregationId, user } = await getEffectiveCongregationContext()
+  if (!user || !congregationId) {
+    return { total: 0, active: 0, birthdays: 0, floating: 0 }
+  }
+
+  const universe = await loadMemberUniverse(supabase, congregationId)
+  const summary = summarizeMembers(universe.members.filter(isActiveMember))
+  return {
+    total: universe.members.length,
+    active: summary.active,
+    birthdays: summary.birthdaysThisMonth,
+    floating: summary.withoutFamily,
   }
 }
 
@@ -769,7 +800,7 @@ export async function getMembersPage(input: MemberListQuery = {}): Promise<Membe
     hasMore,
     nextCursor: hasMore ? encodeCursor(candidateNextOffset, fingerprint) : null,
     nextOffset: hasMore ? candidateNextOffset : null,
-    summary: summarizeMembers(filtered),
+    summary: summarizeMembers(filtered, parsed.data.birthdayMonth ?? currentRegistryMonth()),
   }
 }
 
