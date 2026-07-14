@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-15] — Asztali app: fénykép beállítása a tag-nézetből
+<!-- key: 2026-07-15-desktop-tag-fenykep -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop v0.9.4 -->
+
+### ✨ Asztali (desktop) web-paritás
+
+- **Az asztali alkalmazásban is beállíthatod egy tag fényképét** közvetlenül a
+  tag-portré ablakból: kattints a monogramra → tölts fel képet a gépről (vagy próbáld a
+  Facebook-linkből). Eddig ez csak a családi nézetből működött. *(Új asztali kiadás
+  telepítése szükséges hozzá.)*
+
+---
+
 ## [2026-07-14] — Kereszt-gyülekezeti figyelmeztető új tag rögzítésekor
 <!-- key: 2026-07-14-kereszt-gyulekezeti-figyelmezteto -->
 <!-- category: feature -->
