@@ -244,7 +244,18 @@ export function MemberFormDialog({ open, onOpenChange, editMember }: MemberFormD
 
         {/* Form — WIZARD MÓD (2026-06-02) */}
         {step === 'form' && (
-          <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-3">
+          <form
+            onSubmit={handleSubmit(onSubmit, onInvalid)}
+            onKeyDown={(e) => {
+              // Wizard-űrlap: az Enter egy szöveges mezőben NE küldje be az egész
+              // űrlapot (eddig a FB-link beírása után az Enter „magától" bezárta és
+              // elmentette). Mentés/tovább CSAK a kifejezett gombokkal. A textarea
+              // (több soros megjegyzés) Enterét nem korlátozzuk.
+              const el = e.target as HTMLElement
+              if (e.key === 'Enter' && el.tagName === 'INPUT') e.preventDefault()
+            }}
+            className="space-y-3"
+          >
             {/* #Endre 2026-07-01: az `id` rejtett mező üres string ÚJ tagnál — a séma z.number().optional()-t
                 vár, a Zod v4 az ""-t NEM ugorja át → "expected number, received string". setValueAs:
                 üres → undefined (INSERT), különben Number (UPDATE). */}
