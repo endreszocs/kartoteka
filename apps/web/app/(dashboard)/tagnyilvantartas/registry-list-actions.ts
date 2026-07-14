@@ -227,6 +227,7 @@ function normalizeMemberRow(row: unknown): MemberRow {
   const raw = row as MemberRow & {
     adrstreet?: NameRelation | NameRelation[] | null
     adrlocality?: NameRelation | NameRelation[] | null
+    birthLocality?: NameRelation | NameRelation[] | null
   }
 
   return {
@@ -235,6 +236,7 @@ function normalizeMemberRow(row: unknown): MemberRow {
     elkoltozott: raw.elkoltozott ?? false,
     adrstreet: pickRelation(raw.adrstreet) as { name: string } | null,
     adrlocality: pickRelation(raw.adrlocality) as { name: string } | null,
+    birthLocality: pickRelation(raw.birthLocality) as { name: string } | null,
   }
 }
 
@@ -249,7 +251,8 @@ async function loadMemberRows(supabase: SupabaseClient, congregationId: string) 
         mailing_consent, social_profil_url, voter_eligible, voter_manual_override,
         type, befizetoev, id_apja, id_anyja, apjaneve, anyjaneve, megjegyzes,
         c_helysegid, c_utcaid, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto,
-        congregation_id, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)
+        congregation_id, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name),
+        birthLocality:adrlocality!sz_helyid(name)
       `)
       .eq('congregation_id', congregationId)
       .eq('isvisible', true)

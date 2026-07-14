@@ -124,6 +124,8 @@ export interface MemberRow {
   congregation_id: string | null
   adrstreet: { name: string } | null
   adrlocality: { name: string } | null
+  /** A születési hely feloldott neve (`sz_helyid` → `adrlocality`). */
+  birthLocality: { name: string } | null
 }
 
 export interface EnrichedMember extends MemberRow {

@@ -457,7 +457,10 @@ export async function saveMember(data: MemberInput) {
   if (!helysegId || !utcaId) {
     return { error: 'A település/utca rögzítése nem sikerült — próbáld újra. (Lefutott már a 2026-06-10-es adatbázis-migráció?)' }
   }
-  const szHelyId = d.sz_hely_text ? await getOrCreateLocality(d.sz_hely_text) : null
+  const szHelyId = await getOrCreateLocality(d.sz_hely_text)
+  if (!szHelyId) {
+    return { error: 'A születési hely rögzítése nem sikerült — ellenőrizd a település nevét, majd próbáld újra.' }
+  }
 
   const memberData: Record<string, unknown> = {
     csaladnev: d.csaladnev,
@@ -467,7 +470,7 @@ export async function saveMember(data: MemberInput) {
     sz_datum: d.sz_datum || null,
     sz_helyid: szHelyId,
     foglalkozas: d.foglalkozas || null,
-    vallas: d.vallas || 'Református',
+    vallas: d.vallas,
     c_helysegid: helysegId,
     c_utcaid: utcaId,
     c_szam: d.c_szam || '1',
@@ -834,46 +837,6 @@ export async function searchParent(query: string, isMale: boolean | null = null)
 
   const { data } = await q.limit(5)
   return data || []
-}
-
-// ── Szülő gyors-rögzítés tagként (2026-06-10) ────────────────
-// A tag-űrlapon a szülő szabad szövegként is megadható, de a családfához
-// érdemes tagrekordként is léteznie. Ez az akció a beírt névből minimális
-// szemely-rekordot készít (a gyermek címét örökli), és visszaadja a CNP-t,
-// amivel az űrlap beállítja az id_apja/id_anyja linket.
-export async function quickCreateParentMember(input: {
-  name: string
-  isMale: boolean
-  c_helyseg_text?: string
-  c_utca_text?: string
-  c_szam?: string
-}): Promise<{ id?: number; cnp?: string; error?: string }> {
-  const { supabase, user, congregationId } = await getProfileCongregation()
-  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
-
-  const parts = (input.name || '').trim().split(/\s+/)
-  if (parts.length < 2) return { error: 'A szülő teljes nevét add meg (családnév és keresztnév).' }
-  const csaladnev = parts[0]
-  const kNev = parts.slice(1).join(' ')
-
-  const helysegId = input.c_helyseg_text ? await getOrCreateLocality(input.c_helyseg_text) : null
-  const utcaId = helysegId && input.c_utca_text ? await getOrCreateStreet(input.c_utca_text, helysegId) : null
-  if (!helysegId || !utcaId) {
-    return { error: 'A szülő rögzítéséhez előbb töltsd ki a tag címét (település + utca) — a szülő ezt örökli.' }
-  }
-
-  const cnp = generateCnp()
-  const { data: ins, error } = await supabase.from('szemely').insert([{
-    csaladnev, k_nev: kNev, ferfi: input.isMale, vallas: 'Református',
-    c_helysegid: helysegId, c_utcaid: utcaId, c_szam: input.c_szam || '1',
-    cnp, congregation_id: congregationId, isvisible: true, type: 'E',
-    befizetoev: new Date().getFullYear(), csaladfo: false, meghalt: false,
-  }]).select('id').single()
-  if (error || !ins) return { error: `Hiba: ${error?.message || 'a szülő rögzítése nem sikerült'}` }
-
-  await logAuditEvent({ action: 'member.quick_create_parent', targetTable: 'szemely', targetId: String(ins.id) }, supabase)
-  revalidatePath('/tagnyilvantartas')
-  return { id: ins.id, cnp }
 }
 
 // ── Megjegyzés-mezők a személyi kartonon (2026-06-10) ────────
