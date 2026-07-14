@@ -37,6 +37,7 @@ import {
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
 import { executeFamilyHeadImport } from '@/lib/import/family-head-import-actions'
 import { executeFamiliesFromExistingPersonsImport } from '@/lib/import/families-from-persons-import-actions'
+import { countOpenCrossMatchesForCongregation } from '@/lib/members/cross-congregation-actions'
 import type { ParseResult, ParsedSheetPreview } from '@/lib/import/batch-import-types'
 
 import { WizardStepper, type WizardStep } from './tagnyilvantartas-import/wizard-stepper'
@@ -517,12 +518,22 @@ export function TagnyilvantartasImportWizard({
       const allIssues = result.rowErrors ?? []
       const skippedCount = allIssues.filter((e) => (e.severity ?? 'error') === 'error').length
 
+      // Import után: hány nyitott kereszt-gyülekezeti egyezés van a cél gyülekezethez?
+      // (A DB-trigger importkor rögzíti a strong egyezéseket; RLS-graceful, hibánál 0.)
+      let crossMatchCount = 0
+      const targetCong = mode === 'admin' ? selectedCongId : (congregationId || '')
+      if (insertedSzemely > 0 && targetCong) {
+        const cm = await countOpenCrossMatchesForCongregation(targetCong)
+        crossMatchCount = cm.data ?? 0
+      }
+
       setImportResult({
         insertedTotal: insertedSzemely + insertedCsalad,
         insertedSzemely,
         insertedCsalad: isFamilyHeads ? insertedCsalad : undefined,
         skippedCount,
         errors: allIssues,
+        crossMatchCount,
       })
       setStage('result')
 
@@ -544,7 +555,7 @@ export function TagnyilvantartasImportWizard({
         setStage('preview')
       }
     })
-  }, [file, activeSheet, profile, mode, selectedCongId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
+  }, [file, activeSheet, profile, mode, selectedCongId, congregationId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId =

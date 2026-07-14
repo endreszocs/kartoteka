@@ -23,6 +23,21 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-15] — Import: kereszt-gyülekezeti egyezések összefoglalója
+<!-- key: 2026-07-15-import-kereszt-egyeztetes-osszefoglalo -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.74 -->
+
+### ✨ Import — kereszt-gyülekezeti figyelés
+
+- **Az importálás eredmény-lépésén megjelenik, ha az importált tagok között lehetnek
+  olyanok, akik már szerepelnek másik gyülekezetben.** A rendszer importkor is ellenőrzi
+  az egyezéseket; a találatokat az értesítőknél (harang ikon) nézheted át, a másik
+  gyülekezet lelkészének elérhetőségével a kapcsolatfelvételhez.
+
+---
+
 ## [2026-07-15] — Import: a családszerkezet-lépés nem ragad be hibánál
 <!-- key: 2026-07-15-import-csaladszerkezet-hibakezeles -->
 <!-- category: bugfix -->

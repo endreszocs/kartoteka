@@ -121,6 +121,29 @@ export async function getCrossMatchPastorContacts(
   return { data: (data as CrossMatchPastorContact[]) || [] }
 }
 
+// ─── 1c. Nyitott kereszt-gyülekezeti egyezések száma egy gyülekezethez ─────
+// Import-utáni összefoglalóhoz: a DB-trigger importkor rögzíti a strong
+// egyezéseket; itt megszámoljuk a gyülekezethez tartozó, még el nem döntött
+// (resolution IS NULL) értesítőket. RLS-graceful: hiba esetén 0, sose blokkol.
+
+export async function countOpenCrossMatchesForCongregation(
+  congregationId: string,
+): Promise<{ data?: number; error?: string }> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!congregationId) return { data: 0 }
+
+  const supabase = await createClient()
+  const { count, error } = await supabase
+    .from('cross_congregation_match_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('triggering_congregation_id', congregationId)
+    .is('resolution', null)
+
+  if (error) return { data: 0 } // graceful — RLS/egyéb hiba ne blokkolja az importot
+  return { data: count ?? 0 }
+}
+
 // ─── 2. listMyNotifications — a saját gyülekezethez tartozó nyitott találatok ────
 
 export async function listMyNotifications(): Promise<{
