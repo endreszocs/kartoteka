@@ -23,6 +23,37 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Az egyházfenntartói járulék mostantól 18 éves kortól számol
+<!-- key: 2026-07-16-jarulek-18-eves-korhatar -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.77 -->
+
+### 🐛 Pénzügy — járulékkötelezettség
+
+- **A rendszer eddig MINDEN tagra a teljes éves járulékot várta el, életkortól függetlenül —
+  a csecsemőkre is.** Az egyházfenntartói járulék hivatalosan 18 éves kortól jár, ezért
+  mostantól a 18 év alatti tagokra 0 az elvárt összeg. A Tartozások listáján a kiskorúak
+  **alapból nem jelennek meg** (a lista a beszedendő járulékról szól); a szűrősorban a
+  „Kiskorúak is" kapcsolóval előhívhatók, „Nem járulékköteles" jelöléssel.
+
+- **A kiskorúság külön jelölést kapott, nem keveredik a Felmentéssel.** A „Felmentett"
+  továbbra is a presbitériumi méltányossági döntést jelenti — eddig a két eset összemosódott
+  volna a listán.
+
+- **Fontos:** a javítás **visszamenőleg minden évre** érvényes, mert a szabály hivatalosan
+  mindig is élt (a régi Excel-könyvelés sem ismerte a korhatárt). Ezért a korábbi évek
+  tartozás-kimutatásai a gyerekek nélkül fognak megjelenni — eltérhetnek a korábban
+  kinyomtatott példányoktól.
+
+- **A családi befizetés a gyereknél továbbra is látszik**, csak az elvárt összeg 0 — így
+  nyomon követhető marad, hogy a család fizetett.
+
+- **Akinél hiányzik a születési dátum, marad a teljes díj** — szándékosan: így a hiányos
+  adat feltűnik a listán és pótolható, ahelyett hogy a tartozása némán eltűnne.
+
+---
+
 ## [2026-07-16] — Járulék-kedvezmények: a korkedvezmény fordítva számolt
 <!-- key: 2026-07-16-korkedvezmeny-szazalek-javitas -->
 <!-- category: bugfix -->

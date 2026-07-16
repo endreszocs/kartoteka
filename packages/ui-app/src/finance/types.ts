@@ -288,7 +288,13 @@ export interface DebtRow {
   expected: number
   paid: number
   debt: number
-  status: 'rendezve' | 'hatralekos' | 'felmentett'
+  /**
+   * 2026-07-16: új `kiskoru` érték. SZÁNDÉKOSAN külön a `felmentett`-től: az a
+   * `felmentes` tábla szerinti, presbitériumi méltányossági mentesség, míg a
+   * kiskorúság a 18 éves törvényi korhatár (JARULEK_MIN_AGE). A kettő
+   * összemosása több száz gyereket tüntetne fel „felmentettként”.
+   */
+  status: 'rendezve' | 'hatralekos' | 'felmentett' | 'kiskoru'
   appliedRules: string[]
 }
 

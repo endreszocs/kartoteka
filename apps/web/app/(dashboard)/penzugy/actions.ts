@@ -51,6 +51,7 @@ import { inventoryItemSchema } from '@/lib/validations/inventory'
 import { INVENTORY_CATEGORY_PREFIXES, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
   computeJarulekForMemberYear,
+  JARULEK_MINOR_RULE,
   type JarulekDiscountRule,
   type JarulekExemption,
   type JarulekYearSetting,
@@ -1310,8 +1311,18 @@ export async function initFinance(year: number) {
       })
 
       const nameParts = [member.prefix, member.csaladnev, member.k_nev].filter(Boolean)
-      const status: DebtRow['status'] =
-        result.expected === 0 ? 'felmentett' : result.debt > 0 ? 'hatralekos' : 'rendezve'
+      // 2026-07-16: a kiskorúság ELŐBB dől el, mint a „felmentett”. Az `expected === 0`
+      // önmagában nem elég: a 18 alatti tagra is 0 az elvárás, de ő NEM felmentett
+      // (az a `felmentes` tábla szerinti presbitériumi döntés). A motor saját
+      // címkét ad (JARULEK_MINOR_RULE), abból ismerjük fel.
+      const isMinor = result.appliedRules.includes(JARULEK_MINOR_RULE)
+      const status: DebtRow['status'] = isMinor
+        ? 'kiskoru'
+        : result.expected === 0
+          ? 'felmentett'
+          : result.debt > 0
+            ? 'hatralekos'
+            : 'rendezve'
 
       return {
         memberId: member.id,
@@ -1326,7 +1337,9 @@ export async function initFinance(year: number) {
     })
     .sort((a, b) => {
       if (a.status !== b.status) {
-        const priority = { hatralekos: 0, rendezve: 1, felmentett: 2 }
+        // A kiskorúak a lista VÉGÉRE (a felmentettek után) — ők nem járulékkötelesek,
+        // a hátralék-lista pedig a beszedendő pénzről szól.
+        const priority = { hatralekos: 0, rendezve: 1, felmentett: 2, kiskoru: 3 }
         return priority[a.status] - priority[b.status]
       }
       if (a.debt !== b.debt) return b.debt - a.debt

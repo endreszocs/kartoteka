@@ -10,6 +10,7 @@
 
 import {
   computeJarulekForMemberYear,
+  JARULEK_MINOR_RULE,
   type DebtRow,
   type DebtCalcMode,
   type JarulekExemption,
@@ -37,6 +38,8 @@ const STATUS_PRIORITY: Record<DebtRow['status'], number> = {
   hatralekos: 0,
   rendezve: 1,
   felmentett: 2,
+  // A kiskorúak a lista végére — nem járulékkötelesek (bit-azonos a webbel).
+  kiskoru: 3,
 }
 
 export function buildDebtRows(params: {
@@ -66,8 +69,17 @@ export function buildDebtRows(params: {
         payments: maintenancePayments,
       })
       const name = [m.csaladnev, m.k_nev].filter(Boolean).join(' ')
-      const status: DebtRow['status'] =
-        result.expected === 0 ? 'felmentett' : result.debt > 0 ? 'hatralekos' : 'rendezve'
+      // 2026-07-16: bit-azonos a webbel (penzugy/actions.ts) — a kiskorúság ELŐBB
+      // dől el, mint a „felmentett”: a 18 alattira is 0 az elvárás, de ő nem a
+      // presbitérium által felmentett. A motor saját címkéjéből ismerjük fel.
+      const isMinor = result.appliedRules.includes(JARULEK_MINOR_RULE)
+      const status: DebtRow['status'] = isMinor
+        ? 'kiskoru'
+        : result.expected === 0
+          ? 'felmentett'
+          : result.debt > 0
+            ? 'hatralekos'
+            : 'rendezve'
       return {
         memberId: m.id,
         familyId,

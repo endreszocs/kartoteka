@@ -1,5 +1,26 @@
 import type { DebtCalcMode } from './types'
 
+/**
+ * Az egyházfenntartói járulék HIVATALOSAN 18 éves kortól jár (egyháztörvény —
+ * Szőcs Endre, 2026-07-16). Ezért nem gyülekezetenként állítható paraméter.
+ *
+ * 2026-07-16 előtt a rendszernek EGYÁLTALÁN nem volt korhatára: egy újszülöttre
+ * is a teljes éves díjat várta el. A régi Excel-könyvelés sem ismerte, tehát a
+ * történeti adat is így terhelte a gyerekeket — a korhatár ezért VISSZAMENŐLEG
+ * is érvényes (user-döntés): a régi szám volt hibás, a javítás helyreállítja.
+ *
+ * Az életkor ÉVKÜLÖNBSÉGGEL számolódik (getAgeForYear: year - birthYear), nem
+ * pontos születésnappal — „aki abban az évben tölti a 18-at, arra az évre már
+ * fizet". Ez konzisztens a kódbázis többi 18-as kapujával (választói névjegyzék,
+ * éves jelentés) és a járulék év-szintű természetével (nincs „fél évig fizet").
+ */
+export const JARULEK_MIN_AGE = 18
+
+/** A kiskorúság saját címkéje — SZÁNDÉKOSAN nem „Felmentett”, mert az a
+ *  `felmentes` tábla szerinti, presbitériumi méltányossági mentesség. A kettő
+ *  összemosása ~300 gyereket tüntetne fel „felmentettként” a listán. */
+export const JARULEK_MINOR_RULE = 'Kiskorú (18 év alatt)'
+
 export interface JarulekDiscountRule {
   id?: string
   ev: number
@@ -344,6 +365,25 @@ export function computeJarulekForMemberYear(params: {
   const baseFee = normalizeAmount(setting?.eves_jarulek)
   const relevantPayments = getRelevantPayments(payments, member.id, member.familyId, year)
   const paid = relevantPayments.reduce((sum, item) => sum + normalizeAmount(item.osszeg), 0)
+
+  // 18 éves korhatár. Az ÉLETKORT mindig a `year`-ből számoljuk, SOHA az
+  // `usedYear`-ből: a debtCalcMode='aktualis' a DÍJAT tolja a mai évre, az
+  // életkort nem. Aki 2020-ban 10 éves volt, a 2020-as sorra kiskorú akkor is,
+  // ha ma már 16. A `paid` szándékosan megmarad: a családi befizetés a gyereknél
+  // is látszik, és ha lenulláznánk, a lelkész azt hinné, a család nem fizetett.
+  // sz_datum hiányában (age === null, ide értve az 1900 előtti évet is) MARAD a
+  // teljes díj: a néma alulszámlázás rosszabb, mint a látható túlszámlázás — így
+  // a hiányzó dátum a listán feltűnik és pótolható.
+  const age = getAgeForYear(member, year)
+  if (age !== null && age < JARULEK_MIN_AGE) {
+    return {
+      expected: 0,
+      paid,
+      debt: 0,
+      appliedRules: [JARULEK_MINOR_RULE],
+      usedYear,
+    } satisfies JarulekComputationResult
+  }
 
   if (baseFee <= 0) {
     return {
