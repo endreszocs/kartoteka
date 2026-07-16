@@ -228,7 +228,9 @@ function DeadlineCard({
   submissions: DocumentSubmission[]
   totalCongregations: number
 }) {
-  const types: DocumentType[] = ['koltsegvetes', 'szamadas', 'vagyonleltar', 'valasztok_nevjegyzeke']
+  // 2026-07-17 (F5): + lelkeszi_jelentes — az éves hivatalos lelkészi jelentés
+  // is a közös dokumentum-workflow-ban érkezik.
+  const types: DocumentType[] = ['koltsegvetes', 'szamadas', 'vagyonleltar', 'valasztok_nevjegyzeke', 'lelkeszi_jelentes']
   const counts = new Map<DocumentType, number>()
   for (const s of submissions) {
     if (types.includes(s.document_type as DocumentType)) {

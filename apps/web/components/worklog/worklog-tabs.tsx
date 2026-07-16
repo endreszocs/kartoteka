@@ -74,6 +74,22 @@ const WorklogStatistics = dynamic(
   },
 )
 
+// 2026-07-17 (F5/J5): a hivatalos lelkészi jelentés szerkesztő-dialógusa
+// KATTINTÁSKORI lazy-importtal jön (NEM modul-szintű dynamic + .catch!) —
+// a nagy dialog-chunk (I–X. fejezet szerkesztő + élő A4-előnézet +
+// véglegesítő wizard) csak az első gombnyomásra töltődik le, nem növeli a
+// munkanapló fő chunkját.
+//
+// MIÉRT NEM a WorklogStatistics-féle dynamic().catch() minta: ott a .catch
+// visszaadott hibakomponens ÖRÖKRE beég a dynamic-be — egy átmeneti hálózati
+// hiba után a felhasználó az oldal frissítéséig soha többé nem tudná
+// megnyitni a dialógust. A kattintáskori import + state-ben tárolt komponens
+// mintával hibánál toast jelez, és a KÖVETKEZŐ kattintás újra próbálkozik;
+// siker után a komponens state-ben marad (a mounted-retesz viselkedés őrzve:
+// zárás után is mountolva marad, a szerkesztő állapota nem veszik el).
+type LelkesziJelentesDialogComponent =
+  typeof import('@/components/worklog/lelkeszi-jelentes-dialog').LelkesziJelentesDialog
+
 type WorklogTab = WorklogCategory | 'jelentes' | 'help' | 'admin-import'
 
 interface WorklogTabsProps {
@@ -165,6 +181,13 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editEntry, setEditEntry] = useState<WorklogEntry | null>(null)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
+  // 2026-07-17 (F5/J5): a hivatalos lelkészi jelentés dialógusa. A komponens
+  // maga state-ben él (kattintáskori import tölti be) — amint egyszer sikerült
+  // a betöltés, mountolva marad a zárás után is, így a szerkesztő állapota
+  // nem veszik el (mounted-retesz viselkedés).
+  const [jelentesDialogOpen, setJelentesDialogOpen] = useState(false)
+  const [JelentesDialog, setJelentesDialog] = useState<LelkesziJelentesDialogComponent | null>(null)
+  const [jelentesChunkLoading, setJelentesChunkLoading] = useState(false)
   const isMdUp = useIsMdUp()
   // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
   // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
@@ -273,6 +296,31 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   function openNewDialog() {
     setEditEntry(null)
     setDialogOpen(true)
+  }
+
+  // A hivatalos lelkészi jelentés megnyitása — az első hívás tölti be a lazy
+  // chunkot. Hibánál (deploy-skew / hálózat) toast jelez, a dialog NEM nyílik
+  // meg, és a következő kattintás ÚJRA próbálja az importot (nincs beégett
+  // hibakomponens). Siker után a komponens state-ben marad.
+  async function openJelentesDialog() {
+    if (JelentesDialog) {
+      setJelentesDialogOpen(true)
+      return
+    }
+    if (jelentesChunkLoading) return
+    setJelentesChunkLoading(true)
+    try {
+      const mod = await import('@/components/worklog/lelkeszi-jelentes-dialog')
+      // Függvény-formájú setState kell: a komponens maga is függvény, a sima
+      // setState updater-nek értelmezné és azonnal meghívná.
+      setJelentesDialog(() => mod.LelkesziJelentesDialog)
+      setJelentesDialogOpen(true)
+    } catch (err) {
+      console.warn('[worklog] lelkészi jelentés chunk-betöltési hiba:', err)
+      toast.error('A hivatalos lelkészi jelentés most nem tölthető be — próbálja újra.')
+    } finally {
+      setJelentesChunkLoading(false)
+    }
   }
 
   // Év-választó (8 évre vissza) + hónap-választó ("Egész év" opcióval).
@@ -437,7 +485,14 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
               A nyomtatási központban kiválasztható az év, hónap és a nyomtatvány típusa — élő előnézettel.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button onClick={() => setPrintDialogOpen(true)}>
+              {/* 2026-07-17 (F5/J5): az éves hivatalos jelentés (I–X. fejezet)
+                  szerkesztője — élő adatokból számolt + kézi mezők, élő
+                  A4-előnézet, véglegesítés és beküldés az egyházmegyének. */}
+              <Button onClick={() => void openJelentesDialog()} disabled={jelentesChunkLoading}>
+                <FileText className="size-4" />
+                Hivatalos lelkészi jelentés
+              </Button>
+              <Button variant="outline" onClick={() => setPrintDialogOpen(true)}>
                 <Printer className="size-4" />
                 Nyomtatási központ megnyitása
               </Button>
@@ -542,6 +597,31 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
         initialYear={year}
         congregationName={congregationName}
       />
+
+      {/* 2026-07-17 (F5/J5): a gombnyomás és a chunk megérkezése közti időre
+          azonnali visszajelzés. A pointer-events-none KÖTELEZŐ: a backdrop
+          csak vizuális jelzés, nem blokkolhatja az appot — chunk-hiba esetén
+          sem ragadhat kattinthatatlan overlay a képernyőn. */}
+      {jelentesChunkLoading && (
+        <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-4">
+          <div className="rounded-2xl border border-border bg-card px-6 py-4 text-sm text-muted-foreground shadow-lg">
+            Hivatalos lelkészi jelentés betöltése…
+          </div>
+        </div>
+      )}
+
+      {/* 2026-07-17 (F5/J5): a hivatalos lelkészi jelentés szerkesztője — csak
+          az első sikeres chunk-betöltés után mountolódik (state-ben tárolt
+          komponens), és saját maga tölti be a kiválasztott év jelentés-adatait
+          (getLelkesziJelentes). Zárás után is mountolva marad. */}
+      {JelentesDialog && (
+        <JelentesDialog
+          open={jelentesDialogOpen}
+          onOpenChange={setJelentesDialogOpen}
+          year={year}
+          congregationName={congregationName}
+        />
+      )}
     </div>
   )
 }

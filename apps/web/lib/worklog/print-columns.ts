@@ -37,8 +37,9 @@
 // boolean fallback. De/du al-rovat: napszak 'du'/'este' → 'du', különben 'de'.
 //
 // ÜNNEP-BESOROLÁS (getUnnepInfo):
-//  sátoros = Karácsony (dec 25–26), Húsvét (vasárnap+hétfő),
-//            Pünkösd (vasárnap+hétfő)
+//  sátoros = Karácsony (dec 25–27), Húsvét (vasárnap+hétfő+kedd),
+//            Pünkösd (vasárnap+hétfő+kedd) — a harmadnapok (III. napok)
+//            az erdélyi gyakorlat szerint szintén sátoros ünnepek
 //  ünnepi  = Újév (jan 1), Böjtfő (hamvazószerda = Húsvét−46), Virágvasárnap
 //            (Húsvét−7), Nagypéntek (Húsvét−2), Áldozócsütörtök (Húsvét+39),
 //            Újkenyér (augusztus utolsó vasárnapja — erdélyi szokás),
@@ -136,6 +137,7 @@ export function getUnnepInfo(isoDate: string): { nev: string; tipus: 'satoros' |
   if (mmdd === '10-31') return { nev: 'Reformáció', tipus: 'unnepi' }
   if (mmdd === '12-25') return { nev: 'Karácsony', tipus: 'satoros' }
   if (mmdd === '12-26') return { nev: 'Karácsony másodnapja', tipus: 'satoros' }
+  if (mmdd === '12-27') return { nev: 'Karácsony harmadnapja', tipus: 'satoros' }
 
   // Mozgó (Húsvét-alapú) ünnepek
   const husvet = easterSunday(year)
@@ -145,9 +147,11 @@ export function getUnnepInfo(isoDate: string): { nev: string; tipus: 'satoros' |
     [addDays(husvet, -2), 'Nagypéntek', 'unnepi'],
     [husvet, 'Húsvét', 'satoros'],
     [addDays(husvet, 1), 'Húsvét másodnapja', 'satoros'],
+    [addDays(husvet, 2), 'Húsvét harmadnapja', 'satoros'],
     [addDays(husvet, 39), 'Áldozócsütörtök', 'unnepi'],
     [addDays(husvet, 49), 'Pünkösd', 'satoros'],
     [addDays(husvet, 50), 'Pünkösd másodnapja', 'satoros'],
+    [addDays(husvet, 51), 'Pünkösd harmadnapja', 'satoros'],
   ]
   for (const [datum, nev, tipus] of mozgo) {
     if (datum === iso) return { nev, tipus }

@@ -85,6 +85,33 @@ export async function getUnlockRequests(): Promise<UnlockRequest[]> {
     }
   }
 
+  // 2026-07-17 (F5): a hivatalos lelkészi jelentés feloldás-kérelmei — külön
+  // táblából (lelkeszi_jelentes), a bealitas-mintára illesztve. Év-szűrés
+  // szándékosan nincs: egy korábbi évi jelentés feloldása is legitim kérés,
+  // az év soronként a row.ev-ből jön.
+  let jelentesQuery = supabase
+    .from('lelkeszi_jelentes')
+    .select('congregation_id, ev, unlock_reason, congregations!inner(name, diocese_id)')
+    .eq('unlock_requested', true)
+
+  if (dioceseId && !access.master) {
+    jelentesQuery = jelentesQuery.eq('congregations.diocese_id', dioceseId)
+  }
+
+  const { data: jelentesData } = await jelentesQuery
+
+  for (const row of jelentesData || []) {
+    const cong = (row as Record<string, unknown>).congregations as { name: string } | null
+    requests.push({
+      congregationId: row.congregation_id,
+      congregationName: cong?.name || 'Ismeretlen gyülekezet',
+      year: String(row.ev),
+      type: 'jelentes',
+      reason: row.unlock_reason || null,
+      requestedAt: null,
+    })
+  }
+
   return requests
 }
 
@@ -92,16 +119,17 @@ export async function getUnlockRequests(): Promise<UnlockRequest[]> {
 // Feloldási kérelmek elbírálása
 // ---------------------------------------------------------------------------
 
-const TYPE_LABELS: Record<'budget' | 'accounting' | 'inventory', string> = {
+const TYPE_LABELS: Record<UnlockRequest['type'], string> = {
   budget: 'költségvetés',
   accounting: 'számadás',
   inventory: 'vagyonleltár',
+  jelentes: 'lelkészi jelentés',
 }
 
 export async function approveUnlockRequest(
   congregationId: string,
   year: string,
-  type: 'budget' | 'accounting' | 'inventory',
+  type: UnlockRequest['type'],
 ): Promise<{ success?: boolean; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
@@ -111,28 +139,49 @@ export async function approveUnlockRequest(
 
   const { supabase } = access
 
-  const updates: Record<string, unknown> = {}
-  if (type === 'budget') {
-    updates.budget_finalized = false
-    updates.unlock_requested = false
-    updates.unlock_reason = null
-  } else if (type === 'accounting') {
-    updates.accounting_finalized = false
-    updates.accounting_unlock_requested = false
-    updates.accounting_unlock_reason = null
-  } else if (type === 'inventory') {
-    updates.leltar_unlock_requested = false
-    updates.leltar_unlock_reason = null
-    // A leltár véglegesítési flag más logikával működik (leltar_tetelek szintjén)
+  if (type === 'jelentes') {
+    // 2026-07-17 (F5): a hivatalos lelkészi jelentés külön táblában él
+    // (lelkeszi_jelentes, kulcs: congregation_id + ev). A feloldás
+    // visszaállítja szerkeszthetőre és törli a véglegesítés nyomait —
+    // a snapshot is nullázódik, mert az a véglegesített állapot fagyasztása.
+    const { error } = await supabase
+      .from('lelkeszi_jelentes')
+      .update({
+        statusz: 'szerkesztes',
+        snapshot: null,
+        veglegesitve_at: null,
+        veglegesito_profile_id: null,
+        unlock_requested: false,
+        unlock_reason: null,
+      })
+      .eq('ev', Number(year))
+      .eq('congregation_id', congregationId)
+
+    if (error) return { error: `Hiba: ${error.message}` }
+  } else {
+    const updates: Record<string, unknown> = {}
+    if (type === 'budget') {
+      updates.budget_finalized = false
+      updates.unlock_requested = false
+      updates.unlock_reason = null
+    } else if (type === 'accounting') {
+      updates.accounting_finalized = false
+      updates.accounting_unlock_requested = false
+      updates.accounting_unlock_reason = null
+    } else if (type === 'inventory') {
+      updates.leltar_unlock_requested = false
+      updates.leltar_unlock_reason = null
+      // A leltár véglegesítési flag más logikával működik (leltar_tetelek szintjén)
+    }
+
+    const { error } = await supabase
+      .from('bealitas')
+      .update(updates)
+      .eq('id', year)
+      .eq('congregation_id', congregationId)
+
+    if (error) return { error: `Hiba: ${error.message}` }
   }
-
-  const { error } = await supabase
-    .from('bealitas')
-    .update(updates)
-    .eq('id', year)
-    .eq('congregation_id', congregationId)
-
-  if (error) return { error: `Hiba: ${error.message}` }
 
   // Csengő értesítés a gyülekezet aktív lelkészei + könyvelői részére
   await sendUnlockDecisionNotification(supabase, {
@@ -144,13 +193,14 @@ export async function approveUnlockRequest(
 
   revalidatePath('/dashboard-egyhazmegye')
   revalidatePath('/penzugy')
+  if (type === 'jelentes') revalidatePath('/munkanaplo')
   return { success: true }
 }
 
 export async function rejectUnlockRequest(
   congregationId: string,
   year: string,
-  type: 'budget' | 'accounting' | 'inventory',
+  type: UnlockRequest['type'],
 ): Promise<{ success?: boolean; error?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
@@ -160,25 +210,37 @@ export async function rejectUnlockRequest(
 
   const { supabase } = access
 
-  const updates: Record<string, unknown> = {}
-  if (type === 'budget') {
-    updates.unlock_requested = false
-    updates.unlock_reason = null
-  } else if (type === 'accounting') {
-    updates.accounting_unlock_requested = false
-    updates.accounting_unlock_reason = null
-  } else if (type === 'inventory') {
-    updates.leltar_unlock_requested = false
-    updates.leltar_unlock_reason = null
+  if (type === 'jelentes') {
+    // 2026-07-17 (F5): elutasításkor CSAK a kérelem-mezők nullázódnak —
+    // a jelentés véglegesített marad (statusz/snapshot érintetlen).
+    const { error } = await supabase
+      .from('lelkeszi_jelentes')
+      .update({ unlock_requested: false, unlock_reason: null })
+      .eq('ev', Number(year))
+      .eq('congregation_id', congregationId)
+
+    if (error) return { error: `Hiba: ${error.message}` }
+  } else {
+    const updates: Record<string, unknown> = {}
+    if (type === 'budget') {
+      updates.unlock_requested = false
+      updates.unlock_reason = null
+    } else if (type === 'accounting') {
+      updates.accounting_unlock_requested = false
+      updates.accounting_unlock_reason = null
+    } else if (type === 'inventory') {
+      updates.leltar_unlock_requested = false
+      updates.leltar_unlock_reason = null
+    }
+
+    const { error } = await supabase
+      .from('bealitas')
+      .update(updates)
+      .eq('id', year)
+      .eq('congregation_id', congregationId)
+
+    if (error) return { error: `Hiba: ${error.message}` }
   }
-
-  const { error } = await supabase
-    .from('bealitas')
-    .update(updates)
-    .eq('id', year)
-    .eq('congregation_id', congregationId)
-
-  if (error) return { error: `Hiba: ${error.message}` }
 
   // Csengő értesítés a gyülekezet aktív lelkészei + könyvelői részére
   await sendUnlockDecisionNotification(supabase, {
@@ -190,6 +252,7 @@ export async function rejectUnlockRequest(
 
   revalidatePath('/dashboard-egyhazmegye')
   revalidatePath('/penzugy')
+  if (type === 'jelentes') revalidatePath('/munkanaplo')
   return { success: true }
 }
 
@@ -206,7 +269,7 @@ async function sendUnlockDecisionNotification(
   args: {
     congregationId: string
     year: string
-    type: 'budget' | 'accounting' | 'inventory'
+    type: UnlockRequest['type']
     decision: 'approved' | 'rejected'
   },
 ) {
@@ -247,7 +310,13 @@ async function sendUnlockDecisionNotification(
       : `Az egyházmegye elutasította a(z) ${args.year}. évi ${docLabel} javítási kérelmét. ` +
         `A dokumentum véglegesített állapotban marad. Ha szükséges, vegye fel a kapcsolatot az espertessel.`
 
-    const hivatkozas = args.type === 'inventory' ? '/leltar' : '/penzugy'
+    // A lelkészi jelentés a munkanapló-oldalon él, a leltár a saját oldalán,
+    // minden más a pénzügy-oldalon.
+    const hivatkozas = args.type === 'jelentes'
+      ? '/munkanaplo'
+      : args.type === 'inventory'
+        ? '/leltar'
+        : '/penzugy'
 
     const rows = Array.from(recipientIds).map((userId) => ({
       user_id: userId,
@@ -320,6 +389,15 @@ export async function getCongregationOverviewData(): Promise<Array<{
     .in('congregation_id', congIds)
     .eq('id', String(currentYear))
 
+  // 2026-07-17 (F5): lelkészi jelentés feloldás-kérelmek (lelkeszi_jelentes) —
+  // itt is csak a kérelem-flageket kérdezzük, nem a jelentés tartalmát.
+  // Év-szűrés nincs: korábbi évi jelentés feloldás-kérése is megjelenik.
+  const { data: jelentesUnlockData } = await supabase
+    .from('lelkeszi_jelentes')
+    .select('congregation_id, ev, unlock_reason')
+    .in('congregation_id', congIds)
+    .eq('unlock_requested', true)
+
   // Dokumentum beküldések — ez az engedélyezett adatforrás az egyházmegye számára
   const { data: docData } = await supabase
     .from('document_submissions')
@@ -351,6 +429,10 @@ export async function getCongregationOverviewData(): Promise<Array<{
     }
     if (bealitas?.leltar_unlock_requested) {
       requests.push({ congregationId: cong.id, congregationName: cong.name, year: String(currentYear), type: 'inventory', reason: (bealitas.leltar_unlock_reason as string) || null, requestedAt: null })
+    }
+    // 2026-07-17 (F5): lelkészi jelentés kérelmek — évenként külön sor lehet
+    for (const j of (jelentesUnlockData || []).filter((row: { congregation_id: string }) => row.congregation_id === cong.id)) {
+      requests.push({ congregationId: cong.id, congregationName: cong.name, year: String(j.ev), type: 'jelentes', reason: j.unlock_reason || null, requestedAt: null })
     }
 
     const docs = (docData || []).filter((d: { congregation_id: string }) => d.congregation_id === cong.id)
