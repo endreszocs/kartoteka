@@ -23,7 +23,27 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-07-16] — Hivatalos nyomtatott munkanapló A4-ben
+## [2026-07-16] — Év-statisztikák: látogatottság, énekek, biblia-lefedettség
+<!-- key: 2026-07-16-munkanaplo-f4-statisztikak -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.83 -->
+
+### ✨ Új funkciók
+
+- **Év-statisztika a munkanapló Jelentés-fülén.** Három új áttekintés, mindig a
+  teljes évből számolva:
+- **Látogatottság alkalomtípusonként** — darabszám, átlagjelenlét, férfi/nő
+  bontás, napszakok szerint, a leggyakoribb alkalmak havi trendjével.
+- **Énekek**: a 15 leggyakrabban énekelt ének címmel és az utolsó éneklés
+  dátumával; melyik tematikus szakaszból énekelnek a legtöbbet; és „régen nem
+  énekelt" javaslatok — hét ének hét különböző szakaszból, amit idén még nem
+  énekelt a gyülekezet.
+- **Igeversek és biblia-lefedettség**: a leggyakoribb alapigék, valamint hogy
+  a Biblia hány százalékát érintette az év igehirdetése (a 31 126 versből) —
+  könyvenkénti hőtérképpel, Ó- és Újszövetség bontásban.
+- A statisztika a rögzített énekszámok és igehelyek szokásos írásmódjait
+  egyaránt érti (pl. „400b", „400 b", „153/1-3" versszak-jelöléssel).
 <!-- key: 2026-07-11-munkanaplo-f3-hivatalos-nyomtatvany -->
 <!-- category: feature -->
 <!-- targets: lelkesz -->

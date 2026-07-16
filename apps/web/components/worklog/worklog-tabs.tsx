@@ -41,8 +41,29 @@ import { MunkanaploHelp } from './munkanaplo-help'
 // 2026-07-16 (F4/S2): az év-statisztika lazy-load-dal töltődik — a statisztika-
 // kód (+ a mögötte lusta énekeskönyv-korpusz) nem növeli a munkanapló fő
 // chunkját, csak a Lelkészi jelentés fülre lépéskor jön le.
+//
+// A .catch ág a chunk-betöltési hibát (deploy-skew: régi HTML már nem létező
+// chunk-URL-t kér; vagy átmeneti hálózati hiba) szelíd fallback-kártyává
+// alakítja — enélkül a hiba az egész Jelentés-fület eldobná.
+// A type-only import build-kor törlődik, nem húzza be a statisztika-chunkot.
+// A props szándékosan nincs felhasználva — a komponens csak a hibakártyát
+// rendereli, de típusa a WorklogStatistics-szal kompatibilis marad.
+function WorklogStatisticsLoadError() {
+  return (
+    <div className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+      Az év-statisztika most nem tölthető be — frissítse az oldalt.
+    </div>
+  )
+}
+
 const WorklogStatistics = dynamic(
-  () => import('@/components/worklog/worklog-statistics').then((m) => m.WorklogStatistics),
+  () =>
+    import('@/components/worklog/worklog-statistics')
+      .then((m) => m.WorklogStatistics)
+      .catch((err) => {
+        console.warn('[worklog] év-statisztika chunk-betöltési hiba:', err)
+        return WorklogStatisticsLoadError
+      }),
   {
     ssr: false,
     loading: () => (

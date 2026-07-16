@@ -109,6 +109,9 @@ function BlockHeader({
 
 function LatogatottsagBlock({ tipusok }: { tipusok: TipusStat[] }) {
   const trendTipusok = tipusok.slice(0, 5)
+  // A trend-diagramon kiválasztott hónap-cella szövege ('Június: 5 alkalom') —
+  // kattintásra/fókuszra töltődik, a diagram alatt látható sorként jelenik meg.
+  const [kivalasztottHonap, setKivalasztottHonap] = useState<string | null>(null)
 
   return (
     <div className="card-raised p-4 sm:p-5">
@@ -127,8 +130,14 @@ function LatogatottsagBlock({ tipusok }: { tipusok: TipusStat[] }) {
       ) : (
         <>
           {/* Típusonkénti táblázat — saját overflow-konténerben görgethető,
-              az oldal maga sosem görget vízszintesen. */}
-          <div className="mt-4 overflow-x-auto">
+              az oldal maga sosem görget vízszintesen. A régió fókuszálható,
+              hogy billentyűzetről is görgethető legyen. */}
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Szolgálati alkalmak típusonként — görgethető táblázat"
+            className="mt-4 overflow-x-auto"
+          >
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
@@ -176,25 +185,34 @@ function LatogatottsagBlock({ tipusok }: { tipusok: TipusStat[] }) {
                       {t.jellege}
                     </span>
                     <div
-                      role="img"
-                      aria-label={`${t.jellege}, havi alkalom-darabszám: ${t.havonta
-                        .map((c, i) => `${HU_MONTHS_SHORT[i]} ${c}`)
-                        .join(', ')}`}
+                      role="group"
+                      aria-label={`${t.jellege} havi trendje`}
                       className="flex h-8 min-w-0 flex-1 items-end gap-px sm:gap-0.5"
                     >
-                      {t.havonta.map((c, i) => (
-                        <div key={i} className="flex h-full flex-1 items-end" title={`${HU_MONTHS[i]}: ${c} alkalom`}>
-                          {c > 0 && max > 0 ? (
-                            <div
-                              className="w-full rounded-t-sm bg-primary/70"
-                              style={{ height: `${Math.max((c / max) * 100, 14)}%` }}
-                            />
-                          ) : (
-                            // Üres hónap: vékony alapvonal-csonk, hogy a rács olvasható maradjon
-                            <div className="h-px w-full rounded-full bg-muted" />
-                          )}
-                        </div>
-                      ))}
+                      {t.havonta.map((c, i) => {
+                        const cellaCimke = `${HU_MONTHS[i]}: ${c} alkalom`
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            aria-label={cellaCimke}
+                            title={cellaCimke}
+                            onClick={() => setKivalasztottHonap(cellaCimke)}
+                            onFocus={() => setKivalasztottHonap(cellaCimke)}
+                            className="flex h-full flex-1 items-end"
+                          >
+                            {c > 0 && max > 0 ? (
+                              <div
+                                className="w-full rounded-t-sm bg-primary/70"
+                                style={{ height: `${Math.max((c / max) * 100, 14)}%` }}
+                              />
+                            ) : (
+                              // Üres hónap: vékony alapvonal-csonk, hogy a rács olvasható maradjon
+                              <div className="h-px w-full rounded-full bg-muted" />
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
                     <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                       {NUM_HU.format(t.db)}
@@ -202,18 +220,24 @@ function LatogatottsagBlock({ tipusok }: { tipusok: TipusStat[] }) {
                   </div>
                 )
               })}
-              {/* Hónap-tengely (dekoráció — a pontos értékek a sávok aria-labeljében) */}
+              {/* Hónap-tengely (dekoráció — a pontos értékek a cellák aria-labeljében) */}
               <div aria-hidden className="flex items-center gap-2.5 sm:gap-3">
                 <span className="w-28 shrink-0 sm:w-44" />
                 <div className="flex min-w-0 flex-1 gap-px sm:gap-0.5">
-                  {HU_MONTHS_SHORT.map((m, i) => (
+                  {HU_MONTHS_SHORT.map((_, i) => (
                     <span key={i} className="flex-1 text-center text-[9px] text-muted-foreground">
-                      {m[0]}
+                      {i + 1}
                     </span>
                   ))}
                 </div>
                 <span className="w-8 shrink-0" />
               </div>
+              {/* A kiválasztott cella látható kiírása — tap-ra és Tab-ra is */}
+              {kivalasztottHonap ? (
+                <p aria-live="polite" className="text-xs text-foreground">
+                  {kivalasztottHonap}
+                </p>
+              ) : null}
             </div>
           </div>
         </>
@@ -233,14 +257,35 @@ function EnekBadge({ azonosito }: { azonosito: string }) {
   )
 }
 
+/** Énekeskönyv-betöltési hibasor kis „Újrapróbálás” gombbal (közös a 3 helyen). */
+function EnekHibaSor({ onRetry, className }: { onRetry: () => void; className?: string }) {
+  return (
+    <p className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground', className)}>
+      <span>Az énekeskönyv betöltése nem sikerült.</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+      >
+        Újrapróbálás
+      </button>
+    </p>
+  )
+}
+
 function EnekekBlock({
   enekek,
   mod,
   year,
+  hiba,
+  onRetry,
 }: {
   enekek: EnekStat[]
   mod: EnekeskonyvModule | null
   year: number
+  /** Igaz, ha az énekeskönyv-korpusz betöltése hibára futott. */
+  hiba: boolean
+  onRetry: () => void
 }) {
   const top15 = useMemo(() => enekek.slice(0, 15), [enekek])
 
@@ -282,11 +327,21 @@ function EnekekBlock({
       const eltolas = year % szakaszok.length
       for (let i = 0; i < szakaszok.length && out.length < CEL; i++) {
         const szakasz = szakaszok[(i + eltolas) % szakaszok.length]
-        const jeloltek = mod
-          .getEnekekBySzakasz(szakasz)
-          .filter((e) => !enekeltSzamok.has(e.szam) && !felhasznaltSzamok.has(e.szam))
-        if (jeloltek.length === 0) continue
-        const pick = jeloltek[(year * 31 + i * 7) % jeloltek.length]
+        // A forgatás horgonya a TELJES szakasz-lista (nem a szűrt): így a
+        // kezdőpont az éven belül stabil, és egy ének elénekelésekor csak az
+        // az egy javaslat lép tovább a következő szabad jelöltre.
+        const osszes = mod.getEnekekBySzakasz(szakasz)
+        if (!osszes.length) continue
+        const start = (year * 31 + i * 7) % osszes.length
+        let pick: Enek | null = null
+        for (let j = 0; j < osszes.length; j++) {
+          const jelolt = osszes[(start + j) % osszes.length]
+          if (!enekeltSzamok.has(jelolt.szam) && !felhasznaltSzamok.has(jelolt.szam)) {
+            pick = jelolt
+            break
+          }
+        }
+        if (!pick) continue
         felhasznaltSzamok.add(pick.szam)
         out.push(pick)
       }
@@ -331,21 +386,31 @@ function EnekekBlock({
               A 15 leggyakrabban énekelt
             </p>
             {!mod ? (
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Énekeskönyv betöltése — a címek hamarosan megjelennek…
-              </p>
+              hiba ? (
+                <EnekHibaSor onRetry={onRetry} className="mt-1.5 text-[11px]" />
+              ) : (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Énekeskönyv betöltése — a címek hamarosan megjelennek…
+                </p>
+              )
             ) : null}
             <ol className="mt-3 space-y-1.5">
               {top15.map((stat, idx) => {
                 const enek = mod ? mod.getEnek(stat.azonosito) : null
                 return (
-                  <li key={stat.azonosito} className="flex items-center gap-2.5">
+                  <li key={stat.azonosito} className="flex items-start gap-2.5">
                     <span className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
                       {idx + 1}.
                     </span>
                     <EnekBadge azonosito={stat.azonosito} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground" title={enek ? (enek.cim ?? enek.elsoSor) : undefined}>
-                      {enek ? (enek.cim ?? enek.elsoSor) : <span className="text-muted-foreground">{mod ? 'Nem azonosítható ének' : '…'}</span>}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-foreground" title={enek ? (enek.cim ?? enek.elsoSor) : undefined}>
+                        {enek ? (enek.cim ?? enek.elsoSor) : <span className="text-muted-foreground">{mod ? 'Nem azonosítható ének' : '…'}</span>}
+                      </span>
+                      {/* Mobilon a dátum a cím alatti második sor — sm-től a jobb oldali oszlop mutatja */}
+                      <span className="block truncate text-[11px] text-muted-foreground sm:hidden">
+                        utoljára: {stat.utolsoDatum ? formatDatumHu(stat.utolsoDatum) : '—'}
+                      </span>
                     </span>
                     <span className="shrink-0 text-xs font-medium tabular-nums text-foreground">
                       {NUM_HU.format(stat.db)}×
@@ -388,6 +453,8 @@ function EnekekBlock({
                     </li>
                   ))}
                 </ul>
+              ) : hiba ? (
+                <EnekHibaSor onRetry={onRetry} className="mt-3 text-xs" />
               ) : (
                 <p className="mt-3 text-xs text-muted-foreground">Énekeskönyv betöltése…</p>
               )}
@@ -421,6 +488,8 @@ function EnekekBlock({
                     Az énekeskönyv különböző tematikus szakaszaiból — idén még egyik sem hangzott el.
                   </p>
                 </>
+              ) : hiba ? (
+                <EnekHibaSor onRetry={onRetry} className="mt-3 text-xs" />
               ) : (
                 <p className="mt-3 text-xs text-muted-foreground">Énekeskönyv betöltése…</p>
               )}
@@ -436,41 +505,56 @@ function EnekekBlock({
 
 /**
  * Hőtérkép-árnyalat a lefedettség-százalékhoz — token-alapú opacity-lépcsők
- * (0% = bg-muted). A szöveg-szín a magas lépcsőn vált primary-foreground-ra:
- * a token-pár mindkét témában garantáltan kontrasztos (világosban sötét
- * primary + világos felirat, sötétben világos primary + sötét felirat).
+ * (0% = bg-muted). A text-foreground-os létra teteje /50: e fölött a kis
+ * szöveg kontrasztja (WCAG AA) már nem garantált a primary-alapon. A 35–99%
+ * sáv megkülönböztető gyűrűt kap; a teli 'bg-primary text-primary-foreground'
+ * CSAK a 100%-os (teljes) könyvé — a token-pár mindkét témában garantáltan
+ * kontrasztos (világosban sötét primary + világos felirat, sötétben fordítva).
  */
 function lefedettsegCsempeOsztaly(szazalek: number): string {
   if (szazalek <= 0) return 'bg-muted text-muted-foreground'
   if (szazalek < 2) return 'bg-primary/15 text-foreground'
   if (szazalek < 6) return 'bg-primary/30 text-foreground'
   if (szazalek < 15) return 'bg-primary/45 text-foreground'
-  if (szazalek < 35) return 'bg-primary/60 text-foreground'
+  if (szazalek < 35) return 'bg-primary/50 text-foreground'
+  if (szazalek < 100) return 'bg-primary/50 text-foreground ring-1 ring-inset ring-primary'
   return 'bg-primary text-primary-foreground'
 }
 
-function KonyvCsempe({ konyv }: { konyv: KonyvLefedettseg }) {
+function KonyvCsempe({
+  konyv,
+  onValaszt,
+}: {
+  konyv: KonyvLefedettseg
+  /** Kattintásra/fókuszra a csempe teljes adat-címkéjét adja fel a rácsnak. */
+  onValaszt: (cimke: string) => void
+}) {
   const adat = getBook(konyv.book)
   const nev = adat?.canonical ?? konyv.book
   const rovid = adat?.abbrev ?? konyv.book
   const cimke = `${nev}: ${NUM_HU.format(konyv.erintett)} / ${NUM_HU.format(konyv.osszVers)} vers (${NUM_HU_2.format(konyv.szazalek)}%)`
   return (
-    <div
-      role="img"
+    <button
+      type="button"
       aria-label={cimke}
       title={cimke}
+      onClick={() => onValaszt(cimke)}
+      onFocus={() => onValaszt(cimke)}
       className={cn(
         'flex h-11 min-w-0 items-center justify-center rounded-md px-1 transition-colors',
         lefedettsegCsempeOsztaly(konyv.szazalek),
       )}
     >
       <span className="truncate text-[10px] font-semibold sm:text-[11px]">{rovid}</span>
-    </div>
+    </button>
   )
 }
 
 function KonyvRacs({ cim, konyvek }: { cim: string; konyvek: KonyvLefedettseg[] }) {
   const erintettDb = konyvek.reduce((db, k) => db + (k.erintett > 0 ? 1 : 0), 0)
+  // A kiválasztott könyv teljes adat-sora ('Zsoltárok: 1 234 / 2 461 vers (50,14%)')
+  // — tap-ra ÉS Tab-fókuszra is töltődik, a rács alatt látható szövegként.
+  const [kivalasztott, setKivalasztott] = useState<string | null>(null)
   return (
     <div>
       <p className="flex items-baseline justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -481,9 +565,14 @@ function KonyvRacs({ cim, konyvek }: { cim: string; konyvek: KonyvLefedettseg[] 
       </p>
       <div className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] gap-1">
         {konyvek.map((k) => (
-          <KonyvCsempe key={k.book} konyv={k} />
+          <KonyvCsempe key={k.book} konyv={k} onValaszt={setKivalasztott} />
         ))}
       </div>
+      {kivalasztott ? (
+        <p aria-live="polite" className="mt-2 text-xs tabular-nums text-foreground">
+          {kivalasztott}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -504,6 +593,11 @@ function IgeBlock({
   const oszovetseg = konyvek.slice(0, 39)
   const ujszovetseg = konyvek.slice(39)
   const nincsAdat = top10.length === 0 && lefedettseg.erintett === 0
+  // Van érintett vers, de a 2 tizedesre kerekített érték 0 lenne → ne a
+  // félrevezető '0%' jelenjen meg, hanem '<0,01%'.
+  const szazalekFmt = NUM_HU_2.format(lefedettseg.szazalek)
+  const szazalekSzoveg =
+    lefedettseg.erintett > 0 && szazalekFmt === '0' ? '<0,01%' : `${szazalekFmt}%`
 
   return (
     <div className="card-raised p-4 sm:p-5">
@@ -525,21 +619,24 @@ function IgeBlock({
             {/* Össz-lefedettség nagy kijelzővel */}
             <div className="flex flex-col justify-center rounded-2xl bg-muted/50 px-4 py-5 sm:px-5">
               <p className="font-heading text-4xl font-semibold tabular-nums text-primary sm:text-5xl">
-                {NUM_HU_2.format(lefedettseg.szazalek)}%
+                {szazalekSzoveg}
               </p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 A Biblia ekkora része érintett idén —{' '}
                 <strong className="tabular-nums text-foreground">{NUM_HU.format(lefedettseg.erintett)}</strong> vers
                 a {NUM_HU.format(lefedettseg.osszes)}-ból (Károli-fordítás, 66 könyv).
               </p>
-              {/* Árnyalat-jelmagyarázat a hőtérképhez */}
-              <div className="mt-4 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {/* Árnyalat-jelmagyarázat a hőtérképhez — a skálát követi:
+                  0 / fokozatok / 35–99% gyűrűs minta / teljes könyv */}
+              <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span>0%</span>
                 <span className="h-3 w-4 rounded-sm bg-muted ring-1 ring-inset ring-border" aria-hidden />
                 <span className="h-3 w-4 rounded-sm bg-primary/15" aria-hidden />
                 <span className="h-3 w-4 rounded-sm bg-primary/30" aria-hidden />
                 <span className="h-3 w-4 rounded-sm bg-primary/45" aria-hidden />
-                <span className="h-3 w-4 rounded-sm bg-primary/60" aria-hidden />
+                <span className="h-3 w-4 rounded-sm bg-primary/50" aria-hidden />
+                <span className="h-3 w-4 rounded-sm bg-primary/50 ring-1 ring-inset ring-primary" aria-hidden />
+                <span>35–99%</span>
                 <span className="h-3 w-4 rounded-sm bg-primary" aria-hidden />
                 <span>teljes könyv</span>
               </div>
@@ -593,12 +690,19 @@ function IgeBlock({
             statisztikába nem számítanak bele. Érdemes a bejegyzésekben kanonikus
             alakra javítani (pl. „Jn 3,16”).
           </p>
+          {/* Legfeljebb 20 tétel renderelődik — a summary számlálója a valós
+              teljes darabszámot mutatja, a maradékot egy záró tétel jelzi. */}
           <ul className="mt-2 flex flex-wrap gap-1.5">
-            {hibak.map((h) => (
+            {hibak.slice(0, 20).map((h) => (
               <li key={h} className="rounded-md bg-muted px-2 py-0.5 font-mono text-[11px] text-foreground">
                 {h}
               </li>
             ))}
+            {hibak.length > 20 ? (
+              <li className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                … és további {NUM_HU.format(hibak.length - 20)} szöveg
+              </li>
+            ) : null}
           </ul>
         </details>
       ) : null}
@@ -621,6 +725,11 @@ export function WorklogStatistics({ yearEntries, year }: WorklogStatisticsProps)
   // Az énekeskönyv-korpusz (608 KB) CSAK a blokk megjelenésekor, és csak akkor
   // töltődik, ha van ének-adat, amit dúsítani lehet.
   const [enekMod, setEnekMod] = useState<EnekeskonyvModule | null>(() => enekeskonyvModule)
+  const [enekHiba, setEnekHiba] = useState(false)
+  // Retry-számláló: az „Újrapróbálás” gomb növeli, az effect újrafut.
+  // A hiba-állapotot a gomb kezelője nullázza (nem az effect — a szinkron
+  // setState az effect törzsében kaszkád-rendert okozna, lint is tiltja).
+  const [enekRetry, setEnekRetry] = useState(0)
   useEffect(() => {
     if (enekMod || stats.enekek.length === 0) return
     let cancelled = false
@@ -629,13 +738,16 @@ export function WorklogStatistics({ yearEntries, year }: WorklogStatisticsProps)
         if (!cancelled) setEnekMod(mod)
       })
       .catch(() => {
-        // Betöltési hiba (pl. hálózat): a lista azonosító-szinten marad —
-        // a loadEnekeskonyv cache-e törlődik, a következő mount újrapróbálja.
+        // Betöltési hiba (pl. hálózat): a lista azonosító-szinten marad, és
+        // hibaüzenet + Újrapróbálás gomb jelenik meg. A loadEnekeskonyv
+        // promise-cache-e hibánál törlődik, így az újrapróbálás tényleg
+        // új import()-ot indít.
+        if (!cancelled) setEnekHiba(true)
       })
     return () => {
       cancelled = true
     }
-  }, [enekMod, stats.enekek.length])
+  }, [enekMod, stats.enekek.length, enekRetry])
 
   return (
     <section aria-label={`Év-statisztika, ${year}`} className="space-y-4">
@@ -663,7 +775,16 @@ export function WorklogStatistics({ yearEntries, year }: WorklogStatisticsProps)
       ) : (
         <>
           <LatogatottsagBlock tipusok={stats.tipusok} />
-          <EnekekBlock enekek={stats.enekek} mod={enekMod} year={year} />
+          <EnekekBlock
+            enekek={stats.enekek}
+            mod={enekMod}
+            year={year}
+            hiba={enekHiba}
+            onRetry={() => {
+              setEnekHiba(false)
+              setEnekRetry((n) => n + 1)
+            }}
+          />
           <IgeBlock
             igehelyek={stats.igehelyek}
             konyvek={stats.konyvek}

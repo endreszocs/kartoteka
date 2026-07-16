@@ -58,18 +58,40 @@ export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
     endExclusive = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
   }
 
-  const base = () => supabase.from('munkanaplo').select('*')
-    .eq('congregation_id', congId)
-    .gte('idopont', startDate).lt('idopont', endExclusive)
-    .order('idopont', { ascending: false })
+  // 2026-07-16 (F4): a PostgREST alapértelmezetten legfeljebb 1000 sort ad
+  // vissza kérésenként — egy aktív gyülekezet teljes éve ezt túllépheti, és a
+  // lista némán csonkulna. Ezért 1000-es range-oldalakban lapozunk, amíg
+  // rövid oldal nem érkezik. A másodlagos .order('id') a determinisztikus
+  // lapozáshoz kell: azonos idopont-ú sorok stabil sorrendje nélkül az
+  // oldalhatáron sor maradhatna ki vagy duplázódhatna.
+  const PAGE_SIZE = 1000
+  const fetchAllPages = async (withDeletedFilter: boolean) => {
+    const all: WorklogEntry[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let q = supabase.from('munkanaplo').select('*')
+        .eq('congregation_id', congId)
+        .gte('idopont', startDate).lt('idopont', endExclusive)
+      if (withDeletedFilter) q = q.eq('deleted', false)
+      const res = await q
+        .order('idopont', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
+      if (res.error) return { data: null, error: res.error }
+      const page = (res.data || []) as unknown as WorklogEntry[]
+      all.push(...page)
+      if (page.length < PAGE_SIZE) return { data: all, error: null }
+    }
+  }
 
-  let res = await base().eq('deleted', false)
-  if (res.error && isMissingDeletedColumn(res.error)) res = await base()
+  // A `deleted`-oszlop fallback változatlan: ha az oszlop még nem létezik a
+  // DB-ben, szűrő nélkül kérdezünk újra (lásd a docblockot fent).
+  let res = await fetchAllPages(true)
+  if (res.error && isMissingDeletedColumn(res.error)) res = await fetchAllPages(false)
   if (res.error) {
     console.warn('[getWorklogs] lekérdezés hiba:', res.error.message)
     return []
   }
-  return (res.data || []) as unknown as WorklogEntry[]
+  return res.data || []
 }
 
 /** Teljes éves lista — a nyomtatási központ (éves lelkészi jelentés) adatforrása. */

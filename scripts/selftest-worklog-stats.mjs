@@ -7,10 +7,11 @@
  * és függőségeit (@kartoteka/biblia + lib/constants/worklog) egy temp
  * könyvtárba, majd vegyes mintaadatokon ellenőrzi:
  *   - típus-statisztika (db, össz/átlag-jelenlét, F/N/Gy, napszak, havi idősor),
- *   - parseEnekTokens változatok ('400/B', '400B', szabad szöveg kihagyva),
+ *   - parseEnekTokens változatok ('400/B', '400 b', versszak-levágás,
+ *     szóközös lista, vegyes szabad szöveg egész szegmense kihagyva),
  *   - alapige-gyakoriság kanonikus alakkal (írásmód-változatok összeolvadnak),
  *   - lefedettség (ismert kis tartomány + könyvenkénti bontás),
- *   - értelmezhetetlen igehelyek listázása.
+ *   - értelmezhetetlen igehelyek listázása (cap nélkül, a teljes distinct lista).
  *
  * Futtatás:  node scripts/selftest-worklog-stats.mjs
  */
@@ -108,6 +109,13 @@ try {
   assert(eq(parseEnekTokens('Ifjúsági énekek'), []), 'parseEnekTokens: nem szám-szerű szabad szöveg kimarad')
   assert(eq(parseEnekTokens(null), []) && eq(parseEnekTokens(undefined), []), 'parseEnekTokens: null/undefined → []')
   assert(eq(parseEnekTokens('153;25 090, 12.'), ['153', '25', '90', '12']), 'parseEnekTokens: ;/szóköz elválasztó + vezető nulla + záró pont')
+  assert(eq(parseEnekTokens('400 b'), ['400b']), "parseEnekTokens('400 b') → ['400b'] (szóköz-toleráns változat-jel)")
+  assert(eq(parseEnekTokens('400/ b'), ['400b']), "parseEnekTokens('400/ b') → ['400b']")
+  assert(eq(parseEnekTokens('400. b'), ['400b']), "parseEnekTokens('400. b') → ['400b']")
+  assert(eq(parseEnekTokens('153/1-3'), ['153']), "parseEnekTokens('153/1-3') → ['153'] (versszak-jelölés levágva)")
+  assert(eq(parseEnekTokens('265:1'), ['265']), "parseEnekTokens('265:1') → ['265'] (kettőspontos versszak levágva)")
+  assert(eq(parseEnekTokens('153, Halleluja 68'), ['153']), "parseEnekTokens('153, Halleluja 68') → ['153'] (a 68 NEM válik ERE-énekké)")
+  assert(eq(parseEnekTokens('153 25 430'), ['153', '25', '430']), "parseEnekTokens('153 25 430') → szóközös csupa-szám lista működik")
 
   // ── Mintaadatok ────────────────────────────────────────────────────────────
   let nextId = 1
@@ -211,6 +219,20 @@ try {
 
   // ── 5. Értelmezhetetlen igehelyek ──────────────────────────────────────────
   assert(eq(r.ertelmezhetetlenIgehelyek, ['Halandzsa 3,4']), `ertelmezhetetlenIgehelyek=['Halandzsa 3,4'] — kapott: ${JSON.stringify(r.ertelmezhetetlenIgehelyek)}`)
+
+  // ── 6. Értelmezhetetlen igehelyek — nincs 20-as cap, mind visszajön ────────
+  const sokHibas = Array.from({ length: 25 }, (_, i) =>
+    entry({ idopont: '2026-05-01T10:00:00', alapige: `Halandzsa ${i + 1},1` }),
+  )
+  const rSok = computeWorklogStatistics(sokHibas)
+  assert(
+    rSok.ertelmezhetetlenIgehelyek.length === 25,
+    `ertelmezhetetlenIgehelyek: mind a 25 distinct hibás visszajön (nincs 20-as cap) — kapott: ${rSok.ertelmezhetetlenIgehelyek.length}`,
+  )
+  assert(
+    rSok.ertelmezhetetlenIgehelyek.includes('Halandzsa 1,1') && rSok.ertelmezhetetlenIgehelyek.includes('Halandzsa 25,1'),
+    'ertelmezhetetlenIgehelyek: az első és a 25. hibás is a listában',
+  )
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })
 }

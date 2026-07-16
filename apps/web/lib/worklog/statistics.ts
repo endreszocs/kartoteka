@@ -90,7 +90,7 @@ export interface WorklogStatisztika {
   konyvek: KonyvLefedettseg[]
   /** Össz-lefedettség a teljes Károli-korpuszra (31126 vers). */
   lefedettseg: { osszes: number; erintett: number; szazalek: number }
-  /** Amit a parser nem értett (diagnosztika; duplikátum nélkül, max 20). */
+  /** Amit a parser nem értett (diagnosztika; a TELJES duplikátum-mentes lista — a bemenet évente korlátos, cap nincs). */
   ertelmezhetetlenIgehelyek: string[]
 }
 
@@ -99,20 +99,45 @@ export interface WorklogStatisztika {
 /**
  * Ének-mező → normalizált azonosító-lista: '153, 25, 400b' → ['153','25','400b'].
  *
- * Tokenizálás vessző / pontosvessző / szóköz mentén; egy token akkor ének, ha
- * szám + opcionális egybetűs változat-jel ('400b', '400/B', '400B', '400.b' →
- * '400b'; a vezető nullák lekopnak). A nem szám-szerű tokenek (pl. 'Ifjúsági
- * énekek' szabad szöveg) némán kimaradnak — ez szándékos: a statisztika csak
- * az azonosítható énekeket számolja.
+ * SZEGMENS-ALAPÚ feldolgozás:
+ *  1. Bontás előbb vessző / pontosvessző mentén SZEGMENSEKRE.
+ *  2. Egy szegmensre először a szóköz-toleráns TELJES-szegmens minta próbál
+ *     illeszkedni: szám + opcionális egybetűs változat-jel ('400 b', '400/ b',
+ *     '400. b', '400/B', '400B' → mind '400b') + opcionális versszak-jelölés,
+ *     ami LEVÁGÓDIK ('153/1-3', '265:1', '396/4' → '153', '265', '396').
+ *  3. Ha nem illik: a szegmens szóköz mentén tokenekre bomlik; ha MINDEN token
+ *     szám-szerű ének-token, mind bekerül (a '153 25 430' szóközös lista
+ *     működik); ha BÁRMELY token nem az, a TELJES szegmens kimarad — így a
+ *     'Halleluja 68' 68-a NEM válik tévesen ERE-énekké, és az 'Ifjúsági
+ *     énekek' szabad szöveg is némán kimarad. Ez szándékos: a statisztika
+ *     csak az azonosítható énekeket számolja.
+ *  A vezető nullák lekopnak, a változat-betű kisbetűsítve ('090' → '90').
  */
+
+/** Teljes-szegmens minta: szóköz-toleráns azonosító + levágandó versszak-jelölés. */
+const ENEK_SZEGMENS_MINTA = /^(\d+)\s*[/.\-]?\s*([a-zA-Z])?(?:\s*[/:.]\s*\d+(?:[-–]\d+)?)?\.?$/
+/** Token-minta: azonosító + opcionális (szorosan tapadó) versszak-jelölés. */
+const ENEK_TOKEN_MINTA = /^(\d+)(?:[/.\-]?([a-zA-Z]))?(?:[/:.]\d+(?:[-–]\d+)?)?\.?$/
+
 export function parseEnekTokens(enekek: string | null | undefined): string[] {
   if (!enekek) return []
   const out: string[] = []
-  for (const nyers of enekek.split(/[,;\s]+/)) {
-    if (!nyers) continue
-    const m = nyers.match(/^(\d+)[/.\-]?([a-zA-Z])?\.?$/)
-    if (!m) continue
-    out.push(`${parseInt(m[1], 10)}${m[2] ? m[2].toLowerCase() : ''}`)
+  const push = (szam: string, betu: string | undefined) => {
+    out.push(`${parseInt(szam, 10)}${betu ? betu.toLowerCase() : ''}`)
+  }
+  for (const nyers of enekek.split(/[,;]+/)) {
+    const szegmens = nyers.trim()
+    if (!szegmens) continue
+    const teljes = szegmens.match(ENEK_SZEGMENS_MINTA)
+    if (teljes) {
+      push(teljes[1], teljes[2])
+      continue
+    }
+    // Szóközös lista: csak akkor számít, ha MINDEN tokenje ének-szerű —
+    // különben az egész szegmens kimarad (pl. 'Halleluja 68')
+    const talalatok = szegmens.split(/\s+/).map((t) => t.match(ENEK_TOKEN_MINTA))
+    if (talalatok.some((m) => !m)) continue
+    for (const m of talalatok) push(m![1], m![2])
   }
   return out
 }
@@ -170,8 +195,6 @@ interface TipusGyujto {
   havonta: number[]
 }
 
-const MAX_ERTELMEZHETETLEN = 20
-
 // ── Fő számítás ──────────────────────────────────────────────────────────────
 
 /**
@@ -188,9 +211,7 @@ export function computeWorklogStatistics(yearEntries: WorklogEntry[]): WorklogSt
 
   const addHibas = (raw: string) => {
     const tisztitott = raw.trim()
-    if (tisztitott && (hibasIgehelyek.has(tisztitott) || hibasIgehelyek.size < MAX_ERTELMEZHETETLEN)) {
-      hibasIgehelyek.add(tisztitott)
-    }
+    if (tisztitott) hibasIgehelyek.add(tisztitott)
   }
 
   /**
