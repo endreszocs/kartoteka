@@ -1,4 +1,22 @@
 import type { DebtCalcMode } from './types'
+import { formatMonthDay, formatMonthDayRange } from './month-day'
+
+/**
+ * A MAI naptári nap Romániában (Europe/Bucharest), UTC-éjfélre normalizálva.
+ *
+ * MIÉRT KELL: a szerver UTC-ben jár (Railway), Románia UTC+2/+3. Nyers `new Date()`
+ * mellett romániai július 2-án 01:30-kor a szerver még július 1-et látna → a lejárt
+ * kedvezményes ablakot még érvényesnek hinné. A `parseMonthDay` UTC-éjfelet ad, ezért
+ * itt is UTC-éjfélre normalizálunk — hogy almát almával hasonlítsunk.
+ *
+ * A SZERVER hívja (a szerver-action), SOHA a kliens: (1) különben a szerver-render és
+ * a kliens-hidratáció eltérő összeget adna, (2) egy elállított gépóra megváltoztatná a
+ * számlázott összeget, (3) megtörne a „web = desktop bit-azonos" szerződés.
+ */
+export function todayInBucharest(): Date {
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bucharest' }).format(new Date())
+  return new Date(`${ymd}T00:00:00Z`)
+}
 
 /**
  * Az egyházfenntartói járulék HIVATALOSAN 18 éves kortól jár (egyháztörvény —
@@ -268,71 +286,124 @@ function getOccupationAdjustedFee(
   return { amount: bestAmount, labels }
 }
 
+/** Egy időszak-szabály „ára" = a fizetendő összeg. 0/érvénytelen → null (nem szabály). */
+function getWindowPrice(discount: JarulekDiscountRule, baseFee: number): number | null {
+  const price =
+    discount.kedv_osszeg != null
+      ? normalizeAmount(discount.kedv_osszeg)
+      : discount.szazalek != null
+        ? applyPercentDiscount(baseFee, discount.szazalek)
+        : 0
+  return price > 0 ? price : null
+}
+
+/**
+ * A korai-fizetési (határidős / időszaki) kedvezmény.
+ *
+ * 2026-07-16 — ÁTALAKÍTVA. Két KÜLÖN kérdést teszünk fel, és a kedvezőbbet vesszük:
+ *
+ *   MEGSZERZETT (earned)      — „melyik ablak árát szerezte meg a TÉNYLEGES befizetéseivel?”
+ *                               Csak a múltbeli befizetésektől függ → IDŐBEN ÁLLANDÓ.
+ *   ELÉRHETŐ  (attainable)    — „ha `asOf`-kor fizetne, mennyibe kerülne?”
+ *                               A még LE NEM JÁRT ablakok legolcsóbbika.
+ *
+ *   elvárt = min(megszerzett, elérhető)
+ *
+ * MIÉRT ÍGY (Szőcs Endre kérése: „ha még a kedvezményes időszakban vagyunk, vegye
+ * figyelembe, melyik időszakban vagyunk”): eddig a kedvezmény CSAK akkor járt, ha a
+ * tag már ki is fizette — aki januárban még nem fizetett, annál a teljes díj állt,
+ * pedig javában a kedvezményes ablakban voltunk.
+ *
+ * A CSAPDA, amit ez a szerkezet kizár: ha naivan „a mai nap ára” lenne az elvárás,
+ * akkor aki január 15-én kifizette a 160-at, november 16-án hirtelen 60 lej
+ * tartozást kapna (elvárt 220 − fizetett 160). Ez minden korán fizetőnél, minden év
+ * november 2-től bekövetkezne. A `min` ezt SZERKEZETILEG zárja ki: a `megszerzett`
+ * konstans, az `elérhető` az idővel monoton nem csökken, tehát a minimumuk soha nem
+ * emelkedhet a `megszerzett` fölé → aki egyszer megfizette az ablak árát, annak a
+ * tartozása nem fordulhat pozitívba.
+ *
+ * FONTOS (D4): az elérhetőségnél az ablak VÉGE számít (`vég >= asOf`), NEM az, hogy
+ * „a mai nap az ablakban van-e”. A `kezdet` a befizetés BESOROLÁSÁHOZ kell (melyik
+ * ablakban landolt a pénz), az ÁRAZÁSHOZ nem. Különben (a) két ablak közti résnél,
+ * és (b) a jövő évi nézetben (ahol az ablakok még el sem kezdődtek) hamis teljes díj
+ * villanna. Régi évnél minden ablak vége < asOf → elérhető = teljes díj, magától.
+ */
 function getEarlyPaymentAdjustedFee(
   year: number,
   baseFee: number,
   yearSetting: JarulekYearSetting | null,
   discounts: JarulekDiscountRule[],
   relevantPayments: JarulekPaymentLike[],
-  // (B/J6, Endre 2026-06-21) PROSPEKTÍV mód: ha megadva (a Tétel-rögzítő auto-összegénél a beírni
-  // kívánt befizetés DÁTUMA), a korai-fizetés/időszaki kedvezmény NEM a már befizetett összeghez,
-  // hanem ahhoz kötődik, hogy a befizetés dátuma a határidő/ablak ELŐTT van-e. Ha null/undefined
-  // (Tartozás-lista, retrospektív), a régi „csak megfizetve jár" viselkedés marad — bit-azonos.
-  prospectiveDate?: Date | null,
+  /**
+   * Mely NAPRA árazunk?
+   *  - Tétel-rögzítő: a beírni kívánt befizetés dátuma („ha ekkor fizet, mennyi?”)
+   *  - Tartozás-lista: a MAI nap (a szervertől, Europe/Bucharest szerint)
+   *  - null/undefined: nincs prospektív árazás → csak a `megszerzett` számít
+   *    (a 2026-07-16 előtti viselkedés, a régi hívók bit-azonosan működnek tovább).
+   */
+  asOfDate?: Date | null,
 ) {
-  let bestAmount = baseFee
-  const labels: string[] = []
+  // ── 1) MEGSZERZETT — csak a tényleges befizetésekből, időben állandó ──────────
+  let earned = baseFee
+  let earnedLabel: string | null = null
 
   const defaultDiscountAmount = normalizeAmount(yearSetting?.jarulek_kedvezmenyes)
   const defaultDeadline = parseMonthDay(year, yearSetting?.jarulek_hatarid)
   if (defaultDiscountAmount > 0 && defaultDeadline) {
-    const earlyOk = prospectiveDate
-      ? prospectiveDate.getTime() <= defaultDeadline.getTime() + 24 * 60 * 60 * 1000 - 1 // a határidő napja is jár
-      : sumPaymentsUntil(relevantPayments, defaultDeadline) >= defaultDiscountAmount
-    if (earlyOk && defaultDiscountAmount < bestAmount) {
-      bestAmount = defaultDiscountAmount
-      labels.length = 0
-      labels.push(`Kedvezményes határidő (${yearSetting?.jarulek_hatarid})`)
+    const paidByDeadline = sumPaymentsUntil(relevantPayments, defaultDeadline)
+    if (paidByDeadline >= defaultDiscountAmount && defaultDiscountAmount < earned) {
+      earned = defaultDiscountAmount
+      earnedLabel = `Kedvezményes határidő (${formatMonthDay(yearSetting?.jarulek_hatarid)})`
     }
   }
 
-  discounts
-    .filter((discount) => discount.tipus === 'idoszak' && discount.aktiv)
-    .forEach((discount) => {
-      const deadline = parseMonthDay(year, discount.hatarid)
-      if (!deadline) return
+  // ── 2) ELÉRHETŐ — a még le nem járt ablakok legolcsóbbika ─────────────────────
+  let attainable = baseFee
+  let attainableLabel: string | null = null
 
-      // 2026-06-05: dátum-tartomány. Ha van kezdő dátum, a befizetésnek a
-      // [kezdet, hatarid] ablakba kell esnie. Ha nincs, az alsó határ nyitott
-      // (régi viselkedés). Az ablak végét egy nappal kiterjesztjük (a vég-nap
-      // is beleszámít, 23:59-ig).
-      const windowStart = parseMonthDay(year, discount.kezdet)
-      const windowEnd = new Date(deadline.getTime() + 24 * 60 * 60 * 1000 - 1)
+  if (asOfDate && defaultDiscountAmount > 0 && defaultDeadline) {
+    // A határidő NAPJA is jár (23:59:59-ig).
+    const deadlineEnd = new Date(defaultDeadline.getTime() + 24 * 60 * 60 * 1000 - 1)
+    if (asOfDate.getTime() <= deadlineEnd.getTime() && defaultDiscountAmount < attainable) {
+      attainable = defaultDiscountAmount
+      attainableLabel = `Kedvezményes határidő (${formatMonthDay(yearSetting?.jarulek_hatarid)})`
+    }
+  }
 
-      const candidate =
-        discount.kedv_osszeg != null
-          ? normalizeAmount(discount.kedv_osszeg)
-          : discount.szazalek != null
-            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
-            : 0
+  for (const discount of discounts) {
+    if (discount.tipus !== 'idoszak' || !discount.aktiv) continue
 
-      if (candidate <= 0) return
+    const deadline = parseMonthDay(year, discount.hatarid)
+    if (!deadline) continue
 
-      const inWindow = prospectiveDate
-        ? (windowStart ? prospectiveDate >= windowStart : true) && prospectiveDate <= windowEnd
-        : sumPaymentsInRange(relevantPayments, windowStart, windowEnd) >= candidate
-      if (inWindow && candidate < bestAmount) {
-        bestAmount = candidate
-        labels.length = 0
-        labels.push(
-          windowStart
-            ? `Időszaki kedvezmény (${discount.kezdet}–${discount.hatarid})`
-            : `Időszaki kedvezmény (${discount.hatarid})`,
-        )
-      }
-    })
+    const price = getWindowPrice(discount, baseFee)
+    if (price == null) continue
 
-  return { amount: bestAmount, labels }
+    // A kezdet a BESOROLÁSHOZ kell; ha nincs, az alsó határ nyitott (régi viselkedés).
+    const windowStart = parseMonthDay(year, discount.kezdet)
+    const windowEnd = new Date(deadline.getTime() + 24 * 60 * 60 * 1000 - 1)
+    const label = discount.kezdet
+      ? `Időszaki kedvezmény (${formatMonthDayRange(discount.kezdet, discount.hatarid)})`
+      : `Időszaki kedvezmény (${formatMonthDay(discount.hatarid)})`
+
+    // MEGSZERZETT: befizetett-e eleget EBBEN az ablakban?
+    if (sumPaymentsInRange(relevantPayments, windowStart, windowEnd) >= price && price < earned) {
+      earned = price
+      earnedLabel = label
+    }
+
+    // ELÉRHETŐ: az ablak még NEM járt le (a `kezdet` itt szándékosan nem számít).
+    if (asOfDate && asOfDate.getTime() <= windowEnd.getTime() && price < attainable) {
+      attainable = price
+      attainableLabel = label
+    }
+  }
+
+  // ── 3) A kedvezőbb nyer ───────────────────────────────────────────────────────
+  const amount = Math.min(earned, attainable)
+  // Egyenlőségnél a MEGSZERZETT címkéje nyer: az már tény, nem lehetőség.
+  const label = earned <= attainable ? earnedLabel : attainableLabel
+  return { amount, labels: label ? [label] : [] }
 }
 
 export function computeJarulekForMemberYear(params: {
@@ -344,12 +415,25 @@ export function computeJarulekForMemberYear(params: {
   discounts: JarulekDiscountRule[]
   exemptions: JarulekExemption[]
   payments: JarulekPaymentLike[]
-  // (B/J6) PROSPEKTÍV mód a Tétel-rögzítő auto-összegéhez: a beírni kívánt befizetés dátuma. Ha
-  // megadva, a korai-fizetés/időszaki kedvezmény a dátum alapján jár (nem a már befizetett alapján).
-  // A Tartozás-lista NE adja meg → ott bit-azonos marad a viselkedés.
+  /**
+   * (B/J6) A Tétel-rögzítő auto-összegéhez: a beírni kívánt befizetés DÁTUMA
+   * („ha ekkor fizet, mennyi?”).
+   *
+   * 2026-07-16: ez már nem hagyja figyelmen kívül a MÁR befizetett összeget — a
+   * motor a `min(megszerzett, elérhető)`-t adja. Ez egyben megszüntet egy élő
+   * hibát: a jan. 15-én 160-at fizető tagnak nov. 15-én 60 lejt ajánlott fel.
+   */
   prospectiveDate?: Date | null
+  /**
+   * 2026-07-16 — a MAI nap (a szervertől, Europe/Bucharest szerint), hogy a
+   * Tartozás-lista az AKTUÁLIS kedvezményes időszak árát mutassa a még nem
+   * fizetőknél is. Ha nincs megadva, a 2026-07-16 előtti viselkedés marad
+   * (csak a már megfizetett kedvezmény jár) — a régi hívók bit-azonosak.
+   * A `prospectiveDate` erősebb: ha az meg van adva, azt árazzuk.
+   */
+  asOfDate?: Date | null
 }) {
-  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions, payments, prospectiveDate } = params
+  const { member, year, currentYear, debtCalcMode, yearSettings, discounts, exemptions, payments, prospectiveDate, asOfDate } = params
 
   if (isExemptForYear(member.id, member.familyId, exemptions, year)) {
     return {
@@ -410,7 +494,17 @@ export function computeJarulekForMemberYear(params: {
   // A kor- és foglalkozás-alapú kedvezmény közül a kedvezőbb (kisebb) megy
   // tovább az időszaki (early-payment) számításba.
   const bestBeforeEarly = Math.min(ageAdjusted.amount, occupationAdjusted.amount)
-  const earlyAdjusted = getEarlyPaymentAdjustedFee(year, bestBeforeEarly, setting, activeDiscounts, relevantPayments, prospectiveDate)
+  // A `prospectiveDate` erősebb: ha a Tétel-rögzítő megadta a beírni kívánt befizetés
+  // dátumát, ARRA a napra árazunk; egyébként a MAI napra (asOfDate). Ha egyik sincs,
+  // marad a régi „csak megfizetve jár" viselkedés.
+  const earlyAdjusted = getEarlyPaymentAdjustedFee(
+    year,
+    bestBeforeEarly,
+    setting,
+    activeDiscounts,
+    relevantPayments,
+    prospectiveDate ?? asOfDate ?? null,
+  )
 
   const expected = Math.min(baseFee, ageAdjusted.amount, occupationAdjusted.amount, earlyAdjusted.amount)
   const appliedRules = [...ageAdjusted.labels, ...occupationAdjusted.labels, ...earlyAdjusted.labels]

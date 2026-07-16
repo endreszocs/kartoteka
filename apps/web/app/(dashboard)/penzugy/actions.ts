@@ -51,6 +51,7 @@ import { inventoryItemSchema } from '@/lib/validations/inventory'
 import { INVENTORY_CATEGORY_PREFIXES, serializeInventoryCategory } from '@/lib/constants/inventory.next'
 import {
   computeJarulekForMemberYear,
+  todayInBucharest,
   JARULEK_MINOR_RULE,
   type JarulekDiscountRule,
   type JarulekExemption,
@@ -1322,6 +1323,12 @@ export async function initFinance(year: number) {
     )
   }
 
+  // 2026-07-16: a korai-fizetési kedvezmény az AKTUÁLIS időszak árát mutassa a még
+  // nem fizetőknél is (eddig csak akkor járt, ha már ki is fizette). A „ma" a
+  // SZERVERTŐL jön, Europe/Bucharest szerint — nem a klienstől, mert az eltérő
+  // szerver/kliens összeget és elállított gépóránál hibás számlázást adna.
+  const asOfDate = todayInBucharest()
+
   const debtRows: DebtRow[] = ((membersRes.data || []) as Array<{
     id: number
     csaladnev: string | null
@@ -1348,6 +1355,7 @@ export async function initFinance(year: number) {
         discounts,
         exemptions,
         payments: maintenancePayments,
+        asOfDate,
       })
 
       // A `prefix` oszlop nem létezik a `szemely`-en — a desktop is [csaladnev, k_nev]-ből
