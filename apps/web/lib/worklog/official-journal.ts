@@ -1,7 +1,8 @@
 // 2026-07-16 (F3): Hivatalos nyomtatott munkanapló — A4 fekvő HTML-generátor.
 //
 // A 2022-es hivatalos nyomtatvány („I. Igehirdetési alkalmak") hű HTML-mása:
-// 19 oszlop, kétszintű fejléc, HÓNAPONKÉNT KÜLÖN LAP, hó végi + éves összesítő.
+// 19 oszlop, kétszintű fejléc, HÓNAPONKÉNT KÜLÖN LAP, hó végi összesítő +
+// éves összesítő (utóbbi csak teljes évnél — hónap-szűrésnél félrevezető lenne).
 // A jelenlét (F/N) mindig a classifyForOfficialJournal (print-columns.ts)
 // által kijelölt oszlop-cellába kerül — determinisztikus típus→oszlop leképezés.
 //
@@ -121,6 +122,13 @@ function leafValues(e: WorklogEntry, p: JournalPlacement): Partial<Record<LeafKe
   const f = e.jelenlet_ferfi || 0
   const n = e.jelenlet_no || 0
   const osszes = f + n
+  // Az ÖSSZEVONT (egycellás) oszlopok fallbackje: ha nincs F/N-bontás rögzítve
+  // (pl. importált sorok — 'Ifjúsági óra' — csak összlétszámot hordoznak a
+  // jelenlet_osszesen mezőben), az összlétszámra esünk vissza — enélkül a
+  // jelenlétük eltűnne a nyomtatványról és az összesítőből.
+  // Az F/N-bontott oszlopok (7–9. és 11.) SZÁNDÉKOSAN a rögzített F/N értéknél
+  // maradnak: ott nemi bontás kell, és azt nem találjuk ki az összlétszámból.
+  const osszevont = osszes > 0 ? osszes : (e.jelenlet_osszesen || 0)
   switch (p.column) {
     case 'vasarnapi':
       return p.slot === 'du' ? { vas_du_f: f, vas_du_n: n } : { vas_de_f: f, vas_de_n: n }
@@ -129,8 +137,8 @@ function leafValues(e: WorklogEntry, p: JournalPlacement): Partial<Record<LeafKe
     case 'satoros':
       return p.slot === 'du' ? { sat_du_f: f, sat_du_n: n } : { sat_de_f: f, sat_de_n: n }
     case 'bunbanati':
-      // Megkötés: a bűnbánati cellába az össz-jelenlét (F+N) kerül, Reggel VAGY Este.
-      return p.slot === 'este' ? { bun_este: osszes } : { bun_reggel: osszes }
+      // Megkötés: a bűnbánati cellába az össz-jelenlét (F+N, fallback: összesen) kerül, Reggel VAGY Este.
+      return p.slot === 'este' ? { bun_este: osszevont } : { bun_reggel: osszevont }
     case 'hetkoznapi':
       return { het_f: f, het_n: n }
     case 'urvacsora': {
@@ -149,16 +157,16 @@ function leafValues(e: WorklogEntry, p: JournalPlacement): Partial<Record<LeafKe
       return out
     }
     case 'bibliaora':
-      return p.slot === 'ifjusagi' ? { bib_ifjusagi: osszes } : { bib_felnott: osszes }
-    // 14–17. oszlop: össz-jelenlét (F+N) egyetlen cellába.
+      return p.slot === 'ifjusagi' ? { bib_ifjusagi: osszevont } : { bib_felnott: osszevont }
+    // 14–17. oszlop: össz-jelenlét (F+N, fallback: összesen) egyetlen cellába.
     case 'presbiteri':
-      return { presbiteri: osszes }
+      return { presbiteri: osszevont }
     case 'noszovetsegi':
-      return { noszovetsegi: osszes }
+      return { noszovetsegi: osszevont }
     case 'unnepely':
-      return { unnepely: osszes }
+      return { unnepely: osszevont }
     case 'egyeb':
-      return { egyeb: osszes }
+      return { egyeb: osszevont }
   }
 }
 
@@ -314,7 +322,7 @@ function monthSheetHtml(
   year: number,
   month: number,
   monthRows: JournalRow[],
-  isLast: boolean,
+  showAnnual: boolean,
   yearSums: JournalSums,
 ): string {
   const monthName = HONAP_NEV[month - 1] || String(month)
@@ -324,8 +332,9 @@ function monthSheetHtml(
     `Gyermekek összesen (${monthName.toLowerCase()})`,
     sumRows(monthRows),
   )
-  // Az utolsó lap alján éves összesítő blokk (az egész év soraiból számolva).
-  const annualTotals = isLast
+  // Az utolsó lap alján éves összesítő blokk (az egész év soraiból számolva) —
+  // csak teljes évnél (a hívó dönt: hónap-szűrésnél nem kerül ki).
+  const annualTotals = showAnnual
     ? totalsRowsHtml('Éves összesen:', 'Gyermekek összesen (egész évben)', yearSums, 'annual')
     : ''
   return `<section class="sheet">
@@ -369,6 +378,10 @@ export function buildOfficialMunkanaploHtml(opts: OfficialJournalOptions): strin
     ? Array.from(new Set(opts.months)).filter((m) => m >= 1 && m <= 12).sort((a, b) => a - b)
     : monthsWithRows
 
+  // Éves összesítő CSAK teljes évnél (opts.months nélkül): hónap-szűrt
+  // nyomtatásnál félrevezető lenne — a látható soroknál többet összegezne.
+  const isFullYear = !opts.months || opts.months.length === 0
+
   const yearSums = sumRows(rows)
   const sheets = monthsToRender
     .map((m, idx) =>
@@ -377,7 +390,7 @@ export function buildOfficialMunkanaploHtml(opts: OfficialJournalOptions): strin
         year,
         m,
         rows.filter((r) => r.month === m),
-        idx === monthsToRender.length - 1,
+        isFullYear && idx === monthsToRender.length - 1,
         yearSums,
       ),
     )

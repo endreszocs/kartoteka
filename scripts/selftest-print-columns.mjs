@@ -171,6 +171,10 @@ const classifyCases = [
   ['Temetés', entry('Temetés', '2026-03-18'), 'egyeb', null],
   ['Imahét (vasárnap is!)', entry('Imahét', '2026-03-15'), 'egyeb', null],
   ['Egyéb szolgálat', entry('Egyéb szolgálat', '2026-03-18'), 'egyeb', null],
+  // (g½) legacy tartalmazás-tesztek — a (h) ág NEM nyelheti el őket
+  // (vasárnapi dátumon is az úrvacsora/bűnbánati oszlopba kell esniük)
+  ['legacy „Úrvacsorai istentisztelet" (vasárnap!)', entry('Úrvacsorai istentisztelet', '2026-03-15', { napszak: 'de' }), 'urvacsora', 'templomban'],
+  ['legacy „Bűnbánati istentisztelet (nagyheti)" este', entry('Bűnbánati istentisztelet (nagyheti)', '2026-04-01', { napszak: 'este' }), 'bunbanati', 'este'],
   // ismeretlen / nem-istentiszteleti típusok
   ['ismeretlen jellege', entry('Hittan', '2026-03-15'), 'egyeb', null],
   ['üres jellege', entry(null, '2026-03-15'), 'egyeb', null],

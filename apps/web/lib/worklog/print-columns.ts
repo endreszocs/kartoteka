@@ -19,6 +19,11 @@
 //  (f) 'Vallásos ünnepély'                            → unnepely
 //  (g) kazuáliák + 'Imahét' + 'Egyéb szolgálat'
 //      (Keresztelő/Esketés/Temetés/Konfirmáció)       → egyeb
+//  (g½) legacy tartalmazás-tesztek (kisbetű + ékezet-normalizált), a (h) ELŐTT:
+//      jellege tartalmazza az 'úrvacsora' szót        → urvacsora / templomban
+//      jellege tartalmazza a 'bűnbánat' szótövet      → bunbanati (reggel/este)
+//      — pl. 'Úrvacsorai istentisztelet', 'Bűnbánati istentisztelet (nagyheti)'
+//      különben a (h) ág vasárnapi/hétköznapi oszlopba sorolná őket.
 //  (h) istentiszteleti alkalmak (Istentisztelet, Igehirdetés, Imaóra,
 //      Esti áhítat, Alkalmi istentisztelet + minden legacy szabad-szöveg,
 //      amiben 'istentisztelet'/'igehirdetés'/'imaóra'/'áhítat' szerepel):
@@ -164,6 +169,12 @@ function resolveNapszak(entry: Pick<WorklogEntry, 'napszak' | 'du'>): 'de' | 'du
   return entry.napszak ?? (entry.du ? 'du' : 'de')
 }
 
+/** Kisbetűs + ékezet-mentes normalizálás a legacy tartalmazás-tesztekhez. */
+function normalizeForMatch(jellege: string): string {
+  // NFD-bontás után a kombináló ékezet-jelek (U+0300–U+036F) eltávolítása.
+  return jellege.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
 /** Legacy szabad-szöveges típusok felismerése az istentiszteleti (h) ághoz. */
 function looksLikeIstentisztelet(jellege: string): boolean {
   const j = jellege.toLowerCase()
@@ -205,6 +216,15 @@ export function classifyForOfficialJournal(entry: WorklogEntry): JournalPlacemen
 
   // (g) kazuáliák + Imahét + Egyéb szolgálat — 17. oszlop
   if (EGYEB_TYPES.has(jellege)) return { column: 'egyeb', slot: null }
+
+  // (g½) legacy tartalmazás-tesztek — a (h) ág ELŐTT, különben pl. az
+  // 'Úrvacsorai istentisztelet' / 'Bűnbánati istentisztelet (nagyheti)'
+  // szabad-szöveges változatok a vasárnapi/hétköznapi oszlopba csúsznának.
+  const normalized = normalizeForMatch(jellege)
+  if (normalized.includes('urvacsora')) return { column: 'urvacsora', slot: 'templomban' }
+  if (normalized.includes('bunbanat')) {
+    return { column: 'bunbanati', slot: resolveNapszak(entry) === 'de' ? 'reggel' : 'este' }
+  }
 
   // (h) istentiszteleti alkalmak: ünnep → vasárnap → hétköznap
   if (ISTENTISZTELETI_TYPES.has(jellege) || (jellege !== '' && looksLikeIstentisztelet(jellege))) {

@@ -32,7 +32,7 @@ import {
 } from '@/lib/worklog/reporting'
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
-import type { WorklogEntry } from '@/lib/constants/worklog'
+import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
 import { isJournalEntry } from '@/lib/worklog/official-journal'
 import { getWorklogsForYear } from '@/app/(dashboard)/munkanaplo/actions'
 
@@ -105,9 +105,12 @@ export function WorklogPrintDialog({
     [printType, entries, congregationName, filters],
   )
 
-  // Szűrt bejegyzések száma az előnézethez — a hivatalos munkanaplónál csak a
-  // naplóba kerülő sorok számítanak (isJournalEntry: szolgálat + ifjúsági
-  // bibliaóra), a többi nyomtatványnál minden kategória.
+  // Szűrt bejegyzések száma az előnézethez — nyomtatványonként UGYANAZT a
+  // sorhalmazt számoljuk, ami a nyomtatványra is kerül:
+  //  - hivatalos munkanapló: isJournalEntry (szolgálat + ifjúsági bibliaóra),
+  //  - szolgálati/katekétikai/diakóniai összesítő: a saját kategóriája
+  //    (categorizeWorklogEntry — a reporting.ts is ezzel szűr),
+  //  - éves jelentés: minden kategória.
   const filteredCount = useMemo(() => {
     return entries.filter((e) => {
       if (e.deleted) return false
@@ -115,6 +118,9 @@ export function WorklogPrintDialog({
       if (!d.startsWith(String(selectedYear))) return false
       if (selectedMonth && !d.startsWith(selectedMonth)) return false
       if (printType === 'hivatalos_munkanaplo') return isJournalEntry(e)
+      if (printType === 'szolgalati_osszesito') return categorizeWorklogEntry(e) === 'szolgalat'
+      if (printType === 'kateketikai_osszesito') return categorizeWorklogEntry(e) === 'katekezis'
+      if (printType === 'diakoniai_osszesito') return categorizeWorklogEntry(e) === 'latogatas'
       return true
     }).length
   }, [entries, selectedYear, selectedMonth, printType])
