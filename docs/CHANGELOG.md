@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — A Tartozások lista és az éves jelentés lélekszáma némán üres volt
+<!-- key: 2026-07-16-szemely-select-nem-letezo-oszlop -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.78 -->
+
+### 🐛 Pénzügy + Éves jelentés — üres listák
+
+- **A Pénzügy → Tartozások lista üres volt, akkor is, ha voltak hátralékos tagok.** A tagok
+  lekérdezése két olyan mezőt kért az adatbázistól, ami nem létezik, ezért a lekérdezés hibára
+  futott — a hibát viszont a rendszer némán elnyelte, és üres listát mutatott hiba helyett.
+  Mostantól a lista helyesen töltődik.
+
+- **Az éves jelentés lélekszám-rubrikája mindig 0-t mutatott** — ugyanezen okból. Mostantól a
+  valós tagszámot jelenti.
+
+- **A hiba mostantól nem tud némán elveszni:** ha a lekérdezés bármikor újra elromlik, a
+  rendszer naplózza, ahelyett hogy csendben üres listát adna.
+
+- Megjegyzés: a tétel rögzítésekor felajánlott járulék-összeg **nem volt érintve** — az egy
+  másik lekérdezési úton számol, ezért az mindvégig helyesen működött.
+
+---
+
 ## [2026-07-16] — Az egyházfenntartói járulék mostantól 18 éves kortól számol
 <!-- key: 2026-07-16-jarulek-18-eves-korhatar -->
 <!-- category: bugfix -->

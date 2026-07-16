@@ -236,9 +236,14 @@ export async function buildAnnualReportData(
     // Kazuáliák (a B4.5-ös aggregátorral)
     getScopeVitalStats(supabase, [congregationId], year),
     // Lélekszám (2026-06-10, átvilágítás P2-1): aktív nyilvántartott tagok
+    // 2026-07-16 (P0 JAVÍTÁS): a select egy NEM LÉTEZŐ oszlopot kért (`elkoltozott`).
+    // A `szemely`-nek nincs ilyen oszlopa (az külön TÁBLA, id_szemely FK-val) — a
+    // költözés a `member_status`-ban van kódolva. A hibás select miatt a lekérdezés
+    // hibára futott, a `szemelyRes.data` null lett, a lenti `|| []` pedig üres tömbre
+    // esett vissza → AZ ÉVES JELENTÉS LÉLEKSZÁMA MINDIG 0 VOLT.
     supabase
       .from('szemely')
-      .select('meghalt, elkoltozott, member_status')
+      .select('meghalt, member_status')
       .eq('congregation_id', congregationId)
       .eq('isvisible', true),
   ])
@@ -267,10 +272,14 @@ export async function buildAnnualReportData(
 
   // Lélekszám (2026-06-10, átvilágítás P2-1): élő, el nem költözött, ki nem
   // tért, nem törölt látható tagok száma — az I. szekció hivatalos rubrikája.
-  type SzemelyLite = { meghalt: boolean | null; elkoltozott: boolean | null; member_status: string | null }
+  type SzemelyLite = { meghalt: boolean | null; member_status: string | null }
+  if (szemelyRes.error) {
+    // Némán 0 lélekszámot jelenteni rosszabb, mint hangosan hibázni — a rubrika
+    // hivatalos adat. Legalább a szerver-logban legyen nyoma.
+    console.error('[annual-report] A lélekszám lekérdezése HIBÁRA FUTOTT — 0-t fog jelenteni!', szemelyRes.error)
+  }
   const lelekszam = ((szemelyRes.data || []) as SzemelyLite[]).filter(s =>
     !s.meghalt
-    && !s.elkoltozott
     && !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
   ).length
 
