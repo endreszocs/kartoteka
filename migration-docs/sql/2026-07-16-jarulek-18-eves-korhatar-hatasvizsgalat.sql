@@ -27,8 +27,9 @@ WITH elo_tagok AS (
   WHERE s.congregation_id = '43cff37f-1131-4c79-8082-0e8af61cf40a'
     AND s.isvisible = true
     AND COALESCE(s.meghalt, false) = false
-    AND COALESCE(s.elkoltozott, false) = false
-    AND COALESCE(s.member_status, '') <> 'kitért'
+    -- FIGYELEM: a szemely-nek NINCS `elkoltozott` oszlopa (az kulon tabla) —
+    -- a koltozes/kiteres a member_status-ban van kodolva.
+    AND COALESCE(s.member_status, '') NOT IN ('elkoltozott', 'elköltözött', 'kitért', 'kitert', 'elhunyt', 'törölt')
 )
 SELECT
   count(*)                                                   AS elo_tagok_osszesen,
@@ -50,7 +51,7 @@ FROM public.szemely s
 WHERE s.congregation_id = '43cff37f-1131-4c79-8082-0e8af61cf40a'
   AND s.isvisible = true
   AND COALESCE(s.meghalt, false) = false
-  AND COALESCE(s.elkoltozott, false) = false
+  AND COALESCE(s.member_status, '') NOT IN ('elkoltozott', 'elköltözött', 'kitért', 'kitert', 'elhunyt', 'törölt')
   AND (s.sz_datum IS NULL OR EXTRACT(YEAR FROM s.sz_datum)::int < 1900)
 ORDER BY s.csaladnev, s.k_nev;
 
@@ -99,7 +100,7 @@ WHERE b.congregation_id = '43cff37f-1131-4c79-8082-0e8af61cf40a'
   AND s.congregation_id = '43cff37f-1131-4c79-8082-0e8af61cf40a'
   AND s.isvisible = true
   AND COALESCE(s.meghalt, false) = false
-  AND COALESCE(s.elkoltozott, false) = false
+  AND COALESCE(s.member_status, '') NOT IN ('elkoltozott', 'elköltözött', 'kitért', 'kitert', 'elhunyt', 'törölt')
   AND b.id ~ '^[0-9]{4}$'
 GROUP BY b.id, b.eves_jarulek
 ORDER BY b.id DESC;

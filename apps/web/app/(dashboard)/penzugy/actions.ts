@@ -82,6 +82,31 @@ import {
 // szerveroldalon hívja a beküldést — server action server actionből hívható.
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
 
+// ── Tag-státusz segéd ────────────────────────────────────────
+
+/**
+ * 2026-07-16: a `szemely`-nek NINCS `elkoltozott` boolean oszlopa (az egy külön
+ * TÁBLA, id_szemely FK-val) — a költözés/kitérés a `member_status` szövegmezőben
+ * van kódolva. A korábbi `!member.elkoltozott` szűrő ezért egy nem létező oszlopra
+ * hivatkozott, ami a teljes member-selectet elrontotta.
+ *
+ * Mindkét írásmódot felsoroljuk, mert az éles adatban 'elköltözött' és
+ * 'elkoltozott' is előfordul (a tagnyilvántartás ékezet-érzéketlenül normalizál,
+ * a desktop explicit listát használ — itt a listás megoldás a félreérthetetlenebb).
+ * A kizárt halmaz megegyezik a desktopéval (finance-debt-compute.ts).
+ */
+const EXCLUDED_MEMBER_STATUSES = new Set([
+  'elkoltozott', 'elköltözött',
+  'kitert', 'kitért',
+  'torolt', 'törölt',
+  'elhunyt',
+])
+
+function isExcludedMemberStatus(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  return EXCLUDED_MEMBER_STATUSES.has(normalized)
+}
+
 // ── Profil segéd ─────────────────────────────────────────────
 
 async function getProfileCongregation() {
@@ -980,9 +1005,16 @@ export async function initFinance(year: number) {
     supabase.from('befizetes').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congregationId),
+    // 2026-07-16 (P0 JAVÍTÁS): a select KÉT NEM LÉTEZŐ oszlopot kért — `prefix` és
+    // `elkoltozott`. A `szemely`-nek egyik sem oszlopa (information_schema-val
+    // igazolva az éles DB-n): az `elkoltozott` KÜLÖN TÁBLA (id_szemely FK-val), a
+    // költözés pedig a `member_status`-ban van kódolva. A hibás select miatt a
+    // PostgREST hibát adott, a `membersRes.data` null lett, a lenti
+    // `(membersRes.data || [])` pedig üres tömbre esett vissza → a TARTOZÁSOK
+    // LISTA VÉGIG ÜRES VOLT élesben. Némán, mert a hibát senki nem nézte meg.
     supabase
       .from('szemely')
-      .select('id, csaladnev, k_nev, prefix, sz_datum, foglalkozas, meghalt, elkoltozott, member_status')
+      .select('id, csaladnev, k_nev, sz_datum, foglalkozas, meghalt, member_status')
       .eq('congregation_id', congregationId)
       .eq('isvisible', true),
     supabase
@@ -1280,18 +1312,26 @@ export async function initFinance(year: number) {
     fix_osszeg: row.fix_osszeg == null ? null : Number(row.fix_osszeg) || 0,
   }))
 
+  // 2026-07-16: a member-lekérdezés hibáját EDDIG SENKI NEM NÉZTE MEG — emiatt egy
+  // elgépelt oszlopnév némán üres tartozás-listát okozott (lásd a select fölötti
+  // megjegyzést). Legalább a szerver-logban legyen nyoma, ha újra elromlik.
+  if (membersRes.error) {
+    console.error(
+      '[initFinance] A tagok lekérdezése HIBÁRA FUTOTT — a Tartozások lista üres lesz!',
+      membersRes.error,
+    )
+  }
+
   const debtRows: DebtRow[] = ((membersRes.data || []) as Array<{
     id: number
     csaladnev: string | null
     k_nev: string | null
-    prefix: string | null
     sz_datum: string | null
     foglalkozas: string | null
     meghalt: boolean | null
-    elkoltozott: boolean | null
     member_status: string | null
   }>)
-    .filter((member) => !member.meghalt && !member.elkoltozott && member.member_status !== 'kitért')
+    .filter((member) => !member.meghalt && !isExcludedMemberStatus(member.member_status))
     .map((member) => {
       const familyId = personToFamilyMap[member.id] ?? null
       const result = computeJarulekForMemberYear({
@@ -1310,7 +1350,9 @@ export async function initFinance(year: number) {
         payments: maintenancePayments,
       })
 
-      const nameParts = [member.prefix, member.csaladnev, member.k_nev].filter(Boolean)
+      // A `prefix` oszlop nem létezik a `szemely`-en — a desktop is [csaladnev, k_nev]-ből
+      // építi a nevet (finance-debt-compute.ts), így a két kiadás neve is egyezik.
+      const nameParts = [member.csaladnev, member.k_nev].filter(Boolean)
       // 2026-07-16: a kiskorúság ELŐBB dől el, mint a „felmentett”. Az `expected === 0`
       // önmagában nem elég: a 18 alatti tagra is 0 az elvárás, de ő NEM felmentett
       // (az a `felmentes` tábla szerinti presbitériumi döntés). A motor saját
