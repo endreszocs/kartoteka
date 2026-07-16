@@ -1,9 +1,28 @@
 export const WORKLOG_CATEGORIES = ['szolgalat', 'katekezis', 'latogatas'] as const
 export type WorklogCategory = typeof WORKLOG_CATEGORIES[number]
 
+// 2026-07-11: közös persely/RON-formázó — a munkanapló minden pénz-kiírása
+// (fülek, év-összkép, jelentés) ezt használja. Kimenet: '1 234,56'.
+const RON_FORMAT = new Intl.NumberFormat('hu-HU', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+export function formatRon(n: number): string {
+  return RON_FORMAT.format(Number(n) || 0)
+}
+
 export const WORKLOG_CATEGORY_LABELS: Record<WorklogCategory, string> = {
   szolgalat: 'Szolgálat', katekezis: 'Katekézis', latogatas: 'Látogatás',
 }
+
+// 2026-07-11 (F2): napszak-opciók — a legacy `du` boolean finomítása.
+// Adat-kontraktus: du = napszak === 'du' (a mentés szinkronban tartja).
+export const NAPSZAK_OPTIONS = [
+  { value: 'de', label: 'Délelőtt' },
+  { value: 'du', label: 'Délután' },
+  { value: 'este', label: 'Este' },
+] as const
 
 // 2026-06-12 (Endre #3-4 munkanapló): a kazuáliák (Keresztelő, Esketés,
 // Temetés, Konfirmáció) bekerültek a szolgálati típusok közé — az anyakönyvi
@@ -65,6 +84,11 @@ export interface WorklogEntry {
   megjegyzes: string | null
   mediapath: string | null
   du: boolean
+  // 2026-07-11 (F2): új oszlopok (migráció: napszak + úrvacsorázók) — régi
+  // sorokon / még nem migrált DB-n hiányozhatnak, ezért opcionálisak.
+  napszak?: 'de' | 'du' | 'este' | null
+  uv_templomban?: number | null
+  uv_betegnel?: number | null
   deleted: boolean
   congregation_id: string | null
 }

@@ -9,6 +9,7 @@ import {
   Info,
   ListChecks,
   Printer,
+  Table2,
   Users,
 } from 'lucide-react'
 
@@ -21,7 +22,8 @@ interface HelpCategory {
 
 const CATEGORIES: HelpCategory[] = [
   { id: 'general', label: 'Általános', Icon: Info, short: 'Mit szolgál a Munkanapló' },
-  { id: 'service', label: 'Igehirdetés', Icon: BookOpen, short: 'Szolgálati alkalmak rögzítése' },
+  { id: 'table', label: 'Táblázatos rögzítés', Icon: Table2, short: 'Gyors bevitel, okos mezők' },
+  { id: 'service', label: 'Szolgálat', Icon: BookOpen, short: 'Szolgálati alkalmak rögzítése' },
   { id: 'catechesis', label: 'Katekézis', Icon: ListChecks, short: 'Hittan, bibliaóra, ifjúság' },
   { id: 'visits', label: 'Látogatás', Icon: Heart, short: 'Családlátogatás, kórház, idősek' },
   { id: 'fields', label: 'Bejegyzés-mezők', Icon: ClipboardCheck, short: 'Kötelező és opcionális adatok' },
@@ -81,6 +83,7 @@ export function MunkanaploHelp() {
 
           <div className="space-y-5 text-sm leading-relaxed text-slate-700">
             {active === 'general' && <GeneralContent />}
+            {active === 'table' && <TableContent />}
             {active === 'service' && <ServiceContent />}
             {active === 'catechesis' && <CatechesisContent />}
             {active === 'visits' && <VisitsContent />}
@@ -109,11 +112,16 @@ function GeneralContent() {
       </p>
       <S>A modul fő részei</S>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Igehirdetés</strong> — istentiszteletek, bibliaórák, áhítatok</li>
+        <li><strong>Szolgálat</strong> — istentiszteletek, bibliaórák, áhítatok</li>
         <li><strong>Katekézis</strong> — hittan, konfirmációi előkészítő, ifjúsági órák</li>
-        <li><strong>Családlátogatás</strong> — családlátogatás, kórház, idősek otthona, börtön</li>
+        <li><strong>Látogatás</strong> — családlátogatás, kórház, idősek otthona, börtön</li>
         <li><strong>Lelkészi jelentés</strong> — havi és éves összesítés exportálással</li>
       </ul>
+      <p>
+        A fülek felett az <strong>év-összkép</strong> mutatja a kiválasztott év
+        alkalmait, átlagjelenlétét, persely-összegét és az úrvacsorázók számát,
+        havi bontású mini-diagrammal.
+      </p>
       <S>Miért fontos?</S>
       <p>
         A lelkészi jelentés a felsőbb egyházi hatóságok felé kötelező — az esperesi hivatal
@@ -124,11 +132,59 @@ function GeneralContent() {
   )
 }
 
+// 2026-07-11 (F2): új szakasz — a táblázatos rögzítő és az okos mezők súgója.
+function TableContent() {
+  return (
+    <>
+      <p>
+        Számítógépen (szélesebb képernyőn) a kategória-fülek alatt egy <strong>táblázatos
+        rögzítő</strong> jelenik meg, ami a hivatalos nyomtatott munkanapló
+        oszloprendjét követi. A sorok <strong>közvetlenül a táblázatban</strong> szerkeszthetők,
+        külön ablak nélkül.
+      </p>
+      <S>Gyors bevitel — Tab és Enter</S>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>A cellák közt a <strong>Tab</strong> billentyűvel lehet lépkedni.</li>
+        <li>Az <strong>Enter</strong> azonnal menti a sort; új sornál a fókusz visszaugrik a dátumra, így folyamatosan lehet diktálni.</li>
+        <li>A sor akkor is mentődik, amikor a fókusz elhagyja (másik sorra kattintás).</li>
+        <li>A még nem mentett (piszkos) sort bal oldali színes szegély jelzi; mentés közben kis pörgő ikon látszik.</li>
+        <li>A táblázat alján <strong>mindig áll egy üres új sor</strong> — a dátum és a jelleg kitöltése után magától mentődik.</li>
+      </ul>
+      <S>Ének-kereső</S>
+      <p>
+        Az <strong>Énekek</strong> mezőben szám vagy szövegrészlet alapján javaslatok
+        jelennek meg az énekeskönyvből — a kiválasztott ének száma bekerül a mezőbe,
+        vesszővel folytatható a következő. A felismert énekek címe a mező alatt
+        (táblázatban tooltipben) látható.
+      </p>
+      <S>Igevers-előnézet</S>
+      <p>
+        Az <strong>Alapige</strong> és a <strong>Bibliaolvasás</strong> mező gépelés közben
+        ellenőrzi a hivatkozást, és kanonikus alakra igazítja (pl. „jn 3 16” → „Jn 3,16”).
+        Érvényes hivatkozásnál a könyv-ikonra kattintva megnyílik a
+        <strong> Károli-szöveg előnézete</strong>.
+      </p>
+      <S>Napszak és úrvacsorázók</S>
+      <p>
+        Szolgálati alkalomnál rögzíthető a <strong>napszak</strong> (délelőtt / délután / este),
+        valamint az <strong>úrvacsorázók</strong> száma templomban és betegeknél — ezek az
+        év-összképben és a jelentésekben is megjelennek.
+      </p>
+      <S>Telefonon</S>
+      <p>
+        Kis képernyőn a kártyás lista és az „Új bejegyzés” gombbal nyíló
+        <strong> rögzítő ablak</strong> az elsődleges út — ugyanabba az adatbázisba ment,
+        mint a táblázat.
+      </p>
+    </>
+  )
+}
+
 function ServiceContent() {
   return (
     <>
       <p>
-        Az <strong>Igehirdetés</strong> fülön a szolgálati alkalmakat rögzíted. 12 típus érhető el:
+        A <strong>Szolgálat</strong> fülön a szolgálati alkalmakat rögzíted. 12 típus érhető el:
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>Istentisztelet (vasárnap-délelőtti, délutáni)</li>
@@ -144,11 +200,13 @@ function ServiceContent() {
       <S>Mit érdemes minden alkalomhoz rögzíteni?</S>
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>Időpont</strong> — az alkalom dátuma</li>
-        <li><strong>Cím</strong> — pl. „A jó pásztor példázata"</li>
-        <li><strong>Alapige</strong> — pl. „Lk 15,1-7"</li>
+        <li><strong>Napszak</strong> — délelőtt / délután / este</li>
+        <li><strong>Cím</strong> — pl. „A jó pásztor példázata”</li>
+        <li><strong>Alapige</strong> — pl. „Lk 15,1-7”</li>
         <li><strong>Bibliaolvasás</strong> — az alkalmon felolvasott szakasz</li>
-        <li><strong>Énekek</strong> — pl. „274, 484, 489" (énekszámok)</li>
+        <li><strong>Énekek</strong> — pl. „274, 484, 489” (énekszámok)</li>
         <li><strong>Jelenlét</strong> — férfi, nő, gyermek bontásban</li>
+        <li><strong>Úrvacsorázók</strong> — templomban és betegeknél (úrvacsorás alkalomnál)</li>
         <li><strong>Persely</strong> — RON-ban</li>
       </ul>
       <S>Tipp</S>
@@ -200,7 +258,7 @@ function VisitsContent() {
   return (
     <>
       <p>
-        A <strong>Családlátogatás</strong> fülön a pásztori látogatásokat rögzíted. 6 típus:
+        A <strong>Látogatás</strong> fülön a pásztori látogatásokat rögzíted. 6 típus:
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>Családlátogatás (otthoni)</li>
@@ -243,10 +301,12 @@ function FieldsContent() {
       <S>Opcionális mezők</S>
       <ul className="list-disc pl-5 space-y-1">
         <li>Cím — az alkalom rövid leírása (erősen ajánlott)</li>
+        <li>Napszak — délelőtt / délután / este (szolgálati alkalomnál)</li>
         <li>Alapige, bibliaolvasás (igehirdetésnél javallott)</li>
         <li>Énekek</li>
         <li>Szolgálatvezető — ha NEM a fő-lelkész vezette (pl. legátus)</li>
         <li>Jelenlét — férfi, nő, gyermek bontás</li>
+        <li>Úrvacsorázók — templomban / betegeknél (szolgálatnál, üresen hagyható)</li>
         <li>Persely — RON</li>
         <li>Megjegyzés — pásztori jegyzet</li>
       </ul>
@@ -281,7 +341,7 @@ function ReportContent() {
       <S>Időszak kiválasztása</S>
       <p>
         Alapesetben az aktuális hónap látható. A felül lévő év- és hónapválasztóval
-        bármely elmúlt időszakot meg lehet nézni; a hónapválasztó „Egész év" opciójával
+        bármely elmúlt időszakot meg lehet nézni; a hónapválasztó „Egész év” opciójával
         a teljes éves összesítés is egyben megjelenik.
       </p>
     </>
@@ -293,14 +353,15 @@ function PrintContent() {
     <>
       <S>CSV export</S>
       <p>
-        Az „Export" gombbal letölthető egy <strong>CSV fájl</strong>, ami az aktuálisan
-        szűrt időszak minden bejegyzését tartalmazza. Oszlopok: dátum, típus, cím,
-        alapige, bibliaolvasás, énekek, szolgálatvezető, jelenlét, persely, megjegyzés.
+        A „CSV-export” gombbal letölthető egy <strong>CSV fájl</strong>, ami az aktuálisan
+        szűrt időszak és kategória minden bejegyzését tartalmazza. Oszlopok: dátum, típus,
+        napszak, cím, alapige, bibliaolvasás, énekek, szolgálatvezető, jelenlét,
+        úrvacsorázók (templomban / betegnél), persely, megjegyzés.
       </p>
 
       <S>Nyomtatási központ</S>
       <p>
-        A „Nyomtatási központ" gombbal év/hónap választás és élő előnézet mellett
+        A „Nyomtatási központ” gombbal év/hónap választás és élő előnézet mellett
         4 nyomtatvány készíthető — PDF-ként menthető vagy közvetlenül nyomtatható:
       </p>
       <ul className="list-disc pl-5 space-y-1">

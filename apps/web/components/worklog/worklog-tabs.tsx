@@ -1,44 +1,69 @@
-﻿'use client'
+'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Download, FileText, NotebookPen, Printer } from 'lucide-react'
+// 2026-07-11 (F2 — W6 integráció): a munkanapló-főoldal token-alapú
+// újraszerkesztése. A korábbi ModuleHero + ColorTabs (hardkódolt-színes)
+// szerkezet helyett:
+//
+//   fejléc (cím + év/hónap-választó) → év-összkép (WorklogOverview) →
+//   token-stílusú fülek → kategória-tartalom.
+//
+// ADATFOLYAM: mindig a TELJES év töltődik be (getWorklogs('YYYY')), a
+// hónap-szűrés kliens-oldalon történik — így az év-összkép, a táblázatos
+// rögzítő (éven belüli folyamatos Ssz.) és a havi lista egyetlen fetch-ből él.
+//
+// MOBILE-FIRST: md alatt a kártyás lista + dialógusos rögzítés az elsődleges
+// (a táblázat ott nem is renderelődik — teljesítmény), md-től a soron belül
+// szerkeszthető WorklogTableEditor. Az oldal sosem görget vízszintesen.
 
-import { ColorTabs } from '@/components/ui/color-tabs'
-import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Download, FileText, NotebookPen, Pencil, Plus, Printer, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ModuleHero } from '@/components/shared/module-hero'
+import { cn } from '@/lib/utils'
 import { getWorklogs, deleteWorklog } from '@/app/(dashboard)/munkanaplo/actions'
 import { WorklogDialog } from '@/components/modals/worklog-dialog'
-import { categorizeWorklogEntry } from '@/lib/constants/worklog'
+import {
+  categorizeWorklogEntry,
+  formatRon,
+  NAPSZAK_OPTIONS,
+  WORKLOG_CATEGORIES,
+  WORKLOG_CATEGORY_LABELS,
+} from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { HU_MONTHS } from '@/lib/constants/dashboard'
-import { toast } from 'sonner'
+import { WorklogOverview } from '@/components/worklog/worklog-overview'
+import { WorklogTableEditor } from '@/components/worklog/worklog-table-editor'
 import { WorklogPrintDialog } from '@/components/worklog/worklog-print-dialog'
 import { MunkanaploHelp } from './munkanaplo-help'
 
-type WorklogTab = WorklogCategory | 'jelentes'
-type ActiveView = 'tab' | 'help' | 'admin-import'
+type WorklogTab = WorklogCategory | 'jelentes' | 'help' | 'admin-import'
 
 interface WorklogTabsProps {
   congregationName?: string
-  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén (red-prominent). */
+  /** 2026-05-25: ha true, "Rendszergazdai importáló" tab a sor végén. */
   showAdminImport?: boolean
   /** A Rendszergazdai importáló tab tartalma. */
   adminImportContent?: React.ReactNode
 }
 
-// 2026-06-12 (Endre #3-4 munkanapló): a korábbi helyi WORKLOG_TYPES másolat
-// törölve — a kategorizálás a közös categorizeWorklogEntry-vel történik
-// (lib/constants/worklog.ts). A helyi másolatban elgépelés is volt
-// ('Egyéb katekázis' vs. 'Egyéb katekézis'), emiatt a dialógusból mentett
-// bejegyzés nem jelent meg a fülön.
+function isCategory(tab: WorklogTab): tab is WorklogCategory {
+  return (WORKLOG_CATEGORIES as readonly string[]).includes(tab)
+}
 
+/** A napszak felirata — legacy soroknál a `du` boolean a fallback (kontraktus). */
+function napszakLabel(entry: WorklogEntry): string {
+  const value = entry.napszak ?? (entry.du ? 'du' : 'de')
+  return NAPSZAK_OPTIONS.find((o) => o.value === value)?.label ?? ''
+}
+
+// 2026-07-11 (F2): a CSV bővült a Napszak + Úrvacsorázók oszlopokkal.
 function downloadCsv(entries: WorklogEntry[], fileName: string) {
-  const header = ['Dátum', 'Típus', 'Cím', 'Alapige', 'Bibliaolvasás', 'Énekek', 'Szolgálatvezető', 'Férfi', 'Nő', 'Gyermek', 'Persely', 'Megjegyzés']
+  const header = ['Dátum', 'Típus', 'Napszak', 'Cím', 'Alapige', 'Bibliaolvasás', 'Énekek', 'Szolgálatvezető', 'Férfi', 'Nő', 'Gyermek', 'Úrv. templomban', 'Úrv. betegnél', 'Persely', 'Megjegyzés']
   const rows = entries.map((entry) => [
     (entry.idopont || '').split('T')[0] || '',
     entry.jellege || '',
+    napszakLabel(entry),
     entry.cim || '',
     entry.alapige || '',
     entry.bibliaolvasas || '',
@@ -47,11 +72,13 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
     String(entry.jelenlet_ferfi || 0),
     String(entry.jelenlet_no || 0),
     String(entry.jelenlet_gyermek || 0),
+    entry.uv_templomban != null ? String(entry.uv_templomban) : '',
+    entry.uv_betegnel != null ? String(entry.uv_betegnel) : '',
     String(entry.persely || 0),
     entry.megjegyzes || '',
   ])
   // UTF-8 BOM — enélkül az Excel torzan (Latin-1-ként) nyitja az ékezeteket.
-  const csv = '\uFEFF' + [header, ...rows]
+  const csv = String.fromCharCode(0xfeff) + [header, ...rows]
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
     .join('\n')
 
@@ -61,38 +88,61 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
   link.href = url
   link.download = fileName
   link.click()
-  URL.revokeObjectURL(url)
+  // A revoke késleltetve fut — lassabb böngészőben a szinkron visszavonás
+  // megszakíthatja a még el sem indult letöltést.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/**
+ * md-töréspont figyelése — md alatt a táblázatos rögzítő nem is renderelődik
+ * (teljesítmény), helyette a kártyás lista + dialógus az elsődleges út.
+ * Az első kliens-render 'false'-szal fut (SSR-hydration-biztos), az effect
+ * azonnal korrigál; a JSX-ben CSS-őr (hidden/md:hidden) is van a villanás ellen.
+ */
+function useIsMdUp(): boolean {
+  const [isMdUp, setIsMdUp] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const update = () => setIsMdUp(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return isMdUp
+}
+
+// Token-stílusú, kompakt select (fejléc év/hónap-választó).
+const SELECT_CLS =
+  'h-9 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-sm ' +
+  'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring'
 
 export function WorklogTabs({ congregationName, showAdminImport = false, adminImportContent }: WorklogTabsProps) {
-  const [activeView, setActiveView] = useState<ActiveView>('tab')
   const now = new Date()
   const [activeTab, setActiveTab] = useState<WorklogTab>('szolgalat')
-  // 2026-06-12 (Endre #3 munkanapló): év + hónap szűrő — a hónap 0 értéke a
-  // teljes évet jelenti (éves áttekintés / éves összesítő számokhoz).
+  // Év + hónap szűrő — a hónap 0 értéke a teljes évet jelenti. A lekérés
+  // mindig éves, a hónap-szűrés kliens-oldali.
   const [year, setYear] = useState(now.getFullYear())
   const [monthNum, setMonthNum] = useState<number>(now.getMonth() + 1)
-  const period = monthNum === 0 ? String(year) : `${year}-${String(monthNum).padStart(2, '0')}`
   const [entries, setEntries] = useState<WorklogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editEntry, setEditEntry] = useState<WorklogEntry | null>(null)
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
+  const isMdUp = useIsMdUp()
+  // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
+  // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
+  const yearRef = useRef(year)
+  yearRef.current = year
 
-  function refreshEntries() {
-    setLoading(true)
-    void getWorklogs(period).then((data) => {
-      setEntries(data)
-      setLoading(false)
-    })
-  }
+  const period = monthNum === 0 ? String(year) : `${year}-${String(monthNum).padStart(2, '0')}`
 
+  // Év-váltáskor teljes újratöltés — a loading-ot az év-választó onChange
+  // billenti (lint: nincs szinkron setState az effect törzsében).
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
-      getWorklogs(period).then((data) => {
+      getWorklogs(String(year)).then((data) => {
         if (!cancelled) {
           setEntries(data)
           setLoading(false)
@@ -102,31 +152,65 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     return () => {
       cancelled = true
     }
-  }, [period])
+  }, [year])
 
-  // 2026-06-12: kategorizálás a közös helperrel (kategoria mező + jellege
-  // fallback) — az anyakönyvből érkező kazuáliák is a Szolgálat fülre esnek.
-  const filtered = useMemo(() => {
-    if (activeTab === 'jelentes') return entries
-    return entries.filter((entry) => categorizeWorklogEntry(entry) === activeTab)
+  /**
+   * Csendes újratöltés (mentés/törlés/dialógus-zárás után): NEM billenti át a
+   * loading state-et, így a táblázatos rögzítő nem unmountol — a fókusz és a
+   * még piszkos draftok megmaradnak (a W3-as szerkesztő erre épít).
+   *
+   * Stale-year őr: a hívás pillanatában rögzítjük az évet, és az eredményt
+   * csak akkor írjuk be, ha az év azóta nem változott — különben a lassabban
+   * érkező régi-évi válasz felülírná az év-váltó effect friss adatait.
+   */
+  function refreshEntries() {
+    const requestedYear = year
+    void getWorklogs(String(requestedYear)).then((data) => {
+      if (yearRef.current === requestedYear) setEntries(data)
+    })
+  }
+
+  // A kiválasztott időszak (hónap vagy egész év) bejegyzései.
+  const periodEntries = useMemo(() => {
+    if (monthNum === 0) return entries
+    return entries.filter((e) => Number((e.idopont || '').slice(5, 7)) === monthNum)
+  }, [entries, monthNum])
+
+  // Fül-jelvények: az időszak kategória-darabszámai.
+  const counts = useMemo(() => {
+    const c: Record<WorklogCategory, number> = { szolgalat: 0, katekezis: 0, latogatas: 0 }
+    for (const e of periodEntries) c[categorizeWorklogEntry(e)] += 1
+    return c
+  }, [periodEntries])
+
+  // Az aktív kategória időszaki bejegyzései (mobil-lista + CSV-export).
+  const filteredPeriod = useMemo(() => {
+    if (!isCategory(activeTab)) return periodEntries
+    return periodEntries.filter((e) => categorizeWorklogEntry(e) === activeTab)
+  }, [periodEntries, activeTab])
+
+  // A táblázatos rögzítő a TELJES év adott kategóriájú sorait kapja, dátum
+  // szerint NÖVEKVŐ sorrendben (a szerver csökkenőt ad) — az éven belüli
+  // folyamatos Ssz.-hoz és a hónap-szűréshez (a W3 kontraktusa szerint).
+  const categoryYearAsc = useMemo(() => {
+    if (!isCategory(activeTab)) return []
+    return entries
+      .filter((e) => categorizeWorklogEntry(e) === activeTab)
+      .sort((a, b) => (a.idopont || '').localeCompare(b.idopont || ''))
   }, [entries, activeTab])
 
   const report = useMemo(() => {
-    const szolgalat = entries.filter((entry) => categorizeWorklogEntry(entry) === 'szolgalat')
-    const katekezis = entries.filter((entry) => categorizeWorklogEntry(entry) === 'katekezis')
-    const latogatas = entries.filter((entry) => categorizeWorklogEntry(entry) === 'latogatas')
-    const totalAttendance = entries.reduce((sum, entry) => sum + (entry.jelenlet_ferfi || 0) + (entry.jelenlet_no || 0) + (entry.jelenlet_gyermek || 0), 0)
-    const totalOffering = entries.reduce((sum, entry) => sum + Number(entry.persely || 0), 0)
-
+    const totalAttendance = periodEntries.reduce((sum, e) => sum + (e.jelenlet_ferfi || 0) + (e.jelenlet_no || 0) + (e.jelenlet_gyermek || 0), 0)
+    const totalOffering = periodEntries.reduce((sum, e) => sum + Number(e.persely || 0), 0)
     return {
-      totalEntries: entries.length,
-      szolgalat: szolgalat.length,
-      katekezis: katekezis.length,
-      latogatas: latogatas.length,
+      totalEntries: periodEntries.length,
+      szolgalat: counts.szolgalat,
+      katekezis: counts.katekezis,
+      latogatas: counts.latogatas,
       totalAttendance,
       totalOffering,
     }
-  }, [entries])
+  }, [periodEntries, counts])
 
   async function handleDelete(id: number) {
     if (!confirm('Biztosan törli?')) return
@@ -145,221 +229,363 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
     refreshEntries()
   }
 
-  // 2026-06-12: év-választó (8 évre vissza) + hónap-választó ("Egész év" opcióval)
+  function openNewDialog() {
+    setEditEntry(null)
+    setDialogOpen(true)
+  }
+
+  // Év-választó (8 évre vissza) + hónap-választó ("Egész év" opcióval).
   const yearOptions: number[] = []
   for (let i = 0; i < 8; i++) yearOptions.push(now.getFullYear() - i)
   const activeMonthLabel = monthNum === 0 ? `${year} — egész év` : `${HU_MONTHS[monthNum - 1]} ${year}`
 
-  const tabs = [
-    { value: 'szolgalat', label: 'Igehirdetés', color: 'blue', count: report.szolgalat },
-    { value: 'latogatas', label: 'Családlátogatás', color: 'violet', count: report.latogatas },
-    { value: 'katekezis', label: 'Katekézis', color: 'emerald', count: report.katekezis },
-    { value: 'jelentes', label: 'Lelkészi jelentés', color: 'amber', count: entries.length },
-    // 2026-05-25: lelkészi Súgó + Rendszergazdai importáló a sor végén
-    { value: 'help', label: 'Súgó', color: 'teal' },
-    ...(showAdminImport ? [
-      { value: 'admin-import', label: 'Rendszergazdai importáló', color: 'red-prominent' },
-    ] : []),
+  const tabs: { value: WorklogTab; label: string; count?: number; danger?: boolean }[] = [
+    { value: 'szolgalat', label: WORKLOG_CATEGORY_LABELS.szolgalat, count: counts.szolgalat },
+    { value: 'katekezis', label: WORKLOG_CATEGORY_LABELS.katekezis, count: counts.katekezis },
+    { value: 'latogatas', label: WORKLOG_CATEGORY_LABELS.latogatas, count: counts.latogatas },
+    { value: 'jelentes', label: 'Lelkészi jelentés' },
+    { value: 'help', label: 'Súgó' },
+    ...(showAdminImport
+      ? [{ value: 'admin-import' as const, label: 'Rendszergazdai importáló', danger: true }]
+      : []),
   ]
 
+  const dialogCategory: WorklogCategory = isCategory(activeTab) ? activeTab : 'szolgalat'
+
   return (
-    <>
-      <ModuleHero
-        eyebrow="Munkanapló"
-        title="M3 Munkanapló és lelkészi jelentés"
-        description="Igehirdetések, családlátogatások, katekézisek és az időszaki összegzés egy egységes, áttekinthető munkafelületen."
-        pills={[
-          congregationName ? { label: congregationName, tone: 'neutral' } : undefined,
-          { label: `${entries.length} bejegyzés`, tone: 'emerald' },
-          { label: activeMonthLabel, tone: 'violet' },
-        ].filter(Boolean) as { label: string; tone?: 'neutral' | 'emerald' | 'violet' }[]}
-        actions={
-          <>
-            {/* 2026-06-12: év + hónap szűrő (a hónapnál "Egész év" opcióval) */}
-            <select value={year} onChange={(event) => { setLoading(true); setYear(Number(event.target.value)) }} className="rounded-xl border border-white/70 bg-white/85 px-3 py-2 text-sm shadow-sm">
-              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={monthNum} onChange={(event) => { setLoading(true); setMonthNum(Number(event.target.value)) }} className="rounded-xl border border-white/70 bg-white/85 px-3 py-2 text-sm shadow-sm">
-              <option value={0}>Egész év</option>
-              {HU_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
-            </select>
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setPrintDialogOpen(true)}>
-              <Printer className="size-4" />
-              Nyomtatási központ
-            </Button>
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => downloadCsv(filtered, `munkanaplo_${period}.csv`)}>
-              <Download className="size-4" />
-              Export
-            </Button>
-            <Button size="sm" className="rounded-xl" onClick={() => { setEditEntry(null); setDialogOpen(true) }}>
-              + Új bejegyzés
-            </Button>
-          </>
-        }
-      />
+    <div className="space-y-4">
+      {/* ── Fejléc: cím + időszak-jelzők + év/hónap-választó ─────────────── */}
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Munkanapló</p>
+          <h1 className="mt-0.5 font-heading text-2xl text-foreground sm:text-3xl">
+            Munkanapló és lelkészi jelentés
+          </h1>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {congregationName ? (
+              <span className="rounded-full border border-border bg-muted px-2.5 py-0.5 font-medium text-foreground">
+                {congregationName}
+              </span>
+            ) : null}
+            <span className="tabular-nums">{entries.length} bejegyzés az évben</span>
+            <span aria-hidden>·</span>
+            <span>{activeMonthLabel}</span>
+          </p>
+        </div>
 
-      <ColorTabs
-        tabs={tabs}
-        active={activeView === 'tab' ? activeTab : activeView}
-        onChange={(value) => {
-          if (value === 'help' || value === 'admin-import') {
-            setActiveView(value)
-          } else {
-            setActiveView('tab')
-            setActiveTab(value as WorklogTab)
-          }
-        }}
-      />
+        <div className="flex items-center gap-2">
+          <label className="sr-only" htmlFor="worklog-year">Év</label>
+          <select
+            id="worklog-year"
+            value={year}
+            onChange={(event) => { setLoading(true); setYear(Number(event.target.value)) }}
+            className={SELECT_CLS}
+          >
+            {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <label className="sr-only" htmlFor="worklog-month">Hónap</label>
+          <select
+            id="worklog-month"
+            value={monthNum}
+            onChange={(event) => setMonthNum(Number(event.target.value))}
+            className={SELECT_CLS}
+          >
+            <option value={0}>Egész év</option>
+            {HU_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
+          </select>
+        </div>
+      </header>
 
-      {activeView === 'help' ? (
+      {/* ── Év-összkép (mindig a teljes évből számol) ─────────────────────── */}
+      {loading ? (
+        <div className="rounded-2xl border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+          Betöltés…
+        </div>
+      ) : (
+        <WorklogOverview yearEntries={entries} year={year} />
+      )}
+
+      {/* ── Token-stílusú fülek ───────────────────────────────────────────── */}
+      <div className="-mx-1 overflow-x-auto px-1">
+        <div role="tablist" aria-label="Munkanapló nézetek" className="flex min-w-max items-center gap-0.5 border-b border-border">
+          {tabs.map((tab) => {
+            const active = activeTab === tab.value
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveTab(tab.value)}
+                className={cn(
+                  '-mb-px inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  tab.danger
+                    ? active
+                      ? 'border-destructive text-destructive'
+                      : 'border-transparent text-destructive/75 hover:bg-destructive/5 hover:text-destructive'
+                    : active
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                )}
+              >
+                {tab.label}
+                {typeof tab.count === 'number' && (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[11px] leading-none tabular-nums',
+                      active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Fül-tartalom ──────────────────────────────────────────────────── */}
+      {activeTab === 'help' ? (
         <MunkanaploHelp />
-      ) : activeView === 'admin-import' && showAdminImport ? (
+      ) : activeTab === 'admin-import' && showAdminImport ? (
         adminImportContent
+      ) : loading ? (
+        <div className="py-8 text-center text-sm text-muted-foreground">Betöltés…</div>
       ) : activeTab === 'jelentes' ? (
         <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <ReportCard label="Összes bejegyzés" value={report.totalEntries} tone="slate" />
-            <ReportCard label="Igehirdetés" value={report.szolgalat} tone="blue" />
-            <ReportCard label="Katekézis" value={report.katekezis} tone="emerald" />
-            <ReportCard label="Látogatás" value={report.latogatas} tone="violet" />
+          <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ReportCard label="Összes bejegyzés" value={report.totalEntries} tone="total" />
+            <ReportCard label={WORKLOG_CATEGORY_LABELS.szolgalat} value={report.szolgalat} tone="szolgalat" />
+            <ReportCard label={WORKLOG_CATEGORY_LABELS.katekezis} value={report.katekezis} tone="katekezis" />
+            <ReportCard label={WORKLOG_CATEGORY_LABELS.latogatas} value={report.latogatas} tone="latogatas" />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
             <div className="card-raised p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700/70">Jelentési összkép</p>
-              <h3 className="mt-1 font-heading text-2xl text-slate-800">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Jelentési összkép</p>
+              <h3 className="mt-1 font-heading text-2xl text-foreground">
                 {monthNum === 0 ? 'Szolgálati ritmus az évben' : 'Szolgálati ritmus egy hónapban'}
               </h3>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <MiniFact label="Összes jelenlét" value={`${report.totalAttendance} fő`} />
-                <MiniFact label="Összes persely" value={`${report.totalOffering.toFixed(2)} RON`} />
+                <MiniFact label="Összes persely" value={`${formatRon(report.totalOffering)} RON`} />
               </div>
             </div>
 
             <div className="card-raised p-5">
-              <div className="flex items-center gap-2 text-amber-700">
+              <div className="flex items-center gap-2 text-primary">
                 <FileText className="size-4" />
                 <p className="text-xs font-semibold uppercase tracking-[0.24em]">Lelkészi jelentés</p>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                {monthNum === 0 ? 'Ebben az évben' : 'Ebben a hónapban'} <strong>{report.totalEntries}</strong> bejegyzés született, ebből <strong>{report.szolgalat}</strong> szolgálati,
-                <strong> {report.katekezis}</strong> katekézis jellegű és <strong>{report.latogatas}</strong> látogatási tétel.
-                A rögzített alkalmak összesített jelenléte <strong>{report.totalAttendance}</strong> fő, a perselybevétel pedig
-                <strong> {report.totalOffering.toFixed(2)} RON</strong>.
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                {monthNum === 0 ? 'Ebben az évben' : 'Ebben a hónapban'} <strong className="text-foreground">{report.totalEntries}</strong> bejegyzés született, ebből <strong className="text-foreground">{report.szolgalat}</strong> szolgálati,
+                <strong className="text-foreground"> {report.katekezis}</strong> katekézis jellegű és <strong className="text-foreground">{report.latogatas}</strong> látogatási tétel.
+                A rögzített alkalmak összesített jelenléte <strong className="text-foreground">{report.totalAttendance}</strong> fő, a perselybevétel pedig
+                <strong className="text-foreground"> {formatRon(report.totalOffering)} RON</strong>.
               </p>
             </div>
           </div>
 
-          {/* Nyomtatási központ gomb */}
+          {/* Nyomtatási központ */}
           <div className="card-raised p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700/70">Hivatalos nyomtatványok</p>
-            <h3 className="mt-1 font-heading text-xl text-slate-800">Lelkészi jelentés és nyomtatványok</h3>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Hivatalos nyomtatványok</p>
+            <h3 className="mt-1 font-heading text-xl text-foreground">Lelkészi jelentés és nyomtatványok</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
               A nyomtatási központban kiválasztható az év, hónap és a nyomtatvány típusa — élő előnézettel.
             </p>
-            <Button
-              className="mt-4 rounded-full bg-amber-600 hover:bg-amber-700"
-              onClick={() => setPrintDialogOpen(true)}
-            >
-              <Printer className="mr-1.5 size-4" />
-              Nyomtatási központ megnyitása
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => setPrintDialogOpen(true)}>
+                <Printer className="size-4" />
+                Nyomtatási központ megnyitása
+              </Button>
+              {/* A teljes időszak exportja — mindhárom kategória egyben. */}
+              <Button
+                variant="outline"
+                onClick={() => downloadCsv(periodEntries, `munkanaplo_osszes_${period}.csv`)}
+              >
+                <Download className="size-4" />
+                Export (minden kategória)
+              </Button>
+            </div>
           </div>
         </div>
-      ) : loading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">Betöltés...</div>
-      ) : filtered.length === 0 ? (
-        <EmptyFirstRecord
-          accent="violet"
-          icon={NotebookPen}
-          title="Még nincs munkanapló-bejegyzés"
-          description="Kezdd el a szolgálati napló vezetését — rögzítsd az első igehirdetést, családlátogatást vagy katekézist."
-          ctaLabel="Rögzítsd az első bejegyzést"
-          onCta={() => { setEditEntry(null); setDialogOpen(true) }}
-        />
       ) : (
         <div className="space-y-3">
-          <Badge variant="secondary" className="text-xs">{filtered.length} bejegyzés</Badge>
-          <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200/80 bg-white/85 shadow-[0_18px_36px_-32px_rgba(15,23,42,0.18)]">
-            <table className="w-full min-w-[840px] text-sm">
-              <thead className="border-b border-slate-200/70 bg-slate-50/90">
-                <tr>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Dátum</th>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Típus</th>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Cím / téma</th>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Alapige</th>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Részvétel</th>
-                  <th className="p-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Persely</th>
-                  <th className="p-3 w-20" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200/60">
-                {filtered.map((entry) => {
-                  const attendance = (entry.jelenlet_ferfi || 0) + (entry.jelenlet_no || 0) + (entry.jelenlet_gyermek || 0)
-                  return (
-                    <tr key={entry.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 text-xs text-slate-500">{(entry.idopont || '').split('T')[0]}</td>
-                      <td className="p-3 font-medium text-slate-700">{entry.jellege}</td>
-                      <td className="p-3 text-slate-600">{entry.cim || '—'}</td>
-                      <td className="p-3 text-slate-500">{entry.alapige || '—'}</td>
-                      <td className="p-3 text-slate-600">{attendance > 0 ? `${attendance} fő` : '—'}</td>
-                      <td className="p-3 font-semibold text-emerald-700">{entry.persely ? `${Number(entry.persely).toFixed(2)} RON` : '—'}</td>
-                      <td className="p-3">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-slate-500 hover:text-blue-600" onClick={() => { setEditEntry(entry); setDialogOpen(true) }}>
-                            Szerk.
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-slate-500 hover:text-red-600" onClick={() => handleDelete(entry.id)}>
-                            Törlés
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          {/* Eszközsor: rögzítés (közös mentési út a dialógussal), export, nyomtatás */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={openNewDialog}>
+              <Plus className="size-4" />
+              Új bejegyzés
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadCsv(filteredPeriod, `munkanaplo_${activeTab}_${period}.csv`)}
+            >
+              <Download className="size-4" />
+              CSV-export
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPrintDialogOpen(true)}>
+              <Printer className="size-4" />
+              Nyomtatás
+            </Button>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {filteredPeriod.length} bejegyzés
+            </span>
           </div>
+
+          {/* md-től: soron belül szerkeszthető táblázatos rögzítő (W3).
+              A CSS-őr (hidden md:block) a matchMedia-effect előtti első
+              renderben is megakadályozza a villanást. */}
+          {isMdUp && (
+            <div className="hidden md:block">
+              <WorklogTableEditor
+                yearEntries={categoryYearAsc}
+                year={year}
+                month={monthNum === 0 ? null : monthNum}
+                category={dialogCategory}
+                onChanged={refreshEntries}
+                onEditEntry={(entry) => { setEditEntry(entry); setDialogOpen(true) }}
+              />
+            </div>
+          )}
+
+          {/* md alatt: kártyás lista + dialógusos rögzítés (mobile-first). */}
+          {!isMdUp && (
+            <div className="md:hidden">
+              {filteredPeriod.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-10 text-center">
+                  <NotebookPen className="mx-auto size-8 text-muted-foreground" aria-hidden />
+                  <p className="mt-3 font-heading text-base text-foreground">
+                    Még nincs bejegyzés ebben az időszakban
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Az „Új bejegyzés” gombbal rögzítheti az elsőt a(z) {WORKLOG_CATEGORY_LABELS[dialogCategory]} kategóriában.
+                  </p>
+                  <Button className="mt-4" onClick={openNewDialog}>
+                    <Plus className="size-4" />
+                    Új bejegyzés
+                  </Button>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {filteredPeriod.map((entry) => (
+                    <MobileEntryCard
+                      key={entry.id}
+                      entry={entry}
+                      category={dialogCategory}
+                      onEdit={() => { setEditEntry(entry); setDialogOpen(true) }}
+                      onDelete={() => void handleDelete(entry.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={activeTab === 'jelentes' ? 'szolgalat' : activeTab} />
+      <WorklogDialog open={dialogOpen} onOpenChange={closeDialog} editEntry={editEntry} defaultCategory={dialogCategory} />
 
-      {/* 2026-06-12: a nyomtatási központ saját maga tölti be a kiválasztott
-          ÉV TELJES adatait (getWorklogsForYear) — korábban csak az itt
-          betöltött hónap bejegyzéseit kapta, így az éves lelkészi jelentés
-          szinte üres volt. */}
+      {/* A nyomtatási központ saját maga tölti be a kiválasztott év TELJES
+          adatait (getWorklogsForYear). */}
       <WorklogPrintDialog
         open={printDialogOpen}
         onOpenChange={setPrintDialogOpen}
         initialYear={year}
         congregationName={congregationName}
       />
-    </>
+    </div>
   )
 }
 
-function ReportCard({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'blue' | 'emerald' | 'violet' }) {
-  const tones = {
-    slate: 'bg-slate-50 text-slate-700',
-    blue: 'bg-blue-50 text-blue-700',
-    emerald: 'bg-emerald-50 text-emerald-700',
-    violet: 'bg-violet-50 text-violet-700',
-  }[tone]
+// ---------------------------------------------------------------------------
+// Mobil bejegyzés-kártya — érintésbarát, token-alapú; a szerkesztés a
+// meglévő dialógust nyitja (közös mentési út).
+// ---------------------------------------------------------------------------
+
+function MobileEntryCard({
+  entry, category, onEdit, onDelete,
+}: {
+  entry: WorklogEntry
+  category: WorklogCategory
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const attendance = (entry.jelenlet_ferfi || 0) + (entry.jelenlet_no || 0) + (entry.jelenlet_gyermek || 0)
+  const date = (entry.idopont || '').split('T')[0]
+
+  const facts: string[] = []
+  if (category === 'szolgalat' && entry.alapige) facts.push(entry.alapige)
+  if (category !== 'latogatas' && attendance > 0) facts.push(`${attendance} fő`)
+  if (category !== 'latogatas' && entry.persely) facts.push(`${formatRon(Number(entry.persely))} RON`)
+  if (category === 'szolgalat' && (entry.uv_templomban != null || entry.uv_betegnel != null)) {
+    facts.push(`Úrvacsorázók: ${(entry.uv_templomban ?? 0) + (entry.uv_betegnel ?? 0)} fő`)
+  }
+  if (category === 'latogatas' && entry.megjegyzes) facts.push(entry.megjegyzes)
+
+  return (
+    <li className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {date}
+            {category === 'szolgalat' ? <span> · {napszakLabel(entry)}</span> : null}
+          </p>
+          <p className="mt-0.5 truncate text-sm font-medium text-foreground">{entry.jellege || '—'}</p>
+          {entry.cim ? <p className="truncate text-sm text-muted-foreground">{entry.cim}</p> : null}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Button variant="ghost" size="icon" aria-label="Bejegyzés szerkesztése" onClick={onEdit}>
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Bejegyzés törlése"
+            className="hover:bg-destructive/10 hover:text-destructive"
+            onClick={onDelete}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+      {facts.length > 0 && (
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {facts.map((fact, i) => <span key={i} className="max-w-full truncate">{fact}</span>)}
+        </p>
+      )}
+    </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Jelentés-fül segédkomponensek — a korábbi tartalom token-alapú stílussal.
+// ---------------------------------------------------------------------------
+
+function ReportCard({ label, value, tone }: { label: string; value: number; tone: 'total' | WorklogCategory }) {
+  const tones: Record<'total' | WorklogCategory, string> = {
+    total: 'bg-muted text-foreground',
+    szolgalat: 'bg-primary/10 text-primary',
+    katekezis: 'bg-secondary text-secondary-foreground',
+    latogatas: 'bg-accent text-accent-foreground',
+  }
 
   return (
     <div className="card-raised p-4">
-      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${tones}`}>{label}</span>
-      <p className="mt-4 text-3xl font-semibold text-slate-800">{value}</p>
+      <span className={cn('inline-flex rounded-full px-3 py-1 text-xs font-medium', tones[tone])}>{label}</span>
+      <p className="mt-4 text-3xl font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   )
 }
 
 function MiniFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.15rem] bg-secondary/70 px-3.5 py-3 ring-1 ring-white/70">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-700">{value}</p>
+    <div className="rounded-xl bg-muted px-3.5 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   )
 }

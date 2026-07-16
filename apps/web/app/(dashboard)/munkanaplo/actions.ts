@@ -12,6 +12,24 @@ async function getCongId() {
 }
 
 /**
+ * 2026-07-11 (F2): a `napszak` / `uv_templomban` / `uv_betegnel` oszlopok az
+ * élesben most futtatott migrációból jönnek. Ha a mentés „column ... does not
+ * exist" (42703) vagy PostgREST schema-cache hibát ad ezekre az oszlopokra,
+ * érthető magyar üzenetet adunk, ami a migráció futtatására utal.
+ */
+function worklogSaveError(error: { message?: string } | null | undefined): string {
+  const msg = error?.message || ''
+  const lower = msg.toLowerCase()
+  const isMissingColumn =
+    (lower.includes('does not exist') && lower.includes('column')) ||
+    lower.includes('schema cache')
+  if (isMissingColumn && /napszak|uv_templomban|uv_betegnel/.test(lower)) {
+    return 'Az adatbázisból még hiányoznak az új munkanapló-oszlopok (napszak, úrvacsorázók). Kérjük, futtassa le a 2026-07-11-es munkanapló-migrációt, majd próbálja újra a mentést.'
+  }
+  return `Hiba: ${msg}`
+}
+
+/**
  * Munkanapló-bejegyzések lekérdezése.
  *
  * 2026-06-12 (Endre #3 munkanapló): a `period` lehet
@@ -85,7 +103,14 @@ export async function saveWorklog(data: WorklogInput) {
     jelenlet_osszesen: sumJelenlet,
     szolgalt: d.szolgalt || null,
     persely: d.persely ?? null,
-    du: d.du ?? false,
+    // 2026-07-11 (F2): a legacy `du` boolean a napszakkal szinkronban — ha
+    // érkezett napszak, abból számoljuk; különben a küldött d.du marad.
+    du: d.napszak != null ? d.napszak === 'du' : (d.du ?? false),
+    napszak: d.napszak ?? null,
+    // Úrvacsorázók — templomban / betegnél (csak szolgálatnál értelmezett;
+    // üresen hagyva null, a 0 értelmes adat).
+    uv_templomban: d.uv_templomban ?? null,
+    uv_betegnel: d.uv_betegnel ?? null,
     megjegyzes: d.megjegyzes || null,
     deleted: false,
     congregation_id: congId,
@@ -112,7 +137,7 @@ export async function saveWorklog(data: WorklogInput) {
       delete record.deleted
       upd = await runUpdate()
     }
-    if (upd.error) return { error: `Hiba: ${upd.error.message}` }
+    if (upd.error) return { error: worklogSaveError(upd.error) }
     if (!upd.data || upd.data.length === 0) {
       return { error: 'A bejegyzést időközben máshol módosították. Frissítse a listát, és próbálja újra.' }
     }
@@ -122,7 +147,7 @@ export async function saveWorklog(data: WorklogInput) {
       delete record.deleted
       ins = await supabase.from('munkanaplo').insert([record])
     }
-    if (ins.error) return { error: `Hiba: ${ins.error.message}` }
+    if (ins.error) return { error: worklogSaveError(ins.error) }
   }
   revalidatePath('/munkanaplo')
   return { success: true }

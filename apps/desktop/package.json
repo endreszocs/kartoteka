@@ -12,6 +12,8 @@
     "tauri": "npm run lint:imports && node ../../scripts/desktop-tauri.mjs"
   },
   "dependencies": {
+    "@kartoteka/biblia": "*",
+    "@kartoteka/enekeskonyv": "*",
     "@kartoteka/supabase-client": "*",
     "@kartoteka/ui": "*",
     "@kartoteka/ui-app": "*",

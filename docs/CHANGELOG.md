@@ -23,6 +23,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Megújult munkanapló: táblázatos rögzítés, énekkereső, igevers-előnézet
+<!-- key: 2026-07-11-munkanaplo-f2-redesign -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.81 -->
+
+### ✨ Új funkciók
+
+- **Táblázatos rögzítés a hivatalos munkanapló mintájára.** Számítógépen a
+  bejegyzések mostantól egy szerkeszthető táblázatban rögzíthetők — soron belül,
+  Tab és Enter billentyűkkel, automatikus éven belüli sorszámmal; a táblázat
+  alján mindig áll egy új üres sor. Telefonon továbbra is a megszokott űrlap a
+  kényelmes út.
+- **Énekkereső az Erdélyi Református Énekeskönyvből.** Az énekek mezőbe elég a
+  szám (pl. 153) — a rendszer mutatja a címét; vagy írj címet/szövegtöredéket,
+  és felajánlja a számot. Az ékezetek nem számítanak.
+- **Igevers-előnézet a Károli-fordításból.** Az alapige és bibliaolvasás mező
+  érti a hivatkozások minden szokásos írásmódját, mentéskor egységes alakra
+  igazítja, és egy kattintással megmutatja a vers szövegét.
+- **Év-áttekintő a munkanapló tetején:** alkalmak száma, átlagjelenlét,
+  perselypénz és úrvacsorázók éves összképe, havi mini-diagrammal.
+- **Napszak és úrvacsorázók rögzítése.** A délelőtt/délután/este és az
+  úrvacsorázók száma (templomban/betegnél) is felvehető — a hivatalos
+  nyomtatvány oszlopaihoz igazodva.
+- **Az asztali alkalmazás is megújult:** kategória-fülek, év-összkép és
+  táblázatos lista, a napszak- és úrvacsora-mezőkkel együtt — internet nélkül is.
+
+---
+
 ## [2026-07-16] — Munkanapló és iktató alapjavítások + ének- és bibliaadat-alapok
 <!-- key: 2026-07-11-munkanaplo-iktato-f1 -->
 <!-- category: bugfix -->

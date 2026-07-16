@@ -26,6 +26,12 @@ export const worklogSchema = z.object({
   megjegyzes: z.string().nullable().optional(),
   mediapath: z.string().nullable().optional(),
   du: z.boolean().optional().default(false),
+  // 2026-07-11 (F2): napszak — a legacy `du` boolean finomítása (de/du/este).
+  // A `du`-val szinkronban tartjuk: du = napszak === 'du' (saveWorklog).
+  napszak: z.enum(['de', 'du', 'este']).nullable().optional(),
+  // Úrvacsorázók száma — templomban / betegnél (csak szolgálat kategóriánál értelmezett).
+  uv_templomban: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),
+  uv_betegnel: z.number().int('Az úrvacsorázók száma egész szám legyen').min(0, 'Az úrvacsorázók száma nem lehet negatív').nullable().optional(),
 })
 
 export type WorklogInput = z.input<typeof worklogSchema>

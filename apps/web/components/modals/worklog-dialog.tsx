@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { saveWorklog } from '@/app/(dashboard)/munkanaplo/actions'
-import { WORKLOG_TYPES, categorizeWorklogEntry } from '@/lib/constants/worklog'
+import { WORKLOG_TYPES, NAPSZAK_OPTIONS, categorizeWorklogEntry } from '@/lib/constants/worklog'
 import type { WorklogCategory, WorklogEntry } from '@/lib/constants/worklog'
 import { toast } from 'sonner'
 
@@ -29,9 +29,14 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
   const [no, setNo] = useState<number>(0)
   const [gyermek, setGyermek] = useState<number>(0)
   const [persely, setPersely] = useState<number>(0)
-  // 2026-06-12 (Endre #3 munkanapló): a hivatalos Excel "Du." oszlopa —
-  // délutáni alkalom jelölése (a DB-ben eddig is létezett a `du` mező).
-  const [du, setDu] = useState(false)
+  // 2026-07-11 (F2): a korábbi "Délutáni alkalom" checkbox (legacy `du`)
+  // helyett napszak-választó (de/du/este) — a mentés a `du`-t szinkronban
+  // tartja (du = napszak === 'du').
+  const [napszak, setNapszak] = useState<'de' | 'du' | 'este'>('de')
+  // Úrvacsorázók — templomban / betegnél. String state: '' = nincs adat
+  // (null-t tárolunk), a beírt 0 viszont értelmes érték marad.
+  const [uvTemplomban, setUvTemplomban] = useState('')
+  const [uvBetegnel, setUvBetegnel] = useState('')
   const [megj, setMegj] = useState('')
 
   useEffect(() => {
@@ -51,7 +56,10 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setNo(editEntry.jelenlet_no || 0)
         setGyermek(editEntry.jelenlet_gyermek || 0)
         setPersely(editEntry.persely || 0)
-        setDu(!!editEntry.du)
+        // Napszak: az új oszlop az elsődleges, a legacy `du` a fallback.
+        setNapszak(editEntry.napszak ?? (editEntry.du ? 'du' : 'de'))
+        setUvTemplomban(editEntry.uv_templomban != null ? String(editEntry.uv_templomban) : '')
+        setUvBetegnel(editEntry.uv_betegnel != null ? String(editEntry.uv_betegnel) : '')
         setMegj(editEntry.megjegyzes || '')
         // Kategória meghatározás — a közös helperrel (kategoria mező +
         // jellege fallback; 2026-06-12, Endre #3 munkanapló)
@@ -69,7 +77,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
         setNo(0)
         setGyermek(0)
         setPersely(0)
-        setDu(false)
+        setNapszak('de')
+        setUvTemplomban('')
+        setUvBetegnel('')
         setMegj('')
       }
     })
@@ -105,7 +115,12 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
       jelenlet_no: no || null,
       jelenlet_gyermek: gyermek || null,
       persely: persely || null,
-      du,
+      // Napszak + legacy `du` szinkronban (adat-kontraktus: du = napszak==='du')
+      napszak,
+      du: napszak === 'du',
+      // Úrvacsorázók: üres mező → null (a beírt 0 értelmes adat, azt tároljuk)
+      uv_templomban: uvTemplomban === '' ? null : Number(uvTemplomban),
+      uv_betegnel: uvBetegnel === '' ? null : Number(uvBetegnel),
       megjegyzes: megj || null,
     })
     if (result.error) toast.error(result.error)
@@ -140,7 +155,9 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
                     setAlapige('')
                     setBibliaolvasas('')
                     setEnekek('')
-                    setDu(false)
+                    setNapszak('de')
+                    setUvTemplomban('')
+                    setUvBetegnel('')
                   }
                   if (next === 'latogatas') setPersely(0)
                 }}
@@ -189,11 +206,27 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
                 <div className="space-y-1.5"><Label>Énekek</Label><Input value={enekek} onChange={e => setEnekek(e.target.value)} placeholder="Pl. 458, 372" /></div>
               </div>
               <div className="space-y-1.5"><Label>Szolgálatot vezette</Label><Input value={szolgalt} onChange={e => setSzolgalt(e.target.value)} /></div>
-              {/* A hivatalos Excel "Du." oszlopa — délutáni/esti alkalom jelölése */}
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={du} onChange={e => setDu(e.target.checked)} />
-                Délutáni alkalom
-              </label>
+              {/* 2026-07-11 (F2): a hivatalos Excel "Du." oszlopának finomítása —
+                  napszak (de/du/este) + úrvacsorázók (templomban/betegnél) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Napszak</Label>
+                  <select
+                    value={napszak}
+                    onChange={e => setNapszak(e.target.value as 'de' | 'du' | 'este')}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {NAPSZAK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Úrvacsorázók — templomban / betegnél</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="number" min={0} inputMode="numeric" placeholder="Templomban" value={uvTemplomban} onChange={e => setUvTemplomban(e.target.value)} />
+                    <Input type="number" min={0} inputMode="numeric" placeholder="Betegnél" value={uvBetegnel} onChange={e => setUvBetegnel(e.target.value)} />
+                  </div>
+                </div>
+              </div>
             </>
           )}
 
