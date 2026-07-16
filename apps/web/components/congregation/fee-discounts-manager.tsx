@@ -4,7 +4,6 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import {
   BadgePercent,
   CalendarDays,
-  Coins,
   GraduationCap,
   Plus,
   Save,
@@ -247,15 +246,21 @@ export function FeeDiscountsManager({
               hasActive={activeTypes.has('foglalkozas')}
               onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'foglalkozas' }))}
             />
-            <DiscountTypeCard
-              icon={<Coins className="size-5" />}
-              title="Szociális"
-              description="Egyedi elbírálás (betegség, nehéz helyzet)."
-              example="Súlyos beteg tag 100% — 0 RON-t fizet."
-              selected={discountForm.tipus === 'jovedelem'}
-              hasActive={activeTypes.has('jovedelem')}
-              onClick={() => setDiscountForm((prev) => ({ ...prev, tipus: 'jovedelem' }))}
-            />
+          </div>
+          {/* 2026-07-16: a „Szociális" (jovedelem) típus-kártya ELTÁVOLÍTVA. A
+              `jarulek_kedvezmeny` táblán nincs id_szemely/id_csalad, csak
+              congregation_id — egy ilyen szabály tehát nem szűkíthető EGY tagra,
+              az EGÉSZ gyülekezetre hatna (egy „beteg tag 100%" szabály mindenkit
+              ingyenessé tenne). Ezért a motorban sosem volt ága: a panel mentette
+              és visszamutatta, de a számítás soha nem vette figyelembe — néma
+              csapda volt. A személyre szóló mentesség helye a Felmentés. */}
+          <div className="mt-3 rounded-[1rem] border border-slate-200 bg-slate-50/60 p-3">
+            <p className="text-[11px] text-slate-600">
+              <strong>Egy tagra szóló szociális mentesség?</strong> Azt nem itt, hanem a tag adatlapján
+              a <strong>Felmentés</strong> résznél lehet rögzíteni (indokkal és évszámmal) — az itteni
+              kedvezmények mindig az <strong>egész gyülekezetre</strong> vonatkoznak, ezért nem
+              alkalmasak egyedi elbírálásra.
+            </p>
           </div>
         </div>
 
@@ -304,24 +309,6 @@ export function FeeDiscountsManager({
               <p className="mt-2 text-[11px] text-slate-500">
                 Aki a megadott évek fölött van, a kedvezmény százalékával kevesebbet fizet.
               </p>
-            </div>
-          )}
-
-          {discountForm.tipus === 'jovedelem' && (
-            <div className="rounded-[1rem] border border-rose-100 bg-rose-50/40 p-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Kedvezmény (%) — vagy add meg a fix RON-ot">
-                  <Input type="number" min={0} max={100} className={FIELD_INPUT_CLASS} value={discountForm.szazalek} onChange={(event) => setDiscountForm((prev) => ({ ...prev, szazalek: Number(event.target.value) }))} />
-                </Field>
-                <Field label="Fix RON kedvezmény — ha inkább összeg">
-                  <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.fixOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, fixOsszeg: Number(event.target.value) }))} />
-                </Field>
-              </div>
-              <div className="mt-3">
-                <Field label="Jogosultsági feltétel (szabad szöveg)">
-                  <Input className={FIELD_INPUT_CLASS} value={discountForm.jovLeiras} onChange={(event) => setDiscountForm((prev) => ({ ...prev, jovLeiras: event.target.value }))} placeholder="pl. Tartós betegség presbitériumi döntés alapján" />
-                </Field>
-              </div>
             </div>
           )}
 

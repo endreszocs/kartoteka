@@ -23,6 +23,30 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Járulék-kedvezmények: a korkedvezmény fordítva számolt
+<!-- key: 2026-07-16-korkedvezmeny-szazalek-javitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.76 -->
+
+### 🐛 Pénzügy — kedvezmények
+
+- **A „Nyugdíjas / kor" kedvezménynél a megadott százalék fordítva érvényesült.** A rendszer
+  a beírt százalékot *fizetendőként* értelmezte, nem levonandó kedvezményként — így 30%
+  kedvezménynél a tag 66 lejt fizetett 154 helyett, 100%-nál pedig a teljes díjat, 0%-nál
+  viszont semmit. (Az űrlap 50%-os alapértékénél a két számítás véletlenül egybeesett, ezért
+  maradt rejtve.) Mostantól a felirat szerint működik: **a kedvezmény százalékával kevesebbet
+  fizet**. A „Korai fizetés" és a „Foglalkozás" kedvezmény számítása változatlan.
+
+- **A „Szociális" kedvezmény-típus eltávolítva a kedvezmény-panelről.** Ez a típus menthető
+  volt és meg is jelent a listában, de a tartozás-számítás **soha nem vette figyelembe** —
+  néma csapda volt. Az ok: az itteni kedvezmények mindig az egész gyülekezetre vonatkoznak,
+  egyetlen tagra nem szűkíthetők, így egy „beteg tag 100%" szabály mindenkit ingyenessé tett
+  volna. **Egy tagra szóló mentességet továbbra is a Felmentésnél lehet rögzíteni** (indokkal
+  és évszámmal) — az helyesen működik. A panel most erre irányít.
+
+---
+
 ## [2026-07-15] — Pénzügy: éves beállítás megadható űrlapon (nincs több zsákutca)
 <!-- key: 2026-07-15-eves-penzugyi-beallitas-urlap -->
 <!-- category: bugfix -->
