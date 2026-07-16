@@ -204,11 +204,26 @@ export function BcrImportWizardDialog({
       const existing = nyitoRes.data ?? null
       setNyitoExisting(existing)
       setCarryover(null)
-      if (existing) {
+      // 2026-07-11 (S8): DEVIZÁS számlánál csak akkor ugorjuk át a nyitó lépést,
+      // ha a meglévő rekordon VAN érvényes árfolyam — különben a tételek RON-ra
+      // váltásához nincs éves fallback árfolyam, és pontatlan (vagy át sem váltott)
+      // lenne a könyvelés. Ilyenkor megmutatjuk a lépést (az árfolyam automatikusan
+      // betöltődik a BNR-ből, kézzel felülírható).
+      const isRonBank = (selectedBank?.valuta || 'RON') === 'RON'
+      const existingHasValidRate =
+        existing != null && (isRonBank || (existing.arfolyam != null && Number(existing.arfolyam) > 0))
+      if (existing && existingHasValidRate) {
         setNyitoValuta(Number(existing.nyito_egyenleg_valuta))
         setNyitoRon(Number(existing.nyito_egyenleg_ron))
         setNyitoArfolyam(existing.arfolyam ? Number(existing.arfolyam) : '')
         setStep('categorize')
+      } else if (existing && !existingHasValidRate) {
+        // Van rekord, de hiányzik/0 az árfolyam (devizás számla) → a lépés
+        // megjelenik a meglévő összeggel; az árfolyamot pótolni kell.
+        setNyitoValuta(Number(existing.nyito_egyenleg_valuta))
+        setNyitoRon(existing.nyito_egyenleg_ron ? Number(existing.nyito_egyenleg_ron) : '')
+        setNyitoArfolyam('')
+        setStep('opening-balance')
       } else {
         // 2026-07-10 (nyitó-carryover): ha az ELŐZŐ évben már volt import /
         // banki forgalom, a nyitó NEM kézi adat — a tavalyi záróból hozzuk át.

@@ -1,35 +1,28 @@
-import { getMembers } from './actions'
 import { MemberTabsV4 } from '@/components/members/member-tabs-v4'
 import { AdminImportLazy } from '@/components/members/admin-import-lazy'
 import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/actions'
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { getFamilyGraphUnlockState } from './family-graph-actions'
+import { getMemberOverviewSnapshot } from './overview-actions'
+import { getMembersPage } from './registry-list-actions'
 
 export default async function TagnyilvantartasPage() {
   const access = await getEffectiveAccessContext()
   const master = access.master
 
-  // 2026-06-30 (perf): a godMode + delegatedImport + getMembers FÜGGETLENEK
-  // egymástól (mind a cache-elt access-kontextusra épülnek), ezért egyetlen
-  // párhuzamos hullámban futnak — a getMembers (a legdrágább) mellé a két
-  // státusz-lekérdezés így nem ad külön körutat.
-  const [godMode, delegatedImport, membersData] = await Promise.all([
+  // A jogosultsági státuszok, az áttekintési snapshot és az első 50 személy
+  // egymástól függetlenül tölthetők. A teljes személylista nem kerül a kliensre.
+  const [godMode, delegatedImport, overviewSnapshot, initialMemberPage, familyGraphUnlock] = await Promise.all([
     master ? getGodModeStatus() : Promise.resolve({ active: false }),
     getDelegatedImportStatus('members'),
-    getMembers(),
+    getMemberOverviewSnapshot(),
+    getMembersPage({ status: 'aktív', sort: 'id', direction: 'desc' }),
+    getFamilyGraphUnlockState(),
   ])
 
-  const {
-    members,
-    paidPersonIds,
-    paidFamilyIds,
-    exemptPersonIds,
-    exemptFamilyIds,
-    personToFamilyMap,
-  } = membersData
-
   // 2026-05-25: a "Rendszergazdai importáló" mostantól a MemberTabsV4 belső
-  // tab-listájának VÉGÉN jelenik meg (Áttekintés / Személyek / Családok /
+  // tab-listájának VÉGÉN jelenik meg (Áttekintés / Személyek /
   // Presbiterek / Körzetek / Választók / Hibák / Rendszergazdai importáló),
   // nem külön ModuleAdminWorkspace wrapperrel a tetején. Jogosultság:
   // CSAK aktív god mode vagy delegated import (2026-05-29: admin szerepkör
@@ -39,13 +32,12 @@ export default async function TagnyilvantartasPage() {
   return (
     <div className="space-y-4">
       <MemberTabsV4
-        initialMembers={members}
-        paidPersonIds={paidPersonIds}
-        paidFamilyIds={paidFamilyIds}
-        exemptPersonIds={exemptPersonIds}
-        exemptFamilyIds={exemptFamilyIds}
-        personToFamilyMap={personToFamilyMap}
+        overviewSnapshot={overviewSnapshot}
+        initialMemberPage={initialMemberPage}
         isGodMode={godMode.active}
+        congregationId={access.effectiveCongregationId}
+        userId={access.userId}
+        familyGraphUnlock={familyGraphUnlock}
         showAdminImport={showAdminImport}
         adminImportContent={
           showAdminImport ? (

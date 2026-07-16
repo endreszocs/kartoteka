@@ -1,32 +1,39 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 
+import { getFamilyGraphUnlockState } from '@/app/(dashboard)/tagnyilvantartas/family-graph-actions'
 import { ColorTabs } from '@/components/ui/color-tabs'
-import type { EnrichedMember } from '@/lib/constants/members'
+import { FamilyGraphUnlockDialog } from '@/components/members/family-graph-unlock-dialog'
+import {
+  FAMILY_GRAPH_COUNT_EVENT,
+  type FamilyGraphUnlockState,
+} from '@/lib/members/family-graph-types'
+import type { MemberOverviewSnapshot } from '@/lib/members/member-overview'
+import type { MemberListPage } from '@/lib/members/registry-list-types'
 import { OverviewTab } from './overview-tab'
-import { PersonsTab } from './persons-tab'
+import { RegistryMembersWorkspace } from './registry-members-workspace'
 
 // 2026-06-30 (perf): a nem-default, ritkábban használt fülek next/dynamic-kal
 // töltődnek — így a route kezdeti JS-bundle-jéből kikerül a nehéz súgó (~58KB),
-// a Családok, Presbiterek, Körzetek, Választók és Hibák fül kódja, és csak a
+// a Presbiterek, Körzetek, Választók és Hibák fül kódja, és csak a
 // tényleges fülre kattintáskor töltődik le. Az Áttekintés (default) és a Személyek
 // (leggyakoribb) statikus marad a gyors első festésért. A viselkedés változatlan.
 const tabLoading = () => <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
-const FamiliesTab = dynamic(() => import('./families-tab-v2').then((m) => m.FamiliesTab), { ssr: false, loading: tabLoading })
 const PresbytersTab = dynamic(() => import('./presbyters-tab').then((m) => m.PresbytersTab), { ssr: false, loading: tabLoading })
 const DistrictsTab = dynamic(() => import('./districts-tab').then((m) => m.DistrictsTab), { ssr: false, loading: tabLoading })
 const VotersTab = dynamic(() => import('./voters-tab').then((m) => m.VotersTab), { ssr: false, loading: tabLoading })
 const ValidationErrorsTab = dynamic(() => import('./validation-errors-tab').then((m) => m.ValidationErrorsTab), { ssr: false, loading: tabLoading })
 const TagnyilvantartasHelp = dynamic(() => import('./tagnyilvantartas-help').then((m) => m.TagnyilvantartasHelp), { ssr: false, loading: tabLoading })
+const FamilyGraphTab = dynamic(() => import('./family-graph-tab').then((m) => m.FamilyGraphTab), { ssr: false, loading: tabLoading })
 
 // Hash-routing — a sidebar almenüből (`/tagnyilvantartas#persons` stb.) közvetlen tab-ugrás.
 // Az érvényes value-k egyezniek kell a `tabs` array-vel.
 const VALID_TAB_HASHES = new Set([
   'overview',
   'persons',
-  'families',
+  'family-network',
   'presbyters',
   'districts',
   'voters',
@@ -38,19 +45,27 @@ const VALID_TAB_HASHES = new Set([
 ])
 const DEFAULT_TAB = 'overview'
 
-function getTabFromHash(hash: string): string {
+function getTabFromHash(
+  hash: string,
+  familyGraphUnlocked: boolean,
+  showAdminImport: boolean,
+): string {
   const clean = hash.replace(/^#/, '')
+  // A korábbi közvetlen családi URL-ek a közös, személy-központú
+  // munkafelületre mutatnak; a családi adatok a személyi kartonból érhetők el.
+  if (clean === 'families') return 'persons'
+  if (clean === 'family-network' && !familyGraphUnlocked) return 'persons'
+  if (clean === 'admin-import' && !showAdminImport) return DEFAULT_TAB
   return VALID_TAB_HASHES.has(clean) ? clean : DEFAULT_TAB
 }
 
 interface MemberTabsV4Props {
-  initialMembers: EnrichedMember[]
-  paidPersonIds: number[]
-  paidFamilyIds: number[]
-  exemptPersonIds: number[]
-  exemptFamilyIds: number[]
-  personToFamilyMap: Record<number, number>
+  overviewSnapshot: MemberOverviewSnapshot
+  initialMemberPage: MemberListPage
   isGodMode: boolean
+  congregationId: string | null
+  userId: string | null
+  familyGraphUnlock: FamilyGraphUnlockState
   /**
    * Ha `true`, a tab-listához hozzáadódik egy "Rendszergazdai importáló" fül
    * (utolsó helyen, piros háttérrel). Jogosultság: god mode aktív, delegated
@@ -62,18 +77,66 @@ interface MemberTabsV4Props {
 }
 
 export function MemberTabsV4({
-  initialMembers,
-  paidPersonIds,
-  personToFamilyMap,
+  overviewSnapshot,
+  initialMemberPage,
   isGodMode,
+  congregationId,
+  userId,
+  familyGraphUnlock,
   showAdminImport = false,
   adminImportContent,
 }: MemberTabsV4Props) {
-  const [members, setMembers] = useState(initialMembers)
+  const unlockScope = `${userId ?? 'anonymous'}:${congregationId ?? 'none'}`
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
+  const [scopedGraphUnlock, setScopedGraphUnlock] = useState(() => ({
+    scopeKey: unlockScope,
+    value: familyGraphUnlock,
+  }))
+  const graphUnlock = scopedGraphUnlock.scopeKey === unlockScope
+    ? scopedGraphUnlock.value
+    : familyGraphUnlock
+  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
+  const graphUnlockedRef = useRef(familyGraphUnlock.unlocked)
+  const unlockCeremonyCheckedRef = useRef(false)
+  const unlockScopeRef = useRef(unlockScope)
+  const unlockRequestVersionRef = useRef(0)
+  const showAdminImportRef = useRef(showAdminImport)
+
+  useEffect(() => {
+    unlockRequestVersionRef.current += 1
+    setScopedGraphUnlock({
+      scopeKey: unlockScope,
+      value: {
+        familyCount: familyGraphUnlock.familyCount,
+        threshold: familyGraphUnlock.threshold,
+        unlocked: familyGraphUnlock.unlocked,
+      },
+    })
+  }, [
+    familyGraphUnlock.familyCount,
+    familyGraphUnlock.threshold,
+    familyGraphUnlock.unlocked,
+    unlockScope,
+  ])
+
+  useEffect(() => {
+    if (unlockScopeRef.current === unlockScope) return
+    unlockScopeRef.current = unlockScope
+    unlockRequestVersionRef.current += 1
+    unlockCeremonyCheckedRef.current = false
+    setUnlockDialogOpen(false)
+  }, [unlockScope])
+
+  useEffect(() => {
+    showAdminImportRef.current = showAdminImport
+  }, [showAdminImport])
+
+  useEffect(() => {
+    graphUnlockedRef.current = graphUnlock.unlocked
+  }, [graphUnlock.unlocked])
 
   // Hash-routing: induláskor + minden hash-változáskor frissítjük az activeTab-ot.
-  // A sidebar `/tagnyilvantartas#families` stb. URL-jeiből közvetlen tab-ugrás.
+  // A sidebar `/tagnyilvantartas#persons` stb. URL-jeiből közvetlen tab-ugrás.
   //
   // 2026-04-28 FIX: a Next.js `<Link>` `pushState`-tel navigál — ez NEM trigger-eli
   // automatikusan a `hashchange` event-et (csak a böngésző natív back/forward-ja
@@ -82,12 +145,36 @@ export function MemberTabsV4({
   // `<Link>` ugyanezen az oldalon csak a hash-t változtatja (`/tagnyilvantartas#persons`),
   // a tab IS frissül.
   useEffect(() => {
-    const apply = () => setActiveTab(getTabFromHash(window.location.hash))
-    apply()
-
     const originalPushState = window.history.pushState
     const originalReplaceState = window.history.replaceState
     let lastHash = window.location.hash
+    const apply = () => {
+      lastHash = window.location.hash
+      if (lastHash === '#family-network' && !graphUnlockedRef.current) {
+        lastHash = '#persons'
+        originalReplaceState.call(
+          window.history,
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}${lastHash}`,
+        )
+      } else if (lastHash === '#admin-import' && !showAdminImportRef.current) {
+        lastHash = ''
+        originalReplaceState.call(
+          window.history,
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        )
+      }
+      setActiveTab(getTabFromHash(
+        lastHash,
+        graphUnlockedRef.current,
+        showAdminImportRef.current,
+      ))
+    }
+    apply()
+
     const dispatchIfHashChanged = () => {
       const newHash = window.location.hash
       if (newHash !== lastHash) {
@@ -115,8 +202,144 @@ export function MemberTabsV4({
     }
   }, [])
 
+  // A családlista csak változáskor jelez. A kliens nem döntheti el a feloldást:
+  // minden ilyen jelzés után a tenant-szűrt Server Action számolja újra a státuszt.
+  useEffect(() => {
+    let cancelled = false
+    let refreshing = false
+    let refreshRequested = false
+
+    const refreshUnlock = async () => {
+      refreshRequested = true
+      unlockRequestVersionRef.current += 1
+      if (refreshing) return
+      refreshing = true
+      try {
+        while (refreshRequested && !cancelled) {
+          refreshRequested = false
+          const requestVersion = unlockRequestVersionRef.current
+          const requestScope = unlockScopeRef.current
+          let next: FamilyGraphUnlockState | null = null
+          let lastError: unknown = null
+
+          for (let attempt = 0; attempt < 2 && !cancelled; attempt += 1) {
+            try {
+              next = await getFamilyGraphUnlockState()
+              break
+            } catch (error) {
+              lastError = error
+              if (attempt === 0) {
+                await new Promise((resolve) => window.setTimeout(resolve, 450))
+              }
+            }
+          }
+
+          if (
+            next &&
+            !cancelled &&
+            requestVersion === unlockRequestVersionRef.current &&
+            requestScope === unlockScopeRef.current
+          ) {
+            setScopedGraphUnlock({ scopeKey: requestScope, value: next })
+          } else if (!next && lastError && !cancelled) {
+            console.error(
+              '[MemberTabsV4] A családi háló feloldási állapota két próbálkozás után sem frissíthető:',
+              lastError,
+            )
+          }
+        }
+      } finally {
+        refreshing = false
+      }
+    }
+
+    window.addEventListener(FAMILY_GRAPH_COUNT_EVENT, refreshUnlock)
+    return () => {
+      cancelled = true
+      window.removeEventListener(FAMILY_GRAPH_COUNT_EVENT, refreshUnlock)
+    }
+  }, [])
+
+  // Ha egy törlés után ismét 15 alá esik a családszám, a rejtett nézetből
+  // biztonságosan visszalépünk a Személyek munkafelületre.
+  useEffect(() => {
+    if (!graphUnlock.unlocked && activeTab === 'family-network') {
+      setActiveTab('persons')
+      const nextUrl = `${window.location.pathname}${window.location.search}#persons`
+      window.history.replaceState(null, '', nextUrl)
+    }
+  }, [activeTab, graphUnlock.unlocked])
+
+  useEffect(() => {
+    if (!showAdminImport && activeTab === 'admin-import') {
+      setActiveTab(DEFAULT_TAB)
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${window.location.search}`,
+      )
+    }
+  }, [activeTab, showAdminImport])
+
+  // A meglepetés gyülekezetenként és felhasználónként egyszer jelenik meg az
+  // adott böngészőben. Adatbázis-migráció nélkül ez a legkisebb, privát állapot.
+  useEffect(() => {
+    if (!graphUnlock.unlocked) {
+      unlockCeremonyCheckedRef.current = false
+      return
+    }
+    if (
+      !congregationId ||
+      !userId ||
+      unlockCeremonyCheckedRef.current
+    ) return
+
+    unlockCeremonyCheckedRef.current = true
+    const storageKey = `kartoteka:family-network-unlock:v1:${userId}:${congregationId}`
+    try {
+      if (localStorage.getItem(storageKey) === 'seen') return
+    } catch {
+      // Szigorú böngészőbeállítások mellett is megmutatható egyszer a sessionben.
+    }
+    const scheduledScope = unlockScope
+    let opened = false
+    const frameId = requestAnimationFrame(() => {
+      if (
+        graphUnlockedRef.current &&
+        unlockScopeRef.current === scheduledScope
+      ) {
+        opened = true
+        setUnlockDialogOpen(true)
+      }
+    })
+
+    return () => {
+      cancelAnimationFrame(frameId)
+      if (!opened) unlockCeremonyCheckedRef.current = false
+    }
+  }, [congregationId, graphUnlock.unlocked, unlockScope, userId])
+
+  function rememberFamilyGraphDiscovery() {
+    if (!congregationId || !userId) return
+    try {
+      localStorage.setItem(
+        `kartoteka:family-network-unlock:v1:${userId}:${congregationId}`,
+        'seen',
+      )
+    } catch {
+      // A dialógus localStorage nélkül is szabályosan bezárható.
+    }
+  }
+
+  function handleUnlockDialogOpenChange(open: boolean) {
+    if (!open) rememberFamilyGraphDiscovery()
+    setUnlockDialogOpen(open)
+  }
+
   // Tab váltáskor frissítjük a URL hash-ét is (hogy bookmarkolható legyen)
   const handleTabChange = (next: string) => {
+    if (next === 'family-network' && !graphUnlock.unlocked) return
+    if (next === 'admin-import' && !showAdminImport) return
     setActiveTab(next)
     if (typeof window !== 'undefined') {
       const newHash = next === DEFAULT_TAB ? '' : `#${next}`
@@ -130,7 +353,9 @@ export function MemberTabsV4({
     const base = [
       { value: 'overview', label: 'Áttekintés', color: 'blue' },
       { value: 'persons', label: 'Személyek', color: 'emerald' },
-      { value: 'families', label: 'Családok', color: 'violet' },
+      ...(graphUnlock.unlocked
+        ? [{ value: 'family-network', label: 'Családi háló ✦', color: 'violet' }]
+        : []),
       { value: 'presbyters', label: 'Presbiterek', color: 'amber' },
       { value: 'districts', label: 'Körzetek', color: 'cyan' },
       { value: 'voters', label: 'Választók', color: 'pink' },
@@ -149,21 +374,7 @@ export function MemberTabsV4({
       })
     }
     return base
-  }, [showAdminImport])
-
-  function handleMemberRemoved(id: number) {
-    setMembers((prev) => prev.filter((member) => member.id !== id))
-  }
-
-  function handleMemberUpdated(id: number, updates: Partial<EnrichedMember>) {
-    setMembers((prev) =>
-      prev.map((member) => (member.id === id ? { ...member, ...updates } : member)),
-    )
-  }
-
-  function handleRefresh(newMembers: EnrichedMember[]) {
-    setMembers(newMembers)
-  }
+  }, [graphUnlock.unlocked, showAdminImport])
 
   return (
     <div className="space-y-4">
@@ -185,10 +396,10 @@ export function MemberTabsV4({
 
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-              {members.length} személy
+              {initialMemberPage.totalCount} személy
             </span>
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 shadow-sm">
-              {paidPersonIds.length} járulékfizető
+              {overviewSnapshot.stats.total} aktív tag
             </span>
             {isGodMode && (
               <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600 shadow-sm">
@@ -202,19 +413,11 @@ export function MemberTabsV4({
       <ColorTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
 
       <div>
-        {activeTab === 'overview' && <OverviewTab members={members} />}
+        {activeTab === 'overview' && <OverviewTab snapshot={overviewSnapshot} />}
         {activeTab === 'persons' && (
-          <PersonsTab
-            members={members}
-            paidPersonIds={paidPersonIds}
-            personToFamilyMap={personToFamilyMap}
-            isGodMode={isGodMode}
-            onMemberRemoved={handleMemberRemoved}
-            onMemberUpdated={handleMemberUpdated}
-            onRefresh={handleRefresh}
-          />
+          <RegistryMembersWorkspace initialPage={initialMemberPage} />
         )}
-        {activeTab === 'families' && <FamiliesTab />}
+        {activeTab === 'family-network' && graphUnlock.unlocked && <FamilyGraphTab />}
         {activeTab === 'presbyters' && <PresbytersTab />}
         {activeTab === 'districts' && <DistrictsTab />}
         {activeTab === 'voters' && <VotersTab />}
@@ -222,6 +425,17 @@ export function MemberTabsV4({
         {activeTab === 'help' && <TagnyilvantartasHelp />}
         {activeTab === 'admin-import' && showAdminImport && adminImportContent}
       </div>
+
+      <FamilyGraphUnlockDialog
+        congregationId={congregationId}
+        open={unlockDialogOpen && graphUnlock.unlocked}
+        onOpenChange={handleUnlockDialogOpenChange}
+        onExplore={() => {
+          rememberFamilyGraphDiscovery()
+          setUnlockDialogOpen(false)
+          handleTabChange('family-network')
+        }}
+      />
     </div>
   )
 }

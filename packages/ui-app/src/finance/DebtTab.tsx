@@ -75,9 +75,23 @@ interface MemberDebtSummary {
   visibleDebt: number
 }
 
+/**
+ * Kiskorú-e a tag a látható évek MINDEGYIKÉBEN? Csak ilyenkor rejtjük el —
+ * aki a látható időszak alatt betöltötte a 18-at, marad a listán, mert a
+ * felnőtt éveire már járulékköteles (és lehet hátraléka).
+ * Az olyan évek, amelyekre nincs sora, nem számítanak (nem cáfolnak).
+ */
+function isMinorInAllVisibleYears(m: MemberDebtSummary, visibleYears: number[]): boolean {
+  const rows = visibleYears.map((y) => m.perYear.get(y)).filter(Boolean) as DebtRow[]
+  if (rows.length === 0) return false
+  return rows.every((row) => row.status === 'kiskoru')
+}
+
 function statusLabel(status: DebtRow['status']): string {
   if (status === 'hatralekos') return 'Hátralékos'
   if (status === 'rendezve') return 'Rendezett'
+  // 2026-07-16: a 18 éves törvényi korhatár — NEM azonos a presbitériumi felmentéssel.
+  if (status === 'kiskoru') return 'Nem járulékköteles'
   return 'Felmentett'
 }
 
@@ -100,6 +114,9 @@ export function DebtTab({
   const [yearFilter, setYearFilter] = useState<'all' | number>('all')
   const [onlyDebtors, setOnlyDebtors] = useState(false)
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
+  // 2026-07-16: a 18 év alattiak ALAPBÓL rejtve (user-döntés) — a hátralék-lista a
+  // beszedendő pénzről szól, és nagy gyülekezetben a tagok fele gyerek lehet.
+  const [showMinors, setShowMinors] = useState(false)
 
   // ── 2026-07-10 (S2-1c): év → sorok map, visszaeséssel a currentYear-re ─
   const byYear = useMemo<Record<number, DebtRow[]>>(() => {
@@ -156,12 +173,21 @@ export function DebtTab({
       .filter((m) => {
         if (needle && !normalizeName(m.name).includes(needle)) return false
         if (onlyDebtors && m.visibleDebt <= 0) return false
+        // Egy tagot CSAK akkor rejtünk el, ha MINDEN látható évben kiskorú volt.
+        // Aki közben betöltötte a 18-at, marad a listán (a felnőtt évei számítanak).
+        if (!showMinors && isMinorInAllVisibleYears(m, visibleYears)) return false
         return true
       })
       .sort(
         (a, b) => b.visibleDebt - a.visibleDebt || a.name.localeCompare(b.name, 'hu'),
       )
-  }, [members, visibleYears, search, onlyDebtors])
+  }, [members, visibleYears, search, onlyDebtors, showMinors])
+
+  /** Hány tag rejtőzik el a kiskorú-szűrő miatt? (a kapcsoló feliratához) */
+  const hiddenMinorCount = useMemo(
+    () => members.filter((m) => isMinorInAllVisibleYears(m, visibleYears)).length,
+    [members, visibleYears],
+  )
 
   // ── 2026-07-10 (S2-1c): összesítő számok a kártyákhoz ──────────────────
   const totalOutstanding = useMemo(
@@ -377,6 +403,22 @@ export function DebtTab({
                 />
                 Csak tartozók
               </label>
+              {/* 2026-07-16: a 18 év alattiak alapból rejtve — a kapcsoló csak akkor
+                  jelenik meg, ha van is mit mutatni (különben csak zaj). */}
+              {hiddenMinorCount > 0 && (
+                <label
+                  className="inline-flex max-sm:min-h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm"
+                  title="A járulék hivatalosan 18 éves kortól jár, ezért a kiskorúak alapból nem szerepelnek a listán."
+                >
+                  <input
+                    type="checkbox"
+                    checked={showMinors}
+                    onChange={(e) => setShowMinors(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-slate-500"
+                  />
+                  Kiskorúak is ({hiddenMinorCount})
+                </label>
+              )}
               <button
                 type="button"
                 onClick={exportCsv}
@@ -646,12 +688,16 @@ function MemberRows({
                   ? 'font-semibold text-red-500'
                   : row.status === 'felmentett'
                     ? 'text-sky-600'
-                    : 'text-emerald-600'
+                    : row.status === 'kiskoru'
+                      ? 'text-slate-400'
+                      : 'text-emerald-600'
               } ${y === currentYear ? 'bg-slate-50/60' : ''}`}
             >
-              {row.status === 'felmentett' && row.expected === 0
-                ? 'felmentve'
-                : `${formatCurrency(row.debt)} RON`}
+              {row.status === 'kiskoru' && row.expected === 0
+                ? '—'
+                : row.status === 'felmentett' && row.expected === 0
+                  ? 'felmentve'
+                  : `${formatCurrency(row.debt)} RON`}
             </td>
           )
         })}
@@ -779,5 +825,8 @@ function statusClassName(status: DebtRow['status']) {
     return 'inline-flex rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600'
   if (status === 'rendezve')
     return 'inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600'
+  // A kiskorú semleges (szürke) — se nem jó hír, se nem rossz, egyszerűen nem érintett.
+  if (status === 'kiskoru')
+    return 'inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600'
   return 'inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700'
 }

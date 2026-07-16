@@ -34,13 +34,14 @@ interface FamilyLinkStepProps {
   onBack: () => void
 }
 
-type Stage = 'idle' | 'previewing' | 'review' | 'applying' | 'done'
+type Stage = 'idle' | 'previewing' | 'review' | 'applying' | 'done' | 'error'
 
 export function FamilyLinkStep({ congregationId, congregationName, onBack }: FamilyLinkStepProps) {
   const [stage, setStage] = useState<Stage>('idle')
   const [mode, setMode] = useState<FamilyLinkMode>('conservative')
   const [preview, setPreview] = useState<FamilyLinkResponse | null>(null)
   const [appliedBatchId, setAppliedBatchId] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   // ─── Indító elemzés (preview) — automatikusan fut belépéskor ────────
@@ -50,10 +51,12 @@ export function FamilyLinkStep({ congregationId, congregationName, onBack }: Fam
       startTransition(async () => {
         const result = await previewFamilyLinks(congregationId, selectedMode)
         if (result.error || !result.data) {
-          toast.error(result.error || 'Sikertelen elemzés.')
-          setStage('idle')
+          // NE ragadjon be: a hiba-stage érthető üzenetet + újrapróbálás/kihagyás gombot ad.
+          setErrorMsg(result.error || 'Sikertelen elemzés.')
+          setStage('error')
           return
         }
+        setErrorMsg(null)
         setPreview(result.data)
         setStage('review')
       })
@@ -140,41 +143,22 @@ export function FamilyLinkStep({ congregationId, congregationName, onBack }: Fam
       {/* Mode-választó */}
       <div className="rounded-[1.5rem] bg-white/85 p-5 ring-1 ring-emerald-100 shadow-[0_18px_40px_-30px_rgba(15,118,110,0.25)]">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">
-          Megbízhatósági szint
+          Biztonságos összekapcsolás
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          Mennyire agresszív legyen az automatikus összekapcsolás? A bizonytalan egyezéseket
-          kézzel utólag is rendezheted a tagnyilvántartáson.
+          A rendszer csak a biztos egyezéseket kapcsolja össze (cím + szülő-név direkt találat),
+          így sosem ront el adatot. A bizonytalan eseteket kézzel, utólag rendezheted a
+          tagnyilvántartáson.
         </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="mt-3">
           <ModeOption
             mode="conservative"
             active={mode === 'conservative'}
             onSelect={handleModeChange}
-            title="Konzervatív"
+            title="Konzervatív egyeztetés"
             desc="Csak biztos egyezések — cím + szülő-név direkt találat. Sose ront el adatot."
           />
-          <ModeOption
-            mode="moderate"
-            active={mode === 'moderate'}
-            onSelect={handleModeChange}
-            title="Mérsékelt"
-            desc="Egyetlen jelölt esetén is bekerül; több jelöltnél manuális dönt."
-            disabled
-          />
-          <ModeOption
-            mode="aggressive"
-            active={mode === 'aggressive'}
-            onSelect={handleModeChange}
-            title="Agresszív"
-            desc="Mindig a legvalószínűbb jelölt — utólag visszavonható."
-            disabled
-          />
         </div>
-        <p className="mt-2 text-xs italic text-slate-400">
-          A {'"'}Mérsékelt{'"'} és {'"'}Agresszív{'"'} módok későbbi fejlesztés alatt — most csak a
-          {' "'}Konzervatív{'" '}működik.
-        </p>
       </div>
 
       {/* Loading */}
@@ -184,6 +168,39 @@ export function FamilyLinkStep({ congregationId, congregationName, onBack }: Fam
           <p className="mt-2 text-sm text-slate-600">
             {stage === 'previewing' ? 'Elemzés folyamatban…' : 'Folyamat alatt…'}
           </p>
+        </div>
+      )}
+
+      {/* Hiba — SOSE ragad be: érthető üzenet + újrapróbálás / kihagyás */}
+      {stage === 'error' && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-6 text-center">
+          <AlertTriangle className="mx-auto size-8 text-amber-500" />
+          <p className="mt-2 font-semibold text-slate-800">A családszerkezet-elemzés nem sikerült</p>
+          <p className="mx-auto mt-1 max-w-md text-sm leading-relaxed text-slate-600">
+            {errorMsg || 'Ismeretlen hiba.'} Nagy gyülekezetnél ez időtúllépés is lehet — próbáld
+            újra, vagy hagyd ki ezt a lépést. A <strong>személyek és családfők ettől függetlenül
+            beimportálódtak</strong>, a családszerkezetet később kézzel is összeállíthatod.
+          </p>
+          <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+            <Button
+              type="button"
+              onClick={() => runPreview(mode)}
+              disabled={isPending}
+              className="min-h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700"
+            >
+              {isPending ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+              Újrapróbálom
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onBack}
+              disabled={isPending}
+              className="min-h-11 rounded-xl"
+            >
+              Kihagyom ezt a lépést
+            </Button>
+          </div>
         </div>
       )}
 

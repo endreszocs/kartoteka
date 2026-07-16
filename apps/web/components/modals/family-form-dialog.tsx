@@ -11,7 +11,7 @@ import { saveFamily, searchFamilyMember } from '@/app/(dashboard)/tagnyilvantart
 import type { FamilyRow } from '@/app/(dashboard)/tagnyilvantartas/family-actions'
 import { getDistricts, type DistrictRow } from '@/app/(dashboard)/tagnyilvantartas/presbyter-actions'
 import { toast } from 'sonner'
-import { FamilyCardPreview, type FamilyCardData } from '@/components/modals/family-card-preview'
+import { FamilyCardModern, type FamilyCardModernData } from '@kartoteka/ui-app'
 
 interface SearchResult {
   id: number
@@ -20,20 +20,23 @@ interface SearchResult {
   cnp: string | null
   sz_datum: string | null
   c_szam: string | null
+  c_utcaid: number | null
   adrlocality: { name: string } | null
   adrstreet: { name: string } | null
 }
 
+type EditableFamilyRow = FamilyRow & { c_utcaid?: number | null }
+
 interface FamilyFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  editFamily: FamilyRow | null
+  editFamily: EditableFamilyRow | null
 }
 
 // 2026-06-02: jól látható input-stílus — a default bg-card/78 (78% áttetszős)
 // egybeolvad a dialog-háttérrel. Ez a stílus tisztán fehér háttérrel + finom
 // shadow-val tér el — mint a baptism-dialog mintában.
-const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
+const FIELD_INPUT_CLASS = 'h-11 rounded-xl border-input bg-card shadow-sm focus-visible:ring-ring'
 
 type PersonRef = { id: number; name: string; age?: number | null }
 
@@ -79,9 +82,13 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           : null)
         setCSzam(editFamily.c_szam || '')
         setCUtcaName(editFamily.utca?.name || '')
-        setCUtcaid(undefined)
+        setCUtcaid(editFamily.c_utcaid ?? undefined)
         setIdCsoport(editFamily.id_csoport ? String(editFamily.id_csoport) : '')
-        setChildren([])
+        setChildren((editFamily.gyerekek ?? []).map((child) => ({
+          id: child.id,
+          name: `${child.csaladnev ?? ''} ${child.k_nev ?? ''}`.trim() || 'Névtelen gyermek',
+          age: ageOf(child.sz_datum),
+        })))
       } else {
         setHusband(null)
         setWife(null)
@@ -123,12 +130,12 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
     if (type === 'husband') {
       setHusband({ id: r.id, name, age }); setHusbandQuery(''); setShowHusband(false)
       // Cím auto-töltés a férj lakcíméből
-      if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(undefined) }
+      if (r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (r.c_szam) setCSzam(r.c_szam)
     } else if (type === 'wife') {
       setWife({ id: r.id, name, age }); setWifeQuery(''); setShowWife(false)
       // Ha nincs még cím → a feleség lakcíméből tölt
-      if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(undefined) }
+      if (!cUtcaName && r.adrstreet?.name) { setCUtcaName(r.adrstreet.name); setCUtcaid(r.c_utcaid ?? undefined) }
       if (!cSzam && r.c_szam) setCSzam(r.c_szam)
     } else {
       if (!children.find(c => c.id === r.id)) setChildren(prev => [...prev, { id: r.id, name, age }])
@@ -144,36 +151,54 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
   async function handleSubmit() {
     if (!husband && !wife) { toast.error('Legalább egy felet (férj vagy feleség) meg kell adni.'); return }
     setLoading(true)
-    const result = await saveFamily({
-      id: editFamily?.id,
-      id_ferfi: husband?.id ?? null,
-      id_no: wife?.id ?? null,
-      gyerekIds: children.map(c => c.id),
-      c_utcaid: cUtcaid,
-      c_szam: cSzam || undefined,
-      id_csoport: idCsoport ? parseInt(idCsoport) : null,
-    })
-    if (result.error) toast.error(result.error)
-    else {
-      toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
-      // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
-      if (result.warning) toast.warning(result.warning, { duration: 8000 })
-      onOpenChange(false)
+    try {
+      const result = await saveFamily({
+        id: editFamily?.id,
+        id_ferfi: husband?.id ?? null,
+        id_no: wife?.id ?? null,
+        gyerekIds: children.map(c => c.id),
+        c_utcaid: cUtcaid,
+        c_szam: cSzam || undefined,
+        id_csoport: idCsoport ? parseInt(idCsoport) : null,
+      })
+      if (result.error) toast.error(result.error)
+      else {
+        toast.success(editFamily ? 'Család frissítve!' : 'Család létrehozva!')
+        // 2026-06-10 (Fázis 2): a háztartás-sync hibája nem néma többé
+        if (result.warning) toast.warning(result.warning, { duration: 8000 })
+        onOpenChange(false)
+      }
+    } catch (error) {
+      console.error('[FamilyFormDialog] A család mentése sikertelen:', error)
+      toast.error('A család mentése nem sikerült. Próbáld újra.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   function renderSearchDropdown(results: SearchResult[], visible: boolean, type: 'husband' | 'wife' | 'child') {
     if (!visible || results.length === 0) return null
     return (
-      <div className="absolute z-10 top-full left-0 right-0 bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+      <div
+        id={`family-${type}-results`}
+        role="listbox"
+        aria-label={`${type === 'husband' ? 'Férj' : type === 'wife' ? 'Feleség' : 'Gyermek'} keresési találatok`}
+        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 shadow-xl"
+      >
         {results.map(r => (
-          <div key={r.id} className="p-2 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-0" onClick={() => selectPerson(r, type)}>
-            <div className="font-medium">{r.csaladnev} {r.k_nev}</div>
-            <div className="text-xs text-muted-foreground">
+          <button
+            key={r.id}
+            type="button"
+            role="option"
+            aria-selected="false"
+            className="block min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-primary/5 focus-visible:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            onClick={() => selectPerson(r, type)}
+          >
+            <span className="block font-semibold text-foreground">{r.csaladnev} {r.k_nev}</span>
+            <span className="block text-xs text-muted-foreground">
               {r.sz_datum ? `${new Date().getFullYear() - new Date(r.sz_datum).getFullYear()} éves` : '?'} · {r.adrlocality?.name || ''} {r.adrstreet?.name || ''} {r.c_szam || ''}
-            </div>
-          </div>
+            </span>
+          </button>
         ))}
       </div>
     )
@@ -181,7 +206,7 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
 
   // 2026-06-02: élő kártya-előnézet — minden state-frissítésre újraszámol.
   // A „familyName" a férj családnevéből vesszük (vagy a feleségéből, ha nincs férj).
-  const previewData: FamilyCardData = useMemo(() => {
+  const previewData: FamilyCardModernData = useMemo(() => {
     const husbandLastName = husband?.name.split(' ')[0]
     const wifeLastName = wife?.name.split(' ')[0]
     const familyName = husbandLastName || wifeLastName || null
@@ -189,43 +214,46 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
       ? districts.find((d) => String(d.id) === idCsoport)?.nev ?? null
       : null
     return {
+      familyId: editFamily?.id ?? 0,
       familyName,
-      husband: husband ? { id: husband.id, name: husband.name, age: husband.age ?? null } : null,
-      wife: wife ? { id: wife.id, name: wife.name, age: wife.age ?? null } : null,
-      children: children.map((c) => ({ id: c.id, name: c.name, age: c.age ?? null })),
+      members: [
+        ...(husband ? [{ id: husband.id, name: husband.name, age: husband.age ?? null, role: 'csaladfo' as const }] : []),
+        ...(wife ? [{ id: wife.id, name: wife.name, age: wife.age ?? null, role: 'hazastars' as const }] : []),
+        ...children.map((child) => ({ id: child.id, name: child.name, age: child.age ?? null, role: 'gyerek' as const })),
+      ],
       street: cUtcaName || null,
       houseNumber: cSzam || null,
       districtName,
-      isPreview: true,
       isActive: true,
+      paymentStatus: 'unknown',
     }
-  }, [husband, wife, children, cUtcaName, cSzam, idCsoport, districts])
+  }, [husband, wife, children, cUtcaName, cSzam, idCsoport, districts, editFamily?.id])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-[1.75rem] border-border bg-card p-0 sm:w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-5xl lg:max-w-6xl [&_[data-slot=dialog-close]]:z-30 [&_[data-slot=dialog-close]]:size-11">
+        <DialogHeader className="sticky top-0 z-20 border-b border-border/70 bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-5 py-5 pr-14 backdrop-blur dark:to-card sm:px-6">
+          <DialogTitle className="flex flex-wrap items-center gap-2 font-heading text-xl text-foreground sm:text-2xl">
             {editFamily ? 'Család szerkesztése' : 'Új család létrehozása'}
-            <span className="text-xs font-normal text-amber-600 inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
               <Sparkles className="size-3.5" />
               élő karton-előnézet
             </span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
-          <div className="space-y-4 md:max-h-[78vh] md:overflow-y-auto md:pr-2">
+        <div className="grid grid-cols-1 gap-5 px-4 py-5 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
+          <div className="space-y-4">
           {/* Férj */}
-          <div className="space-y-1.5 relative">
-            <Label>Férj</Label>
+          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+            <Label htmlFor={husband ? undefined : 'family-husband-search'} className="font-semibold text-foreground">Férj</Label>
             {husband ? (
-              <div className="flex items-center gap-2">
-                <Badge className="bg-blue-100 text-blue-700">♂ {husband.name}</Badge>
-                <Button variant="ghost" size="sm" className="h-6 text-xs text-red-500" onClick={() => setHusband(null)}>✕</Button>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/10 bg-primary/5 p-2">
+                <Badge className="min-h-8 bg-primary/10 text-primary hover:bg-primary/10">♂ {husband.name}</Badge>
+                <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-xl text-destructive" onClick={() => setHusband(null)} aria-label="Férj eltávolítása">✕</Button>
               </div>
             ) : (
-              <Input placeholder="Keresés név alapján (3+ karakter)..." value={husbandQuery}
+              <Input id="family-husband-search" role="combobox" aria-autocomplete="list" aria-expanded={showHusband && husbandResults.length > 0} aria-controls="family-husband-results" placeholder="Keresés név alapján (2+ karakter)…" value={husbandQuery}
                 onChange={e => { setHusbandQuery(e.target.value); handleSearch(e.target.value, 'husband') }}
                 className={FIELD_INPUT_CLASS} />
             )}
@@ -233,15 +261,15 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           </div>
 
           {/* Feleség */}
-          <div className="space-y-1.5 relative">
-            <Label>Feleség</Label>
+          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+            <Label htmlFor={wife ? undefined : 'family-wife-search'} className="font-semibold text-foreground">Feleség</Label>
             {wife ? (
-              <div className="flex items-center gap-2">
-                <Badge className="bg-pink-100 text-pink-700">♀ {wife.name}</Badge>
-                <Button variant="ghost" size="sm" className="h-6 text-xs text-red-500" onClick={() => setWife(null)}>✕</Button>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/10 bg-primary/5 p-2">
+                <Badge className="min-h-8 bg-primary/10 text-primary hover:bg-primary/10">♀ {wife.name}</Badge>
+                <Button variant="ghost" size="icon" className="size-11 shrink-0 rounded-xl text-destructive" onClick={() => setWife(null)} aria-label="Feleség eltávolítása">✕</Button>
               </div>
             ) : (
-              <Input placeholder="Keresés név alapján (3+ karakter)..." value={wifeQuery}
+              <Input id="family-wife-search" role="combobox" aria-autocomplete="list" aria-expanded={showWife && wifeResults.length > 0} aria-controls="family-wife-results" placeholder="Keresés név alapján (2+ karakter)…" value={wifeQuery}
                 onChange={e => { setWifeQuery(e.target.value); handleSearch(e.target.value, 'wife') }}
                 className={FIELD_INPUT_CLASS} />
             )}
@@ -249,46 +277,59 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           </div>
 
           {/* Gyerekek */}
-          <div className="space-y-1.5 relative">
-            <Label>Gyerekek</Label>
+          <div className="relative space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+            <Label htmlFor="family-child-search" className="font-semibold text-foreground">Gyermekek</Label>
             {children.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-1">
+              <div className="mb-1 flex flex-wrap gap-2">
                 {children.map(c => (
-                  <Badge key={c.id} variant="outline" className="text-xs">
+                  <Badge key={c.id} variant="outline" className="min-h-11 gap-1 rounded-full border-primary/15 bg-primary/5 pl-3 pr-0.5 text-xs text-primary">
                     {c.name}
-                    <button className="ml-1 text-red-400 hover:text-red-600" onClick={() => removeChild(c.id)}>✕</button>
+                    <button
+                      type="button"
+                      className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => removeChild(c.id)}
+                      aria-label={`${c.name} eltávolítása`}
+                    >
+                      ✕
+                    </button>
                   </Badge>
                 ))}
               </div>
             )}
-            <Input placeholder="Gyermek hozzáadása (keresés)..." value={childQuery}
+            <Input id="family-child-search" role="combobox" aria-autocomplete="list" aria-expanded={showChild && childResults.length > 0} aria-controls="family-child-results" placeholder="Gyermek hozzáadása (keresés)..." value={childQuery}
               onChange={e => { setChildQuery(e.target.value); handleSearch(e.target.value, 'child') }}
               className={FIELD_INPUT_CLASS} />
             {renderSearchDropdown(childResults, showChild, 'child')}
           </div>
 
           {/* Cím */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Utca</Label>
-              <Input value={cUtcaName} onChange={e => setCUtcaName(e.target.value)}
-                placeholder="Automatikusan töltődik" className={FIELD_INPUT_CLASS} />
+          <div className="grid grid-cols-1 gap-3 rounded-2xl border border-border/60 bg-background/50 p-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="family-street" className="font-semibold text-foreground">Utca</Label>
+              <Input
+                id="family-street"
+                value={cUtcaName}
+                readOnly
+                placeholder="A kiválasztott tag címéből"
+                className={`${FIELD_INPUT_CLASS} bg-muted/45 text-muted-foreground`}
+              />
               <p className="text-xs text-muted-foreground">A kiválasztott fél lakcíméből töltődik</p>
             </div>
-            <div className="space-y-1.5">
-              <Label>Házszám</Label>
-              <Input value={cSzam} onChange={e => setCSzam(e.target.value)}
+            <div className="space-y-2">
+              <Label htmlFor="family-house-number" className="font-semibold text-foreground">Házszám</Label>
+              <Input id="family-house-number" value={cSzam} onChange={e => setCSzam(e.target.value)}
                 placeholder="Pl. 12/A" className={FIELD_INPUT_CLASS} />
             </div>
           </div>
 
           {/* Körzet — opcionális */}
-          <div className="space-y-1.5">
-            <Label>Körzet</Label>
+          <div className="space-y-2 rounded-2xl border border-border/60 bg-background/50 p-4">
+            <Label htmlFor="family-district" className="font-semibold text-foreground">Körzet</Label>
             <select
+              id="family-district"
               value={idCsoport}
               onChange={e => setIdCsoport(e.target.value)}
-              className={'w-full rounded-md border px-3 py-2 text-sm ' + FIELD_INPUT_CLASS}
+              className={'w-full px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/20 ' + FIELD_INPUT_CLASS}
             >
               <option value="">— Nincs körzet —</option>
               {districts.map(d => (
@@ -303,22 +344,22 @@ export function FamilyFormDialog({ open, onOpenChange, editFamily }: FamilyFormD
           </div>
 
           {/* ─── JOBB OSZLOP: Élő karton-előnézet ─── */}
-          <aside className="md:sticky md:top-0 md:self-start">
-            <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 mb-2">
-              <p className="text-[11px] text-amber-900 leading-relaxed">
+          <aside className="md:sticky md:top-[5.75rem] md:self-start">
+            <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+              <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-200">
                 <Sparkles className="size-3 inline mr-1 text-amber-600" />
                 Ahogy gépeled / választod az adatokat, a családi karton automatikusan
                 kitöltődik. A sárga figyelmeztetésnél a kártya megmutatja, mi hiányzik még.
               </p>
             </div>
-            <FamilyCardPreview data={previewData} />
+            <FamilyCardModern data={previewData} />
           </aside>
         </div>
 
         {/* ─── Alsó akciósor ─── */}
-        <div className="flex gap-2 pt-4 border-t border-zinc-100 mt-4">
-          <Button variant="outline" className="flex-1 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-600" onClick={() => onOpenChange(false)}>Mégse</Button>
-          <Button onClick={handleSubmit} disabled={loading}>
+        <div className="sticky bottom-0 z-20 mt-1 flex gap-2 border-t border-border/70 bg-card/95 px-4 py-3 shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur sm:justify-end sm:px-6">
+          <Button variant="outline" className="h-11 flex-1 rounded-xl sm:flex-none sm:px-6" onClick={() => onOpenChange(false)}>Mégse</Button>
+          <Button className="h-11 flex-1 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 sm:flex-none sm:px-8" onClick={handleSubmit} disabled={loading}>
             {loading ? 'Mentés...' : 'Mentés'}
           </Button>
         </div>

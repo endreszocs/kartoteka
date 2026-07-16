@@ -32,6 +32,7 @@ import { createClient } from '@/lib/supabase/server'
 import { parseWorkbook, parseCsvString, parseXmlSpreadsheet } from './excel-parser'
 import type { ParsedWorkbook } from './excel-parser'
 import { PROFILE_FAMILY_HEADS, PROFILE_PERSONS, type ImportProfile } from './import-profiles'
+import { resolveImportTargetCongregationId } from './import-target'
 import { transformSheet, type AutoColumnContext } from './row-transformer'
 
 export type RowIssueSeverity = 'error' | 'warning' | 'info'
@@ -70,9 +71,14 @@ export async function executeFamilyHeadImport(
   const sheetName = formData.get('sheetName') as string | null
   const profileKey = (formData.get('profileKey') as string | null) || PROFILE_FAMILY_HEADS.key
   const createCsaladRaw = formData.get('createCsalad') as string | null
-  const targetCongregationId =
-    (formData.get('targetCongregationId') as string | null) ||
-    access.effectiveCongregationId
+  // Cél-gyülekezet: alapból az aktív; explicit `targetCongregationId` (admin import-hub)
+  // esetén kötelező a rendszergazda + hatókör-ellenőrzés.
+  const targetResult = await resolveImportTargetCongregationId(
+    formData.get('targetCongregationId') as string | null,
+    access,
+  )
+  if (targetResult.error) return { error: targetResult.error }
+  const targetCongregationId = targetResult.congregationId
 
   // Új: a wizard "Helység-egyeztetés" lépés eredménye
   const resolvedLocalityMapRaw = formData.get('resolvedLocalityMap') as string | null

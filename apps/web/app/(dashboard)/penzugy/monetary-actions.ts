@@ -38,6 +38,24 @@ function buildSourceId(congregationId: string, year: number) {
   return `${congregationId}:${year}`
 }
 
+/**
+ * 2026-07-11 (S10): a globális `nom_cimlet` (címlettörzs) ÖNJAVÍTÓ pótlása.
+ * A tábla RLS-e csak SELECT — a szerver-akció közvetlenül nem tud beszúrni —,
+ * ezért egy SECURITY DEFINER függvényt (`ensure_cash_denominations`) hívunk,
+ * ami biztonságosan pótolja a hiányzó 12 hivatalos címletet. Best-effort:
+ * ha a függvény még nincs telepítve (migráció nem futott), csendben tovább
+ * lép, és a mentés a régi, érthető hibaüzenettel jelez.
+ */
+async function ensureCanonicalDenominations(
+  supabase: Awaited<ReturnType<typeof getEffectiveCongregationContext>>['supabase'],
+): Promise<void> {
+  try {
+    await supabase.rpc('ensure_cash_denominations')
+  } catch {
+    // A migráció (2026-07-11-nom-cimlet-seed.sql) még nem futott — nem baj.
+  }
+}
+
 function formatDisplayValue(value: number) {
   if (value >= 1) return `${value} RON`
   return `${Math.round(value * 100)} bani`
@@ -46,6 +64,10 @@ function formatDisplayValue(value: number) {
 export async function getMonetarySnapshot(year: number): Promise<MonetarySnapshot | { error: string }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
   if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
+
+  // 2026-07-11 (S10): mielőtt olvasunk, pótoljuk a hiányzó címleteket — így a
+  // widget VALÓDI (pozitív) id-kkal töltődik, és a mentés zökkenőmentes.
+  await ensureCanonicalDenominations(supabase)
 
   const sourceId = buildSourceId(congregationId, year)
   const [denominationsRes, countsRes] = await Promise.all([
@@ -113,15 +135,45 @@ export async function saveMonetarySnapshot(
   if (!congregationId) return { error: 'Nincs aktív gyülekezet kiválasztva.' }
 
   const sourceId = buildSourceId(congregationId, year)
-  const sanitizedCounts = counts
+  let sanitizedCounts = counts
     .map((item) => ({
       denominationId: Number(item.denominationId),
       count: Math.max(0, Math.floor(Number(item.count) || 0)),
     }))
     .filter((item) => item.count > 0)
 
+  // 2026-07-11 (S10): ha a widget MÉG szintetikus (negatív) id-kkal töltődött
+  // (a címlettörzs üres volt betöltéskor), most pótoljuk a címleteket, és a
+  // negatív id-kat a VALÓDI nom_cimlet id-kra képezzük le ÉRTÉK szerint. Így a
+  // mentés akkor is sikerül, ha a widget a javítás/seed ELŐTT nyílt meg
+  // (nem kell újratölteni). A negatív id determinisztikus: -(index+1) a
+  // CANONICAL_DENOMINATIONS sorrendjében.
   if (sanitizedCounts.some((item) => item.denominationId < 0)) {
-    return { error: 'A címlettörzs hiányos, ezért néhány címlet még nem menthető. Frissíteni kell a nom_cimlet táblát.' }
+    await ensureCanonicalDenominations(supabase)
+    const { data: freshRows, error: freshErr } = await supabase
+      .from('nom_cimlet')
+      .select('id, val, divide, deleted')
+      .or('deleted.eq.false,deleted.is.null')
+    if (freshErr) return { error: freshErr.message }
+    const realIdByValue = new Map<string, number>()
+    for (const row of freshRows || []) {
+      const v = Number(row.val) / Math.max(Number(row.divide) || 1, 1)
+      realIdByValue.set(v.toFixed(2), Number(row.id))
+    }
+    sanitizedCounts = sanitizedCounts.map((item) => {
+      if (item.denominationId >= 0) return item
+      const canonical = CANONICAL_DENOMINATIONS[-item.denominationId - 1]
+      const realId = canonical ? realIdByValue.get(canonical.value.toFixed(2)) : undefined
+      return { denominationId: realId ?? item.denominationId, count: item.count }
+    })
+  }
+
+  if (sanitizedCounts.some((item) => item.denominationId < 0)) {
+    return {
+      error:
+        'A címlettörzs (nom_cimlet) nincs feltöltve ezen a rendszeren, ezért a Monetár még nem menthető. ' +
+        'A rendszergazda futtassa le a migration-docs/sql/2026-07-11-nom-cimlet-seed.sql fájlt a Supabase SQL editorban.',
+    }
   }
 
   const deleteResult = await supabase

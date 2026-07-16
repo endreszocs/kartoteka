@@ -24,6 +24,15 @@ import type {
 type IncomeRow = BefitetesRow & { bankszamla_id?: number | null }
 type ExpenseRow = KiadasRow & { bankszamla_id?: number | null }
 
+/**
+ * 2026-07-11 (S9): a hivatalos nyomtatványok RON-ban készülnek (a fejlécek
+ * „lei"/„RON"-t írnak). Ezért MINDEN összeg a RON-ekvivalenst (osszeg_ron)
+ * használja, nem a deviza-összeget. RON számlán osszeg == osszeg_ron (fallback),
+ * devizás (EUR/HUF) számlán az átváltott lej-érték.
+ */
+const ronOf = (r: { osszeg: number; osszeg_ron?: number | null }): number =>
+  Number(r.osszeg_ron ?? r.osszeg) || 0
+
 // ---------------------------------------------------------------------------
 // Típusok
 // ---------------------------------------------------------------------------
@@ -266,8 +275,8 @@ function computeCarryover(
   for (let m = 1; m < month; m++) {
     const mInc = filterFn(filterByMonth(income, year, m))
     const mExp = filterFn(filterByMonth(expense, year, m))
-    balance += mInc.reduce((s, r) => s + Number(r.osszeg || 0), 0)
-    balance -= mExp.reduce((s, r) => s + Number(r.osszeg || 0), 0)
+    balance += mInc.reduce((s, r) => s + ronOf(r), 0)
+    balance -= mExp.reduce((s, r) => s + ronOf(r), 0)
   }
   return balance
 }
@@ -295,7 +304,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
     rows.push({
       date: fmtDate(r.datum), docType: getDocType(r), docNum: dn, congNum: cn && cn !== dn ? cn : '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
-      income: Number(r.osszeg || 0), expense: 0,
+      income: ronOf(r), expense: 0,
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
     })
   }
@@ -303,7 +312,7 @@ function buildRegistruCasa(data: FinanceReportData, f: MonthFilters): FinancePri
     rows.push({
       date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r), congNum: '',
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
-      income: 0, expense: Number(r.osszeg || 0),
+      income: 0, expense: ronOf(r),
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
     })
   }
@@ -384,10 +393,10 @@ function buildRegistruBanca(data: FinanceReportData, f: MonthFilters): FinancePr
   const rows: Row[] = []
 
   for (const r of mIncome) {
-    rows.push({ date: fmtDate(r.datum), docType: 'Extr', docNum: getDocNumber(r), desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek), income: Number(r.osszeg || 0), expense: 0, code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap) })
+    rows.push({ date: fmtDate(r.datum), docType: 'Extr', docNum: getDocNumber(r), desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek), income: ronOf(r), expense: 0, code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap) })
   }
   for (const r of mExpense) {
-    rows.push({ date: fmtDate(r.datum), docType: 'OP', docNum: getDocNumber(r), desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek), income: 0, expense: Number(r.osszeg || 0), code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap) })
+    rows.push({ date: fmtDate(r.datum), docType: 'OP', docNum: getDocNumber(r), desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek), income: 0, expense: ronOf(r), code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap) })
   }
   rows.sort((a, b) => a.date.localeCompare(b.date))
 
@@ -465,8 +474,8 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     rows.push({
       date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
-      cashInc: isCash ? Number(r.osszeg || 0) : 0,
-      bankInc: !isCash ? Number(r.osszeg || 0) : 0,
+      cashInc: isCash ? ronOf(r) : 0,
+      bankInc: !isCash ? ronOf(r) : 0,
       cashExp: 0, bankExp: 0,
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
     })
@@ -477,8 +486,8 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
       date: fmtDate(r.datum), docType: getDocType(r), docNum: getDocNumber(r),
       desc: getDescription(r, data.bevCelMap, data.kiaCelMap, data.cellek),
       cashInc: 0, bankInc: 0,
-      cashExp: isCash ? Number(r.osszeg || 0) : 0,
-      bankExp: !isCash ? Number(r.osszeg || 0) : 0,
+      cashExp: isCash ? ronOf(r) : 0,
+      bankExp: !isCash ? ronOf(r) : 0,
       code: getCategoryCode(r, data.bevCelMap, data.kiaCelMap),
     })
   }
@@ -509,11 +518,11 @@ function buildRegistruJurnal(data: FinanceReportData, f: MonthFilters): FinanceP
     const me = filterByMonth(data.expense, f.year, m)
     for (const r of mi) {
       const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
-      if (isCash) prevCI += Number(r.osszeg || 0); else prevBI += Number(r.osszeg || 0)
+      if (isCash) prevCI += ronOf(r); else prevBI += ronOf(r)
     }
     for (const r of me) {
       const isCash = !r.bankszamla_id // #5-fix: kassza = nincs bankszámla (nem az irattipus szövege)
-      if (isCash) prevCE += Number(r.osszeg || 0); else prevBE += Number(r.osszeg || 0)
+      if (isCash) prevCE += ronOf(r); else prevBE += ronOf(r)
     }
   }
 
@@ -572,7 +581,7 @@ export function buildKiadasiKiseroiv(params: {
 }): FinancePrintResult {
   const { expenses, date, pageNumber, congregationName, kiaCelMap, cellek } = params
 
-  const total = expenses.reduce((s, r) => s + Number(r.osszeg || 0), 0)
+  const total = expenses.reduce((s, r) => s + ronOf(r), 0)
 
   let tbody = ''
   expenses.forEach((r, i) => {
@@ -587,7 +596,7 @@ export function buildKiadasiKiseroiv(params: {
       <td>${esc(r.irattipus || 'Chit.')}</td>
       <td class="text-center">${esc(code)}</td>
       <td>${esc(desc)}</td>
-      <td class="text-right">${fmtNum(Number(r.osszeg || 0))}</td>
+      <td class="text-right">${fmtNum(ronOf(r))}</td>
     </tr>`
   })
 
@@ -830,7 +839,7 @@ function buildCsoportNaplo(data: FinanceReportData, filters: FinanceReportFilter
         if (!map.has(code)) map.set(code, { kod: code, nev: cel?.nev || code, items: [], total: 0 })
         g = map.get(code)!
       }
-      const amt = Number(r.osszeg || 0)
+      const amt = ronOf(r)
       g.total += amt
       const partner = isIncome
         ? (r as IncomeRow).forrasa || '—'

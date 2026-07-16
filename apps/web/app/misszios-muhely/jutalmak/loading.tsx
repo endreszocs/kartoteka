@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { MuhelyLoading } from '@/components/muhely/layout/muhely-loading'
 
-export default function JutalmakLoading() {
-  return <RouteLoadingScreen module="Jutalmak" />
+export default function Loading() {
+  return <MuhelyLoading title="Rendezzük a jelvényszekrényedet…" />
 }

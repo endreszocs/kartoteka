@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ShieldAlert,
   Sparkles,
+  Users,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,8 @@ export interface ResultData {
   skippedCount: number
   /** Sor-szintű jegyek: severity szerint csoportosíthatók */
   errors: RowIssueItem[]
+  /** Import után: hány nyitott kereszt-gyülekezeti egyezés van a gyülekezethez (áttekintendő) */
+  crossMatchCount?: number
 }
 
 interface ResultStepProps {
@@ -102,6 +105,23 @@ export function ResultStep({ result, onNewImport, onClose, extraAction }: Result
           </div>
         </div>
       </div>
+
+      {/* Kereszt-gyülekezeti összefoglaló — a tagok közül lehetnek másik gyülekezetben is */}
+      {(result.crossMatchCount ?? 0) > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+          <Users className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              Lehetséges kereszt-gyülekezeti egyezés: {result.crossMatchCount}
+            </p>
+            <p className="mt-0.5 text-sm leading-relaxed text-amber-800">
+              A tagok között {result.crossMatchCount} olyan lehet, aki már szerepel egy másik
+              gyülekezetben is. Nézd át őket az <strong>értesítőknél</strong> (felső harang ikon) — ott
+              a másik gyülekezet lelkészének elérhetősége is látszik a kapcsolatfelvételhez.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Statisztikák — első sor: insertálási számok */}
       <div className="grid gap-3 sm:grid-cols-3">

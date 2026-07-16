@@ -288,7 +288,13 @@ export interface DebtRow {
   expected: number
   paid: number
   debt: number
-  status: 'rendezve' | 'hatralekos' | 'felmentett'
+  /**
+   * 2026-07-16: új `kiskoru` érték. SZÁNDÉKOSAN külön a `felmentett`-től: az a
+   * `felmentes` tábla szerinti, presbitériumi méltányossági mentesség, míg a
+   * kiskorúság a 18 éves törvényi korhatár (JARULEK_MIN_AGE). A kettő
+   * összemosása több száz gyereket tüntetne fel „felmentettként”.
+   */
+  status: 'rendezve' | 'hatralekos' | 'felmentett' | 'kiskoru'
   appliedRules: string[]
 }
 
@@ -315,11 +321,22 @@ export interface ReceiptHealth {
   chronologyIssues: ReceiptChronologyIssue[]
   trackedReceiptCount: number
   highestReceiptNumber: number | null
+  /** 2026-07-11 (S7): az ELŐZŐ évből áthozott hiányzó sorszámok (a missingNumbers
+   *  részhalmaza) — a riasztás külön jelöli, hogy ezek nem az idei évből valók. */
+  prevYearMissingNumbers?: number[]
+  /** Az előző év, amelyből az áthozott hiányzók származnak (null = nincs adat). */
+  prevYear?: number | null
 }
 
 export interface BefitetesRow {
   id: number
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens (devizás számlánál osszeg × árfolyam).
+   *  A könyvelés RON-ban folyik — az egyenlegek/registerek/carryover MINDIG
+   *  ezt használják (fallback: `osszeg`, ha null — RON számlán osszeg == osszeg_ron). */
+  osszeg_ron?: number | null
+  /** Az átváltási árfolyam (devizás számlánál; RON-nál 1). */
+  arfolyam?: number | null
   datum: string
   id_befizetescel: number | null
   id_szemely: number | null
@@ -374,6 +391,9 @@ export interface MonetaryDenomination {
 export interface KiadasRow {
   id: number
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens — lásd BefitetesRow.osszeg_ron. */
+  osszeg_ron?: number | null
+  arfolyam?: number | null
   datum: string
   id_kiadascel: number | null
   kedvezmenyzett: string | null

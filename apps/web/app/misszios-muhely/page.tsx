@@ -1,31 +1,11 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-/**
- * Missziós Műhely — home / landing oldal (Sprint R F3 · v0.8.5).
- *
- * A `layout.tsx` (sor 12) kezeli az auth-gate-et — itt CSAK a UI render.
- * A teljes UI a `packages/ui-app/src/missziosmuhely/`-ben van shared
- * komponensként (MissionWorkshop), web és desktop pixel-egyezően.
- *
- * Az aloldalak (segedanyagok, forum, jutalmak, profil) érintetlen maradnak —
- * a felhasználó kérése szerint a táblázatos szerkezet változatlan, csak a
- * home oldal kapja meg az új design-nyelvet.
- *
- * A meglévő `loadHomePageData` / `loadWhatsNew` server actionök és az
- * `MuhelyHero/Encouragement/QuickStats/RecentActivity/WhatsNew` MVP
- * komponensek a `apps/web/components/muhely/home/`-ban érintetlenek
- * maradnak — ha valaki később a régi MVP-re akar visszanézni, ott vannak.
- */
+import { loadHomePageData } from './community-actions'
+import { MuhelyHome, type MuhelyHomeData } from '@/components/muhely/home/muhely-home'
 
-import { useRouter } from 'next/navigation'
-import { MissionWorkshop } from '@kartoteka/ui-app'
+export default async function MissziosMuhelyPage() {
+  const data = await loadHomePageData()
+  if ('error' in data) redirect('/login')
 
-export default function MissziosMuhelyPage() {
-  const router = useRouter()
-  return (
-    <MissionWorkshop
-      assetBase="/misszios-muhely"
-      onNavigate={(href) => router.push(href)}
-    />
-  )
+  return <MuhelyHome data={data as MuhelyHomeData} />
 }

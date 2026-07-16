@@ -10,6 +10,8 @@
 
 import {
   computeJarulekForMemberYear,
+  todayInBucharest,
+  JARULEK_MINOR_RULE,
   type DebtRow,
   type DebtCalcMode,
   type JarulekExemption,
@@ -37,6 +39,8 @@ const STATUS_PRIORITY: Record<DebtRow['status'], number> = {
   hatralekos: 0,
   rendezve: 1,
   felmentett: 2,
+  // A kiskorúak a lista végére — nem járulékkötelesek (bit-azonos a webbel).
+  kiskoru: 3,
 }
 
 export function buildDebtRows(params: {
@@ -49,6 +53,10 @@ export function buildDebtRows(params: {
   debtCalcMode: DebtCalcMode
 }): DebtRow[] {
   const { members, maintenancePayments, exemptions, discounts, yearSettings, year, debtCalcMode } = params
+
+  // 2026-07-16: bit-azonos a webbel — a korai-fizetési kedvezmény az AKTUÁLIS időszak
+  // árát mutatja a még nem fizetőknél is. Offline is a romániai naptári nap számít.
+  const asOfDate = todayInBucharest()
 
   return members
     .filter((m) => m.meghalt !== 1 && !EXCLUDED_STATUS.includes(m.member_status || ''))
@@ -64,10 +72,20 @@ export function buildDebtRows(params: {
         discounts,
         exemptions,
         payments: maintenancePayments,
+        asOfDate,
       })
       const name = [m.csaladnev, m.k_nev].filter(Boolean).join(' ')
-      const status: DebtRow['status'] =
-        result.expected === 0 ? 'felmentett' : result.debt > 0 ? 'hatralekos' : 'rendezve'
+      // 2026-07-16: bit-azonos a webbel (penzugy/actions.ts) — a kiskorúság ELŐBB
+      // dől el, mint a „felmentett”: a 18 alattira is 0 az elvárás, de ő nem a
+      // presbitérium által felmentett. A motor saját címkéjéből ismerjük fel.
+      const isMinor = result.appliedRules.includes(JARULEK_MINOR_RULE)
+      const status: DebtRow['status'] = isMinor
+        ? 'kiskoru'
+        : result.expected === 0
+          ? 'felmentett'
+          : result.debt > 0
+            ? 'hatralekos'
+            : 'rendezve'
       return {
         memberId: m.id,
         familyId,

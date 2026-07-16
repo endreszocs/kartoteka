@@ -40,31 +40,36 @@ export interface FamilyCardModernData {
 const TONE: Record<FamilyPaymentStatus, { label: string; pill: string; bar: string; glow: string }> = {
   paid: {
     label: 'Fizetett',
-    pill: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    bar: 'from-emerald-400 via-teal-400 to-emerald-500',
-    glow: 'group-hover:shadow-emerald-200/60',
+    pill: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300',
+    bar: 'from-emerald-500 via-teal-500 to-amber-400',
+    glow: 'group-hover:shadow-emerald-900/10',
   },
   partial: {
     label: 'Részben fizetett',
-    pill: 'bg-amber-100 text-amber-800 border-amber-200',
-    bar: 'from-amber-400 via-orange-400 to-amber-500',
-    glow: 'group-hover:shadow-amber-200/60',
+    pill: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300',
+    bar: 'from-amber-500 via-amber-400 to-teal-500',
+    glow: 'group-hover:shadow-amber-900/10',
   },
   inactive: {
     label: 'Nem fizetett',
-    pill: 'bg-rose-100 text-rose-800 border-rose-200',
-    bar: 'from-rose-400 via-pink-400 to-rose-500',
-    glow: 'group-hover:shadow-rose-200/60',
+    pill: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300',
+    bar: 'from-rose-500 via-rose-400 to-amber-400',
+    glow: 'group-hover:shadow-rose-900/10',
   },
   unknown: {
     label: '',
     pill: '',
-    bar: 'from-violet-400 via-purple-400 to-indigo-500',
-    glow: 'group-hover:shadow-violet-200/60',
+    bar: 'from-primary via-teal-500 to-amber-400',
+    glow: 'group-hover:shadow-primary/10',
   },
 }
 
 const ROLE_ICON = { csaladfo: Crown, hazastars: Heart, gyerek: undefined } as const
+const ROLE_ICON_TONE = {
+  csaladfo: 'text-amber-600 dark:text-amber-400',
+  hazastars: 'text-primary/70',
+  gyerek: '',
+} as const
 
 export interface FamilyCardModernProps {
   data: FamilyCardModernData
@@ -80,36 +85,57 @@ export function FamilyCardModern({ data, onClick, onPrint }: FamilyCardModernPro
   const children = data.members.filter((m) => m.role === 'gyerek')
   const address = [data.street, data.houseNumber].filter(Boolean).join(' ')
 
-  return (
-    <div
-      className={[
-        'group relative overflow-hidden rounded-2xl border bg-white shadow-sm',
-        'transition-all duration-300 ease-out',
-        isActive ? 'border-slate-200' : 'border-slate-200 opacity-70 saturate-50',
-        onClick ? `cursor-pointer hover:-translate-y-1 hover:shadow-xl ${tone.glow}` : '',
-      ].join(' ')}
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
-    >
-      {/* Felső szín-sáv — a járulék-státusz tónusa, hover-re „megnyúlik" */}
-      <div className={`h-1.5 w-full bg-gradient-to-r ${tone.bar} transition-all duration-300 group-hover:h-2`} />
+  const familyLabel = data.familyName ? `${data.familyName} család` : `${data.familyId}. család`
 
-      <div className="p-4">
-        {/* Fejléc: avatar-stack + családnév + cím */}
+  return (
+    <article
+      className={[
+        'group relative overflow-hidden rounded-[1.35rem] border bg-gradient-to-br from-card via-card to-amber-50/35 shadow-[0_14px_40px_-28px_rgba(15,67,61,0.55)] dark:to-amber-950/10',
+        'motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out motion-reduce:transition-none',
+        isActive ? 'border-border/85' : 'border-border/70 opacity-75 saturate-50',
+        onClick ? `hover:border-primary/25 motion-safe:hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(15,67,61,0.48)] ${tone.glow}` : '',
+      ].join(' ')}
+    >
+      {onClick && (
+        <button
+          type="button"
+          onClick={onClick}
+          className="absolute inset-0 z-0 cursor-pointer rounded-[1.35rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label={`${familyLabel} családi kartonjának megnyitása`}
+        />
+      )}
+      <div className={`h-1 w-full bg-gradient-to-r ${tone.bar} motion-safe:transition-all motion-safe:duration-300 group-hover:h-1.5 motion-reduce:transition-none`} />
+
+      <div className={`relative z-[1] p-4 sm:p-5 ${onClick ? 'pointer-events-none' : ''}`}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/70">
+            Családi karton · #{data.familyId}
+          </span>
+          {!isActive && (
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Lezárt
+            </span>
+          )}
+        </div>
+
         <div className="flex items-start gap-3">
-          <MemberAvatarStack
-            members={data.members.map((m) => ({ name: m.name, kepUrl: m.kepUrl, meghalt: m.meghalt }))}
-            size={44}
-            max={4}
-          />
+          <div className="shrink-0 rounded-2xl bg-primary/6 p-1.5 ring-1 ring-primary/10">
+            <MemberAvatarStack
+              members={data.members.map((member) => ({
+                name: member.name,
+                kepUrl: member.kepUrl,
+                meghalt: member.meghalt,
+              }))}
+              size={42}
+              max={4}
+            />
+          </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate font-heading text-lg font-semibold leading-tight text-slate-800">
+            <h3 className="truncate font-heading text-lg font-semibold leading-tight text-foreground sm:text-xl">
               {data.familyName ? `${data.familyName} család` : 'Család'}
             </h3>
-            <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
-              <Home className="size-3 shrink-0 text-slate-400" />
+            <p className={`mt-1 flex items-center gap-1.5 truncate text-xs ${address ? 'text-muted-foreground' : 'font-medium text-amber-700 dark:text-amber-300'}`}>
+              <Home className="size-3.5 shrink-0" />
               {address || 'Cím nincs rögzítve'}
             </p>
           </div>
@@ -120,82 +146,74 @@ export function FamilyCardModern({ data, onClick, onPrint }: FamilyCardModernPro
                 e.stopPropagation()
                 onPrint()
               }}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 opacity-0 transition-all duration-200 hover:border-teal-200 hover:text-teal-600 group-hover:opacity-100"
+              className="pointer-events-auto relative z-10 inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm motion-safe:transition-all motion-safe:duration-200 hover:border-primary/25 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 motion-reduce:transition-none"
               title="Családi karton nyomtatása"
               aria-label="Családi karton nyomtatása"
             >
-              <Printer className="size-3.5" />
+              <Printer className="size-4" />
             </button>
           )}
         </div>
 
-        {/* Felnőttek név szerint (szerep-ikonnal) */}
-        <div className="mt-3 space-y-1.5">
-          {adults.map((m) => {
-            const RoleIcon = ROLE_ICON[m.role]
+        <div className="mt-4 space-y-2 rounded-2xl border border-border/70 bg-card/65 p-2.5 shadow-sm">
+          {adults.map((member) => {
+            const RoleIcon = ROLE_ICON[member.role]
             return (
-              <div key={m.id} className="flex items-center gap-2 text-sm">
-                <MemberAvatar name={m.name} kepUrl={m.kepUrl} meghalt={m.meghalt} size={22} />
-                <span className={`truncate font-medium ${m.meghalt ? 'text-slate-400 line-through decoration-slate-300' : 'text-slate-700'}`}>
-                  {m.name}
+              <div key={member.id} className="flex min-h-8 items-center gap-2 rounded-xl px-1.5 py-1 text-sm transition-colors hover:bg-primary/5 motion-reduce:transition-none">
+                <MemberAvatar name={member.name} kepUrl={member.kepUrl} meghalt={member.meghalt} size={25} />
+                <span className={`min-w-0 flex-1 truncate font-semibold ${member.meghalt ? 'text-muted-foreground line-through decoration-border' : 'text-foreground'}`}>
+                  {member.name}
                 </span>
-                {m.age != null && <span className="shrink-0 text-xs text-slate-400">({m.age})</span>}
-                {RoleIcon && <RoleIcon className="size-3 shrink-0 text-violet-300" />}
-                {m.meghalt && <span className="shrink-0 text-xs text-slate-400">†</span>}
+                {member.age != null && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{member.age} év</span>}
+                {RoleIcon && <RoleIcon className={`size-3.5 shrink-0 ${ROLE_ICON_TONE[member.role]}`} />}
+                {member.meghalt && <span className="shrink-0 text-xs text-muted-foreground">†</span>}
               </div>
             )
           })}
           {adults.length === 0 && (
-            <p className="text-sm italic text-slate-400">Nincs rögzített felnőtt tag.</p>
+            <p className="px-1.5 py-1 text-sm italic text-muted-foreground">Nincs rögzített felnőtt tag.</p>
           )}
         </div>
 
-        {/* Gyermekek — kompakt chip-sor */}
         {children.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-dashed border-slate-100 pt-2.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {children.length} gyermek
             </span>
-            {children.slice(0, 4).map((c) => (
+            {children.slice(0, 4).map((child) => (
               <span
-                key={c.id}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-50 py-0.5 pl-0.5 pr-2 text-xs text-slate-600 ring-1 ring-slate-100"
+                key={child.id}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/10 bg-primary/5 py-0.5 pl-0.5 pr-2 text-xs text-foreground"
               >
-                <MemberAvatar name={c.name} kepUrl={c.kepUrl} meghalt={c.meghalt} size={18} />
-                <span className="max-w-[9rem] truncate">{c.name.split(' ').slice(-1)[0]}</span>
-                {c.age != null && <span className="text-slate-400">({c.age})</span>}
+                <MemberAvatar name={child.name} kepUrl={child.kepUrl} meghalt={child.meghalt} size={18} />
+                <span className="max-w-[9rem] truncate">{child.name.split(' ').slice(-1)[0]}</span>
+                {child.age != null && <span className="tabular-nums text-muted-foreground">{child.age}</span>}
               </span>
             ))}
             {children.length > 4 && (
-              <span className="text-xs text-slate-400">+{children.length - 4} további</span>
+              <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">+{children.length - 4} további</span>
             )}
           </div>
         )}
 
-        {/* Lábléc: körzet + státusz-badge-ek */}
-        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
-          <span className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
-            <MapPin className="size-3 shrink-0 text-slate-400" />
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-border/70 pt-3">
+          <span className={`flex min-w-0 items-center gap-1.5 text-xs ${data.districtName ? 'text-muted-foreground' : 'font-medium text-amber-700 dark:text-amber-300'}`}>
+            <MapPin className="size-3.5 shrink-0" />
             <span className="truncate">{data.districtName || 'Körzet nélkül'}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
-            {!isActive && (
-              <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                Lezárt
-              </span>
-            )}
             {tone.label && (
               <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone.pill}`}>
                 {tone.label}
               </span>
             )}
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/10 bg-primary/7 px-2 py-0.5 text-[11px] font-semibold text-primary">
               <Users className="size-3" />
               {data.members.length}
             </span>
           </span>
         </div>
       </div>
-    </div>
+    </article>
   )
 }
