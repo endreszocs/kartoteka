@@ -1,64 +1,271 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
+import { MemberAvatar } from '@kartoteka/ui-app'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  BriefcaseBusiness,
+  Cake,
+  CheckCircle2,
+  Download,
+  FilterX,
+  Link2,
+  MapPin,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  Unlink,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react'
+import { toast } from 'sonner'
+
+import {
+  getMemberFilterOptions,
+  getMemberRegistrySnapshot,
+  getMembersPage,
+} from '@/app/(dashboard)/tagnyilvantartas/registry-list-actions'
 import { EmptyFirstRecord } from '@/components/ui/empty-first-record'
-import { MemberStatusBadge } from './member-status-badge'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
+import { FamilyTreeDialog } from '@/components/modals/family-tree-dialog'
 import { MemberDetailsDialogV2 } from '@/components/modals/member-details-dialog-v2'
 import { MemberFormDialog } from '@/components/modals/member-form-dialog'
 import { MemberRemoveDialog } from '@/components/modals/member-remove-dialog'
-import { FamilyDetailsDialogRefined } from '@/components/modals/family-details-dialog-refined'
-import { FamilyTreeDialog } from '@/components/modals/family-tree-dialog'
+import { MEMBER_STATUS_FILTERS, PAYMENT_STATUS_CONFIG } from '@/lib/constants/members'
+import type { PaymentStatus } from '@/lib/constants/members'
+import {
+  REGISTRY_PAGE_SIZE,
+  type MemberContactFilter,
+  type MemberFamilyFilter,
+  type MemberFilterOptions,
+  type MemberGenderFilter,
+  type MemberListItem,
+  type MemberListPage,
+  type MemberListQuery,
+  type MemberSort,
+  type MemberStatusFilter,
+  type SortDirection,
+} from '@/lib/members/registry-list-types'
+import { ageFromDate, currentRegistryMonth, monthFromIsoDate } from '@/lib/utils/date'
 import { formatNameWithPrefix, isActiveMember } from '@/lib/utils/member-helpers'
-import { ageFromDate } from '@/lib/utils/date'
-import { MEMBER_STATUS_FILTERS } from '@/lib/constants/members'
-import type { EnrichedMember, MemberStatusFilter, SortColumn } from '@/lib/constants/members'
-import { Search, UserPlus, Trash2, Cake, Link2, Users, CheckCircle2, Unlink, Sparkles, X, Download } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+import { MemberStatusBadge } from './member-status-badge'
 import { useCrossCongregationNotifications } from './use-cross-congregation-notifications'
+import { useDebouncedValue } from './use-debounced-value'
 
 interface PersonsTabProps {
-  members: EnrichedMember[]
-  paidPersonIds: number[]
-  personToFamilyMap: Record<number, number>
-  isGodMode: boolean
-  onMemberRemoved: (id: number) => void
-  onMemberUpdated: (id: number, updates: Partial<EnrichedMember>) => void
-  onRefresh: (members: EnrichedMember[]) => void
+  initialPage: MemberListPage
 }
 
-function getInitials(m: EnrichedMember): string {
-  return `${(m.csaladnev || '?')[0]}${(m.k_nev || '?')[0]}`.toUpperCase()
+type PaymentFilter = 'all' | PaymentStatus
+type BirthdayFilter = 'all' | 'this-month'
+
+interface PersonFilters {
+  status: MemberStatusFilter
+  ageMin: string
+  ageMax: string
+  birthday: BirthdayFilter
+  gender: MemberGenderFilter
+  family: MemberFamilyFilter
+  locality: string
+  religion: string
+  payment: PaymentFilter
+  contact: MemberContactFilter
 }
 
-function getAvatarColors(m: EnrichedMember): { bg: string; color: string } {
-  if (m.ferfi) return { bg: '#dbeafe', color: '#1d4ed8' }
-  return { bg: '#fce7f3', color: '#be185d' }
+type ActiveFilterKey = keyof PersonFilters | 'age'
+
+interface ActiveFilterChip {
+  key: ActiveFilterKey
+  label: string
 }
 
-function isBirthdayThisMonth(m: EnrichedMember): boolean {
-  if (!m.sz_datum) return false
-  const now = new Date()
-  const bd = new Date(m.sz_datum)
-  return bd.getMonth() === now.getMonth()
+const PAGE_SIZE = REGISTRY_PAGE_SIZE
+
+const DEFAULT_FILTERS: PersonFilters = {
+  status: 'aktív',
+  ageMin: '',
+  ageMax: '',
+  birthday: 'all',
+  gender: 'all',
+  family: 'all',
+  locality: '',
+  religion: '',
+  payment: 'all',
+  contact: 'all',
 }
 
-export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefresh }: PersonsTabProps) {
+const EMPTY_FILTERS: PersonFilters = {
+  ...DEFAULT_FILTERS,
+  status: 'mind',
+}
+
+const PAYMENT_OPTIONS: Array<{ value: PaymentStatus; label: string }> = (
+  Object.entries(PAYMENT_STATUS_CONFIG) as Array<
+    [PaymentStatus, (typeof PAYMENT_STATUS_CONFIG)[PaymentStatus]]
+  >
+).map(([value, config]) => ({ value, label: config.label }))
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('hu-HU')
+    .trim()
+}
+
+function isBirthdayInMonth(member: MemberListItem, month: number): boolean {
+  return !member.meghalt && monthFromIsoDate(member.sz_datum) === month
+}
+
+function formatAddress(member: MemberListItem): string {
+  const locality = member.adrlocality?.name?.trim() ?? ''
+  const street = member.adrstreet?.name?.trim() ?? ''
+  const houseNumber = member.c_szam?.trim() ?? ''
+  const streetLine = [street, houseNumber].filter(Boolean).join(' ')
+  return [locality, streetLine].filter(Boolean).join(', ')
+}
+
+function createFilterChips(filters: PersonFilters): ActiveFilterChip[] {
+  const chips: ActiveFilterChip[] = []
+  const status = MEMBER_STATUS_FILTERS.find((item) => item.value === filters.status)
+  if (filters.status !== 'mind' && status) chips.push({ key: 'status', label: status.label })
+
+  if (filters.ageMin || filters.ageMax) {
+    const range = filters.ageMin && filters.ageMax
+      ? `${filters.ageMin}–${filters.ageMax} év`
+      : filters.ageMin
+        ? `${filters.ageMin} évtől`
+        : `${filters.ageMax} éves korig`
+    chips.push({ key: 'age', label: range })
+  }
+
+  if (filters.birthday === 'this-month') {
+    chips.push({ key: 'birthday', label: 'Születésnapos ebben a hónapban' })
+  }
+
+  const genderLabels: Record<Exclude<MemberGenderFilter, 'all'>, string> = {
+    male: 'Férfiak',
+    female: 'Nők',
+    unknown: 'Nem nincs megadva',
+  }
+  if (filters.gender !== 'all') chips.push({ key: 'gender', label: genderLabels[filters.gender] })
+
+  const familyLabels: Record<Exclude<MemberFamilyFilter, 'all'>, string> = {
+    'with-family': 'Családhoz rendelve',
+    'without-family': 'Család nélkül',
+  }
+  if (filters.family !== 'all') chips.push({ key: 'family', label: familyLabels[filters.family] })
+  if (filters.locality) chips.push({ key: 'locality', label: `Település: ${filters.locality}` })
+  if (filters.religion) chips.push({ key: 'religion', label: `Vallás: ${filters.religion}` })
+
+  const payment = filters.payment
+  if (payment !== 'all') {
+    chips.push({ key: 'payment', label: `Pénzügy: ${PAYMENT_STATUS_CONFIG[payment].label}` })
+  }
+
+  const contactLabels: Record<Exclude<MemberContactFilter, 'all'>, string> = {
+    phone: 'Van telefonszám',
+    email: 'Van e-mail-cím',
+    both: 'Telefon és e-mail',
+    missing: 'Nincs elérhetőség',
+  }
+  if (filters.contact !== 'all') chips.push({ key: 'contact', label: contactLabels[filters.contact] })
+
+  return chips
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'A személyek lekérése nem sikerült.'
+}
+
+function getAgeFilterError(filters: Pick<PersonFilters, 'ageMin' | 'ageMax'>): string | null {
+  const minAge = filters.ageMin === '' ? null : Number(filters.ageMin)
+  const maxAge = filters.ageMax === '' ? null : Number(filters.ageMax)
+
+  if (
+    (minAge !== null && (!Number.isInteger(minAge) || minAge < 0 || minAge > 120))
+    || (maxAge !== null && (!Number.isInteger(maxAge) || maxAge < 0 || maxAge > 120))
+  ) {
+    return 'Az életkor 0 és 120 közötti egész szám lehet.'
+  }
+
+  if (minAge !== null && maxAge !== null && minAge > maxAge) {
+    return 'A kezdő életkor nem lehet nagyobb a felső határnál.'
+  }
+
+  return null
+}
+
+const FALLBACK_GENDER_OPTIONS: MemberFilterOptions['genders'] = [
+  { value: 'all', label: 'Minden nem' },
+  { value: 'male', label: 'Férfi' },
+  { value: 'female', label: 'Nő' },
+  { value: 'unknown', label: 'Nincs megadva' },
+]
+
+const FALLBACK_FAMILY_OPTIONS: MemberFilterOptions['families'] = [
+  { value: 'all', label: 'Minden családi kapcsolat' },
+  { value: 'with-family', label: 'Családhoz rendelve' },
+  { value: 'without-family', label: 'Család nélkül' },
+]
+
+const FALLBACK_CONTACT_OPTIONS: MemberFilterOptions['contacts'] = [
+  { value: 'all', label: 'Minden elérhetőség' },
+  { value: 'phone', label: 'Van telefonszám' },
+  { value: 'email', label: 'Van e-mail' },
+  { value: 'both', label: 'Telefon és e-mail is van' },
+  { value: 'missing', label: 'Nincs elérhetőség' },
+]
+
+export function PersonsTab({ initialPage }: PersonsTabProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('aktív')
-  // 2026-06-10: életkor szerinti szűrés (pl. 0–14, 25–50)
-  const [ageMin, setAgeMin] = useState('')
-  const [ageMax, setAgeMax] = useState('')
-  // 2026-06-10 (Fázis 4, P1-2 első lépés): nagy listáknál csak az első 150
-  // sor kerül a DOM-ba — gombbal bővíthető (virtualizáció-pótló megoldás).
-  const [visibleCount, setVisibleCount] = useState(150)
-  const [sortCol, setSortCol] = useState<SortColumn>('id')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const deferredSearchQuery = useDebouncedValue(searchQuery.trim(), 280)
+  const [filters, setFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
+  const [draftFilters, setDraftFilters] = useState<PersonFilters>(DEFAULT_FILTERS)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [registryMonth, setRegistryMonth] = useState(() => currentRegistryMonth())
+  const snapshotMonthRef = useRef(registryMonth)
+  const [sortCol, setSortCol] = useState<MemberSort>('id')
+  const [sortDir, setSortDir] = useState<SortDirection>('desc')
+  const [members, setMembers] = useState<MemberListItem[]>(initialPage.members)
+  const [pageState, setPageState] = useState<MemberListPage>(initialPage)
+  const [registrySnapshot, setRegistrySnapshot] = useState(() => ({
+    total: initialPage.totalCount,
+    active: initialPage.summary.active,
+    birthdays: initialPage.summary.birthdaysThisMonth,
+    floating: initialPage.summary.withoutFamily,
+  }))
+  const [filterOptions, setFilterOptions] = useState<MemberFilterOptions | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const requestIdRef = useRef(0)
+  const loadMoreInFlightRef = useRef(false)
 
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [detailsMember, setDetailsMember] = useState<EnrichedMember | null>(null)
+  const [detailsMember, setDetailsMember] = useState<MemberListItem | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [editingMember, setEditingMember] = useState<EnrichedMember | null>(null)
+  const [editingMember, setEditingMember] = useState<MemberListItem | null>(null)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [removingMember, setRemovingMember] = useState<{ id: number; name: string } | null>(null)
 
@@ -68,295 +275,627 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
   const [familyDetailsId, setFamilyDetailsId] = useState<number | null>(null)
   const [returnToPersonAfterFamily, setReturnToPersonAfterFamily] = useState(false)
 
-  const paidSet = useMemo(() => new Set(paidPersonIds), [paidPersonIds])
-  // 2026-04-30: "Bármikor fizetett" Set — az enrichedMember.hasEverPaid alapján.
-  // Ezt használja az isActiveMember(m, paidSet, everPaidSet) az aktív szabálynak.
+  const serverSearch = deferredSearchQuery.trim()
+  const serverQuery = useMemo<MemberListQuery>(() => ({
+    pageSize: PAGE_SIZE,
+    search: serverSearch,
+    status: filters.status,
+    ageMin: filters.ageMin === '' ? null : Number(filters.ageMin),
+    ageMax: filters.ageMax === '' ? null : Number(filters.ageMax),
+    birthdayMonth: filters.birthday === 'this-month' ? registryMonth : null,
+    gender: filters.gender,
+    family: filters.family,
+    locality: filters.locality || null,
+    religion: filters.religion || null,
+    payment: filters.payment,
+    contact: filters.contact,
+    sort: sortCol,
+    direction: sortDir,
+  }), [filters, registryMonth, serverSearch, sortCol, sortDir])
+  const queryKey = JSON.stringify(serverQuery)
+  const previousQueryKeyRef = useRef(queryKey)
+  const isDefaultRegistryScope = serverSearch === ''
+    && filters.status === DEFAULT_FILTERS.status
+    && filters.ageMin === DEFAULT_FILTERS.ageMin
+    && filters.ageMax === DEFAULT_FILTERS.ageMax
+    && filters.birthday === DEFAULT_FILTERS.birthday
+    && filters.gender === DEFAULT_FILTERS.gender
+    && filters.family === DEFAULT_FILTERS.family
+    && filters.locality === DEFAULT_FILTERS.locality
+    && filters.religion === DEFAULT_FILTERS.religion
+    && filters.payment === DEFAULT_FILTERS.payment
+    && filters.contact === DEFAULT_FILTERS.contact
+
   const everPaidSet = useMemo(() => {
-    const s = new Set<number>()
-    for (const m of members) if (m.hasEverPaid) s.add(m.id)
-    return s
+    const result = new Set<number>()
+    for (const member of members) if (member.hasEverPaid) result.add(member.id)
+    return result
   }, [members])
 
-  // Cross-congregation match notifikációk — a name mellé 🔗 jelölést tesszünk
   const { notifications: crossNotifs } = useCrossCongregationNotifications()
   const crossMatchedIds = useMemo(() => {
-    const set = new Set<number>()
-    for (const n of crossNotifs) {
-      set.add(n.triggering_szemely_id)
-      set.add(n.matched_szemely_id)
+    const result = new Set<number>()
+    for (const notification of crossNotifs) {
+      result.add(notification.triggering_szemely_id)
+      result.add(notification.matched_szemely_id)
     }
-    return set
+    return result
   }, [crossNotifs])
 
-  // 2026-06-02: statisztika a persons-tab-hoz (mint a családoknál)
-  const stats = useMemo(() => {
-    const total = members.length
-    const active = members.filter((m) => isActiveMember(m, paidSet, everPaidSet)).length
-    const birthdays = members.filter((m) => isBirthdayThisMonth(m) && !m.meghalt).length
-    const floating = members.filter(
-      (m) => m.familyId === null && !m.meghalt && m.member_status !== 'elkoltozott' && !m.elkoltozott,
-    ).length
-    return { total, active, birthdays, floating }
-  }, [members, paidSet, everPaidSet])
+  const stats = registrySnapshot
+  const isSearchPending = searchQuery.trim() !== deferredSearchQuery
+  const visibleMembers = members
+  const hasMore = !isLoading && pageState.hasMore && Boolean(pageState.nextCursor)
+  const activeFilterChips = createFilterChips(filters)
+  const localityOptions = filterOptions?.localities ?? []
+  const religionOptions = filterOptions?.religions ?? []
+  const statusOptions = filterOptions?.statuses.length ? filterOptions.statuses : MEMBER_STATUS_FILTERS
+  const genderOptions = filterOptions?.genders.length ? filterOptions.genders : FALLBACK_GENDER_OPTIONS
+  const familyOptions = filterOptions?.families.length ? filterOptions.families : FALLBACK_FAMILY_OPTIONS
+  const contactOptions = filterOptions?.contacts.length ? filterOptions.contacts : FALLBACK_CONTACT_OPTIONS
+  const paymentOptions = filterOptions?.paymentStatuses.length ? filterOptions.paymentStatuses : PAYMENT_OPTIONS
+  const draftFilterCount = createFilterChips(draftFilters).length
+  const draftAgeError = getAgeFilterError(draftFilters)
 
-  const filtered = useMemo(() => {
-    const query = searchQuery.toLowerCase()
-    const result = members.filter(m => {
-      if (query) {
-        const nameMatch = `${m.csaladnev || ''} ${m.k_nev || ''}`.toLowerCase().includes(query)
-        const addrMatch = `${m.adrlocality?.name || ''} ${m.adrstreet?.name || ''} ${m.c_szam || ''}`.toLowerCase().includes(query)
-        if (!nameMatch && !addrMatch) return false
+  const fetchFirstPage = useCallback(async ({ preserveMembers = false } = {}) => {
+    const requestId = ++requestIdRef.current
+    loadMoreInFlightRef.current = false
+    setIsLoadingMore(false)
+    setIsLoading(true)
+    setListError(null)
+    if (!preserveMembers) setMembers([])
+
+    try {
+      const page = await getMembersPage({ ...serverQuery, cursor: null })
+      if (requestIdRef.current !== requestId) return
+      setMembers(page.members)
+      setPageState(page)
+      if (isDefaultRegistryScope) {
+        setRegistrySnapshot({
+          total: page.totalCount,
+          active: page.summary.active,
+          birthdays: page.summary.birthdaysThisMonth,
+          floating: page.summary.withoutFamily,
+        })
       }
-      if (ageMin !== '' || ageMax !== '') {
-        const age = ageFromDate(m.sz_datum)
-        if (age === null) return false
-        if (ageMin !== '' && age < Number(ageMin)) return false
-        if (ageMax !== '' && age > Number(ageMax)) return false
+    } catch (error) {
+      if (requestIdRef.current !== requestId) return
+      setListError(getErrorMessage(error))
+      if (!preserveMembers) setMembers([])
+    } finally {
+      if (requestIdRef.current === requestId) setIsLoading(false)
+    }
+  }, [isDefaultRegistryScope, serverQuery])
+
+  const refreshRegistrySnapshot = useCallback(async () => {
+    try {
+      setRegistrySnapshot(await getMemberRegistrySnapshot())
+    } catch {
+      // A lista továbbra is használható; a KPI a következő sikeres frissítésnél szinkronizálódik.
+    }
+  }, [])
+
+  useEffect(() => {
+    const syncRegistryMonth = () => {
+      const nextMonth = currentRegistryMonth()
+      setRegistryMonth((currentMonth) => currentMonth === nextMonth ? currentMonth : nextMonth)
+    }
+    const intervalId = window.setInterval(syncRegistryMonth, 60_000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') syncRegistryMonth()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (snapshotMonthRef.current === registryMonth) return
+    snapshotMonthRef.current = registryMonth
+    void refreshRegistrySnapshot()
+  }, [refreshRegistrySnapshot, registryMonth])
+
+  useEffect(() => {
+    let cancelled = false
+    getMemberFilterOptions()
+      .then((options) => {
+        if (!cancelled) setFilterOptions(options)
+      })
+      .catch(() => {
+        // A beépített alapopciók mellett a lista továbbra is használható.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A friss fetchFirstPage-et ref-en át hívjuk, hogy az effekt CSAK a queryKey
+  // változására fusson. Enélkül a fetchFirstPage referencia-változása (pl. a
+  // registry-scope váltás a form/eltávolítás bezárásakor) spurious cleanup-ot
+  // indított: a folyamatban lévő újratöltést megszakította → a lista üresen
+  // maradt / „töltés" ragadt (2026-07-14, „eltűnnek a személyek" bug).
+  const fetchFirstPageRef = useRef(fetchFirstPage)
+  fetchFirstPageRef.current = fetchFirstPage
+
+  useEffect(() => {
+    if (previousQueryKeyRef.current === queryKey) return
+    previousQueryKeyRef.current = queryKey
+    void fetchFirstPageRef.current()
+    return () => {
+      requestIdRef.current += 1
+      loadMoreInFlightRef.current = false
+    }
+  }, [queryKey])
+
+  const loadMore = useCallback(async () => {
+    const cursor = pageState.nextCursor
+    if (!cursor || !pageState.hasMore || isLoading || loadMoreInFlightRef.current) return
+
+    const requestId = ++requestIdRef.current
+    loadMoreInFlightRef.current = true
+    setIsLoadingMore(true)
+    setListError(null)
+
+    try {
+      const page = await getMembersPage({ ...serverQuery, cursor })
+      if (requestIdRef.current !== requestId) return
+      setMembers((current) => {
+        const existingIds = new Set(current.map((member) => member.id))
+        return [...current, ...page.members.filter((member) => !existingIds.has(member.id))]
+      })
+      setPageState(page)
+    } catch (error) {
+      if (requestIdRef.current === requestId) setListError(getErrorMessage(error))
+    } finally {
+      if (requestIdRef.current === requestId) {
+        loadMoreInFlightRef.current = false
+        setIsLoadingMore(false)
       }
-      if (statusFilter === 'aktív') return isActiveMember(m, paidSet, everPaidSet)
-      if (statusFilter === 'meghalt') return m.meghalt
-      if (statusFilter === 'elkoltozott') return m.member_status === 'elkoltozott' || m.elkoltozott
-      if (statusFilter === 'kitert') return m.member_status === 'kitért'
-      if (statusFilter === 'mas_vallasu') { const v = (m.vallas || '').trim().toLowerCase(); return v !== '' && v !== 'református' && !m.meghalt }
-      if (statusFilter === 'lebego') return m.familyId === null && !m.meghalt && m.member_status !== 'elkoltozott' && !m.elkoltozott
-      return true
+    }
+  }, [isLoading, pageState.hasMore, pageState.nextCursor, serverQuery])
+
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || !hasMore) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore()
+      },
+      { rootMargin: '600px 0px', threshold: 0.01 },
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, loadMore])
+
+  function invalidateActiveRequests() {
+    requestIdRef.current += 1
+    loadMoreInFlightRef.current = false
+    previousQueryKeyRef.current = '__invalidated__'
+    setIsLoadingMore(false)
+  }
+
+  function toggleSort(column: MemberSort) {
+    invalidateActiveRequests()
+    if (sortCol === column) {
+      setSortDir((direction) => (direction === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortCol(column)
+    setSortDir('asc')
+  }
+
+  function handleFilterOpenChange(open: boolean) {
+    if (open) setDraftFilters(filters)
+    setFilterOpen(open)
+  }
+
+  function applyFilters() {
+    if (draftAgeError) {
+      document.getElementById('filter-age-min')?.focus()
+      return
+    }
+    invalidateActiveRequests()
+    setFilters(draftFilters)
+    setFilterOpen(false)
+  }
+
+  function clearFilterChip(key: ActiveFilterKey) {
+    invalidateActiveRequests()
+    setFilters((current) => {
+      switch (key) {
+        case 'status':
+          return { ...current, status: 'mind' }
+        case 'age':
+        case 'ageMin':
+        case 'ageMax':
+          return { ...current, ageMin: '', ageMax: '' }
+        case 'birthday':
+          return { ...current, birthday: 'all' }
+        case 'gender':
+          return { ...current, gender: 'all' }
+        case 'family':
+          return { ...current, family: 'all' }
+        case 'locality':
+          return { ...current, locality: '' }
+        case 'religion':
+          return { ...current, religion: '' }
+        case 'payment':
+          return { ...current, payment: 'all' }
+        case 'contact':
+          return { ...current, contact: 'all' }
+      }
     })
+  }
 
-    result.sort((a, b) => {
-      let valA: string | number, valB: string | number
-      switch (sortCol) {
-        case 'name': valA = `${a.csaladnev || ''} ${a.k_nev || ''}`.toLowerCase(); valB = `${b.csaladnev || ''} ${b.k_nev || ''}`.toLowerCase(); break
-        case 'age': case 'birth': valA = a.sz_datum || '9999'; valB = b.sz_datum || '9999'; break
-        case 'address': valA = `${a.adrlocality?.name || ''}`.toLowerCase(); valB = `${b.adrlocality?.name || ''}`.toLowerCase(); break
-        case 'job': valA = (a.foglalkozas || '').toLowerCase(); valB = (b.foglalkozas || '').toLowerCase(); break
-        default: return sortDir === 'desc' ? b.id - a.id : a.id - b.id
-      }
-      if (valA < valB) return sortDir === 'asc' ? -1 : 1
-      if (valA > valB) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
-    return result
-  }, [members, searchQuery, statusFilter, ageMin, ageMax, sortCol, sortDir, paidSet, everPaidSet])
+  function clearAllFilters() {
+    invalidateActiveRequests()
+    setSearchQuery('')
+    setFilters(EMPTY_FILTERS)
+    setDraftFilters(EMPTY_FILTERS)
+  }
 
-  function toggleSort(col: SortColumn) { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('asc') } }
-  function sortIcon(col: SortColumn) { if (sortCol !== col) return '↕'; return sortDir === 'asc' ? '↑' : '↓' }
-  function openDetails(m: EnrichedMember) { setDetailsMember(m); setDetailsOpen(true) }
-  function openEdit(m: EnrichedMember | null) { setEditingMember(m); setDetailsOpen(false); setFormOpen(true) }
-  function openRemove(m: EnrichedMember) { setRemovingMember({ id: m.id, name: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim() }); setRemoveOpen(true) }
-  async function handleFormClose() { setFormOpen(false); setEditingMember(null); const { getMembers } = await import('@/app/(dashboard)/tagnyilvantartas/actions'); onRefresh((await getMembers()).members) }
-  async function handleRemoveClose() { setRemoveOpen(false); setRemovingMember(null); const { getMembers } = await import('@/app/(dashboard)/tagnyilvantartas/actions'); onRefresh((await getMembers()).members) }
+  function openDetails(member: MemberListItem) {
+    setDetailsMember(member)
+    setDetailsOpen(true)
+  }
 
-  // 2026-06-10 (Fázis 4, P2-5): a szűrt lista exportja Excelbe
+  function openEdit(member: MemberListItem | null) {
+    setEditingMember(member)
+    setDetailsOpen(false)
+    setFormOpen(true)
+  }
+
+  function openRemove(member: MemberListItem) {
+    setRemovingMember({ id: member.id, name: formatNameWithPrefix(member) })
+    setRemoveOpen(true)
+  }
+
+  function openFamilyFromList(familyId: number) {
+    setFamilyDetailsId(familyId)
+    setReturnToPersonAfterFamily(false)
+    setFamilyOpen(true)
+  }
+
+  async function handleFormClose(open: boolean) {
+    setFormOpen(open)
+    if (open) return
+    setEditingMember(null)
+    await Promise.all([
+      fetchFirstPage({ preserveMembers: true }),
+      ...(isDefaultRegistryScope ? [] : [refreshRegistrySnapshot()]),
+    ])
+  }
+
+  async function handleRemoveClose(open: boolean) {
+    setRemoveOpen(open)
+    if (open) return
+    setRemovingMember(null)
+    await Promise.all([
+      fetchFirstPage({ preserveMembers: true }),
+      ...(isDefaultRegistryScope ? [] : [refreshRegistrySnapshot()]),
+    ])
+  }
+
   async function handleExport() {
-    const XLSX = await import('xlsx')
-    const rows = filtered.map(m => ({
-      'Családnév': m.csaladnev || '',
-      'Keresztnév': m.k_nev || '',
-      'Nem': m.ferfi ? 'Férfi' : 'Nő',
-      'Született': m.sz_datum || '',
-      'Életkor': ageFromDate(m.sz_datum) ?? '',
-      'Település': m.adrlocality?.name || '',
-      'Utca': m.adrstreet?.name || '',
-      'Házszám': m.c_szam || '',
-      'Telefon': m.telefon || '',
-      'E-mail': m.email || '',
-      'Vallás': m.vallas || '',
-      'Státusz': m.member_status || (m.meghalt ? 'elhunyt' : 'aktív'),
-      'Foglalkozás': m.foglalkozas || '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Tagok')
-    XLSX.writeFile(wb, `tagnyilvantartas-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    setIsExporting(true)
+    try {
+      const xlsxPromise = import('xlsx')
+      const exportMembers: MemberListItem[] = []
+      const seenCursors = new Set<string>()
+      let cursor: string | null = null
+
+      do {
+        const page = await getMembersPage({ ...serverQuery, cursor })
+        exportMembers.push(...page.members)
+        cursor = page.nextCursor
+        if (cursor) {
+          if (seenCursors.has(cursor)) throw new Error('Az export kurzora ismétlődött.')
+          seenCursors.add(cursor)
+        }
+      } while (cursor)
+
+      const XLSX = await xlsxPromise
+      const rows = exportMembers.map((member) => ({
+        Családnév: member.csaladnev || '',
+        Keresztnév: member.k_nev || '',
+        Nem: member.ferfi === null ? '' : member.ferfi ? 'Férfi' : 'Nő',
+        Született: member.sz_datum || '',
+        Életkor: ageFromDate(member.sz_datum) ?? '',
+        Település: member.adrlocality?.name || '',
+        Utca: member.adrstreet?.name || '',
+        Házszám: member.c_szam || '',
+        Telefon: member.telefon || '',
+        'E-mail': member.email || '',
+        Vallás: member.vallas || '',
+        Státusz: member.member_status || (member.meghalt ? 'elhunyt' : 'aktív'),
+        Foglalkozás: member.foglalkozas || '',
+      }))
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Tagok')
+      XLSX.writeFile(workbook, `tagnyilvantartas-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toast.success(`${exportMembers.length} személy exportálva.`)
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   return (
-    <div className="space-y-4">
-      {/* ═══ Statisztika dashboard (2026-06-02) ═══ */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <PersonKpiCard
-          tone="violet"
-          icon={<Users className="size-5" />}
-          label="Összes tag"
-          value={stats.total}
-        />
-        <PersonKpiCard
-          tone="emerald"
+    <PopoverPrimitive.Root open={filterOpen} onOpenChange={handleFilterOpenChange} modal="trap-focus">
+      <div className="space-y-4 sm:space-y-5">
+      <section aria-label="Tagnyilvántartási összesítő" className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
+        <RegistryStatCard icon={<Users className="size-5" />} label="Összes személy" value={stats.total} tone="teal" />
+        <RegistryStatCard
           icon={<CheckCircle2 className="size-5" />}
-          label="Aktív"
+          label="Aktív tag"
           value={stats.active}
-          hint={stats.total > 0 ? `${Math.round((stats.active / stats.total) * 100)}%` : null}
+          hint={stats.total > 0 ? `${Math.round((stats.active / stats.total) * 100)}%` : undefined}
+          tone="emerald"
         />
-        <PersonKpiCard
-          tone="amber"
-          icon={<Cake className="size-5" />}
-          label="Születésnaposok hónapja"
-          value={stats.birthdays}
-        />
-        <PersonKpiCard
-          tone="rose"
-          icon={<Unlink className="size-5" />}
-          label="Lebegő (család nélkül)"
-          value={stats.floating}
-        />
-      </div>
+        <RegistryStatCard icon={<Cake className="size-5" />} label="Születésnapos" value={stats.birthdays} tone="amber" />
+        <RegistryStatCard icon={<Unlink className="size-5" />} label="Család nélkül" value={stats.floating} tone="rose" />
+      </section>
 
-      {/* ═══ Toolbar ═══ */}
-      <div className="card-raised flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-        <div className="flex flex-1 items-center gap-3 flex-wrap">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <Input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Keresés neve, lakcíme alapján..." className="pl-10 bg-zinc-50 border-zinc-200 rounded-xl h-10" />
+      <Card className="gap-0 overflow-hidden border-primary/10 bg-gradient-to-br from-card via-card to-primary/[0.035] py-0 shadow-[0_18px_55px_-46px_rgba(6,78,71,0.52)]">
+        <CardContent className="space-y-3 px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1 xl:max-w-2xl">
+                <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Név, cím, telefon, e-mail, foglalkozás vagy személyi szám…"
+                  aria-label="Keresés a személyek között"
+                  className="h-12 rounded-2xl border-border/70 bg-background/85 pl-11 pr-10 text-sm shadow-sm focus-visible:ring-primary/25"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-1.5 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    aria-label="Keresés törlése"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+              <PopoverPrimitive.Trigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-12 justify-center gap-2 rounded-2xl border-primary/20 bg-background/80 px-4 text-foreground shadow-sm hover:bg-primary/5"
+                  />
+                }
+              >
+                <SlidersHorizontal className="size-4 text-primary" />
+                Részletes szűrés
+                {activeFilterChips.length > 0 && (
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+                    {activeFilterChips.length}
+                  </span>
+                )}
+              </PopoverPrimitive.Trigger>
+            </div>
+
+            <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
+              <p className="mr-auto text-sm text-muted-foreground xl:mr-1" aria-live="polite">
+                <span className="font-semibold tabular-nums text-foreground">{pageState.filteredCount}</span> találat
+                <span className="hidden sm:inline"> · {pageState.totalCount} személyből</span>
+                {isSearchPending && <span className="ml-2 text-primary">Keresés…</span>}
+              </p>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 rounded-xl bg-background/70"
+                onClick={handleExport}
+                disabled={pageState.filteredCount === 0 || isExporting}
+                title="A szűrt lista exportálása Excelbe"
+              >
+                <Download className="size-4" />
+                <span className="hidden sm:inline">{isExporting ? 'Exportálás…' : 'Export'}</span>
+              </Button>
+              <Button className="h-11 flex-1 gap-2 rounded-xl px-4 shadow-sm sm:flex-none" onClick={() => openEdit(null)}>
+                <UserPlus className="size-4" /> Új személy
+              </Button>
+            </div>
           </div>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as MemberStatusFilter)} className="rounded-xl border border-white/70 bg-white/80 px-4 py-2.5 text-sm shadow-sm">
-            {MEMBER_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
-          {/* 2026-06-10: életkor-szűrő (pl. 0–14 vagy 25–50 év között) */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-zinc-400">Kor:</span>
-            <Input type="number" min={0} max={120} value={ageMin} onChange={e => setAgeMin(e.target.value)} placeholder="tól" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
-            <span className="text-zinc-300">–</span>
-            <Input type="number" min={0} max={120} value={ageMax} onChange={e => setAgeMax(e.target.value)} placeholder="ig" className="h-10 w-16 rounded-xl bg-zinc-50 border-zinc-200 text-center" />
-            {(ageMin !== '' || ageMax !== '') && (
-              <button type="button" onClick={() => { setAgeMin(''); setAgeMax('') }} className="text-zinc-400 transition hover:text-zinc-600" aria-label="Korszűrő törlése">
-                <X className="size-4" />
+
+          {activeFilterChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+              <span className="text-xs font-medium text-muted-foreground">Aktív szűrők:</span>
+              {activeFilterChips.map((chip) => (
+                <FilterChip key={chip.key} label={chip.label} onRemove={() => clearFilterChip(chip.key)} />
+              ))}
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="inline-flex min-h-11 items-center gap-1 px-1 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+              >
+                <FilterX className="size-3.5" /> Mind törlése
               </button>
-            )}
-          </div>
-          <span className="text-sm text-zinc-400">{filtered.length} / {members.length} fő</span>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button variant="outline" className="h-10 gap-2 rounded-xl" onClick={handleExport} disabled={filtered.length === 0} title="A szűrt lista exportja Excelbe">
-            <Download className="w-4 h-4" /> Export
-          </Button>
-          <Button className="h-10 gap-2 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700" onClick={() => openEdit(null)}>
-            <UserPlus className="w-4 h-4" /> Új tag
-          </Button>
-        </div>
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* ═══ Táblázat ═══ */}
-      {filtered.length === 0 ? (
-        members.length === 0 ? (
+      {listError && (
+        <Card className="flex-row items-center justify-between gap-4 border-destructive/20 bg-destructive/[0.035] px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">A személylista frissítése nem sikerült</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{listError}</p>
+          </div>
+          <Button variant="outline" className="min-h-11 shrink-0 rounded-xl bg-background" onClick={() => void fetchFirstPage({ preserveMembers: members.length > 0 })}>
+            Újrapróbálom
+          </Button>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <PersonListSkeleton />
+      ) : listError && members.length === 0 ? null : members.length === 0 ? (
+        pageState.totalCount === 0 ? (
           <EmptyFirstRecord
             accent="emerald"
             icon={UserPlus}
             title="Még nincs egyetlen gyülekezeti tag sem"
-            description="Kezdd el a nyilvántartást — vedd fel az első tagot pár alapadattal (név, születés, lakcím). A családok, presbiterek és körzetek innen épülnek fel."
-            ctaLabel="Rögzítsd az első tagot"
+            description="Kezdd el a nyilvántartást az első személy alapadatainak rögzítésével. A családok, presbiterek és körzetek innen épülnek fel."
+            ctaLabel="Az első személy rögzítése"
             onCta={() => openEdit(null)}
           />
         ) : (
-          <div className="card-raised p-12 text-center">
-            <Search className="w-12 h-12 text-zinc-200 mx-auto mb-3" />
-            <p className="text-zinc-500 font-medium">Nincs a keresésnek megfelelő tag.</p>
-            <p className="text-xs text-zinc-400 mt-1">Próbáljon más keresőszót vagy szűrőt.</p>
-          </div>
+          <Card className="items-center gap-2 px-6 py-14 text-center">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/8 text-primary">
+              <Search className="size-6" />
+            </span>
+            <h3 className="mt-2 font-heading text-lg font-semibold text-foreground">Nincs megfelelő találat</h3>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Módosítsd a keresőkifejezést, vagy törölj néhány aktív szűrőt.
+            </p>
+            <Button variant="outline" className="mt-3 min-h-11 rounded-xl" onClick={clearAllFilters}>
+              <FilterX className="mr-2 size-4" /> Szűrők törlése
+            </Button>
+          </Card>
         )
       ) : (
-        <div className="card-raised overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-white/60 bg-white/60">
+        <Card className="gap-0 overflow-hidden border-primary/10 py-0 shadow-[0_22px_65px_-52px_rgba(6,78,71,0.5)]">
+          <div className="space-y-2 bg-muted/20 p-2 md:hidden">
+            {visibleMembers.map((member) => (
+              <MobilePersonCard
+                key={member.id}
+                member={member}
+                registryMonth={registryMonth}
+                active={isActiveMember(member, everPaidSet, everPaidSet)}
+                crossMatched={crossMatchedIds.has(member.id)}
+                onOpen={() => openDetails(member)}
+                onRemove={() => openRemove(member)}
+                onOpenFamily={openFamilyFromList}
+              />
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[660px] text-sm">
+              <thead className="border-b border-border/60 bg-muted/45">
                 <tr>
-                  <th className="p-3 text-left text-xs font-medium text-zinc-500 cursor-pointer select-none" onClick={() => toggleSort('name')}>Név {sortIcon('name')}</th>
-                  <th className="p-3 text-left text-xs font-medium text-zinc-500 hidden md:table-cell cursor-pointer select-none" onClick={() => toggleSort('address')}>Lakcím {sortIcon('address')}</th>
-                  <th className="p-3 text-left text-xs font-medium text-zinc-500 hidden md:table-cell cursor-pointer select-none" onClick={() => toggleSort('age')}>Kor {sortIcon('age')}</th>
-                  <th className="p-3 text-left text-xs font-medium text-zinc-500">Státusz</th>
-                  <th className="p-3 text-left text-xs font-medium text-zinc-500 hidden lg:table-cell cursor-pointer select-none" onClick={() => toggleSort('job')}>Foglalkozás {sortIcon('job')}</th>
-                  <th className="p-3 w-10"></th>
+                  <SortableHeader column="name" label="Személy" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="min-w-[260px]" />
+                  <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Tagság</th>
+                  <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Család</th>
+                  <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:table-cell">Pénzügy</th>
+                  <SortableHeader column="address" label="Lakcím" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden min-w-[190px] xl:table-cell" />
+                  <SortableHeader column="age" label="Kor" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden 2xl:table-cell" />
+                  <SortableHeader column="job" label="Foglalkozás" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} className="hidden 2xl:table-cell" />
+                  <th className="w-14 px-3 py-3"><span className="sr-only">Műveletek</span></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/60">
-                {filtered.slice(0, visibleCount).map(m => {
-                  const age = ageFromDate(m.sz_datum)
-                  const name = formatNameWithPrefix(m)
-                  const initials = getInitials(m)
-                  const avatarC = getAvatarColors(m)
-                  const bday = isBirthdayThisMonth(m)
+              <tbody className="divide-y divide-border/45">
+                {visibleMembers.map((member) => {
+                  const age = ageFromDate(member.sz_datum)
+                  const name = formatNameWithPrefix(member)
+                  const address = formatAddress(member)
+                  const active = isActiveMember(member, everPaidSet, everPaidSet)
+                  const birthday = isBirthdayInMonth(member, registryMonth)
+                  const familyId = member.familyId
 
                   return (
-                    <tr key={m.id} className="group cursor-pointer transition-colors duration-150 hover:bg-secondary/55" onClick={() => openDetails(m)}>
-                      {/* Név + Avatar */}
-                      <td className="p-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: avatarC.bg, color: avatarC.color }}>
-                            {initials}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-medium text-zinc-800 truncate flex items-center gap-1.5">
-                              {name}
-                              {bday && <span title="Születésnapos ebben a hónapban"><Cake className="w-3.5 h-3.5 text-amber-500 shrink-0" /></span>}
-                              {crossMatchedIds.has(m.id) && (
-                                <span title="Más gyülekezetben is szerepel — egyeztetés szükséges">
-                                  <Link2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                </span>
+                    <tr
+                      key={member.id}
+                      className={cn(
+                        'group animate-in fade-in bg-card/45 transition-colors duration-200 hover:bg-primary/[0.045] motion-reduce:animate-none motion-reduce:transition-none',
+                        detailsOpen && detailsMember?.id === member.id && 'bg-primary/[0.07]',
+                      )}
+                    >
+                      <td className="px-4 py-3.5">
+                        <button
+                          type="button"
+                          onClick={() => openDetails(member)}
+                          className="flex w-full items-center gap-3 rounded-xl text-left outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2"
+                          aria-label={`${name} személyi kartonjának megnyitása`}
+                        >
+                          <MemberAvatar name={name} kepUrl={member.kep ?? member.photo_url} meghalt={member.meghalt} size={44} className="motion-reduce:hover:scale-100" />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-center gap-1.5 font-semibold text-foreground">
+                              <span className="truncate">{name}</span>
+                              {birthday && (
+                                <Cake className="size-3.5 shrink-0 text-amber-500" aria-label="Születésnapos ebben a hónapban" />
                               )}
-                              {/* 2026-04-30: vallás-figyelmeztetés — ha üres és nem fizetett valaha */}
-                              {(() => {
-                                const v = (m.vallas || '').trim()
-                                if (v !== '') return null
-                                if (m.hasEverPaid) return null // mert ő mégis aktív (Endre szabálya)
-                                return (
-                                  <span
-                                    title="Vallás nincs rögzítve — ezért NEM számít aktív tagnak. Ha valaha fizetett egyházfenntartást, vagy reformátussá kell jelölni, akkor aktív lesz."
-                                    className="inline-flex items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700"
-                                  >
-                                    !
-                                  </span>
-                                )
-                              })()}
-                            </div>
-                            <div className="text-[11px] text-zinc-400 md:hidden">
-                              {[
-                                age !== null ? `${age} év` : null,
-                                m.adrlocality?.name || null,
-                              ].filter(Boolean).join(' · ')}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Lakcím — helység, utca + házszám; ha bármelyik rész
-                          hiányzik, NE legyen lógó vessző az elején/közepén */}
-                      <td className="p-3 hidden md:table-cell text-zinc-500 text-xs">
-                        {(() => {
-                          const parts = [m.adrlocality?.name, m.adrstreet?.name].filter(Boolean) as string[]
-                          const base = parts.join(', ')
-                          return base + (m.c_szam ? `${base ? ' ' : ''}${m.c_szam}` : '')
-                        })()}
-                      </td>
-
-                      {/* Kor */}
-                      <td className="p-3 hidden md:table-cell text-zinc-500">
-                        {age !== null ? `${age} év` : '—'}
-                      </td>
-
-                      {/* Státusz + (esetleges) átjelentkezési badge */}
-                      <td className="p-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <MemberStatusBadge status={m.paymentStatus} />
-                          {m.pendingTransfer && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
-                              title={`Átjelentkezés folyamatban: ${m.pendingTransfer.target_congregation_name} (várakozás a célgyülekezet válaszára)`}
-                            >
-                              🚪 Átjelentkezik
+                              {crossMatchedIds.has(member.id) && (
+                                <Link2 className="size-3.5 shrink-0 text-amber-600" aria-label="Más gyülekezetben is szerepel" />
+                              )}
                             </span>
+                            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                              {age !== null && <span>{age} éves</span>}
+                              {member.telefon && <span className="truncate">{member.telefon}</span>}
+                              {address && <span className="truncate lg:hidden">{address}</span>}
+                            </span>
+                            <span className="mt-2 flex flex-wrap gap-1.5 md:hidden">
+                              <MembershipBadge member={member} active={active} />
+                              <FinancialBadge status={member.paymentStatus} />
+                            </span>
+                          </span>
+                        </button>
+                      </td>
+                      <td className="hidden px-4 py-3.5 md:table-cell">
+                        <MembershipBadge member={member} active={active} />
+                      </td>
+                      <td className="hidden px-4 py-3.5 md:table-cell">
+                        {familyId !== null && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="min-h-11 whitespace-nowrap rounded-full bg-background px-3 text-xs text-primary"
+                            onClick={() => openFamilyFromList(familyId)}
+                            aria-label={`${name} családi kartonjának megnyitása, ${familyId}. család`}
+                          >
+                            <Users className="mr-1.5 size-3.5" />
+                            <span className="lg:hidden">Család · #{familyId}</span>
+                            <span className="hidden lg:inline">Családi karton · #{familyId}</span>
+                          </Button>
+                        )}
+                      </td>
+                      <td className="hidden px-4 py-3.5 md:table-cell">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <FinancialBadge status={member.paymentStatus} />
+                          {member.pendingTransfer && (
+                            <Badge
+                              variant="outline"
+                              className="rounded-full border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                              title={`Átjelentkezés folyamatban: ${member.pendingTransfer.target_congregation_name}`}
+                            >
+                              Átjelentkezik
+                            </Badge>
                           )}
                         </div>
                       </td>
-
-                      {/* Foglalkozás */}
-                      <td className="p-3 hidden lg:table-cell text-zinc-400 text-xs">
-                        {m.foglalkozas || '—'}
+                      <td className="hidden max-w-[260px] px-4 py-3.5 text-xs text-muted-foreground xl:table-cell">
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="size-3.5 shrink-0 text-primary/65" />
+                          <span className="truncate">{address || 'Nincs rögzítve'}</span>
+                        </span>
                       </td>
-
-                      {/* Műveletek */}
-                      <td className="p-3" onClick={e => e.stopPropagation()}>
-                        {/* 2026-06-10 (Fázis 4, P2-8): mobilon nincs hover — ott mindig látszik */}
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-zinc-300 hover:text-red-500 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity" title="Tag kivezetése" onClick={() => openRemove(m)}>
-                          <Trash2 className="w-3.5 h-3.5" />
+                      <td className="hidden px-4 py-3.5 text-sm tabular-nums text-muted-foreground 2xl:table-cell">
+                        {age !== null ? `${age} év` : '—'}
+                      </td>
+                      <td className="hidden max-w-[220px] px-4 py-3.5 text-xs text-muted-foreground 2xl:table-cell">
+                        <span className="flex items-center gap-1.5">
+                          <BriefcaseBusiness className="size-3.5 shrink-0 text-primary/65" />
+                          <span className="truncate">{member.foglalkozas || 'Nincs rögzítve'}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-11 rounded-xl p-0 text-muted-foreground opacity-100 transition hover:bg-destructive/8 hover:text-destructive lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 motion-reduce:transition-none"
+                          title="Személy kivezetése"
+                          aria-label={`${name} kivezetése`}
+                          onClick={() => openRemove(member)}
+                        >
+                          <Trash2 className="size-3.5" />
                         </Button>
                       </td>
                     </tr>
@@ -364,24 +903,243 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
                 })}
               </tbody>
             </table>
-            {filtered.length > visibleCount && (
-              <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-3">
-                <span className="text-xs text-zinc-400">{visibleCount} / {filtered.length} sor megjelenítve</span>
-                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setVisibleCount(c => c + 150)}>
-                  További 150 megjelenítése
-                </Button>
-              </div>
-            )}
           </div>
-        </div>
+          <ListProgress
+            ref={loadMoreRef}
+            shown={visibleMembers.length}
+            total={pageState.filteredCount}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            loading={isLoadingMore}
+          />
+        </Card>
       )}
 
-      {/* Modal-ok */}
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Positioner
+          side="bottom"
+          align="end"
+          sideOffset={10}
+          collisionPadding={8}
+          positionMethod="fixed"
+          className="z-[70]"
+        >
+          <PopoverPrimitive.Popup
+            id="persons-detailed-filter"
+            className="flex max-h-[min(42rem,var(--available-height))] w-[min(35rem,calc(100vw-1rem))] origin-[var(--transform-origin)] flex-col overflow-hidden rounded-2xl border border-primary/15 bg-popover text-popover-foreground shadow-[0_28px_80px_-32px_rgba(4,74,68,0.52)] outline-none transition-[opacity,transform] duration-150 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0 motion-reduce:transition-none"
+          >
+            <form
+              className="flex min-h-0 flex-1 flex-col"
+              onSubmit={(event) => {
+                event.preventDefault()
+                applyFilters()
+              }}
+            >
+              <div className="relative shrink-0 border-b border-primary/10 bg-gradient-to-br from-primary/[0.08] via-popover to-accent/[0.07] px-4 py-4 pr-16 sm:px-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <SlidersHorizontal className="size-4.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PopoverPrimitive.Title className="font-heading text-lg font-semibold text-foreground">
+                        Részletes szűrés
+                      </PopoverPrimitive.Title>
+                      <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-primary" aria-live="polite">
+                        {draftFilterCount}
+                      </span>
+                    </div>
+                    <PopoverPrimitive.Description className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Tagsági, családi, demográfiai és elérhetőségi feltételek.
+                    </PopoverPrimitive.Description>
+                  </div>
+                </div>
+                <PopoverPrimitive.Close
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2.5 top-2.5 size-11 rounded-xl text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                    />
+                  }
+                >
+                  <X className="size-4.5" />
+                  <span className="sr-only">Szűrőablak bezárása</span>
+                </PopoverPrimitive.Close>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+                <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2">
+                  <FilterField id="filter-status" label="Tagsági állapot">
+                    <select
+                      id="filter-status"
+                      value={draftFilters.status}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value as MemberStatusFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-payment" label="Pénzügyi állapot">
+                    <select
+                      id="filter-payment"
+                      value={draftFilters.payment}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, payment: event.target.value as PaymentFilter }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="all">Minden állapot</option>
+                      {paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-birthday" label="Születésnap">
+                    <select
+                      id="filter-birthday"
+                      value={draftFilters.birthday}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, birthday: event.target.value as BirthdayFilter }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="all">Minden személy</option>
+                      <option value="this-month">Ebben a hónapban</option>
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-family" label="Családi kapcsolat">
+                    <select
+                      id="filter-family"
+                      value={draftFilters.family}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, family: event.target.value as MemberFamilyFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {familyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-age-min" label="Életkor ettől">
+                    <Input
+                      id="filter-age-min"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={draftFilters.ageMin}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, ageMin: event.target.value }))}
+                      placeholder="pl. 18"
+                      aria-invalid={Boolean(draftAgeError)}
+                      aria-describedby={draftAgeError ? 'filter-age-error' : undefined}
+                      className="h-11 rounded-xl bg-background/90"
+                    />
+                  </FilterField>
+
+                  <FilterField id="filter-age-max" label="Életkor eddig">
+                    <Input
+                      id="filter-age-max"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={120}
+                      step={1}
+                      value={draftFilters.ageMax}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, ageMax: event.target.value }))}
+                      placeholder="pl. 65"
+                      aria-invalid={Boolean(draftAgeError)}
+                      aria-describedby={draftAgeError ? 'filter-age-error' : undefined}
+                      className="h-11 rounded-xl bg-background/90"
+                    />
+                  </FilterField>
+
+                  <FilterField id="filter-gender" label="Nem">
+                    <select
+                      id="filter-gender"
+                      value={draftFilters.gender}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, gender: event.target.value as MemberGenderFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {genderOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-religion" label="Vallás">
+                    <select
+                      id="filter-religion"
+                      value={draftFilters.religion}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, religion: event.target.value }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="">Minden vallás</option>
+                      {religionOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}{option.count === undefined ? '' : ` (${option.count})`}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-locality" label="Település">
+                    <select
+                      id="filter-locality"
+                      value={draftFilters.locality}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, locality: event.target.value }))}
+                      className={filterControlClassName}
+                    >
+                      <option value="">Minden település</option>
+                      {localityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}{option.count === undefined ? '' : ` (${option.count})`}
+                        </option>
+                      ))}
+                    </select>
+                  </FilterField>
+
+                  <FilterField id="filter-contact" label="Elérhetőség">
+                    <select
+                      id="filter-contact"
+                      value={draftFilters.contact}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, contact: event.target.value as MemberContactFilter }))}
+                      className={filterControlClassName}
+                    >
+                      {contactOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </FilterField>
+                </div>
+
+                {draftAgeError && (
+                  <p id="filter-age-error" className="mt-3 text-xs font-medium text-destructive" role="alert">
+                    {draftAgeError}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid shrink-0 grid-cols-1 gap-2 border-t border-primary/10 bg-popover/95 p-3 min-[420px]:grid-cols-2 sm:px-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 rounded-xl bg-background/80 px-4"
+                  onClick={() => setDraftFilters(DEFAULT_FILTERS)}
+                  title="Visszaállítás az alapértelmezett aktívtag-szűrésre"
+                >
+                  Alaphelyzet
+                </Button>
+                <Button type="submit" className="min-h-11 rounded-xl px-4 shadow-sm" disabled={Boolean(draftAgeError)}>
+                  Szűrés alkalmazása
+                </Button>
+              </div>
+            </form>
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+
       <MemberDetailsDialogV2
         open={detailsOpen}
-        onOpenChange={setDetailsOpen}
+        onOpenChange={(open) => {
+          if (!open && treeOpen) return
+          setDetailsOpen(open)
+        }}
         member={detailsMember}
-        familyId={detailsMember ? personToFamilyMap[detailsMember.id] ?? null : null}
+        familyId={detailsMember?.familyId ?? null}
         onEdit={() => detailsMember && openEdit(detailsMember)}
         onShowFamilyTree={(id) => {
           setTreeMemberId(id)
@@ -401,61 +1159,287 @@ export function PersonsTab({ members, paidPersonIds, personToFamilyMap, onRefres
           setFamilyOpen(open)
           if (!open) {
             setFamilyDetailsId(null)
-            if (returnToPersonAfterFamily && detailsMember) {
-              setDetailsOpen(true)
-            }
+            if (returnToPersonAfterFamily && detailsMember) setDetailsOpen(true)
             setReturnToPersonAfterFamily(false)
           }
         }}
         familyId={familyDetailsId}
       />
-      <FamilyTreeDialog open={treeOpen} onOpenChange={(o) => { setTreeOpen(o); if (!o && detailsMember) setDetailsOpen(true) }} memberId={treeMemberId} />
-    </div>
+      <FamilyTreeDialog
+        open={treeOpen}
+        onOpenChange={(open) => {
+          setTreeOpen(open)
+          if (!open) setTreeMemberId(null)
+        }}
+        memberId={treeMemberId}
+      />
+      </div>
+    </PopoverPrimitive.Root>
   )
 }
 
-// 2026-06-02: KPI-kártya a statisztika dashboardhoz — mint a családoknál
-function PersonKpiCard({
-  tone,
+const filterControlClassName =
+  'h-11 w-full rounded-xl border border-input bg-background/90 px-3 text-sm text-foreground shadow-xs outline-none transition focus:border-ring focus:ring-[3px] focus:ring-ring/20 motion-reduce:transition-none'
+
+function RegistryStatCard({
   icon,
   label,
   value,
   hint,
+  tone,
 }: {
-  tone: 'violet' | 'emerald' | 'amber' | 'rose'
-  icon: React.ReactNode
+  icon: ReactNode
   label: string
   value: number
-  hint?: string | null
+  hint?: string
+  tone: 'teal' | 'emerald' | 'amber' | 'rose'
 }) {
-  const TONES: Record<typeof tone, { bg: string; iconBg: string; iconText: string; valueText: string }> = {
-    violet: { bg: 'from-violet-50 to-white', iconBg: 'bg-violet-100', iconText: 'text-violet-600', valueText: 'text-violet-900' },
-    emerald: { bg: 'from-emerald-50 to-white', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', valueText: 'text-emerald-900' },
-    amber: { bg: 'from-amber-50 to-white', iconBg: 'bg-amber-100', iconText: 'text-amber-600', valueText: 'text-amber-900' },
-    rose: { bg: 'from-rose-50 to-white', iconBg: 'bg-rose-100', iconText: 'text-rose-600', valueText: 'text-rose-900' },
-  }
-  const t = TONES[tone]
+  const tones = {
+    teal: 'bg-primary/10 text-primary ring-primary/10',
+    emerald: 'bg-emerald-100 text-emerald-700 ring-emerald-200/60 dark:bg-emerald-950/35 dark:text-emerald-300',
+    amber: 'bg-amber-100 text-amber-700 ring-amber-200/60 dark:bg-amber-950/35 dark:text-amber-300',
+    rose: 'bg-rose-100 text-rose-700 ring-rose-200/60 dark:bg-rose-950/35 dark:text-rose-300',
+  } as const
+
   return (
-    <div className={`relative overflow-hidden rounded-2xl border border-white/70 bg-gradient-to-br ${t.bg} p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500 sm:text-xs">
-            {label}
-          </p>
-          <p className={`mt-1 text-2xl font-bold tabular-nums ${t.valueText} sm:text-3xl`}>
-            {value}
-            {hint && (
-              <span className="ml-1 text-sm font-normal text-slate-500 sm:text-base">{hint}</span>
-            )}
-          </p>
-        </div>
-        <div className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${t.iconBg} ${t.iconText} shadow-sm`}>
+    <Card className="gap-0 overflow-hidden border-primary/8 bg-gradient-to-br from-card via-card to-primary/[0.025] py-0 transition duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transform-none motion-reduce:transition-none">
+      <CardContent className="flex items-center gap-3 px-3.5 py-3.5 sm:px-5 sm:py-5">
+        <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-2xl ring-1 sm:size-11', tones[tone])}>
           {icon}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px]">{label}</p>
+          <p className="mt-0.5 font-heading text-2xl font-semibold tabular-nums text-foreground sm:text-3xl">
+            {value}
+            {hint && <span className="ml-1.5 text-xs font-medium text-muted-foreground sm:text-sm">{hint}</span>}
+          </p>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 rounded-full border border-primary/15 bg-primary/[0.07] pl-3 pr-1 text-xs font-medium text-primary">
+      <span className="min-w-0 truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="flex size-11 items-center justify-center rounded-full transition hover:bg-primary/10"
+        aria-label={`${label} szűrő törlése`}
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  )
+}
+
+function MobilePersonCard({
+  member,
+  registryMonth,
+  active,
+  crossMatched,
+  onOpen,
+  onRemove,
+  onOpenFamily,
+}: {
+  member: MemberListItem
+  registryMonth: number
+  active: boolean
+  crossMatched: boolean
+  onOpen: () => void
+  onRemove: () => void
+  onOpenFamily: (familyId: number) => void
+}) {
+  const name = formatNameWithPrefix(member)
+  const age = ageFromDate(member.sz_datum)
+  const address = formatAddress(member)
+  const familyId = member.familyId
+
+  return (
+    <article className="relative animate-in fade-in slide-in-from-bottom-1 rounded-2xl border border-border/60 bg-card px-3 py-3 shadow-sm duration-200 motion-reduce:animate-none">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-11 w-[calc(100%-3rem)] items-start gap-3 rounded-xl text-left outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2"
+        aria-label={`${name} személyi kartonjának megnyitása`}
+      >
+        <MemberAvatar name={name} kepUrl={member.kep ?? member.photo_url} meghalt={member.meghalt} size={48} className="motion-reduce:hover:scale-100" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 font-heading text-base font-semibold text-foreground">
+            <span className="truncate">{name}</span>
+            {isBirthdayInMonth(member, registryMonth) && <Cake className="size-3.5 shrink-0 text-amber-500" aria-label="Születésnapos ebben a hónapban" />}
+            {crossMatched && <Link2 className="size-3.5 shrink-0 text-amber-600" aria-label="Más gyülekezetben is szerepel" />}
+          </span>
+          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {age !== null && <span>{age} éves</span>}
+            {address && <span className="truncate">{address}</span>}
+          </span>
+          {(member.telefon || member.email) && (
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {[member.telefon, member.email].filter(Boolean).join(' · ')}
+            </span>
+          )}
+          <span className="mt-2.5 flex flex-wrap gap-1.5">
+            <MembershipBadge member={member} active={active} />
+            <FinancialBadge status={member.paymentStatus} />
+            {member.pendingTransfer && (
+              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-[10px] text-amber-700">
+                Átjelentkezik
+              </Badge>
+            )}
+          </span>
+        </span>
+      </button>
+      {familyId !== null && (
+        <div className="mt-2 min-w-0 pl-[3.75rem]">
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-full justify-start rounded-xl bg-background px-3 text-xs text-primary"
+            onClick={() => onOpenFamily(familyId)}
+            aria-label={`${name} családi kartonjának megnyitása, ${familyId}. család`}
+          >
+            <Users className="mr-1.5 size-3.5" />
+            <span className="min-w-0 truncate">Családi karton · #{familyId}</span>
+          </Button>
+        </div>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="absolute right-2 top-2 size-11 rounded-xl p-0 text-muted-foreground hover:bg-destructive/8 hover:text-destructive"
+        onClick={onRemove}
+        aria-label={`${name} kivezetése`}
+        title="Személy kivezetése"
+      >
+        <Trash2 className="size-4" />
+      </Button>
+    </article>
+  )
+}
+
+function MembershipBadge({ member, active }: { member: MemberListItem; active: boolean }) {
+  const status = normalizeText(member.member_status)
+  const religion = normalizeText(member.vallas)
+
+  if (member.meghalt) return <Badge className="rounded-full border-0 bg-slate-100 text-slate-600">Elhunyt</Badge>
+  if (member.elkoltozott || status === 'elkoltozott') return <Badge className="rounded-full border-0 bg-slate-100 text-slate-600">Elköltözött</Badge>
+  if (status === 'kitert') return <Badge className="rounded-full border-0 bg-amber-100 text-amber-700">Kitért</Badge>
+  if (active) return <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-700">Aktív</Badge>
+  if (religion && religion !== 'reformatus') return <Badge className="rounded-full border-0 bg-violet-100 text-violet-700">Más vallású</Badge>
+  return <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">Nem aktív</Badge>
+}
+
+function FinancialBadge({ status }: { status: PaymentStatus }) {
+  if (status === 'elhunyt' || status === 'elkoltozott' || status === 'kitert') {
+    return (
+      <Badge variant="outline" className="rounded-full border-border bg-muted/35 text-muted-foreground" title={`Pénzügyi állapot: ${PAYMENT_STATUS_CONFIG[status].label}`}>
+        Nem releváns
+      </Badge>
+    )
+  }
+  return <MemberStatusBadge status={status} />
+}
+
+function SortableHeader({
+  column,
+  label,
+  sortCol,
+  sortDir,
+  onSort,
+  className,
+}: {
+  column: MemberSort
+  label: string
+  sortCol: MemberSort
+  sortDir: SortDirection
+  onSort: (column: MemberSort) => void
+  className?: string
+}) {
+  const active = sortCol === column
+  const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+  const Icon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+
+  return (
+    <th className={cn('px-4 py-3 text-left', className)} aria-sort={ariaSort}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex min-h-11 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:text-foreground"
+      >
+        {label}
+        <Icon className={cn('size-3.5', active && 'text-primary')} />
+      </button>
+    </th>
+  )
+}
+
+const ListProgress = function ListProgress({
+  ref,
+  shown,
+  total,
+  hasMore,
+  onLoadMore,
+  loading,
+}: {
+  ref: React.Ref<HTMLDivElement>
+  shown: number
+  total: number
+  hasMore: boolean
+  onLoadMore: () => void | Promise<void>
+  loading: boolean
+}) {
+  const percent = total > 0 ? Math.round((shown / total) * 100) : 100
+  return (
+    <div ref={ref} className="border-t border-border/55 bg-muted/25 px-4 py-3.5 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-[180px] flex-1">
+          <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span><strong className="font-semibold text-foreground">{shown}</strong> / {total} személy látható</span>
+            <span>{percent}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-primary/10">
+            <div className="h-full rounded-full bg-primary transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
+          </div>
+        </div>
+        {hasMore ? (
+          <Button variant="outline" size="sm" className="min-h-11 rounded-xl bg-background" onClick={onLoadMore} disabled={loading}>
+            {loading ? 'Betöltés…' : `Következő ${Math.min(PAGE_SIZE, total - shown)} megjelenítése`}
+          </Button>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+            <CheckCircle2 className="size-3.5" /> Minden találat betöltve
+          </span>
+        )}
       </div>
     </div>
   )
 }
 
-// Csendes referencia — esetleg később jelmagyarázathoz
-void Sparkles
+function PersonListSkeleton() {
+  return (
+    <Card className="gap-0 overflow-hidden py-0" role="status" aria-live="polite" aria-busy="true" aria-label="Személyek betöltése">
+      <div className="space-y-2 p-3 md:hidden">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="h-28 animate-pulse rounded-2xl bg-muted/70 motion-reduce:animate-none" />
+        ))}
+      </div>
+      <div className="hidden divide-y divide-border/45 md:block">
+        {Array.from({ length: 7 }).map((_, index) => (
+          <div key={index} className="h-[4.5rem] animate-pulse bg-muted/45 motion-reduce:animate-none" />
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function FilterField({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs font-semibold text-foreground">{label}</Label>
+      {children}
+    </div>
+  )
+}

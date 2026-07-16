@@ -1,100 +1,57 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { rateMaterial, deleteMaterial } from '@/app/misszios-muhely/community-actions'
-import { toast } from 'sonner'
+import { useState, useTransition, type ElementType } from 'react'
 import {
   BookOpen,
-  ExternalLink,
+  Calendar,
   Download,
+  FileText,
+  Link2,
+  MapPin,
   Star,
   User,
-  MapPin,
-  Calendar,
-  FileText,
-  Trash2,
-  Link2,
+  X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
-interface MaterialCategory {
-  kategoria_id: number
-  mm_kategoriak: { nev: string; ikon: string; szin: string } | null
-}
+import {
+  deleteMaterial,
+  rateMaterial,
+  type WorkshopMaterial,
+} from '@/app/misszios-muhely/community-actions'
+import { useRewardCelebration } from '@/components/muhely/rewards/use-reward-celebration'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+
+import { MaterialActionBar } from './material-action-bar'
+import { MaterialContent } from './material-content'
+import { MaterialStarRating } from './material-star-rating'
 
 interface MaterialDetailDialogProps {
-  material: {
-    id: string
-    cim: string
-    leiras: string | null
-    forras_url: string | null
-    forras_nev: string | null
-    formatum: string
-    feltolto_id: string | null
-    feltolto_nev: string | null
-    feltolto_gyulekezet: string | null
-    letoltes_szam: number
-    csatolmany_url: string | null
-    created_at: string
-    mm_segedanyag_kategoriak: MaterialCategory[]
-  } | null
+  material: WorkshopMaterial
   open: boolean
   onOpenChange: (open: boolean) => void
   currentUserId?: string
   isAdmin?: boolean
+  onEdit: (material: WorkshopMaterial) => void
+  onChanged?: () => void
 }
 
-const FORMAT_INFO: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-  PDF: { label: 'PDF dokumentum', icon: FileText, color: 'text-red-500 bg-red-50' },
-  DOCX: { label: 'Word dokumentum', icon: FileText, color: 'text-blue-500 bg-blue-50' },
-  PPTX: { label: 'Prezentáció', icon: FileText, color: 'text-orange-500 bg-orange-50' },
-  video: { label: 'Videó', icon: FileText, color: 'text-purple-500 bg-purple-50' },
-  link: { label: 'Webes hivatkozás', icon: Link2, color: 'text-emerald-500 bg-emerald-50' },
-  csomag: { label: 'Csomag', icon: Download, color: 'text-amber-500 bg-amber-50' },
+const FORMAT_INFO: Record<string, { label: string; icon: ElementType }> = {
+  PDF: { label: 'PDF dokumentum', icon: FileText },
+  DOCX: { label: 'Word dokumentum', icon: FileText },
+  PPTX: { label: 'Prezentáció', icon: FileText },
+  video: { label: 'Videó', icon: FileText },
+  link: { label: 'Műhelyanyag', icon: Link2 },
+  csomag: { label: 'Segédanyagcsomag', icon: Download },
 }
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string | null) {
+  if (!dateStr) return '—'
   return new Date(dateStr).toLocaleDateString('hu-HU', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
-}
-
-function StarRating({
-  value,
-  onChange,
-  readOnly = false,
-}: {
-  value: number
-  onChange?: (val: number) => void
-  readOnly?: boolean
-}) {
-  const [hover, setHover] = useState(0)
-
-  return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <button
-          key={star}
-          type="button"
-          disabled={readOnly}
-          onMouseEnter={() => !readOnly && setHover(star)}
-          onMouseLeave={() => setHover(0)}
-          onClick={() => onChange?.(star)}
-          className={`p-0.5 transition-transform ${readOnly ? 'cursor-default' : 'cursor-pointer hover:scale-110'}`}
-        >
-          <Star
-            className={`w-5 h-5 transition-colors ${
-              star <= (hover || value)
-                ? 'text-amber-400 fill-amber-400'
-                : 'text-slate-200'
-            }`}
-          />
-        </button>
-      ))}
-    </div>
-  )
 }
 
 export function MaterialDetailDialog({
@@ -103,164 +60,198 @@ export function MaterialDetailDialog({
   onOpenChange,
   currentUserId,
   isAdmin,
+  onEdit,
+  onChanged,
 }: MaterialDetailDialogProps) {
-  const [myRating, setMyRating] = useState(0)
+  const celebrateReward = useRewardCelebration()
+  const [myRating, setMyRating] = useState(material.sajat_ertekeles || 0)
+  const [averageRating, setAverageRating] = useState(Number(material.atlag_ertekeles || 0))
+  const [ratingCount, setRatingCount] = useState(material.ertekelesek_szama || 0)
+  const [downloadCount, setDownloadCount] = useState(material.letoltes_szam || 0)
   const [isPending, startTransition] = useTransition()
 
-  if (!material) return null
-
   const categories = material.mm_segedanyag_kategoriak
-    .map((k) => k.mm_kategoriak)
+    .map((category) => category.mm_kategoriak)
     .filter(Boolean) as { nev: string; ikon: string; szin: string }[]
-
   const formatInfo = FORMAT_INFO[material.formatum] || FORMAT_INFO.link
   const FormatIcon = formatInfo.icon
-  const canDelete = currentUserId === material.feltolto_id || isAdmin
+  const canEdit = currentUserId === material.feltolto_id || Boolean(isAdmin)
+  const isOwnMaterial = currentUserId === material.feltolto_id
 
   function handleRate(pontszam: number) {
+    const previousRating = myRating
     setMyRating(pontszam)
     startTransition(async () => {
-      const result = await rateMaterial(material!.id, pontszam)
-      if ('error' in result) toast.error(result.error)
-      else toast.success('Köszönjük az értékelésed!')
-    })
-  }
+      try {
+        const result = await rateMaterial(material.id, pontszam)
+        if ('error' in result) {
+          setMyRating(previousRating)
+          toast.error(result.error)
+          return
+        }
 
-  function handleDelete() {
-    if (!confirm('Biztosan archiválod ezt a segédanyagot?')) return
-    startTransition(async () => {
-      const result = await deleteMaterial(material!.id)
-      if ('error' in result) toast.error(result.error)
-      else {
-        toast.success('Segédanyag archiválva.')
-        onOpenChange(false)
+        if (result.averageRating !== null) setAverageRating(result.averageRating)
+        if (result.ratingCount !== null) setRatingCount(result.ratingCount)
+        toast.success(
+          result.ownTestRating
+            ? 'Tesztértékelés elmentve — ezért nem jár pont vagy jelvény.'
+            : 'Köszönjük az értékelésed!',
+        )
+        celebrateReward(result.reward)
+        onChanged?.()
+      } catch (error) {
+        console.error('[materials] Rating failed', error)
+        setMyRating(previousRating)
+        toast.error('Az értékelést most nem sikerült elmenteni. Kérlek, próbáld újra!')
       }
     })
   }
 
+  function handleArchive() {
+    if (!confirm('Biztosan archiválod ezt a segédanyagot?')) return
+    startTransition(async () => {
+      try {
+        const result = await deleteMaterial(material.id)
+        if ('error' in result) {
+          toast.error(result.error)
+          return
+        }
+        toast.success('Segédanyag archiválva.')
+        onOpenChange(false)
+        onChanged?.()
+      } catch (error) {
+        console.error('[materials] Archiving failed', error)
+        toast.error('A segédanyag archiválása most nem sikerült. Kérlek, próbáld újra!')
+      }
+    })
+  }
+
+  function handleEdit() {
+    onOpenChange(false)
+    onEdit(material)
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 overflow-hidden">
-        {/* Header with gradient */}
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50/50 p-6 pb-4">
-          <div className="flex items-start gap-4">
-            <div className={`w-12 h-12 rounded-xl ${formatInfo.color.split(' ')[1]} flex items-center justify-center shrink-0`}>
-              <FormatIcon className={`w-6 h-6 ${formatInfo.color.split(' ')[0]}`} />
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[calc(100dvh-0.75rem)] w-[calc(100%-0.75rem)] max-w-none flex-col gap-0 overflow-hidden rounded-[1.25rem] border-[#d6c6af] bg-[#fffdf7] p-0 shadow-[0_30px_90px_-26px_rgba(46,38,27,.6)] sm:max-h-[94dvh] sm:w-[calc(100%-2rem)] sm:max-w-5xl sm:rounded-[1.75rem]"
+      >
+        <header className="relative shrink-0 overflow-hidden border-b border-[#d8c9b4] bg-[#f4ebdd] p-4 pr-14 sm:p-6 sm:pr-16">
+          <BookOpen className="absolute -bottom-10 -right-4 h-36 w-36 rotate-[-8deg] text-[#647a52]/10" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="absolute right-2 top-2 z-20 grid h-11 w-11 place-items-center rounded-full text-[#747b72] transition hover:bg-[#fffdf7]/80 hover:text-[#26382f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d3a45e]/70"
+            aria-label="Segédanyag bezárása"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+
+          <div className="relative flex min-w-0 items-start gap-3 sm:gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#cdbb9e] bg-[#fffdf7] shadow-sm sm:h-14 sm:w-14">
+              <FormatIcon className="h-5 w-5 text-[#647a52] sm:h-6 sm:w-6" aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1">
-              <DialogTitle className="font-heading text-xl sm:text-2xl text-slate-800 leading-tight">
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9a7950] sm:text-xs">
+                {formatInfo.label}
+              </span>
+              <DialogTitle className="mt-1 break-words font-heading text-[clamp(1.35rem,7vw,1.65rem)] leading-[1.05] text-[#26382f] sm:text-4xl lg:text-[2.75rem]">
                 {material.cim}
               </DialogTitle>
-              <span className="text-xs text-emerald-600 font-medium">{formatInfo.label}</span>
             </div>
           </div>
-        </div>
+        </header>
 
-        <div className="px-6 pb-6 space-y-5">
-          {/* Categories */}
-          {categories.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {categories.map((cat) => (
-                <span
-                  key={cat.nev}
-                  className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium"
-                >
-                  {cat.nev}
-                </span>
-              ))}
-            </div>
-          )}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-8">
+            <article className="min-w-0 rounded-[1.1rem] border border-[#e1d7c8] bg-white px-4 py-5 shadow-[0_18px_42px_-34px_rgba(49,42,31,.7)] sm:px-7 sm:py-7 lg:px-10 lg:py-9" aria-label="Segédanyag tartalma">
+              <div className="mx-auto w-full max-w-[68ch] min-w-0">
+                {categories.length > 0 && (
+                  <div className="mb-6 flex flex-wrap gap-1.5">
+                    {categories.map((category) => (
+                      <span
+                        key={category.nev}
+                        className="rounded-full border border-[#d8cbb8] bg-[#f4ebdd]/70 px-2.5 py-1 text-xs font-semibold text-[#647a52]"
+                      >
+                        {category.nev}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <MaterialContent content={material.leiras} />
+              </div>
+            </article>
 
-          {/* Description */}
-          {material.leiras && (
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Leírás</h4>
-              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
-                {material.leiras}
+            <aside className="grid min-w-0 gap-3 sm:grid-cols-2 lg:sticky lg:top-0 lg:grid-cols-1" aria-label="Segédanyag adatai">
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
+                <User className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="text-xs text-[#7a8077]">Feltöltötte</div>
+                  <div className="truncate text-sm font-medium text-[#35443a]">{material.feltolto_nev || 'Ismeretlen'}</div>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
+                <MapPin className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="text-xs text-[#7a8077]">Gyülekezet</div>
+                  <div className="truncate text-sm font-medium text-[#35443a]">{material.feltolto_gyulekezet || '—'}</div>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
+                <Calendar className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="text-xs text-[#7a8077]">Frissítve</div>
+                  <div className="text-sm font-medium text-[#35443a]">{formatDate(material.updated_at || material.created_at)}</div>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e2d8ca] bg-[#f8f2e9] p-3.5">
+                <Download className="h-4 w-4 shrink-0 text-[#8a927f]" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="text-xs text-[#7a8077]">Letöltések</div>
+                  <div className="text-sm font-medium text-[#35443a]">{downloadCount}</div>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-[#d8c79f] bg-[#fbf1dc] p-3.5 sm:col-span-2 lg:col-span-1">
+                <Star className="h-4 w-4 shrink-0 fill-[#d3a45e] text-[#d3a45e]" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="text-xs text-[#8c7550]">Közösségi értékelés</div>
+                  <div className="text-sm font-medium text-[#5f4e32]">
+                    {ratingCount > 0 ? `${averageRating.toLocaleString('hu-HU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / 5 · ${ratingCount} értékelés` : 'Még nincs értékelés'}
+                  </div>
+                </div>
+              </div>
+              {material.forras_nev && (
+                <p className="min-w-0 [overflow-wrap:anywhere] px-1 text-xs leading-5 text-[#7d8178] sm:col-span-2 lg:col-span-1">
+                  Forrás: <strong className="font-medium text-[#59635b]">{material.forras_nev}</strong>
+                </p>
+              )}
+            </aside>
+          </div>
+
+          <section className="mt-6 rounded-2xl border border-[#dec69d] bg-[#fbf1dc] p-4 sm:p-5" aria-labelledby="material-rating-title">
+            <div className="mb-3">
+              <h3 id="material-rating-title" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8e6734]">
+                Értékeld ezt a segédanyagot
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-[#8d7654]">
+                {isOwnMaterial
+                  ? 'Tesztidőszakban a saját anyagod is értékelhető. Ez az értékelés látszik az átlagban, de nem ad pontot vagy jelvényt.'
+                  : 'A csillag fölé húzva, fókuszálva vagy megérintve előre láthatod a kiválasztott értéket.'}
               </p>
             </div>
-          )}
+            <MaterialStarRating value={myRating} onChange={handleRate} disabled={isPending} />
+          </section>
 
-          {/* Meta info grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/80">
-              <User className="w-4 h-4 text-slate-400" />
-              <div>
-                <div className="text-xs text-slate-500">Feltöltötte</div>
-                <div className="text-sm font-medium text-slate-700">{material.feltolto_nev || 'Ismeretlen'}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/80">
-              <MapPin className="w-4 h-4 text-slate-400" />
-              <div>
-                <div className="text-xs text-slate-500">Gyülekezet</div>
-                <div className="text-sm font-medium text-slate-700">{material.feltolto_gyulekezet || '—'}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/80">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              <div>
-                <div className="text-xs text-slate-500">Feltöltve</div>
-                <div className="text-sm font-medium text-slate-700">{formatDate(material.created_at)}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/80">
-              <Download className="w-4 h-4 text-slate-400" />
-              <div>
-                <div className="text-xs text-slate-500">Letöltések</div>
-                <div className="text-sm font-medium text-slate-700">{material.letoltes_szam}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Rating section */}
-          <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-100/60">
-            <h4 className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2">
-              Értékeld ezt a segédanyagot
-            </h4>
-            <StarRating value={myRating} onChange={handleRate} />
-            <p className="text-xs text-amber-600/60 mt-1">Kattints a csillagokra az értékeléshez</p>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-3 pt-2">
-            {(material.forras_url || material.csatolmany_url) && (
-              <a
-                href={material.forras_url || material.csatolmany_url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 transition-colors"
-              >
-                {material.csatolmany_url ? (
-                  <>
-                    <Download className="w-4 h-4" />
-                    Letöltés
-                  </>
-                ) : (
-                  <>
-                    <ExternalLink className="w-4 h-4" />
-                    Megnyitás
-                  </>
-                )}
-              </a>
-            )}
-
-            {material.forras_nev && (
-              <span className="text-xs text-slate-400">
-                Forrás: {material.forras_nev}
-              </span>
-            )}
-
-            {canDelete && (
-              <button
-                onClick={handleDelete}
-                disabled={isPending}
-                className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Archiválás
-              </button>
-            )}
+          <div className="mt-6">
+            <MaterialActionBar
+              material={material}
+              canEdit={canEdit}
+              pending={isPending}
+              onEdit={handleEdit}
+              onArchive={handleArchive}
+              onDownloaded={setDownloadCount}
+            />
           </div>
         </div>
       </DialogContent>

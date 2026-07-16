@@ -192,7 +192,7 @@ export async function getProfileDialogData() {
       : Promise.resolve({ data: null }),
   ])
 
-  const avatarUrl = pastorProfileCompat.row?.photo_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || null
+  const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || pastorProfileCompat.row?.photo_url || null
 
   // Multi-role: a user approved szerepköreinek listája + scope nevek (2026-04-18)
   const { data: rolesData } = await supabase
@@ -319,12 +319,10 @@ export async function saveProfileDetails(payload: z.infer<typeof profileSchema>)
     return { error: `A profil mentése sikertelen: ${profileError.message}` }
   }
 
-  const authData: Record<string, string> = {
+  const authData: Record<string, unknown> = {
     full_name: data.fullName,
-  }
-
-  if (cleanPhotoUrl) {
-    authData.avatar_url = cleanPhotoUrl
+    // A null szándékos: fotótörléskor a régi metadata-URL nem maradhat aktív.
+    avatar_url: cleanPhotoUrl,
   }
 
   const { error: authError } = await supabase.auth.updateUser({ data: authData })

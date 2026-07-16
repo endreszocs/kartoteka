@@ -209,9 +209,12 @@ export function calculateBalances(
   // gyakorlatban a tételt teljesen érvényteleníti. Eddig a hero/dashboard
   // egyenleg tartalmazta, a Kassza/Bank fül viszont nem → a két szám eltért,
   // és érvénytelenített nyugtával torzítható volt az egyenleg.
+  // 2026-07-11 (S9): a könyvelés RON-ban — az egyenlegek/totálok a RON-ekvivalenst
+  // (osszeg_ron) használják, nem a deviza-összeget (osszeg). RON számlán a kettő
+  // egyenlő (fallback), devizás számlán a osszeg_ron az átváltott lej-érték.
   income.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
-    const amt = Number(r.osszeg) || 0
+    const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||
       (r.id_befizetescel != null && !!opts?.internalIncomeCelIds?.has(r.id_befizetescel))
@@ -222,7 +225,7 @@ export function calculateBalances(
 
   expense.forEach((r) => {
     if ((r as { stornozott?: boolean }).stornozott) return
-    const amt = Number(r.osszeg) || 0
+    const amt = Number(r.osszeg_ron ?? r.osszeg) || 0
     const internal =
       !!r.belso_mozgas_xkey ||
       (r.id_kiadascel != null && !!opts?.internalExpenseCelIds?.has(r.id_kiadascel))

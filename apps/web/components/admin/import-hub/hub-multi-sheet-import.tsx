@@ -94,33 +94,42 @@ export function HubMultiSheetImport({
         return
       }
 
-      setFile(selected)
       setParseResult(null)
       setSheetConfigs([])
       setImportResult(null)
 
-      const formData = new FormData()
-      formData.append('file', selected)
-      formData.append('module', module)
-      formData.append('targetCongregationId', targetCongregationId)
-
       startParsing(async () => {
-        const result = await parseAndPreview(formData)
-        setParseResult(result)
+        try {
+          // A fájlt memóriába olvassuk (stabil másolat) — a lemez-referencia ne
+          // avulhasson el a feltöltésig (ERR_UPLOAD_FILE_CHANGED → oldal-összeomlás).
+          const buf = await selected.arrayBuffer()
+          const stable = new File([buf], selected.name, { type: selected.type || 'application/octet-stream' })
+          setFile(stable)
 
-        if (result.success && result.sheets) {
-          const configs: SheetConfig[] = result.sheets.map((s) => ({
-            sheetName: s.sheetName,
-            profileKey: s.suggestedProfileKey,
-            enabled: !!s.suggestedProfileKey && s.rowCount > 0 && !s.warning,
-          }))
-          setSheetConfigs(configs)
-          setStep('preview')
-          if (result.sheets.length > 0) {
-            setExpandedSheet(result.sheets[0].sheetName)
+          const formData = new FormData()
+          formData.append('file', stable)
+          formData.append('module', module)
+          formData.append('targetCongregationId', targetCongregationId)
+
+          const result = await parseAndPreview(formData)
+          setParseResult(result)
+
+          if (result.success && result.sheets) {
+            const configs: SheetConfig[] = result.sheets.map((s) => ({
+              sheetName: s.sheetName,
+              profileKey: s.suggestedProfileKey,
+              enabled: !!s.suggestedProfileKey && s.rowCount > 0 && !s.warning,
+            }))
+            setSheetConfigs(configs)
+            setStep('preview')
+            if (result.sheets.length > 0) {
+              setExpandedSheet(result.sheets[0].sheetName)
+            }
+          } else if (result.error) {
+            toast.error(result.error)
           }
-        } else if (result.error) {
-          toast.error(result.error)
+        } catch {
+          toast.error('A fájl feltöltése megszakadt. Válaszd ki újra a fájlt, és próbáld újra.')
         }
       })
     },
@@ -155,17 +164,22 @@ export function HubMultiSheetImport({
     )
 
     startImporting(async () => {
-      const result = await executeBatchImport(formData)
-      setImportResult(result)
-      setStep('result')
+      try {
+        const result = await executeBatchImport(formData)
+        setImportResult(result)
+        setStep('result')
 
-      if (result.success) {
-        toast.success(
-          `Import kész: ${result.insertedCount ?? 0} sor beszúrva` +
-            (result.skippedCount ? `, ${result.skippedCount} kihagyva` : ''),
-        )
-      } else {
-        toast.error(result.error || 'Az import sikertelen.')
+        if (result.success) {
+          toast.success(
+            `Import kész: ${result.insertedCount ?? 0} sor beszúrva` +
+              (result.skippedCount ? `, ${result.skippedCount} kihagyva` : ''),
+          )
+        } else {
+          toast.error(result.error || 'Az import sikertelen.')
+        }
+      } catch {
+        toast.error('Az importálás megszakadt (hálózati hiba). Ellenőrizd a kapcsolatot, és próbáld újra.')
+        setStep('preview')
       }
     })
   }, [file, module, sheetConfigs, targetCongregationId])

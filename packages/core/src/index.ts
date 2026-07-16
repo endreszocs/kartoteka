@@ -321,6 +321,7 @@ export {
   upsertBankszamlaNyitoEgyenlegUseCase,
   checkYearStartStateUseCase,
   computeCarryoverNyitoEgyenlegUseCase,
+  refreshNextYearCarryoverUseCase,
   type CarryoverNyitoResult,
   type CheckYearStartStateInput,
   type ComputeCarryoverNyitoInput,

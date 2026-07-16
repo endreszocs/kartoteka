@@ -37,6 +37,7 @@ import {
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
 import { executeFamilyHeadImport } from '@/lib/import/family-head-import-actions'
 import { executeFamiliesFromExistingPersonsImport } from '@/lib/import/families-from-persons-import-actions'
+import { countOpenCrossMatchesForCongregation } from '@/lib/members/cross-congregation-actions'
 import type { ParseResult, ParsedSheetPreview } from '@/lib/import/batch-import-types'
 
 import { WizardStepper, type WizardStep } from './tagnyilvantartas-import/wizard-stepper'
@@ -265,6 +266,25 @@ export function TagnyilvantartasImportWizard({
   const [isParsing, startParsing] = useTransition()
   const [isImporting, startImporting] = useTransition()
 
+  // A kiválasztott fájlt AZONNAL memóriába olvassuk, hogy a lemez-referencia ne
+  // „avulhasson el" a feltöltésig (ERR_UPLOAD_FILE_CHANGED — ez omlasztotta össze
+  // az importálót). A parse és az import is ezt a stabil, memóriabeli másolatot tölti fel.
+  const handleFileSelected = useCallback((picked: File | null) => {
+    if (!picked) {
+      setFile(null)
+      return
+    }
+    picked
+      .arrayBuffer()
+      .then((buf) =>
+        setFile(new File([buf], picked.name, { type: picked.type || 'application/octet-stream' })),
+      )
+      .catch(() => {
+        setFile(picked)
+        toast.error('A fájl beolvasása nem sikerült — kérlek, válaszd ki újra.')
+      })
+  }, [])
+
   // ─── Aktív sheet (derived a parseResult-ból, nem state) ──────────
   const activeSheet = useMemo<ParsedSheetPreview | null>(() => {
     if (!parseResult?.sheets || parseResult.sheets.length === 0) return null
@@ -309,22 +329,27 @@ export function TagnyilvantartasImportWizard({
     formData.append('module', 'members')
 
     startParsing(async () => {
-      const result = await parseAndPreview(formData)
-      if ('error' in result && result.error) {
-        toast.error(result.error)
-        return
-      }
-      setParseResult(result)
-      // Auto-mapping az első nem-üres sheet alapján
-      const firstSheet = result.sheets?.find((s) => !s.warning && s.rowCount > 0)
-      if (firstSheet) {
-        setMappingOverrides({}) // reset, az auto-mapping a column-mapping-step-ben történik
-        setStage('mapping')
-        toast.success(
-          `${firstSheet.headers.length} oszlop és ${firstSheet.rowCount} sor felismerve a "${firstSheet.sheetName}" fülön.`,
-        )
-      } else {
-        toast.error('A fájl nem tartalmaz feldolgozható sort.')
+      try {
+        const result = await parseAndPreview(formData)
+        if ('error' in result && result.error) {
+          toast.error(result.error)
+          return
+        }
+        setParseResult(result)
+        // Auto-mapping az első nem-üres sheet alapján
+        const firstSheet = result.sheets?.find((s) => !s.warning && s.rowCount > 0)
+        if (firstSheet) {
+          setMappingOverrides({}) // reset, az auto-mapping a column-mapping-step-ben történik
+          setStage('mapping')
+          toast.success(
+            `${firstSheet.headers.length} oszlop és ${firstSheet.rowCount} sor felismerve a "${firstSheet.sheetName}" fülön.`,
+          )
+        } else {
+          toast.error('A fájl nem tartalmaz feldolgozható sort.')
+        }
+      } catch {
+        // Hálózati/feltöltési hiba (pl. a fájl közben megváltozott) — SOSE omlassza össze az oldalt.
+        toast.error('A fájl feltöltése megszakadt. Válaszd ki újra a fájlt, és próbáld újra.')
       }
     })
   }, [file, mode, selectedCongId, importMode])
@@ -414,6 +439,7 @@ export function TagnyilvantartasImportWizard({
     setStage('importing')
 
     startImporting(async () => {
+      try {
       // Közös FormData előkészítés
       const formData = new FormData()
       formData.append('file', file)
@@ -492,12 +518,22 @@ export function TagnyilvantartasImportWizard({
       const allIssues = result.rowErrors ?? []
       const skippedCount = allIssues.filter((e) => (e.severity ?? 'error') === 'error').length
 
+      // Import után: hány nyitott kereszt-gyülekezeti egyezés van a cél gyülekezethez?
+      // (A DB-trigger importkor rögzíti a strong egyezéseket; RLS-graceful, hibánál 0.)
+      let crossMatchCount = 0
+      const targetCong = mode === 'admin' ? selectedCongId : (congregationId || '')
+      if (insertedSzemely > 0 && targetCong) {
+        const cm = await countOpenCrossMatchesForCongregation(targetCong)
+        crossMatchCount = cm.data ?? 0
+      }
+
       setImportResult({
         insertedTotal: insertedSzemely + insertedCsalad,
         insertedSzemely,
         insertedCsalad: isFamilyHeads ? insertedCsalad : undefined,
         skippedCount,
         errors: allIssues,
+        crossMatchCount,
       })
       setStage('result')
 
@@ -513,8 +549,13 @@ export function TagnyilvantartasImportWizard({
         }
       }
       router.refresh()
+      } catch {
+        // Hálózati/feltöltési hiba — SOSE omlassza össze az importálót.
+        toast.error('Az importálás megszakadt (hálózati hiba vagy a fájl megváltozott). Válaszd ki újra a fájlt, és próbáld újra.')
+        setStage('preview')
+      }
     })
-  }, [file, activeSheet, profile, mode, selectedCongId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
+  }, [file, activeSheet, profile, mode, selectedCongId, congregationId, router, resolvedLocalityMap, resolvedPostalcodes, importMode])
 
   // ─── Stepper aktív és befejezett lépések ─────────────────────────
   const activeStepId =
@@ -698,7 +739,7 @@ export function TagnyilvantartasImportWizard({
       {stage === 'upload' && (
         <FileUploadStep
           selectedFile={file}
-          onFileSelected={setFile}
+          onFileSelected={handleFileSelected}
           onClearFile={() => setFile(null)}
           onContinue={handleParseFile}
           isParsing={isParsing}

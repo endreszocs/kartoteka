@@ -468,6 +468,50 @@ export async function computeCarryoverNyitoEgyenlegUseCase(
   }
 }
 
+/**
+ * 2026-07-11 (S6): egy számla KÖVETKEZŐ évi nyitójának frissítése, HA az
+ * automatikusan áthozott ('carryover') — visszamenőleges rögzítés után az
+ * elavul. Kézzel rögzített ('manual') vagy importált ('import') nyitót SOHA
+ * nem ír felül. Best-effort: a hívó ne bukjon el rajta.
+ */
+export async function refreshNextYearCarryoverUseCase(
+  input: { congregationId: string; bankszamlaId: number; changedYear: number },
+  ctx: ImportBankTransactionsCtx,
+): Promise<{ refreshed: boolean }> {
+  const nextYear = input.changedYear + 1
+  const { data: nextNyito } = await ctx.supabase
+    .from('bankszamla_nyito_egyenleg')
+    .select('id, forrasa')
+    .eq('bankszamla_id', input.bankszamlaId)
+    .eq('congregation_id', input.congregationId)
+    .eq('eve', nextYear)
+    .maybeSingle()
+  if (!nextNyito || (nextNyito as { forrasa: string }).forrasa !== 'carryover') {
+    return { refreshed: false }
+  }
+  const carry = await computeCarryoverNyitoEgyenlegUseCase(
+    { congregationId: input.congregationId, bankszamlaId: input.bankszamlaId, eve: nextYear },
+    ctx,
+  )
+  if (!carry.data?.available || typeof carry.data.nyitoValuta !== 'number') {
+    return { refreshed: false }
+  }
+  const res = await upsertBankszamlaNyitoEgyenlegUseCase(
+    {
+      congregationId: input.congregationId,
+      bankszamla_id: input.bankszamlaId,
+      eve: nextYear,
+      nyito_egyenleg_valuta: carry.data.nyitoValuta,
+      nyito_egyenleg_ron: typeof carry.data.nyitoRon === 'number' ? carry.data.nyitoRon : null,
+      arfolyam: typeof carry.data.arfolyam === 'number' ? carry.data.arfolyam : null,
+      forrasa: 'carryover',
+      megjegyzes: `Automatikusan újraszámolva a ${input.changedYear}. évi visszamenőleges rögzítés után.`,
+    },
+    ctx,
+  )
+  return { refreshed: !!res.success }
+}
+
 export async function checkYearStartStateUseCase(
   input: CheckYearStartStateInput,
   ctx: BankImportReadCtx,

@@ -11,6 +11,7 @@ import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
 export interface FamilyRow {
   id: number
+  c_utcaid: number | null
   c_szam: string | null
   isaktiv: boolean
   id_csoport: number | null
@@ -19,6 +20,22 @@ export interface FamilyRow {
   utca: { name: string } | null
   /** 2026-06-11 (modern kártyanézet): a háztartás gyermekei avatarhoz/létszámhoz. */
   gyerekek?: Array<{ id: number; csaladnev: string | null; k_nev: string | null; sz_datum: string | null; meghalt: boolean | null; kep?: string | null }>
+}
+
+export interface MemberFamilySummaryPerson {
+  id: number
+  csaladnev: string | null
+  k_nev: string | null
+  sz_datum: string | null
+}
+
+export interface MemberFamilySummary {
+  id: number
+  displayName: string
+  memberCount: number
+  adults: MemberFamilySummaryPerson[]
+  children: Array<MemberFamilySummaryPerson & { role: 'gyermek' | 'unoka' }>
+  childrenCount: number
 }
 
 async function getFamilyAccessContext() {
@@ -251,21 +268,23 @@ export async function getFamilies(): Promise<FamilyRow[]> {
   const utcaNameById = new Map<number, string>(((utcakRaw || []) as any[]).map((u) => [u.id, u.name]))
 
   // cim_id (uuid) → { szam, utca_name } — új modell
-  const cimById = new Map<string, { szam: string | null; utca_name: string | null }>()
+  const cimById = new Map<string, { szam: string | null; utca_id: number | null; utca_name: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const c of (cimekRaw || []) as any[]) {
     cimById.set(c.id, {
       szam: c.szam ?? null,
+      utca_id: c.id_utca ?? null,
       utca_name: c.id_utca != null ? utcaNameById.get(c.id_utca) ?? null : null,
     })
   }
 
   // csalad_id (int) → { szam, utca_name } — régi modell (FALLBACK forrás)
-  const csaladCimById = new Map<number, { szam: string | null; utca_name: string | null }>()
+  const csaladCimById = new Map<number, { szam: string | null; utca_id: number | null; utca_name: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const c of (csaladokRaw || []) as any[]) {
     csaladCimById.set(c.id, {
       szam: c.c_szam ?? null,
+      utca_id: c.c_utcaid ?? null,
       utca_name: c.c_utcaid != null ? utcaNameById.get(c.c_utcaid) ?? null : null,
     })
   }
@@ -318,11 +337,13 @@ export async function getFamilies(): Promise<FamilyRow[]> {
     // (Külön ellenőrzés a szam-ra és az utca-névre, mert előfordulhat hogy
     // az új cim-en csak az egyik mező van kitöltve.)
     const utca_name = ujCim?.utca_name ?? regiCim?.utca_name ?? null
+    const utca_id = ujCim?.utca_id ?? regiCim?.utca_id ?? null
     const szam = ujCim?.szam ?? regiCim?.szam ?? null
 
     const entry = tagokByHaztartas.get(h.id as string) ?? { ferfi: null, no: null, gyerekek: [] }
     return {
       id: h.legacy_csalad_id as number,
+      c_utcaid: utca_id,
       c_szam: szam,
       isaktiv: h.isaktiv as boolean,
       id_csoport: h.id_csoport as number | null,
@@ -332,6 +353,80 @@ export async function getFamilies(): Promise<FamilyRow[]> {
       gyerekek: entry.gyerekek,
     } satisfies FamilyRow
   })
+}
+
+/**
+ * A személyi kartonhoz szükséges, kis méretű családi összefoglaló.
+ * Csak az aktuális gyülekezet aktív háztartásából olvas, és nem tölti be
+ * a teljes családi karton pénzügyi/anyakönyvi adatait.
+ */
+export async function getMemberFamilySummary(id: number): Promise<MemberFamilySummary | null> {
+  if (!Number.isInteger(id) || id <= 0) return null
+  const { supabase, congregationId } = await getFamilyAccessContext()
+  if (!congregationId) return null
+
+  const householdResult = await supabase
+    .from('haztartas')
+    .select('id')
+    .eq('congregation_id', congregationId)
+    .eq('legacy_csalad_id', id)
+    .is('ervenyes_ig', null)
+    .limit(1)
+    .maybeSingle()
+
+  if (householdResult.error) throw new Error('A családi összefoglaló nem tölthető be.')
+  if (!householdResult.data?.id) return null
+
+  const tagResult = await supabase
+    .from('haztartas_tag')
+    .select('szerep, szemely:szemely!id_szemely(id, csaladnev, k_nev, sz_datum)')
+    .eq('congregation_id', congregationId)
+    .eq('id_haztartas', householdResult.data.id)
+    .is('ervenyes_ig', null)
+    .in('szerep', ['csaladfo', 'hazastars', 'gyermek', 'unoka'])
+    .order('id_szemely', { ascending: true })
+
+  if (tagResult.error) {
+    throw new Error('A családi összefoglaló nem tölthető be.')
+  }
+
+  type PersonRelation = MemberFamilySummaryPerson | MemberFamilySummaryPerson[] | null
+  type TagRelation = {
+    szerep: string | null
+    szemely: PersonRelation
+  }
+
+  const pickPerson = (value: PersonRelation): MemberFamilySummaryPerson | null =>
+    Array.isArray(value) ? value[0] ?? null : value
+
+  const adultMap = new Map<number, MemberFamilySummaryPerson>()
+  const childMap = new Map<number, MemberFamilySummary['children'][number]>()
+  for (const row of (tagResult.data ?? []) as unknown as TagRelation[]) {
+    const person = pickPerson(row.szemely)
+    if (!person) continue
+    if (row.szerep === 'csaladfo' || row.szerep === 'hazastars') {
+      adultMap.set(person.id, person)
+    } else if (row.szerep === 'gyermek' || row.szerep === 'unoka') {
+      childMap.set(person.id, { ...person, role: row.szerep })
+    }
+  }
+
+  const adults = [...adultMap.values()]
+  const allChildren = [...childMap.values()]
+  const childrenCount = allChildren.length
+  const children = allChildren.slice(0, 4)
+  const uniqueMembers = new Set([...adultMap.keys(), ...childMap.keys()])
+  const surnames = [...new Set(adults.map((person) => person.csaladnev?.trim()).filter(Boolean))]
+  const displayName = surnames.length > 0 ? `${surnames.join('–')} család` : `Család #${id}`
+
+  return {
+    id,
+    displayName,
+    memberCount: uniqueMembers.size,
+    adults,
+    children,
+    childrenCount,
+  }
 }
 
 export async function getFamilyDetails(id: number) {

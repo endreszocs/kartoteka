@@ -46,8 +46,12 @@ export interface ProjectTask {
   felelos_nev: string | null
   hatarido: string | null
   statusz: TaskStatus
+  teljesitve_at?: string | null
+  teljesites_felelos_id?: string | null
+  teljesites_hatarido?: string | null
   sorrend: number
   created_at: string
+  revision: number
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -64,6 +68,7 @@ export interface ProjectMilestone {
   teljesitve_datum: string | null
   sorrend: number
   created_at: string
+  revision: number
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -80,6 +85,7 @@ export interface ProjectDocument {
   feltolto_id: string
   feltolto_nev: string | null
   created_at: string
+  revision: number
 }
 
 // ─────────────────────────────────────────────────────────────────

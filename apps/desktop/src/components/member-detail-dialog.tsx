@@ -23,9 +23,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Check, EyeOff, Eye, Pencil, X } from 'lucide-react'
+import { AlertCircle, Camera, Check, EyeOff, Eye, Pencil, X } from 'lucide-react'
 
-import { Button, Input, Label } from '@kartoteka/ui'
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label } from '@kartoteka/ui'
+import { AvatarEditorBody } from '@kartoteka/ui-app'
 import {
   normalizeSzemelyPatch,
   szemelyUpdateInputSchema,
@@ -34,6 +35,7 @@ import {
 } from '@kartoteka/validations'
 
 import { updateSzemelyEntry } from '../lib/sync'
+import { fetchSocialAvatarImageDesktop, saveMemberAvatarDesktop } from '../lib/avatar'
 
 interface MemberDetailDialogProps {
   member: SzemelyListRow
@@ -67,6 +69,8 @@ export function MemberDetailDialog({
   const [form, setForm] = useState<EditableFields>(() => extractEditable(m))
   const [saving, setSaving] = useState(false)
   const [banner, setBanner] = useState<Banner>(null)
+  // Fénykép-szerkesztő (online művelet) — desktop tag-nézet, a web-paritáshoz.
+  const [avatarOpen, setAvatarOpen] = useState(false)
 
   // A tag-referencia változhat (pl. lista-refresh után); ha változik, reset.
   useEffect(() => {
@@ -210,6 +214,7 @@ export function MemberDetailDialog({
     : 'from-rose-400 via-pink-500 to-fuchsia-600'
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -243,11 +248,25 @@ export function MemberDetailDialog({
               Tag-portré
             </p>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
-              <div
-                className={`flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br ${avatarGradient} text-base font-bold text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]`}
-              >
-                {initials}
-              </div>
+              {mode === 'view' && m.congregation_id ? (
+                <button
+                  type="button"
+                  onClick={() => setAvatarOpen(true)}
+                  title="Fénykép beállítása"
+                  className={`group relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-[1.25rem] bg-gradient-to-br ${avatarGradient} text-base font-bold text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]`}
+                >
+                  {initials}
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">
+                    <Camera className="size-5" />
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className={`flex size-14 shrink-0 items-center justify-center rounded-[1.25rem] bg-gradient-to-br ${avatarGradient} text-base font-bold text-white shadow-[0_20px_40px_-26px_rgba(15,74,66,0.55)] sm:size-16 sm:rounded-[1.35rem]`}
+                >
+                  {initials}
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <h2
                   id="member-detail-title"
@@ -393,6 +412,27 @@ export function MemberDetailDialog({
         </div>
       </div>
     </div>
+
+    {/* Fénykép + közösségi link szerkesztő (online művelet) — web-paritás */}
+    {avatarOpen && m.congregation_id && (
+      <Dialog open onOpenChange={(o) => { if (!o) setAvatarOpen(false) }}>
+        <DialogContent className="z-[70] sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Fénykép és közösségi kapcsolat</DialogTitle>
+          </DialogHeader>
+          <AvatarEditorBody
+            personName={fullName}
+            onFetchFromSocial={(url) => fetchSocialAvatarImageDesktop(url)}
+            onSave={(params) => saveMemberAvatarDesktop(m.id, m.congregation_id as string, params)}
+            onSaved={() => {
+              setAvatarOpen(false)
+              onSaved?.()
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   )
 }
 

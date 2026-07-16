@@ -22,6 +22,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// 2026-07-11 (S6): visszamenőleges rögzítésnél a következő évi 'carryover'
+// nyitó újraszámolásához. (A nyito-egyenleg.ts CSAK típusokat importál innen,
+// így futásidejű kör-import nem keletkezik.)
+import { refreshNextYearCarryoverUseCase } from './nyito-egyenleg'
+
 export type BankImportItemAction = 'income' | 'expense' | 'internal-transfer' | 'skip'
 
 export type BankImportItem = {
@@ -158,6 +163,10 @@ async function hasExistingBankTransaction(
     .eq('congregation_id', congregationId)
     .eq('bankszamla_id', params.bankszamlaId)
     .eq('datum', params.date)
+    // 2026-07-11 (S9): a STORNÓZOTT (érvénytelenített) tétel NEM blokkolja az
+    // újraimportot — így egy hibás (pl. át nem váltott) tételt stornózni lehet,
+    // majd a javított kivonatot újraimportálni (a stornó a listában marad).
+    .eq('stornozott', false)
     .gte('osszeg', absAmount - 0.01)
     .lte('osszeg', absAmount + 0.01)
     .eq('deleted', false)
@@ -270,7 +279,9 @@ async function insertKiadasWithFallback(
     userid: userId,
   }
   let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
-  if (ins.error) ins = await supabase.from('kiadas').insert([canonical]).select('id').single()
+  // 2026-07-11 (S6): a canonical fallback-ba is kell a userid (NOT NULL) —
+  // enélkül a fallback-ág garantáltan elbukott volna.
+  if (ins.error) ins = await supabase.from('kiadas').insert([{ ...canonical, userid: userId }]).select('id').single()
   if (ins.error) return { error: ins.error, id: null }
   return { error: null, id: (ins.data?.id as number | undefined) ?? null }
 }
@@ -403,29 +414,41 @@ export async function importBankTransactionsUseCase(
     }
   }
 
-  function computeOsszegRon(item: BankImportItem): { osszegRon: number; arfolyam: number } {
+  // 2026-07-11 (S8): a `unconverted` jelző — ha egy DEVIZÁS számla tételéhez
+  // SEMMILYEN árfolyam nem áll rendelkezésre (sem napi BNR/ECB, sem éves nyitó),
+  // a rendszer NEM tárolja csendben 1:1-ben RON-ként (ez elrontaná a könyvelést)
+  // — a sort HIBÁVAL kihagyjuk, és a felhasználó megkapja az okot.
+  function computeOsszegRon(item: BankImportItem): {
+    osszegRon: number
+    arfolyam: number
+    unconverted?: boolean
+    valuta?: string
+  } {
     const valuta = bankValutaMap.get(item.bankszamlaId) || 'RON'
-    // 2026-07-10 (ÚJ #10): deviza-számlánál ELSŐDLEGESEN az adott NAPI
-    // árfolyam (a hívó által feltöltött dailyRates map-ből, kulcs: dátum).
-    if (valuta !== 'RON') {
-      const napiArf = input.dailyRates?.[item.date]
-      if (napiArf != null && napiArf > 0) {
-        return {
-          osszegRon: Number((Math.abs(item.amount) * napiArf).toFixed(2)),
-          arfolyam: napiArf,
-        }
-      }
-    }
-    // Fallback: éves nyitó-árfolyam (változatlan viselkedés)
-    const year = new Date(item.date).getFullYear()
-    const arf = arfolyamMap.get(arfolyamKulcs(item.bankszamlaId, year))
-    if (valuta === 'RON' || !arf || arf <= 0) {
+    if (valuta === 'RON') {
+      // RON számla: az összeg már RON, árfolyam = 1.
       return { osszegRon: Math.abs(item.amount), arfolyam: 1 }
     }
-    return {
-      osszegRon: Number((Math.abs(item.amount) * arf).toFixed(2)),
-      arfolyam: arf,
+    // 2026-07-10 (ÚJ #10): deviza-számlánál ELSŐDLEGESEN az adott NAPI
+    // árfolyam (a hívó által feltöltött dailyRates map-ből, kulcs: dátum).
+    const napiArf = input.dailyRates?.[item.date]
+    if (napiArf != null && napiArf > 0) {
+      return {
+        osszegRon: Number((Math.abs(item.amount) * napiArf).toFixed(2)),
+        arfolyam: napiArf,
+      }
     }
+    // Fallback: éves nyitó-árfolyam.
+    const year = new Date(item.date).getFullYear()
+    const arf = arfolyamMap.get(arfolyamKulcs(item.bankszamlaId, year))
+    if (arf && arf > 0) {
+      return {
+        osszegRon: Number((Math.abs(item.amount) * arf).toFixed(2)),
+        arfolyam: arf,
+      }
+    }
+    // 2026-07-11 (S8): NINCS árfolyam — NEM tárolunk 1:1 RON-t némán.
+    return { osszegRon: Math.abs(item.amount), arfolyam: 0, unconverted: true, valuta }
   }
 
   for (const item of items) {
@@ -494,12 +517,23 @@ export async function importBankTransactionsUseCase(
           result.errors.push({ rowIndex: item.rowIndex, error: 'Hiányzó kategória (bevétel)' })
           continue
         }
-        const { osszegRon: incOsszegRon, arfolyam: incArfolyam } = computeOsszegRon(item)
-        // A `befizetes` táblán az `xkey`, `nyugta` ÉS `csalad` oszlopok NOT NULL
-        // (legacy DB séma) — mindenhol meg kell adnunk, különben a beszúrás
-        // constraint-hibával bukik. 2026-07-10 (S4 #8): a `csalad: false` eddig
-        // HIÁNYZOTT → "null value in column csalad" hibával MINDEN banki
-        // bevétel-import elbukott, miközben a wizard "Import sikeres!"-t írt.
+        const { osszegRon: incOsszegRon, arfolyam: incArfolyam, unconverted: incUnc, valuta: incVal } = computeOsszegRon(item)
+        // 2026-07-11 (S8): devizás számla árfolyam nélkül — NEM tárolunk 1:1 RON-t.
+        if (incUnc) {
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error: `Nincs ${incVal} → RON árfolyam a ${item.date} dátumra. Add meg a nyitó egyenleg árfolyamát a bankszámlához (vagy ellenőrizd a BNR-kapcsolatot), majd indítsd újra az importot.`,
+          })
+          continue
+        }
+        // A `befizetes` táblán az `xkey`, `nyugta`, `csalad` ÉS `userid` oszlopok
+        // NOT NULL — mindet meg kell adnunk, különben a beszúrás constraint-hibával
+        // bukik. 2026-07-10 (S4 #8): a `csalad: false` hiányzott; 2026-07-11 (S6):
+        // a `userid` is hiányzott — a csalad-fix után EZ volt a következő NOT NULL
+        // hiba ("null value in column userid"), ami minden bevétel-importot elvitt.
+        // Most a TELJES NOT NULL oszloplistát átvizsgáltuk (xkey, forrasa,
+        // id_befizetescel, datum, osszeg, nyugta, iratszam, irattipus, csalad,
+        // deleted, fizetettev, userid) — mind szerepel.
         const payload = {
           osszeg: Math.abs(item.amount),
           osszeg_ron: incOsszegRon,
@@ -520,6 +554,7 @@ export async function importBankTransactionsUseCase(
           fizetettev: Number(item.date.slice(0, 4)),
           is_potlas: false,
           xkey: generateXkey20(),
+          userid: userId,
         }
         const ins = await supabase.from('befizetes').insert([payload]).select('id').single()
         if (ins.error) {
@@ -545,7 +580,15 @@ export async function importBankTransactionsUseCase(
           result.errors.push({ rowIndex: item.rowIndex, error: 'Hiányzó kategória (kiadás)' })
           continue
         }
-        const { osszegRon: expOsszegRon, arfolyam: expArfolyam } = computeOsszegRon(item)
+        const { osszegRon: expOsszegRon, arfolyam: expArfolyam, unconverted: expUnc, valuta: expVal } = computeOsszegRon(item)
+        // 2026-07-11 (S8): devizás számla árfolyam nélkül — NEM tárolunk 1:1 RON-t.
+        if (expUnc) {
+          result.errors.push({
+            rowIndex: item.rowIndex,
+            error: `Nincs ${expVal} → RON árfolyam a ${item.date} dátumra. Add meg a nyitó egyenleg árfolyamát a bankszámlához (vagy ellenőrizd a BNR-kapcsolatot), majd indítsd újra az importot.`,
+          })
+          continue
+        }
         const canonical: Record<string, unknown> = {
           osszeg: Math.abs(item.amount),
           osszeg_ron: expOsszegRon,
@@ -559,6 +602,9 @@ export async function importBankTransactionsUseCase(
           megjegyzes: item.megjegyzes || item.description,
           deleted: false,
           congregation_id: congregationId,
+          // 2026-07-11 (S6): a userid NEM legacy oszlop — a canonical változatban
+          // is kötelező (NOT NULL), különben a fallback-ág sosem sikerülhet.
+          userid: userId,
         }
         const reference: Record<string, unknown> = {
           ...canonical,
@@ -566,7 +612,6 @@ export async function importBankTransactionsUseCase(
           xkey: generateXkey20(),
           atvevo: item.counterparty || item.description.slice(0, 100),
           atvevoid: null,
-          userid: userId,
         }
         let ins = await supabase.from('kiadas').insert([reference]).select('id').single()
         if (ins.error) {
@@ -645,6 +690,7 @@ export async function importBankTransactionsUseCase(
             deleted: false, congregation_id: congregationId,
             fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
             xkey: generateXkey20(),
+            userid: userId, // 2026-07-11 (S6): NOT NULL — enélkül elbukott
           }
           const ins = await supabase.from('befizetes').insert([befPayload]).select('id').single()
           if (ins.error) {
@@ -709,6 +755,7 @@ export async function importBankTransactionsUseCase(
               deleted: false, congregation_id: congregationId,
               fizetettev: Number(item.date.slice(0, 4)), is_potlas: false,
               xkey: generateXkey20(),
+              userid: userId, // 2026-07-11 (S6): NOT NULL — enélkül elbukott
             }
             const { error } = await supabase.from('befizetes').insert([befPayload])
             if (error) {
@@ -749,6 +796,29 @@ export async function importBankTransactionsUseCase(
         rowIndex: item.rowIndex,
         error: e instanceof Error ? e.message : String(e),
       })
+    }
+  }
+
+  // 2026-07-11 (S6): VISSZAMENŐLEGES rögzítés kezelése — ha egy KORÁBBI évre
+  // importáltunk (pl. 2026-os költségvetési évben 2025-ös kivonatot), és a
+  // KÖVETKEZŐ év nyitója korábban AUTOMATIKUSAN lett áthozva (forrasa =
+  // 'carryover'), az az érték most elavult: újraszámoljuk a friss tavalyi
+  // záróból. Kézzel rögzített ('manual') vagy importált ('import') nyitót
+  // SOHA nem írunk felül. Best-effort: hibája nem buktatja az importot.
+  if (result.imported > 0) {
+    try {
+      const touched = new Map<string, { bankszamlaId: number; changedYear: number }>()
+      for (const row of result.importedRows) {
+        const y = Number(String(row.date || '').slice(0, 4))
+        if (!Number.isFinite(y) || y < 2000) continue
+        const key = `${row.bankszamlaId}:${y}`
+        if (!touched.has(key)) touched.set(key, { bankszamlaId: row.bankszamlaId, changedYear: y })
+      }
+      for (const t of touched.values()) {
+        await refreshNextYearCarryoverUseCase({ congregationId, ...t }, ctx)
+      }
+    } catch {
+      // Szándékosan némán — a nyitó-frissítés kényelmi lépés, az import már sikerült.
     }
   }
 
