@@ -28,6 +28,8 @@
 -- FÜGGŐSÉGEK (már élesben vannak):
 --   * public.current_user_congregation_id()  (2026-04-12-phase-0-rls-hardening)
 --   * public.current_user_has_global_access() (uo.)
+--   * public.profile_roles (2026-04-17-profile-roles-fazis-1) — a
+--     scope-divergencia elleni RLS-ág használja
 -- ==========================================================================
 
 BEGIN;
@@ -109,14 +111,24 @@ CREATE TRIGGER lelkeszi_jelentes_updated_at_trigger
 -- ─────────────────────────────────────────────────────────────────────────
 -- 3. GRANT — RLS önmagában nem elég (42501 permission denied nélküle,
 --    vö. 2026-04-17-document-submissions-fix tanulsága).
---    DELETE GRANT SZÁNDÉKOSAN NINCS — lásd a 4. pont DELETE-megjegyzését.
+--
+--    EXPLICIT REVOKE KELL: a 2026-04-23-as m0 hotfix
+--    (2026-04-23-m0-HOTFIX-grants.sql) óta él egy ALTER DEFAULT PRIVILEGES,
+--    amely MINDEN új public-táblára automatikusan SELECT, INSERT, UPDATE,
+--    DELETE jogot ad az authenticated szerepnek — vagyis a "nem adunk DELETE
+--    grantot" önmagában NEM elég, a DELETE-jog a REVOKE nélkül észrevétlenül
+--    öröklődne. DELETE SZÁNDÉKOSAN NINCS visszaadva — lásd a 4. pont
+--    DELETE-megjegyzését.
 -- ─────────────────────────────────────────────────────────────────────────
 
+REVOKE ALL ON public.lelkeszi_jelentes FROM authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.lelkeszi_jelentes TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 4. RLS — a munkanaplo/iktato mintájára
---    (congregation_id = current_user_congregation_id() OR global access)
+--    (congregation_id = current_user_congregation_id() OR profile_roles-tagság
+--     OR global access — a profile_roles-ág a skalár profiles.congregation_id
+--     ⇄ effectiveCongregationId scope-divergencia ellen véd)
 --
 --    DELETE-POLICY SZÁNDÉKOSAN NINCS (és DELETE grant sincs): egy egyszer
 --    létrehozott jelentés-sor nem törölhető kliensről — a véglegesítés
@@ -135,6 +147,19 @@ CREATE POLICY lelkeszi_jelentes_select_own
   TO authenticated
   USING (
     congregation_id = current_user_congregation_id()
+    -- Scope-divergencia védelem (ismert gyökérok-osztály): az app az
+    -- effectiveCongregationId-t (profile_roles.scope_id) használja íráskor,
+    -- a skalár profiles.congregation_id ettől eltérhet — e nélkül az ág
+    -- nélkül az érintett felhasználó némán 0 sort kapna/írhatna.
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = lelkeszi_jelentes.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
     OR current_user_has_global_access()
   );
 
@@ -146,6 +171,19 @@ CREATE POLICY lelkeszi_jelentes_insert_own
   TO authenticated
   WITH CHECK (
     congregation_id = current_user_congregation_id()
+    -- Scope-divergencia védelem (ismert gyökérok-osztály): az app az
+    -- effectiveCongregationId-t (profile_roles.scope_id) használja íráskor,
+    -- a skalár profiles.congregation_id ettől eltérhet — e nélkül az ág
+    -- nélkül az érintett felhasználó némán 0 sort kapna/írhatna.
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = lelkeszi_jelentes.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
     OR current_user_has_global_access()
   );
 
@@ -161,10 +199,36 @@ CREATE POLICY lelkeszi_jelentes_update_own
   TO authenticated
   USING (
     congregation_id = current_user_congregation_id()
+    -- Scope-divergencia védelem (ismert gyökérok-osztály): az app az
+    -- effectiveCongregationId-t (profile_roles.scope_id) használja íráskor,
+    -- a skalár profiles.congregation_id ettől eltérhet — e nélkül az ág
+    -- nélkül az érintett felhasználó némán 0 sort kapna/írhatna.
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = lelkeszi_jelentes.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
     OR current_user_has_global_access()
   )
   WITH CHECK (
     congregation_id = current_user_congregation_id()
+    -- Scope-divergencia védelem (ismert gyökérok-osztály): az app az
+    -- effectiveCongregationId-t (profile_roles.scope_id) használja íráskor,
+    -- a skalár profiles.congregation_id ettől eltérhet — e nélkül az ág
+    -- nélkül az érintett felhasználó némán 0 sort kapna/írhatna.
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = lelkeszi_jelentes.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
     OR current_user_has_global_access()
   );
 

@@ -109,6 +109,20 @@ function nevelo(nev: string): string {
 }
 
 /**
+ * Az egyházmegye-vonal a címlap fejlécébe: ha ismert az egyházmegye neve,
+ * escape-elve jelenik meg — a „Református Egyházmegye" toldat duplázás-
+ * védelmével (a gyülekezetnév-heurisztika mintájára); üres névnél a kitöltő-
+ * vonal marad (mint az üres nyomtatványon).
+ */
+function egyhazmegyeSor(egyhazmegyeNev: string | null): string {
+  const nyers = (egyhazmegyeNev || '').trim()
+  if (!nyers) return '<span class="kitolto"></span> Református Egyházmegye'
+  return nyers.toUpperCase().includes('EGYHÁZMEGYE')
+    ? esc(nyers)
+    : `${esc(nyers)} Református Egyházmegye`
+}
+
+/**
  * Egy mező megjelenítendő értéke a nyomtatványon: felülírás > auto > kézi
  * (mezoErtek), szám magyar formátumban, üres rovat '—'.
  */
@@ -202,7 +216,7 @@ function cimlapHtml(data: LelkesziJelentesData): string {
         </div>
         <div class="kerulet">
           <div>Erdélyi Református Egyházkerület</div>
-          <div class="egyhazmegye"><span class="kitolto"></span> Református Egyházmegye</div>
+          <div class="egyhazmegye">${egyhazmegyeSor(data.egyhazmegyeNev)}</div>
           <div class="esperes-blokk">
             <div class="alairas" style="margin: 0 auto;">
               <div class="vonal"></div>

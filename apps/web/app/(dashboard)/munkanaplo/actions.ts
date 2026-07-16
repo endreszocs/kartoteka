@@ -40,9 +40,11 @@ function worklogSaveError(error: { message?: string } | null | undefined): strin
  * (a 2026-06-12c SQL lefuttatásáig), oszlop nélkül kérdezünk — különben a
  * teljes lista üresen jönne vissza (ez volt a modul fő hibája).
  */
-export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
+async function queryWorklogs(period: string): Promise<{ entries: WorklogEntry[]; error: string | null }> {
   const { supabase, congId } = await getCongId()
-  if (!congId) return []
+  // Nincs aktív gyülekezet → üres lista, hiba nélkül (a getWorklogs eddigi
+  // néma viselkedése — a hívó oldali guard felelőssége a kontextus megléte).
+  if (!congId) return { entries: [], error: null }
   const isFullYear = /^\d{4}$/.test(period)
   // 2026-07-11 (P1 hónap-vég): a korábbi `${period}-31` februárra/30-napos
   // hónapokra Postgres 'date/time field value out of range' hibát dobott →
@@ -87,16 +89,35 @@ export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
   // DB-ben, szűrő nélkül kérdezünk újra (lásd a docblockot fent).
   let res = await fetchAllPages(true)
   if (res.error && isMissingDeletedColumn(res.error)) res = await fetchAllPages(false)
+  if (res.error) return { entries: [], error: res.error.message || 'Ismeretlen adatbázis-hiba' }
+  return { entries: res.data || [], error: null }
+}
+
+export async function getWorklogs(period: string): Promise<WorklogEntry[]> {
+  const res = await queryWorklogs(period)
   if (res.error) {
-    console.warn('[getWorklogs] lekérdezés hiba:', res.error.message)
+    console.warn('[getWorklogs] lekérdezés hiba:', res.error)
     return []
   }
-  return res.data || []
+  return res.entries
 }
 
 /** Teljes éves lista — a nyomtatási központ (éves lelkészi jelentés) adatforrása. */
 export async function getWorklogsForYear(year: number): Promise<WorklogEntry[]> {
   return getWorklogs(String(year))
+}
+
+/**
+ * 2026-07-17 (F5): teljes éves lista HIBA-TOVÁBBADÁSSAL — a hivatalos lelkészi
+ * jelentés aggregátora hívja. A sima getWorklogs hibánál üres tömböt ad vissza
+ * (a naptár-UI ezt túléli), de HIVATALOS rubrikában a néma 0 tilos: itt a
+ * lapozó hibája szövegesen visszamegy a hívónak, aki a worklog-alapú mezőket
+ * null-on hagyja és jelzi a hibát.
+ */
+export async function getWorklogsForYearChecked(
+  year: number,
+): Promise<{ entries: WorklogEntry[]; error: string | null }> {
+  return queryWorklogs(String(year))
 }
 
 export async function saveWorklog(data: WorklogInput) {

@@ -45,7 +45,9 @@ export interface UnlockRequest {
   congregationId: string
   congregationName: string
   year: string
-  type: 'budget' | 'accounting' | 'inventory'
+  // 2026-07-17 (F5): 'jelentes' = a hivatalos lelkészi jelentés feloldása
+  // (lelkeszi_jelentes tábla, unlock_requested/unlock_reason flow)
+  type: 'budget' | 'accounting' | 'inventory' | 'jelentes'
   reason: string | null
   requestedAt: string | null
 }

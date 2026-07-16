@@ -23,7 +23,32 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-07-16] — Év-statisztikák: látogatottság, énekek, biblia-lefedettség
+## [2026-07-17] — Hivatalos Lelkészi jelentés élő adatokból
+<!-- key: 2026-07-17-munkanaplo-f5-lelkeszi-jelentes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, esperes -->
+<!-- version: web v0.9.84 -->
+
+### ✨ Új funkciók
+
+- **A hivatalos éves Lelkészi jelentés (I–X. fejezet) egy helyen készíthető el**
+  a munkanapló Jelentés-füléről. A rendszer amit tud, magától kitölt: a
+  lélekszám-fejezetet az anyakönyvből, az istentiszteleti fejezetet a
+  munkanaplóból (vasárnapi/ünnepi/sátoros bontásban, úrvacsora-átlagokkal),
+  a gyülekezetgondozás és vallásoktatás számait, az anyagi fejezetet pedig a
+  pénzügyi modulból és a véglegesített számadásból — a többi mező kézzel
+  tölthető, és az automatikus értékek is felülírhatók.
+- **Élő A4-előnézet** a hivatalos nyomtatvány pontos képével (címlap
+  iktatószámokkal, tárgyalási határozatokkal, aláírókkal), PDF-mentéssel és
+  nyomtatással.
+- **Véglegesítés a számadás mintájára:** áttekintés → ellenőrzések →
+  presbitériumi/közgyűlési határozat-adatok → zárás; a véglegesített jelentés
+  változtathatatlanul befagy, és egy gombbal **beküldhető az egyházmegyének**.
+- **Feloldás-kérés:** tévesen véglegesített jelentés feloldását az egyházmegye
+  hagyja jóvá — a kérések az esperesi felületen jelennek meg.
+- Ha egy automatikus mező forrás-adata hiányzik vagy nem elérhető, a rendszer
+  ezt őszintén jelzi („nincs adat"), és sosem ír némán nullát a hivatalos
+  rovatokba.
 <!-- key: 2026-07-16-munkanaplo-f4-statisztikak -->
 <!-- category: feature -->
 <!-- targets: lelkesz -->

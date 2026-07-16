@@ -33,12 +33,15 @@ const TYPE_LABELS: Record<string, string> = {
   budget: 'Költségvetés',
   accounting: 'Számadás',
   inventory: 'Vagyonleltár',
+  // 2026-07-17 (F5): a hivatalos lelkészi jelentés feloldás-kérelme
+  jelentes: 'Lelkészi jelentés',
 }
 
 const TYPE_TONES: Record<string, { bg: string; text: string; border: string }> = {
   budget: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   accounting: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200' },
   inventory: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  jelentes: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
 }
 
 interface RequestsSectionProps {

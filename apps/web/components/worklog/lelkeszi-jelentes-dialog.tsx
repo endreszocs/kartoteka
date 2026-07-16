@@ -54,7 +54,9 @@ import { cn } from '@/lib/utils'
 import {
   FEJEZET_CIMEK,
   JELENTES_MEZOK,
+  deriveAutoMezok,
   mezoErtek,
+  parseHuSzam,
   type HatarozatAdatok,
   type JelentesFejezet,
   type JelentesMezo,
@@ -107,10 +109,22 @@ const HATAROZAT_MEZOK: Array<{
 const A4_PORTRAIT_W = 812
 const PREVIEW_MIN_H = 1100
 const PREVIEW_DEBOUNCE_MS = 400
+// A4 álló lap-magasság képpontban (297 mm @ 96 dpi ≈ 1123 px) + kis tolerancia —
+// ha egy .sheet ennél magasabb, a tartalom túlcsordul az egy oldalon.
+const SHEET_OVERFLOW_PX = 1130
 
 type NezetMod = 'szerkeszto' | 'wizard'
 type WizardLepes = 'attekintes' | 'ellenorzes' | 'hatarozat' | 'megerosites' | 'kesz'
 type MobilNezet = 'szerkesztes' | 'elonezet'
+
+/** A wizard-lépések felolvasható címei (fókusz-fejléc + aria-live bejelentés). */
+const WIZARD_LEPES_CIM: Record<WizardLepes, string> = {
+  attekintes: '1. lépés — Áttekintés',
+  ellenorzes: '2. lépés — Ellenőrzések',
+  hatarozat: '3. lépés — Határozat',
+  megerosites: '4. lépés — Megerősítés',
+  kesz: '5. lépés — Kész',
+}
 
 type Ertekek = Record<string, number | string | null>
 
@@ -146,8 +160,10 @@ function normalizeForSave(rec: Ertekek): Ertekek {
     if (s === '') continue
     const mezo = MEZO_BY_ID.get(id)
     if (mezo?.tipus === 'szam') {
-      const n = Number(s.replace(/\s/g, '').replace(',', '.'))
-      out[id] = Number.isFinite(n) ? n : s
+      // hu-számformátum ('12.345,67' és NBSP-s '12 345' is szám) — a nem
+      // értelmezhető szöveg szövegként marad (a wizard külön figyelmeztet rá).
+      const n = parseHuSzam(s)
+      out[id] = n !== null ? n : s
     } else {
       out[id] = s
     }
@@ -232,45 +248,68 @@ export function LelkesziJelentesDialog({
       // Az előnézetet is nullázzuk — újranyitáskor ne az előző (akár másik évi)
       // jelentés villanjon fel, és az első render azonnali legyen (debounce nélkül).
       setPreviewData(null)
-      void getLelkesziJelentes(year).then((res) => {
-        if (cancelled) return
-        if (res.error || !res.data) {
-          setLoadError(res.error || 'A jelentés betöltése nem sikerült.')
+      setSheetOverflow(false)
+      void getLelkesziJelentes(year)
+        .then((res) => {
+          if (cancelled) return
+          if (res.error || !res.data) {
+            setLoadError(res.error || 'A jelentés betöltése nem sikerült.')
+            setLoading(false)
+            return
+          }
+          setData(res.data)
+          setKezi({ ...res.data.kezi })
+          setFelulirasok({ ...res.data.felulirasok })
+          setHatarozat({ ...res.data.hatarozat })
+          setUnlockRequested(res.unlockRequested === true)
+          // Beküldve-állapot a szerverről (korábban fixen false maradt)
+          setSubmitted(Boolean(res.data.submission))
           setLoading(false)
-          return
-        }
-        setData(res.data)
-        setKezi({ ...res.data.kezi })
-        setFelulirasok({ ...res.data.felulirasok })
-        setHatarozat({ ...res.data.hatarozat })
-        setUnlockRequested(res.unlockRequested === true)
-        setLoading(false)
-      })
+        })
+        .catch(() => {
+          // Hálózati/váratlan hiba — enélkül a dialógus örökre a betöltőn ragadna.
+          if (cancelled) return
+          setLoadError('Hálózati hiba — a jelentés betöltése nem sikerült. Ellenőrizze a kapcsolatot, majd próbálja újra.')
+          setLoading(false)
+        })
     })
     return () => {
       cancelled = true
     }
   }, [open, year])
 
-  /** Csendes újratöltés (véglegesítés/feloldás után) — a nézetet nem resetteli. */
-  async function reload() {
-    const res = await getLelkesziJelentes(year)
-    if (res.error || !res.data) {
-      if (res.error) toast.error(res.error)
-      return
+  /**
+   * Csendes újratöltés (véglegesítés/feloldás után) — a nézetet nem resetteli.
+   * failMessage: kontextus-függő hibaüzenet (pl. véglegesítés után), különben
+   * általános üzenet — sikertelen újratöltés soha nem marad néma.
+   */
+  async function reload(failMessage?: string) {
+    try {
+      const res = await getLelkesziJelentes(year)
+      if (res.error || !res.data) {
+        // A hibátlan-de-üres válasz korábban némán elveszett — most mindig jelzünk.
+        toast.error(failMessage || res.error || 'A jelentés újratöltése nem sikerült.')
+        return
+      }
+      setData(res.data)
+      setKezi({ ...res.data.kezi })
+      setFelulirasok({ ...res.data.felulirasok })
+      setHatarozat({ ...res.data.hatarozat })
+      setUnlockRequested(res.unlockRequested === true)
+      setSubmitted(Boolean(res.data.submission))
+      setDirty(false)
+    } catch {
+      toast.error(failMessage || 'Hálózati hiba — a jelentés újratöltése nem sikerült.')
     }
-    setData(res.data)
-    setKezi({ ...res.data.kezi })
-    setFelulirasok({ ...res.data.felulirasok })
-    setHatarozat({ ...res.data.hatarozat })
-    setUnlockRequested(res.unlockRequested === true)
-    setDirty(false)
   }
 
   // ── Élő adat (a szerkesztő-állapottal) + debounced előnézet ──
   const currentData: LelkesziJelentesData | null = useMemo(() => {
     if (!data) return null
-    return { ...data, kezi, felulirasok, hatarozat }
+    // A származtatott mezők (I.8, I.9, VII.8) élőben újraszámolva a kézi
+    // értékekből/felülírásokból — így az előnézet, a PDF/nyomtatás és a wizard
+    // mindig konzisztens értékeket mutat.
+    return { ...data, auto: deriveAutoMezok(data.auto, kezi, felulirasok), kezi, felulirasok, hatarozat }
   }, [data, kezi, felulirasok, hatarozat])
 
   useEffect(() => {
@@ -304,17 +343,50 @@ export function LelkesziJelentesDialog({
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [contentH, setContentH] = useState(PREVIEW_MIN_H)
+  // Túlcsordulás-jelzés: van-e A4-lapnál magasabb .sheet az előnézetben
+  const [sheetOverflow, setSheetOverflow] = useState(false)
   const measurePreview = () => {
     const doc = iframeRef.current?.contentDocument
     if (!doc) return
     const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
     if (h > 0) setContentH(h)
+    // Ha egy fejezet-lap (.sheet) magasabb az A4-nél, nyomtatásban az
+    // oldalszámozás eltolódhat — diszkrét figyelmeztetést mutatunk fölötte.
+    let overflow = false
+    doc.querySelectorAll<HTMLElement>('.sheet').forEach((sheet) => {
+      if (sheet.offsetHeight > SHEET_OVERFLOW_PX) overflow = true
+    })
+    setSheetOverflow(overflow)
   }
+
+  // Mobil fülváltáskor újramérés: rejtett (display:none) állapotban az iframe
+  // scrollHeight-je 0, ezért a láthatóvá válás után egy frame-mel mérünk újra.
+  useEffect(() => {
+    if (mobileView !== 'elonezet') return
+    const raf = requestAnimationFrame(measurePreview)
+    return () => cancelAnimationFrame(raf)
+     
+  }, [mobileView, previewHtml])
 
   const targetW = boxW > 0 ? Math.max(0, boxW - 20) : A4_PORTRAIT_W
   const scale = Math.min(1, targetW / A4_PORTRAIT_W)
   const scaledW = Math.round(A4_PORTRAIT_W * scale)
   const scaledH = Math.round(contentH * scale)
+
+  // ── A11y: fókusz-vezetés a wizard és a szerkesztő között ──
+  const wizardHeadingRef = useRef<HTMLHeadingElement>(null)
+  const editorHeadingRef = useRef<HTMLHeadingElement>(null)
+  const prevModeRef = useRef<NezetMod>('szerkeszto')
+  useEffect(() => {
+    if (mode === 'wizard') {
+      // Wizardba lépéskor / lépés-váltáskor a lépés fejlécére fókuszálunk
+      wizardHeadingRef.current?.focus()
+    } else if (prevModeRef.current === 'wizard') {
+      // Csak a wizardból visszalépve — nyitáskor nem rabolunk fókuszt
+      editorHeadingRef.current?.focus()
+    }
+    prevModeRef.current = mode
+  }, [mode, wizardStep])
 
   // ── Szerkesztő-műveletek ──
 
@@ -395,11 +467,20 @@ export function LelkesziJelentesDialog({
       }
       toast.success(`A(z) ${year}. évi lelkészi jelentés véglegesítve.`, { duration: 5000 })
       setWizardStep('kesz')
-      await reload()
+      // Optimista állapot: a szerveren már megtörtént a véglegesítés — ha az
+      // újratöltés elakadna, a UI akkor is a csak-olvasható nézetet mutassa.
+      setData((prev) => (prev ? { ...prev, statusz: 'veglegesitve' } : prev))
+      await reload(
+        'A jelentés véglegesítve lett, de az újratöltés nem sikerült — zárja be és nyissa újra az ablakot.',
+      )
     })
   }
 
   async function handleSubmitToDiocese() {
+    // Ismételt beküldés előtt kis megerősítés — a duplikált beküldés zavaró lehet.
+    if (submitted && !confirm('A jelentés már be lett küldve az egyházmegyének. Biztosan beküldi újra?')) {
+      return
+    }
     setSubmitting(true)
     const res = await submitLelkesziJelentes(year)
     setSubmitting(false)
@@ -482,6 +563,15 @@ export function LelkesziJelentesDialog({
     () => (currentData ? mezoErtek(currentData, 'VII.6') === null : false),
     [currentData],
   )
+
+  /** Szám-mezők, ahol a beírt érték nem értelmezhető számként (nem blokkoló). */
+  const nemSzamMezok = useMemo(() => {
+    if (!currentData) return []
+    return JELENTES_MEZOK.filter((m) => m.tipus === 'szam').filter((m) => {
+      const v = mezoErtek(currentData, m.id)
+      return typeof v === 'string' && v.trim() !== '' && parseHuSzam(v) === null
+    })
+  }, [currentData])
 
   /** Kulcsszám az áttekintéshez / megerősítéshez. */
   function statErtek(id: string): string {
@@ -706,6 +796,12 @@ export function LelkesziJelentesDialog({
           )}
         </DialogHeader>
 
+        {/* A11y: a wizard-lépés bejelentése felolvasónak (vizuálisan rejtett,
+            állandóan a DOM-ban — a live-régió csak így jelez megbízhatóan) */}
+        <span aria-live="polite" className="sr-only">
+          {mode === 'wizard' ? WIZARD_LEPES_CIM[wizardStep] : ''}
+        </span>
+
         {/* ── Törzs ──────────────────────────────────────────────────── */}
         {loading ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -728,6 +824,10 @@ export function LelkesziJelentesDialog({
         ) : mode === 'wizard' ? (
           /* ── VÉGLEGESÍTŐ WIZARD ─────────────────────────────────────── */
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            {/* A11y: fókusz-cél lépésváltáskor (vizuálisan rejtett fejléc) */}
+            <h2 ref={wizardHeadingRef} tabIndex={-1} className="sr-only outline-none">
+              {WIZARD_LEPES_CIM[wizardStep]}
+            </h2>
             {wizardStep === 'attekintes' && (
               <div className="mx-auto max-w-2xl space-y-4">
                 <div className="rounded-2xl border border-border bg-card p-5">
@@ -795,7 +895,19 @@ export function LelkesziJelentesDialog({
                   megjegyzes="Ezekhez nincs élő adat (pl. üres munkanapló-kategória vagy hiányzó előző évi jelentés) — felülírással pótolhatók."
                 />
 
-                {hianyzoKeziMezok.length === 0 && hianyzoAutoMezok.length === 0 && !zarszamadasHianyzik && (
+                {nemSzamMezok.length > 0 && (
+                  <EllenorzesLista
+                    cim={`Nem értelmezhető számérték (${nemSzamMezok.length} db)`}
+                    ures=""
+                    mezok={nemSzamMezok}
+                    megjegyzes="Ezekben a szám-rubrikákban a beírt szöveg nem értelmezhető számként — a nyomtatványon szó szerint jelenik meg, és az összesítésekbe nem számít bele."
+                  />
+                )}
+
+                {hianyzoKeziMezok.length === 0 &&
+                  hianyzoAutoMezok.length === 0 &&
+                  nemSzamMezok.length === 0 &&
+                  !zarszamadasHianyzik && (
                   <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 text-center">
                     <CheckCircle2 className="mx-auto size-7 text-emerald-600 dark:text-emerald-400" />
                     <p className="mt-1 text-sm font-semibold text-foreground">Minden rubrika kitöltött — mehet a véglegesítés!</p>
@@ -945,6 +1057,7 @@ export function LelkesziJelentesDialog({
               <button
                 type="button"
                 onClick={() => setMobileView('szerkesztes')}
+                aria-pressed={mobileView === 'szerkesztes'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   mobileView === 'szerkesztes'
@@ -958,6 +1071,7 @@ export function LelkesziJelentesDialog({
               <button
                 type="button"
                 onClick={() => setMobileView('elonezet')}
+                aria-pressed={mobileView === 'elonezet'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   mobileView === 'elonezet'
@@ -978,6 +1092,10 @@ export function LelkesziJelentesDialog({
                   mobileView !== 'szerkesztes' && 'hidden',
                 )}
               >
+                {/* A11y: fókusz-cél a wizardból való visszalépéskor */}
+                <h2 ref={editorHeadingRef} tabIndex={-1} className="sr-only outline-none">
+                  A jelentés szerkesztése — fejezetek
+                </h2>
                 {FEJEZETEK.map((fejezet) => {
                   const nyitva = openChapters.has(fejezet)
                   const mezok = FEJEZET_MEZOK.get(fejezet) || []
@@ -1019,25 +1137,36 @@ export function LelkesziJelentesDialog({
                 )}
               >
                 {previewHtml ? (
-                  <div
-                    className="mx-auto overflow-hidden rounded-lg border border-border bg-white shadow-sm"
-                    style={{ width: scaledW, height: scaledH }}
-                  >
-                    <iframe
-                      ref={iframeRef}
-                      onLoad={measurePreview}
-                      title={`Lelkészi jelentés előnézet — ${year}`}
-                      srcDoc={previewHtml}
-                      style={{
-                        width: A4_PORTRAIT_W,
-                        height: contentH,
-                        border: '0',
-                        transform: `scale(${scale})`,
-                        transformOrigin: 'top left',
-                        background: '#fff',
-                      }}
-                    />
-                  </div>
+                  <>
+                    {sheetOverflow && (
+                      <div
+                        className="mx-auto mb-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200"
+                        style={{ maxWidth: scaledW }}
+                      >
+                        Az egyik fejezet szövege hosszabb egy oldalnál — nyomtatásban az oldalszámozás
+                        eltolódhat; érdemes rövidíteni.
+                      </div>
+                    )}
+                    <div
+                      className="mx-auto overflow-hidden rounded-lg border border-border bg-white shadow-sm"
+                      style={{ width: scaledW, height: scaledH }}
+                    >
+                      <iframe
+                        ref={iframeRef}
+                        onLoad={measurePreview}
+                        title={`Lelkészi jelentés előnézet — ${year}`}
+                        srcDoc={previewHtml}
+                        style={{
+                          width: A4_PORTRAIT_W,
+                          height: contentH,
+                          border: '0',
+                          transform: `scale(${scale})`,
+                          transformOrigin: 'top left',
+                          background: '#fff',
+                        }}
+                      />
+                    </div>
+                  </>
                 ) : (
                   <div className="py-10 text-center text-sm text-muted-foreground">Előnézet készítése…</div>
                 )}
@@ -1075,17 +1204,27 @@ export function LelkesziJelentesDialog({
                 Bezárás
               </Button>
               {readOnly ? (
-                submitted ? (
-                  <Badge className="bg-emerald-500/15 px-3 py-1.5 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
-                    <CheckCircle2 className="mr-1 size-3.5" />
-                    Beküldve
-                  </Badge>
-                ) : (
-                  <Button size="sm" onClick={() => void handleSubmitToDiocese()} disabled={submitting}>
+                <>
+                  {submitted && (
+                    <Badge
+                      className="bg-emerald-500/15 px-3 py-1.5 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+                      title={data?.submission?.status ? `Beküldés státusza: ${data.submission.status}` : undefined}
+                    >
+                      <CheckCircle2 className="mr-1 size-3.5" />
+                      Beküldve
+                      {data?.submission?.submittedAt ? ` (${data.submission.submittedAt.slice(0, 10)})` : ''}
+                    </Badge>
+                  )}
+                  <Button
+                    size="sm"
+                    variant={submitted ? 'outline' : 'default'}
+                    onClick={() => void handleSubmitToDiocese()}
+                    disabled={submitting}
+                  >
                     {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                    Beküldés az egyházmegyének
+                    {submitted ? 'Ismételt beküldés' : 'Beküldés az egyházmegyének'}
                   </Button>
-                )
+                </>
               ) : (
                 <>
                   <Button variant="outline" size="sm" onClick={() => void handleSave()} disabled={saving}>

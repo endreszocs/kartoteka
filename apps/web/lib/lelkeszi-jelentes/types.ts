@@ -90,6 +90,11 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'I.18', fejezet: 'I', label: 'Nemzetiségünkhöz tartozók lélekszáma', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'I.19', fejezet: 'I', label: 'Külföldön élők', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'I.20', fejezet: 'I', label: 'Öt éve vagy régebben egyházfenntartói járulékot nem fizetők', tipus: 'szam', auto: false, egyseg: 'fő' },
+  // A minta-PDF I. fejezetének a katalógusból eddig hiányzó tételei (15., 19.,
+  // 20. tétel) — kézi mezők, append-only pótlás (2026-07-17).
+  { id: 'I.21', fejezet: 'I', label: 'Az egyházfenntartás személyenkénti éves meghatározott összege', tipus: 'szam', auto: false, egyseg: 'RON' },
+  { id: 'I.22', fejezet: 'I', label: 'Más településen élő egyháztagok száma', tipus: 'szam', auto: false, egyseg: 'fő' },
+  { id: 'I.23', fejezet: 'I', label: 'Más gyülekezetben is tagságot vállaló egyháztagok száma', tipus: 'szam', auto: false, egyseg: 'fő' },
 
   // ── II. Istentisztelet ───────────────────────────────────────────────────
   // Forrás: munkanapló évi sorai, típus→oszlop besorolás a hivatalos
@@ -116,6 +121,11 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'II.5d', fejezet: 'II', label: 'Húsvét II. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'II.5e', fejezet: 'II', label: 'Pünkösd I. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'II.5f', fejezet: 'II', label: 'Pünkösd II. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
+  // Harmadnapi (III. napi) sátoros ünnepek — az ünnepnap a getUnnepInfo
+  // katalógusában ('Karácsony/Húsvét/Pünkösd harmadnapja').
+  { id: 'II.5g', fejezet: 'II', label: 'Karácsony III. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
+  { id: 'II.5h', fejezet: 'II', label: 'Húsvét III. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
+  { id: 'II.5i', fejezet: 'II', label: 'Pünkösd III. napja — jelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'II.6a', fejezet: 'II', label: 'Hétköznapi istentisztelet — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'II.6b', fejezet: 'II', label: 'Hétköznapi — átlagjelenlét', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'II.7a', fejezet: 'II', label: 'Bűnbánati istentisztelet — alkalmak', tipus: 'szam', auto: true, egyseg: 'alkalom' },
@@ -129,6 +139,9 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   // van rögzítve (uv_templomban / uv_betegnel).
   { id: 'II.12', fejezet: 'II', label: 'Úrvacsoraosztások száma', tipus: 'szam', auto: true, egyseg: 'alkalom' },
   { id: 'II.13', fejezet: 'II', label: 'Átlag úrvacsorázó alkalmanként', tipus: 'szam', auto: true, egyseg: 'fő' },
+  // Az úrvacsorázók nemenkénti bontását a munkanapló nem tárolja → kézi mezők.
+  { id: 'II.13a', fejezet: 'II', label: 'Átlag úrvacsorázó — férfi', tipus: 'szam', auto: false, egyseg: 'fő' },
+  { id: 'II.13b', fejezet: 'II', label: 'Átlag úrvacsorázó — nő', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'II.14', fejezet: 'II', label: 'Betegnél úrvacsorázók az évben összesen', tipus: 'szam', auto: true, egyseg: 'fő' },
 
   // ── III. Gyülekezetgondozás ──────────────────────────────────────────────
@@ -147,6 +160,10 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'III.13', fejezet: 'III', label: 'Vizitációk (esperesi / püspöki)', tipus: 'szoveg', auto: false },
   { id: 'III.14', fejezet: 'III', label: 'Testvérgyülekezeti kapcsolat', tipus: 'szoveg', auto: false },
   { id: 'III.15', fejezet: 'III', label: 'Fegyelmi ügyek', tipus: 'szoveg', auto: false },
+  // Rétegalkalmak — a munkanapló-típusokból nem szétválogathatók → kézi mezők.
+  { id: 'III.16', fejezet: 'III', label: 'Presbiteri bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
+  { id: 'III.17', fejezet: 'III', label: 'Nőszövetségi bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
+  { id: 'III.18', fejezet: 'III', label: 'Házaspári bibliaóra alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
 
   // ── IV. Belmisszió (kézi fejezet) ────────────────────────────────────────
   { id: 'IV.1', fejezet: 'IV', label: 'Nőszövetség tevékenysége', tipus: 'hosszu_szoveg', auto: false },
@@ -170,6 +187,7 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'V.7c', fejezet: 'V', label: 'Konfirmált — együtt', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'V.8', fejezet: 'V', label: 'Áttért / felnőtt konfirmált', tipus: 'szam', auto: false, egyseg: 'fő' },
   { id: 'V.9', fejezet: 'V', label: 'Gyermekistentisztelet alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
+  { id: 'V.10', fejezet: 'V', label: 'Vasárnapi iskola alkalmai', tipus: 'szam', auto: false, egyseg: 'alkalom' },
 
   // ── VI. Szeretetszolgálat (kézi fejezet) ─────────────────────────────────
   { id: 'VI.1', fejezet: 'VI', label: 'Szeretetszolgálati (diakóniai) tevékenység', tipus: 'hosszu_szoveg', auto: false },
@@ -222,6 +240,10 @@ export interface HatarozatAdatok {
 export interface LelkesziJelentesData {
   ev: number
   congregationName: string
+  /** Az egyházmegye neve a címlapra (a gyülekezet → egyházmegye láncból); null, ha nem feloldható. */
+  egyhazmegyeNev: string | null
+  /** Esperesi hivatal felé történt beküldés állapota; null, ha még nem volt beküldés. */
+  submission: { status: string; submittedAt: string | null } | null
   /** Élő adatból számolt értékek mezőnként (auto: true mezők; null = nincs adat). */
   auto: Record<string, number | string | null>
   /** Kézi mezők értékei (auto: false mezők). */
@@ -245,4 +267,82 @@ export function mezoErtek(data: LelkesziJelentesData, mezoId: string): number | 
   if (auto !== undefined && auto !== null) return auto
   const kezi = data.kezi[mezoId]
   return kezi === undefined ? null : kezi
+}
+
+/**
+ * Magyar írásmódú szám értelmezése: a '12.345,67' és a '12 345,67' alak is
+ * szám (a szóköz-tagoló lehet normál / nem törő / keskeny nem törő szóköz is);
+ * a csak-pontos ezres tagolás ('1.234.567') szintén felismerhető. Nem
+ * értelmezhető bemenetre (üres, szöveg, több tizedesjel) null.
+ */
+export function parseHuSzam(value: number | string | null | undefined): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (value === null || value === undefined) return null
+  // A \s a JS-ben a nem törő (U+00A0) és a keskeny nem törő (U+202F) szóközt is fedi.
+  let s = String(value).trim().replace(/\s+/g, '')
+  if (!s) return null
+  if (s.includes(',')) {
+    // Magyar alak: a pont ezres tagoló, a vessző a tizedesjel. Csak az ELSŐ
+    // vesszőt cseréljük — több vessző esetén a lenti minta elbukik (→ null).
+    s = s.replaceAll('.', '').replace(',', '.')
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) {
+    // Csak-pontos ezres tagolás (pl. '1.234.567') — a pontok tagolók;
+    // minden más pontos alak ('12.5') tizedespontként marad.
+    s = s.replaceAll('.', '')
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * A számolt auto-mezők (I.8, I.9, VII.8) újraszámítása a felhasználó által
+ * már beírt értékek figyelembevételével. ÚJ auto-rekordot ad vissza (a
+ * bemeneteket nem módosítja), amelyben ez a három mező újraszámolt, minden
+ * más auto-érték változatlan.
+ *
+ * Egy összetevő értéke — ertek(id): felulirasok[id] (ha nem üres) → kezi[id]
+ * (ha nem üres) → auto[id], magyar szám-parse-szal (parseHuSzam); a nem-szám
+ * érték null-nak számít.
+ *  - I.8   = ertek('I.2c') − ertek('I.3c') — null, ha bármelyik null;
+ *  - I.9   = I.8 + n0('I.4c') + n0('I.6c') − n0('I.5c') − n0('I.7c'),
+ *            ahol n0: null→0 — null, ha I.8 null;
+ *  - VII.8 = round2(n0('VII.5') + ertek('VII.6') − ertek('VII.7')) — null,
+ *            ha VII.6 vagy VII.7 null (a hiányzó előző évi maradvány 0).
+ */
+export function deriveAutoMezok(
+  auto: Record<string, number | string | null>,
+  kezi: Record<string, number | string | null>,
+  felulirasok: Record<string, number | string | null>,
+): Record<string, number | string | null> {
+  const nyersErtek = (mezoId: string): number | string | null => {
+    const felul = felulirasok[mezoId]
+    if (felul !== undefined && felul !== null && felul !== '') return felul
+    const k = kezi[mezoId]
+    if (k !== undefined && k !== null && k !== '') return k
+    const a = auto[mezoId]
+    return a === undefined ? null : a
+  }
+  const ertek = (mezoId: string): number | null => parseHuSzam(nyersErtek(mezoId))
+  const n0 = (v: number | null): number => (v === null ? 0 : v)
+  const round2 = (v: number): number => Math.round(v * 100) / 100
+
+  // I.8 — természetes szaporulat / apadás (keresztelt − temetett)
+  const keresztelt = ertek('I.2c')
+  const temetett = ertek('I.3c')
+  const i8 = keresztelt === null || temetett === null ? null : keresztelt - temetett
+
+  // I.9 — általános szaporulat / apadás (a hiányzó kézi összetevők 0-nak számítanak)
+  const i9 =
+    i8 === null
+      ? null
+      : i8 + n0(ertek('I.4c')) + n0(ertek('I.6c')) - n0(ertek('I.5c')) - n0(ertek('I.7c'))
+
+  // VII.8 — zárszámadási egyenleg (a + b − c)
+  const bevetel = ertek('VII.6')
+  const kiadas = ertek('VII.7')
+  const vii8 =
+    bevetel === null || kiadas === null ? null : round2(n0(ertek('VII.5')) + bevetel - kiadas)
+
+  return { ...auto, 'I.8': i8, 'I.9': i9, 'VII.8': vii8 }
 }

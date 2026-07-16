@@ -30,6 +30,8 @@ const TYPE_LABELS: Record<string, string> = {
   budget: 'Költségvetés',
   accounting: 'Számadás',
   inventory: 'Vagyonleltár',
+  // 2026-07-17 (F5): a hivatalos lelkészi jelentés feloldás-kérelme
+  jelentes: 'Lelkészi jelentés',
 }
 
 export function CongregationOverviewCard({ congregations }: CongregationOverviewCardProps) {

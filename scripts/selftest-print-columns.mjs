@@ -88,13 +88,16 @@ const unnepCases = [
   ['2026-04-03', 'Nagypéntek', 'unnepi'],
   ['2026-04-05', 'Húsvét', 'satoros'],
   ['2026-04-06', 'Húsvét másodnapja', 'satoros'],
+  ['2026-04-07', 'Húsvét harmadnapja', 'satoros'],
   ['2026-05-14', 'Áldozócsütörtök', 'unnepi'],
   ['2026-05-24', 'Pünkösd', 'satoros'],
   ['2026-05-25', 'Pünkösd másodnapja', 'satoros'],
+  ['2026-05-26', 'Pünkösd harmadnapja', 'satoros'],
   ['2026-08-30', 'Újkenyér', 'unnepi'],
   ['2026-10-31', 'Reformáció', 'unnepi'],
   ['2025-12-25', 'Karácsony', 'satoros'],
   ['2025-12-26', 'Karácsony másodnapja', 'satoros'],
+  ['2026-12-27', 'Karácsony harmadnapja', 'satoros'],
 ]
 for (const [iso, nev, tipus] of unnepCases) {
   const got = getUnnepInfo(iso)

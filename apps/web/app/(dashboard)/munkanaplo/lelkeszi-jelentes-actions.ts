@@ -14,9 +14,9 @@
 //    generator.ts minta: meghalt + member_status + isvisible). Férfi/nő bontás:
 //    a szemely.ferfi boolean, kötegelt .in('id', …) lookuppal (FK-embed helyett,
 //    mert a temetes→szemely kapcsolat-név nincs verifikálva).
-//  - II–III–V. fejezet: a munkanapló évi sorai (getWorklogsForYear — 1000-es
-//    lapozó), a hivatalos nyomtatvány típus→oszlop besorolásával
-//    (classifyForOfficialJournal, print-columns.ts).
+//  - II–III–V. fejezet: a munkanapló évi sorai (getWorklogsForYearChecked —
+//    1000-es lapozó HIBA-TOVÁBBADÁSSAL), a hivatalos nyomtatvány típus→oszlop
+//    besorolásával (classifyForOfficialJournal, print-columns.ts).
 //  - VII. fejezet: befizetes a befizetescel(szamadasicel(kod)) beágyazással
 //    (getExpectedJarulek működő mintája; 101.01* = egyházfenntartói járulék,
 //    101.03* = perselypénz) + a bealitas.szamadas_zaro_adatok VÉGLEGESÍTETT
@@ -24,17 +24,19 @@
 //
 // HIBA-FILOZÓFIA: ha egy rész-lekérdezés hibázik, a hozzá tartozó auto-mezők
 // NULL-ok lesznek (a UI „nincs adat"-ként jelzi, felülírható) + hangos
-// console.error — SOHA nem jelentünk némán 0-t hivatalos rubrikában.
+// console.error — SOHA nem jelentünk némán 0-t hivatalos rubrikában. A
+// munkanapló- és befizetés-hibák ezen felül az autoHibak listában szövegesen
+// is visszamennek a hívónak (getLelkesziJelentes).
 
 import { revalidatePath } from 'next/cache'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { categorizeWorklogEntry, type WorklogEntry } from '@/lib/constants/worklog'
 import { classifyForOfficialJournal, getUnnepInfo } from '@/lib/worklog/print-columns'
 import { isJournalEntry } from '@/lib/worklog/official-journal'
-import { JELENTES_MEZOK } from '@/lib/lelkeszi-jelentes/types'
+import { JELENTES_MEZOK, deriveAutoMezok } from '@/lib/lelkeszi-jelentes/types'
 import type { HatarozatAdatok, LelkesziJelentesData } from '@/lib/lelkeszi-jelentes/types'
 import { submitDocument } from '@/app/(dashboard)/dashboard-egyhazmegye/document-actions'
-import { getWorklogsForYear } from './actions'
+import { getWorklogsForYearChecked } from './actions'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Belső típusok + segédek (nem exportáltak — 'use server' szabály)
@@ -55,10 +57,12 @@ interface JelentesRow {
   veglegesitve_at: string | null
   unlock_requested: boolean | null
   unlock_reason: string | null
+  /** Optimista zár a véglegesítés-versenyhez (a DB updated_at triggere lépteti). */
+  updated_at: string
 }
 
 const JELENTES_SOR_MEZOK =
-  'id, statusz, kezi_adatok, felulirasok, hatarozat, snapshot, veglegesitve_at, unlock_requested, unlock_reason'
+  'id, statusz, kezi_adatok, felulirasok, hatarozat, snapshot, veglegesitve_at, unlock_requested, unlock_reason, updated_at'
 
 /**
  * A lelkeszi_jelentes tábla hiányának felismerése (42P01 = undefined_table,
@@ -79,6 +83,21 @@ const MISSING_TABLE_HIBA =
   'A lelkészi jelentés adatbázis-táblája még hiányzik. Kérjük, futtassa le a ' +
   '2026-07-16-os migrációt (migration-docs/sql/2026-07-16-f5-lelkeszi-jelentes.sql), ' +
   'majd töltse újra az oldalt.'
+
+/**
+ * A befizetés-lekérdezés kompatibilitási oszlopainak (stornozott,
+ * belso_mozgas_xkey) hiányát felismerő őr — a legacy (szűkített) fallback
+ * CSAK erre a hibára futhat. Bármilyen más hibánál a fallback elrejtené a
+ * valódi okot, és a VII. rubrikák némán csonka összeget kaphatnának.
+ */
+function isMissingBefizetesCompatColumn(error: PgError): boolean {
+  if (!error) return false
+  const msg = (error.message || '').toLowerCase()
+  return (
+    (msg.includes('stornozott') || msg.includes('belso_mozgas_xkey')) &&
+    (msg.includes('column') || msg.includes('does not exist') || msg.includes('schema cache'))
+  )
+}
 
 /**
  * Lapozás-tudatos lekérdezés: a PostgREST kérésenként legfeljebb 1000 sort ad
@@ -194,6 +213,11 @@ const SATOROS_NAP_MEZO: Record<string, string> = {
   'Húsvét másodnapja': 'II.5d',
   'Pünkösd': 'II.5e',
   'Pünkösd másodnapja': 'II.5f',
+  // 2026-07-17 (F5): a hivatalos nyomtatvány III. napjai (Erdélyben a sátoros
+  // ünnepek harmadnapja is ünnep) — a getUnnepInfo új 'harmadnapja' nevei.
+  'Karácsony harmadnapja': 'II.5g',
+  'Húsvét harmadnapja': 'II.5h',
+  'Pünkösd harmadnapja': 'II.5i',
 }
 
 interface AnyakonyviSzamok {
@@ -258,8 +282,13 @@ function elozoEviLelekszam(snapshot: Record<string, unknown> | null): number | n
 
 /**
  * A teljes auto-rekord kiszámítása egy évre. A `kezi` és `felulirasok` a már
- * mentett sorból jön — a levezetett mezőkhöz (I.9, VII.8) kellenek a kézi
- * komponensek (betért/kiköltözött, előző évi maradvány).
+ * mentett sorból jön — a levezetett mezőkhöz (I.8/I.9/VII.8, deriveAutoMezok)
+ * kellenek a kézi komponensek (betért/kiköltözött, előző évi maradvány) és a
+ * felülírások.
+ *
+ * `autoHibak`: a hivatalos rubrikákat érintő rész-lekérdezési hibák magyar
+ * üzenetei (munkanapló, befizetés) — a UI ezekkel tudja jelezni, hogy egy
+ * blokk azért üres, mert a forrás-lekérdezés hibázott, nem azért, mert 0.
  */
 async function computeAuto(
   supabase: Supa,
@@ -267,9 +296,15 @@ async function computeAuto(
   ev: number,
   kezi: Record<string, number | string | null>,
   felulirasok: Record<string, number | string | null>,
-): Promise<{ auto: Record<string, number | string | null>; congregationName: string }> {
+): Promise<{
+  auto: Record<string, number | string | null>
+  congregationName: string
+  egyhazmegyeNev: string | null
+  autoHibak: string[]
+}> {
   const yearStart = `${ev}-01-01`
   const yearEndExclusive = `${ev + 1}-01-01`
+  const autoHibak: string[] = []
 
   // Minden auto-mező kulcsa előre null-lal — a UI így meg tudja különböztetni
   // a „nincs adat"-ot a 0-tól.
@@ -278,17 +313,9 @@ async function computeAuto(
     if (mezo.auto) auto[mezo.id] = null
   }
 
-  // Kézi/felülírt érték feloldása a levezetett mezőkhöz (felulirasok > kezi;
-  // az auto-komponenst a hívó közvetlenül a friss számításból veszi).
-  const keziErtek = (id: string): number => {
-    const f = felulirasok[id]
-    if (f !== undefined && f !== null && f !== '') return toNum(f) ?? 0
-    return toNum(kezi[id]) ?? 0
-  }
-
   // ── Párhuzamos lekérdezések ──
   const [
-    worklogEntries,
+    worklogRes,
     keresztsegRes,
     temetesRes,
     hazassagRes,
@@ -299,8 +326,9 @@ async function computeAuto(
     presbiterRes,
     congRes,
   ] = await Promise.all([
-    // Munkanapló — teljes év, 1000-es lapozóval (a munkanaplo/actions.ts-ből)
-    getWorklogsForYear(ev),
+    // Munkanapló — teljes év, 1000-es lapozóval, HIBA-TOVÁBBADÁSSAL (a néma
+    // üres lista hivatalos rubrikában tilos — v0.9.78 hibaosztály)
+    getWorklogsForYearChecked(ev),
     // Anyakönyvek — a scope-vital.ts működő év-tartomány mintája
     fetchAllRows<{ id: number; id_szemely: number | null }>((from, to) =>
       supabase
@@ -377,13 +405,21 @@ async function computeAuto(
       .select('id, szemely:szemely!inner(congregation_id, meghalt)')
       .eq('szemely.congregation_id', congId)
       .eq('szemely.meghalt', false),
-    supabase.from('congregations').select('nev_hu, name').eq('id', congId).maybeSingle(),
+    // Gyülekezet-név + egyházmegye-név (a jelentés fejlécéhez / címzettjéhez)
+    supabase.from('congregations').select('nev_hu, name, dioceses(name)').eq('id', congId).maybeSingle(),
   ])
 
-  const congregationName =
-    (congRes.data as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu ||
-    (congRes.data as { nev_hu?: string | null; name?: string | null } | null)?.name ||
-    ''
+  if (congRes.error) {
+    console.error('[lelkeszi-jelentes] congregations lekérdezés hiba — a gyülekezet/egyházmegye neve üres lesz:', congRes.error.message)
+  }
+  const congRow = congRes.data as {
+    nev_hu?: string | null
+    name?: string | null
+    dioceses?: { name?: string | null } | Array<{ name?: string | null }> | null
+  } | null
+  const congregationName = congRow?.nev_hu || congRow?.name || ''
+  const dioceseRow = egyBeagyazott(congRow?.dioceses)
+  const egyhazmegyeNev = (dioceseRow?.name || '').trim() || null
 
   // ── I. Lélekszám ──
 
@@ -418,7 +454,6 @@ async function computeAuto(
   if (!konfirmalasRes.error) for (const r of konfirmalasRes.rows) if (r.id_szemely != null) szemelyIds.push(Number(r.id_szemely))
   const ferfiMap = szemelyIds.length > 0 ? await fetchFerfiMap(supabase, szemelyIds) : new Map<number, boolean | null>()
 
-  let kereszteltEgyutt: number | null = null
   if (keresztsegRes.error) {
     console.error('[lelkeszi-jelentes] keresztseg lekérdezés hiba — I.2 null:', keresztsegRes.error.message)
   } else {
@@ -426,10 +461,8 @@ async function computeAuto(
     auto['I.2a'] = b.ferfi
     auto['I.2b'] = b.no
     auto['I.2c'] = b.egyutt
-    kereszteltEgyutt = b.egyutt
   }
 
-  let temetettEgyutt: number | null = null
   if (temetesRes.error) {
     console.error('[lelkeszi-jelentes] temetes lekérdezés hiba — I.3 null:', temetesRes.error.message)
   } else {
@@ -437,17 +470,10 @@ async function computeAuto(
     auto['I.3a'] = b.ferfi
     auto['I.3b'] = b.no
     auto['I.3c'] = b.egyutt
-    temetettEgyutt = b.egyutt
   }
 
-  // I.8 — természetes szaporulat/apadás; I.9 — általános (a betért/kitért/
-  // költözött komponensek KÉZI mezők — üresen 0-nak számítanak)
-  if (kereszteltEgyutt !== null && temetettEgyutt !== null) {
-    const termeszetes = kereszteltEgyutt - temetettEgyutt
-    auto['I.8'] = termeszetes
-    auto['I.9'] =
-      termeszetes + keziErtek('I.4c') + keziErtek('I.6c') - keziErtek('I.5c') - keziErtek('I.7c')
-  }
+  // I.8 / I.9 — a computeAuto végén, a deriveAutoMezok közös helperével
+  // származnak (felülírás- és kézi-komponens-tudatosan).
 
   // I.16 / I.17 — esketések + vegyes házasságok
   if (hazassagRes.error) {
@@ -461,150 +487,168 @@ async function computeAuto(
   // A II. fejezetbe a hivatalos nyomtatott munkanapló sorai számítanak
   // (isJournalEntry: szolgálat-kategória + ifjúsági bibliaóra), a besorolás a
   // classifyForOfficialJournal determinisztikus típus→oszlop szabálya.
+  //
+  // HIBA-ŐR: ha a munkanapló-lekérdezés hibázott, a TELJES worklog-alapú blokk
+  // kimarad (a II.*, a III. worklog-alapú mezői és a V.3 null marad — soha nem
+  // írunk hibából 0-t hivatalos rubrikába), és a hiba az autoHibak listába kerül.
 
-  const vasarnapDe = ujHalmozo()
-  const vasarnapDu = ujHalmozo()
-  const unnepi = ujHalmozo()
-  const satoros = ujHalmozo()
-  const hetkoznapi = ujHalmozo()
-  const bunbanati = ujHalmozo()
-  const bibliaora = ujHalmozo()
-  let bibliaoraFelnottDb = 0
-  let bibliaoraIfjusagiDb = 0
-  let egyebDb = 0
-  let presbiteriGyulesDb = 0
-  let unnepelyDb = 0
-  const imahet = ujHalmozo()
-  const satorosNapJelenlet = new Map<string, number>() // mezoId → össz-jelenlét
-  let katekezisDb = 0
-  let csaladlatogatasDb = 0
-  let egyebLatogatasDb = 0
-  // Úrvacsora: 'Úrvacsora'-ként besorolt alkalmak + minden sor, ahol
-  // úrvacsorázó-szám van rögzítve (uv_templomban / uv_betegnel)
-  let uvOsztasDb = 0
-  let uvResztvevoOssz = 0
-  let uvResztvevosDb = 0
-  let uvBetegnelOssz = 0
+  if (worklogRes.error) {
+    console.error(
+      '[lelkeszi-jelentes] munkanapló lekérdezés HIBA — a II./III. worklog-alapú mezők és a V.3 null maradnak:',
+      worklogRes.error,
+    )
+    autoHibak.push(
+      'A munkanapló lekérdezése hibázott, ezért az istentiszteleti (II.) és a gyülekezetgondozási (III.) ' +
+        'munkanapló-alapú rubrikák, valamint a katekézis-alkalmak (V.3) üresen maradtak: ' +
+        worklogRes.error,
+    )
+  } else {
+    const vasarnapDe = ujHalmozo()
+    const vasarnapDu = ujHalmozo()
+    const unnepi = ujHalmozo()
+    const satoros = ujHalmozo()
+    const hetkoznapi = ujHalmozo()
+    const bunbanati = ujHalmozo()
+    const bibliaora = ujHalmozo()
+    let bibliaoraFelnottDb = 0
+    let bibliaoraIfjusagiDb = 0
+    let egyebDb = 0
+    let presbiteriGyulesDb = 0
+    let unnepelyDb = 0
+    const imahet = ujHalmozo()
+    const satorosNapJelenlet = new Map<string, number>() // mezoId → össz-jelenlét
+    let katekezisDb = 0
+    let csaladlatogatasDb = 0
+    let egyebLatogatasDb = 0
+    // Úrvacsora: 'Úrvacsora'-ként besorolt alkalmak + minden sor, ahol
+    // úrvacsorázó-szám van rögzítve (uv_templomban / uv_betegnel)
+    let uvOsztasDb = 0
+    let uvResztvevoOssz = 0
+    let uvResztvevosDb = 0
+    let uvBetegnelOssz = 0
 
-  for (const e of worklogEntries) {
-    if (e.deleted) continue
+    for (const e of worklogRes.entries) {
+      if (e.deleted) continue
 
-    const kategoria = categorizeWorklogEntry(e)
-    if (kategoria === 'katekezis') katekezisDb += 1
-    if (kategoria === 'latogatas') {
-      if ((e.jellege || '').trim() === 'Családlátogatás') csaladlatogatasDb += 1
-      else egyebLatogatasDb += 1
-    }
-
-    // Imahét (III.5/III.6) — jellege szerint, kategóriától függetlenül
-    if ((e.jellege || '').trim() === 'Imahét') halmoz(imahet, e)
-
-    // Úrvacsorázó-számot rögzítő sorok (bármely kategória)
-    const uvOsszeg = (e.uv_templomban ?? 0) + (e.uv_betegnel ?? 0)
-    uvBetegnelOssz += e.uv_betegnel ?? 0
-    let uvAlkalom = uvOsszeg > 0
-    if (uvOsszeg > 0) {
-      uvResztvevoOssz += uvOsszeg
-      uvResztvevosDb += 1
-    }
-
-    if (isJournalEntry(e)) {
-      const { column, slot } = classifyForOfficialJournal(e)
-      switch (column) {
-        case 'vasarnapi':
-          halmoz(slot === 'du' ? vasarnapDu : vasarnapDe, e)
-          break
-        case 'unnepi':
-          halmoz(unnepi, e)
-          break
-        case 'satoros':
-          halmoz(satoros, e)
-          break
-        case 'hetkoznapi':
-          halmoz(hetkoznapi, e)
-          break
-        case 'bunbanati':
-          halmoz(bunbanati, e)
-          break
-        case 'bibliaora':
-          halmoz(bibliaora, e)
-          if (slot === 'ifjusagi') bibliaoraIfjusagiDb += 1
-          else bibliaoraFelnottDb += 1
-          break
-        case 'urvacsora':
-          uvAlkalom = true
-          break
-        case 'presbiteri':
-          presbiteriGyulesDb += 1
-          break
-        case 'unnepely':
-          unnepelyDb += 1
-          break
-        case 'noszovetsegi':
-          // Nincs hozzá auto-rubrika (a IV. Belmisszió kézi fejezet)
-          break
-        case 'egyeb':
-          egyebDb += 1
-          break
+      const kategoria = categorizeWorklogEntry(e)
+      if (kategoria === 'katekezis') katekezisDb += 1
+      if (kategoria === 'latogatas') {
+        if ((e.jellege || '').trim() === 'Családlátogatás') csaladlatogatasDb += 1
+        else egyebLatogatasDb += 1
       }
 
-      // Sátoros ünnepek naponkénti jelenléte (II.5a–f): az adott ünnepNAP
-      // ÖSSZES naplózott alkalmának jelenléte (oszloptól függetlenül —
-      // pl. az aznapi úrvacsorás istentisztelet is beleszámít).
-      const unnep = getUnnepInfo((e.idopont || '').slice(0, 10))
-      if (unnep && unnep.tipus === 'satoros') {
-        const mezoId = SATOROS_NAP_MEZO[unnep.nev]
-        if (mezoId) satorosNapJelenlet.set(mezoId, (satorosNapJelenlet.get(mezoId) || 0) + jelenlet(e))
+      // Imahét (III.5/III.6) — jellege szerint, kategóriától függetlenül
+      if ((e.jellege || '').trim() === 'Imahét') halmoz(imahet, e)
+
+      // Úrvacsorázó-számot rögzítő sorok (bármely kategória)
+      const uvOsszeg = (e.uv_templomban ?? 0) + (e.uv_betegnel ?? 0)
+      uvBetegnelOssz += e.uv_betegnel ?? 0
+      let uvAlkalom = uvOsszeg > 0
+      if (uvOsszeg > 0) {
+        uvResztvevoOssz += uvOsszeg
+        uvResztvevosDb += 1
       }
+
+      if (isJournalEntry(e)) {
+        const { column, slot } = classifyForOfficialJournal(e)
+        switch (column) {
+          case 'vasarnapi':
+            halmoz(slot === 'du' ? vasarnapDu : vasarnapDe, e)
+            break
+          case 'unnepi':
+            halmoz(unnepi, e)
+            break
+          case 'satoros':
+            halmoz(satoros, e)
+            break
+          case 'hetkoznapi':
+            halmoz(hetkoznapi, e)
+            break
+          case 'bunbanati':
+            halmoz(bunbanati, e)
+            break
+          case 'bibliaora':
+            halmoz(bibliaora, e)
+            if (slot === 'ifjusagi') bibliaoraIfjusagiDb += 1
+            else bibliaoraFelnottDb += 1
+            break
+          case 'urvacsora':
+            uvAlkalom = true
+            break
+          case 'presbiteri':
+            presbiteriGyulesDb += 1
+            break
+          case 'unnepely':
+            unnepelyDb += 1
+            break
+          case 'noszovetsegi':
+            // Nincs hozzá auto-rubrika (a IV. Belmisszió kézi fejezet)
+            break
+          case 'egyeb':
+            egyebDb += 1
+            break
+        }
+
+        // Sátoros ünnepek naponkénti jelenléte (II.5a–i): az adott ünnepNAP
+        // ÖSSZES naplózott alkalmának jelenléte (oszloptól függetlenül —
+        // pl. az aznapi úrvacsorás istentisztelet is beleszámít).
+        const unnep = getUnnepInfo((e.idopont || '').slice(0, 10))
+        if (unnep && unnep.tipus === 'satoros') {
+          const mezoId = SATOROS_NAP_MEZO[unnep.nev]
+          if (mezoId) satorosNapJelenlet.set(mezoId, (satorosNapJelenlet.get(mezoId) || 0) + jelenlet(e))
+        }
+      }
+
+      if (uvAlkalom) uvOsztasDb += 1
     }
 
-    if (uvAlkalom) uvOsztasDb += 1
+    auto['II.1a'] = vasarnapDe.db
+    auto['II.1b'] = atlagJelenlet(vasarnapDe)
+    auto['II.1c'] = szazalek(atlagJelenlet(vasarnapDe), lelekszam)
+    auto['II.2a'] = vasarnapDu.db
+    auto['II.2b'] = atlagJelenlet(vasarnapDu)
+    auto['II.2c'] = szazalek(atlagJelenlet(vasarnapDu), lelekszam)
+    auto['II.3a'] = unnepi.db
+    auto['II.3b'] = atlagJelenlet(unnepi)
+    auto['II.3c'] = szazalek(atlagJelenlet(unnepi), lelekszam)
+    auto['II.4a'] = satoros.db
+    auto['II.4b'] = atlagJelenlet(satoros)
+    auto['II.4c'] = szazalek(atlagJelenlet(satoros), lelekszam)
+    for (const mezoId of Object.values(SATOROS_NAP_MEZO)) {
+      auto[mezoId] = satorosNapJelenlet.has(mezoId) ? satorosNapJelenlet.get(mezoId)! : null
+    }
+    auto['II.6a'] = hetkoznapi.db
+    auto['II.6b'] = atlagJelenlet(hetkoznapi)
+    auto['II.7a'] = bunbanati.db
+    auto['II.7b'] = atlagJelenlet(bunbanati)
+    auto['II.8a'] = bibliaora.db
+    auto['II.8b'] = atlagJelenlet(bibliaora)
+    auto['II.9'] = egyebDb
+    auto['II.12'] = uvOsztasDb
+    auto['II.13'] = uvResztvevosDb > 0 ? round1(uvResztvevoOssz / uvResztvevosDb) : null
+    auto['II.14'] = uvBetegnelOssz
+
+    auto['III.1'] = bibliaoraFelnottDb
+    auto['III.2'] = bibliaoraIfjusagiDb
+    auto['III.3'] = unnepelyDb
+    auto['III.5'] = imahet.db
+    auto['III.6'] = atlagJelenlet(imahet)
+    auto['III.7'] = csaladlatogatasDb
+    auto['III.8'] = egyebLatogatasDb
+    auto['III.10'] = presbiteriGyulesDb
+
+    // V.3 — katekézis-alkalmak (worklog-alapú, ezért ebben a blokkban)
+    auto['V.3'] = katekezisDb
   }
 
-  auto['II.1a'] = vasarnapDe.db
-  auto['II.1b'] = atlagJelenlet(vasarnapDe)
-  auto['II.1c'] = szazalek(atlagJelenlet(vasarnapDe), lelekszam)
-  auto['II.2a'] = vasarnapDu.db
-  auto['II.2b'] = atlagJelenlet(vasarnapDu)
-  auto['II.2c'] = szazalek(atlagJelenlet(vasarnapDu), lelekszam)
-  auto['II.3a'] = unnepi.db
-  auto['II.3b'] = atlagJelenlet(unnepi)
-  auto['II.3c'] = szazalek(atlagJelenlet(unnepi), lelekszam)
-  auto['II.4a'] = satoros.db
-  auto['II.4b'] = atlagJelenlet(satoros)
-  auto['II.4c'] = szazalek(atlagJelenlet(satoros), lelekszam)
-  for (const mezoId of Object.values(SATOROS_NAP_MEZO)) {
-    auto[mezoId] = satorosNapJelenlet.has(mezoId) ? satorosNapJelenlet.get(mezoId)! : null
-  }
-  auto['II.6a'] = hetkoznapi.db
-  auto['II.6b'] = atlagJelenlet(hetkoznapi)
-  auto['II.7a'] = bunbanati.db
-  auto['II.7b'] = atlagJelenlet(bunbanati)
-  auto['II.8a'] = bibliaora.db
-  auto['II.8b'] = atlagJelenlet(bibliaora)
-  auto['II.9'] = egyebDb
-  auto['II.12'] = uvOsztasDb
-  auto['II.13'] = uvResztvevosDb > 0 ? round1(uvResztvevoOssz / uvResztvevosDb) : null
-  auto['II.14'] = uvBetegnelOssz
-
-  auto['III.1'] = bibliaoraFelnottDb
-  auto['III.2'] = bibliaoraIfjusagiDb
-  auto['III.3'] = unnepelyDb
-  auto['III.5'] = imahet.db
-  auto['III.6'] = atlagJelenlet(imahet)
-  auto['III.7'] = csaladlatogatasDb
-  auto['III.8'] = egyebLatogatasDb
-  auto['III.10'] = presbiteriGyulesDb
-
-  // III.9 — presbiterek száma
+  // III.9 — presbiterek száma (NEM worklog-alapú — worklog-hibánál is számol)
   if (presbiterRes.error) {
     console.error('[lelkeszi-jelentes] presbiter lekérdezés hiba — III.9 null:', presbiterRes.error.message)
   } else {
     auto['III.9'] = (presbiterRes.data || []).length
   }
 
-  // ── V. Vallásoktatás ──
-  auto['V.3'] = katekezisDb
+  // ── V. Vallásoktatás (konfirmálás — anyakönyv-alapú) ──
   if (konfirmalasRes.error) {
     console.error('[lelkeszi-jelentes] konfirmalas lekérdezés hiba — V.7 null:', konfirmalasRes.error.message)
   } else {
@@ -643,9 +687,19 @@ async function computeAuto(
     })
 
   let befRes = await befizetesQ(false)
-  if (befRes.error) befRes = await befizetesQ(true)
+  // Legacy-fallback CSAK a kompatibilitási oszlopok (stornozott /
+  // belso_mozgas_xkey) hiányára — más hibát nem szabad fallbackkel elfedni,
+  // mert a szűkített lekérdezés hibás összeget adhatna a hivatalos rubrikába.
+  if (befRes.error && isMissingBefizetesCompatColumn(befRes.error)) {
+    befRes = await befizetesQ(true)
+  }
   if (befRes.error) {
     console.error('[lelkeszi-jelentes] befizetes lekérdezés hiba — VII.1–VII.4 null:', befRes.error.message)
+    autoHibak.push(
+      'A befizetések lekérdezése hibázott, ezért az egyházfenntartói járulék és a perselypénz rubrikái ' +
+        '(VII.1–VII.4) üresen maradtak: ' +
+        (befRes.error.message || 'ismeretlen hiba'),
+    )
   } else {
     let jarulekOssz = 0
     let perselyOssz = 0
@@ -664,7 +718,7 @@ async function computeAuto(
     }
   }
 
-  // Zárszámadás (VII.6/7/8) — CSAK a véglegesített számadás kanonikus
+  // Zárszámadás (VII.6/7) — CSAK a véglegesített számadás kanonikus
   // snapshotjából (bealitas.szamadas_zaro_adatok, finalizeAccounting írja).
   // Amíg nincs véglegesített számadás, a mezők null-ok — a UI jelzi.
   if (bealitasRes.error) {
@@ -683,14 +737,17 @@ async function computeAuto(
       const kiadas = toNum(zaro.totalExpense) ?? (kanonikus ? toNum(kanonikus.totalExpense) : null)
       auto['VII.6'] = bevetel === null ? null : round2(bevetel)
       auto['VII.7'] = kiadas === null ? null : round2(kiadas)
-      if (bevetel !== null && kiadas !== null) {
-        // a = előző évi maradvány (VII.5 — kézi mező, üresen 0)
-        auto['VII.8'] = round2(keziErtek('VII.5') + bevetel - kiadas)
-      }
     }
   }
 
-  return { auto, congregationName }
+  // ── Levezetett mezők (I.8, I.9, VII.8) — közös helper (types.ts) ──
+  // A deriveAutoMezok a komponenseket a felulirasok > kezi > auto prioritással
+  // oldja fel, így a VII.8 a záró-blokkon KÍVÜL származik: felülírt VII.6/VII.7
+  // esetén véglegesített számadás nélkül is számol, és a felülírt keresztelt/
+  // temetett számok is átfolynak az I.8/I.9-be.
+  const derivedAuto = deriveAutoMezok(auto, kezi, felulirasok)
+
+  return { auto: derivedAuto, congregationName, egyhazmegyeNev, autoHibak }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -725,22 +782,58 @@ async function buildJelentesData(
   congId: string,
   ev: number,
   row: JelentesRow | null,
-): Promise<LelkesziJelentesData> {
+): Promise<{ data: LelkesziJelentesData; autoHibak: string[] }> {
   const kezi = sanitizeErtekek(row?.kezi_adatok)
   const felulirasok = sanitizeErtekek(row?.felulirasok)
-  const { auto, congregationName } = await computeAuto(supabase, congId, ev, kezi, felulirasok)
+  const { auto, congregationName, egyhazmegyeNev, autoHibak } = await computeAuto(
+    supabase, congId, ev, kezi, felulirasok,
+  )
   return {
-    ev,
-    congregationName,
-    auto,
-    kezi,
-    felulirasok,
-    hatarozat: (row?.hatarozat && typeof row.hatarozat === 'object'
-      ? (row.hatarozat as Partial<HatarozatAdatok>)
-      : {}),
-    statusz: row?.statusz === 'veglegesitve' ? 'veglegesitve' : 'szerkesztes',
-    veglegesitveAt: row?.veglegesitve_at || null,
+    data: {
+      ev,
+      congregationName,
+      egyhazmegyeNev,
+      auto,
+      kezi,
+      felulirasok,
+      hatarozat: (row?.hatarozat && typeof row.hatarozat === 'object'
+        ? (row.hatarozat as Partial<HatarozatAdatok>)
+        : {}),
+      statusz: row?.statusz === 'veglegesitve' ? 'veglegesitve' : 'szerkesztes',
+      veglegesitveAt: row?.veglegesitve_at || null,
+      // A beküldés-állapotot a getLelkesziJelentes tölti FRISSEN (a snapshotba
+      // fagyott érték elavulhatna, miközben az egyházmegye feldolgozza).
+      submission: null,
+    },
+    autoHibak,
   }
+}
+
+/**
+ * Az egyházmegyének beküldött jelentés állapota (document_submissions,
+ * 'lelkeszi_jelentes' típus, alap-beküldés: modification_number IS NULL).
+ * Hibánál null — a beküldés-állapot hiánya nem blokkolhatja a jelentés-nézetet.
+ */
+async function loadSubmission(
+  supabase: Supa,
+  congId: string,
+  ev: number,
+): Promise<{ status: string; submittedAt: string | null } | null> {
+  const { data, error } = await supabase
+    .from('document_submissions')
+    .select('status, submitted_at')
+    .eq('congregation_id', congId)
+    .eq('year', ev)
+    .eq('document_type', 'lelkeszi_jelentes')
+    .is('modification_number', null)
+    .maybeSingle()
+  if (error) {
+    console.error('[lelkeszi-jelentes] document_submissions lekérdezés hiba — a beküldés-állapot ismeretlen:', error.message)
+    return null
+  }
+  const row = data as { status?: unknown; submitted_at?: unknown } | null
+  if (!row || typeof row.status !== 'string') return null
+  return { status: row.status, submittedAt: typeof row.submitted_at === 'string' ? row.submitted_at : null }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -758,6 +851,8 @@ export async function getLelkesziJelentes(ev: number): Promise<{
   data?: LelkesziJelentesData
   /** true = a gyülekezet feloldás-kérése folyamatban van a véglegesített soron. */
   unlockRequested?: boolean
+  /** A hivatalos rubrikákat érintő rész-lekérdezési hibák magyar üzenetei. */
+  autoHibak?: string[]
   error?: string
 }> {
   const { supabase, congregationId } = await getEffectiveCongregationContext()
@@ -765,6 +860,10 @@ export async function getLelkesziJelentes(ev: number): Promise<{
 
   const { row, error } = await loadJelentesRow(supabase, congregationId, ev)
   if (error) return { error }
+
+  // Beküldés-állapot — mindig FRISSEN (a véglegesített snapshot mellett is,
+  // mert az egyházmegyei feldolgozás állapota a snapshot után is változik).
+  const submission = await loadSubmission(supabase, congregationId, ev)
 
   // Véglegesített sor: a snapshot a hiteles (befagyasztott) adat
   if (row?.statusz === 'veglegesitve' && isValidSnapshot(row.snapshot)) {
@@ -775,13 +874,19 @@ export async function getLelkesziJelentes(ev: number): Promise<{
         ev,
         statusz: 'veglegesitve',
         veglegesitveAt: row.veglegesitve_at || snap.veglegesitveAt || null,
+        egyhazmegyeNev: snap.egyhazmegyeNev ?? null,
+        submission,
       },
       unlockRequested: row.unlock_requested === true,
     }
   }
 
-  const data = await buildJelentesData(supabase, congregationId, ev, row)
-  return { data, unlockRequested: row?.unlock_requested === true }
+  const { data, autoHibak } = await buildJelentesData(supabase, congregationId, ev, row)
+  return {
+    data: { ...data, submission },
+    unlockRequested: row?.unlock_requested === true,
+    autoHibak,
+  }
 }
 
 /**
@@ -891,7 +996,34 @@ export async function finalizeLelkesziJelentes(ev: number): Promise<{ success?: 
   const loaded = await loadJelentesRow(supabase, congregationId, ev)
   if (loaded.error) return { error: loaded.error }
   let row = loaded.row
-  if (row?.statusz === 'veglegesitve') return { error: 'Ez a jelentés már véglegesítve van.' }
+
+  // Véglegesített sor: csak akkor „kész", ha a snapshot ép. Érvénytelen/hiányzó
+  // snapshotnál ÖNGYÓGYÍTÁS: újraszámolt snapshotot írunk a sorra (guard:
+  // statusz='veglegesitve' — az időközben feloldott sort nem bántjuk).
+  if (row?.statusz === 'veglegesitve') {
+    if (isValidSnapshot(row.snapshot)) return { error: 'Ez a jelentés már véglegesítve van.' }
+    const { data } = await buildJelentesData(supabase, congregationId, ev, row)
+    const gyogyitoAt = row.veglegesitve_at || new Date().toISOString()
+    const snapshot: Record<string, unknown> = {
+      ...data,
+      statusz: 'veglegesitve',
+      veglegesitveAt: gyogyitoAt,
+      veglegesito: fullName || null,
+    }
+    const { data: upd, error: updErr } = await supabase
+      .from('lelkeszi_jelentes')
+      .update({ snapshot })
+      .eq('id', row.id)
+      .eq('congregation_id', congregationId)
+      .eq('statusz', 'veglegesitve')
+      .select('id')
+    if (updErr) return { error: `Hiba a véglegesítéskor: ${updErr.message}` }
+    if (!upd || upd.length === 0) {
+      return { error: 'A jelentés állapota időközben megváltozott — töltse újra az oldalt.' }
+    }
+    revalidatePath('/munkanaplo')
+    return { success: true }
+  }
 
   // Ha még nincs sor (pl. minden auto-adat rendben volt, kézi mentés nem
   // történt), létrehozzuk — a véglegesítés így is snapshotol.
@@ -910,34 +1042,50 @@ export async function finalizeLelkesziJelentes(ev: number): Promise<{ success?: 
     if (row.statusz === 'veglegesitve') return { error: 'Ez a jelentés már véglegesítve van.' }
   }
 
-  const nowIso = new Date().toISOString()
-  const data = await buildJelentesData(supabase, congregationId, ev, row)
-  const snapshot: Record<string, unknown> = {
-    ...data,
-    statusz: 'veglegesitve',
-    veglegesitveAt: nowIso,
-    // Audit-kényelem: ki véglegesítette (a hiteles azonosító a
-    // veglegesito_profile_id oszlop)
-    veglegesito: fullName || null,
-  }
-
-  const { data: upd, error: updErr } = await supabase
-    .from('lelkeszi_jelentes')
-    .update({
+  // Guardolt véglegesítés OPTIMISTA ZÁRRAL (updated_at): párhuzamos mentés a
+  // snapshot-számítás közben elavulttá tenné a befagyasztandó adatot — a zár
+  // ilyenkor 0 sort frissít, és EGYSZER friss sorból újraépítve próbálunk.
+  for (let kiserlet = 1; ; kiserlet++) {
+    const nowIso = new Date().toISOString()
+    const { data } = await buildJelentesData(supabase, congregationId, ev, row)
+    const snapshot: Record<string, unknown> = {
+      ...data,
       statusz: 'veglegesitve',
-      veglegesitve_at: nowIso,
-      veglegesito_profile_id: userId || null,
-      snapshot,
-      unlock_requested: false,
-      unlock_reason: null,
-    })
-    .eq('id', row.id)
-    .eq('congregation_id', congregationId)
-    .eq('statusz', 'szerkesztes')
-    .select('id')
-  if (updErr) return { error: `Hiba a véglegesítéskor: ${updErr.message}` }
-  if (!upd || upd.length === 0) {
-    return { error: 'A jelentést időközben véglegesítették — töltse újra az oldalt.' }
+      veglegesitveAt: nowIso,
+      // Audit-kényelem: ki véglegesítette (a hiteles azonosító a
+      // veglegesito_profile_id oszlop)
+      veglegesito: fullName || null,
+    }
+
+    const { data: upd, error: updErr } = await supabase
+      .from('lelkeszi_jelentes')
+      .update({
+        statusz: 'veglegesitve',
+        veglegesitve_at: nowIso,
+        veglegesito_profile_id: userId || null,
+        snapshot,
+        unlock_requested: false,
+        unlock_reason: null,
+      })
+      .eq('id', row.id)
+      .eq('congregation_id', congregationId)
+      .eq('statusz', 'szerkesztes')
+      .eq('updated_at', row.updated_at)
+      .select('id')
+    if (updErr) return { error: `Hiba a véglegesítéskor: ${updErr.message}` }
+    if (upd && upd.length > 0) break
+
+    // 0 sor → verseny: kiderítjük, mi történt időközben.
+    const reread = await loadJelentesRow(supabase, congregationId, ev)
+    if (reread.error) return { error: reread.error }
+    if (!reread.row || reread.row.statusz === 'veglegesitve') {
+      return { error: 'A jelentést időközben véglegesítették — töltse újra az oldalt.' }
+    }
+    if (kiserlet >= 2) {
+      return { error: 'A jelentésen időközben mentés történt — próbálja újra a véglegesítést.' }
+    }
+    // Még 'szerkesztes' → egyszeri újrapróba a FRISS sorból épített snapshottal.
+    row = reread.row
   }
 
   revalidatePath('/munkanaplo')
@@ -985,8 +1133,26 @@ export async function submitLelkesziJelentes(ev: number): Promise<{ success?: bo
 
   const { row, error } = await loadJelentesRow(supabase, congregationId, ev)
   if (error) return { error }
-  if (!row || row.statusz !== 'veglegesitve' || !isValidSnapshot(row.snapshot)) {
+  if (!row || row.statusz !== 'veglegesitve') {
     return { error: 'A beküldés előtt véglegesíteni kell a jelentést.' }
+  }
+  // Véglegesített, de sérült/hiányzó snapshot: pontos hibaüzenet (a
+  // véglegesítés-gomb öngyógyító újra-snapshotja megjavítja).
+  if (!isValidSnapshot(row.snapshot)) {
+    return {
+      error:
+        'A véglegesített jelentés befagyasztott adata hiányzik vagy sérült — véglegesítse újra a jelentést, majd küldje be.',
+    }
+  }
+
+  // Ha az egyházmegye a korábbi beküldést már feldolgozta (received/reviewed/
+  // finalized), az ismételt beküldés némán felülírná a feldolgozott sort.
+  const submission = await loadSubmission(supabase, congregationId, ev)
+  if (submission && submission.status !== 'submitted') {
+    return {
+      error:
+        'A korábban beküldött jelentést az egyházmegye már feldolgozta — ismételt beküldés előtt egyeztessen az egyházmegyei hivatallal.',
+    }
   }
 
   const result = await submitDocument('lelkeszi_jelentes', ev, row.snapshot)

@@ -6,7 +6,7 @@
  */
 
 import { useState, useTransition } from 'react'
-import { Check, X, ShieldAlert, Wallet, BarChart3, Package } from 'lucide-react'
+import { Check, X, ShieldAlert, Wallet, BarChart3, Package, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -24,6 +24,8 @@ const TYPE_LABELS: Record<string, { label: string; icon: typeof Wallet; color: s
   budget: { label: 'Költségvetés', icon: Wallet, color: 'text-blue-600 bg-blue-50' },
   accounting: { label: 'Számadás', icon: BarChart3, color: 'text-amber-600 bg-amber-50' },
   inventory: { label: 'Vagyonleltár', icon: Package, color: 'text-teal-600 bg-teal-50' },
+  // 2026-07-17 (F5): a hivatalos lelkészi jelentés feloldás-kérelme
+  jelentes: { label: 'Lelkészi jelentés', icon: FileText, color: 'text-indigo-600 bg-indigo-50' },
 }
 
 export function UnlockRequestsCard({ requests }: UnlockRequestsCardProps) {
