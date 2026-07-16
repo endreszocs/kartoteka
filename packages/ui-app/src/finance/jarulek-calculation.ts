@@ -58,6 +58,24 @@ function normalizeAmount(value: unknown) {
   return Math.max(0, Number(value) || 0)
 }
 
+/**
+ * A kedvezmény-mezők KÉT eltérő szemantikájú családba esnek, és ezt a UI feliratai
+ * rögzítik (fee-discounts-manager.tsx):
+ *   - SZÁZALÉK (`szazalek`)  → LEVONANDÓ kedvezmény.  „Kedvezmény (%)" /
+ *     „a kedvezmény százalékával kevesebbet fizet" → a fizetendő a MARADÉK.
+ *   - RON-ÖSSZEG (`kedv_osszeg`, `fix_osszeg`) → maga a FIZETENDŐ összeg.
+ *     „Kedvezményes összeg (RON)" / „Fizetendő összeg (RON) — 0 = mentesül".
+ *
+ * 2026-07-16: a `kor` ág korábban a százalékot is fizetendőként értelmezte
+ * (baseFee * szazalek / 100), tehát pont fordítva: 0% → 0 RON (ingyen),
+ * 100% → teljes díj. Az űrlap 50%-os alapértéke elrejtette (ott a két képlet
+ * egybeesik). A százalékot 100-ra vágjuk, hogy a fizetendő ne mehessen 0 alá.
+ */
+function applyPercentDiscount(baseFee: number, szazalek: unknown) {
+  const percent = Math.min(100, normalizeAmount(szazalek))
+  return Math.round((baseFee * (100 - percent)) / 100)
+}
+
 /** Foglalkozás-egyezéshez: kisbetűs, ékezet nélküli, trimmelt forma. */
 function normalizeOccupation(value: unknown) {
   return String(value ?? '')
@@ -175,7 +193,7 @@ function getAgeAdjustedFee(
         discount.fix_osszeg != null
           ? normalizeAmount(discount.fix_osszeg)
           : discount.szazalek != null
-            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
+            ? applyPercentDiscount(baseFee, discount.szazalek)
             : baseFee
 
       if (candidate < bestAmount) {
@@ -340,6 +358,15 @@ export function computeJarulekForMemberYear(params: {
   const activeDiscounts = discounts.filter((discount) => discount.aktiv && discount.ev === year)
   const ageAdjusted = getAgeAdjustedFee(member, year, baseFee, activeDiscounts)
   const occupationAdjusted = getOccupationAdjustedFee(member, baseFee, activeDiscounts)
+  // A 'jovedelem' (szociális) típusnak SZÁNDÉKOSAN nincs ága — NE add hozzá!
+  // A `jarulek_kedvezmeny` táblán nincs `id_szemely`/`id_csalad` (csak
+  // `congregation_id`), tehát egy ilyen szabály nem szűkíthető egy tagra: az
+  // egész gyülekezetre érvényesülne. Egy „súlyos beteg tag 100%" szabály így
+  // MINDENKIT ingyenessé tenne. A személyre szóló szociális mentesség helye a
+  // `felmentes` tábla (id_szemely + év-intervallum + indok), amit a fenti
+  // isExemptForYear() már érvényesít. Részleges (pl. 50%) személyre szóló
+  // kedvezményhez előbb a séma kell hogy bővüljön.
+  //
   // A kor- és foglalkozás-alapú kedvezmény közül a kedvezőbb (kisebb) megy
   // tovább az időszaki (early-payment) számításba.
   const bestBeforeEarly = Math.min(ageAdjusted.amount, occupationAdjusted.amount)
