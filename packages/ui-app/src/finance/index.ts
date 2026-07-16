@@ -41,6 +41,9 @@ export * from './ExpenseDialogBody'
 export * from './IncomeDialogBody'
 export * from './ron-in-words'
 export * from './date-parse'
+// 2026-07-16: „HH-NN" → „július 1." formázás (a date-parse ikerpárja: parse ⇄ format).
+// A járulék-motor címkéi is ezt használják → web és desktop ugyanazt a szöveget kapja.
+export * from './month-day'
 export * from './official-documents'
 export * from './finance-export'
 export * from './FinanceTableToolbar'

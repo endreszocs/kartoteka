@@ -10,6 +10,7 @@
 
 import {
   computeJarulekForMemberYear,
+  todayInBucharest,
   JARULEK_MINOR_RULE,
   type DebtRow,
   type DebtCalcMode,
@@ -53,6 +54,10 @@ export function buildDebtRows(params: {
 }): DebtRow[] {
   const { members, maintenancePayments, exemptions, discounts, yearSettings, year, debtCalcMode } = params
 
+  // 2026-07-16: bit-azonos a webbel — a korai-fizetési kedvezmény az AKTUÁLIS időszak
+  // árát mutatja a még nem fizetőknél is. Offline is a romániai naptári nap számít.
+  const asOfDate = todayInBucharest()
+
   return members
     .filter((m) => m.meghalt !== 1 && !EXCLUDED_STATUS.includes(m.member_status || ''))
     .map((m) => {
@@ -67,6 +72,7 @@ export function buildDebtRows(params: {
         discounts,
         exemptions,
         payments: maintenancePayments,
+        asOfDate,
       })
       const name = [m.csaladnev, m.k_nev].filter(Boolean).join(' ')
       // 2026-07-16: bit-azonos a webbel (penzugy/actions.ts) — a kiskorúság ELŐBB

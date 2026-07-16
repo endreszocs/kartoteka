@@ -23,6 +23,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Korai fizetés: a hátralék az aktuális kedvezményes időszakot mutatja + betűs hónapnevek
+<!-- key: 2026-07-16-korai-fizetes-aktualis-idoszak -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.79 -->
+
+### ✨ Pénzügy — korai fizetési kedvezmény
+
+- **A Tartozások listája mostantól figyelembe veszi, hogy éppen melyik kedvezményes
+  időszakban vagyunk.** Eddig a kedvezmény csak annál jelent meg, aki már ki is fizette —
+  aki januárban még nem fizetett, annál a teljes díj állt, pedig javában a kedvezményes
+  időszakban voltunk. Mostantól nála az aktuális időszak összege látszik (pl. márciusban
+  160 lej, augusztusban 190, novembertől a teljes díj).
+
+- **Aki már fizetett, annál semmi nem változik.** Aki januárban kifizette a kedvezményes
+  160 lejt, annak novemberben sem keletkezik tartozása — a megszerzett kedvezmény
+  megmarad, nem „jár le" utólag.
+
+- **A hónapok mostantól betűvel is ki vannak írva** — a listában, a kedvezmény-szabályoknál
+  és a beviteli mezőknél is. A „07-01" ránézésre lehetett július 1. vagy január 7.; mostantól
+  egyértelműen **július 1.** olvasható. A beírt kód alatt élőben megjelenik a betűs alak.
+
+- **A több kedvezményes időszak megtalálhatóvá vált.** A „Pénzügyi alap" panelről mostantól
+  egy gomb visz át a „Kedvezmények és díjak" panelre, ahol több időszak is felvehető
+  (pl. január 1. – július 1. → 160 lej, július 2. – november 1. → 190 lej). Amelyik időszakba
+  a fizetés nem esik bele, ott a teljes éves díj érvényes — azt nem kell külön felvenni.
+
+---
+
 ## [2026-07-16] — A Tartozások lista és az éves jelentés lélekszáma némán üres volt
 <!-- key: 2026-07-16-szemely-select-nem-letezo-oszlop -->
 <!-- category: bugfix -->

@@ -10,6 +10,8 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { formatMonthDay, formatMonthDayRange } from '@kartoteka/ui-app'
+
 import {
   deleteCongregationFeeDiscount,
   getCongregationFeeDiscounts,
@@ -280,18 +282,26 @@ export function FeeDiscountsManager({
           {discountForm.tipus === 'idoszak' && (
             <div className="rounded-[1rem] border border-sky-100 bg-sky-50/40 p-3">
               <div className="grid gap-3 md:grid-cols-3">
-                <Field label="Kezdő dátum (HH-NN)">
+                {/* 2026-07-16 (Endre): „nem lehet tudni melyik a hónap és melyik a nap" —
+                    a beírt kód alatt élőben megjelenik a betűs feloldás. */}
+                <Field label="Kezdő dátum (hónap-nap)">
                   <Input className={FIELD_INPUT_CLASS} value={discountForm.kezdet} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kezdet: event.target.value }))} placeholder="01-01" />
+                  <p className="mt-1 text-[11px] font-medium text-teal-700">{formatMonthDay(discountForm.kezdet)}</p>
                 </Field>
-                <Field label="Vég dátum (HH-NN)">
+                <Field label="Vég dátum (hónap-nap)">
                   <Input className={FIELD_INPUT_CLASS} value={discountForm.hatarid} onChange={(event) => setDiscountForm((prev) => ({ ...prev, hatarid: event.target.value }))} placeholder="07-01" />
+                  <p className="mt-1 text-[11px] font-medium text-teal-700">{formatMonthDay(discountForm.hatarid)}</p>
                 </Field>
                 <Field label="Kedvezményes összeg (RON)">
                   <Input type="number" min={0} className={FIELD_INPUT_CLASS} value={discountForm.kedvOsszeg} onChange={(event) => setDiscountForm((prev) => ({ ...prev, kedvOsszeg: Number(event.target.value) }))} />
                 </Field>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
-                Aki a <strong>kezdő–vég dátum</strong> időablakban fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett. Több időablak is felvehető (pl. 01-01–07-01 → 160, 07-02–10-31 → 190).
+                Aki ebben az időszakban fizet, a &bdquo;kedvezményes összeg&rdquo;-et fizeti a teljes díj helyett.
+                A dátum <strong>hónap-nap</strong> sorrendben van: a <code>07-01</code> = <strong>július 1.</strong> (nem január 7.).
+                <strong> Több időszak is felvehető</strong> — pl. <code>01-01</code>–<code>07-01</code> → 160,
+                majd <code>07-02</code>–<code>11-01</code> → 190. Amelyik időszakba nem esik bele a fizetés,
+                ott a <strong>teljes éves díj</strong> érvényes (azt nem kell külön felvenni).
               </p>
             </div>
           )}
@@ -452,7 +462,8 @@ function DiscountCard({
 }) {
   const description =
     discount.tipus === 'idoszak'
-      ? `Időablak: ${discount.kezdet || '—'}–${discount.hatarid || '—'} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
+      // 2026-07-16: betűs hónap — a nyers „01-01–07-01" nem volt egyértelmű.
+      ? `${formatMonthDayRange(discount.kezdet, discount.hatarid)} · Kedvezményes összeg: ${Number(discount.kedv_osszeg || 0).toLocaleString('hu-HU')} RON`
       : discount.tipus === 'kor'
         ? `${discount.kor_tol || 0}+ éves kortól · ${discount.szazalek || 0}% kedvezmény`
         : discount.tipus === 'foglalkozas'

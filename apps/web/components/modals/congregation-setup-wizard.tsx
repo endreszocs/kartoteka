@@ -502,6 +502,31 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                         haladó szerkesztőből. A kedvezmény-szabályok + egyéb díjak a „Kedvezmények
                         és díjak" panelen, a lelkész-átadás a „Lelkészek és átadás" panelen. */}
                     <AnnualFeesManager congregationId={congregationId} currentYearFee={form.eves_jarulek} />
+                    {/* 2026-07-16 (Endre): a korai-fizetési kedvezményt a „Kedvezmények és díjak”
+                        panelen lehet felvenni (több időszakkal is), de ő ITT kereste — a panel
+                        csak említette, nem vitt oda. Kattintható átvezetés. */}
+                    <div className="rounded-[1.2rem] border border-violet-200 bg-violet-50/50 p-4">
+                      <p className="text-sm font-medium text-violet-900">
+                        Korai fizetés kedvezménye — több időszakkal is
+                      </p>
+                      <p className="mt-1 text-[13px] leading-relaxed text-violet-800/90">
+                        Ha azt szeretnéd, hogy aki előbb fizet, kevesebbet fizessen (pl.{' '}
+                        <strong>január 1. – július 1. → 160 lej</strong>, utána{' '}
+                        <strong>július 2. – november 1. → 190 lej</strong>, azután a teljes díj),
+                        azt a <strong>Kedvezmények és díjak</strong> panelen veheted fel. Több
+                        időszak is megadható; amelyik időszakba nem esik bele, ott a teljes éves
+                        díj érvényes.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3 border-violet-300 bg-white text-violet-800 hover:bg-violet-100"
+                        onClick={() => setActivePane('kedvezmenyek')}
+                      >
+                        <Percent className="mr-2 size-4" />
+                        Kedvezmények beállítása
+                      </Button>
+                    </div>
                   </>
                 )}
 
