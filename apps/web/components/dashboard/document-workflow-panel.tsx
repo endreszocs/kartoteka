@@ -26,8 +26,11 @@ interface DocumentWorkflowPanelProps {
   year: number
 }
 
+// 2026-07-17 (F5): a 'lelkeszi_jelentes' oszlop nélkül a beküldött éves
+// lelkészi jelentés láthatatlan maradna a mátrixban.
 const DOC_TYPES: DocumentType[] = [
   'szamadas', 'koltsegvetes', 'koltsegvetes_modositas', 'vagyonleltar', 'valasztok_nevjegyzeke',
+  'lelkeszi_jelentes',
 ]
 
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; className: string; icon: typeof Clock }> = {

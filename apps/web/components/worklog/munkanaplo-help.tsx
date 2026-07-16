@@ -373,6 +373,38 @@ function ReportContent() {
         A statisztikához nem kell semmit külön beállítani — minél pontosabban vannak
         kitöltve az alapige-, bibliaolvasás- és ének-mezők, annál pontosabb a kép.
       </p>
+
+      {/* 2026-07-17 (F5): új szakasz — a hivatalos éves lelkészi jelentés súgója. */}
+      <S>Hivatalos lelkészi jelentés (I–X. fejezet)</S>
+      <p>
+        A jelentés-fül <strong>„Hivatalos lelkészi jelentés”</strong> gombja nyitja meg
+        az éves hivatalos jelentés szerkesztőjét, élő A4-előnézettel. A jelentés tíz
+        fejezetből áll (I. Lélekszám … X. Missziói terv), és kétféle mezőt tartalmaz:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Automatikus mezők</strong> — az app élő adataiból számolódnak:
+          a lélekszám-mozgás (keresztelés, temetés, betérés/kitérés, költözés) az
+          anyakönyvekből és a tagnyilvántartásból, az istentiszteleti alkalmak és az
+          átlagjelenlét a munkanaplóból, az anyagi helyzet a pénzügyi modulból. Az
+          automatikus érték kézzel <em>felülírható</em>, a felülírás pedig bármikor
+          visszaállítható az eredeti számolt értékre.
+        </li>
+        <li>
+          <strong>Kézi mezők</strong> — amit az app nem tud számolni (pl. belmisszió,
+          szeretetszolgálat, ingatlanok, események, missziói terv), azt szövegként
+          vagy számként kell kitölteni.
+        </li>
+      </ul>
+      <S>Véglegesítés és beküldés</S>
+      <p>
+        A <strong>véglegesítő varázsló</strong> áttekinti a kulcsszámokat, jelzi a még
+        kitöltetlen mezőket, majd rögzíti a határozati adatokat (presbitériumi és
+        közgyűlési szám + dátum, iktatószámok, aláírók). A véglegesített jelentés
+        zárolt — módosításhoz feloldás kérhető az egyházmegyétől. A lezárt jelentés
+        egy gombbal <strong>beküldhető az egyházmegyének</strong>, valamint PDF-ként
+        menthető és nyomtatható.
+      </p>
     </>
   )
 }

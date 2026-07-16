@@ -9,6 +9,10 @@ export type DocumentType =
   | 'koltsegvetes_modositas'
   | 'vagyonleltar'
   | 'valasztok_nevjegyzeke'
+  // 2026-07-16 (F5): éves hivatalos lelkészi jelentés (I–X. fejezet) beküldése
+  // az egyházmegyének — a document_submissions.document_type-on nincs CHECK,
+  // a migráció (2026-07-16-f5-lelkeszi-jelentes.sql) dokumentálja az értéket.
+  | 'lelkeszi_jelentes'
 
 export type DocumentStatus = 'submitted' | 'received' | 'reviewed' | 'finalized'
 
@@ -33,6 +37,7 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   koltsegvetes_modositas: 'Költségvetés módosítás',
   vagyonleltar: 'Vagyonleltári jelentés',
   valasztok_nevjegyzeke: 'Választók névjegyzéke',
+  lelkeszi_jelentes: 'Lelkészi jelentés',
 }
 
 // Feloldási kérelem típus (az egyházmegyei actions.ts-ből kiemelve)
@@ -51,4 +56,7 @@ export const DOCUMENT_DEADLINES: Record<DocumentType, string> = {
   koltsegvetes_modositas: 'Év közben (opcionális)',
   vagyonleltar: 'Január 31.',
   valasztok_nevjegyzeke: 'Május 31.',
+  // Az éves jelentést a presbitérium + közgyűlés tárgyalása után küldi be a
+  // gyülekezet — jellemzően az év eleji rendes közgyűlést követően.
+  lelkeszi_jelentes: 'Évi rendes közgyűlés után',
 }
