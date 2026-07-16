@@ -344,6 +344,35 @@ function ReportContent() {
         bármely elmúlt időszakot meg lehet nézni; a hónapválasztó „Egész év” opciójával
         a teljes éves összesítés is egyben megjelenik.
       </p>
+
+      {/* 2026-07-16 (F4): új szakasz — az év-statisztika blokkok súgója. */}
+      <S>Év-statisztika</S>
+      <p>
+        A jelentés-fül alján részletes <strong>év-statisztika</strong> található, ami
+        mindig a kiválasztott <em>teljes évből</em> számol — a hónap-szűréstől
+        függetlenül, a munkanapló-bejegyzések mezőiből automatikusan:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Látogatottság</strong> — a szolgálati alkalmak típusonként
+          (darabszám, átlagjelenlét, férfi/nő/gyermek és napszak-bontás), a
+          leggyakoribb típusok havi trendjével.
+        </li>
+        <li>
+          <strong>Énekek</strong> — az Énekek mezőkből: a leggyakrabban énekelt
+          énekek címmel és az utolsó éneklés dátumával, tematikus szakasz-bontás,
+          valamint javaslatok régen nem énekelt énekekre.
+        </li>
+        <li>
+          <strong>Igeversek és Biblia-lefedettség</strong> — a leggyakoribb alapigék,
+          és hogy a Károli-biblia 31&nbsp;126 verséből hányat érintett az év
+          (Alapige + Bibliaolvasás együtt), könyvenkénti hőtérképpel.
+        </li>
+      </ul>
+      <p>
+        A statisztikához nem kell semmit külön beállítani — minél pontosabban vannak
+        kitöltve az alapige-, bibliaolvasás- és ének-mezők, annál pontosabb a kép.
+      </p>
     </>
   )
 }

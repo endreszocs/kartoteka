@@ -16,6 +16,7 @@
 // szerkeszthető WorklogTableEditor. Az oldal sosem görget vízszintesen.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Download, FileText, NotebookPen, Pencil, Plus, Printer, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -36,6 +37,21 @@ import { WorklogOverview } from '@/components/worklog/worklog-overview'
 import { WorklogTableEditor } from '@/components/worklog/worklog-table-editor'
 import { WorklogPrintDialog } from '@/components/worklog/worklog-print-dialog'
 import { MunkanaploHelp } from './munkanaplo-help'
+
+// 2026-07-16 (F4/S2): az év-statisztika lazy-load-dal töltődik — a statisztika-
+// kód (+ a mögötte lusta énekeskönyv-korpusz) nem növeli a munkanapló fő
+// chunkját, csak a Lelkészi jelentés fülre lépéskor jön le.
+const WorklogStatistics = dynamic(
+  () => import('@/components/worklog/worklog-statistics').then((m) => m.WorklogStatistics),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+        Év-statisztika betöltése…
+      </div>
+    ),
+  },
+)
 
 type WorklogTab = WorklogCategory | 'jelentes' | 'help' | 'admin-import'
 
@@ -131,8 +147,12 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
   const isMdUp = useIsMdUp()
   // A mindenkori aktuális év — a csendes újratöltés stale-year őre ezt
   // hasonlítja össze a híváskor rögzített évvel (lásd refreshEntries).
+  // Effect-ben frissül (render közbeni ref-írás lint-hibát adna); a guard
+  // számára ez elegendő: az év-váltó effect úgyis teljes újratöltést indít.
   const yearRef = useRef(year)
-  yearRef.current = year
+  useEffect(() => {
+    yearRef.current = year
+  }, [year])
 
   const period = monthNum === 0 ? String(year) : `${year}-${String(monthNum).padStart(2, '0')}`
 
@@ -410,6 +430,10 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
               </Button>
             </div>
           </div>
+
+          {/* Év-statisztika (F4/S2) — a ReportCard-blokk alatt; mindig a TELJES
+              év bejegyzéseit kapja (entries), a hónap-szűrés erre nem hat. */}
+          <WorklogStatistics yearEntries={entries} year={year} />
         </div>
       ) : (
         <div className="space-y-3">
