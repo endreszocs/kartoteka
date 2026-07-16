@@ -6,6 +6,9 @@ import { z } from 'zod'
 
 export const worklogSchema = z.object({
   id: z.number().optional(),
+  // 2026-07-11 (konkurencia): optimista zároláshoz — szerkesztéskor a kliens
+  // visszaküldi a betöltött revision-t, a mentés csak azonos revision mellett fut.
+  revision: z.number().int().nonnegative().optional(),
   idopont: z.string().min(1, 'A dátum kötelező'),
   jellege: z.string().min(1, 'A típus kötelező'),
   kategoria: z.string().nullable().optional().default('szolgalat'),

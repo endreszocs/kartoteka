@@ -10,9 +10,13 @@ export const WORKLOG_CATEGORY_LABELS: Record<WorklogCategory, string> = {
 // rögzítés automatikus munkanapló-bejegyzései így a Szolgálat fülön és a
 // jelentésekben is megjelennek. (A hivatalos Excel "Szolgálat jellege"
 // oszlopa is ide sorolja őket.)
+// 2026-07-11: a 'Bibliaóra' korábban a szolgalat ÉS a katekezis listában is
+// szerepelt. A hivatalos nyomtatott munkanapló 13. oszlopa szerint a bibliaóra
+// Felnőtt / Ifjúsági (IKE) bontású → a szolgalat listában marad a 'Bibliaóra'
+// (felnőtt alkalom), a katekezisben 'Ifjúsági bibliaóra (IKE)' lett.
 export const WORKLOG_TYPES: Record<WorklogCategory, string[]> = {
   szolgalat: ['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Bibliaóra', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet', 'Keresztelő', 'Esketés', 'Temetés', 'Konfirmáció', 'Egyéb szolgálat'],
-  katekezis: ['Bibliaóra', 'Hittan', 'Vallásóra', 'Kátéóra', 'Konfirmáció előkészítő', 'Ifjúsági óra', 'Gyermek foglalkozás', 'Egyéb katekézis'],
+  katekezis: ['Ifjúsági bibliaóra (IKE)', 'Hittan', 'Vallásóra', 'Kátéóra', 'Konfirmáció előkészítő', 'Ifjúsági óra', 'Gyermek foglalkozás', 'Egyéb katekézis'],
   latogatas: ['Családlátogatás', 'Beteglátogatás', 'Kórházlátogatás', 'Idősek otthona', 'Börtönlátogatás', 'Egyéb látogatás'],
 }
 
@@ -42,6 +46,8 @@ export function categorizeWorklogEntry(e: { kategoria?: string | null; jellege?:
 // `jelenlet_*`/`szolgalt`/`mediapath`/`kategoria`/`du`/`id_jellege`.
 export interface WorklogEntry {
   id: number
+  /** Optimista zároláshoz (DB bump-trigger lépteti); régi/offline sorokon hiányozhat. */
+  revision?: number | null
   idopont: string | null
   kategoria: string | null
   jellege: string | null

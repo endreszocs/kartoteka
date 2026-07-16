@@ -280,6 +280,33 @@ export async function executeBatchImport(
       totalSkipped += insertResult.skipped
       sheetInserted = insertResult.inserted
       sheetSkipped = insertResult.skipped
+
+      // 2026-07-11 P2 (iktató pointer-szinkron): az import direkt INSERT-tel ír,
+      // ezért a next_iktato_sequence sorszám-pointere lemaradna — a következő
+      // kézi iktatás ütköző sorszámot kapna. Az RPC minden érintett évre a
+      // tényleges maximumra húzza a pointert; hibája nem buktatja az importot.
+      if (profile.targetTable === 'iktato' && insertResult.inserted > 0) {
+        const affectedYears = new Set<number>()
+        for (const rec of resolvedRecords) {
+          const y = Number(rec['year'])
+          if (Number.isFinite(y) && y >= 1800 && y <= 2200) affectedYears.add(y)
+        }
+        // Az évek függetlenek — párhuzamosan szinkronizálhatók (sok-éves
+        // archívum-importnál a soros változat éveként egy kört várna).
+        await Promise.allSettled(
+          [...affectedYears].map(async (y) => {
+            const { error: syncError } = await supabase.rpc('sync_iktato_sequence_pointer', {
+              p_congregation_id: access.effectiveCongregationId,
+              p_year: y,
+            })
+            if (syncError) {
+              console.warn(
+                `[executeBatchImport] Iktató sorszám-pointer szinkron sikertelen (${y}. év): ${syncError.message}`,
+              )
+            }
+          }),
+        )
+      }
     }
 
     perSheetLog.push({

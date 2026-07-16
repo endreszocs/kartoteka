@@ -50,7 +50,9 @@ const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> =
     'Egyéb szolgálat',
   ],
   katekezis: [
-    'Bibliaóra',
+    // 2026-07-11 F1: a 'Bibliaóra' duplikátum feloldva a webbel azonosan —
+    // a felnőtt Bibliaóra a szolgálat-lista tagja, itt az ifjúsági változat él.
+    'Ifjúsági bibliaóra (IKE)',
     'Hittan',
     'Vallásóra',
     'Kátéóra',

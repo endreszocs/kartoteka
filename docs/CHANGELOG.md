@@ -23,6 +23,48 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Munkanapló és iktató alapjavítások + ének- és bibliaadat-alapok
+<!-- key: 2026-07-11-munkanaplo-iktato-f1 -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.80 -->
+
+### 🐛 Javítások
+
+- **A munkanapló mostantól minden hónapban mutatja a bejegyzéseket.** Eddig
+  februárban, áprilisban, júniusban, szeptemberben és novemberben a havi lista
+  hibásan üresen jelent meg — ezt javítottuk.
+- **Biztonságos mentés több eszközről.** Ha ugyanazt a munkanapló-bejegyzést
+  időközben másik eszközön (pl. az asztali alkalmazásban) módosították, a rendszer
+  ezt jelzi mentéskor, és nem írja felül némán a friss változatot.
+- **A bejegyzés-rögzítő ablak nem visz át adatot a kategóriák között.** Kategória-
+  váltásnál (szolgálat → látogatás stb.) eddig a perselypénz és az igehely-mezők
+  észrevétlenül átkerülhettek — mostantól tiszta lappal indul minden kategória.
+- **A „Bibliaóra" típus egyértelmű lett:** a felnőtt bibliaóra a szolgálatok közé
+  tartozik, az ifjúsági alkalom új néven — „Ifjúsági bibliaóra (IKE)" — a katekézis
+  alá (weben és az asztali alkalmazásban egyaránt).
+- **A munkanapló CSV-exportja Excelben hibátlan ékezetekkel nyílik meg.**
+- **Az asztali alkalmazásban az internet nélkül rögzített munkanapló-bejegyzés
+  azonnal megjelenik a listában** „szinkronizálásra vár" jelzéssel — eddig a
+  következő sikeres szinkronizálásig láthatatlan volt.
+- **Iktató: az évzárás a valós irat-darabszámot rögzíti,** és azt is, ki zárta le
+  az évet; a tévesen lezárt év mostantól fel is oldható a felületről.
+- **Iktató: az új irat várható iktatószáma a kelt dátum évéhez igazodik** —
+  eddig a lista-szűrő éve alapján félrevezető szám jelenhetett meg.
+- **Iktató-import: a korábbi évek iratai a saját évükre kerülnek** (nem a folyó
+  évre), és az import után a sorszámozás nem ütközik a kézi iktatással.
+
+### ✨ Új alapok (előkészület a megújuló munkanaplóhoz)
+
+- **Beépült az Erdélyi Református Énekeskönyv** (513 ének, 2697 versszak, tematikus
+  szakaszokkal) — a következő körben érkező énekkereső és ének-statisztika alapja.
+- **Beépült a Károli-biblia teljes szerkezete** (66 könyv, 31 126 vers) és egy
+  magyar igehely-értelmező, amely a hivatkozások minden szokásos írásmódját érti
+  (pl. „Jn 3,16", „Zsolt 23:1-4", „Mt 13,53-14,12") — az igevers-keresés és a
+  biblia-lefedettségi statisztika alapja.
+
+---
+
 ## [2026-07-16] — Korai fizetés: a hátralék az aktuális kedvezményes időszakot mutatja + betűs hónapnevek
 <!-- key: 2026-07-16-korai-fizetes-aktualis-idoszak -->
 <!-- category: improvement -->

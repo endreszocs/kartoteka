@@ -1,0 +1,14 @@
+{
+  "name": "@kartoteka/biblia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Károli-biblia igehely-parser + lefedettség-számító: magyar könyvnév-feloldás, hivatkozás-értelmezés (Jn 3,16 · Mt 13,53-14,12 · Lk 1,26-38.46-55), validálás és vers-szintű lefedettség a beépített versszám-katalógus alapján. A 4,2 MB-os bibliaszöveget (apps/web/public/bibles/karoli.json) NEM importálja — azt az app tölti futásidőben.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

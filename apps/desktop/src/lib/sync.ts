@@ -490,8 +490,24 @@ export async function processOutbox(): Promise<{
           continue
         }
       } else if (row.op === 'insert') {
-        const { error } = await supabase.from(row.target_table).insert(payload)
-        if (error) throw error
+        if (row.target_table === 'munkanaplo') {
+          // Offline-create flush: a szerver-sort visszakérjük, hogy a lokális
+          // tükörben az ideiglenes (negatív id-jű) optimista sort azonnal az
+          // igazi sorra cserélhessük — külön pull nélkül.
+          const { data, error } = await supabase
+            .from('munkanaplo')
+            .insert(payload)
+            .select(WORKLOG_SELECT_COLS)
+            .single()
+          if (error) throw error
+          await replaceTempWorklogLocalRow(
+            row.target_id,
+            (data ?? null) as unknown as WorklogSupabaseRow | null,
+          )
+        } else {
+          const { error } = await supabase.from(row.target_table).insert(payload)
+          if (error) throw error
+        }
       } else if (row.op === 'delete' && row.target_id) {
         const { error } = await supabase
           .from(row.target_table)
@@ -1394,6 +1410,98 @@ function worklogLastPullKey(congregationId: string): string {
 }
 
 /**
+ * Egy Supabase `munkanaplo`-sor upsert-je a lokális tükörbe.
+ * Közös út: pull-sync + az outbox-flush utáni temp-sor csere.
+ */
+async function upsertWorklogLocalRow(row: WorklogSupabaseRow): Promise<void> {
+  await dbExecute(
+    `INSERT INTO munkanaplo_local
+       (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
+        jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
+        szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
+        congregation_id, revision, updated_at, synced_at)
+     VALUES
+       (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+        ?9, ?10, ?11, ?12,
+        ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+        ?20, ?21, ?22, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       idopont = excluded.idopont,
+       jellege = excluded.jellege,
+       id_jellege = excluded.id_jellege,
+       bibliaolvasas = excluded.bibliaolvasas,
+       alapige = excluded.alapige,
+       cim = excluded.cim,
+       enekek = excluded.enekek,
+       jelenlet_ferfi = excluded.jelenlet_ferfi,
+       jelenlet_no = excluded.jelenlet_no,
+       jelenlet_gyermek = excluded.jelenlet_gyermek,
+       jelenlet_osszesen = excluded.jelenlet_osszesen,
+       szolgalt = excluded.szolgalt,
+       persely = excluded.persely,
+       megjegyzes = excluded.megjegyzes,
+       mediapath = excluded.mediapath,
+       kategoria = excluded.kategoria,
+       du = excluded.du,
+       deleted = excluded.deleted,
+       congregation_id = excluded.congregation_id,
+       revision = excluded.revision,
+       updated_at = excluded.updated_at,
+       synced_at = excluded.synced_at`,
+    [
+      row.id,
+      row.idopont,
+      row.jellege,
+      row.id_jellege,
+      row.bibliaolvasas,
+      row.alapige,
+      row.cim,
+      row.enekek,
+      row.jelenlet_ferfi,
+      row.jelenlet_no,
+      row.jelenlet_gyermek,
+      row.jelenlet_osszesen ?? 0,
+      row.szolgalt,
+      row.persely,
+      row.megjegyzes,
+      row.mediapath,
+      row.kategoria,
+      row.du ? 1 : 0,
+      row.deleted ? 1 : 0,
+      row.congregation_id,
+      row.revision ?? 0,
+      row.updated_at ?? null,
+    ],
+  )
+}
+
+/**
+ * Sikeres munkanaplo-insert flush után (processOutbox): a szerver-sor
+ * beírása a tükörbe, majd az ideiglenes (negatív id-jű) optimista sor
+ * törlése. Csak a most feldolgozott elem temp sorát törli — a többi,
+ * még sorban álló offline create sora érintetlen marad.
+ */
+async function replaceTempWorklogLocalRow(
+  tempTargetId: string | null,
+  serverRow: WorklogSupabaseRow | null,
+): Promise<void> {
+  try {
+    // Előbb a szerver-sor kerül be, csak utána tűnik el a temp — így a
+    // bejegyzés soha nem hiányzik a listából a csere közben.
+    if (serverRow) {
+      await upsertWorklogLocalRow(serverRow)
+    }
+    const tempId = tempTargetId === null ? Number.NaN : Number(tempTargetId)
+    if (Number.isFinite(tempId) && tempId < 0) {
+      await dbExecute(`DELETE FROM munkanaplo_local WHERE id = ?1`, [tempId])
+    }
+  } catch {
+    // Tükör-takarítás hibája nem kritikus: a szerver-insert már sikerült,
+    // a következő pull konszolidálja a lokális cache-t.
+  }
+}
+
+/**
  * Letölti a bejelentkezett user gyülekezetének munkanapló-bejegyzéseit.
  * Delta-sync `updated_at > last_pull` alapon, ugyanúgy, mint a tagok.
  */
@@ -1455,65 +1563,7 @@ export async function pullWorklogOfOwnCongregation(
 
   // 4. Upsert soronként
   for (const row of rows) {
-    await dbExecute(
-      `INSERT INTO munkanaplo_local
-         (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
-          jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
-          szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
-          congregation_id, revision, updated_at, synced_at)
-       VALUES
-         (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-          ?9, ?10, ?11, ?12,
-          ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-          ?20, ?21, ?22, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET
-         idopont = excluded.idopont,
-         jellege = excluded.jellege,
-         id_jellege = excluded.id_jellege,
-         bibliaolvasas = excluded.bibliaolvasas,
-         alapige = excluded.alapige,
-         cim = excluded.cim,
-         enekek = excluded.enekek,
-         jelenlet_ferfi = excluded.jelenlet_ferfi,
-         jelenlet_no = excluded.jelenlet_no,
-         jelenlet_gyermek = excluded.jelenlet_gyermek,
-         jelenlet_osszesen = excluded.jelenlet_osszesen,
-         szolgalt = excluded.szolgalt,
-         persely = excluded.persely,
-         megjegyzes = excluded.megjegyzes,
-         mediapath = excluded.mediapath,
-         kategoria = excluded.kategoria,
-         du = excluded.du,
-         deleted = excluded.deleted,
-         congregation_id = excluded.congregation_id,
-         revision = excluded.revision,
-         updated_at = excluded.updated_at,
-         synced_at = excluded.synced_at`,
-      [
-        row.id,
-        row.idopont,
-        row.jellege,
-        row.id_jellege,
-        row.bibliaolvasas,
-        row.alapige,
-        row.cim,
-        row.enekek,
-        row.jelenlet_ferfi,
-        row.jelenlet_no,
-        row.jelenlet_gyermek,
-        row.jelenlet_osszesen ?? 0,
-        row.szolgalt,
-        row.persely,
-        row.megjegyzes,
-        row.mediapath,
-        row.kategoria,
-        row.du ? 1 : 0,
-        row.deleted ? 1 : 0,
-        row.congregation_id,
-        row.revision ?? 0,
-        row.updated_at ?? null,
-      ],
-    )
+    await upsertWorklogLocalRow(row)
   }
 
   // 5. last_pull frissítés
@@ -1658,10 +1708,20 @@ export interface WorklogCreateResult {
  *   - `jelenlet_osszesen` auto-kalkuláció (férfi+nő+gyermek)
  *   - Online → Supabase INSERT, utána a munkanapló lokális delta-pull
  *   - Offline / hiba → outbox (`op: 'insert'`, `target_table: 'munkanaplo'`)
+ *     + optimista tükör-sor ideiglenes NEGATÍV id-vel (a lista azonnal
+ *     mutatja; a `processOutbox` sikeres flush után cseréli a szerver-sorra)
  *
  * A web `saveWorklog` action-jét tükrözi — `deleted: false` + `congregation_id`
  * automatikusan. A `jelenlet_osszesen` NOT NULL kényszer miatt mindig számított.
  */
+// Szigorúan csökkenő temp id: a puszta -Date.now() két azonos ezredmásodperces
+// létrehozásnál PK-ütközne a tükörben (a hibát a lenyelő catch elrejtené).
+let lastWorklogTempId = 0
+function nextWorklogTempId(): number {
+  lastWorklogTempId = Math.min(-Date.now(), lastWorklogTempId - 1)
+  return lastWorklogTempId
+}
+
 export async function createWorklogEntry(
   userId: string,
   input: WorklogInput,
@@ -1734,8 +1794,48 @@ export async function createWorklogEntry(
     }
   }
 
-  // Offline vagy sikertelen online → outbox
-  await enqueueOutbox('insert', 'munkanaplo', null, record)
+  // Offline vagy sikertelen online → optimista tükör-sor + outbox.
+  // Ideiglenes NEGATÍV id: a szerver-id még nem ismert, de a lista így is
+  // azonnal mutatja a bejegyzést. A temp id az outbox `target_id`-jába kerül,
+  // hogy a `processOutbox` a sikeres insert után célzottan törölhesse.
+  const tempId = nextWorklogTempId()
+  try {
+    await dbExecute(
+      `INSERT INTO munkanaplo_local
+         (id, idopont, jellege, id_jellege, bibliaolvasas, alapige, cim, enekek,
+          jelenlet_ferfi, jelenlet_no, jelenlet_gyermek, jelenlet_osszesen,
+          szolgalt, persely, megjegyzes, mediapath, kategoria, du, deleted,
+          congregation_id, revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7,
+          ?8, ?9, ?10, ?11,
+          ?12, ?13, ?14, NULL, ?15, ?16, 0,
+          ?17, 0, NULL, datetime('now'))`,
+      [
+        tempId,
+        input.idopont,
+        input.jellege,
+        input.bibliaolvasas ?? null,
+        input.alapige ?? null,
+        input.cim ?? null,
+        input.enekek ?? null,
+        input.jelenlet_ferfi ?? null,
+        input.jelenlet_no ?? null,
+        input.jelenlet_gyermek ?? null,
+        jelenletOsszesen,
+        input.szolgalt ?? null,
+        input.persely ?? null,
+        input.megjegyzes ?? null,
+        input.kategoria ?? 'szolgalat',
+        input.du ? 1 : 0,
+        profile.congregation_id,
+      ],
+    )
+  } catch {
+    // A tükör-írás hibája nem akadályozza a mentést: az outbox-sor a lényeg,
+    // a bejegyzés a következő sikeres sync + pull után jelenik meg.
+  }
+  await enqueueOutbox('insert', 'munkanaplo', String(tempId), record)
   return { id: null, queuedToOutbox: true }
 }
 
@@ -1755,6 +1855,15 @@ export async function updateWorklogEntry(
   patch: Partial<WorklogInput>,
   expectedRevision: number,
 ): Promise<{ queuedToOutbox: boolean; conflict: boolean; newRevision?: number; error?: string }> {
+  // Temp (negatív id-jű) sor: offline létrehozott, még nem szinkronizált
+  // bejegyzés — a szerver-id hiányában nem frissíthető.
+  if (entryId < 0) {
+    return {
+      queuedToOutbox: false,
+      conflict: false,
+      error: 'A bejegyzés még szinkronizálásra vár — szinkronizálás után szerkeszthető.',
+    }
+  }
   if (Object.keys(patch).length === 0) {
     return { queuedToOutbox: false, conflict: false }
   }
@@ -1856,6 +1965,16 @@ export async function deleteWorklogEntry(
   entryId: number,
   expectedRevision: number,
 ): Promise<{ queuedToOutbox: boolean; conflict: boolean; error?: string }> {
+  // Temp (negatív id-jű) sor: offline létrehozott, még nem szinkronizált
+  // bejegyzés — a szerver-id hiányában nem törölhető.
+  if (entryId < 0) {
+    return {
+      queuedToOutbox: false,
+      conflict: false,
+      error: 'A bejegyzés még szinkronizálásra vár — szinkronizálás után törölhető.',
+    }
+  }
+
   // Optimistic local — azonnali eltűnés a listából
   await dbExecute(
     `UPDATE munkanaplo_local SET deleted = 1 WHERE id = ?1`,

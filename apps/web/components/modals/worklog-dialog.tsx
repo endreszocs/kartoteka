@@ -84,8 +84,15 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
       return
     }
     setLoading(true)
+    // 2026-07-11: a state megy ki változtatás nélkül — szerkesztésnél a
+    // betöltött (akár nem renderelt) mezők így megmaradnak; a kategóriaváltási
+    // átszivárgást a váltás-kori mező-ürítés zárja ki, nem a mentéskori nullázás
+    // (az utóbbi a rejtett meglévő értékeket is törölte volna).
     const result = await saveWorklog({
       id: editEntry?.id,
+      // Optimista zárolás: a betöltött revision megy vissza — ha közben más
+      // (pl. a desktop) módosított, a mentés hibával jelez.
+      revision: editEntry?.revision ?? undefined,
       idopont,
       jellege,
       kategoria: category,
@@ -120,7 +127,25 @@ export function WorklogDialog({ open, onOpenChange, editEntry, defaultCategory }
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Kategória</Label>
-              <select value={category} onChange={e => { setCategory(e.target.value as WorklogCategory); setJellege('') }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <select
+                value={category}
+                onChange={e => {
+                  const next = e.target.value as WorklogCategory
+                  setCategory(next)
+                  setJellege('')
+                  // 2026-07-11: váltáskor az ÚJ kategóriában nem látható mezők
+                  // ürülnek — különben a rejtett értékek átszivárognának a
+                  // mentésbe. A szolgalt mindhárom űrlapon látható, ezért marad.
+                  if (next !== 'szolgalat') {
+                    setAlapige('')
+                    setBibliaolvasas('')
+                    setEnekek('')
+                    setDu(false)
+                  }
+                  if (next === 'latogatas') setPersely(0)
+                }}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
                 <option value="szolgalat">Szolgálat</option>
                 <option value="katekezis">Katekézis</option>
                 <option value="latogatas">Látogatás</option>

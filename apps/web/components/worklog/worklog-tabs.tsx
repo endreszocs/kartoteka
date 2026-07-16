@@ -50,7 +50,8 @@ function downloadCsv(entries: WorklogEntry[], fileName: string) {
     String(entry.persely || 0),
     entry.megjegyzes || '',
   ])
-  const csv = [header, ...rows]
+  // UTF-8 BOM — enélkül az Excel torzan (Latin-1-ként) nyitja az ékezeteket.
+  const csv = '\uFEFF' + [header, ...rows]
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
     .join('\n')
 
@@ -166,7 +167,7 @@ export function WorklogTabs({ congregationName, showAdminImport = false, adminIm
       <ModuleHero
         eyebrow="Munkanapló"
         title="M3 Munkanapló és lelkészi jelentés"
-        description="Igehirdetések, családlátogatások, katekázisok és az időszaki összegzés egy egységes, áttekinthető munkafelületen."
+        description="Igehirdetések, családlátogatások, katekézisek és az időszaki összegzés egy egységes, áttekinthető munkafelületen."
         pills={[
           congregationName ? { label: congregationName, tone: 'neutral' } : undefined,
           { label: `${entries.length} bejegyzés`, tone: 'emerald' },

@@ -136,6 +136,7 @@ export interface AutoColumnContext {
 function resolveAutoColumn(
   source: AutoColumnSource | string,
   ctx: AutoColumnContext,
+  record?: Record<string, string | number | boolean | null>,
 ): string | number | boolean | null {
   switch (source) {
     case 'congregation_id':
@@ -146,6 +147,16 @@ function resolveAutoColumn(
       return new Date().toISOString()
     case 'current_year':
       return ctx.currentYear ?? new Date().getFullYear()
+    case 'year_from_kelt': {
+      // 2026-07-11 P2 (iktató-import): historikus soroknál a year a kelt
+      // évéből származik — a folyó év csak fallback, ha a kelt hiányzik/hibás.
+      const kelt = record?.['kelt']
+      if (typeof kelt === 'string' && kelt.length >= 4) {
+        const y = Number(kelt.slice(0, 4))
+        if (Number.isFinite(y) && y >= 1800 && y <= 2200) return y
+      }
+      return ctx.currentYear ?? new Date().getFullYear()
+    }
     case 'true':
       return true
     case 'false':
@@ -284,9 +295,9 @@ export function transformRow(
     }
   }
 
-  // 3. AutoColumns kitöltése
+  // 3. AutoColumns kitöltése (a record átadva a sor-függő forrásokhoz, pl. year_from_kelt)
   for (const auto of profile.autoColumns) {
-    record[auto.dbColumn] = resolveAutoColumn(auto.source, ctx)
+    record[auto.dbColumn] = resolveAutoColumn(auto.source, ctx, record)
   }
 
   // 4. Figyelmeztetések nem-kötelező de üres mezőkre
