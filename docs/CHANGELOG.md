@@ -23,6 +23,32 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-16] — Hivatalos nyomtatott munkanapló A4-ben
+<!-- key: 2026-07-11-munkanaplo-f3-hivatalos-nyomtatvany -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.82 -->
+
+### ✨ Új funkciók
+
+- **A hivatalos nyomtatott munkanapló („I. Igehirdetési alkalmak") egy gombnyomásra.**
+  A nyomtatási központ első nyomtatványa mostantól a hivatalos, fekvő A4-es
+  munkanapló: minden hónap külön, lefűzhető lapra kerül (extra bal margóval),
+  a fejléc minden lapon ismétlődik, a sorszám az éven belül folyamatos.
+- **A létszám automatikusan a megfelelő rovatba kerül.** A rendszer az alkalom
+  típusa, napja és napszaka alapján tudja, hogy a jelenlét a vasárnapi, ünnepi,
+  sátoros ünnepi, bűnbánati, hétköznapi, úrvacsorai, bibliaórai vagy egyéb
+  rovatba tartozik — az egyházi ünnepeket (Böjtfő, Virágvasárnap, Nagypéntek,
+  Húsvét, Áldozócsütörtök, Pünkösd, Újkenyér, Reformáció, Karácsony) évről évre
+  magától számítja ki, és a nyomtatványon meg is nevezi.
+- **Hó végi és éves összesítő sorok** minden rovatra, a perselypénzzel és a
+  gyermek-jelenléttel együtt.
+- **Új szolgálat-típusok** a hivatalos naplóhoz igazodva: Bűnbánati
+  istentisztelet, Imahét, Presbiteri gyűlés, Nőszövetségi összejövetel,
+  Vallásos ünnepély — a webes és az asztali rögzítőben egyaránt.
+
+---
+
 ## [2026-07-16] — Megújult munkanapló: táblázatos rögzítés, énekkereső, igevers-előnézet
 <!-- key: 2026-07-11-munkanaplo-f2-redesign -->
 <!-- category: feature -->

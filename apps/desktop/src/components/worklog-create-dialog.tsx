@@ -41,13 +41,21 @@ import {
 // kerültek, a katekézis Vallásóra/Kátéóra-val, a látogatás Beteglátogatás-sal bővült.
 export const WORKLOG_TYPES: Record<'szolgalat' | 'katekezis' | 'latogatas', string[]> = {
   szolgalat: [
+    // 2026-07-11 F3: a hivatalos munkanapló-nyomtatvány oszlopaihoz igazított
+    // típusok (Bűnbánati/Imahét/Presbiteri/Nőszövetségi/Vallásos ünnepély) —
+    // a webes lista tükre, azonos sorrendben.
     'Istentisztelet',
     'Igehirdetés',
     'Úrvacsora',
+    'Bűnbánati istentisztelet',
     'Bibliaóra',
     'Imaóra',
     'Esti áhítat',
     'Alkalmi istentisztelet',
+    'Imahét',
+    'Presbiteri gyűlés',
+    'Nőszövetségi összejövetel',
+    'Vallásos ünnepély',
     'Keresztelő',
     'Esketés',
     'Temetés',

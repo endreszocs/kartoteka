@@ -9,6 +9,8 @@
  *  - Return: { title, html, filename, orientation }
  *
  * Kimenetek:
+ *  0. Hivatalos munkanapló — az „I. Igehirdetési alkalmak" nyomtatvány hű mása
+ *     (A4 fekvő, hónaponként külön lap — generátor: official-journal.ts)
  *  1. Szolgálati összesítő — istentiszteletek, igehirdetések
  *  2. Katekétikai összesítő — vallásóra, konfirmáció
  *  3. Diakóniai összesítő — családlátogatás, beteglátogatás
@@ -22,12 +24,14 @@ import {
   type WorklogCategory,
   type WorklogEntry,
 } from '@/lib/constants/worklog'
+import { buildOfficialMunkanaploHtml } from './official-journal'
 
 // ---------------------------------------------------------------------------
 // Típusok
 // ---------------------------------------------------------------------------
 
 export type WorklogPrintType =
+  | 'hivatalos_munkanaplo'
   | 'szolgalati_osszesito'
   | 'kateketikai_osszesito'
   | 'diakoniai_osszesito'
@@ -37,6 +41,12 @@ export interface WorklogPrintResult {
   title: string
   filename: string
   orientation: 'portrait' | 'landscape'
+  /**
+   * PDF-motor margó [függőleges, vízszintes] mm-ben. WYSIWYG-nyomtatványnál
+   * [0, 0] — a lap-margót a dokumentum saját paddingje adja. Ha hiányzik,
+   * a hívó a tájolás szerinti alapértelmezést használja.
+   */
+  pdfMargin?: [number, number]
   html: string
 }
 
@@ -46,6 +56,12 @@ export const WORKLOG_PRINT_TYPES: Array<{
   subtitle: string
   description: string
 }> = [
+  {
+    id: 'hivatalos_munkanaplo',
+    title: 'Hivatalos munkanapló',
+    subtitle: 'I. Igehirdetési alkalmak',
+    description: 'A hivatalos nyomtatott munkanapló hű mása — A4 fekvő, hónaponként külön lap, hó végi és éves összesítővel.',
+  },
   {
     id: 'szolgalati_osszesito',
     title: 'Szolgálati összesítő',
@@ -191,6 +207,35 @@ function period(f: WorklogReportFilters): string {
 
 function footer(name: string, p: string) {
   return `<div class="page-footer"><span>Kartotéka — ${esc(name)}</span><span>${p}</span></div>`
+}
+
+// ---------------------------------------------------------------------------
+// 0. Hivatalos munkanapló — „I. Igehirdetési alkalmak" (A4 fekvő)
+// ---------------------------------------------------------------------------
+
+// 2026-07-16 (F3): a hivatalos nyomtatott munkanapló hű mása. A generátor
+// (official-journal.ts) maga szűri az év sorait (isJournalEntry: szolgálat-
+// kategória + ifjúsági bibliaóra) és rendezi dátum szerint — hónaponként külön
+// lap, ÉVEN BELÜL folyamatos sorszámmal (hónap-szűréskor is).
+function buildHivatalosMunkanaplo(entries: WorklogEntry[], name: string, f: WorklogReportFilters): WorklogPrintResult {
+  const monthNum = f.month ? parseInt(f.month.split('-')[1], 10) : null
+  const html = buildOfficialMunkanaploHtml({
+    entries,
+    year: f.year,
+    months: monthNum ? [monthNum] : undefined,
+    congregationName: name,
+  })
+  return {
+    title: 'Hivatalos munkanapló',
+    filename: monthNum
+      ? `Hivatalos_munkanaplo_${f.year}_${String(monthNum).padStart(2, '0')}.pdf`
+      : `Hivatalos_munkanaplo_${f.year}.pdf`,
+    orientation: 'landscape',
+    // WYSIWYG: a lap-margót a dokumentum .sheet paddingje adja (18mm lefűző
+    // bal margóval) → a PDF-motor NE tegyen rá saját margót.
+    pdfMargin: [0, 0],
+    html,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +591,8 @@ export function buildWorklogPrintDocument({
   filters: WorklogReportFilters
 }): WorklogPrintResult {
   switch (type) {
+    case 'hivatalos_munkanaplo':
+      return buildHivatalosMunkanaplo(entries, congregationName, filters)
     case 'szolgalati_osszesito':
       return buildSzolgalati(entries, congregationName, filters)
     case 'kateketikai_osszesito':
