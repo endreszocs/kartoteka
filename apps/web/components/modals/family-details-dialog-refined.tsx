@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Camera,
   AlertCircle,
   Baby,
@@ -188,61 +188,51 @@ export function FamilyDetailsDialogRefined({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="!w-[min(960px,calc(100vw-2rem))] !max-w-[min(960px,calc(100vw-2rem))] max-h-[92vh] overflow-hidden rounded-[1.5rem] border-0 bg-transparent p-0 shadow-none"
+        className="!w-[min(1120px,calc(100vw-1rem))] !max-w-[min(1120px,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-hidden rounded-[1.75rem] border-0 bg-transparent p-0 shadow-none sm:!w-[min(1120px,calc(100vw-2rem))] sm:!max-w-[min(1120px,calc(100vw-2rem))]"
         showCloseButton={false}
       >
-        <div className="relative overflow-hidden rounded-[1.5rem] bg-white shadow-2xl ring-1 ring-slate-200">
-          {/* 2026-06-02: Szerkesztés + Bezárás gombok a fejléc jobb felső sarkán */}
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-card shadow-[0_32px_90px_-34px_rgba(11,55,50,0.58)] ring-1 ring-border">
+          {/* A bezárás gomb mindig látható; a többi művelet az egységes alsó sávban van. */}
           <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
-            {family && (
-              <button
-                type="button"
-                onClick={() => setEditFamilyOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-md transition hover:bg-white hover:text-violet-800"
-                title="Családi karton szerkesztése (körzet, cím, tagok)"
-              >
-                <Pencil className="size-3.5" />
-                <span className="hidden sm:inline">Szerkesztés</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="inline-flex size-8 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-md transition hover:text-slate-700 hover:bg-white"
+              className="inline-flex size-11 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-md backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               aria-label="Bezárás"
             >
               <X className="size-4" />
             </button>
           </div>
 
-          <div className="max-h-[92vh] overflow-y-auto">
+          <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain">
             {loading ? (
               <div className="px-8 py-16 text-center">
-                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-violet-50 text-violet-600">
-                  <Users className="size-8 animate-pulse" />
+                <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
+                  <Users className="size-8 animate-pulse motion-reduce:animate-none" />
                 </div>
-                <p className="font-heading text-lg text-slate-700">
+                <p className="font-heading text-lg text-foreground">
                   Családi karton betöltése…
                 </p>
               </div>
             ) : !family ? (
-              <div className="px-8 py-16 text-center text-slate-500">
-                <Users className="mx-auto mb-3 size-10 text-slate-300" />
+              <div className="px-8 py-16 text-center text-muted-foreground">
+                <Users className="mx-auto mb-3 size-10 opacity-35" />
                 <p>Nem található család.</p>
               </div>
             ) : (
               <>
                 {/* ───── FEJLÉC ───── */}
-                <header className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-violet-50/70 via-white to-emerald-50/60 px-6 py-5 sm:px-8 sm:py-6">
+                <header className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-card to-amber-50/45 px-5 pb-5 pt-16 sm:px-8 sm:pb-7 sm:pt-7 dark:to-card">
                   {/* dekoratív háttér-blur */}
-                  <div aria-hidden className="pointer-events-none absolute -top-12 -right-8 size-40 rounded-full bg-violet-200/30 blur-3xl" />
-                  <div aria-hidden className="pointer-events-none absolute -bottom-12 -left-8 size-32 rounded-full bg-emerald-200/30 blur-3xl" />
+                  <div aria-hidden className="pointer-events-none absolute -right-8 -top-12 size-44 rounded-full bg-primary/15 blur-3xl" />
+                  <div aria-hidden className="pointer-events-none absolute -bottom-12 -left-8 size-36 rounded-full bg-amber-200/35 blur-3xl dark:bg-amber-700/10" />
+                  <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-teal-500 to-amber-400" />
 
                   <div className="relative flex items-start gap-4">
                     {/* Avatar/embléma — kezdőbetű(k) */}
                     <div
                       aria-hidden
-                      className="hidden sm:flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-rose-500 text-white shadow-lg ring-4 ring-white"
+                      className="hidden size-[72px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary via-teal-600 to-amber-500 text-primary-foreground shadow-lg ring-4 ring-card sm:flex"
                     >
                       <span className="font-heading text-2xl font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
                         {familyInitials(familyName) || '?'}
@@ -250,20 +240,20 @@ export function FamilyDetailsDialogRefined({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="mb-2 flex items-center gap-2">
-                        <Sparkles className="size-3.5 text-violet-500" />
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
-                          Családi karton
+                        <Sparkles className="size-3.5 text-amber-600 dark:text-amber-400" />
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/75">
+                          Családi karton · #{family.id}
                         </p>
                       </div>
 
-                      <DialogTitle className="font-heading text-3xl leading-tight text-slate-800 sm:text-4xl">
+                      <DialogTitle className="font-heading text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
                         {familyName ? (
                           <>
                             {familyName}{' '}
-                            <span className="font-normal text-slate-500">család</span>
+                            <span className="font-normal text-muted-foreground">család</span>
                           </>
                         ) : (
-                          <span className="italic text-slate-400">— névtelen család —</span>
+                          <span className="italic text-muted-foreground">— névtelen család —</span>
                         )}
                       </DialogTitle>
                     </div>
@@ -282,7 +272,7 @@ export function FamilyDetailsDialogRefined({
                       )}
                     </Pill>
                     {family.csoport?.nev ? (
-                      <Pill icon={<Home className="size-3" />} tone="violet">
+                      <Pill icon={<Home className="size-3" />} tone="primary">
                         {family.csoport.nev}
                       </Pill>
                     ) : (
@@ -300,7 +290,7 @@ export function FamilyDetailsDialogRefined({
 
                   {/* Hiányzó adatok figyelmeztetés */}
                   {missing.length > 0 && (
-                    <div className="mt-3 inline-flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-xs text-amber-800">
+                    <div className="mt-4 inline-flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-800 shadow-sm dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
                       <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
                       <span>
                         <strong>Hiányzó adatok:</strong> {missing.join(', ')}
@@ -310,7 +300,7 @@ export function FamilyDetailsDialogRefined({
                 </header>
 
                 {/* ───── TAB-BAR ───── */}
-                <nav className="sticky top-0 z-10 flex gap-1 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-3 sm:px-6 overflow-x-auto">
+                <nav aria-label="Családi karton nézetei" className="sticky top-0 z-20 flex gap-1 overflow-x-auto border-y border-border/60 bg-muted/30 px-2 backdrop-blur-md sm:px-6">
                   <TabButton
                     active={activeTab === 'general'}
                     onClick={() => setActiveTab('general')}
@@ -352,13 +342,13 @@ export function FamilyDetailsDialogRefined({
                 </nav>
 
                 {/* ───── TAB-CONTENT ───── */}
-                <div className="space-y-5 px-4 py-5 sm:px-6 sm:py-6 bg-slate-50/30 animate-in fade-in duration-200">
+                <div className="min-h-[360px] space-y-5 bg-background/70 px-4 py-5 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 motion-reduce:animate-none sm:px-6 sm:py-6">
                   {/* ÁLTALÁNOS — Tagok */}
                   {activeTab === 'general' && (
                   <Section
                     title="Családtagok"
                     icon={<Users className="size-4" />}
-                    accent="violet"
+                    accent="primary"
                   >
                     <div className="grid gap-3 md:grid-cols-2">
                       {family.ferfi ? (
@@ -389,10 +379,12 @@ export function FamilyDetailsDialogRefined({
 
                     {/* Gyermekek */}
                     {children.length > 0 && (
-                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
                         <div className="flex items-center gap-2 mb-2">
-                          <Baby className="size-4 text-pink-500" />
-                          <h4 className="text-sm font-semibold text-slate-700">
+                          <span className="inline-flex size-7 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                            <Baby className="size-4" />
+                          </span>
+                          <h4 className="text-sm font-semibold text-foreground">
                             Gyermekek ({children.length})
                           </h4>
                         </div>
@@ -406,8 +398,8 @@ export function FamilyDetailsDialogRefined({
                                 key={c.id}
                                 type="button"
                                 onClick={() => openMemberCard(c.id)}
-                                className={`flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition hover:bg-pink-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-pink-300 ${
-                                  c.meghalt ? 'text-slate-400 line-through' : 'text-slate-700'
+                                className={`flex min-h-11 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-left text-sm motion-safe:transition motion-safe:hover:-translate-y-px hover:border-primary/10 hover:bg-primary/5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                                  c.meghalt ? 'text-muted-foreground line-through' : 'text-foreground'
                                 }`}
                                 title="Személyi karton megnyitása"
                               >
@@ -421,7 +413,7 @@ export function FamilyDetailsDialogRefined({
                                   {c.meghalt && '† '}
                                   {c.csaladnev} {c.k_nev}
                                   {age != null && (
-                                    <span className="text-slate-400"> ({age} éves)</span>
+                                    <span className="text-muted-foreground"> ({age} éves)</span>
                                   )}
                                 </span>
                               </button>
@@ -432,7 +424,7 @@ export function FamilyDetailsDialogRefined({
                     )}
 
                     {!family.ferfi && !family.no && (
-                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-500 italic">
+                      <div className="rounded-xl border border-dashed border-border bg-muted/40 px-4 py-4 text-sm italic text-muted-foreground">
                         Nincs felnőtt tag rögzítve ehhez a családhoz.
                       </div>
                     )}
@@ -441,8 +433,8 @@ export function FamilyDetailsDialogRefined({
 
                   {/* ANYAKÖNYV — külön tab */}
                   {activeTab === 'registry' && !(hazassag?.datum || keresztelesek.length > 0 || konfirmaciok.length > 0 || temetesek.length > 0) && (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-                      <BookOpen className="mx-auto mb-3 size-10 text-slate-300" />
+                    <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+                      <BookOpen className="mx-auto mb-3 size-10 opacity-35" />
                       Nincs anyakönyvi bejegyzés ehhez a családhoz.
                     </div>
                   )}
@@ -473,8 +465,8 @@ export function FamilyDetailsDialogRefined({
                       accent="emerald"
                     >
                       {treeLoading ? (
-                        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
-                          <TreePine className="mr-2 size-5 animate-pulse text-emerald-500" />
+                        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                          <TreePine className="mr-2 size-5 animate-pulse text-emerald-500 motion-reduce:animate-none" />
                           Családfa betöltése…
                         </div>
                       ) : treeData ? (
@@ -492,12 +484,12 @@ export function FamilyDetailsDialogRefined({
                           : 'Családlátogatás'
                       }
                       icon={<DoorOpen className="size-4" />}
-                      accent="rose"
+                      accent="primary"
                       action={
                         <button
                           type="button"
                           onClick={() => setVisitFormOpen(true)}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-700"
+                          className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                         >
                           <Plus className="size-3.5" />
                           Új látogatás
@@ -505,16 +497,16 @@ export function FamilyDetailsDialogRefined({
                       }
                     >
                       {visitsLoading ? (
-                        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
-                          <DoorOpen className="mr-2 size-5 animate-pulse text-rose-500" />
+                        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                          <DoorOpen className="mr-2 size-5 animate-pulse text-primary motion-reduce:animate-none" />
                           Látogatások betöltése…
                         </div>
                       ) : !visits || visits.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-                          <DoorOpen className="mx-auto mb-3 size-10 text-slate-300" />
+                        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+                          <DoorOpen className="mx-auto mb-3 size-10 opacity-35" />
                           Nincs rögzített családlátogatás.
-                          <p className="mt-2 text-xs text-slate-400">
-                            Az „Új látogatás" gombbal rögzíthet egy új családlátogatást — amely a Munkanaplóban is megjelenik.
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Az „Új látogatás” gombbal rögzíthet egy új családlátogatást — amely a Munkanaplóban is megjelenik.
                           </p>
                         </div>
                       ) : (
@@ -531,34 +523,34 @@ export function FamilyDetailsDialogRefined({
                     accent="emerald"
                   >
                     {payments.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-500 italic">
+                      <div className="rounded-xl border border-dashed border-border bg-muted/40 px-4 py-4 text-sm italic text-muted-foreground">
                         Nincs rögzített befizetés ehhez a családhoz.
                       </div>
                     ) : (
-                      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                        <div className="max-h-72 overflow-y-auto">
+                      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                        <div className="max-h-72 overflow-auto overscroll-contain">
                           <table className="w-full text-sm">
-                            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sticky top-0">
+                            <thead className="sticky top-0 bg-muted/80 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
                               <tr>
                                 <th className="px-3 py-2">Dátum</th>
                                 <th className="px-3 py-2">Cél</th>
                                 <th className="px-3 py-2 text-right">Összeg</th>
-                                <th className="px-3 py-2">Bizonylat</th>
+                                <th className="hidden px-3 py-2 sm:table-cell">Bizonylat</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
+                            <tbody className="divide-y divide-border/70">
                               {payments.map((p) => (
-                                <tr key={p.id} className="hover:bg-slate-50">
-                                  <td className="px-3 py-2 text-slate-600">
+                                <tr key={p.id} className="transition-colors hover:bg-primary/5 motion-reduce:transition-none">
+                                  <td className="px-3 py-2 text-muted-foreground">
                                     {formatShortDate(p.datum)}
                                   </td>
-                                  <td className="px-3 py-2 text-slate-700">
+                                  <td className="px-3 py-2 text-foreground">
                                     {p.befizetescel?.nev || '—'}
                                   </td>
-                                  <td className="px-3 py-2 text-right font-medium text-slate-800">
+                                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
                                     {Number(p.osszeg || 0).toFixed(0)} RON
                                   </td>
-                                  <td className="px-3 py-2 text-xs text-slate-500 font-mono">
+                                  <td className="hidden px-3 py-2 font-mono text-xs text-muted-foreground sm:table-cell">
                                     {getTransactionDocumentNumber(p) || '—'}
                                   </td>
                                 </tr>
@@ -571,6 +563,29 @@ export function FamilyDetailsDialogRefined({
                   </Section>
                   )}
                 </div>
+
+                <footer className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-border/70 bg-card/95 px-4 py-3 shadow-[0_-14px_30px_-26px_rgba(15,67,61,0.7)] backdrop-blur-md sm:px-6">
+                  <p className="hidden text-xs text-muted-foreground sm:block">
+                    {children.length + Number(Boolean(family.ferfi)) + Number(Boolean(family.no))} családtag · {payments.length} befizetés
+                  </p>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditFamilyOpen(true)}
+                      className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-primary/20 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                    >
+                      <Pencil className="size-3.5" />
+                      Család szerkesztése
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenChange(false)}
+                      className="inline-flex h-11 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                    >
+                      Bezárás
+                    </button>
+                  </div>
+                </footer>
               </>
             )}
           </div>
@@ -596,7 +611,6 @@ export function FamilyDetailsDialogRefined({
         }}
         member={memberDialogMember}
         familyId={familyId}
-        onEdit={() => { /* a karton-szerkesztést a tagnyilv. tabnál intézzük */ }}
       />
 
       {/* 2026-06-02: Családi karton szerkesztése (cím, körzet, tagok) */}
@@ -613,6 +627,7 @@ export function FamilyDetailsDialogRefined({
           family
             ? {
                 id: family.id,
+                c_utcaid: family.c_utcaid ?? null,
                 c_szam: family.c_szam ?? null,
                 isaktiv: family.isaktiv ?? true,
                 id_csoport: family.id_csoport ?? null,
@@ -643,6 +658,14 @@ export function FamilyDetailsDialogRefined({
                     }
                   : null,
                 utca: family.utca?.name ? { name: family.utca.name } : null,
+                gyerekek: children.map((child) => ({
+                  id: child.id,
+                  csaladnev: child.csaladnev,
+                  k_nev: child.k_nev,
+                  sz_datum: child.sz_datum,
+                  meghalt: child.meghalt,
+                  kep: child.kep ?? null,
+                })),
               }
             : null
         }
@@ -672,20 +695,20 @@ function TabButton({
 }: {
   active: boolean
   onClick: () => void
-  icon: React.ReactNode
+  icon: ReactNode
   label: string
   count?: number
 }) {
   const baseClasses =
-    'relative inline-flex items-center gap-2 px-3 sm:px-4 py-3 text-[13px] font-medium transition-all whitespace-nowrap '
+    'relative my-1.5 inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-[13px] font-semibold transition-all motion-reduce:transition-none sm:px-4 '
   const activeClasses = active
-    ? 'text-violet-700'
-    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/80'
+    ? 'bg-background text-primary shadow-sm ring-1 ring-border/60'
+    : 'text-muted-foreground hover:bg-background/55 hover:text-foreground'
   const badgeClasses = active
-    ? 'bg-violet-100 text-violet-700'
-    : 'bg-slate-100 text-slate-600'
+    ? 'bg-primary/10 text-primary'
+    : 'bg-muted text-muted-foreground'
   return (
-    <button type="button" onClick={onClick} className={baseClasses + activeClasses}>
+    <button type="button" onClick={onClick} className={baseClasses + activeClasses} aria-current={active ? 'page' : undefined}>
       {icon}
       <span>{label}</span>
       {count != null && count > 0 && (
@@ -698,12 +721,7 @@ function TabButton({
           {count}
         </span>
       )}
-      {active && (
-        <span
-          aria-hidden
-          className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-rose-500 shadow-[0_-1px_4px_rgba(139,92,246,0.4)]"
-        />
-      )}
+      {active && <span aria-hidden className="absolute inset-x-4 -bottom-1.5 h-0.5 rounded-full bg-amber-400" />}
     </button>
   )
 }
@@ -713,16 +731,16 @@ function Pill({
   tone,
   children,
 }: {
-  icon?: React.ReactNode
-  tone: 'slate' | 'violet' | 'amber' | 'emerald' | 'rose'
-  children: React.ReactNode
+  icon?: ReactNode
+  tone: 'slate' | 'primary' | 'amber' | 'emerald' | 'rose'
+  children: ReactNode
 }) {
   const TONES: Record<typeof tone, string> = {
-    slate: 'bg-white text-slate-700 border-slate-200',
-    violet: 'bg-violet-50 text-violet-700 border-violet-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    rose: 'bg-rose-50 text-rose-700 border-rose-200',
+    slate: 'border-border bg-card text-foreground',
+    primary: 'border-primary/15 bg-primary/8 text-primary',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300',
+    rose: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300',
   }
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${TONES[tone]}`}>
@@ -740,24 +758,26 @@ function Section({
   action,
 }: {
   title: string
-  icon: React.ReactNode
-  accent: 'violet' | 'amber' | 'emerald' | 'rose'
-  children: React.ReactNode
+  icon: ReactNode
+  accent: 'primary' | 'amber' | 'emerald' | 'rose'
+  children: ReactNode
   /** Opcionális akció-gomb a header jobb oldalán */
-  action?: React.ReactNode
+  action?: ReactNode
 }) {
-  const ACCENT: Record<typeof accent, string> = {
-    violet: 'border-violet-100 text-violet-700',
-    amber: 'border-amber-100 text-amber-700',
-    emerald: 'border-emerald-100 text-emerald-700',
-    rose: 'border-rose-100 text-rose-700',
+  const ACCENT: Record<typeof accent, { icon: string; text: string }> = {
+    primary: { icon: 'bg-primary/10 text-primary', text: 'text-primary' },
+    amber: { icon: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300', text: 'text-amber-700 dark:text-amber-300' },
+    emerald: { icon: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300', text: 'text-emerald-700 dark:text-emerald-300' },
+    rose: { icon: 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300', text: 'text-rose-700 dark:text-rose-300' },
   }
+  const tone = ACCENT[accent]
+
   return (
-    <section className={`rounded-2xl border ${ACCENT[accent].split(' ')[0]} bg-white p-4 sm:p-5 shadow-sm`}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className={`flex items-center gap-2 ${ACCENT[accent].split(' ')[1]}`}>
-          {icon}
-          <h3 className="font-heading text-base font-semibold">{title}</h3>
+    <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-5">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className={`flex items-center gap-2.5 ${tone.text}`}>
+          <span className={`inline-flex size-8 items-center justify-center rounded-xl ${tone.icon}`}>{icon}</span>
+          <h3 className="font-heading text-base font-semibold text-foreground">{title}</h3>
         </div>
         {action}
       </div>
@@ -797,24 +817,23 @@ function MemberPanel({
   const isHead = role === 'head'
   const Icon = isHead ? Crown : Heart
   const labelText = isHead ? 'Családfő' : 'Házastárs'
-  const labelTone = isHead ? 'text-amber-800 bg-amber-50' : 'text-rose-700 bg-rose-50'
+  const labelTone = isHead
+    ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300'
+    : 'border-primary/15 bg-primary/8 text-primary'
   const age = ageFromDate(member.sz_datum)
 
-  const Wrapper: 'button' | 'div' = onClick ? 'button' : 'div'
-  const wrapperProps = onClick
-    ? {
-        type: 'button' as const,
-        onClick,
-        title: 'Személyi karton megnyitása',
-        className:
-          'group block w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-violet-300',
-      }
-    : { className: 'rounded-xl border border-slate-200 bg-white p-4' }
-
   return (
-    <Wrapper {...(wrapperProps as Record<string, unknown>)}>
-      <div className="flex items-start gap-3">
-        {/* 2026-06-11: ikon-korong helyett valódi avatar (kép vagy monogram) */}
+    <div className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all hover:border-primary/20 hover:shadow-md motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none">
+      {onClick && (
+        <button
+          type="button"
+          onClick={onClick}
+          className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          title="Személyi karton megnyitása"
+          aria-label={`${member.csaladnev} ${member.k_nev} személyi kartonjának megnyitása`}
+        />
+      )}
+      <div className="pointer-events-none relative z-10 flex items-start gap-3">
         <div className="relative shrink-0">
           <MemberAvatar
             name={`${member.csaladnev} ${member.k_nev}`.trim()}
@@ -830,42 +849,44 @@ function MemberPanel({
                 e.stopPropagation()
                 onEditAvatar()
               }}
-              className="absolute -bottom-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition hover:scale-110 hover:text-violet-600"
+              className="pointer-events-auto absolute -bottom-3 -right-3 z-20 inline-flex size-11 items-center justify-center rounded-full text-muted-foreground transition hover:scale-105 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               title="Fénykép társítása"
               aria-label="Fénykép társítása"
             >
-              <Camera className="size-3" />
+              <span className="inline-flex size-6 items-center justify-center rounded-full border border-border bg-card shadow-sm">
+                <Camera className="size-3" />
+              </span>
             </button>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${labelTone}`}>
+          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${labelTone}`}>
             <Icon className="size-2.5" />
             {labelText}
           </span>
           <h4
             className={`mt-1 text-base font-semibold leading-snug ${
-              member.meghalt ? 'text-slate-400 line-through' : 'text-slate-800'
+              member.meghalt ? 'text-muted-foreground line-through' : 'text-foreground'
             }`}
           >
             {member.meghalt && '† '}
             {member.csaladnev} {member.k_nev}
           </h4>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {age != null ? `${age} éves` : 'kor ismeretlen'}
             {member.vallas && ` · ${member.vallas}`}
             {member.foglalkozas && ` · ${member.foglalkozas}`}
             {member.allapot && ` · ${member.allapot}`}
           </p>
           {member.telefon && (
-            <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600">
+            <p className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary">
               <Phone className="size-3" />
               {member.telefon}
             </p>
           )}
         </div>
       </div>
-    </Wrapper>
+    </div>
   )
 }
 
@@ -881,7 +902,7 @@ interface RegistryRow {
 
 const REGISTRY_TYPE_META: Record<
   RegistryRow['type'],
-  { label: string; icon: React.ReactNode; tone: string }
+  { label: string; icon: ReactNode; tone: string }
 > = {
   esketes: {
     label: 'Esketés',
@@ -964,11 +985,11 @@ function buildRegistryRows(args: {
 
 function RegistryTable({ rows }: { rows: RegistryRow[] }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Desktop táblázat */}
-      <div className="hidden sm:block overflow-x-auto">
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <thead className="bg-muted/70 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2 w-32">Esemény</th>
               <th className="px-3 py-2 w-28">Dátum</th>
@@ -977,28 +998,28 @@ function RegistryTable({ rows }: { rows: RegistryRow[] }) {
               <th className="px-3 py-2">Lelkész</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border/70">
             {rows.map((row) => {
               const meta = REGISTRY_TYPE_META[row.type]
               return (
-                <tr key={row.key} className="hover:bg-slate-50/60">
+                <tr key={row.key} className="transition-colors hover:bg-primary/5 motion-reduce:transition-none">
                   <td className="px-3 py-2">
                     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
                       {meta.icon}
                       {meta.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
+                  <td className="whitespace-nowrap px-3 py-2 font-medium text-foreground">
                     {formatShortDate(row.date)}
                   </td>
-                  <td className="px-3 py-2 text-slate-700">
-                    {row.person ?? <span className="text-slate-400 italic">—</span>}
+                  <td className="px-3 py-2 text-foreground">
+                    {row.person ?? <span className="italic text-muted-foreground">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-slate-600">
-                    {row.location ?? <span className="text-slate-400">—</span>}
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {row.location ?? <span className="text-muted-foreground">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-slate-600">
-                    {row.pastor ?? <span className="text-slate-400">—</span>}
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {row.pastor ?? <span className="text-muted-foreground">—</span>}
                   </td>
                 </tr>
               )
@@ -1008,25 +1029,25 @@ function RegistryTable({ rows }: { rows: RegistryRow[] }) {
       </div>
 
       {/* Mobil: kompakt kártya-lista */}
-      <div className="sm:hidden divide-y divide-slate-100">
+      <div className="divide-y divide-border/70 sm:hidden">
         {rows.map((row) => {
           const meta = REGISTRY_TYPE_META[row.type]
           return (
-            <div key={row.key} className="p-3 space-y-1">
+            <div key={row.key} className="space-y-1 p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.tone}`}>
                   {meta.icon}
                   {meta.label}
                 </span>
-                <span className="text-xs font-medium text-slate-700">
+                <span className="text-xs font-medium text-foreground">
                   {formatShortDate(row.date)}
                 </span>
               </div>
               {row.person && (
-                <div className="text-sm text-slate-700">{row.person}</div>
+                <div className="text-sm text-foreground">{row.person}</div>
               )}
               {(row.location || row.pastor) && (
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-muted-foreground">
                   {row.location}
                   {row.location && row.pastor && ' · '}
                   {row.pastor && `Lelkész: ${row.pastor}`}
@@ -1060,35 +1081,35 @@ function formatShortDate(value?: string | null) {
 // 2026-06-02: Családlátogatás-lista — kompakt időrendi nézet, papír-érzet
 function VisitsList({ visits }: { visits: FamilyVisit[] }) {
   return (
-    <ol className="relative ml-3 space-y-3 border-l-2 border-rose-200/60 pl-5">
+    <ol className="relative ml-3 space-y-3 border-l-2 border-primary/20 pl-5">
       {visits.map((v) => (
         <li key={v.id} className="relative">
           {/* időpont-pötty */}
           <span
             aria-hidden
-            className="absolute -left-[27px] top-2.5 flex size-4 items-center justify-center rounded-full border-2 border-rose-300 bg-white"
+            className="absolute -left-[27px] top-2.5 flex size-4 items-center justify-center rounded-full border-2 border-primary/30 bg-card"
           >
-            <span className="size-1.5 rounded-full bg-rose-400" />
+            <span className="size-1.5 rounded-full bg-amber-400" />
           </span>
-          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md">
+          <div className="rounded-xl border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md motion-reduce:transition-none">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm font-semibold text-slate-800">
+              <span className="text-sm font-semibold text-foreground">
                 {formatShortDate(v.datum)}
               </span>
               {v.lelkesz && (
-                <span className="text-xs text-slate-500">
-                  <span className="text-slate-400">Lelkész: </span>
+                <span className="text-xs text-muted-foreground">
+                  <span className="text-muted-foreground/70">Lelkész: </span>
                   {v.lelkesz}
                 </span>
               )}
             </div>
             {v.alapige && (
-              <p className="mt-1.5 text-sm italic text-rose-700">
-                <span className="text-rose-400">„</span>{v.alapige}<span className="text-rose-400">"</span>
+              <p className="mt-1.5 rounded-lg bg-primary/5 px-2.5 py-2 text-sm italic text-primary">
+                <span className="text-amber-500">„</span>{v.alapige}<span className="text-amber-500">”</span>
               </p>
             )}
             {v.megjegyzes && (
-              <p className="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-slate-600">
+              <p className="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-muted-foreground">
                 {v.megjegyzes}
               </p>
             )}

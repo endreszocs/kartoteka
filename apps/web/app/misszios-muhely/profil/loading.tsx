@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { MuhelyLoading } from '@/components/muhely/layout/muhely-loading'
 
-export default function ProfilLoading() {
-  return <RouteLoadingScreen module="Profil" />
+export default function Loading() {
+  return <MuhelyLoading title="Előkészítjük a műhelyprofilodat…" />
 }

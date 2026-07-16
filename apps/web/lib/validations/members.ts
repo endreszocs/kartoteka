@@ -3,18 +3,48 @@ import { ENTRY_REASONS, REMOVE_REASONS } from '@/lib/constants/members'
 
 // ── Tag felvétel / szerkesztés ───────────────────────────────
 
+const bucharestDateFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Bucharest',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+function getCurrentBucharestDate() {
+  const parts = Object.fromEntries(
+    bucharestDateFormatter
+      .formatToParts(new Date())
+      .filter((part) => part.type === 'year' || part.type === 'month' || part.type === 'day')
+      .map((part) => [part.type, part.value]),
+  )
+
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
 export const memberSchema = z.object({
   id: z.number().optional(),
-  csaladnev: z.string().min(1, 'A családnév kötelező'),
-  k_nev: z.string().min(1, 'A keresztnév kötelező'),
+  csaladnev: z.string().trim().min(1, 'A családnév kötelező'),
+  k_nev: z.string().trim().min(1, 'A keresztnév kötelező'),
   szcs_nev: z.string().optional().or(z.literal('')),
   ferfi: z.boolean({ message: 'A nem megadása kötelező' }),
-  sz_datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
-  sz_hely_text: z.string().optional().or(z.literal('')),
+  sz_datum: z
+    .string()
+    .trim()
+    .min(1, 'A születési dátum kötelező')
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'A születési dátum formátuma ÉÉÉÉ-HH-NN legyen')
+    .refine((value) => {
+      const parsed = new Date(`${value}T00:00:00.000Z`)
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    }, 'A születési dátum nem létező naptári nap')
+    .refine(
+      (value) => value <= getCurrentBucharestDate(),
+      'A születési dátum nem lehet jövőbeli',
+    ),
+  sz_hely_text: z.string().trim().min(1, 'A születési hely kötelező').max(120),
   foglalkozas: z.string().optional().or(z.literal('')),
-  vallas: z.string().default('Református'),
-  c_helyseg_text: z.string().min(1, 'A település kötelező'),
-  c_utca_text: z.string().min(1, 'Az utca kötelező'),
+  vallas: z.string().trim().min(1, 'A vallás kötelező').max(80),
+  c_helyseg_text: z.string().trim().min(1, 'A település kötelező'),
+  c_utca_text: z.string().trim().min(1, 'Az utca kötelező'),
   c_szam: z.string().default('1'),
   c_tombhaz: z.string().optional().or(z.literal('')),
   c_lepcsohaz: z.string().optional().or(z.literal('')),
@@ -59,7 +89,10 @@ export const memberSchema = z.object({
   social_profil_url: z.string().optional().or(z.literal('')),
 })
 
-export type MemberInput = z.infer<typeof memberSchema>
+/** A böngészőűrlap nyers értékei; a Zod-defaultok alkalmazása előtt. */
+export type MemberFormValues = z.input<typeof memberSchema>
+/** A szervernek átadott, Zod által validált és defaultolt értékek. */
+export type MemberInput = z.output<typeof memberSchema>
 
 // ── Tag kivezetés ────────────────────────────────────────────
 

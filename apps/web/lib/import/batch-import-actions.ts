@@ -28,6 +28,7 @@ import {
   type AutoColumnContext,
 } from './row-transformer'
 import { createClient } from '@/lib/supabase/server'
+import { resolveImportTargetCongregationId } from './import-target'
 import { resolveLookups, type ResolveStats } from './lookup-resolver'
 import type {
   ParsedSheetPreview,
@@ -49,7 +50,16 @@ export async function parseAndPreview(
 ): Promise<ParseResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
+
+  // A parse (fájl-szerkezet felismerése) nem gyülekezet-függő, és nem ír adatot —
+  // csak a feltöltött fájlt olvassa. Ha explicit `targetCongregationId` érkezik (admin
+  // import-hub), a rendszergazda + hatókör-ellenőrzés itt is lefut, hogy jogosulatlan
+  // cél már az előnézetnél elakadjon. A tényleges írás-guard az executeBatchImport-on van.
+  const target = await resolveImportTargetCongregationId(
+    formData.get('targetCongregationId') as string | null,
+    access,
+  )
+  if (target.error) return { error: target.error }
 
   const file = formData.get('file') as File | null
   const moduleStr = formData.get('module') as string | null
@@ -134,7 +144,16 @@ export async function executeBatchImport(
 ): Promise<BatchImportResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (!access.effectiveCongregationId) return { error: 'Nincs aktív gyülekezet.' }
+
+  // Cél-gyülekezet: alapból az aktív; admin import-hubból explicit `targetCongregationId`
+  // (rendszergazda + hatókör-ellenőrzéssel — enélkül a régi god-mode/delegált út).
+  const target = await resolveImportTargetCongregationId(
+    formData.get('targetCongregationId') as string | null,
+    access,
+  )
+  if (target.error) return { error: target.error }
+  if (!target.congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  const congregationId = target.congregationId
 
   const file = formData.get('file') as File | null
   const configJson = formData.get('config') as string | null
@@ -176,7 +195,7 @@ export async function executeBatchImport(
 
   const supabase = await createClient()
   const ctx: AutoColumnContext = {
-    congregationId: access.effectiveCongregationId,
+    congregationId,
     userId: access.user.id,
     currentYear: new Date().getFullYear(),
   }
@@ -235,7 +254,7 @@ export async function executeBatchImport(
       const rawRecords = result.records.map((r) => r.record)
       const { records: resolvedRecords, stats: resolveStats } = await resolveLookups(
         supabase,
-        access.effectiveCongregationId,
+        congregationId,
         rawRecords,
       )
 
@@ -307,7 +326,7 @@ export async function executeBatchImport(
     const { logImportRun } = await import('./import-log')
     await logImportRun({
       supabase,
-      congregationId: access.effectiveCongregationId,
+      congregationId,
       userId: access.user.id,
       module: moduleStr as ImportModule,
       fileName: file.name,

@@ -53,7 +53,7 @@ export async function getVoters(): Promise<VoterRow[]> {
       .is('ervenyes_ig', null)
       .not('legacy_csalad_id', 'is', null),
     Promise.resolve({ data: [] }),
-    supabase.from('befizetes').select('id_szemely, fizetettev, osszeg, befizetescel!id_befizetescel(szamadasicel(kod))').eq('congregation_id', congId).or('deleted.eq.false,deleted.is.null'),
+    supabase.from('befizetes').select('id_szemely, fizetettev, osszeg, befizetescel!id_befizetescel(id_szamadasicel)').eq('congregation_id', congId).or('deleted.eq.false,deleted.is.null'),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congId).in('id', [String(prevYear), String(currentYear)]),
     getVisibleDistrictNameMap(supabase, congId),
   ])
@@ -97,7 +97,7 @@ export async function getVoters(): Promise<VoterRow[]> {
   const jarulekFizetoIds = new Set<number>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(jarulekRes.data || []).forEach((b: any) => {
-    const celKod: string = b.befizetescel?.szamadasicel?.kod || ''
+    const celKod: string = b.befizetescel?.id_szamadasicel || ''
     if (!celKod.startsWith('101.01')) return // Csak járulék befizetéseket nézzük
     const ev = b.fizetettev as number | null
     const id = b.id_szemely as number | null

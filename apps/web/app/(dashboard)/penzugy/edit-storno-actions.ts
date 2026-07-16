@@ -114,6 +114,11 @@ export interface UpdateTransactionInput {
   id: number
   datum?: string
   osszeg?: number
+  /** 2026-07-11 (S11): devizás számla — a RON-ekvivalens és az árfolyam is
+   *  szerkeszthető (a tényleges banki átváltás értéke, adók/rés miatt eltérhet
+   *  a BNR-től). RON számlán osszeg_ron == osszeg, arfolyam == 1. */
+  osszeg_ron?: number | null
+  arfolyam?: number | null
   megjegyzes?: string | null
   /** Kassza/bank jogcím kategória — a befizetescel/kiadascel PK-ja
    * (congregation) vagy a szamadasicel kód-indexe (diocese). */
@@ -149,6 +154,10 @@ export async function updateTransactionBasic(
   const updateData: Record<string, unknown> = {}
   if (input.datum !== undefined) updateData.datum = input.datum
   if (input.osszeg !== undefined) updateData.osszeg = input.osszeg
+  // 2026-07-11 (S11): devizás számlánál a RON-ekvivalens + árfolyam is frissül,
+  // különben szerkesztés után a osszeg_ron elavulna (az egyenleg RON-ban ezt olvassa).
+  if (input.osszeg_ron !== undefined) updateData.osszeg_ron = input.osszeg_ron
+  if (input.arfolyam !== undefined) updateData.arfolyam = input.arfolyam
   if (input.megjegyzes !== undefined) updateData.megjegyzes = input.megjegyzes?.trim() || null
   if (input.iratszam !== undefined) {
     updateData.iratszam = input.iratszam?.trim() || null

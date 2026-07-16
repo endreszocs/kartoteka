@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { MuhelyLoading } from '@/components/muhely/layout/muhely-loading'
 
-export default function SegedanyagokLoading() {
-  return <RouteLoadingScreen module="Segédanyagok" />
+export default function Loading() {
+  return <MuhelyLoading title="Levesszük a polcról a segédanyagokat…" />
 }

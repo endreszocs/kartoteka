@@ -22,7 +22,7 @@
  */
 
 import { useState } from 'react'
-import { AlertCircle, Building2, CheckCircle2, KeyRound, Loader2, Users, X } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle2, KeyRound, Loader2, PhoneCall, Users, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -35,6 +35,7 @@ import {
 import type {
   CrossMatchCandidate,
   CrossMatchConfidence,
+  CrossMatchPastorContact,
 } from '@/lib/members/cross-congregation-actions'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
@@ -58,6 +59,8 @@ interface CrossCongregationMatchDialogProps {
   triggeringPerson: CrossMatchTriggeringPerson
   /** A találatok listája (a `findPotentialCrossMatch` eredménye) */
   candidates: CrossMatchCandidate[]
+  /** A talált gyülekezet(ek) lelkész-elérhetősége (kapcsolatfelvételhez) */
+  contacts?: CrossMatchPastorContact[]
   /** Triggered context: 'new_member' vagy 'update' */
   context?: 'new_member' | 'update'
   /** Visszahívás a felhasználó döntésével */
@@ -73,6 +76,7 @@ export function CrossCongregationMatchDialog({
   onOpenChange,
   triggeringPerson,
   candidates,
+  contacts = [],
   context = 'new_member',
   onDecide,
   isPending = false,
@@ -80,6 +84,9 @@ export function CrossCongregationMatchDialog({
   const [selectedCandidate, setSelectedCandidate] = useState<CrossMatchCandidate | null>(
     candidates[0] ?? null,
   )
+  const selectedContact = selectedCandidate
+    ? contacts.find((c) => c.congregation_id === selectedCandidate.matched_congregation_id) ?? null
+    : null
 
   const triggerName = `${triggeringPerson.csaladnev} ${triggeringPerson.k_nev}`.trim()
   const hasCandidates = candidates.length > 0
@@ -166,14 +173,50 @@ export function CrossCongregationMatchDialog({
               })}
             </div>
 
-            {/* Decision summary */}
+            {/* Lelkész-elérhetőség — kapcsolatfelvételhez */}
             {selectedCandidate && (
-              <div className="rounded-2xl bg-emerald-50/40 p-3 text-sm text-emerald-900 ring-1 ring-emerald-100">
-                <p>
-                  Ha <strong>ugyanaz a személy</strong>, az új vagy módosítandó tag a{' '}
-                  <span className="font-mono text-emerald-700">{selectedCandidate.egyhazi_cnp}</span>{' '}
-                  CNP-vel kerül rögzítésre — így a két gyülekezet rekordjai összefűződnek a családfa-
-                  és kettős-tagság szempontjából.
+              <div className="space-y-2 rounded-2xl bg-emerald-50/50 p-3.5 ring-1 ring-emerald-100">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">
+                  <PhoneCall className="size-3.5" />
+                  Vedd fel a kapcsolatot a(z) {selectedCandidate.matched_congregation_name} lelkészével
+                </p>
+                {selectedContact
+                  && (selectedContact.pastor_name
+                    || selectedContact.pastor_email
+                    || selectedContact.pastor_phone
+                    || selectedContact.congregation_email
+                    || selectedContact.congregation_phone) ? (
+                  <div className="space-y-1 text-sm text-slate-700">
+                    {selectedContact.pastor_name && (
+                      <p><span className="text-slate-400">Lelkész:</span> <strong>{selectedContact.pastor_name}</strong></p>
+                    )}
+                    {(selectedContact.pastor_email || selectedContact.congregation_email) && (
+                      <p>
+                        <span className="text-slate-400">E-mail:</span>{' '}
+                        <a className="font-medium text-emerald-700 hover:underline" href={`mailto:${selectedContact.pastor_email || selectedContact.congregation_email}`}>
+                          {selectedContact.pastor_email || selectedContact.congregation_email}
+                        </a>
+                      </p>
+                    )}
+                    {(selectedContact.pastor_phone || selectedContact.congregation_phone) && (
+                      <p>
+                        <span className="text-slate-400">Telefon:</span>{' '}
+                        <a className="font-medium text-emerald-700 hover:underline" href={`tel:${(selectedContact.pastor_phone || selectedContact.congregation_phone || '').replace(/\s+/g, '')}`}>
+                          {selectedContact.pastor_phone || selectedContact.congregation_phone}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    A lelkész elérhetősége nincs rögzítve ehhez a gyülekezethez — egyeztess az
+                    egyházmegyei hivatallal.
+                  </p>
+                )}
+                <p className="pt-1 text-xs leading-relaxed text-slate-500">
+                  Ha <strong>ugyanaz a személy</strong>, egyeztess az ottani lelkésszel a kettős
+                  tagságról. A rendszer a döntést rögzíti; az egységes lélekszám a végleges
+                  összevonáskor egyszer számolja majd.
                 </p>
               </div>
             )}
@@ -186,8 +229,9 @@ export function CrossCongregationMatchDialog({
 
         {/* Adatvédelmi info */}
         <p className="mt-2 text-xs italic text-slate-500">
-          🔒 A másik gyülekezet egyéb tagadatait (cím, születési dátum, családi viszony) NEM
-          látjuk — csak a gyülekezet neve és az egyházi CNP jelenik meg.
+          🔒 A másik tag SEMMILYEN személyes adatát (cím, születési dátum, családi viszony) NEM
+          látjuk — csak a gyülekezet neve, az egyházi CNP, és a kapcsolatfelvételhez a lelkész
+          HIVATALOS elérhetősége jelenik meg.
         </p>
 
         {/* Akció gombok */}

@@ -23,11 +23,11 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
-## [2026-07-11] — Munkanapló és iktató alapjavítások + ének- és bibliaadat-alapok
+## [2026-07-16] — Munkanapló és iktató alapjavítások + ének- és bibliaadat-alapok
 <!-- key: 2026-07-11-munkanaplo-iktato-f1 -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz -->
-<!-- version: web v0.9.59 -->
+<!-- version: web v0.9.80 -->
 
 ### 🐛 Javítások
 
@@ -62,6 +62,559 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   magyar igehely-értelmező, amely a hivatkozások minden szokásos írásmódját érti
   (pl. „Jn 3,16", „Zsolt 23:1-4", „Mt 13,53-14,12") — az igevers-keresés és a
   biblia-lefedettségi statisztika alapja.
+
+---
+
+## [2026-07-16] — Korai fizetés: a hátralék az aktuális kedvezményes időszakot mutatja + betűs hónapnevek
+<!-- key: 2026-07-16-korai-fizetes-aktualis-idoszak -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.79 -->
+
+### ✨ Pénzügy — korai fizetési kedvezmény
+
+- **A Tartozások listája mostantól figyelembe veszi, hogy éppen melyik kedvezményes
+  időszakban vagyunk.** Eddig a kedvezmény csak annál jelent meg, aki már ki is fizette —
+  aki januárban még nem fizetett, annál a teljes díj állt, pedig javában a kedvezményes
+  időszakban voltunk. Mostantól nála az aktuális időszak összege látszik (pl. márciusban
+  160 lej, augusztusban 190, novembertől a teljes díj).
+
+- **Aki már fizetett, annál semmi nem változik.** Aki januárban kifizette a kedvezményes
+  160 lejt, annak novemberben sem keletkezik tartozása — a megszerzett kedvezmény
+  megmarad, nem „jár le" utólag.
+
+- **A hónapok mostantól betűvel is ki vannak írva** — a listában, a kedvezmény-szabályoknál
+  és a beviteli mezőknél is. A „07-01" ránézésre lehetett július 1. vagy január 7.; mostantól
+  egyértelműen **július 1.** olvasható. A beírt kód alatt élőben megjelenik a betűs alak.
+
+- **A több kedvezményes időszak megtalálhatóvá vált.** A „Pénzügyi alap" panelről mostantól
+  egy gomb visz át a „Kedvezmények és díjak" panelre, ahol több időszak is felvehető
+  (pl. január 1. – július 1. → 160 lej, július 2. – november 1. → 190 lej). Amelyik időszakba
+  a fizetés nem esik bele, ott a teljes éves díj érvényes — azt nem kell külön felvenni.
+
+---
+
+## [2026-07-16] — A Tartozások lista és az éves jelentés lélekszáma némán üres volt
+<!-- key: 2026-07-16-szemely-select-nem-letezo-oszlop -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.78 -->
+
+### 🐛 Pénzügy + Éves jelentés — üres listák
+
+- **A Pénzügy → Tartozások lista üres volt, akkor is, ha voltak hátralékos tagok.** A tagok
+  lekérdezése két olyan mezőt kért az adatbázistól, ami nem létezik, ezért a lekérdezés hibára
+  futott — a hibát viszont a rendszer némán elnyelte, és üres listát mutatott hiba helyett.
+  Mostantól a lista helyesen töltődik.
+
+- **Az éves jelentés lélekszám-rubrikája mindig 0-t mutatott** — ugyanezen okból. Mostantól a
+  valós tagszámot jelenti.
+
+- **A hiba mostantól nem tud némán elveszni:** ha a lekérdezés bármikor újra elromlik, a
+  rendszer naplózza, ahelyett hogy csendben üres listát adna.
+
+- Megjegyzés: a tétel rögzítésekor felajánlott járulék-összeg **nem volt érintve** — az egy
+  másik lekérdezési úton számol, ezért az mindvégig helyesen működött.
+
+---
+
+## [2026-07-16] — Az egyházfenntartói járulék mostantól 18 éves kortól számol
+<!-- key: 2026-07-16-jarulek-18-eves-korhatar -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.77 -->
+
+### 🐛 Pénzügy — járulékkötelezettség
+
+- **A rendszer eddig MINDEN tagra a teljes éves járulékot várta el, életkortól függetlenül —
+  a csecsemőkre is.** Az egyházfenntartói járulék hivatalosan 18 éves kortól jár, ezért
+  mostantól a 18 év alatti tagokra 0 az elvárt összeg. A Tartozások listáján a kiskorúak
+  **alapból nem jelennek meg** (a lista a beszedendő járulékról szól); a szűrősorban a
+  „Kiskorúak is" kapcsolóval előhívhatók, „Nem járulékköteles" jelöléssel.
+
+- **A kiskorúság külön jelölést kapott, nem keveredik a Felmentéssel.** A „Felmentett"
+  továbbra is a presbitériumi méltányossági döntést jelenti — eddig a két eset összemosódott
+  volna a listán.
+
+- **Fontos:** a javítás **visszamenőleg minden évre** érvényes, mert a szabály hivatalosan
+  mindig is élt (a régi Excel-könyvelés sem ismerte a korhatárt). Ezért a korábbi évek
+  tartozás-kimutatásai a gyerekek nélkül fognak megjelenni — eltérhetnek a korábban
+  kinyomtatott példányoktól.
+
+- **A családi befizetés a gyereknél továbbra is látszik**, csak az elvárt összeg 0 — így
+  nyomon követhető marad, hogy a család fizetett.
+
+- **Akinél hiányzik a születési dátum, marad a teljes díj** — szándékosan: így a hiányos
+  adat feltűnik a listán és pótolható, ahelyett hogy a tartozása némán eltűnne.
+
+---
+
+## [2026-07-16] — Járulék-kedvezmények: a korkedvezmény fordítva számolt
+<!-- key: 2026-07-16-korkedvezmeny-szazalek-javitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.76 -->
+
+### 🐛 Pénzügy — kedvezmények
+
+- **A „Nyugdíjas / kor" kedvezménynél a megadott százalék fordítva érvényesült.** A rendszer
+  a beírt százalékot *fizetendőként* értelmezte, nem levonandó kedvezményként — így 30%
+  kedvezménynél a tag 66 lejt fizetett 154 helyett, 100%-nál pedig a teljes díjat, 0%-nál
+  viszont semmit. (Az űrlap 50%-os alapértékénél a két számítás véletlenül egybeesett, ezért
+  maradt rejtve.) Mostantól a felirat szerint működik: **a kedvezmény százalékával kevesebbet
+  fizet**. A „Korai fizetés" és a „Foglalkozás" kedvezmény számítása változatlan.
+
+- **A „Szociális" kedvezmény-típus eltávolítva a kedvezmény-panelről.** Ez a típus menthető
+  volt és meg is jelent a listában, de a tartozás-számítás **soha nem vette figyelembe** —
+  néma csapda volt. Az ok: az itteni kedvezmények mindig az egész gyülekezetre vonatkoznak,
+  egyetlen tagra nem szűkíthetők, így egy „beteg tag 100%" szabály mindenkit ingyenessé tett
+  volna. **Egy tagra szóló mentességet továbbra is a Felmentésnél lehet rögzíteni** (indokkal
+  és évszámmal) — az helyesen működik. A panel most erre irányít.
+
+---
+
+## [2026-07-15] — Pénzügy: éves beállítás megadható űrlapon (nincs több zsákutca)
+<!-- key: 2026-07-15-eves-penzugyi-beallitas-urlap -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.75 -->
+
+### 🐛 Pénzügy — éves beállítás
+
+- **Ha egy évre még nincs pénzügyi beállítás (éves egyházfenntartói járulék + fizetési
+  határidő), a Pénzügy fül most egy kitölthető űrlapot mutat, ahol azonnal megadhatod
+  ezeket, és a rendszer létrehozza az évi beállítást.** Eddig — ha a bevezető varázslóban
+  nem adtál meg éves járulékot — csak egy „nem hozható létre automatikusan, kérj segítséget
+  az admintól" zsákutca-üzenet jelent meg. Mostantól a lelkész maga is elindíthatja az évet.
+
+---
+
+## [2026-07-15] — Import: kereszt-gyülekezeti egyezések összefoglalója
+<!-- key: 2026-07-15-import-kereszt-egyeztetes-osszefoglalo -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.74 -->
+
+### ✨ Import — kereszt-gyülekezeti figyelés
+
+- **Az importálás eredmény-lépésén megjelenik, ha az importált tagok között lehetnek
+  olyanok, akik már szerepelnek másik gyülekezetben.** A rendszer importkor is ellenőrzi
+  az egyezéseket; a találatokat az értesítőknél (harang ikon) nézheted át, a másik
+  gyülekezet lelkészének elérhetőségével a kapcsolatfelvételhez.
+
+---
+
+## [2026-07-15] — Import: a családszerkezet-lépés nem ragad be hibánál
+<!-- key: 2026-07-15-import-csaladszerkezet-hibakezeles -->
+<!-- category: bugfix -->
+<!-- targets: rendszergazda, lelkesz -->
+<!-- version: web v0.9.73 -->
+
+### 🐛 Importáló — robusztusabb családszerkezet
+
+- **Ha az automatikus családszerkezet-összeállítás hibázik** (pl. nagy gyülekezetnél
+  időtúllépés), a „Családok" lépés többé **nem ragad be**: érthető üzenet jelenik meg
+  **„Újrapróbálom"** és **„Kihagyom ezt a lépést"** gombbal. A már beimportált személyek
+  és családfők érintetlenek maradnak.
+
+---
+
+## [2026-07-15] — Tag-szerkesztő: a beágyazott ablakok is bezárulnak
+<!-- key: 2026-07-15-tag-szerkeszto-beagyazott-ablak-zaras -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.72 -->
+
+### 🐛 Javítás
+
+- **A tag-szerkesztő bezárásakor a benne megnyitott fotó-szerkesztő és
+  kereszt-gyülekezeti ablak is automatikusan bezárul.** Eddig előfordulhatott, hogy
+  X-re kattintva egy beágyazott ablak / a kép „beakadt" a képernyőn.
+
+---
+
+## [2026-07-15] — Asztali app: fénykép beállítása a tag-nézetből
+<!-- key: 2026-07-15-desktop-tag-fenykep -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: desktop v0.9.4 -->
+
+### ✨ Asztali (desktop) web-paritás
+
+- **Az asztali alkalmazásban is beállíthatod egy tag fényképét** közvetlenül a
+  tag-portré ablakból: kattints a monogramra → tölts fel képet a gépről (vagy próbáld a
+  Facebook-linkből). Eddig ez csak a családi nézetből működött. *(Új asztali kiadás
+  telepítése szükséges hozzá.)*
+
+---
+
+## [2026-07-14] — Kereszt-gyülekezeti figyelmeztető új tag rögzítésekor
+<!-- key: 2026-07-14-kereszt-gyulekezeti-figyelmezteto -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.71 -->
+
+### ✨ Új: ugyanaz a személy már más gyülekezetben?
+
+- **Új tag rögzítésekor a rendszer a mentés előtt ellenőrzi, hogy a személy (név +
+  születési dátum vagy telefon) szerepel-e már másik gyülekezetben.** Ha igen, egy ablak
+  jelzi a találatot, és megmutatja **a másik gyülekezet lelkészének hivatalos
+  elérhetőségét** (név, e-mail, telefon — közvetlen kapcsolatfelvételhez). A másik tag
+  személyes adatait (cím, család) NEM látod.
+- Két lehetőség: **„Nem, más személy"** → a rögzítés folytatódik · **„Igen, ugyanaz a
+  személy"** → rögzítés + emlékeztető a lelkészi egyeztetésre. A rendszer a kettős
+  tagságot később nem számolja duplán az egységes lélekszámban.
+
+---
+
+## [2026-07-14] — Tag-szerkesztő: gombok mindig alul + nincs véletlen mentés
+<!-- key: 2026-07-14-tag-szerkeszto-footer-submit-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.70 -->
+
+### 🐛 Tag-szerkesztő javítások
+
+- **A mentés/tovább gombok mostantól MINDIG a szerkesztő-ablak alján vannak** — a tartalom
+  felettük görgethető, lépéstől függetlenül. Nem kell a kurzort fel-le vinni a gombokért.
+- **Az utolsó lépés nem „menti el magát" többé:** a mentés kizárólag a kifejezett „Tag
+  mentése" / „Módosítások mentése" gombra történik — sem az Enter, sem a véletlen fókusz
+  nem indíthatja el, így nyugodtan kitölthető a lap.
+
+---
+
+## [2026-07-14] — Az importáló nem omlik össze feltöltési hibánál
+<!-- key: 2026-07-14-import-feltoltes-osszeomlas-fix -->
+<!-- category: bugfix -->
+<!-- targets: rendszergazda, lelkesz -->
+<!-- version: web v0.9.69 -->
+
+### 🐛 Kritikus javítás — importáló
+
+- **A rendszergazdai (és a sima) importáló nem omlik össze többé, ha a fájl feltöltése
+  megszakad** (pl. a kiválasztott fájl közben megváltozott a lemezen, vagy a hálózat
+  akadozott). Eddig ilyenkor a „This page couldn't load" hibaoldal jelent meg, és
+  újra kellett tölteni. Mostantól a rendszer a kiválasztott fájlt **azonnal a memóriába
+  olvassa** (stabil másolat), és feltöltési/hálózati hiba esetén **érthető üzenetet** ad
+  („Válaszd ki újra a fájlt…") — az oldal nem esik szét.
+
+---
+
+## [2026-07-14] — Prémium családi galaxis + tagnyilvántartás-javítások
+<!-- key: 2026-07-14-galaxis-tagnyilvantartas-javitasok -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.68 -->
+
+### ✨ Új: prémium „Családi galaxis"
+
+- **A Családi háló megújult, látványos csillag-galaxissá vált:** mély, obszidián-fekete
+  térben a családok ragyogó arany „napokként", a tagok türkiz/rózsa csillagokként
+  jelennek meg, a rokoni kapcsolatok pedig finom fénylő fonalakként. Húzással
+  mozgatható, görgővel vagy csippentéssel nagyítható.
+- **Egy csillagra kattintva a közvetlen környezete kiemelve marad, a többi elhalványul**
+  — így tisztán látszanak a kapcsolati összefüggések.
+
+### 🐛 Javítások a személyeknél
+
+- **A személyek listája nem tűnik el többé** a tag szerkesztésének bezárásakor (egy
+  ritka betöltési hiba miatt korábban előfordult, hogy üresen maradt a lista).
+- **A tag-felvétel/szerkesztés ablak nem záródik be „magától" és nem ment félbe**, ha a
+  Facebook-link beírása után Enter-t nyomsz — a mentés kizárólag a kifejezett „Módosítások
+  mentése" / „Tag mentése" gombbal történik.
+- **A szerkesztő-ablak mérete minden lépésnél állandó**, így a „Tovább" gomb nem ugrál el.
+
+### ✨ Működő profilkép-eszköz
+
+- **A tag szerkesztésénél új „Profilkép beállítása…" gomb** külön ablakot nyit, ahol a
+  fénykép a gépről feltölthető, vagy (best-effort) a Facebook-linkből letölthető. A
+  Facebook gyakran nem engedi az automatikus letöltést — ilyenkor a kézi feltöltés
+  mindig működik, és a kép csak a saját „Mentés" gombjával kerül mentésre.
+
+### 🔒 Import-biztonság
+
+- **Másik gyülekezetbe importálni már csak rendszergazda** teheti, a saját hatókörén
+  belül — a korábbi útvonalak jogosultság-ellenőrzés nélkül fogadták a cél-gyülekezetet.
+
+---
+
+## [2026-07-13] — Frissítés után nem törik meg a navigáció
+<!-- key: 2026-07-13-sw-frissites-ujratoltes -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros, rendszergazda -->
+<!-- version: web v0.9.67 -->
+
+### 🐛 Kritikus javítás
+
+- **Egy frissítés (új verzió) telepítése után a megnyitott fül nem „ragad be"
+  többé.** Eddig, ha a rendszer frissült, miközben nyitva volt az alkalmazás, a
+  fül a régi és az új verzió keverékét futtatta — a bal oldali menüre kattintva
+  nem nyílt meg új oldal (a régi kód olyan fájlt keresett, amit a frissítés már
+  lecserélt). Mostantól a fül a frissítés átvételekor **automatikusan újratölt**
+  a friss verzióra, így a navigáció zökkenőmentes marad. Ha mégis ilyen hibába
+  futna, a rendszer **magától újratölti** a fület (biztonsági háló).
+
+> Ha most is beragadt oldalt látsz, egyszeri **teljes újratöltés** (Ctrl+Shift+R,
+> vagy Mac-en Cmd+Shift+R) azonnal helyreállítja — utána ez a hiba nem tér vissza.
+
+---
+
+## [2026-07-13] — A Kartotéka neve is rákerült a segédanyagokra
+<!-- key: 2026-07-13-muhely-segedanyag-kartoteka-alairas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz -->
+
+### 🐛 Egységesebb fájlaláírás
+
+- **A Műhelypolcról letöltött Word- és PDF-fájlok alján most már a teljes
+  „Missziós Műhely · Kartotéka” név olvasható,** így továbbküldve vagy
+  kinyomtatva is egyértelmű, honnan származik a segédanyag.
+
+---
+
+## [2026-07-13] — Élő olvasószobává vált a Műhelypolc
+<!-- key: 2026-07-13-muhelypolc-olvasoszoba-dokumentumjavitas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 Barátságosabb böngészés
+
+- **A Műhelypolc napfényes, otthonos olvasószobát kapott:** a könyvek, a fa
+  polckeret és a finoman mozduló fények egy közös térbe rendezik a keresést és
+  a megosztott anyagokat.
+- **A polc mozgásai segítenek, de nem zavarják az olvasást:** a kártyák lágyan
+  érkeznek meg, az apró fényjáték pedig kikapcsol, ha a készüléken csökkentett
+  mozgás van beállítva.
+- **Telefonon is kényelmes marad minden:** 320 képpont szélességtől nincs
+  oldalirányú görgetés; a szűrők és az anyagok egy jól áttekinthető oszlopba
+  rendeződnek.
+
+### 🐛 Szebb dokumentumnézet
+
+- **A megnyitott segédanyag ismét valódi, széles olvasóoldal:** nagy képernyőn
+  a szöveg és az anyag adatai egymás mellett, telefonon egymás alatt jelennek
+  meg, így a mondatok többé nem törnek betűnként keskeny oszlopba.
+- **A szerkesztőablak is megkapta ugyanezt a javítást,** ezért saját anyag
+  készítésekor vagy módosításakor minden mező kényelmesen használható mobilon
+  és asztali gépen is.
+
+---
+
+## [2026-07-13] — Egyetlen, napfényes tér lett a Műhely nyitóoldala
+<!-- key: 2026-07-13-misszios-muhely-premium-nyitooldal -->
+<!-- category: improvement -->
+<!-- targets: lelkesz -->
+
+### 🎨 Otthonosabb nyitóélmény
+
+- **A köszöntés és a hangulatkép most már egyetlen közös kompozíció:** eltűnt a
+  korábbi, két külön részre osztott elrendezés, így a nyitóoldal egységesebb és
+  nyugodtabb első benyomást ad.
+- **A Biblia, a bögre és az olajágak szervesen belesimulnak a tartalomba:** a kép
+  finoman a szöveg és a közösségi számok mögé fut, miközben minden felirat jól
+  olvasható marad.
+- **Telefonon is teljes értékű a látvány:** a cím, a két fontos műveleti gomb, a
+  közösségi számlálók és a kép 320 képpont szélességtől kényelmesen, levágás és
+  oldalirányú görgetés nélkül rendeződnek el.
+- **Finom belépő animáció teszi barátságosabbá az érkezést,** de a rendszer
+  mozgáscsökkentési beállítását használóknál az animáció automatikusan elmarad.
+
+---
+
+## [2026-07-12] — A Missziós Műhelyből alkotótér lett
+<!-- key: 2026-07-12-misszios-muhely-alkototer -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.65 -->
+
+### ✨ Segédanyag készítése és használata
+
+- **A megnyitott segédanyag most már valódi olvasóoldal:** a hosszabb szöveg
+  levegősen, jól elkülönülő részekkel jelenik meg, telefonon és nagy képernyőn
+  egyaránt kényelmesen olvasható.
+- **A segédanyag Word- vagy PDF-dokumentumként is elmenthető.** A letöltött
+  változat egységes A4-es tördelést, címet, szerzőt, gyülekezetet, dátumot és
+  témaköröket kap, így továbbadható vagy kinyomtatható.
+- **Saját alkotófelület készült:** egy helyen láthatod a feltöltött anyagaidat,
+  új segédanyagot készíthetsz, a saját korábbi anyagaidat pedig szerkesztheted
+  vagy archiválhatod.
+- **Érthetőbb lett a csillagos értékelés:** már választás közben is látható,
+  hány csillagnál jársz. A próbaidőszak alatt a saját anyagodon is kipróbálhatod
+  az értékelést; ez a saját próba nem ad pontot vagy jelvényt.
+
+### 🎨 Otthonosabb, személyesebb műhely
+
+- **A kezdőlap nyitóképe természetesebben simul a felületbe:** a teljes kép
+  látható marad, és eltűnt mögüle a zavaró kockás hatás.
+- **Az Ötletasztal és a Műhelypolc saját, áttetsző hátterű illusztrációt kapott,**
+  amely telefonon sem vesz el helyet a fontos tartalomtól.
+- **Mind a tizenkét jelvény külön képi világot kapott,** így az elért állomások
+  karakteresebbek, játékosabbak és ünnepibbek lettek.
+- **A beállított profilfotó a műhelyben is elkísér:** megjelenik a fejlécben és
+  a Műhelyprofilomon; ha nincs fénykép, továbbra is a monogram segít azonosítani.
+
+---
+
+## [2026-07-12] — A Missziós Műhely teljesen megújult
+<!-- key: 2026-07-12-misszios-muhely-ujratervezes -->
+<!-- category: feature -->
+<!-- targets: lelkesz, admin -->
+<!-- version: web v0.9.64 -->
+
+### ✨ Önálló, játékos alkotótér
+
+- **Új, otthonos és mobil-first felület:** a Missziós Műhely most önálló
+  weboldalélményt, kényelmes mobilnavigációt, finom animációkat és 320 px-től
+  használható elrendezést kapott.
+- **Ötletből közös szolgálat:** az ötletgazda 14 napos szavazást indíthat; öt
+  egyedi támogatónál az ötlet automatikusan közös projektté válik, feladatokkal,
+  mérföldkövekkel és segédanyagokkal.
+- **Játékos jutalmazás:** animált jelvények, pontok, szintek és ünnepi
+  visszajelzések teszik láthatóvá a közösségi hozzájárulást.
+- **Biztonságos munkafolyamat:** a pontozás és a státuszváltás adatbázis-szinten
+  atomikus, a lezárt projekt pedig csak teljes feladatlista után jelölhető
+  megvalósultnak.
+
+---
+
+## [2026-07-11] — Devizás tétel szerkesztése + bankszámlák közötti (keresztdevizás) párosítás
+<!-- key: 2026-07-11-devizas-szerkesztes-parositas -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.66 -->
+
+### 🎨 Devizás számla szerkesztése
+
+- **A tétel-szerkesztő ablak a számla VALÓS pénznemét írja ki** — nem fix „Összeg
+  (RON)", hanem pl. „Összeg (EUR)", ha devizás számláról van szó.
+- **Devizás számlánál a tényleges lej (RON) érték és az árfolyam kézzel javítható.**
+  A könyvelést lejben vezetjük, de a bank tényleges átváltási árfolyama (adók, banki
+  rés miatt) eltérhet a hivatalos BNR-től — ezért a lelkész mostantól beírhatja a
+  **valóban jóváírt RON összeget** (vagy az árfolyamot), és a rendszer ezt használja
+  a könyvelésben. (Eddig szerkesztéskor a RON-érték elavulhatott.)
+
+### 🔗 Bankszámlák közötti párosítás (keresztdevizás is)
+
+- **A bankszámlák közötti mozgások is párosíthatók — a különböző pénznemek között
+  is.** Ha pl. 1000 EUR-t átküldesz a devizás számláról, és az ~4970 RON-ként jelenik
+  meg a lej számlán, a rendszer mostantól **összepárosítja** a két tételt (mint a
+  kassza és bank közötti mozgásokat) — annak ellenére, hogy a két összeg különböző.
+  A párosítás a **lej-egyenértéken** történik, kis toleranciával (a banki és a BNR
+  árfolyam pár százalékos eltérését megengedve). Az azonos pénznemű mozgásoknál marad
+  a pontos összeg-egyeztetés. Így a devizás átutalások „⏳ várakozik" jelzése is
+  eltűnik, amint a másik számla kivonata beérkezik.
+
+### ℹ️ Jó tudni
+
+A kézi bank→bank átvezetés rögzítő felülete (a hozzá tartozó automatikus
+árfolyam-különbözet könyveléssel, 103.04 nyereség / 203.03 veszteség) külön, következő
+lépésként érkezik — a részletes könyvelői terv elkészült (docs/BANK_BANK_ATVEZETES_TERV).
+
+---
+
+## [2026-07-11] — Monetár (címletszámláló) mentés-hiba javítva
+<!-- key: 2026-07-11-monetar-mentes-fix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.63 -->
+
+### 🐛 Javítás
+
+- **A Monetár (címletszámláló) mentése ismét működik.** Egyes rendszereken a
+  mentés hibával állt le, mert a háttérben a címlet-törzs (a lej-címletek
+  listája) nem volt feltöltve, és a rendszer emiatt nem tudta melyik címlethez
+  rögzíteni a darabszámot. Mostantól a rendszer a mentéskor (és a Monetár
+  megnyitásakor) **automatikusan pótolja a hiányzó címleteket**, és a korábban
+  megnyitott számláló is menthető marad újratöltés nélkül. Ha az önjavítás nem
+  fut le (a rendszergazda még nem telepítette a szükséges adatbázis-frissítést),
+  a hibaüzenet mostantól pontosan megmondja, mit kell tennie.
+
+---
+
+## [2026-07-11] — Devizás számla: a teljes felület lejben (RON) számol és jelenít meg
+<!-- key: 2026-07-11-devizas-ron-megjelenites -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.62 -->
+
+### 🐛 Kritikus javítás — devizás (EUR/HUF) bankszámla
+
+- **⚠️ A devizás számla tételei, egyenlege és nyomtatványai mostantól MINDENHOL
+  lejben (RON) jelennek meg és számolnak.** Eddig a rendszer a deviza-összeget
+  (pl. EUR) számolta bele a RON-egyenlegbe és mutatta a RON-címkével — így egy
+  1 788,68 EUR bevétel 1 788,68 „RON"-ként jelent meg a ~8 890 RON helyett, és
+  az egyenleg is hibás lett. Ez a hiba **az egész pénzügyi felületet érintette**
+  devizás számlánál: a Bank fül egyenleg-mutatói és tétel-listája, a Tranzakciók
+  fül, a hivatalos nyomtatványok (Registru Casa/Banca/Jurnal, Csoportnapló,
+  Számadás tényadatai), az évek közti átvitel és az előző évi tény-referencia.
+  Mostantól mind a **RON-ekvivalenst** (a bejegyzés dátuma szerinti árfolyammal
+  átváltott értéket) használja.
+- **A devizás tételeknél a lista mutatja az eredeti deviza-összeget is** — a RON
+  érték alatt kicsiben (pl. „8 890,15" fölött és „1 788,68 EUR" alatta), hogy a
+  bankkivonattal könnyű legyen egyeztetni.
+- **Stornózott tétel újraimportálható:** ha egy hibás (pl. régi, át nem váltott)
+  banki tételt stornózol, a javított kivonat újraimportálásakor a rendszer már
+  nem tekinti duplikátumnak — a stornó a listában látható marad.
+
+### 🔧 A korábban rosszul rögzített devizás tételek javítása
+
+A frissítés előtt importált, át nem váltott devizás tételek a régi (1:1) RON
+értéket őrzik. Ezek helyreállítása: **stornózd** a hibás tételt a Bank fülön,
+majd **importáld újra** a kivonatot — a varázsló most bekéri a nyitó egyenleget
+és az árfolyamot, és helyesen, lejre váltva rögzíti. (A `docs/penzugy-sprint2-3-
+ellenorzo.sql` **E9** lekérdezése kilistázza az érintett tételeket.)
+
+---
+
+## [2026-07-11] — Devizás banki import: RON-átváltás és nyitó egyenleg garantálva
+<!-- key: 2026-07-11-devizas-import-ron -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.61 -->
+
+### 🐛 Javítások — devizás (EUR/HUF stb.) bankszámla importja
+
+- **⚠️ A devizás banki tételek mostantól MINDIG lejre (RON) váltódnak — a
+  bejegyzés dátuma szerinti árfolyammal.** Korábban előfordulhatott, hogy a
+  rendszer a deviza-összeget 1:1-ben, RON-ként tárolta (átváltás nélkül), ami
+  elrontotta a könyvelést. Mostantól: elsődlegesen a tranzakció napjára érvényes
+  hivatalos BNR/ECB árfolyam, ha az nem elérhető, a nyitó egyenleghez megadott
+  éves árfolyam. Ha egyik sincs, a rendszer NEM tárol hibás 1:1 értéket — a
+  tételt érthető hibaüzenettel kihagyja, és megmondja, mit kell pótolni.
+- **Az importvarázsló mostantól bekéri a kezdő (nyitó) egyenleget devizás
+  számlánál, ha még nincs hozzá árfolyam.** Eddig, ha a számlához létezett egy
+  nyitó rekord árfolyam nélkül, a varázsló átugrotta ezt a lépést — így nem volt
+  mihez viszonyítani az évi mozgást, és az átváltás is elmaradhatott. Az árfolyam
+  automatikusan betöltődik a BNR-ből (kézzel felülírható).
+
+### ℹ️ Miért fontos a nyitó egyenleg?
+
+A könyvelést lejben (RON) vezetjük. Az éves pénzügyi mozgás mindig a **kezdő
+egyenleghez** adódik hozzá (nyitó + bevételek − kiadások = záró). Ha a kezdő
+egyenleg hiányzik, a záró egyenleg pontatlan lesz — ezért a rendszer most
+gondoskodik róla, hogy devizás számlánál is meglegyen a nyitó és az árfolyam.
+
+---
+
+## [2026-07-11] — Nyugtafigyelő: az előző évből áthozott hiányzók külön jelölve
+<!-- key: 2026-07-11-nyugtafigyelo-athozas-jelzes -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.60 -->
+
+### 🎨 Pontosabb jelzés
+
+- **A Nyugtafigyelő riasztás mostantól külön sorban, borostyán kiemeléssel
+  jelzi az előző évből áthozott elmaradt nyugtákat** — pl. „↪ Az előző (2025.)
+  évből áthozott elmaradt nyugták: 101, 102 — ezek tavaly maradtak el, a
+  pótlásuk itt, a folyó évben történik." Az idei év hiányzói külön sorban
+  szerepelnek, így első pillantásra látszik, mi honnan való. Az évhatáron
+  (a tavalyi utolsó és az idei első nyugta között) elmaradt sorszámok is
+  tavalyiként jelöltek.
+
+---
+
+## [2026-07-11] — Admin felület megújítása + előfizetés-kezelés
 <!-- key: 2026-07-11-admin-megujitas -->
 <!-- category: feature -->
 <!-- targets: rendszergazda, lelkesz -->
@@ -106,6 +659,33 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 - **Az egész rendszergazdai felület egységes, letisztult megjelenést kapott**, és
   telefonon is tökéletesen használható. A színek automatikusan követik a világos és
   sötét témát. Elküldött rendszerüzenetek mostantól előnézetben megtekinthetők.
+
+---
+
+## [2026-07-11] — Pénzügy gyorsjavítás: banki import hiba + visszamenőleges rögzítés
+<!-- key: 2026-07-11-penzugy-import-hotfix -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, penztaros -->
+<!-- version: web v0.9.59 -->
+
+### 🐛 Javítások
+
+- **⚠️ A banki import bevétel-rögzítése ismét hibával állt le** („null value in
+  column userid") — a korábbi javítás után EZ volt a következő hiányzó kötelező
+  mező. Most nem csak ezt az egyet pótoltuk: a banki import ÖSSZES beszúrási
+  útját (bevétel, kiadás, belső mozgás mindkét oldala) végigellenőriztük az
+  adatbázis TELJES kötelező-mező listája ellen, hogy ne jöjjön sorban a
+  következő ilyen hiba.
+- **A visszamenőleges rögzítés (pl. 2026-os költségvetési évben 2025-ös kivonat
+  importja) mostantól végig rendben van:**
+  - a tételek a SAJÁT dátumuk éve alá kerülnek (nem a képernyőn kiválasztott
+    év alá) — ez eddig is így volt, ellenőriztük;
+  - lezárt (véglegesített) évre az import továbbra is blokkolva, pontos
+    hibaüzenettel;
+  - **ÚJ:** ha a következő év nyitó egyenlegét korábban a rendszer hozta át
+    automatikusan (a tavalyi záróból), az utólag rögzített tavalyi tételek után
+    a rendszer **magától újraszámolja** — banki importnál ÉS kézi
+    kassza↔bank átvezetésnél is. Kézzel beírt nyitót soha nem ír felül.
 
 ---
 

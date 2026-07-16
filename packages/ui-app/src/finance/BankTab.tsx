@@ -95,7 +95,13 @@ interface BankTransactionRow {
   id: number
   type: 'income' | 'expense'
   datum: string
+  /** A tétel a számla SAJÁT valutájában (devizás számlán pl. EUR). */
   osszeg: number
+  /** 2026-07-11 (S9): RON-ekvivalens — az egyenleg és a KPI-k EZT használják
+   *  (a könyvelés RON-ban folyik). RON számlán == osszeg. */
+  osszegRon: number
+  /** 2026-07-11 (S11): átváltási árfolyam (devizás számlánál; RON-nál 1). */
+  arfolyam: number | null
   partner: string
   celNev: string
   iratszam: string
@@ -205,6 +211,11 @@ export interface BankTabProps {
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      /** 2026-07-11 (S11): a számla valutája + RON-ekvivalens + árfolyam a
+       *  devizás szerkesztéshez (RON számlán elmarad). */
+      valuta?: string | null
+      osszeg_ron?: number | null
+      arfolyam?: number | null
     }
     categories: { id: number; kod: string; nev: string }[]
     onSaved: () => void | Promise<void>
@@ -295,6 +306,14 @@ export function BankTab({
     }
   }, [bankAccounts, currentYear, onLoadNyitoEgyenleg])
 
+  // 2026-07-11 (S9): bankszámla-id → valuta, a devizás sorok jelöléséhez
+  // (a tétel-oszlop RON-t mutat, mellette az eredeti deviza-összeggel).
+  const bankValutaById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const b of bankAccounts) m.set(b.id, b.valuta || 'RON')
+    return m
+  }, [bankAccounts])
+
   // ─── Szerkesztés / Stornó state ───────────────────────
   const [editDialog, setEditDialog] = useState<{
     open: boolean
@@ -306,6 +325,10 @@ export function BankTab({
       id_cel: number | null
       iratszam: string | null
       megjegyzes: string | null
+      // 2026-07-11 (S11): devizás szerkesztés — valuta + RON-érték + árfolyam.
+      valuta?: string | null
+      osszeg_ron?: number | null
+      arfolyam?: number | null
     }
   }>({ open: false, type: 'befizetes', id: null })
   const [stornoDialog, setStornoDialog] = useState<{
@@ -327,6 +350,11 @@ export function BankTab({
         id_cel: r.idCel,
         iratszam: r.iratszam,
         megjegyzes: r.megjegyzes || null,
+        // 2026-07-11 (S11): devizás számla — a valuta + RON-érték + árfolyam is
+        // átmegy, hogy a szerkesztő helyes felirattal és RON-mezővel nyíljon.
+        valuta: r.bankszamlaId != null ? bankValutaById.get(r.bankszamlaId) || 'RON' : 'RON',
+        osszeg_ron: r.osszegRon,
+        arfolyam: r.arfolyam,
       },
     })
   }
@@ -336,7 +364,7 @@ export function BankTab({
       open: true,
       type: r.type === 'income' ? 'befizetes' : 'kiadas',
       id: r.id,
-      summary: `${r.datum?.slice(0, 10)} — ${r.partner} — ${formatCurrency(r.osszeg)} RON — ${r.celNev || 'nincs cél'}`,
+      summary: `${r.datum?.slice(0, 10)} — ${r.partner} — ${formatCurrency(r.osszegRon)} RON — ${r.celNev || 'nincs cél'}`,
       isInternalTransfer: r.isBm,
     })
   }
@@ -407,6 +435,8 @@ export function BankTab({
         type: 'income',
         datum: record.datum,
         osszeg: record.osszeg,
+        osszegRon: Number(record.osszeg_ron ?? record.osszeg) || 0,
+        arfolyam: record.arfolyam ?? null,
         partner: record.forrasa || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',
@@ -436,6 +466,8 @@ export function BankTab({
         type: 'expense',
         datum: record.datum,
         osszeg: record.osszeg,
+        osszegRon: Number(record.osszeg_ron ?? record.osszeg) || 0,
+        arfolyam: record.arfolyam ?? null,
         partner: getExpensePartnerName(record) || '-',
         celNev: cellId ? cellNameMap[cellId] || cellId : '',
         iratszam: getTransactionDocumentNumber(record) || '',
@@ -484,12 +516,14 @@ export function BankTab({
 
         if (monthFilter !== 'all') {
           if (monthIndex < monthFilter) {
-            // Stornózott tételek nem kerülnek a nyitó egyenlegbe sem
+            // Stornózott tételek nem kerülnek a nyitó egyenlegbe sem.
+            // 2026-07-11 (S9): a nyitó egyenleg RON-alapú (a nyito_egyenleg_ron
+            // bázisra épül), ezért a RON-ekvivalenst (osszegRon) adjuk hozzá.
             if (!row.stornozott) {
               if (row.type === 'income') {
-                opening += row.osszeg
+                opening += row.osszegRon
               } else {
-                opening -= row.osszeg
+                opening -= row.osszegRon
               }
             }
             return
@@ -500,13 +534,14 @@ export function BankTab({
           }
         }
 
-        // Stornózott tételek láthatók a listában, de a havi összesítőbe nem
+        // Stornózott tételek láthatók a listában, de a havi összesítőbe nem.
+        // 2026-07-11 (S9): a BEVÉTEL/KIADÁS KPI és a záró egyenleg RON-ban (osszegRon).
         display.push(row)
         if (!row.stornozott) {
           if (row.type === 'income') {
-            income += row.osszeg
+            income += row.osszegRon
           } else {
-            expense += row.osszeg
+            expense += row.osszegRon
           }
         }
       })
@@ -591,7 +626,8 @@ export function BankTab({
       irattipus: r.irattipus,
       nev: r.partner,
       type: r.type,
-      osszeg: r.osszeg,
+      // 2026-07-11 (S9): az export a hivatalos RON-formátumot követi → RON-ekvivalens.
+      osszeg: r.osszegRon,
       celNev: r.celNev,
       megjegyzes: r.isBm
         ? r.unpaired
@@ -623,8 +659,9 @@ export function BankTab({
       }
       const g = groups.get(m)!
       g.rows.push(r)
-      if (r.type === 'income') g.monthInc += r.osszeg
-      else g.monthExp += r.osszeg
+      // 2026-07-11 (S9): a havi/éves részösszegek RON-ban (osszegRon).
+      if (r.type === 'income') g.monthInc += r.osszegRon
+      else g.monthExp += r.osszegRon
     }
     return [...groups.entries()].sort((a, b) => b[0] - a[0])
   }, [filteredDisplayRows])
@@ -1079,12 +1116,12 @@ export function BankTab({
                             <td
                               className={`p-2.5 text-right font-bold text-emerald-600 ${textStorno}`}
                             >
-                              {row.type === 'income' ? formatCurrency(row.osszeg) : ''}
+                              {row.type === 'income' ? <AmountCell row={row} bankValutaById={bankValutaById} /> : ''}
                             </td>
                             <td
                               className={`p-2.5 text-right font-bold text-red-500 ${textStorno}`}
                             >
-                              {row.type === 'expense' ? formatCurrency(row.osszeg) : ''}
+                              {row.type === 'expense' ? <AmountCell row={row} bankValutaById={bankValutaById} /> : ''}
                             </td>
                             <td
                               className={`p-2.5 text-xs hidden xl:table-cell max-w-[180px] truncate ${textStorno}`}
@@ -1257,6 +1294,32 @@ function BankSortableTh({
         <span className="text-[10px] opacity-60">{arrow}</span>
       </button>
     </th>
+  )
+}
+
+/**
+ * 2026-07-11 (S9): tétel-összeg cellája. A könyvelés RON-ban folyik, ezért a
+ * fő érték a RON-ekvivalens (osszegRon). Devizás (EUR/HUF) számlánál alatta
+ * kicsiben az EREDETI deviza-összeg is látszik, hogy a bankkivonattal egyeztetni
+ * lehessen — pl. „8 890,15" felül (RON) és „1 788,68 EUR" alatta.
+ */
+function AmountCell({
+  row,
+  bankValutaById,
+}: {
+  row: BankTransactionRow
+  bankValutaById: Map<number, string>
+}) {
+  const valuta = row.bankszamlaId != null ? bankValutaById.get(row.bankszamlaId) || 'RON' : 'RON'
+  const isForeign = valuta !== 'RON' && Number(row.osszeg) !== Number(row.osszegRon)
+  if (!isForeign) return <>{formatCurrency(row.osszegRon)}</>
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <span>{formatCurrency(row.osszegRon)}</span>
+      <span className="text-[10px] font-normal text-slate-400">
+        {formatCurrency(row.osszeg)} {valuta}
+      </span>
+    </span>
   )
 }
 

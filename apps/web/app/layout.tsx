@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Toaster } from '@/components/ui/sonner'
 import { AuthListener } from '@/components/layout/auth-listener'
+import { ServiceWorkerReloader } from '@/components/layout/service-worker-reloader'
 import { ThemeProvider } from '@/components/layout/theme-provider'
 import './globals.css'
 
@@ -39,6 +40,10 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           {children}
           <AuthListener />
+          {/* 2026-07-13 (S12): deploy után az új service worker átvételekor a
+              fület egyszer újratöltjük — különben a régi/új chunk-keveredés
+              miatt a navigáció elhal („nem nyílik meg oldal"). */}
+          <ServiceWorkerReloader />
           <Toaster position="top-right" richColors />
         </ThemeProvider>
       </body>

@@ -24,14 +24,18 @@ async function getProfileCongregation() {
 }
 
 type PaymentGoalCodeRef = {
-  szamadasicel?: { kod: string | null } | { kod: string | null }[] | null
+  id_szamadasicel?: string | null
+  szamadasicel?:
+    | { id?: string | null; kod?: string | null }
+    | { id?: string | null; kod?: string | null }[]
+    | null
 } | null
 
 function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
   const normalizedGoal = Array.isArray(goal) ? goal[0] || null : goal || null
   const goalCodeRef = normalizedGoal?.szamadasicel
   const normalizedCodeRef = Array.isArray(goalCodeRef) ? goalCodeRef[0] || null : goalCodeRef || null
-  return normalizedCodeRef?.kod || null
+  return normalizedGoal?.id_szamadasicel || normalizedCodeRef?.id || normalizedCodeRef?.kod || null
 }
 
 function isChurchMaintenanceCode(code?: string | null) {
@@ -101,14 +105,14 @@ export async function getMembers(): Promise<{
     // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
     // néma adatvesztést okozna.
     supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
-    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
+    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
     // 2026-06-30 (perf): a 101.01* kód-szűrés a DB-be került (beágyazott inner-join),
     // korábban MINDEN befizetést lehúzott; a JS-szűrő alább forrás-igazságként marad,
     // és hiba esetén a szűretlen lekérdezésre esünk vissza.
-    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(szamadasicel!inner(kod))').eq('congregation_id', congregationId).like('befizetescel.szamadasicel.kod', '101.01%').or('deleted.eq.false,deleted.is.null'),
+    supabase.from('befizetes').select('id_szemely, id_csalad, befizetescel!inner(id_szamadasicel)').eq('congregation_id', congregationId).like('befizetescel.id_szamadasicel', '101.01%').or('deleted.eq.false,deleted.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): az ÚJ haztartas_tag-ból
     // szedjük ki a személy → csalad mapping-et. A `haztartas.legacy_csalad_id`
@@ -199,7 +203,7 @@ export async function getMembers(): Promise<{
   let everPaidData = (everPaidRes.data || []) as EverPaidRow[]
   if (everPaidRes.error) {
     const retry = await supabase.from('befizetes')
-      .select('id_szemely, id_csalad, befizetescel(szamadasicel(kod))')
+      .select('id_szemely, id_csalad, befizetescel(id_szamadasicel)')
       .eq('congregation_id', congregationId).or('deleted.eq.false,deleted.is.null')
     if (retry.error) console.warn('[tagnyilvantartas/lista] everPaid retry (szűretlen) is hibázott:', retry.error.message)
     everPaidData = (retry.data || []) as EverPaidRow[]
@@ -453,7 +457,10 @@ export async function saveMember(data: MemberInput) {
   if (!helysegId || !utcaId) {
     return { error: 'A település/utca rögzítése nem sikerült — próbáld újra. (Lefutott már a 2026-06-10-es adatbázis-migráció?)' }
   }
-  const szHelyId = d.sz_hely_text ? await getOrCreateLocality(d.sz_hely_text) : null
+  const szHelyId = await getOrCreateLocality(d.sz_hely_text)
+  if (!szHelyId) {
+    return { error: 'A születési hely rögzítése nem sikerült — ellenőrizd a település nevét, majd próbáld újra.' }
+  }
 
   const memberData: Record<string, unknown> = {
     csaladnev: d.csaladnev,
@@ -463,7 +470,7 @@ export async function saveMember(data: MemberInput) {
     sz_datum: d.sz_datum || null,
     sz_helyid: szHelyId,
     foglalkozas: d.foglalkozas || null,
-    vallas: d.vallas || 'Református',
+    vallas: d.vallas,
     c_helysegid: helysegId,
     c_utcaid: utcaId,
     c_szam: d.c_szam || '1',
@@ -830,46 +837,6 @@ export async function searchParent(query: string, isMale: boolean | null = null)
 
   const { data } = await q.limit(5)
   return data || []
-}
-
-// ── Szülő gyors-rögzítés tagként (2026-06-10) ────────────────
-// A tag-űrlapon a szülő szabad szövegként is megadható, de a családfához
-// érdemes tagrekordként is léteznie. Ez az akció a beírt névből minimális
-// szemely-rekordot készít (a gyermek címét örökli), és visszaadja a CNP-t,
-// amivel az űrlap beállítja az id_apja/id_anyja linket.
-export async function quickCreateParentMember(input: {
-  name: string
-  isMale: boolean
-  c_helyseg_text?: string
-  c_utca_text?: string
-  c_szam?: string
-}): Promise<{ id?: number; cnp?: string; error?: string }> {
-  const { supabase, user, congregationId } = await getProfileCongregation()
-  if (!user || !congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
-
-  const parts = (input.name || '').trim().split(/\s+/)
-  if (parts.length < 2) return { error: 'A szülő teljes nevét add meg (családnév és keresztnév).' }
-  const csaladnev = parts[0]
-  const kNev = parts.slice(1).join(' ')
-
-  const helysegId = input.c_helyseg_text ? await getOrCreateLocality(input.c_helyseg_text) : null
-  const utcaId = helysegId && input.c_utca_text ? await getOrCreateStreet(input.c_utca_text, helysegId) : null
-  if (!helysegId || !utcaId) {
-    return { error: 'A szülő rögzítéséhez előbb töltsd ki a tag címét (település + utca) — a szülő ezt örökli.' }
-  }
-
-  const cnp = generateCnp()
-  const { data: ins, error } = await supabase.from('szemely').insert([{
-    csaladnev, k_nev: kNev, ferfi: input.isMale, vallas: 'Református',
-    c_helysegid: helysegId, c_utcaid: utcaId, c_szam: input.c_szam || '1',
-    cnp, congregation_id: congregationId, isvisible: true, type: 'E',
-    befizetoev: new Date().getFullYear(), csaladfo: false, meghalt: false,
-  }]).select('id').single()
-  if (error || !ins) return { error: `Hiba: ${error?.message || 'a szülő rögzítése nem sikerült'}` }
-
-  await logAuditEvent({ action: 'member.quick_create_parent', targetTable: 'szemely', targetId: String(ins.id) }, supabase)
-  revalidatePath('/tagnyilvantartas')
-  return { id: ins.id, cnp }
 }
 
 // ── Megjegyzés-mezők a személyi kartonon (2026-06-10) ────────

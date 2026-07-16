@@ -5,6 +5,7 @@ import { getDelegatedImportStatus } from '@/app/(dashboard)/delegated-import/act
 import { getGodModeStatus } from '@/app/(dashboard)/god-mode/actions-v4'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { ensureDioceseBealitasForYear } from '@/app/(dashboard)/dashboard-egyhazmegye/diocese-actions'
+import { YearlySettingsDialog } from '@/components/modals/yearly-settings-dialog'
 
 export default async function PenzugyPage({
   searchParams,
@@ -109,18 +110,11 @@ export default async function PenzugyPage({
       }
 
       if (!data?.settings) {
-        return (
-          <div className="rounded-xl border bg-white p-8 text-center text-muted-foreground">
-            <p className="text-lg font-medium text-slate-700">
-              A {selectedYear}. évi pénzügyi beállítás nem hozható létre automatikusan.
-            </p>
-            <p className="mt-2 text-sm">
-              A welcome wizardban rögzített éves járulék vagy fizetési határidő hiányzik,
-              vagy az éves `bealitas` sor létrehozása nem sikerült. Kérem, ellenőrizze a
-              gyülekezeti alapadatokat, vagy küldjön segítségkérést az adminnak.
-            </p>
-          </div>
-        )
+        // A statikus zsákutca helyett INTERAKTÍV űrlap: a lelkész itt megadhatja az éves
+        // járulékot + fizetési határidőt, és a rendszer létrehozza a `bealitas` sort, majd
+        // frissül az oldal. (Eddig, ha a welcome wizardban nem volt éves járulék, csak egy
+        // „ellenőrizze / kérjen segítséget" zsákutca jelent meg.)
+        return <YearlySettingsDialog year={selectedYear} />
       }
     }
   }
