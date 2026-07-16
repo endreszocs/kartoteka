@@ -5,7 +5,8 @@
  *
  * Funkciók:
  *  - Év/hónap választó
- *  - 4 nyomtatvány típus (szolgálati, katekétikai, diakóniai, éves jelentés)
+ *  - 5 nyomtatvány típus (hivatalos munkanapló, szolgálati, katekétikai,
+ *    diakóniai, éves jelentés)
  *  - Élő előnézet iframe-ben
  *  - PDF mentés + direkt nyomtatás
  *
@@ -13,9 +14,14 @@
  * év TELJES bejegyzés-listáját (getWorklogsForYear). Korábban a szülőtől kapta
  * az aktuális hónap entries-ét — így az "Éves lelkészi jelentés" mindig csak
  * egyetlen hónap adatait tartalmazta.
+ *
+ * 2026-07-16 (F3): új első (alapértelmezett) nyomtatvány a Hivatalos munkanapló
+ * („I. Igehirdetési alkalmak", A4 fekvő, hónaponként külön lap) + fit-to-width
+ * előnézet (ResizeObserver + scale, a kísérőív-dialógus mintája szerint) — a
+ * fekvő lap vízszintes görgetés nélkül, telefonon is teljes szélességben látszik.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +33,7 @@ import {
 import { printToBrowser, printToPdf } from '@/lib/utils/print-engine-v2'
 import { toast } from 'sonner'
 import type { WorklogEntry } from '@/lib/constants/worklog'
+import { isJournalEntry } from '@/lib/worklog/official-journal'
 import { getWorklogsForYear } from '@/app/(dashboard)/munkanaplo/actions'
 
 interface WorklogPrintDialogProps {
@@ -42,6 +49,14 @@ const MONTHS = [
   'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December',
 ]
 
+// 2026-07-16 (F3): fit-to-width előnézet — A4 lap-szélesség képpontban (96 dpi)
+// + kis ráhagyás, a kísérőív-dialógus / FinancePrintDialogBody mintája szerint
+// (210mm≈794px→812, 297mm≈1123px→1140). A fekvő hivatalos munkanapló csak
+// arányos kicsinyítéssel fér el az előnézet-panelben (telefonon is).
+const A4_PORTRAIT_W = 812
+const A4_LANDSCAPE_W = 1140
+const PREVIEW_MIN_H = 820
+
 export function WorklogPrintDialog({
   open,
   onOpenChange,
@@ -49,7 +64,7 @@ export function WorklogPrintDialog({
   congregationName,
 }: WorklogPrintDialogProps) {
   const currentYear = new Date().getFullYear()
-  const [printType, setPrintType] = useState<WorklogPrintType>('eves_jelentes')
+  const [printType, setPrintType] = useState<WorklogPrintType>('hivatalos_munkanaplo')
   const [selectedYear, setSelectedYear] = useState(initialYear || currentYear)
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
   const [printing, setPrinting] = useState(false)
@@ -90,23 +105,66 @@ export function WorklogPrintDialog({
     [printType, entries, congregationName, filters],
   )
 
-  // Szűrt bejegyzések száma az előnézethez
+  // Szűrt bejegyzések száma az előnézethez — a hivatalos munkanaplónál csak a
+  // naplóba kerülő sorok számítanak (isJournalEntry: szolgálat + ifjúsági
+  // bibliaóra), a többi nyomtatványnál minden kategória.
   const filteredCount = useMemo(() => {
     return entries.filter((e) => {
       if (e.deleted) return false
       const d = e.idopont?.split('T')[0] || ''
       if (!d.startsWith(String(selectedYear))) return false
       if (selectedMonth && !d.startsWith(selectedMonth)) return false
+      if (printType === 'hivatalos_munkanaplo') return isJournalEntry(e)
       return true
     }).length
-  }, [entries, selectedYear, selectedMonth])
+  }, [entries, selectedYear, selectedMonth, printType])
+
+  // 2026-07-16 (F3): fit-to-width előnézet — a konténer szélességét mérjük
+  // (ResizeObserver), és a lapot arányosan kicsinyítjük, hogy a TELJES irat
+  // vízszintes görgetés nélkül látszódjon (fekvő A4-nél és telefonon is) —
+  // a kísérőív-dialógus (FinancePrintDialogBody) mintája szerint.
+  const previewRef = useRef<HTMLDivElement>(null)
+  const [boxW, setBoxW] = useState(0)
+  useEffect(() => {
+    // A Dialog tartalma csak nyitva van a DOM-ban → nyitáskor csatolunk.
+    if (!open) return
+    const el = previewRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((obsEntries) => {
+      const w = obsEntries[0]?.contentRect.width ?? 0
+      if (w > 0) setBoxW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [open])
+
+  // Az iframe tartalmának valódi magasságát betöltéskor mérjük meg, így a
+  // (kicsinyített) dokumentum teljes magasságában látszik — nincs belső görgetés.
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [contentH, setContentH] = useState(PREVIEW_MIN_H)
+  const measurePreview = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    if (h > 0) setContentH(h)
+  }
+
+  const docW = report.orientation === 'landscape' ? A4_LANDSCAPE_W : A4_PORTRAIT_W
+  // A dokumentumot a konténernél kicsivel keskenyebbre méretezzük, hogy
+  // legyen levegő a szélén (ne lógjon ki a széléig).
+  const targetW = boxW > 0 ? Math.max(0, boxW - 24) : docW
+  const scale = Math.min(1, targetW / docW)
+  const scaledW = Math.round(docW * scale)
+  const scaledH = Math.round(contentH * scale)
 
   async function handlePdf() {
     setPrinting(true)
     try {
       await printToPdf(report.html, report.filename, {
         orientation: report.orientation,
-        margin: report.orientation === 'landscape' ? [8, 8] : [10, 10],
+        // WYSIWYG-nyomtatványnál (hivatalos munkanapló) a lap-margót a
+        // dokumentum saját paddingje adja → a motor margója [0, 0].
+        margin: report.pdfMargin ?? (report.orientation === 'landscape' ? [8, 8] : [10, 10]),
         format: 'a4',
       })
       toast.success(`${report.title} PDF elkészült.`)
@@ -195,7 +253,9 @@ export function WorklogPrintDialog({
                     onChange={e => setSelectedMonth(e.target.value || null)}
                     className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="">Egész év</option>
+                    <option value="">
+                      {printType === 'hivatalos_munkanaplo' ? 'Egész év (minden hónap külön lapon)' : 'Egész év'}
+                    </option>
                     {MONTHS.map((name, i) => (
                       <option key={i} value={`${selectedYear}-${String(i + 1).padStart(2, '0')}`}>
                         {name}
@@ -229,13 +289,28 @@ export function WorklogPrintDialog({
             </div>
           </div>
 
-          {/* ── Jobb oldal: előnézet ─────────────────── */}
-          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner">
-            <div className="rounded-[22px] border border-slate-200 bg-white shadow-sm">
+          {/* ── Jobb oldal: előnézet — fit-to-width, a fekvő A4 is skálázódik ── */}
+          <div
+            ref={previewRef}
+            className="max-h-[78vh] min-h-[320px] overflow-y-auto rounded-[28px] border border-slate-200 bg-slate-100/80 p-3 shadow-inner"
+          >
+            <div
+              className="mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+              style={{ width: scaledW, height: scaledH }}
+            >
               <iframe
+                ref={iframeRef}
+                onLoad={measurePreview}
                 title={report.title}
                 srcDoc={report.html}
-                className="h-[78vh] min-h-[760px] w-full rounded-[22px] bg-white"
+                style={{
+                  width: docW,
+                  height: contentH,
+                  border: '0',
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                  background: '#fff',
+                }}
               />
             </div>
           </div>

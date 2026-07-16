@@ -33,8 +33,14 @@ export const NAPSZAK_OPTIONS = [
 // szerepelt. A hivatalos nyomtatott munkanapló 13. oszlopa szerint a bibliaóra
 // Felnőtt / Ifjúsági (IKE) bontású → a szolgalat listában marad a 'Bibliaóra'
 // (felnőtt alkalom), a katekezisben 'Ifjúsági bibliaóra (IKE)' lett.
+// 2026-07-16 (F3): a hivatalos nyomtatott munkanapló oszlopaihoz hiányzó
+// típusok felvétele: 'Bűnbánati istentisztelet' (10. oszlop), 'Presbiteri
+// gyűlés' (14.), 'Nőszövetségi összejövetel' (15.), 'Vallásos ünnepély' (16.),
+// 'Imahét' (17. Egyéb szolgálat). Sorrend: istentiszteleti alkalmak elöl,
+// gyülekezeti alkalmak középen, kazuáliák hátul, 'Egyéb szolgálat' a végén.
+// A típus→oszlop leképezés: lib/worklog/print-columns.ts.
 export const WORKLOG_TYPES: Record<WorklogCategory, string[]> = {
-  szolgalat: ['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Bibliaóra', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet', 'Keresztelő', 'Esketés', 'Temetés', 'Konfirmáció', 'Egyéb szolgálat'],
+  szolgalat: ['Istentisztelet', 'Igehirdetés', 'Úrvacsora', 'Bűnbánati istentisztelet', 'Bibliaóra', 'Imaóra', 'Esti áhítat', 'Alkalmi istentisztelet', 'Imahét', 'Presbiteri gyűlés', 'Nőszövetségi összejövetel', 'Vallásos ünnepély', 'Keresztelő', 'Esketés', 'Temetés', 'Konfirmáció', 'Egyéb szolgálat'],
   katekezis: ['Ifjúsági bibliaóra (IKE)', 'Hittan', 'Vallásóra', 'Kátéóra', 'Konfirmáció előkészítő', 'Ifjúsági óra', 'Gyermek foglalkozás', 'Egyéb katekézis'],
   latogatas: ['Családlátogatás', 'Beteglátogatás', 'Kórházlátogatás', 'Idősek otthona', 'Börtönlátogatás', 'Egyéb látogatás'],
 }
