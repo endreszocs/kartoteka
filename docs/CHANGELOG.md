@@ -23,6 +23,45 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — A Tartozások mostantól helyesen számolnak: a befizetések és a beállított díjak/kedvezmények tényleg érvényesülnek
+<!-- key: 2026-07-17-penzugy-f1-tartozas-szamitas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.85 -->
+
+### 🐛 Pénzügy — Tartozások és díj-beállítások
+
+- **A Tartozások lista mindenkit teljes hátralékosnak mutatott, a befizetések ellenére.**
+  A befizetések lekérdezése egy nem létező adatbázis-oszlopra hivatkozott, ezért a rendszer
+  némán elvesztette az összes befizetést — mindenkinél 0 lej „fizetett" állt, és a megszerzett
+  korai-fizetési kedvezmények is eltűntek. Ez a hiba a Tétel-rögzítő automatikus
+  összeg-ajánlását is érintette. Mostantól a befizetések helyesen számítódnak be, és ha
+  hasonló hiba történne, az többé nem néma: a rendszer naplózza.
+
+- **A Gyülekezet beállításaiban módosított éves díj (és kedvezményes összeg, határidő)
+  mostantól azonnal érvényesül a Tartozásoknál.** Eddig a módosítás csak egy háttér-mezőbe
+  íródott, amit a számítás nem használt — az év közbeni díjemelés némán hatástalan maradt.
+  (Már véglegesített évhez a rendszer továbbra sem nyúl — erről üzenetet ad.)
+
+- **Az „Évenkénti díjak (visszamenőleg)" panel díjai mostantól tényleg beszámítanak a
+  tartozásokba.** Eddig a panel egy olyan táblába mentett, amit a számítás sosem olvasott —
+  a visszamenőleg rögzített díjak (pl. 2021: 75 lej, 2023: 85 lej) sehol nem érvényesültek.
+  A régi rögzítések „Régi rögzítés — mentsd újra" jelöléssel látszanak: egy újramentéssel
+  átkerülnek a számítás által használt helyre.
+
+- **A stornózott (érvénytelenített) befizetés nem számít többé „fizetettnek".** Eddig a
+  stornó után a tag rendezettnek látszott, miközben a valós hátraléka láthatatlan volt —
+  weben és desktopon egyaránt javítva.
+
+- **Évváltáskor nem veszik el többé a kedvezményes alapösszeg.** Eddig az új év beállítás-sora
+  mindig 0 kedvezményes összeggel jött létre, így a korai-fizetési kedvezmény a következő
+  évtől némán megszűnt.
+
+- **A foglalkozás-alapú kedvezmény százaléka is a helyes irányban számol** (a % a levonandó
+  kedvezmény, nem a fizetendő összeg) — egységesen a kor- és időszaki kedvezménnyel.
+
+---
+
 ## [2026-07-17] — Hivatalos Lelkészi jelentés élő adatokból
 <!-- key: 2026-07-17-munkanaplo-f5-lelkeszi-jelentes -->
 <!-- category: feature -->

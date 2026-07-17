@@ -140,14 +140,18 @@ export function AnnualFeesManager({
               const row = rowsByYear.get(year)
               const isCurrentYear = year === currentYear
               const editing = editValues[year] !== undefined
+              // 2026-07-17 (F1-3): a 0 díjú bealitas-sor = „nincs díj erre az évre"
+              // (a törlés így hagyja hátra a sort) → a panelen „nincs rögzítve"-ként
+              // jelenik meg, nem 0 RON-os rögzített díjként.
+              const hasFee = !!row && Number(row.eves_jarulek) > 0
               const displayValue = editing
                 ? editValues[year]
-                : row
-                  ? String(Number(row.eves_jarulek))
+                : hasFee
+                  ? String(Number(row!.eves_jarulek))
                   : isCurrentYear
                     ? String(currentYearFee)
                     : ''
-              const isEmpty = !row && !isCurrentYear && !editing
+              const isEmpty = !hasFee && !isCurrentYear && !editing
               return (
                 <tr
                   key={year}

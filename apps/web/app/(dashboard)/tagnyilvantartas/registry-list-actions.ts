@@ -76,6 +76,7 @@ type PaymentRow = JarulekPaymentLike & {
   datum: string | null
   fizetettev: number | null
   osszeg: number
+  stornozott?: boolean | null
   befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
 }
 
@@ -308,14 +309,19 @@ async function loadMaintenancePayments(supabase: SupabaseClient, congregationId:
   const load = (databaseFiltered: boolean) => collectBatched<PaymentRow>(
     'Egyházfenntartási befizetések lekérdezése sikertelen',
     async (from, to) => {
+      // 2026-07-17 (F1-4): a stornozott mezőt LEKÉRJÜK, de itt NEM szűrünk rá — ez a
+      // lekérdezés kettős szerepű: a fizetett-státuszhoz (stornó nélkül kell) ÉS az
+      // everPaid/aktív-tag besoroláshoz (SZÁNDÉKOSAN stornóval együtt, bit-azonosan a
+      // tagnyilvantartas/actions.ts everPaid-döntésével). A szétválasztás a
+      // loadFinancialContext-ben, JS-oldalon történik.
       let query = databaseFiltered
         ? supabase
             .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel!inner(id_szamadasicel)')
+            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott, befizetescel!inner(id_szamadasicel)')
             .like('befizetescel.id_szamadasicel', '101.01%')
         : supabase
             .from('befizetes')
-            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)')
+            .select('id, id_szemely, id_csalad, datum, fizetettev, osszeg, stornozott, befizetescel(id_szamadasicel)')
 
       query = query
         .eq('congregation_id', congregationId)
@@ -409,7 +415,11 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
   if (settingsResult.error) throw new Error(`Járulékbeállítások lekérdezése sikertelen: ${settingsResult.error.message}`)
   if (congregationResult.error) throw new Error(`Gyülekezeti beállítás lekérdezése sikertelen: ${congregationResult.error.message}`)
 
-  const currentPayments = payments.filter((payment) => payment.fizetettev === currentYear)
+  // 2026-07-17 (F1-4): a stornózott befizetés a FIZETETT-státuszba és a számításba nem
+  // számít bele, de az everPaid (aktív-tag besorolás) SZÁNDÉKOSAN stornóval együtt épül —
+  // a stornó könyvelési javítás, nem a történelmi kapcsolódás törlése (a tagnyilvantartas
+  // oldal everPaid-szemantikájával bit-azonosan).
+  const currentPayments = payments.filter((payment) => payment.fizetettev === currentYear && !payment.stornozott)
   const paidPersonIds = new Set<number>()
   const paidFamilyIds = new Set<number>()
   const everPaidPersonIds = new Set<number>()
@@ -418,7 +428,7 @@ async function loadFinancialContext(supabase: SupabaseClient, congregationId: st
   for (const payment of payments) {
     if (payment.id_szemely != null) everPaidPersonIds.add(payment.id_szemely)
     if (payment.id_csalad != null) everPaidFamilyIds.add(payment.id_csalad)
-    if (payment.fizetettev !== currentYear) continue
+    if (payment.fizetettev !== currentYear || payment.stornozott) continue
     if (payment.id_szemely != null) paidPersonIds.add(payment.id_szemely)
     if (payment.id_csalad != null) paidFamilyIds.add(payment.id_csalad)
   }
