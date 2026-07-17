@@ -23,6 +23,38 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — Kiadási kísérőív: jogcím-nevek, forrás-választó (kassza/bank), aláírók a lap alján + minden PDF-mentés megjavult
+<!-- key: 2026-07-17-penzugy-f3-kiseroiv -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.88 -->
+
+### 🐛 Pénzügy — Kiadási kísérőív és nyomtatás
+
+- **A kísérőíven mostantól a jogcím NEVE áll, magyarul és románul** (pl. „Illetmények,
+  bérek / Salarii și retribuții") — eddig csak a nyers költségvetési kód (pl. 205.01)
+  látszott. A „Kiadás megnevezése" oszlopban tisztán az átvevő neve marad.
+
+- **Forrás-választó a kísérőív nyomtatásánál:** készülhet a nap összes kiadásáról,
+  csak a kassza (készpénz) tételeiről, vagy bankszámlánként külön-külön. Minden
+  forrás saját, év elejétől futó sorszámozást (pg.) kap, és a bizonylat fejléce
+  jelzi a forrást.
+
+- **Az aláírók (Lelkipásztor / Ellenőrizte / Gondnok) és az oldalszám a lap ALJÁRA
+  kerültek** — nyomtatásban is, nem csúsznak többé közvetlenül a táblázat alá.
+  Az előnézet, a nyomtatás és a PDF mostantól ugyanazt a lapot adja.
+
+- **Minden PDF-mentés megjavult** (nem csak a kísérőívé): a PDF-készítő eddig a
+  dokumentum stíluslapja nélkül dolgozott — a mentett PDF-ből hiányoztak a
+  táblázat-keretek, rossz volt a betűméret és az oldaltörés. A hiba az összes
+  pénzügyi nyomtatvány PDF-mentését érintette.
+
+- **A stornózott kiadás nem kerül többé a kísérőívre**, nem számít a napi összesenbe,
+  és sorszámot sem fogyaszt — összhangban a hivatalos regiszterekkel. A nyomtatási
+  ablak összesítője devizás tételnél is a RON-értéket mutatja.
+
+---
+
 ## [2026-07-17] — A nyugta-nyomtatás megjavult: előnézet, levehető „másolat"-jelölés, egyházkerületi címer és évszám a nyugtán
 <!-- key: 2026-07-17-penzugy-f2-nyugta-nyomtatas -->
 <!-- category: bugfix -->

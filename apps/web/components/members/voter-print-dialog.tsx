@@ -94,7 +94,9 @@ export function VoterPrintDialog({
     try {
       await printToPdf(report.html, report.filename, {
         orientation: report.orientation,
-        margin: [8, 8],
+        // 2026-07-17 (F3): a lap-margót a dokumentum .page paddingje adja (WYSIWYG);
+        // a motor-margó a stíluslap-javítás után 210mm-es lapnál jobb-szélvágást okozna.
+        margin: [0, 0],
         format: 'a4',
       })
       toast.success(`${report.title} PDF elkészült.`)

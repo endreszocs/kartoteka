@@ -48,6 +48,52 @@ export async function printToPdf(
   const html2pdf = (await import('html2pdf.js' as any)).default
   const { iframe, iframeDoc } = await createPrintIframe(htmlContent)
 
+  // 2026-07-17 (F3 P1 gyökérok): a html2pdf 0.14 a `.from(iframeDoc.body)` hívásnál
+  // CSAK a body-részfát klónozza — az iframe <head>-jében ülő <style> (a wrap()
+  // teljes stíluslapja) KIMARADT, így minden PDF stílus nélkül raszterizálódott
+  // (nincs táblázat-keret, rossz betű, elveszett oldaltörés). A stíluslapokat a
+  // body ELEJÉRE másoljuk (sorrendtartóan, fragmenttel), hogy a klónnal együtt
+  // utazzanak — és a .page:last-child/.sheet:last-child szelektorok is épek
+  // maradjanak (a lapok maradnak az utolsó elem-gyerekek).
+  const styleFrag = iframeDoc.createDocumentFragment()
+  iframeDoc.querySelectorAll('head style').forEach((el) => {
+    styleFrag.appendChild(el.cloneNode(true))
+  })
+  // A html2canvas a KÉPERNYŐS médiát rendereli — a @media print szabályok maguktól
+  // nem élnek. Valódi print-emuláció: a dokumentum SAJÁT @media print szabályait
+  // emeljük be feltétel nélküli szabályként (a fragment végén → felülírják a
+  // képernyős értékeket). Így minden dokumentum a saját nyomtatási értékeit kapja
+  // (pl. .page min-height 208/295mm — a képernyős 297mm túllógna a html2pdf
+  // lap-rácsán és üres közlapokat szúrna be), a body-paddinggel margózó
+  // dokumentumok (pl. iratcsomó-leltár) pedig érintetlenek maradnak.
+  let printCss = ''
+  for (const sheet of Array.from(iframeDoc.styleSheets)) {
+    try {
+      for (const rule of Array.from(sheet.cssRules)) {
+        const mediaRule = rule as CSSMediaRule
+        if (mediaRule.media && mediaRule.media.mediaText.includes('print')) {
+          printCss += Array.from(mediaRule.cssRules).map((r) => r.cssText).join('\n') + '\n'
+        }
+      }
+    } catch {
+      /* nem olvasható stíluslap — kihagyjuk */
+    }
+  }
+  if (printCss) {
+    const printEmu = iframeDoc.createElement('style')
+    printEmu.textContent = printCss
+    styleFrag.appendChild(printEmu)
+  }
+  iframeDoc.body.insertBefore(styleFrag, iframeDoc.body.firstChild)
+
+  // A html2pdf a klónt a FŐDOKUMENTUMBA fűzi a raszterizálás idejére (láthatatlan
+  // overlay-ben) — a klónnal utazó <style>-ok viszont globálisak, és másodpercekre
+  // átstílusoznák az app élő UI-ját. Fehér fátylat teszünk fölé, amíg a mentés fut.
+  const veil = document.createElement('style')
+  veil.textContent =
+    'body > *:not(.html2pdf__overlay){visibility:hidden!important}body{background:#fff!important}'
+  document.head.appendChild(veil)
+
   const opt = {
     margin: options?.margin || [0, 0],
     filename,
@@ -75,6 +121,7 @@ export async function printToPdf(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (html2pdf as any)().set(opt).from(iframeDoc.body).save()
   } finally {
+    veil.remove()
     if (iframe.parentNode) {
       iframe.parentNode.removeChild(iframe)
     }
@@ -105,7 +152,13 @@ export async function printToBrowser(
     win.document.write(htmlContent)
     win.document.close()
 
+    // 2026-07-17 (F3): guard a dupla nyomtatás ellen — a load-listener ÉS az
+    // 1200ms-os tartalék időzítő közül csak az első hathat (az iframe-ágban a
+    // 'done' zászló már régóta ezt csinálja, a popup-ágból kimaradt).
+    let printed = false
     const triggerPrint = () => {
+      if (printed) return
+      printed = true
       try {
         win.focus()
         win.print()

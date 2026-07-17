@@ -119,9 +119,9 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
       kiseroivPrintDialogSlot={({
         open,
         onOpenChange,
-        expenses,
         date,
-        pageNumber,
+        allExpenses,
+        bankAccounts,
         congregationName,
         kiaCelMap,
         cellek,
@@ -129,9 +129,9 @@ export function TransactionsTabWeb(props: WebTransactionsTabProps) {
         <KiseroivPrintDialog
           open={open}
           onOpenChange={onOpenChange}
-          expenses={expenses}
           date={date}
-          pageNumber={pageNumber}
+          allExpenses={allExpenses}
+          bankAccounts={bankAccounts}
           congregationName={congregationName}
           kiaCelMap={kiaCelMap}
           cellek={cellek}

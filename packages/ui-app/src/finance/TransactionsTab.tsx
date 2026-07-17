@@ -136,13 +136,16 @@ export interface TransactionsTabProps {
     onFolderPicked: () => void
   }) => ReactNode
 
-  /** Kiadási kísérőív nyomtatási modal. */
+  /** Kiadási kísérőív nyomtatási modal.
+      2026-07-17 (F3, Q10): a dialógus az ÉVES kiadás-listát + a bankszámlákat kapja,
+      és maga számolja a forrásonkénti (mind/kassza/bankonként) napi tételeket és a
+      forrás-sorozat szerinti oldalszámot. */
   kiseroivPrintDialogSlot?: (params: {
     open: boolean
     onOpenChange: (open: boolean) => void
-    expenses: KiadasRow[]
     date: string
-    pageNumber: number
+    allExpenses: KiadasRow[]
+    bankAccounts: BankAccount[]
     congregationName: string
     kiaCelMap: Record<number, string>
     cellek: SzamadasiCel[]
@@ -442,10 +445,14 @@ export function TransactionsTab({
     }
   }
 
+  // 2026-07-17 (F3): a stornózott kiadás NEM kerül kísérőívre és sorszámot sem
+  // fogyaszt — konzisztensen a hivatalos regiszterek (filterByMonth) stornó-kizárásával.
+  // A napi gomb pg.-címkéje a „Minden kiadás" forrás sorozatát mutatja; a dialóguson
+  // belüli forrás-választó (Q10) forrásonként újraszámol.
   const expenseDayPageMap = useMemo(() => {
     const days = new Set<string>()
     for (const r of expenseRecords) {
-      if (!r.deleted) days.add((r.datum || '').split('T')[0])
+      if (!r.deleted && !r.stornozott) days.add((r.datum || '').split('T')[0])
     }
     const sorted = [...days].sort()
     const map = new Map<string, number>()
@@ -454,26 +461,17 @@ export function TransactionsTab({
   }, [expenseRecords])
 
   function handlePrintKiseroiv(date: string) {
-    const dayExpenses = expenseRecords
-      .filter((r) => !r.deleted && (r.datum || '').split('T')[0] === date)
-      .sort((a, b) => a.id - b.id)
+    const dayExpenses = expenseRecords.filter(
+      (r) => !r.deleted && !r.stornozott && (r.datum || '').split('T')[0] === date,
+    )
 
     if (dayExpenses.length === 0) {
-      onToast?.('Nincs kiadás ezen a napon.', 'error')
+      onToast?.('Nincs (nem stornózott) kiadás ezen a napon.', 'error')
       return
     }
 
     setKiseroivDate(date)
   }
-
-  const kiseroivExpenses = useMemo(() => {
-    if (!kiseroivDate) return []
-    return expenseRecords
-      .filter((r) => !r.deleted && (r.datum || '').split('T')[0] === kiseroivDate)
-      .sort((a, b) => a.id - b.id)
-  }, [kiseroivDate, expenseRecords])
-
-  const kiseroivPageNum = kiseroivDate ? expenseDayPageMap.get(kiseroivDate) || 1 : 1
 
   async function handleDelete(type: TransactionType, id: number) {
     if (!onDeleteTransaction) return
@@ -642,7 +640,10 @@ export function TransactionsTab({
                         const prevDate =
                           i > 0 ? group.rows[i - 1].datum?.split('T')[0] : null
                         const showDateHeader = curDate !== prevDate
-                        const hasExpenseOnDay = expenseDates.has(curDate || '')
+                        // 2026-07-17 (F3): a page-map a stornókat kizárja — csak-stornós
+                        // napon nincs gomb (különben „pg. undefined" felirat jelenne meg).
+                        const hasExpenseOnDay =
+                          expenseDates.has(curDate || '') && expenseDayPageMap.has(curDate || '')
                         const pageNum = expenseDayPageMap.get(curDate || '')
 
                         return (
@@ -832,9 +833,9 @@ export function TransactionsTab({
           onOpenChange: (open) => {
             if (!open) setKiseroivDate(null)
           },
-          expenses: kiseroivExpenses,
           date: kiseroivDate,
-          pageNumber: kiseroivPageNum,
+          allExpenses: expenseRecords,
+          bankAccounts,
           congregationName,
           kiaCelMap,
           cellek: szamadasiCellek,

@@ -168,9 +168,10 @@ export function WorklogPrintDialog({
     try {
       await printToPdf(report.html, report.filename, {
         orientation: report.orientation,
-        // WYSIWYG-nyomtatványnál (hivatalos munkanapló) a lap-margót a
-        // dokumentum saját paddingje adja → a motor margója [0, 0].
-        margin: report.pdfMargin ?? (report.orientation === 'landscape' ? [8, 8] : [10, 10]),
+        // A lap-margót a dokumentum saját paddingje adja → a motor margója [0, 0]
+        // (2026-07-17 F3: a fallback [8,8]/[10,10] a stíluslap-javítás után
+        // teljes-szélességű .page-nél szélvágást okozna).
+        margin: report.pdfMargin ?? [0, 0],
         format: 'a4',
       })
       toast.success(`${report.title} PDF elkészült.`)
