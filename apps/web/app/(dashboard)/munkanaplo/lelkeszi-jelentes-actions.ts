@@ -373,10 +373,11 @@ async function computeAuto(
     ),
     // Lélekszám — az annual-report generator.ts MŰKÖDŐ mintája (v0.9.78 után):
     // CSAK verifikált oszlopok (meghalt, member_status, isvisible).
-    fetchAllRows<{ id: number; meghalt: boolean | null; member_status: string | null }>((from, to) =>
+    // 2026-07-17 (PR-2 F1.7): + voter_eligible az I.11 auto-számításhoz.
+    fetchAllRows<{ id: number; meghalt: boolean | null; member_status: string | null; voter_eligible: boolean | null }>((from, to) =>
       supabase
         .from('szemely')
-        .select('id, meghalt, member_status')
+        .select('id, meghalt, member_status, voter_eligible')
         .eq('congregation_id', congId)
         .eq('isvisible', true)
         .order('id')
@@ -435,6 +436,10 @@ async function computeAuto(
         !['elhunyt', 'elköltözött', 'elkoltozott', 'kitért', 'törölt'].includes(s.member_status || ''),
     ).length
     auto['I.10'] = lelekszam
+    // I.11 — választói névjegyzékben szereplők (2026-07-17, PR-2 F1.7): a
+    // perzisztált voter_eligible flagből (a „Jogosultság frissítése" gomb / RPC
+    // tartja karban); a lelkész felülírhatja, mint minden auto-mezőt.
+    auto['I.11'] = szemelyRes.rows.filter((s) => s.voter_eligible === true && !s.meghalt).length
   }
 
   // I.1 — előző évi véglegesített jelentés I.10-e

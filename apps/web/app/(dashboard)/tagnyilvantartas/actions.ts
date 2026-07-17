@@ -774,7 +774,11 @@ export async function removeMember(data: RemoveInput) {
       mikor: parsed.data.kolt_datum || new Date().toISOString(),
       kulfoldre: parsed.data.kulfold || false, megjegyzes: parsed.data.kolt_megj || null, hovaid: hovaId,
     }])
-    const { error } = await supabase.from('szemely').update({ elkoltozott: true, member_status: 'elköltözött', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
+    // 2026-07-17 (PR-2 F1.2): a szemely táblának NINCS elkoltozott oszlopa (a
+    // költözés külön tábla — fentebb már beszúrtuk) — a korábbi `elkoltozott: true`
+    // mező miatt az EGÉSZ update elhasalt, így a member_status SEM állt át, az
+    // elköltözött tag „aktív" maradt (névjegyzéken is).
+    const { error } = await supabase.from('szemely').update({ member_status: 'elköltözött', congregation_id: congregationId }).eq('id', id).eq('congregation_id', congregationId)
     if (error) return { error: `Hiba: ${error.message}` }
     await logAuditEvent({ action: 'member.remove', targetTable: 'szemely', targetId: String(id), metadata: { reason: 'elkoltozott' } }, supabase)
     revalidatePath('/tagnyilvantartas')

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { getVisibleDistrictName, getVisibleDistrictNameMap } from '@/lib/members/district-visibility'
 import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
+import { exactAge, isAdult } from '@/lib/members/age'
 import { logAuditEvent } from '@/lib/audit/log'
 
 /**
@@ -35,6 +36,10 @@ export interface VoterRow {
   // 2026-06-10 (Fázis 5, P3-7): perzisztált választói jogosultság + felülbírálás
   eligible: boolean
   override: number | null
+  // 2026-07-17 (PR-2, D1 döntés): a felmentett fizetettnek számít, és a
+  // kanonikus névjegyzék-tagság = eligible ÉS (fizetett VAGY felmentett).
+  felmentett: boolean
+  nevjegyzekTag: boolean
 }
 
 export async function getVoters(): Promise<VoterRow[]> {
@@ -43,7 +48,7 @@ export async function getVoters(): Promise<VoterRow[]> {
   const currentYear = new Date().getFullYear()
   const prevYear = currentYear - 1
 
-  const [szemelyRes, konfirmRes, csaladRes, gyerekRes, jarulekRes, bealitasRes, districtState] = await Promise.all([
+  const [szemelyRes, konfirmRes, csaladRes, gyerekRes, jarulekRes, bealitasRes, districtState, felmentesRes] = await Promise.all([
     // 2026-07-17 (PR-1): az adrstreet-embed a település-fallbackhoz az utca
     // adrlocality-ját is lehozza (c_helysegid-hiány pótlása).
     supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
@@ -56,9 +61,16 @@ export async function getVoters(): Promise<VoterRow[]> {
       .is('ervenyes_ig', null)
       .not('legacy_csalad_id', 'is', null),
     Promise.resolve({ data: [] }),
-    supabase.from('befizetes').select('id_szemely, fizetettev, osszeg, befizetescel!id_befizetescel(id_szamadasicel)').eq('congregation_id', congId).or('deleted.eq.false,deleted.is.null'),
+    // 2026-07-17 (PR-2 F1.3): a Tartozás-logikával bit-egyező szemantika —
+    // (a) a stornózott tétel NEM számít fizetettnek; (b) csak a releváns két év
+    // (prev+current) tölt le → a Supabase 1000-soros default plafon sem vág;
+    // (c) az id_csalad is jön, hogy a CSALÁDI szintű befizetés (multi-befizető
+    // wizard terméke) is jóváíródjon.
+    supabase.from('befizetes').select('id_szemely, id_csalad, fizetettev, osszeg, befizetescel!id_befizetescel(id_szamadasicel)').eq('congregation_id', congId).in('fizetettev', [prevYear, currentYear]).or('deleted.eq.false,deleted.is.null').or('stornozott.eq.false,stornozott.is.null'),
     supabase.from('bealitas').select('id, eves_jarulek').eq('congregation_id', congId).in('id', [String(prevYear), String(currentYear)]),
     getVisibleDistrictNameMap(supabase, congId),
+    // 2026-07-17 (PR-2, D1 döntés): a felmentett fizetettnek számít a névjegyzékben.
+    supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congId),
   ])
 
   // 2026-07-17 (PR-1): település-fallback az utca-láncból (c_helysegid-hiány pótlása).
@@ -93,6 +105,15 @@ export async function getVoters(): Promise<VoterRow[]> {
   const expectedPrevYear = expectedByYear[prevYear] || 0
   const expectedCurrentYear = expectedByYear[currentYear] || 0
 
+  // 2026-07-17 (PR-2 F1.3): család → felnőttek map a családi szintű befizetések
+  // és a családi felmentések jóváírásához (a Tartozás-oldal szemantikájával
+  // egyezően: a háztartás befizetése/felmentése mindkét házasfélnek számít).
+  const familyAdults = new Map<number, number[]>()
+  for (const c of csaladok) {
+    const adults = [c.id_ferfi, c.id_no].filter((x): x is number => x != null)
+    if (adults.length > 0) familyAdults.set(c.id, adults)
+  }
+
   // Járulék — CSAK 101.01 kódú befizetések (egyházfenntartói járulék)
   // Külön-külön összegezve évekre (prev + current)
   const paidPrevByPerson: Record<number, number> = {}
@@ -104,13 +125,32 @@ export async function getVoters(): Promise<VoterRow[]> {
     const celKod: string = b.befizetescel?.id_szamadasicel || ''
     if (!celKod.startsWith('101.01')) return // Csak járulék befizetéseket nézzük
     const ev = b.fizetettev as number | null
-    const id = b.id_szemely as number | null
     const amt = Number(b.osszeg) || 0
-    if (!ev || !id) return
-    if (ev === prevYear) paidPrevByPerson[id] = (paidPrevByPerson[id] || 0) + amt
-    if (ev === currentYear) paidCurrentByPerson[id] = (paidCurrentByPerson[id] || 0) + amt
-    if (!jarulekBySzemely[id] || ev > jarulekBySzemely[id]) jarulekBySzemely[id] = ev
-    if (ev >= prevYear) jarulekFizetoIds.add(id)
+    if (!ev) return
+    // Személyi befizetés → a személynek; családi szintű (id_szemely NULL,
+    // id_csalad kitöltve) → a család mindkét felnőttjének jóváírva.
+    const targets: number[] = b.id_szemely
+      ? [b.id_szemely as number]
+      : b.id_csalad
+        ? familyAdults.get(b.id_csalad as number) || []
+        : []
+    for (const id of targets) {
+      if (ev === prevYear) paidPrevByPerson[id] = (paidPrevByPerson[id] || 0) + amt
+      if (ev === currentYear) paidCurrentByPerson[id] = (paidCurrentByPerson[id] || 0) + amt
+      if (!jarulekBySzemely[id] || ev > jarulekBySzemely[id]) jarulekBySzemely[id] = ev
+      if (ev >= prevYear) jarulekFizetoIds.add(id)
+    }
+  })
+
+  // 2026-07-17 (PR-2, D1): felmentettek — a felmentés az előző VAGY az idei
+  // évet fedi (a Tartozás-oldal év-ablak logikájával egyezően); a családi
+  // felmentés a család mindkét felnőttjére érvényes.
+  const exemptPersons = new Set<number>()
+  ;((felmentesRes.data || []) as Array<{ id_szemely: number | null; id_csalad: number | null; kezdete: number | null; vege: number | null }>).forEach((f) => {
+    const covers = (y: number) => y >= (f.kezdete || 0) && y <= (f.vege || 2099)
+    if (!covers(prevYear) && !covers(currentYear)) return
+    if (f.id_szemely) exemptPersons.add(f.id_szemely)
+    else if (f.id_csalad) for (const a of familyAdults.get(f.id_csalad) || []) exemptPersons.add(a)
   })
 
   // 2026-06-30 (perf): O(n²) → O(n+m). Korábban a getKorzet MINDEN 18+ személyre
@@ -140,28 +180,39 @@ export async function getVoters(): Promise<VoterRow[]> {
     return getVisibleDistrictName(csoport ?? null, districtNameMap)
   }
 
+  // 2026-07-17 (PR-2 F1.4): dátum-pontos 18+ szűrés és kor — bit-egyező a
+  // recompute_voter_eligibility RPC `sz_datum <= CURRENT_DATE - 18 years`
+  // szemantikájával (az évszám-alapú számítás a szülinap előtt is felnőttnek vett).
   return szemelyek
-    .filter(m => m.sz_datum && (currentYear - new Date(m.sz_datum).getFullYear()) >= 18)
-    .map(m => ({
-      id: m.id,
-      nev: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim(),
-      csaladnev: m.csaladnev || '',
-      ferfi: m.ferfi,
-      age: currentYear - new Date(m.sz_datum!).getFullYear(),
-      foglalkozas: m.foglalkozas || '',
-      lakcim: [m.adrstreet?.name, m.c_szam].filter(Boolean).join(' ') || '—',
-      lakhely: m.adrlocality?.name || '—',
-      konfirmalt: konfirmaltIds.has(m.id),
-      jarulekFizeto: jarulekFizetoIds.has(m.id),
-      jarulekMaxEv: jarulekBySzemely[m.id] || 0,
-      korzet_nev: getKorzet(m.id),
-      paidPrevYearSum: paidPrevByPerson[m.id] || 0,
-      paidCurrentYearSum: paidCurrentByPerson[m.id] || 0,
-      expectedPrevYear,
-      expectedCurrentYear,
-      eligible: m.voter_eligible === true,
-      override: m.voter_manual_override ?? null,
-    }))
+    .filter(m => isAdult(m.sz_datum))
+    .map(m => {
+      const felmentett = exemptPersons.has(m.id)
+      const eligible = m.voter_eligible === true
+      return {
+        id: m.id,
+        nev: `${m.csaladnev || ''} ${m.k_nev || ''}`.trim(),
+        csaladnev: m.csaladnev || '',
+        ferfi: m.ferfi,
+        age: exactAge(m.sz_datum) ?? 0,
+        foglalkozas: m.foglalkozas || '',
+        lakcim: [m.adrstreet?.name, m.c_szam].filter(Boolean).join(' ') || '—',
+        lakhely: m.adrlocality?.name || '—',
+        konfirmalt: konfirmaltIds.has(m.id),
+        jarulekFizeto: jarulekFizetoIds.has(m.id),
+        jarulekMaxEv: jarulekBySzemely[m.id] || 0,
+        korzet_nev: getKorzet(m.id),
+        paidPrevYearSum: paidPrevByPerson[m.id] || 0,
+        paidCurrentYearSum: paidCurrentByPerson[m.id] || 0,
+        expectedPrevYear,
+        expectedCurrentYear,
+        eligible,
+        override: m.voter_manual_override ?? null,
+        felmentett,
+        // Kanonikus névjegyzék-tagság (D1): strukturális jogosultság ÉS
+        // (járulékot fizetett VAGY felmentett — a felmentett fizetettnek számít).
+        nevjegyzekTag: eligible && (jarulekFizetoIds.has(m.id) || felmentett),
+      }
+    })
 }
 
 // ── Választói jogosultság automatika (2026-06-10, Fázis 5 / P3-7) ─────
@@ -211,9 +262,14 @@ export async function setVoterOverride(szemelyId: number, override: 0 | 1 | null
   if (error) return { ok: false, error: `Hiba: ${error.message}` }
 
   await logAuditEvent({ action: 'voter.override_set', targetTable: 'szemely', targetId: String(szemelyId), metadata: { override } }, supabase)
-  // A flag tényleges értékét az újraszámítás állítja be a felülbírálás szerint
-  await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
+  // A flag tényleges értékét az újraszámítás állítja be a felülbírálás szerint.
+  // 2026-07-17 (PR-2): az RPC hibája többé nem néma — a felülbírálás ilyenkor
+  // elmentődik, de a Jogosult-jelzés nem frissül, ezt jelezni KELL a usernek.
+  const { error: rpcError } = await supabase.rpc('recompute_voter_eligibility', { p_congregation_id: congId })
   revalidatePath('/tagnyilvantartas')
+  if (rpcError) {
+    return { ok: false, error: `A felülbírálás elmentve, de az újraszámítás nem futott le: ${rpcError.message}` }
+  }
   return { ok: true }
 }
 
@@ -225,11 +281,14 @@ export interface VoterPrintContext {
   congregationName: string
   address: string | null
   phone: string | null
+  /** A keltezés helysége (congregations.varos) — 2026-07-17 (PR-2): a korábbi
+   *  gyülekezetnév-első-szava heurisztika többszavas településnél hibázott. */
+  city: string | null
 }
 
 export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const { supabase, congregationId: congId } = await getEffectiveCongregationContext()
-  if (!congId) return { congregationName: 'Gyülekezet', address: null, phone: null }
+  if (!congId) return { congregationName: 'Gyülekezet', address: null, phone: null, city: null }
 
   const { data } = await supabase
     .from('congregations')
@@ -241,6 +300,7 @@ export async function getVoterPrintContext(): Promise<VoterPrintContext> {
   const addressParts = [data?.cim, data?.varos, data?.megye].filter(Boolean) as string[]
   const address = addressParts.length > 0 ? addressParts.join(', ') : null
   const phone = (data?.telefon as string | null) || null
+  const city = (data?.varos as string | null) || null
 
-  return { congregationName, address, phone }
+  return { congregationName, address, phone, city }
 }

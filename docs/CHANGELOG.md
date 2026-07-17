@@ -23,6 +23,61 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — Választók névjegyzéke: a jogosultság-számítás megjavult, a nyomtatvány A4-pontos lett oldalszámokkal
+<!-- key: 2026-07-17-tagnyilv-pr2-valasztoi -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok -->
+<!-- version: web v0.9.91 -->
+
+### 🐛 Választói névjegyzék — jogosultság
+
+- **A „Jogosultság frissítése" gomb mostantól tényleg működik** — eddig egy
+  rejtett adatbázis-hiba miatt minden futása elhalt, ezért a „Jogosult"
+  jelölés soha senkinél nem jelent meg. (Rendszergazdai SQL futtatása
+  szükséges — lásd lent.)
+- **Az elköltözés adminisztrálása megjavult:** eddig ugyanez a rejtett hiba
+  miatt az elköltözött tag státusza „aktív" maradt, és a névjegyzéken is
+  rajta maradt. Mostantól a státusz rendben átáll.
+- **A névjegyzék szabálya egységes lett** (a Kánon szerint): 18. évét
+  betöltött (születésnap-pontosan számolva), konfirmált, aktív tag, aki az
+  egyházfenntartói járulékot megfizette VAGY érvényes felmentése van —
+  **a felmentett fizetettnek számít**. A fül „Összes választó" számlálója,
+  a nyomtatvány és az egyházmegyének beküldött létszám mostantól ugyanezt
+  az egy szabályt követi.
+- **A családi (közös) befizetés is beszámít** mindkét házastársnak, és a
+  stornózott befizetés többé nem számít fizetettnek — pontosan úgy, ahogy
+  a Pénzügy Tartozások-listája számol.
+- **A beküldött létszám többé nem függ a képernyő-szűrőktől** — eddig ha a
+  keresőbe be volt írva egy név, akár 1-2 fős „névjegyzék-létszám" mehetett
+  be hivatalosan az egyházmegyének.
+- **A lelkészi jelentés I.11 pontja** (Választói névjegyzékben szereplők)
+  mostantól automatikusan kitöltődik (és továbbra is felülírható).
+
+### 🎨 Választói névjegyzék — nyomtatás
+
+- **A nyomtatvány valóban A4-re szabott lett:** megszűnt a dupla (24 mm-es)
+  margó, bal oldalon lefűzési margót kapott, és **minden lap alján ott az
+  oldalszám („Oldal X / Y")** — ez volt a bejelentett hiba.
+- **Minden oldalon megismétlődik a táblázat fejléce**, a sorok nem vágódnak
+  ketté a lapok határán — nyomtatásban és PDF-mentésben is.
+- **A hivatalos listára alapból csak a választói jogosultak kerülnek**
+  (kikapcsolható szűrő), és a felmentettek külön kapcsolóval szerepelnek.
+- **Hosszú (több tíz oldalas) névjegyzék PDF-mentése sem törik meg** — a
+  rendszer a felbontást a dokumentum hosszához igazítja.
+- **A keltezés helysége** a gyülekezet beállított városából jön (nem a
+  gyülekezetnév első szavából).
+- Ha az adott évre nincs éves járulék beállítva, a nyomtatási ablak
+  mostantól megmondja, miért üres a lista, és hová kattints a pótláshoz.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL)
+
+- `migration-docs/sql/2026-07-17-pr2-valasztoi-rpc-fix.sql` — a
+  jogosultság-újraszámító függvény javítása (a nem létező oszlop helyett a
+  költözés-tábla alapján zár ki). A fájl végén próbafuttatás és ellenőrző
+  lekérdezések.
+
+---
+
 ## [2026-07-17] — Tagnyilvántartás: a lakcímekben megjelenik a település, és a „Házhoz irányítás" újra működik
 <!-- key: 2026-07-17-tagnyilv-pr1-telepules -->
 <!-- category: bugfix -->
