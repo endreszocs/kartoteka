@@ -97,7 +97,9 @@ export function InventoryPrintDialog({
     try {
       await printToPdf(report.html, report.filename, {
         orientation: report.orientation,
-        margin: report.orientation === 'landscape' ? [8, 8] : [10, 10],
+        // 2026-07-17 (F3): a lap-margót a dokumentum .page paddingje adja (WYSIWYG);
+        // a motor-margó a stíluslap-javítás után teljes-szélességű lapnál szélvágást okozna.
+        margin: [0, 0],
         format: paperSize,
       })
       toast.success(`${report.title} PDF elkészült.`)

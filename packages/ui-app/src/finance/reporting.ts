@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Pénzügyi nyomtatási modul — hivatalos nyomtatványok.
  *
  * Kimenetek:
@@ -172,6 +172,13 @@ function styles() {
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: 'Times New Roman', serif; color: #111827; margin: 0; background: #eef1f5; padding: 18px 0; }
     .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; box-shadow: 0 18px 40px rgba(15,23,42,.12); padding: 10mm; break-after: page; position: relative; }
+    /* 2026-07-17 (F3, Q5): CSAK a kísérőív lapja flex-oszlop — az aláírók a lap aljára
+       tolódnak, ha a tartalom rövidebb (túlcsorduló tartalomnál a tartalom után, az
+       utolsó oldalon állnak). SZÁNDÉKOSAN nem globális: a WebKit (Safari/iOS) a
+       flex-konténert nyomtatásban nem tördeli lapokra — a többoldalas regisztereket
+       egy globális flex .page félbevágott sorokkal nyomtatná. */
+    .page--bottom-footer { display: flex; flex-direction: column; }
+    .page--bottom-footer .footer { margin-top: auto; padding-top: 14px; }
     .page:last-child { break-after: auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
     .header-left { font-size: 12px; }
@@ -193,12 +200,19 @@ function styles() {
     .footer-item { text-align: center; min-width: 120px; }
     .footer-line { border-top: 1px solid #0f172a; margin-top: 28px; padding-top: 4px; }
     .page-num { position: absolute; bottom: 10mm; right: 10mm; font-size: 10px; color: #64748b; }
-    @media print { body { background: #fff; padding: 0; } .page { width: auto; min-height: auto; margin: 0; box-shadow: none; } }
+    /* 2026-07-17 (F3): printben a lapmagasság MEGMARAD (1-2mm ráhagyással a
+       @page-hez képest, az átcsordulás ellen) — korábban a min-height:auto miatt
+       a lap „összement" és az aláírók/oldalszám felcsúszott a táblázat alá,
+       eltérve az előnézettől és a PDF-től. */
+    @media print { body { background: #fff; padding: 0; } .page { width: auto; min-height: 208mm; margin: 0; box-shadow: none; } }
   `
 }
 
 function stylesPortrait() {
-  return styles().replace('A4 landscape', 'A4 portrait').replace('width: 297mm; min-height: 210mm', 'width: 210mm; min-height: 297mm')
+  return styles()
+    .replace('A4 landscape', 'A4 portrait')
+    .replace('width: 297mm; min-height: 210mm', 'width: 210mm; min-height: 297mm')
+    .replace('min-height: 208mm', 'min-height: 295mm')
 }
 
 function wrap(title: string, content: string, extraOrPortrait?: string | boolean) {
@@ -578,8 +592,11 @@ export function buildKiadasiKiseroiv(params: {
   congregationName: string
   kiaCelMap: Record<number, string>
   cellek: SzamadasiCel[]
+  /** 2026-07-17 (F3, Q10): a kísérőív forrása — pl. „Kassza" vagy egy bankszámla neve.
+      Forrásonként KÜLÖN sorozat fut (a pageNumber már forrás-szűrten érkezik). */
+  sourceLabel?: string
 }): FinancePrintResult {
-  const { expenses, date, pageNumber, congregationName, kiaCelMap, cellek } = params
+  const { expenses, date, pageNumber, congregationName, kiaCelMap, cellek, sourceLabel } = params
 
   const total = expenses.reduce((s, r) => s + ronOf(r), 0)
 
@@ -587,24 +604,33 @@ export function buildKiadasiKiseroiv(params: {
   expenses.forEach((r, i) => {
     const code = r.id_kiadascel ? (kiaCelMap[r.id_kiadascel] || '') : ''
     const cel = cellek.find((c) => c.kod === code)
-    const name = r.kedvezmenyzett || r.atvevo || ''
-    const desc = [name, cel?.nev].filter(Boolean).join(' — ')
+    const name = r.atvevo || ''
+    // 2026-07-17 (F3, Q1/Q2): a „Költségv. Tétel" oszlopban a jogcím MAGYAR + ROMÁN
+    // neve áll (a nyers kód nem) — a kód csak fallback, ha egyik név sincs meg.
+    const celCell = cel
+      ? `${esc(cel.nev || '')}${cel.nevro ? `<div style="font-style:italic;color:#475569">${esc(cel.nevro)}</div>` : ''}` || esc(code)
+      : esc(code)
 
     tbody += `<tr>
       <td class="text-center">${i + 1}</td>
       <td>${esc(getDocNumber(r))}</td>
       <td>${esc(r.irattipus || 'Chit.')}</td>
-      <td class="text-center">${esc(code)}</td>
-      <td>${esc(desc)}</td>
+      <td>${celCell}</td>
+      <td>${esc(name)}</td>
       <td class="text-right">${fmtNum(ronOf(r))}</td>
     </tr>`
   })
 
-  const html = `<div class="page">
+  const sourceLine = sourceLabel ? `<div>Forr&aacute;s: ${esc(sourceLabel)}</div>` : ''
+  const sourceSlug = sourceLabel
+    ? '_' + sourceLabel.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+    : ''
+
+  const html = `<div class="page page--bottom-footer">
     <div class="header">
       <div class="header-left"><div class="entity">${esc(congregationName)}</div></div>
       <div class="header-center"><div class="title" style="text-decoration:underline">KIAD&Aacute;SI K&Iacute;S&Eacute;R&Odblac;&Iacute;V</div></div>
-      <div class="header-right"><div>${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div><div>Registrul-Jurnal</div></div>
+      <div class="header-right"><div>${pageNumber}. sz. kiad&aacute;s ${fmtDate(date)}</div>${sourceLine}<div>Registrul-Jurnal</div></div>
     </div>
     <table>
       <thead><tr>
@@ -625,7 +651,7 @@ export function buildKiadasiKiseroiv(params: {
 
   return {
     title: 'Kiadási kísérőív',
-    filename: `Kiadasi_kiseroiv_${fmtDate(date).replace(/\./g, '_')}.pdf`,
+    filename: `Kiadasi_kiseroiv${sourceSlug}_${fmtDate(date).replace(/\./g, '_')}.pdf`,
     orientation: 'portrait',
     html: wrap('Kiadási kísérőív', html, true),
   }
