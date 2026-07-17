@@ -69,11 +69,17 @@ export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged }: CsatolmanyP
   // ── Lista ────────────────────────────────────────────────────
   const [items, setItems] = useState<IktatoCsatolmany[]>([])
   const [loading, setLoading] = useState(true)
+  // A lista-betöltés hibája INLINE jelenik meg, NEM toastként: a panel a
+  // szerkesztő-dialógusba is be van ágyazva, és mountkor tölt — ha pl. az
+  // F6-migráció még nem futott le, egy régi, hibátlan funkció (irat
+  // szerkesztése) megnyitása dobna hangos hiba-toastot minden alkalommal.
+  // A felhasználói akciók (feltöltés/törlés) hibái továbbra is toastok.
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { csatolmanyok, error } = await listCsatolmanyok(iktatoId)
-    if (error) toast.error(error)
+    setLoadError(error)
     setItems(csatolmanyok)
     setLoading(false)
   }, [iktatoId])
@@ -276,13 +282,16 @@ export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged }: CsatolmanyP
 
       {/* Feltöltő gombok — mobil kamera + fájlböngésző + csak-metaadat */}
       <div className="flex flex-wrap gap-1.5">
-        {/* Rejtett inputok: a capture='environment' a hátsó kamerát nyitja mobilon */}
+        {/* Rejtett inputok: a capture='environment' a hátsó kamerát nyitja mobilon.
+            A kamera-input accept-je SZÁNDÉKOSAN a szűk whitelist (nem image/*):
+            iOS-en ez váltja ki az automatikus HEIC→JPEG átkódolást; PDF és
+            multiple NÉLKÜL, mert azokkal iOS/Android sima fájlválasztót nyitna
+            kamera helyett (a PDF+multiple a másik, tallózó inputon marad). */}
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*,application/pdf"
+          accept="image/jpeg,image/png,image/webp"
           capture="environment"
-          multiple
           onChange={(e) => void handleFilesSelected(e)}
           className="hidden"
           aria-hidden
@@ -413,6 +422,18 @@ export function CsatolmanyPanel({ iktatoId, iktatoszam, onChanged }: CsatolmanyP
         <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           Csatolmányok betöltése…
+        </div>
+      ) : loadError ? (
+        /* Visszafogott, kontextusban maradó hibadoboz a lista helyén — a
+           dialógus többi része (és az irat mentése) zavartalanul működik. */
+        <div className="space-y-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-3">
+          <p className="text-xs font-semibold text-destructive">
+            A csatolmány-lista nem tölthető be
+          </p>
+          <p className="text-xs text-destructive">{loadError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
+            Újrapróbálás
+          </Button>
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-xl border border-border bg-card px-3 py-6 text-center">

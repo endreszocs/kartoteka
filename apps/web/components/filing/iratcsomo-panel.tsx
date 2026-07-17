@@ -411,12 +411,15 @@ export function IratcsomoPanel({ year, congregationName, onChanged }: IratcsomoP
                       type="button"
                       variant="destructive"
                       size="sm"
-                      disabled={deletingId === selected.id}
+                      // Lezárt csomó nem törölhető (a deleteIratcsomo guardjának tükrözése)
+                      disabled={deletingId === selected.id || selected.lezarva}
                       onClick={() => void handleDelete(selected)}
                       title={
-                        selected.iratSzam > 0
-                          ? 'Csak üres csomó törölhető — előbb vedd ki az iratokat.'
-                          : 'Csomó törlése'
+                        selected.lezarva
+                          ? 'A csomó lezárva — törléséhez előbb old fel.'
+                          : selected.iratSzam > 0
+                            ? 'Csak üres csomó törölhető — előbb vedd ki az iratokat.'
+                            : 'Csomó törlése'
                       }
                     >
                       <Trash2 data-icon="inline-start" aria-hidden />
@@ -446,8 +449,14 @@ export function IratcsomoPanel({ year, congregationName, onChanged }: IratcsomoP
                           size="icon-sm"
                           className="shrink-0"
                           aria-label={`${entry.year}/${entry.sequence_number} kivétele a csomóból`}
-                          title="Kivétel a csomóból"
-                          disabled={removingEntryId === entry.id}
+                          title={
+                            selected.lezarva
+                              ? 'A csomó lezárva — az irat kivételéhez előbb old fel.'
+                              : 'Kivétel a csomóból'
+                          }
+                          // Lezárt csomóból kivenni sem lehet (a szerver-oldali
+                          // guard tükrözése — assignEntryToCsomo)
+                          disabled={removingEntryId === entry.id || selected.lezarva}
                           onClick={() => void handleRemoveEntry(entry.id)}
                         >
                           {removingEntryId === entry.id ? (
@@ -694,8 +703,13 @@ function CsomoLeltarDialog({
   const measurePreview = () => {
     const doc = iframeRef.current?.contentDocument
     if (!doc) return
-    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
-    if (h > 0) setContentH(h)
+    // Viewport-FÜGGETLEN mérés (a certificate-issue-dialog mintája): a
+    // documentElement.scrollHeight sosem kisebb az iframe aktuális
+    // magasságánál (= contentH), így azzal a magasság csak nőni tudott volna
+    // („racsni") — az „Ügykör szerint" → „Egyben" váltás után üres lap-szakasz
+    // maradt volna az előnézetben.
+    const h = Math.ceil(doc.body?.getBoundingClientRect().height || 0)
+    setContentH(Math.max(h, PREVIEW_MIN_H))
   }
 
   const targetW = boxW > 0 ? Math.max(0, boxW - 24) : A4_PORTRAIT_W

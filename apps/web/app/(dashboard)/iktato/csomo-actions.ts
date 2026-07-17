@@ -9,8 +9,9 @@
  *
  * FONTOS SZABÁLYOK (a K1 DB-kontraktus szerint):
  *  - a `lezarva` flag KIZÁRÓLAG app-oldali védelem — az assignEntryToCsomo
- *    itt kényszeríti ki, az RLS nem tiltja,
- *  - csak ÜRES csomó törölhető (előzetes darabszám-ellenőrzéssel),
+ *    itt kényszeríti ki MINDKÉT irányban (betétel ÉS kivétel/átrakás),
+ *    az RLS nem tiltja,
+ *  - csak ÜRES és NEM lezárt csomó törölhető (előzetes ellenőrzéssel),
  *  - lezárt iktató-ÉV guard szándékosan NINCS: a csomóba rendezés szervezési
  *    réteg, nem módosítja az iktatókönyv hivatalos rovatait.
  *
@@ -176,16 +177,38 @@ export async function setIratcsomoLezarva(
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Csomó törlése. Csak üres csomó törölhető — ha van benne (nem törölt) irat,
- * hibával térünk vissza, és a felhasználónak előbb ki kell vennie az iratokat.
+ * Csomó törlése. Csak üres ÉS nem lezárt csomó törölhető — ha van benne
+ * (nem törölt) irat, vagy a csomó lezárt, hibával térünk vissza.
  * (Az FK ON DELETE SET NULL amúgy sem veszítene adatot, de a szándékos
- * kiürítés a biztonságos munkamenet.)
+ * kiürítés a biztonságos munkamenet; a lezárt csomó pedig a kinyomtatott
+ * leltárral együtt „érinthetetlen" — feloldás nélkül nem törölhető.)
  */
 export async function deleteIratcsomo(
   id: string,
 ): Promise<{ success: boolean; error: string | null }> {
   const { supabase, congId } = await getCongId()
   if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
+
+  // Lezárt csomó nem törölhető — előbb fel kell oldani (a lezárás értelme,
+  // hogy a dosszié + leltár állapota ne változhasson némán).
+  const { data: csomoRow, error: csomoErr } = await supabase
+    .from('iratcsomo')
+    .select('id, nev, lezarva')
+    .eq('id', id)
+    .eq('congregation_id', congId)
+    .maybeSingle()
+  if (csomoErr) {
+    return { success: false, error: friendlyDbError('A csomó ellenőrzése sikertelen', csomoErr) }
+  }
+  if (!csomoRow) {
+    return { success: false, error: 'A csomó nem található — lehet, hogy már törölték.' }
+  }
+  if ((csomoRow as { lezarva: boolean }).lezarva) {
+    return {
+      success: false,
+      error: `A(z) „${(csomoRow as { nev: string }).nev}" csomó le van zárva — törléséhez előbb old fel.`,
+    }
+  }
 
   // head:true mellett a data mindig null — a darabszám a count mezőben jön
   // (ismert csapda, lásd iktato/actions.ts closeFilingYear kommentje).
@@ -233,6 +256,8 @@ export async function deleteIratcsomo(
  *
  * Kikényszerített szabályok:
  *  - lezárt csomóba NEM rendezhető irat (a lezarva flag app-oldali védelme),
+ *  - lezárt csomóBÓL kivenni / másik csomóba átrakni sem lehet — a lezárt
+ *    dosszié + kinyomtatott leltár konzisztenciája csak így marad meg,
  *  - csak azonos évű irat kerülhet a csomóba (iktato.year === iratcsomo.ev).
  */
 export async function assignEntryToCsomo(
@@ -242,46 +267,73 @@ export async function assignEntryToCsomo(
   const { supabase, congId } = await getCongId()
   if (!congId) return { success: false, error: 'Nincs bejelentkezett felhasználó vagy gyülekezet.' }
 
-  if (csomoId) {
-    const [csomoRes, entryRes] = await Promise.all([
-      supabase
-        .from('iratcsomo')
-        .select('id, ev, nev, lezarva')
-        .eq('id', csomoId)
-        .eq('congregation_id', congId)
-        .maybeSingle(),
-      supabase
-        .from('iktato')
-        .select('id, year')
-        .eq('id', iktatoId)
-        .eq('congregation_id', congId)
-        .eq('deleted', false)
-        .maybeSingle(),
-    ])
-    if (csomoRes.error) {
-      return { success: false, error: friendlyDbError('A csomó ellenőrzése sikertelen', csomoRes.error) }
+  // Az irat lekérdezése MINDIG lefut — a kivétel (csomoId=null) ágon is,
+  // mert a FORRÁS-csomó lezártsága csak az irat aktuális csomo_id-jából
+  // állapítható meg.
+  const entryRes = await supabase
+    .from('iktato')
+    .select('id, year, csomo_id')
+    .eq('id', iktatoId)
+    .eq('congregation_id', congId)
+    .eq('deleted', false)
+    .maybeSingle()
+  if (entryRes.error) {
+    return { success: false, error: friendlyDbError('Az irat ellenőrzése sikertelen', entryRes.error) }
+  }
+  if (!entryRes.data) {
+    return { success: false, error: 'Az irat nem található — lehet, hogy időközben törölték.' }
+  }
+  const entry = entryRes.data as { id: string; year: number; csomo_id: string | null }
+
+  // FORRÁS-csomó guard: lezárt csomóból se kivétel, se átrakás — az RLS ezt
+  // nem tiltja, ez az egyetlen védőréteg.
+  if (entry.csomo_id && entry.csomo_id !== csomoId) {
+    const { data: forras, error: forrasErr } = await supabase
+      .from('iratcsomo')
+      .select('id, nev, lezarva')
+      .eq('id', entry.csomo_id)
+      .eq('congregation_id', congId)
+      .maybeSingle()
+    if (forrasErr) {
+      return {
+        success: false,
+        error: friendlyDbError('Az irat jelenlegi csomójának ellenőrzése sikertelen', forrasErr),
+      }
     }
-    if (!csomoRes.data) {
+    // Ha a forrás-csomó időközben eltűnt (törölték), nincs mit védeni —
+    // a hozzárendelés-frissítés mehet tovább.
+    if (forras && (forras as { lezarva: boolean }).lezarva) {
+      return {
+        success: false,
+        error: `A(z) „${(forras as { nev: string }).nev}" csomó le van zárva — az irat kivételéhez/átrakásához előbb old fel a csomót.`,
+      }
+    }
+  }
+
+  if (csomoId) {
+    const { data: csomoData, error: csomoErr } = await supabase
+      .from('iratcsomo')
+      .select('id, ev, nev, lezarva')
+      .eq('id', csomoId)
+      .eq('congregation_id', congId)
+      .maybeSingle()
+    if (csomoErr) {
+      return { success: false, error: friendlyDbError('A csomó ellenőrzése sikertelen', csomoErr) }
+    }
+    if (!csomoData) {
       return { success: false, error: 'A kiválasztott iratcsomó nem található — lehet, hogy időközben törölték.' }
     }
-    if (entryRes.error) {
-      return { success: false, error: friendlyDbError('Az irat ellenőrzése sikertelen', entryRes.error) }
-    }
-    if (!entryRes.data) {
-      return { success: false, error: 'Az irat nem található — lehet, hogy időközben törölték.' }
-    }
-    const csomo = csomoRes.data as { id: string; ev: number; nev: string; lezarva: boolean }
+    const csomo = csomoData as { id: string; ev: number; nev: string; lezarva: boolean }
     if (csomo.lezarva) {
       return {
         success: false,
         error: `A(z) „${csomo.nev}" csomó le van zárva — új irat nem rendezhető bele. Előbb old fel a csomót.`,
       }
     }
-    const entryYear = (entryRes.data as { year: number }).year
-    if (entryYear !== csomo.ev) {
+    if (entry.year !== csomo.ev) {
       return {
         success: false,
-        error: `Az irat ${entryYear}. évi, a csomó viszont ${csomo.ev}. évi — csak azonos évű csomóba rendezhető.`,
+        error: `Az irat ${entry.year}. évi, a csomó viszont ${csomo.ev}. évi — csak azonos évű csomóba rendezhető.`,
       }
     }
   }

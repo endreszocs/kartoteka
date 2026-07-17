@@ -665,7 +665,7 @@ function BoundContent() {
       </Callout>
       <Sub>III/4. Temetési anyakönyv</Sub>
       <ul className="list-disc pl-5 space-y-1">
-        <li>Az egyházközség birtokában lévő temetőbe temetésnél elkérjük a polgármesteri „<em>Adeverință</em>„-t — ennek számát (deces nr.) írjuk be az állami anyakönyvi szám rovatába.</li>
+        <li>Az egyházközség birtokában lévő temetőbe temetésnél elkérjük a polgármesteri „<em>Adeverință</em>”-t — ennek számát (deces nr.) írjuk be az állami anyakönyvi szám rovatába.</li>
         <li>Az Adeverința-t iktatjuk és a <strong>2-es iratgyűjtőbe</strong> tesszük (anyakönyvi levelezés).</li>
         <li>A halotti anyakönyvi kivonatot (Certificat de deces) — eredetiben vagy másolatban — NEM tároljuk.</li>
         <li>A halott születési időpontját a személyazonossági igazolványból vagy a CNP-ből írjuk ki.</li>

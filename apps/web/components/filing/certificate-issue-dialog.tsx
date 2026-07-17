@@ -33,7 +33,7 @@
  * (fit-to-width A4 iframe, a worklog-print-dialog mintája szerint).
  */
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { getFilingEntries, saveFilingEntry } from '@/app/(dashboard)/iktato/actions'
+import { saveFilingEntry } from '@/app/(dashboard)/iktato/actions'
 import {
   generateNextIratszam,
   getAutoPlaceholderContext,
@@ -308,6 +308,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
     setIssued(false)
     setIssuedIratszam(null)
     setMobileView('form')
+    setContentH(A4_PORTRAIT_H) // az előző kiállítás előnézet-magassága ne ragadjon át
 
     setLoadingCtx(true)
     void (async () => {
@@ -326,14 +327,15 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
       setHeader(headerRes.header)
       setHeaderError(headerRes.error)
 
-      const preview = iratszamRes.iratszam || ''
-      setPreviewIratszam(preview)
+      // Az előnézeti szám (nem-atomikus MAX+1 becslés) szándékosan NEM kerül
+      // az autoValues közé — a dokumentumban csak az iktatáskor kiosztott
+      // valódi szám jelenhet meg (lásd iratszamValue), a preview csak hint.
+      setPreviewIratszam(iratszamRes.iratszam || '')
       setAutoValues(
         buildAutoValues({
           gyulekezet: ctxRes.data?.gyulekezet,
           lelkipasztor: ctxRes.data?.lelkipasztor,
           helyseg: ctxRes.data?.helyseg,
-          iratszam: preview,
         }),
       )
       setLoadingCtx(false)
@@ -347,9 +349,17 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
   // ── (b) debounced személy-keresés ────────────────────────────────
   const searchSeq = useRef(0)
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      // Zárás után beérkező (úton lévő) válasz se írhasson vissza találatot.
+      searchSeq.current++
+      return
+    }
     const q = searchQuery.trim()
     if (q.length < 2) {
+      // A rövid/üres lekérdezés az úton lévő válaszokat is érvényteleníti —
+      // különben egy megkésett válasz üres keresőmező mellett is visszahozná
+      // az elavult (szellem-)találati listát.
+      searchSeq.current++
       setHits([])
       setSearching(false)
       setSearchError(null)
@@ -419,7 +429,10 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
 
   // ── Értékek + dokumentum összeállítása ───────────────────────────
   const personValues = useMemo(() => buildPersonValues(persons), [persons])
-  const iratszamValue = issuedIratszam ?? manualValues.iratszam ?? previewIratszam
+  // Iktatás ELŐTT a dokumentumba NEM kerülhet a nem-atomikus előnézeti szám
+  // (a következő valódi iktatás ugyanazt a számot MÁSIK iratnak osztaná ki) —
+  // helyette kitöltetlen vonal. A previewIratszam csak tájékoztató hint.
+  const iratszamValue = issuedIratszam ?? manualValues.iratszam ?? '__________'
   const mergedValues = useMemo<Record<string, string>>(
     () => ({ ...autoValues, ...personValues, ...manualValues, iratszam: iratszamValue }),
     [autoValues, personValues, manualValues, iratszamValue],
@@ -450,7 +463,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
   <meta charset="utf-8" />
   <title>${docTitle}</title>
   <style>
-    @page { size: A4 portrait; margin: 15mm; }
+    /* WYSIWYG-elv (official-journal/iratcsomó-leltár minta): @page margin 0,
+       a lap-margót a tartalom saját 50px-es paddingje adja — 15mm-es @page
+       margóval a böngészős nyomtatás máshol tördelt volna, mint az
+       előnézet és a PDF (html2canvas, margó nélkül). */
+    @page { size: A4 portrait; margin: 0; }
     body { margin: 0; background: #fff; }
     @media print { body { padding: 0; } }
   </style>
@@ -461,8 +478,16 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
 </body>
 </html>`
   }, [assembledRaw, mergedValues, lang, header, docTitle])
-  // Gépelés közben az iframe-frissítést a deferred érték simítja.
-  const deferredHtml = useDeferredValue(fullHtml)
+  // Gépelés közbeni render-vihar ellen IDŐ-alapú debounce: az iframe
+  // srcDoc-cseréje teljes dokumentum-újraparszolást + layoutot indít, és a
+  // useDeferredValue ezt leütésenként átengedte (nem debounce) — lassú
+  // mobilon a billentyűzet-visszajelzés is akadozott. A nyomtatás/PDF a
+  // friss fullHtml-t kapja, így az soha nem lehet elavult.
+  const [iframeHtml, setIframeHtml] = useState(fullHtml)
+  useEffect(() => {
+    const t = window.setTimeout(() => setIframeHtml(fullHtml), 300)
+    return () => window.clearTimeout(t)
+  }, [fullHtml])
 
   // ── Fit-to-width A4 előnézet (worklog-print-dialog minta) ────────
   const previewBoxRef = useRef<HTMLDivElement>(null)
@@ -484,7 +509,11 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
   const measurePreview = useCallback(() => {
     const doc = iframeRef.current?.contentDocument
     if (!doc) return
-    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    // Viewport-FÜGGETLEN mérés: a documentElement.scrollHeight sosem kisebb
+    // az iframe aktuális magasságánál (= contentH), így azzal a magasság csak
+    // nőni tudott volna („racsni") — rövidebb dokumentumra (sablonváltás,
+    // újranyitás) több képernyőnyi üres lap maradt volna az előnézetben.
+    const h = Math.ceil(doc.body?.getBoundingClientRect().height || 0)
     setContentH(Math.max(h, A4_PORTRAIT_H))
   }, [])
 
@@ -520,17 +549,13 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
         toast.error(res.error)
         return
       }
-      // A saveFilingEntry nem adja vissza a kiosztott sorszámot → a frissen
-      // beszúrt sort a (tárgy + kelt) alapján keressük vissza (a lista
-      // sorszám szerint csökkenő, így az első találat a legutóbbi).
-      const issueYear = Number(kelt.slice(0, 4))
-      const entries = await getFilingEntries(issueYear, 'outgoing')
-      const created = entries.find(
-        (e) => e.subject === trimmedSubject && (e.kelt || '').slice(0, 10) === kelt,
-      )
       setIssued(true)
-      if (created) {
-        const iratszam = `${created.year}/${created.sequence_number}`
+      // Az iratszám a saveFilingEntry által visszaadott, atomikusan kiosztott
+      // sorszámból képződik. (A korábbi (tárgy + kelt) alapú getFilingEntries-
+      // visszakeresés versenyhelyzetben MÁSIK irat számát találhatta meg, a
+      // néma-üres hibaelnyelése mellett pedig az elavult előnézeti szám maradt.)
+      if (res && 'sequenceNumber' in res && typeof res.sequenceNumber === 'number') {
+        const iratszam = `${res.year}/${res.sequenceNumber}`
         setIssuedIratszam(iratszam)
         toast.success(`Iktatva: ${iratszam} — a szám bekerült a dokumentumba.`)
       } else {
@@ -604,8 +629,12 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
             </div>
           </div>
 
-          {/* lg alatt fül-váltó: űrlap ⇄ előnézet */}
-          <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 lg:hidden" role="tablist" aria-label="Szerkesztés vagy előnézet">
+          {/* lg alatt nézet-váltó: űrlap ⇄ előnézet. Szándékosan aria-pressed-es
+              toggle-gombpár (az iratcsomó-leltár mód-váltó mintája), NEM ARIA
+              tab-minta — a role='tab' teljes APG-szerződést kívánna
+              (aria-controls + tabpanel + nyílbillentyű-navigáció), a csonka
+              változat a felolvasónak többet ártott, mint használt. */}
+          <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 lg:hidden" role="group" aria-label="Szerkesztés vagy előnézet">
             {([
               ['form', 'Szerkesztés'],
               ['preview', 'Előnézet'],
@@ -613,8 +642,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
               <button
                 key={key}
                 type="button"
-                role="tab"
-                aria-selected={mobileView === key}
+                aria-pressed={mobileView === key}
                 onClick={() => switchMobileView(key)}
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-sm font-medium transition',
@@ -805,7 +833,9 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
                         const hint = isIratszam
                           ? issuedIratszam
                             ? 'Iktatott, végleges iratszám'
-                            : 'Előzetes szám — a végleges iktatáskor kerül a dokumentumba'
+                            : previewIratszam
+                              ? `Várható szám iktatáskor: ${previewIratszam} — a dokumentumba csak a tényleges iktatáskor kerül szám`
+                              : 'A szám a tényleges iktatáskor kerül a dokumentumba'
                           : fromPerson
                             ? 'Anyakönyvből előtöltve — szerkeszthető'
                             : isAuto
@@ -1025,7 +1055,7 @@ export function CertificateIssueDialog({ open, onOpenChange, year, onIssued }: C
                   ref={iframeRef}
                   onLoad={measurePreview}
                   title="Dokumentum előnézet"
-                  srcDoc={deferredHtml}
+                  srcDoc={iframeHtml}
                   style={{
                     width: A4_PORTRAIT_W,
                     height: contentH,

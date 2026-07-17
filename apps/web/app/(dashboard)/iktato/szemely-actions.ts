@@ -48,14 +48,6 @@ export async function searchPersonsForCertificate(
   const tokens = tokenize(trimmed)
   if (tokens.length === 0) return { results: [], error: null }
 
-  const { data, error } = await supabase
-    .from('szemely')
-    .select('id, csaladnev, k_nev, szcs_nev, ferjk_nev, sz_datum, anyjaneve, meghalt')
-    .eq('congregation_id', congId)
-    .eq('isvisible', true)
-    .limit(5000)
-  if (error) return { results: [], error: `Keresési hiba: ${error.message}` }
-
   type PersonRow = {
     id: number
     csaladnev: string | null
@@ -66,7 +58,28 @@ export async function searchPersonsForCertificate(
     anyjaneve: string | null
     meghalt: boolean | null
   }
-  const persons = (data || []) as PersonRow[]
+
+  // A PostgREST alapértelmezetten legfeljebb 1000 sort ad vissza kérésenként —
+  // egy nagy gyülekezet tagsága ezt túllépheti, és a limit feletti tagok némán
+  // kereshetetlenné válnának. Ezért determinisztikus .order('id') mellett
+  // 1000-es range-oldalakban lapozunk, amíg rövid oldal nem érkezik (a bevált
+  // F4-minta: munkanaplo/actions.ts getWorklogs). Bármely oldal hibája
+  // error-ként megy vissza — SOHA nem néma üres lista.
+  const PAGE_SIZE = 1000
+  const persons: PersonRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('szemely')
+      .select('id, csaladnev, k_nev, szcs_nev, ferjk_nev, sz_datum, anyjaneve, meghalt')
+      .eq('congregation_id', congId)
+      .eq('isvisible', true)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) return { results: [], error: `Keresési hiba: ${error.message}` }
+    const page = (data || []) as PersonRow[]
+    persons.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
 
   // JS-szűrés: MINDEN token szerepeljen a teljes néven (családi + kereszt +
   // lánykori + férjezett) — a pontozás a szó-eleji egyezést jutalmazza.

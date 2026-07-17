@@ -30,7 +30,10 @@
 --   * public.profile_roles (2026-04-17-profile-roles-fazis-1) — a
 --     scope-divergencia elleni RLS-ág használja
 --   * public.iktato tábla (RLS-e: iktato_access FOR ALL — az új csomo_id
---     oszlopra automatikusan érvényes, ott új policy NEM kell)
+--     oszlopra sor-szinten érvényes; a 6h szakasz ÚJRAÍRJA profile_roles-
+--     ággal, mert a 2026-04-13-as eredetiben az nincs benne, és nélküle a
+--     scope-divergenciás felhasználónak az iktato-műveletek némán 0 sort
+--     adnának, miközben az F6 új táblái már védettek lennének)
 -- ==========================================================================
 
 BEGIN;
@@ -123,6 +126,25 @@ CREATE INDEX IF NOT EXISTS iktato_csomo_id_idx
   ON public.iktato (csomo_id)
   WHERE csomo_id IS NOT NULL;
 
+-- Kompozit-FK alap: az iktato (id, congregation_id) párja egyedi — erre
+-- hivatkozik az iktato_csatolmany ÖSSZETETT FK-ja (4. szakasz), így a
+-- csatolmány denormalizált congregation_id-je nem húzhat szét a szülő
+-- iktato-sor valódi gyülekezetétől (direkt PostgREST-hívással sem).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'iktato_id_congregation_uk'
+      AND conrelid = 'public.iktato'::regclass
+  ) THEN
+    ALTER TABLE public.iktato
+      ADD CONSTRAINT iktato_id_congregation_uk UNIQUE (id, congregation_id);
+    RAISE NOTICE 'iktato_id_congregation_uk constraint létrehozva.';
+  ELSE
+    RAISE NOTICE 'iktato_id_congregation_uk constraint már létezik — kihagyva.';
+  END IF;
+END $$;
+
 -- ─────────────────────────────────────────────────────────────────────────
 -- 4. iktato_csatolmany tábla
 -- ─────────────────────────────────────────────────────────────────────────
@@ -144,11 +166,38 @@ CREATE TABLE IF NOT EXISTS public.iktato_csatolmany (
   created_by_profile_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT iktato_csatolmany_pkey PRIMARY KEY (id),
+  -- ÖSSZETETT FK: az (iktato_id, congregation_id) pár együtt hivatkozik az
+  -- iktato (id, congregation_id) egyedi párjára — így a denormalizált
+  -- congregation_id garantáltan a szülő irat valódi gyülekezete (az RLS-t
+  -- megkerülő FK-validáció sem enged idegen gyülekezetű iktato_id-t
+  -- saját congregation_id-vel beszúrni).
   CONSTRAINT iktato_csatolmany_iktato_id_fkey
-    FOREIGN KEY (iktato_id) REFERENCES public.iktato(id) ON DELETE CASCADE,
+    FOREIGN KEY (iktato_id, congregation_id)
+    REFERENCES public.iktato (id, congregation_id) ON DELETE CASCADE,
   CONSTRAINT iktato_csatolmany_congregation_id_fkey
     FOREIGN KEY (congregation_id) REFERENCES public.congregations(id) ON DELETE CASCADE
 );
+
+-- Idempotencia-őr: ha egy KORÁBBI (részleges) futtatás még az egyoszlopos
+-- FK-t hozta létre, cseréljük az összetettre.
+DO $$
+DECLARE
+  fk_def text;
+BEGIN
+  SELECT pg_get_constraintdef(oid) INTO fk_def
+  FROM pg_constraint
+  WHERE conname = 'iktato_csatolmany_iktato_id_fkey'
+    AND conrelid = 'public.iktato_csatolmany'::regclass;
+  IF fk_def IS NOT NULL AND fk_def NOT ILIKE '%congregation_id%' THEN
+    ALTER TABLE public.iktato_csatolmany
+      DROP CONSTRAINT iktato_csatolmany_iktato_id_fkey;
+    ALTER TABLE public.iktato_csatolmany
+      ADD CONSTRAINT iktato_csatolmany_iktato_id_fkey
+      FOREIGN KEY (iktato_id, congregation_id)
+      REFERENCES public.iktato (id, congregation_id) ON DELETE CASCADE;
+    RAISE NOTICE 'iktato_csatolmany_iktato_id_fkey egyoszloposról összetettre cserélve.';
+  END IF;
+END $$;
 
 COMMENT ON TABLE public.iktato_csatolmany IS
   '2026-07-17 F6: iktató-tételhez tartozó csatolmányok (befotózott/feltöltött oldalak). storage_path NULL = csak metaadat-rögzítés. A fájl az ''iktato-csatolmanyok'' privát bucketben: {congregation_id}/{iktato_id}/{uuid}-{fájlnév}.';
@@ -159,9 +208,22 @@ COMMENT ON COLUMN public.iktato_csatolmany.oldal_sorszam IS
 COMMENT ON COLUMN public.iktato_csatolmany.created_by_profile_id IS
   'A feltöltő profilja. Szándékosan FK nélkül — profil-törlés ne blokkolódjon miatta.';
 
--- Tétel-nézet: „a tétel csatolmányai sorrendben"
-CREATE INDEX IF NOT EXISTS iktato_csatolmany_iktato_id_idx
+-- Tétel-nézet: „a tétel csatolmányai sorrendben" + INTEGRITÁS: az
+-- (iktato_id, oldal_sorszam) pár EGYEDI — a registerCsatolmany auto-sorszáma
+-- (max+1) nem atomi, párhuzamos feltöltésnél a versenyt ez az index jelzi
+-- 23505-tel (az app korlátosan újrapróbál). Ugyanazt a lekérdezést is
+-- kiszolgálja, mint a korábbi sima index (részleges futtatás maradékát
+-- takarítjuk).
+DROP INDEX IF EXISTS public.iktato_csatolmany_iktato_id_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS iktato_csatolmany_iktato_oldal_uidx
   ON public.iktato_csatolmany (iktato_id, oldal_sorszam);
+
+-- Ugyanaz a storage-objektum csak EGY metaadat-sorhoz tartozhat — dupla
+-- regisztráció (elveszett válasz utáni ismételt hívás) esetén az egyik sor
+-- törlése a KÖZÖS fájlt is vinné, a másik sor lógó hivatkozás maradna.
+CREATE UNIQUE INDEX IF NOT EXISTS iktato_csatolmany_storage_path_uidx
+  ON public.iktato_csatolmany (storage_path)
+  WHERE storage_path IS NOT NULL;
 
 -- Gyülekezeti szűrés (RLS + admin-listázás)
 CREATE INDEX IF NOT EXISTS iktato_csatolmany_congregation_idx
@@ -196,7 +258,10 @@ GRANT SELECT, INSERT, DELETE ON public.iktato_csatolmany TO authenticated;
 --     ⇄ effectiveCongregationId scope-divergencia ellen véd)
 --
 --    Az iktato.csomo_id-hez NEM kell új policy: az iktato meglévő
---    (iktato_access FOR ALL) policy-ja sor-szinten fedi.
+--    (iktato_access FOR ALL) policy-ja sor-szinten fedi — DE a 2026-04-13-as
+--    eredetiben NINCS profile_roles-ág, ezért a 6h szakasz ÚJRAÍRJA, hogy a
+--    védelem ne legyen féloldalas (scope-divergenciás usernél az iktato-
+--    műveletek némán 0 sort adnának, miközben az F6-táblák már mennének).
 --
 --    iktato_csatolmany: UPDATE-policy SZÁNDÉKOSAN NINCS (grant sincs) —
 --    az RLS default-deny miatt a hiányzó policy = tiltott UPDATE.
@@ -364,6 +429,47 @@ CREATE POLICY iktato_csatolmany_delete_own
     OR current_user_has_global_access()
   );
 
+-- 6h) iktato: a MEGLÉVŐ iktato_access policy újraírása profile_roles-ággal.
+--     A 2026-04-13-rls-congregation-tables.sql-beli eredetiben csak a skalár
+--     profiles.congregation_id + global access szerepel — az F6 összes új
+--     policy-ja viszont pont a scope-divergencia (profile_roles.scope_id ⇄
+--     skalár congregation_id) ellen tartalmaz külön ágat. E nélkül az
+--     érintett felhasználónál az iratcsomó-fül működne, de minden iktato-t
+--     érintő művelet (listázás, verifyEntry, csomo_id-update) némán elakadna.
+--     A FOR ALL + azonos USING/WITH CHECK az eredeti szemantikát őrzi,
+--     csak a profile_roles-ággal bővítve.
+DROP POLICY IF EXISTS iktato_access ON public.iktato;
+CREATE POLICY iktato_access
+  ON public.iktato
+  FOR ALL
+  TO authenticated
+  USING (
+    congregation_id = current_user_congregation_id()
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = iktato.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
+    OR current_user_has_global_access()
+  )
+  WITH CHECK (
+    congregation_id = current_user_congregation_id()
+    OR EXISTS (
+      SELECT 1
+      FROM public.profile_roles pr
+      WHERE pr.profile_id = (SELECT auth.uid())
+        AND pr.scope = 'congregation'
+        AND pr.scope_id = iktato.congregation_id
+        AND pr.active
+        AND pr.approval_status = 'approved'
+    )
+    OR current_user_has_global_access()
+  );
+
 -- ─────────────────────────────────────────────────────────────────────────
 -- 7. STORAGE — 'iktato-csatolmanyok' PRIVÁT bucket
 -- ─────────────────────────────────────────────────────────────────────────
@@ -386,7 +492,15 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- 7a) Feltöltés — csak a saját gyülekezet prefixe alá
+-- 7a) Feltöltés — csak a saját gyülekezet prefixe alá, ÉS csak létező,
+--     nem törölt, azonos gyülekezetű iktato-tétel 2. szegmense alá.
+--     A 2. szegmens-kötés nélkül bármely tag a saját prefixe alá korlátlan
+--     darabszámban tölthetne regisztrálatlan (az appból láthatatlan és
+--     törölhetetlen) objektumokat a server actionök megkerülésével.
+--     Mellékhatás: a legfeljebb 1 mappaszegmensű (szabálytalan) utakat is
+--     elutasítja, mert ilyenkor a [2] elem NULL és az EXISTS hamis.
+--     (A 7c DELETE-policy-ra ez a kötés SZÁNDÉKOSAN nem kerül rá — az árva
+--     objektumok takarítását funkcionálisan akadályozná.)
 DROP POLICY IF EXISTS "iktato_csatolmanyok_insert_own" ON storage.objects;
 CREATE POLICY "iktato_csatolmanyok_insert_own" ON storage.objects
   FOR INSERT TO authenticated
@@ -405,6 +519,16 @@ CREATE POLICY "iktato_csatolmanyok_insert_own" ON storage.objects
           AND pr.approval_status = 'approved'
       )
       OR current_user_has_global_access()
+    )
+    -- Út-integritás: a 2. szegmens létező, nem törölt, az 1. szegmenssel
+    -- azonos gyülekezetű iktato-tétel legyen (az iktato RLS-e a felhasználó
+    -- kontextusában amúgy is a látható sorokra szűr).
+    AND EXISTS (
+      SELECT 1
+      FROM public.iktato i
+      WHERE i.id::text = (storage.foldername(name))[2]
+        AND i.congregation_id::text = (storage.foldername(name))[1]
+        AND i.deleted = false
     )
   );
 
@@ -482,7 +606,8 @@ SELECT
          'public.iratcsomo'::regclass,
          'public.iktato_csatolmany'::regclass
        )
-    OR (conrelid = 'public.iktato'::regclass AND conname = 'iktato_csomo_id_fkey')
+    OR (conrelid = 'public.iktato'::regclass
+        AND conname IN ('iktato_csomo_id_fkey', 'iktato_id_congregation_uk'))
 UNION ALL
 SELECT
   'RLS: ' || relname AS verify_target,
@@ -517,15 +642,40 @@ SELECT
 UNION ALL
 SELECT
   'index: ' || indexname AS verify_target,
-  '✅' AS status
+  -- A két *_uidx-nek EGYEDINEK kell lennie (integritás-kényszerek)
+  CASE WHEN indexname LIKE '%uidx'
+       THEN CASE WHEN indexdef ILIKE 'CREATE UNIQUE%'
+                 THEN '✅ UNIQUE' ELSE '❌ NEM UNIQUE!' END
+       ELSE '✅' END AS status
   FROM pg_indexes
  WHERE schemaname = 'public'
    AND indexname IN (
      'iratcsomo_congregation_ev_idx',
      'iktato_csomo_id_idx',
-     'iktato_csatolmany_iktato_id_idx',
+     'iktato_csatolmany_iktato_oldal_uidx',
+     'iktato_csatolmany_storage_path_uidx',
      'iktato_csatolmany_congregation_idx'
    )
+UNION ALL
+SELECT
+  'policy (public): iktato / iktato_access — profile_roles-ág' AS verify_target,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'iktato'
+      AND policyname = 'iktato_access'
+      AND qual ILIKE '%profile_roles%'
+  ) THEN '✅ újraírva profile_roles-ággal (6h)'
+    ELSE '❌ HIÁNYZIK a profile_roles-ág — a 6h szakasz nem futott le?' END AS status
+UNION ALL
+SELECT
+  'policy (storage): insert — 2. szegmens iktato-kötés' AS verify_target,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects'
+      AND policyname = 'iktato_csatolmanyok_insert_own'
+      AND with_check LIKE '%[2]%'
+  ) THEN '✅ a 2. szegmenst létező iktato-sorhoz köti'
+    ELSE '❌ HIÁNYZIK a 2. szegmens-kötés (EXISTS az iktato-ra)' END AS status
 UNION ALL
 SELECT
   'bucket: iktato-csatolmanyok' AS verify_target,

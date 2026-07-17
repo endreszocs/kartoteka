@@ -87,8 +87,11 @@ export function FilingOverview({ entries, year }: FilingOverviewProps) {
     const incoming = live.filter((e) => e.direction === 'incoming').length
     const outgoing = live.filter((e) => e.direction === 'outgoing').length
 
-    // Elintézetlen: se elintézési mód, se elintézési dátum nincs rögzítve
-    const unresolved = live.filter((e) => !e.elintezes_ideje && !e.elintezes_modja).length
+    // Elintézetlen: nincs elintézési dátum — SZÁNDÉKOSAN ugyanaz a definíció,
+    // mint a lista „Elintézés" oszlopáé (filing-main.tsx: elintezes_ideje ?
+    // 'Kész' : 'Nyitott') és a régi getFilingStats Függőben statjáé, különben
+    // ugyanazon a képernyőn ellentmondó számok jelennének meg.
+    const unresolved = live.filter((e) => !e.elintezes_ideje).length
 
     // Iratcsomóban: csomo_id-s iratok — undefined-tűrő (a mező az F6 SQL után létezik)
     const inBundle = live.filter((e) => Boolean(e.csomo_id)).length

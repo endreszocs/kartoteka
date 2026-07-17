@@ -46,13 +46,14 @@ SELECT
 UNION ALL
 SELECT
   '1. függőség: iktato RLS policy (iktato_access, FOR ALL)',
-  CASE WHEN EXISTS (
-         SELECT 1 FROM pg_policies
-         WHERE schemaname = 'public' AND tablename = 'iktato'
-           AND policyname = 'iktato_access'
-       )
-       THEN '✅ él — az új csomo_id oszlopot sor-szinten fedi, új policy nem kell'
-       ELSE '⚠️ nincs iktato_access nevű policy — nézd meg az iktato RLS-ét kézzel' END
+  COALESCE(
+    (SELECT CASE WHEN qual ILIKE '%profile_roles%'
+                 THEN '✅ él, profile_roles-ággal (az F6 6h szakasza már újraírta)'
+                 ELSE '⚠️ él, de profile_roles-ág NÉLKÜL (2026-04-13-as eredeti) — az F6-migráció 6h szakasza újraírja (scope-divergencia védelem)' END
+     FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'iktato'
+       AND policyname = 'iktato_access'),
+    '⚠️ nincs iktato_access nevű policy — nézd meg az iktato RLS-ét kézzel')
 
 UNION ALL
 SELECT
@@ -102,13 +103,26 @@ SELECT
 
 UNION ALL
 SELECT
-  '2. FK: iktato_csatolmany_iktato_id_fkey (ON DELETE CASCADE)',
+  '2. FK: iktato_csatolmany_iktato_id_fkey (ÖSSZETETT + ON DELETE CASCADE)',
   COALESCE(
     (SELECT CASE WHEN pg_get_constraintdef(oid) ILIKE '%CASCADE%'
+                  AND pg_get_constraintdef(oid) ILIKE '%congregation_id%'
                  THEN '✅ ' || pg_get_constraintdef(oid)
+                 WHEN pg_get_constraintdef(oid) ILIKE '%CASCADE%'
+                 THEN '⚠️ MÉG EGYOSZLOPOS (a congregation_id nincs az FK-ban — a migráció idempotencia-őre cseréli): ' || pg_get_constraintdef(oid)
                  ELSE '❌ ROSSZ DEFINÍCIÓ: ' || pg_get_constraintdef(oid) END
      FROM pg_constraint
      WHERE conname = 'iktato_csatolmany_iktato_id_fkey'),
+    'ℹ️ még nincs (a migráció hozza létre)')
+
+UNION ALL
+SELECT
+  '2. UK: iktato_id_congregation_uk (a kompozit FK alapja az iktato-n)',
+  COALESCE(
+    (SELECT '✅ ' || pg_get_constraintdef(oid)
+     FROM pg_constraint
+     WHERE conname = 'iktato_id_congregation_uk'
+       AND conrelid = to_regclass('public.iktato')),
     'ℹ️ még nincs (a migráció hozza létre)')
 
 -- ── 3. RLS + policy-k (migráció UTÁN: iratcsomo 4 policy, csatolmány 3) ───
@@ -199,7 +213,7 @@ SELECT
 
 UNION ALL
 SELECT
-  '5. indexek (várt: 4 db)',
+  '5. indexek (várt: 5 db)',
   COALESCE(
     (SELECT string_agg(indexname, ' · ' ORDER BY indexname)
      FROM pg_indexes
@@ -207,10 +221,38 @@ SELECT
        AND indexname IN (
          'iratcsomo_congregation_ev_idx',
          'iktato_csomo_id_idx',
-         'iktato_csatolmany_iktato_id_idx',
+         'iktato_csatolmany_iktato_oldal_uidx',
+         'iktato_csatolmany_storage_path_uidx',
          'iktato_csatolmany_congregation_idx'
        )),
     'ℹ️ még egyik sincs (a migráció hozza létre)')
+
+UNION ALL
+SELECT
+  '5. UNIQUE indexek (oldal-sorszám verseny + storage_path dupla-regisztráció ellen)',
+  COALESCE(
+    (SELECT string_agg(
+       indexname || CASE WHEN indexdef ILIKE 'CREATE UNIQUE%'
+                         THEN ' ✅ UNIQUE' ELSE ' ❌ NEM UNIQUE!' END,
+       ' · ' ORDER BY indexname)
+     FROM pg_indexes
+     WHERE schemaname = 'public'
+       AND indexname IN (
+         'iktato_csatolmany_iktato_oldal_uidx',
+         'iktato_csatolmany_storage_path_uidx'
+       )),
+    'ℹ️ még nincsenek (a migráció hozza létre)')
+
+UNION ALL
+SELECT
+  '5. régi (nem egyedi) index: iktato_csatolmany_iktato_id_idx',
+  CASE WHEN EXISTS (
+         SELECT 1 FROM pg_indexes
+         WHERE schemaname = 'public'
+           AND indexname = 'iktato_csatolmany_iktato_id_idx'
+       )
+       THEN '⚠️ MÉG ÉL — egy korábbi részleges futtatás maradéka; a migráció DROP-olja (a *_uidx váltja ki)'
+       ELSE '✅ nincs (a UNIQUE *_uidx váltotta ki)' END
 
 -- ── 6. Storage: bucket + objektum-policy-k ─────────────────────────────────
 UNION ALL
@@ -237,6 +279,18 @@ SELECT
      FROM pg_policies
      WHERE schemaname = 'storage' AND tablename = 'objects'
        AND policyname LIKE 'iktato_csatolmanyok_%'),
+    'ℹ️ nincs policy (a migráció még nem futott)')
+
+UNION ALL
+SELECT
+  '6. storage INSERT-policy: 2. szegmens iktato-kötés (EXISTS)',
+  COALESCE(
+    (SELECT CASE WHEN with_check LIKE '%[2]%'
+                 THEN '✅ a 2. szegmenst létező, saját-gyülekezeti iktato-sorhoz köti'
+                 ELSE '⚠️ NINCS 2. szegmens-kötés — regisztrálatlan objektumok tölthetők a bucketbe (a migráció újraírja)' END
+     FROM pg_policies
+     WHERE schemaname = 'storage' AND tablename = 'objects'
+       AND policyname = 'iktato_csatolmanyok_insert_own'),
     'ℹ️ nincs policy (a migráció még nem futott)')
 
 -- ── 7. Adat-gyorskép (a migráció után is 0/üres, amíg az app nem használja) ─

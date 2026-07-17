@@ -431,6 +431,13 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
     refreshEntries()
   }
 
+  // A csomó-választóban lévő irat JELENLEGI csomója — lezárt forrás-csomóból
+  // kivenni sem lehet, a „Kivétel" gomb ezt tükrözi (a szerver-oldali guard
+  // az assignEntryToCsomo-ban van, ez csak UX-visszajelzés).
+  const csomoPickerJelenlegi = csomoPickerEntry?.csomo_id
+    ? (csomok.find((c) => c.id === csomoPickerEntry.csomo_id) ?? null)
+    : null
+
   const yearOptions = Array.from({ length: 5 }, (_, index) => currentYear - index)
 
   return (
@@ -817,7 +824,13 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                   type="button"
                   variant="outline"
                   className="w-full justify-start"
-                  disabled={csomoAssigning}
+                  // Lezárt forrás-csomóból kivenni sem lehet (szerver-guard tükrözése)
+                  disabled={csomoAssigning || !!csomoPickerJelenlegi?.lezarva}
+                  title={
+                    csomoPickerJelenlegi?.lezarva
+                      ? 'A csomó lezárva — az irat kivételéhez előbb old fel az Iratcsomók fülön.'
+                      : undefined
+                  }
                   onClick={() => void handleAssignCsomo(csomoPickerEntry, null)}
                 >
                   <X className="size-4 mr-1.5 shrink-0" />
@@ -826,6 +839,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
                     {csomoNameById[csomoPickerEntry.csomo_id]
                       ? ` („${csomoNameById[csomoPickerEntry.csomo_id]}")`
                       : ''}
+                    {csomoPickerJelenlegi?.lezarva ? ' — lezárva' : ''}
                   </span>
                 </Button>
               ) : null}

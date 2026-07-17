@@ -152,51 +152,90 @@ export async function registerCsatolmany(input: {
   if (entryErr) return { csatolmany: null, error: entryErr }
 
   // Oldal-sorszám: explicit érték, vagy a következő szabad (max+1)
-  let oldalSorszam = input.oldalSorszam ?? null
-  if (oldalSorszam != null && (!Number.isInteger(oldalSorszam) || oldalSorszam < 1)) {
+  const explicitSorszam = input.oldalSorszam ?? null
+  if (explicitSorszam != null && (!Number.isInteger(explicitSorszam) || explicitSorszam < 1)) {
     return { csatolmany: null, error: 'Az oldal sorszáma 1-től kezdődő egész szám lehet.' }
   }
-  if (oldalSorszam == null) {
-    const { data: last, error: lastErr } = await supabase
+
+  // Az auto-sorszám (max+1) kiolvasása és az insert NEM atomi — két párhuzamos
+  // feltöltés (pl. telefon + asztali gép) ugyanazt a max-ot olvashatja. A
+  // DB-oldali UNIQUE (iktato_id, oldal_sorszam) index ezt 23505-tel jelzi;
+  // ilyenkor korlátosan (legfeljebb 3x), friss max-szal újrapróbálkozunk.
+  const MAX_KISERLET = 3
+  for (let kiserlet = 1; kiserlet <= MAX_KISERLET; kiserlet++) {
+    let oldalSorszam = explicitSorszam
+    if (oldalSorszam == null) {
+      const { data: last, error: lastErr } = await supabase
+        .from('iktato_csatolmany')
+        .select('oldal_sorszam')
+        .eq('iktato_id', input.iktatoId)
+        .eq('congregation_id', congId)
+        .order('oldal_sorszam', { ascending: false })
+        .limit(1)
+      if (lastErr) {
+        return {
+          csatolmany: null,
+          error: friendlyDbError('A következő oldal-sorszám megállapítása sikertelen', lastErr),
+        }
+      }
+      oldalSorszam = ((last?.[0] as { oldal_sorszam: number } | undefined)?.oldal_sorszam ?? 0) + 1
+    }
+
+    const { data, error } = await supabase
       .from('iktato_csatolmany')
-      .select('oldal_sorszam')
-      .eq('iktato_id', input.iktatoId)
-      .eq('congregation_id', congId)
-      .order('oldal_sorszam', { ascending: false })
-      .limit(1)
-    if (lastErr) {
+      .insert([
+        {
+          iktato_id: input.iktatoId,
+          // Denormalizált — a K1 kontraktus szerint az iktato sorával egyezően
+          // KELL beszúrni (a verifyEntry fentebb pont ezt garantálja).
+          congregation_id: congId,
+          storage_path: input.storagePath || null,
+          file_name: fileName,
+          mime_type: input.mimeType || null,
+          meret_bytes: input.meretBytes ?? null,
+          oldal_sorszam: oldalSorszam,
+          megjegyzes: (input.megjegyzes || '').trim() || null,
+          created_by_profile_id: userId ?? null,
+        },
+      ])
+      .select('*')
+      .single()
+    if (!error) {
+      revalidatePath('/iktato')
+      return { csatolmany: data as IktatoCsatolmany, error: null }
+    }
+
+    // 23505 = unique_violation — melyik kényszer sérült, aszerint kezeljük
+    if (error.code === '23505') {
+      // Ugyanaz a storage-út kétszer regisztrálva (dupla hívás / elveszett
+      // válasz utáni retry) — újrapróbálni értelmetlen, az út nem változik.
+      if ((error.message || '').includes('iktato_csatolmany_storage_path_uidx')) {
+        return {
+          csatolmany: null,
+          error: 'Ez a fájl már rögzítve van ehhez az irathoz — frissítsd a listát.',
+        }
+      }
+      // Explicit sorszám-ütközés: a hívó dolga másikat választani.
+      if (explicitSorszam != null) {
+        return {
+          csatolmany: null,
+          error: `A(z) ${explicitSorszam}. oldalszám már foglalt ennél az iratnál — válassz másik sorszámot.`,
+        }
+      }
+      // Auto-sorszám ütközés (párhuzamos feltöltés) → friss max-szal újra
+      if (kiserlet < MAX_KISERLET) continue
       return {
         csatolmany: null,
-        error: friendlyDbError('A következő oldal-sorszám megállapítása sikertelen', lastErr),
+        error:
+          'Nem sikerült szabad oldal-sorszámot foglalni (egyszerre több feltöltés fut ehhez az irathoz) — próbáld újra.',
       }
     }
-    oldalSorszam = ((last?.[0] as { oldal_sorszam: number } | undefined)?.oldal_sorszam ?? 0) + 1
-  }
 
-  const { data, error } = await supabase
-    .from('iktato_csatolmany')
-    .insert([
-      {
-        iktato_id: input.iktatoId,
-        // Denormalizált — a K1 kontraktus szerint az iktato sorával egyezően
-        // KELL beszúrni (a verifyEntry fentebb pont ezt garantálja).
-        congregation_id: congId,
-        storage_path: input.storagePath || null,
-        file_name: fileName,
-        mime_type: input.mimeType || null,
-        meret_bytes: input.meretBytes ?? null,
-        oldal_sorszam: oldalSorszam,
-        megjegyzes: (input.megjegyzes || '').trim() || null,
-        created_by_profile_id: userId ?? null,
-      },
-    ])
-    .select('*')
-    .single()
-  if (error) {
     return { csatolmany: null, error: friendlyDbError('A csatolmány rögzítése sikertelen', error) }
   }
-  revalidatePath('/iktato')
-  return { csatolmany: data as IktatoCsatolmany, error: null }
+
+  // Ide nem jutunk el — a ciklus minden ága return-nel zárul.
+  return { csatolmany: null, error: 'A csatolmány rögzítése sikertelen (ismeretlen hiba).' }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -264,7 +303,7 @@ export async function deleteCsatolmany(
 
   const row = data as { id: string; storage_path: string | null; file_name: string }
   if (row.storage_path) {
-    const { error: removeErr } = await supabase.storage
+    const { data: removed, error: removeErr } = await supabase.storage
       .from(CSATOLMANY_BUCKET)
       .remove([row.storage_path])
     if (removeErr) {
@@ -274,8 +313,24 @@ export async function deleteCsatolmany(
         error: `A fájl törlése a tárhelyről sikertelen (${row.file_name}): ${removeErr.message} — a csatolmány-bejegyzés megmaradt, próbáld újra.`,
       }
     }
-    // Megjegyzés: ha az objektum már korábban eltűnt, a remove hiba nélkül,
-    // üres listával tér vissza — ilyenkor a sor törlése a helyes folytatás.
+    // ⚠️ A remove() a policy által KISZŰRT (nem törölhető) objektumnál is
+    // hiba NÉLKÜL, üres listával tér vissza — ez a néma no-op megkülönböz-
+    // tethetetlen a „már korábban eltűnt" esettől. Létezés-próbával döntünk:
+    // ha a fájl még megvan, hangos hiba és a metaadat-sor MARAD (különben
+    // örökre árva, hivatkozás nélküli fájl maradna a privát bucketben).
+    if (!removed || removed.length === 0) {
+      const { data: probe } = await supabase.storage
+        .from(CSATOLMANY_BUCKET)
+        .createSignedUrl(row.storage_path, 60)
+      if (probe?.signedUrl) {
+        return {
+          success: false,
+          error: `A fájl törlése a tárhelyről nem történt meg (${row.file_name}) — valószínűleg jogosultsági (policy-) hiba. A csatolmány-bejegyzés megmaradt, próbáld újra.`,
+        }
+      }
+      // A létezés-próba sem találja → az objektum tényleg nincs már meg,
+      // a sor törlése a helyes folytatás.
+    }
   }
 
   const { data: deleted, error: delErr } = await supabase
