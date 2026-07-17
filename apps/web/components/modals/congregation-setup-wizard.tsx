@@ -44,6 +44,7 @@ import {
 import { FeeDiscountsManager } from '@/components/congregation/fee-discounts-manager'
 import { CustomFeesManager } from '@/components/congregation/custom-fees-manager'
 import { AnnualFeesManager } from '@/components/congregation/annual-fees-manager'
+import { OpeningBalancesManager } from '@/components/congregation/opening-balances-manager'
 import { PastorTransferManager } from '@/components/congregation/pastor-transfer-manager'
 import {
   getCongregationForSetup,
@@ -109,6 +110,8 @@ interface BankSlot {
   iban: string
   valuta: 'RON' | 'EUR' | 'USD' | 'HUF'
   is_default: boolean
+  /** 2026-07-17 (F4): megőrzött aktiv-flag — a nyitó-egyenleg pane szűréséhez. */
+  aktiv?: boolean | null
   /** Megőrzött, nem szerkesztett mezők (a mentésnél visszaírjuk). */
   nyito_egyenleg: number
   szin: string
@@ -241,6 +244,7 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                 iban: typeof r.iban === 'string' ? r.iban : '',
                 valuta: (typeof r.valuta === 'string' ? r.valuta : 'RON') as BankSlot['valuta'],
                 is_default: typeof r.is_default === 'boolean' ? r.is_default : i === 0,
+                aktiv: typeof r.aktiv === 'boolean' ? r.aktiv : true,
                 nyito_egyenleg: typeof r.nyito_egyenleg === 'number' ? r.nyito_egyenleg : Number(r.nyito_egyenleg) || 0,
                 szin: typeof r.szin === 'string' && r.szin ? r.szin : '#206bc4',
                 ikon: typeof r.ikon === 'string' && r.ikon ? r.ikon : 'building-2',
@@ -502,6 +506,27 @@ export function CongregationSetupWizard({ open, onOpenChange, congregationId, on
                         haladó szerkesztőből. A kedvezmény-szabályok + egyéb díjak a „Kedvezmények
                         és díjak" panelen, a lelkész-átadás a „Lelkészek és átadás" panelen. */}
                     <AnnualFeesManager congregationId={congregationId} currentYearFee={form.eves_jarulek} />
+                    {/* 2026-07-17 (F4): Induló (nyitó) egyenlegek — a rendszer egy meglévő
+                        könyvelésbe illeszkedik, az évkezdő kassza- és bank-egyenlegeket
+                        jellemzően EGYSZER, a legelső évre kell megadni. A szerkesztő eddig
+                        elérhetetlen volt a felületről. Csak a már MENTETT bankszámlák
+                        jelennek meg (új számla előbb mentendő a Bankszámlák panelen). */}
+                    <div className="card-raised p-4">
+                      <p className="mb-3 text-sm font-semibold text-slate-800">
+                        Induló (nyitó) egyenlegek — év eleji kassza és bank
+                      </p>
+                      <OpeningBalancesManager
+                        congregationId={congregationId}
+                        bankAccounts={bankAccounts
+                          .filter((b) => Number(b.id) > 0)
+                          .map((b) => ({
+                            id: Number(b.id),
+                            bank_neve: b.bank_neve,
+                            valuta: b.valuta,
+                            aktiv: b.aktiv ?? true,
+                          }))}
+                      />
+                    </div>
                     {/* 2026-07-16 (Endre): a korai-fizetési kedvezményt a „Kedvezmények és díjak”
                         panelen lehet felvenni (több időszakkal is), de ő ITT kereste — a panel
                         csak említette, nem vitt oda. Kattintható átvezetés. */}

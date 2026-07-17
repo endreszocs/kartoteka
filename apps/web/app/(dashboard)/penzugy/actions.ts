@@ -485,6 +485,7 @@ export async function getYearFinanceRecords(year: number): Promise<{
   expense?: KiadasRow[]
   carryoverCash?: number
   carryoverBank?: number
+  bankNyitoMap?: Record<number, number>
   error?: string
 }> {
   const access = await getEffectiveAccessContext()
@@ -500,10 +501,15 @@ export async function getYearFinanceRecords(year: number): Promise<{
     supabase.from('kiadas').select('osszeg, osszeg_ron, bankszamla_id').eq('congregation_id', congregationId).eq('deleted', false).eq('stornozott', false).gte('datum', `${year - 1}-01-01`).lte('datum', `${year - 1}-12-31`),
     supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
-    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
   ])
-  const firstErr = bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error
+  // 2026-07-17 (F4): a nyitó-selectek hibája is HANGOS — a rögzített nyitó mostantól
+  // a Registru Banca elsődleges forrása, néma kiesése hamis regisztert nyomtatna
+  // (v0.9.78-as néma-üres hibaosztály).
+  const firstErr =
+    bevRes.error || kiaRes.error || prevBevRes.error || prevKiaRes.error ||
+    cashNyitoRes.error || bankNyitoRes.error
   if (firstErr) return { error: firstErr.message }
 
   let recCashCur = 0, recCashPrev = 0, hasCashCur = false
@@ -511,10 +517,15 @@ export async function getYearFinanceRecords(year: number): Promise<{
     if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
     else recCashPrev += Number(r.nyito_egyenleg) || 0
   }
+  // 2026-07-17 (F4): bankszámlánkénti nyitó-térkép is (Registru Banca, initFinance-parítás)
   let recBankCur = 0, recBankPrev = 0, hasBankCur = false
-  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
-    if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
-    else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+  const bankNyitoMap: Record<number, number> = {}
+  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
+    if (r.eve === year) {
+      recBankCur += Number(r.nyito_egyenleg_ron) || 0
+      hasBankCur = true
+      if (r.bankszamla_id != null) bankNyitoMap[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
+    } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
   }
   // 2026-07-11 (S9): a könyvelés RON-ban — a bank-carryover a RON-ekvivalenst
   // (osszeg_ron) használja, nem a deviza-összeget. RON számlán osszeg==osszeg_ron.
@@ -533,6 +544,7 @@ export async function getYearFinanceRecords(year: number): Promise<{
     expense: (kiaRes.data || []) as KiadasRow[],
     carryoverCash: hasCashCur ? recCashCur : recCashPrev + carryoverCashNet,
     carryoverBank: hasBankCur ? recBankCur : recBankPrev + carryoverBankNet,
+    bankNyitoMap,
   }
 }
 
@@ -1226,18 +1238,32 @@ export async function initFinance(year: number) {
   const [cashNyitoRes, bankNyitoRes] = await Promise.all([
     supabase.from('keszpenz_nyito_egyenleg').select('eve, nyito_egyenleg')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
-    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron')
+    supabase.from('bankszamla_nyito_egyenleg').select('eve, nyito_egyenleg_ron, bankszamla_id')
       .eq('congregation_id', congregationId).in('eve', [year - 1, year]),
   ])
+  // 2026-07-17 (F4): a nyitó-selectek hibája ne legyen néma — a rögzített nyitó a
+  // KPI-k és a Registru Banca elsődleges forrása (v0.9.78-as hibaosztály elleni védelem).
+  if (cashNyitoRes.error || bankNyitoRes.error) {
+    console.error(
+      '[initFinance] A rögzített nyitó egyenlegek lekérdezése HIBÁZOTT — a nyitók fallback-számítással mennek:',
+      cashNyitoRes.error?.message || bankNyitoRes.error?.message,
+    )
+  }
   let recCashCur = 0, recCashPrev = 0, hasCashCur = false
   for (const r of (cashNyitoRes.data || []) as { eve: number; nyito_egyenleg: number }[]) {
     if (r.eve === year) { recCashCur += Number(r.nyito_egyenleg) || 0; hasCashCur = true }
     else recCashPrev += Number(r.nyito_egyenleg) || 0
   }
+  // 2026-07-17 (F4): bankszámlánkénti nyitó-térkép az idei évre — a Registru Banca
+  // egy-számlás nyitója ebből jön (a legacy bankszamlak.nyito_egyenleg helyett).
   let recBankCur = 0, recBankPrev = 0, hasBankCur = false
-  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number }[]) {
-    if (r.eve === year) { recBankCur += Number(r.nyito_egyenleg_ron) || 0; hasBankCur = true }
-    else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
+  const bankNyitoMap: Record<number, number> = {}
+  for (const r of (bankNyitoRes.data || []) as { eve: number; nyito_egyenleg_ron: number; bankszamla_id: number }[]) {
+    if (r.eve === year) {
+      recBankCur += Number(r.nyito_egyenleg_ron) || 0
+      hasBankCur = true
+      if (r.bankszamla_id != null) bankNyitoMap[r.bankszamla_id] = Number(r.nyito_egyenleg_ron) || 0
+    } else recBankPrev += Number(r.nyito_egyenleg_ron) || 0
   }
   // Előző évi NETTÓ forgalom — bankszamla_id szerint szétválasztva (NULL=kassza, egyébként bank).
   // 2026-07-11 (S9): a könyvelés RON-ban — a RON-ekvivalens (osszeg_ron) számít,
@@ -1437,6 +1463,7 @@ export async function initFinance(year: number) {
     initialExpense: (kiaRes.data || []) as unknown as KiadasRow[],
     carryoverCash,
     carryoverBank,
+    bankNyitoMap,
     internalTransfers,
     congregationName,
     congregationNameRo,
@@ -1624,6 +1651,7 @@ async function initFinanceDiocese(
     initialExpense,
     carryoverCash,
     carryoverBank,
+    bankNyitoMap: {} as Record<number, number>, // diocese módban nincs per-számla nyitó-tábla
     internalTransfers: [] as InternalTransferRow[], // Phase 5-re halasztott
     congregationName: dioceseName, // UI label, diocese módban a diocese neve
     congregationNameRo: '', // diocese módban nincs külön román gyülekezetnév

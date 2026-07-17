@@ -133,6 +133,8 @@ export interface CashbookTabProps {
   expenseCategories?: { id: number; kod: string; nev: string }[]
 
   onTransactionChanged?: () => void | Promise<void>
+  /** 2026-07-17 (F4): az Induló (nyitó) egyenlegek szerkesztőjének megnyitása. */
+  onOpenOpeningBalances?: () => void
 
   /** Nyugta auto-kiállítás (web: autoIssueChitantaForBefizetes server action). */
   onAutoIssueChitanta?: (befizetesId: number) => Promise<AutoIssueChitantaResult>
@@ -210,6 +212,7 @@ export function CashbookTab({
   incomeCategories = [],
   expenseCategories = [],
   onTransactionChanged,
+  onOpenOpeningBalances,
   onAutoIssueChitanta,
   loadChitantakForBefizetesek,
   onUndoStorno,
@@ -647,6 +650,21 @@ export function CashbookTab({
           </button>
         )}
       </div>
+
+      {/* 2026-07-17 (F4): átvezetés az Induló egyenlegek szerkesztőjére — a KPI-sor
+          ALATT, saját sorban (abszolút overlay mobilon a KPI-feliratot takarta volna). */}
+      {onOpenOpeningBalances && (
+        <div className="-mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={onOpenOpeningBalances}
+            className="inline-flex min-h-8 items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-teal-100 hover:text-teal-800"
+            title="Induló (év eleji) egyenlegek megadása / javítása"
+          >
+            Induló (nyitó) egyenlegek megadása…
+          </button>
+        </div>
+      )}
 
       {chitantaTombokPanelSlot && tombokExpanded && (
         <div className="card-raised p-4">

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { AlertTriangle, Building2, FileCheck, FileText, Plus, Printer, Receipt, ShieldCheck, Wallet } from 'lucide-react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
@@ -43,6 +44,7 @@ import { DecontDialog } from '@/components/modals/decont-dialog'
 import { DispozitieDialog } from '@/components/modals/dispozitie-dialog'
 import { DispozitieIncasareWizard } from '@/components/modals/dispozitie-incasare-wizard'
 import { FinancePrintDialog } from '@/components/finance/finance-print-dialog'
+import { OpeningBalancesDialog } from '@/components/finance/opening-balances-dialog'
 import { BudgetPrintDialog } from '@/components/finance/budget-print-dialog'
 import { calculateBalances } from '@/lib/utils/finance-helpers'
 import { computeInternalMovementHealth } from '@/lib/finance/internal-movement-health'
@@ -77,6 +79,8 @@ interface FinanceTabsProps {
   initialExpense: KiadasRow[]
   carryoverCash: number
   carryoverBank: number
+  /** 2026-07-17 (F4): az idei rögzített bank-nyitók számlánként (Registru Banca). */
+  bankNyitoMap?: Record<number, number>
   congregationName: string
   /** Hivatalos román gyülekezetnév (pl. „Parohia Reformată Brateș") a nyomtatványokhoz. */
   congregationNameRo?: string
@@ -104,7 +108,7 @@ interface FinanceTabsProps {
 export function FinanceTabs({
   settings, szamadasiCellek, bevCelMap, kiaCelMap,
   bankAccounts, internalTransfers, initialIncome, initialExpense,
-  carryoverCash, carryoverBank, congregationName, congregationNameRo, congregationId,
+  carryoverCash, carryoverBank, bankNyitoMap, congregationName, congregationNameRo, congregationId,
   currentYear, availableYears, yearlyFees, debtRows: initialDebtRows, receiptHealth: initialReceiptHealth, debtCalcMode, isGodMode,
   scope = 'congregation',
   showAdminImport = false,
@@ -121,8 +125,10 @@ export function FinanceTabs({
   const [dispozitieOpen, setDispozitieOpen] = useState(false)
   // #Endre 2026-07-02: a Nyugtafigyelő „hiányzó nyugták" bevételezése (Dispoziție de încasare wizard).
   const [dispozitieIncasareOpen, setDispozitieIncasareOpen] = useState(false)
+  const router = useRouter()
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [budgetPrintOpen, setBudgetPrintOpen] = useState(false)
+  const [openingBalancesOpen, setOpeningBalancesOpen] = useState(false)
   // 2026-07-10 (S3 #2): a Monetár lebegő widget nyitottsága — a FinanceTabs
   // vezérli, hogy a bejövő #monetary hash / a 'finance-tab-switch' event is
   // ki tudja nyitni.
@@ -627,6 +633,7 @@ export function FinanceTabs({
             incomeCategories={incomeCategories}
             expenseCategories={expenseCategories}
             onTransactionChanged={refreshData}
+            onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
           />
         </TabsContent>
 
@@ -647,6 +654,7 @@ export function FinanceTabs({
             congregationId={congregationId}
             onBankAccountSaved={refreshData}
             onTransactionChanged={refreshData}
+            onOpenOpeningBalances={scope === 'congregation' ? () => setOpeningBalancesOpen(true) : undefined}
           />
         </TabsContent>
 
@@ -812,9 +820,30 @@ export function FinanceTabs({
         congregationNameRo={congregationNameRo}
         carryoverCash={carryoverCash}
         carryoverBank={carryoverBank}
+        bankNyitoMap={bankNyitoMap}
         currentYear={currentYear}
         settings={settings}
       />
+
+      {/* 2026-07-17 (F4): Induló (nyitó) egyenlegek szerkesztője — a kész
+          OpeningBalancesManager eddig elérhetetlen volt a felületről. */}
+      {scope === 'congregation' && (
+        <OpeningBalancesDialog
+          open={openingBalancesOpen}
+          onOpenChange={(open) => {
+            setOpeningBalancesOpen(open)
+            if (!open) {
+              // A carryover/bankNyitoMap PROP (nem state) — a refreshData csak a
+              // tétel-listákat frissíti, a nyitókhoz szerver-újrarender kell,
+              // különben a KPI-k és a Registru Banca a régi nyitóval menne tovább.
+              refreshData()
+              router.refresh()
+            }
+          }}
+          bankAccounts={bankAccounts}
+          congregationId={congregationId}
+        />
+      )}
 
       {/* 2026-07-10 (S3 #4): Oblio ellenőrzés — teljes-képernyős modál (mint a
           Nyomtatási központ). A tartalom a MEGLÉVŐ OblioEllenorzesTab wrapper

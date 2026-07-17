@@ -44,6 +44,7 @@ type WebBankTabProps = Pick<
   | 'congregationId'
   | 'onBankAccountSaved'
   | 'onTransactionChanged'
+  | 'onOpenOpeningBalances'
 >
 
 export function BankTab(props: WebBankTabProps) {

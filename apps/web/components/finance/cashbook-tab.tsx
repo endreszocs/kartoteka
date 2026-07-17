@@ -37,6 +37,7 @@ type WebCashbookTabProps = Pick<
   | 'incomeCategories'
   | 'expenseCategories'
   | 'onTransactionChanged'
+  | 'onOpenOpeningBalances'
 >
 
 export function CashbookTab(props: WebCashbookTabProps) {
