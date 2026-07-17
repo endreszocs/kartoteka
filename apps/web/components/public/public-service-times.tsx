@@ -41,7 +41,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
               >
                 <Clock
                   className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent)' }}
+                  style={{ color: 'var(--public-accent-on-surface)' }}
                 />
                 <div>
                   <div
@@ -61,7 +61,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
               >
                 <Clock
                   className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent)' }}
+                  style={{ color: 'var(--public-accent-on-surface)' }}
                 />
                 <div>
                   <div
@@ -78,7 +78,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
               <li className="flex items-start gap-3">
                 <Clock
                   className="w-5 h-5 mt-0.5 shrink-0"
-                  style={{ color: 'var(--public-accent)' }}
+                  style={{ color: 'var(--public-accent-on-surface)' }}
                 />
                 <div>
                   <div
@@ -106,7 +106,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
             <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6"
               style={{
-                background: `linear-gradient(135deg, var(--public-accent), color-mix(in srgb, var(--public-accent) 70%, var(--public-primary)))`,
+                background: `linear-gradient(135deg, var(--public-accent-strong), color-mix(in srgb, var(--public-accent-strong) 70%, var(--public-primary)))`,
               }}
             >
               <MapPin className="w-7 h-7 text-white" />
@@ -123,7 +123,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                 <li className="flex items-start gap-3">
                   <MapPin
                     className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent)' }}
+                    style={{ color: 'var(--public-accent-on-surface)' }}
                   />
                   <span style={{ color: 'var(--public-ink)' }}>{site.address}</span>
                 </li>
@@ -132,7 +132,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                 <li className="flex items-start gap-3">
                   <Phone
                     className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent)' }}
+                    style={{ color: 'var(--public-accent-on-surface)' }}
                   />
                   <a
                     href={`tel:${site.contact_phone.replace(/\s/g, '')}`}
@@ -147,7 +147,7 @@ export function PublicServiceTimes({ site }: { site: PublicSiteData }) {
                 <li className="flex items-start gap-3">
                   <Mail
                     className="w-5 h-5 mt-0.5 shrink-0"
-                    style={{ color: 'var(--public-accent)' }}
+                    style={{ color: 'var(--public-accent-on-surface)' }}
                   />
                   <a
                     href={`mailto:${site.contact_email}`}

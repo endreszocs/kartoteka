@@ -30,39 +30,21 @@ export async function signIn(data: LoginInput) {
       return { error: 'Kérem, erősítse meg az e-mail címét a fiókjába küldött linkkel!' }
     }
 
-    // Explicit "nincs regisztrálva" megkülönböztetés (Endre kérése).
-    // A Supabase generikus "Invalid login credentials"-t ad mind a nem létező
-    // email-re, mind a rossz jelszóra. Egy SECURITY DEFINER RPC
-    // (login_email_status) megnézi, létezik-e a profil az adott email-lel, így
-    // pontosabb üzenetet adhatunk. Lásd: 2026-06-03-login-email-status-rpc.sql
-    const { data: emailStatus } = await supabase.rpc('login_email_status', {
-      p_email: parsed.data.email,
-    })
-
-    if (emailStatus === 'not_registered') {
-      return {
-        error:
-          'Ez az e-mail cím nincs regisztrálva a rendszerben. Kérjük, először igényeljen hozzáférést a Regisztráció oldalon.',
-      }
-    }
-    if (emailStatus && emailStatus !== 'active') {
-      // Létezik, de még nem aktív (pl. pending) → jóváhagyásra vár
-      return {
-        error:
-          'Fiókja még jóváhagyásra vár — a rendszergazda értesítve van. Türelmét kérjük.',
-      }
-    }
-    // Létezik és aktív (vagy az RPC nem elérhető) → hibás jelszó
+    // Szándékosan azonos választ adunk a nem létező e-mailre, a hibás
+    // jelszóra és a még nem aktív fiókra. A korábbi
+    // `login_email_status` RPC a belépés előtt e-mail-/státusz-felsorolást
+    // tett lehetővé. Saját fiókstátuszt csak sikeres hitelesítés után
+    // szabad megjeleníteni.
     return {
       error:
-        'Hibás jelszó. Kérjük, próbálja újra, vagy állítsa vissza az „Elfelejtett jelszó" oldalon.',
+        'Az e-mail-cím vagy a jelszó hibás, illetve a fiók még nem aktív. Próbálja újra, vagy használja az „Elfelejtett jelszó” oldalt.',
     }
   }
 
   // Egységes belépés-utáni döntés — UGYANAZ a logika, mint a Google (OAuth)
   // flow-ban (auth/callback), hogy mindkét belépési mód azonosan viselkedjen.
-  // `via: 'password'`: az ismeretlen e-mailt már fentebb elkaptuk (login_email_status),
-  // így itt a hiányos állapot a profil-kiegészítő űrlaphoz ('complete') vezet.
+  // `via: 'password'`: idáig kizárólag sikeres hitelesítés jut el, így a
+  // saját fiók állapota biztonságosan ellenőrizhető.
   const dest = await resolvePostLoginDestination(supabase, authData.user, { via: 'password' })
 
   // Nem aktív, de már megadta az adatait → jóváhagyásra vár (kijelentkeztetés)

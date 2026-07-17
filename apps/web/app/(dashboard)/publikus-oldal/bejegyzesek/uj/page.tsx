@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { PostEditor } from '@/components/admin/public-site/post-editor'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 export default async function NewPostPage() {
   const access = await getEffectiveAccessContext()
   if (!access.user) redirect('/login')
+  if (!canAccessPublicSiteAdmin(access, 'write')) redirect('/publikus-oldal')
   if (!access.effectiveCongregationId) redirect('/publikus-oldal')
 
   return (

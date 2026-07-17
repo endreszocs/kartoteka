@@ -66,12 +66,16 @@ export function confirmationEmail(args: {
   email: string
   fullName: string
   requestedRole: string
+  verificationUrl: string
 }): EmailSendArgs {
   const subject = `Kartotéka — hozzáférés-kérelmét megkaptuk, ${args.fullName}`
 
   const text = `Tisztelt ${args.fullName}!
 
 Köszönjük, hogy hozzáférés-kérelmet nyújtott be a Kartotéka rendszerhez (${args.requestedRole} szerepkörre).
+
+Kérjük, erősítse meg az email-címét az alábbi egyszer használható linken:
+${args.verificationUrl}
 
 A kérelmét rögzítettük, és az egyházkerületi rendszergazda rövidesen átnézi.
 Általában 1-3 munkanapon belül válaszolunk. Amint döntöttünk, emailben értesítjük.
@@ -89,6 +93,16 @@ A Kartotéka rendszer`
     bodyHtml: `
       <p>Köszönjük, hogy hozzáférés-kérelmet nyújtott be a Kartotéka rendszerhez
       <strong>${escHtml(args.requestedRole)}</strong> szerepkörre.</p>
+
+      <p>Első lépésként erősítse meg az email-címét:</p>
+
+      <p style="margin:24px 0;text-align:center;">
+        <a href="${escHtml(args.verificationUrl)}" style="display:inline-block;padding:14px 28px;background:#1e40af;color:#ffffff;text-decoration:none;border-radius:12px;font-weight:600;font-size:15px;">
+          Email-cím megerősítése →
+        </a>
+      </p>
+
+      <p style="font-size:13px;color:#64748b;">A megerősítő link személyes; kérjük, ne továbbítsa másnak.</p>
 
       <p>A kérelmét rögzítettük, és az egyházkerületi rendszergazda rövidesen átnézi.
       Általában <strong>1-3 munkanapon belül</strong> válaszolunk. Amint döntöttünk, emailben értesítjük.</p>

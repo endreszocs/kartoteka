@@ -8,20 +8,37 @@ import type { PublicSiteSettingsInput } from '@/lib/validations/public-site'
 import { Save, Palette, Eye, EyeOff, Image as ImageIcon } from 'lucide-react'
 import { ImageUploader } from './image-uploader'
 import { TiptapEditor } from './tiptap-editor'
-
-interface ThemePreset {
-  id: string
-  preset_key: string
-  display_name: string
-  description: string | null
-  colors: { primary: string; accent: string; surface: string; ink: string; muted: string; soft: string }
-  typography: { heading_font: string; body_font: string }
-  hero_style: string
-}
+import {
+  PublicSiteThemePicker,
+  type PublicSiteThemeOption,
+} from './public-site-theme-picker'
 
 interface Props {
   initial: PublicSiteSettingsInput
-  themes: ThemePreset[]
+  themes: PublicSiteThemeOption[]
+}
+
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i
+
+function normalizeHexColor(value: string | null | undefined, fallback: string): string {
+  return value && HEX_COLOR_PATTERN.test(value) ? value : fallback
+}
+
+function relativeLuminance(hex: string): number {
+  const normalized = hex.slice(1)
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+}
+
+function contrastRatio(first: string, second: string): number {
+  const firstLuminance = relativeLuminance(first)
+  const secondLuminance = relativeLuminance(second)
+  const lighter = Math.max(firstLuminance, secondLuminance)
+  const darker = Math.min(firstLuminance, secondLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
 }
 
 export function PublicSiteSettingsForm({ initial, themes }: Props) {
@@ -35,6 +52,10 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (primaryColorInvalid) {
+      toast.error('Az elsődleges szín formátuma vagy kontrasztja nem megfelelő.')
+      return
+    }
     startTransition(async () => {
       const result = await savePublicSiteSettings(form)
       if ('error' in result && result.error) {
@@ -47,38 +68,58 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
   }
 
   const selectedTheme = themes.find((t) => t.id === form.theme_id)
-  const previewPrimary = form.custom_primary_color || selectedTheme?.colors.primary || '#14514b'
-  const previewAccent = form.custom_accent_color || selectedTheme?.colors.accent || '#d4a04a'
+  const basePrimary = normalizeHexColor(selectedTheme?.colors.primary, '#14514b')
+  const baseAccent = normalizeHexColor(selectedTheme?.colors.accent, '#d4a04a')
+  const baseSurface = normalizeHexColor(selectedTheme?.colors.surface, '#fffdf8')
+  const previewPrimary = normalizeHexColor(form.custom_primary_color, basePrimary)
+  const previewAccent = normalizeHexColor(form.custom_accent_color, baseAccent)
+  const primaryColorFormatInvalid = Boolean(
+    form.custom_primary_color && !HEX_COLOR_PATTERN.test(form.custom_primary_color),
+  )
+  const accentColorInvalid = Boolean(
+    form.custom_accent_color && !HEX_COLOR_PATTERN.test(form.custom_accent_color),
+  )
+  const primaryContrast = contrastRatio(previewPrimary, '#ffffff')
+  const accentContrast = contrastRatio(previewAccent, baseSurface)
+  const primaryContrastInvalid = Boolean(
+    form.custom_primary_color
+      && !primaryColorFormatInvalid
+      && primaryContrast < 4.5,
+  )
+  const primaryColorInvalid = primaryColorFormatInvalid || primaryContrastInvalid
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Alapadatok */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-4">Alapadatok</h2>
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-slug" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Slug (URL rész) *
             </label>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-400">/gy/</span>
+              <span className="text-sm text-slate-500">/gy/</span>
               <input
+                id="public-site-slug"
                 type="text"
                 value={form.slug}
                 onChange={(e) => update('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                 placeholder="maroscsapo"
                 className="modal-input flex-1"
+                aria-describedby="public-site-slug-help"
                 required
               />
             </div>
-            <p className="text-xs text-slate-400 mt-1">Ez a publikus oldal címének része lesz.</p>
+            <p id="public-site-slug-help" className="text-xs text-slate-500 mt-1">Ez a publikus oldal címének része lesz.</p>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-display-name" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Megjelenítendő név *
             </label>
             <input
+              id="public-site-display-name"
               type="text"
               value={form.display_name}
               onChange={(e) => update('display_name', e.target.value)}
@@ -88,10 +129,11 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-tagline" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Alcím / szlogen
             </label>
             <input
+              id="public-site-tagline"
               type="text"
               value={form.tagline || ''}
               onChange={(e) => update('tagline', e.target.value)}
@@ -103,9 +145,9 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
       </section>
 
       {/* Képek */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
-          <ImageIcon className="w-5 h-5 text-emerald-600" />
+          <ImageIcon className="w-5 h-5 text-emerald-600" aria-hidden="true" />
           <h2 className="font-heading text-xl text-slate-800">Képek</h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -129,101 +171,117 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
       </section>
 
       {/* Téma */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Palette className="w-5 h-5 text-emerald-600" />
+          <Palette className="w-5 h-5 text-emerald-600" aria-hidden="true" />
           <h2 className="font-heading text-xl text-slate-800">Téma és megjelenés</h2>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          {themes.map((theme) => (
-            <button
-              type="button"
-              key={theme.id}
-              onClick={() => update('theme_id', theme.id)}
-              className={`text-left p-4 rounded-xl border-2 transition-all ${
-                form.theme_id === theme.id
-                  ? 'border-emerald-500 shadow-sm shadow-emerald-100'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-              style={{
-                background: `linear-gradient(135deg, ${theme.colors.surface} 0%, ${theme.colors.soft} 100%)`,
-              }}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <div
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: theme.colors.primary }}
-                />
-                <div
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: theme.colors.accent }}
-                />
-                <span className="font-semibold text-sm" style={{ color: theme.colors.ink }}>
-                  {theme.display_name}
-                </span>
-              </div>
-              <p className="text-xs" style={{ color: theme.colors.muted }}>
-                {theme.description}
-              </p>
-            </button>
-          ))}
-        </div>
+        <PublicSiteThemePicker
+          themes={themes}
+          value={form.theme_id}
+          onValueChange={(themeId) => update('theme_id', themeId)}
+        />
 
         {/* Színek felülírása */}
         <div className="grid sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-primary-color" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Elsődleges szín (opcionális)
             </label>
             <div className="flex items-center gap-2">
               <input
+                id="public-site-primary-color-picker"
                 type="color"
-                value={form.custom_primary_color || previewPrimary}
+                value={previewPrimary}
                 onChange={(e) => update('custom_primary_color', e.target.value)}
-                className="w-10 h-10 rounded-lg border border-slate-200"
+                className="size-11 shrink-0 cursor-pointer rounded-lg border border-slate-200"
+                aria-label="Elsődleges szín kiválasztása"
               />
               <input
+                id="public-site-primary-color"
                 type="text"
                 value={form.custom_primary_color || ''}
                 onChange={(e) => update('custom_primary_color', e.target.value)}
                 placeholder="Alap: preset szerint"
                 className="modal-input flex-1"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                maxLength={7}
+                aria-invalid={primaryColorInvalid}
+                aria-describedby="public-site-primary-color-help"
               />
             </div>
+            <p
+              id="public-site-primary-color-help"
+              className={`mt-1 text-xs ${primaryColorInvalid ? 'text-red-600' : 'text-slate-500'}`}
+            >
+              {primaryColorFormatInvalid
+                ? 'Használj #RRGGBB formátumot.'
+                : primaryContrastInvalid
+                  ? 'Válassz sötétebb színt: fehér felirattal legalább 4.5:1 kontraszt szükséges.'
+                  : 'Például: #14514b'}
+            </p>
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-accent-color" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Akcentus szín (opcionális)
             </label>
             <div className="flex items-center gap-2">
               <input
+                id="public-site-accent-color-picker"
                 type="color"
-                value={form.custom_accent_color || previewAccent}
+                value={previewAccent}
                 onChange={(e) => update('custom_accent_color', e.target.value)}
-                className="w-10 h-10 rounded-lg border border-slate-200"
+                className="size-11 shrink-0 cursor-pointer rounded-lg border border-slate-200"
+                aria-label="Akcentus szín kiválasztása"
               />
               <input
+                id="public-site-accent-color"
                 type="text"
                 value={form.custom_accent_color || ''}
                 onChange={(e) => update('custom_accent_color', e.target.value)}
                 placeholder="Alap: preset szerint"
                 className="modal-input flex-1"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                maxLength={7}
+                aria-invalid={accentColorInvalid}
+                aria-describedby="public-site-accent-color-help"
               />
             </div>
+            <p
+              id="public-site-accent-color-help"
+              className={`mt-1 text-xs ${accentColorInvalid ? 'text-red-600' : 'text-slate-500'}`}
+            >
+              {accentColorInvalid ? 'Használj #RRGGBB formátumot.' : 'Például: #d4a04a'}
+            </p>
           </div>
         </div>
+
+        {(form.custom_primary_color || form.custom_accent_color)
+          && !primaryColorInvalid
+          && !accentColorInvalid
+          && accentContrast < 4.5 && (
+          <div
+            role="status"
+            className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900"
+          >
+            Az akcentusszín kontrasztja gyenge lehet. A jó olvashatósághoz
+            válassz erősebb akcentusszínt; a publikus oldal szöveges elemei
+            addig automatikusan biztonságos tartalékszínt használnak.
+          </div>
+        )}
       </section>
 
       {/* Elérhetőség */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-4">Elérhetőség</h2>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-contact-email" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Email
             </label>
             <input
+              id="public-site-contact-email"
               type="email"
               value={form.contact_email || ''}
               onChange={(e) => update('contact_email', e.target.value)}
@@ -231,10 +289,11 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-contact-phone" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Telefon
             </label>
             <input
+              id="public-site-contact-phone"
               type="tel"
               value={form.contact_phone || ''}
               onChange={(e) => update('contact_phone', e.target.value)}
@@ -242,10 +301,11 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label htmlFor="public-site-address" className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Cím
             </label>
             <input
+              id="public-site-address"
               type="text"
               value={form.address || ''}
               onChange={(e) => update('address', e.target.value)}
@@ -257,21 +317,22 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
       </section>
 
       {/* Rólunk szöveg */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-4">Rólunk szöveg</h2>
         <TiptapEditor
           content={form.about_html || ''}
           onChange={(html) => update('about_html', html)}
+          ariaLabel="Rólunk szöveg"
           placeholder="Rövid bemutatkozó szöveg a gyülekezetről..."
           compact
         />
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-slate-500 mt-2">
           A vizuális szerkesztőben írd meg a gyülekezet bemutatóját. A tartalom automatikusan sanitizálásra kerül.
         </p>
       </section>
 
       {/* Nyilvános statisztikák */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-2">Nyilvános statisztikák</h2>
         <p className="text-sm text-slate-500 mb-4">Válaszd ki milyen adatokat jelenítsen meg a publikus oldalon. A számok automatikusan frissülnek, de felülírhatók.</p>
         <div className="space-y-3">
@@ -279,44 +340,67 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             { key: 'show_member_count' as const, label: 'Aktív tagok száma', overrideKey: 'override_member_count' as const },
             { key: 'show_presbyter_count' as const, label: 'Presbiterek száma', overrideKey: 'override_presbyter_count' as const },
             { key: 'show_family_count' as const, label: 'Családok száma', overrideKey: 'override_family_count' as const },
-          ].map((stat) => (
-            <div key={stat.key} className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50">
-              <label className="flex items-center gap-2 cursor-pointer flex-1">
-                <input
-                  type="checkbox"
-                  checked={!!form[stat.key]}
-                  onChange={(e) => update(stat.key, e.target.checked)}
-                />
-                <span className="text-sm font-medium text-slate-700">{stat.label}</span>
-              </label>
-              {form[stat.key] && (
-                <input
-                  type="number"
-                  value={form[stat.overrideKey] ?? ''}
-                  onChange={(e) => update(stat.overrideKey, e.target.value ? Number(e.target.value) : null)}
-                  placeholder="Automatikus"
-                  className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-sm text-right"
-                />
-              )}
-            </div>
-          ))}
-          <label className="flex items-center gap-2 p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+          ].map((stat) => {
+            const checkboxId = `public-site-${stat.key}`
+            const overrideId = `public-site-${stat.overrideKey}`
+
+            return (
+              <div key={stat.key} className="flex flex-col gap-3 rounded-xl p-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:gap-4">
+                <label htmlFor={checkboxId} className="flex min-h-11 flex-1 cursor-pointer items-center gap-2">
+                  <input
+                    id={checkboxId}
+                    type="checkbox"
+                    checked={!!form[stat.key]}
+                    onChange={(e) => update(stat.key, e.target.checked)}
+                  />
+                  <span className="text-sm font-medium text-slate-700">{stat.label}</span>
+                </label>
+                {form[stat.key] && (
+                  <div className="flex items-center justify-between gap-3 sm:justify-end">
+                    <label htmlFor={overrideId} className="text-xs text-slate-500 sm:sr-only">
+                      Kézi felülírás
+                    </label>
+                    <input
+                      id={overrideId}
+                      type="number"
+                      min={0}
+                      max={1_000_000}
+                      step={1}
+                      value={form[stat.overrideKey] ?? ''}
+                      onChange={(e) => update(stat.overrideKey, e.target.value ? Number(e.target.value) : null)}
+                      placeholder="Automatikus"
+                      className="min-h-11 w-32 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <label htmlFor="public-site-show-age-distribution" className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl p-3 hover:bg-slate-50">
             <input
+              id="public-site-show-age-distribution"
               type="checkbox"
               checked={!!form.show_age_distribution}
               onChange={(e) => update('show_age_distribution', e.target.checked)}
+              className="mt-0.5"
             />
-            <span className="text-sm font-medium text-slate-700">Életkor eloszlás</span>
+            <span>
+              <span className="block text-sm font-medium text-slate-700">Korosztályok megoszlása</span>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                Csak legalább 25 tag és adatvédelmileg megfelelő csoportméretek esetén jelenik meg.
+              </span>
+            </span>
           </label>
         </div>
       </section>
 
       {/* Publikálás */}
-      <section className="card-raised p-6">
+      <section className="card-raised p-4 sm:p-6">
         <h2 className="font-heading text-xl text-slate-800 mb-4">Publikálás</h2>
         <div className="space-y-3">
-          <label className="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+          <label htmlFor="public-site-is-published" className="flex min-h-11 items-start gap-3 rounded-xl p-3 hover:bg-slate-50 cursor-pointer">
             <input
+              id="public-site-is-published"
               type="checkbox"
               checked={form.is_published}
               onChange={(e) => update('is_published', e.target.checked)}
@@ -324,7 +408,7 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             />
             <div>
               <div className="font-medium text-slate-700 flex items-center gap-2">
-                {form.is_published ? <Eye className="w-4 h-4 text-emerald-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                {form.is_published ? <Eye className="w-4 h-4 text-emerald-600" aria-hidden="true" /> : <EyeOff className="w-4 h-4 text-slate-400" aria-hidden="true" />}
                 Publikus oldal élesítése
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -333,8 +417,9 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
             </div>
           </label>
 
-          <label className="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer">
+          <label htmlFor="public-site-robots-index" className="flex min-h-11 items-start gap-3 rounded-xl p-3 hover:bg-slate-50 cursor-pointer">
             <input
+              id="public-site-robots-index"
               type="checkbox"
               checked={form.robots_index}
               onChange={(e) => update('robots_index', e.target.checked)}
@@ -356,9 +441,9 @@ export function PublicSiteSettingsForm({ initial, themes }: Props) {
         <button
           type="submit"
           disabled={isPending}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-600 text-white font-semibold shadow-sm shadow-emerald-200 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-6 py-3 font-semibold text-white shadow-sm shadow-emerald-200 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:opacity-60"
         >
-          <Save className="w-4 h-4" />
+          <Save className="w-4 h-4" aria-hidden="true" />
           {isPending ? 'Mentés...' : 'Mentés'}
         </button>
       </div>

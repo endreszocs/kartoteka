@@ -164,7 +164,16 @@ export async function markTransferNotificationRead(
 const respondSchema = z.object({
   id: z.string().uuid(),
   status: z.enum(['accepted', 'rejected']),
-  note: z.string().max(500).optional(),
+  note: z.string().trim().max(500).optional(),
+})
+
+const respondResultSchema = z.object({
+  notification_id: z.string().uuid(),
+  source_congregation_id: z.string().uuid(),
+  target_congregation_id: z.string().uuid(),
+  status: z.enum(['accepted', 'rejected']),
+  changed: z.boolean(),
+  portal_link_revoked: z.boolean(),
 })
 
 export async function respondToTransferNotification(input: {
@@ -177,86 +186,68 @@ export async function respondToTransferNotification(input: {
 
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
-  if (!access.effectiveCongregationId) {
-    return { error: 'Az átjelentkezés válaszát csak gyülekezeti scope-ban lehet megadni.' }
-  }
 
   const supabase = await createClient()
 
-  // Lekérjük a notifikációt — ellenőrizzük, hogy a célgyülekezet lelkésze válaszol
-  const { data: notif, error: fetchError } = await supabase
-    .from('member_transfer_notifications')
-    .select('*, source_congregation:congregations!source_congregation_id(name, nev_hu)')
-    .eq('id', parsed.data.id)
-    .single()
-
-  if (fetchError || !notif) return { error: 'Nem található átjelentkezési kérelem.' }
-
-  if (notif.target_congregation_id !== access.effectiveCongregationId) {
-    return { error: 'Csak a célgyülekezet lelkésze válaszolhat erre az értesítésre.' }
+  // Kizárólag a best-effort visszaigazolás megjelenítési nevéhez kell.
+  // Jogosultsági vagy állapotdöntés nem támaszkodhat erre a snapshotra: azt az RPC
+  // DB-live adatokból, ugyanabban a tranzakcióban végzi el.
+  let notificationSnapshot: { member_snapshot: unknown } | null = null
+  try {
+    const { data } = await supabase
+      .from('member_transfer_notifications')
+      .select('member_snapshot')
+      .eq('id', parsed.data.id)
+      .maybeSingle()
+    notificationSnapshot = data
+  } catch {
+    // A megjelenítési snapshot hiánya nem akadályozhatja az atomikus döntést.
   }
 
-  if (notif.status !== 'pending') {
-    return { error: `Erre az értesítésre már válaszoltak (státusz: ${notif.status}).` }
+  // Az autorizáció, a pending/idempotens állapotkezelés, a személy áthelyezése és
+  // az esetleges tagi portál-link visszavonása egyetlen DB-tranzakcióban történik.
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    'respond_to_member_transfer_notification',
+    {
+      p_notification_id: parsed.data.id,
+      p_status: parsed.data.status,
+      p_note: parsed.data.note || null,
+    },
+  )
+
+  if (rpcError) {
+    return { error: 'Az átjelentkezési kérelem feldolgozása nem sikerült.' }
   }
 
-  // 1. UPDATE notification → accepted/rejected
-  const { error: updateError } = await supabase
-    .from('member_transfer_notifications')
-    .update({
-      status: parsed.data.status,
-      responded_at: new Date().toISOString(),
-      responded_by: access.user.id,
-      response_note: parsed.data.note || null,
-    })
-    .eq('id', parsed.data.id)
+  const result = respondResultSchema.safeParse(rpcData)
+  if (!result.success) {
+    return { error: 'Az átjelentkezési kérelem feldolgozása nem sikerült.' }
+  }
 
-  if (updateError) return { error: `Frissítési hiba: ${updateError.message}` }
+  // Idempotens ismétlésnél az RPC changed=false eredményt ad: ilyenkor nem
+  // készítünk második visszaigazolást a forrásgyülekezetnek.
+  if (result.data.changed) {
+    const snapshot = notificationSnapshot?.member_snapshot as Partial<MemberSnapshot> | null | undefined
+    const memberName = `${snapshot?.csaladnev || ''} ${snapshot?.k_nev || ''}`.trim() || 'tag'
+    const statusText = result.data.status === 'accepted' ? 'elfogadta' : 'elutasította'
 
-  // 2. SZEMELY státusz frissítés (Endre kérése 2026-04-30):
-  //   - 'accepted': congregation_id átkerül + member_status='aktív'
-  //     (a tag az új gyülekezet aktív tagja lesz)
-  //   - 'rejected': member_status='aktív' (vissza a forrás-gyülekezetbe,
-  //     congregation_id változatlan)
-  if (parsed.data.status === 'accepted') {
-    const { error: szemelyError } = await supabase
-      .from('szemely')
-      .update({
-        congregation_id: notif.target_congregation_id,
-        member_status: 'aktív',
-      })
-      .eq('id', notif.szemely_id)
-    if (szemelyError) {
-      return { error: `Tag áthelyezés hiba: ${szemelyError.message}` }
+    // Best effort: az átjelentkezési döntés már sikeresen, atomikusan lezárult.
+    // Egy értesítési hiba ezért nem fordíthatja vissza és nem jelezheti sikertelennek.
+    try {
+      await supabase.from('ertesitesek').insert([{
+        congregation_id: result.data.source_congregation_id,
+        cim: `Átjelentkezési kérelem ${statusText === 'elfogadta' ? 'elfogadva' : 'elutasítva'}: ${memberName}`,
+        uzenet: `A célgyülekezet ${statusText} ${memberName} átjelentkezési kérelmét.${
+          parsed.data.note ? ' Megjegyzés: ' + parsed.data.note : ''
+        }`,
+        tipus: result.data.status === 'accepted' ? 'info' : 'warning',
+        user_id: null,
+        hivatkozas: `/notifications/sent#${result.data.notification_id}`,
+      }])
+    } catch {
+      // Best effort: az RPC sikerét egy másodlagos értesítési hiba nem írhatja felül.
     }
-  } else {
-    // 'rejected' — a tag visszakerül a forrás-gyülekezet AKTÍV tagjai közé
-    const { error: szemelyError } = await supabase
-      .from('szemely')
-      .update({ member_status: 'aktív' })
-      .eq('id', notif.szemely_id)
-    if (szemelyError) {
-      return { error: `Tag státusz visszaállítás hiba: ${szemelyError.message}` }
-    }
   }
-
-  // 3. Visszaigazolás a forrás-gyülekezet lelkészének (ertesitesek táblába)
-  const sourceCongName = (notif.source_congregation as { nev_hu?: string | null; name?: string | null } | null)?.nev_hu
-    || (notif.source_congregation as { name?: string | null } | null)?.name
-    || 'Forrás gyülekezet'
-  const memberName = `${notif.member_snapshot?.csaladnev || ''} ${notif.member_snapshot?.k_nev || ''}`.trim() || 'tag'
-  const statusText = parsed.data.status === 'accepted' ? 'elfogadta' : 'elutasította'
-
-  await supabase.from('ertesitesek').insert([{
-    congregation_id: notif.source_congregation_id,
-    cim: `Átjelentkezési kérelem ${statusText === 'elfogadta' ? 'elfogadva' : 'elutasítva'}: ${memberName}`,
-    uzenet: `A célgyülekezet ${statusText} ${memberName} átjelentkezési kérelmét.${
-      parsed.data.note ? ' Megjegyzés: ' + parsed.data.note : ''
-    }`,
-    tipus: parsed.data.status === 'accepted' ? 'info' : 'warning',
-    user_id: null,
-    hivatkozas: `/notifications/sent#${parsed.data.id}`,
-  }])
 
   revalidatePath('/notifications')
   revalidatePath('/tagnyilvantartas')

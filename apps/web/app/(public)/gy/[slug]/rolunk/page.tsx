@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
+import { sanitizeAboutHtml } from '@/lib/public-site/sanitize'
 import { BookOpen, Mail, Phone, MapPin } from 'lucide-react'
 
 export default async function AboutPage({
@@ -10,6 +11,9 @@ export default async function AboutPage({
   const { slug } = await params
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
+  const safeAboutHtml = site.about_html
+    ? sanitizeAboutHtml(site.about_html)
+    : null
 
   return (
     <>
@@ -44,11 +48,11 @@ export default async function AboutPage({
       {/* About content */}
       <section className="public-section">
         <div className="public-container">
-          {site.about_html ? (
+          {safeAboutHtml ? (
             <div
               className="public-prose mx-auto text-base sm:text-lg public-anim-fade-up"
               style={{ color: 'var(--public-ink)' }}
-              dangerouslySetInnerHTML={{ __html: site.about_html }}
+              dangerouslySetInnerHTML={{ __html: safeAboutHtml }}
             />
           ) : (
             <div className="max-w-2xl mx-auto text-center py-8">
@@ -76,7 +80,7 @@ export default async function AboutPage({
             <div className="text-center mb-10 public-anim-fade-up">
               <div
                 className="text-xs sm:text-sm font-semibold tracking-widest uppercase mb-3"
-                style={{ color: 'var(--public-accent)' }}
+                style={{ color: 'var(--public-accent-on-surface)' }}
               >
                 Kapcsolat
               </div>

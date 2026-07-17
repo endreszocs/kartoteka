@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -8,7 +10,9 @@ import {
   saveMagazineIssue,
   deleteMagazineIssue,
 } from '@/app/(dashboard)/publikus-oldal/magazin/actions'
-import { Plus, Save, Trash2, FileText, Eye, EyeOff } from 'lucide-react'
+import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
+import { safePublicHttpsUrl } from '@/lib/public-site/safe-url'
+import { ChevronLeft, ChevronRight, Plus, Save, Trash2, FileText, Eye, EyeOff } from 'lucide-react'
 
 interface Magazine {
   id: string
@@ -31,6 +35,11 @@ interface Issue {
 interface Props {
   magazine: Magazine | null
   issues: Issue[]
+  pagination: {
+    page: number
+    pageSize: number
+    hasNext: boolean
+  }
 }
 
 type NewIssueForm = {
@@ -53,7 +62,11 @@ const EMPTY_ISSUE: NewIssueForm = {
   is_published: false,
 }
 
-export function MagazineManager({ magazine, issues }: Props) {
+function adminPageHref(page: number): string {
+  return page <= 1 ? '/publikus-oldal/magazin' : `/publikus-oldal/magazin?oldal=${page}`
+}
+
+export function MagazineManager({ magazine, issues, pagination }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -204,7 +217,7 @@ export function MagazineManager({ magazine, issues }: Props) {
             type="button"
             onClick={handleSaveMagazine}
             disabled={isPending}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 text-white font-semibold shadow-sm shadow-emerald-200 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-5 py-2.5 font-semibold text-white shadow-sm shadow-emerald-200 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:opacity-60"
           >
             <Save className="w-4 h-4" />
             {magazine ? 'Alapadatok mentése' : 'Magazin létrehozása'}
@@ -215,12 +228,17 @@ export function MagazineManager({ magazine, issues }: Props) {
       {/* Lapszámok listája */}
       {magazine && (
         <section className="card-raised p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-heading text-xl text-slate-800">Lapszámok ({issues.length})</h2>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-heading text-xl text-slate-800">Lapszámok</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                {pagination.page}. oldal · oldalanként legfeljebb {pagination.pageSize} lapszám
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setShowNewIssueForm(!showNewIssueForm)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2"
             >
               <Plus className="w-4 h-4" />
               Új lapszám
@@ -300,11 +318,12 @@ export function MagazineManager({ magazine, issues }: Props) {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="inline-flex items-center gap-2 text-sm">
+                  <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 rounded-lg text-sm">
                     <input
                       type="checkbox"
                       checked={newIssue.is_published}
                       onChange={(e) => setNewIssue({ ...newIssue, is_published: e.target.checked })}
+                      className="size-5 rounded border-slate-300 text-emerald-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2"
                     />
                     Azonnal publikálható
                   </label>
@@ -317,7 +336,7 @@ export function MagazineManager({ magazine, issues }: Props) {
                     setShowNewIssueForm(false)
                     setNewIssue(EMPTY_ISSUE)
                   }}
-                  className="px-4 py-2 rounded-full text-sm text-slate-600 hover:bg-slate-100"
+                  className="inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/25 focus-visible:ring-offset-2"
                 >
                   Mégse
                 </button>
@@ -325,7 +344,7 @@ export function MagazineManager({ magazine, issues }: Props) {
                   type="button"
                   onClick={handleCreateIssue}
                   disabled={isPending}
-                  className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:opacity-60"
                 >
                   <Save className="w-4 h-4" />
                   Mentés
@@ -335,24 +354,36 @@ export function MagazineManager({ magazine, issues }: Props) {
           )}
 
           {issues.length === 0 ? (
-            <div className="py-8 text-center text-slate-400">
+            <div className="py-8 text-center text-slate-500">
               <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
-              <p className="italic">Még nincs lapszám.</p>
+              <p className="italic">
+                {pagination.page > 1 ? 'Ezen az oldalon nincs lapszám.' : 'Még nincs lapszám.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {issues.map((issue) => (
-                <div
+              {issues.map((issue) => {
+                const safeCoverImageUrl = safePublicHttpsUrl(issue.cover_image_url)
+                const safePdfUrl = safePublicHttpsUrl(issue.pdf_url)
+
+                return (
+                  <div
                   key={issue.id}
-                  className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors"
+                  className="flex flex-col gap-3 rounded-xl border border-slate-100 p-4 transition-colors hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {issue.cover_image_url ? (
-                      <img
-                        src={issue.cover_image_url}
-                        alt={issue.issue_number}
-                        className="w-12 h-16 object-cover rounded-lg shrink-0"
-                      />
+                  <div className="flex w-full min-w-0 flex-1 items-center gap-3 sm:w-auto">
+                    {safeCoverImageUrl ? (
+                      <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-lg">
+                        <Image
+                          src={safeCoverImageUrl}
+                          alt={`${issue.issue_number} lapszám borítója`}
+                          fill
+                          sizes="48px"
+                          loading="lazy"
+                          unoptimized={shouldBypassMagazineImageOptimization(safeCoverImageUrl)}
+                          className="object-cover"
+                        />
+                      </div>
                     ) : (
                       <div className="w-12 h-16 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shrink-0">
                         <FileText className="w-5 h-5 text-white" />
@@ -375,44 +406,92 @@ export function MagazineManager({ magazine, issues }: Props) {
                         <div className="text-sm text-slate-600 truncate">{issue.title}</div>
                       )}
                       {issue.published_at && (
-                        <div className="text-xs text-slate-400">
+                        <div className="text-xs text-slate-500">
                           Megjelent: {new Date(issue.published_at).toLocaleDateString('hu-HU')}
                         </div>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
                     <button
                       type="button"
                       onClick={() => handleTogglePublish(issue)}
                       disabled={isPending}
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 disabled:opacity-60"
+                      className="inline-flex size-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:opacity-60"
                       title={issue.is_published ? 'Visszavonás' : 'Publikálás'}
+                      aria-label={`${issue.issue_number}: ${issue.is_published ? 'publikálás visszavonása' : 'publikálás'}`}
                     >
                       {issue.is_published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
-                    <a
-                      href={issue.pdf_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700"
-                      title="PDF megtekintése"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </a>
+                    {safePdfUrl ? (
+                      <a
+                        href={safePdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex size-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                        title="PDF megtekintése"
+                        aria-label={`${issue.issue_number}: PDF megtekintése új lapon`}
+                      >
+                        <FileText className="w-4 h-4" />
+                      </a>
+                    ) : (
+                      <span
+                        className="inline-flex size-11 items-center justify-center rounded-lg bg-amber-50 text-amber-800"
+                        title="Nem biztonságos PDF-hivatkozás"
+                        aria-label={`${issue.issue_number}: nem biztonságos PDF-hivatkozás`}
+                        role="img"
+                      >
+                        <FileText className="w-4 h-4" aria-hidden="true" />
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleDeleteIssue(issue)}
                       disabled={isPending}
-                      className="p-2 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600 disabled:opacity-60"
+                      className="inline-flex size-11 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:opacity-60"
                       title="Törlés"
+                      aria-label={`${issue.issue_number}: lapszám törlése`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                </div>
-              ))}
+                  </div>
+                )
+              })}
             </div>
+          )}
+
+          {(pagination.page > 1 || pagination.hasNext) && (
+            <nav
+              aria-label="Admin magazinlapszámok lapozása"
+              className="mt-5 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-5 sm:flex-row"
+            >
+              <p className="text-center text-xs text-slate-500 sm:text-left">
+                A lista oldalanként legfeljebb {pagination.pageSize} rekordot tölt be.
+              </p>
+              <div className="flex w-full gap-2 sm:w-auto">
+                {pagination.page > 1 && (
+                  <Link
+                    href={adminPageHref(pagination.page - 1)}
+                    rel="prev"
+                    className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 sm:flex-none"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Előző
+                  </Link>
+                )}
+                {pagination.hasNext && (
+                  <Link
+                    href={adminPageHref(pagination.page + 1)}
+                    rel="next"
+                    className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 sm:flex-none"
+                  >
+                    Következő
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                )}
+              </div>
+            </nav>
           )}
         </section>
       )}

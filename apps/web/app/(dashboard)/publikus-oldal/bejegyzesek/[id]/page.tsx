@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { PostEditor } from '@/components/admin/public-site/post-editor'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 export default async function EditPostPage({
   params,
@@ -10,6 +11,7 @@ export default async function EditPostPage({
   const { id } = await params
   const access = await getEffectiveAccessContext()
   if (!access.user) redirect('/login')
+  if (!canAccessPublicSiteAdmin(access, 'write')) redirect('/publikus-oldal')
   const congregationId = access.effectiveCongregationId
   if (!congregationId) redirect('/publikus-oldal')
 

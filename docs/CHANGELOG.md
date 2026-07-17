@@ -23,6 +23,58 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — Megújult gyülekezeti weboldal és biztonságos tagi portál
+<!-- key: 2026-07-17-public-site-member-portal -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag -->
+
+### ✨ Nyilvános gyülekezeti oldal
+
+- **Három teljes arculat közül választhat a lelkipásztor:** az Élő kert friss és
+  közösségi, a Csendes parókia meleg és otthonos, a Zsoltáros örökség pedig
+  elegáns, hagyományőrző megjelenést ad. Mindháromhoz saját, egyedileg
+  készített háttérkép tartozik.
+
+- **A teljes oldal telefonról indul, de tableten és számítógépen is kényelmes:**
+  nagy érintési felületek, jól olvasható szövegek, akadálymentes navigáció,
+  megújult hírek, magazin, bemutatkozás, alkalmak és gyülekezeti statisztikák.
+
+- **Részletesebb lelkészi kezelőfelület készült:** az arculat, a színek, a
+  nyitókép, a hírek és a magazin egy egységes, mobilbarát felületről gondozható.
+
+### 👥 Tagi portál
+
+- **A gyülekezeti tag a saját gyülekezete oldalán regisztrálhat.** Az e-mailes
+  megerősítés után a kérelem a lelkipásztorhoz kerül, aki név, születési adat és
+  elérhetőség alapján a megfelelő nyilvántartott személyhez kapcsolhatja.
+
+- **Jóváhagyás után a tag kizárólag a saját adatait látja:** személyes adatlap,
+  jóváhagyott családi kapcsolatok és csak a saját nevéhez könyvelt befizetések.
+  Más családtag vagy gyülekezeti tag pénzügyi adata nem jelenhet meg.
+
+- **Az adatváltozás nem írja felül csendben a nyilvántartást.** A tag módosítási
+  kérelmet küld, a lelkipásztor pedig tételesen jóváhagyja vagy indoklással
+  elutasítja; csak a jóváhagyott változás kerül be a kartotékba.
+
+- **A lelkipásztor hírlevelet küldhet a regisztrált tagoknak.** Csak az kap
+  levelet, aki ezt saját maga engedélyezte; a rendszer külön kezeli a hirdetéseket
+  és az eseményeket, naplózza a kézbesítést, és sikertelen küldésnél biztonságosan
+  újrapróbálható.
+
+### 🔒 Adatvédelem és biztonságos bevezetés
+
+- **A lelkészi és a tagi fiók ugyanazt a megbízható beléptetést használja, de
+  az adataik és jogosultságaik teljesen elkülönülnek.** A tag nem kaphat lelkészi
+  hozzáférést, és minden személyes lekérés a saját fiókhoz és gyülekezethez
+  van kötve.
+
+- **A funkció fokozatosan, ellenőrzött bekapcsolással indul.** A nyilvános oldalak
+  a telepítés alatt is elérhetők maradnak, a Tagi portál menüpont pedig csak az
+  adatbázis-biztonsági ellenőrzések és a próbabejelentkezések sikeres lezárása után
+  jelenik meg.
+
+---
+
 ## [2026-07-17] — Választók névjegyzéke: a jogosultság-számítás megjavult, a nyomtatvány A4-pontos lett oldalszámokkal
 <!-- key: 2026-07-17-tagnyilv-pr2-valasztoi -->
 <!-- category: bugfix -->

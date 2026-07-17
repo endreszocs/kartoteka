@@ -15,6 +15,7 @@ import {
   MAX_PDF_SIZE,
 } from '@/lib/public-site/storage'
 import { validateSlug } from '@/lib/public-site/slug'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 /**
  * Biztonsági: UUID validátor a magazin issueId-hez.
@@ -45,6 +46,9 @@ type UploadTarget =
 export async function uploadPublicSiteImage(formData: FormData): Promise<UploadResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod publikus média feltöltéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
@@ -137,6 +141,9 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
 export async function uploadMagazinePdf(formData: FormData): Promise<UploadResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod magazin feltöltéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 

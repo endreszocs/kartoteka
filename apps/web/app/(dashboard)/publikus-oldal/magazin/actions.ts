@@ -8,6 +8,7 @@ import {
   type PublicMagazineInput,
   type PublicMagazineIssueInput,
 } from '@/lib/validations/public-site'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 interface ActionResult {
   success?: boolean
@@ -18,6 +19,9 @@ interface ActionResult {
 export async function saveMagazine(input: PublicMagazineInput): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a magazin szerkesztéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
@@ -59,12 +63,25 @@ export async function saveMagazineIssue(
 ): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a lapszám szerkesztéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
   const parsed = publicMagazineIssueSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
+  }
+
+  const { data: ownedMagazine, error: magazineError } = await access.supabase
+    .from('public_magazines')
+    .select('id')
+    .eq('id', parsed.data.magazine_id)
+    .eq('congregation_id', congregationId)
+    .maybeSingle()
+  if (magazineError || !ownedMagazine) {
+    return { error: 'A kiválasztott magazin nem ehhez a gyülekezethez tartozik.' }
   }
 
   const payload = {
@@ -111,6 +128,9 @@ export async function saveMagazineIssue(
 export async function deleteMagazineIssue(id: string): Promise<ActionResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod a lapszám törléséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 

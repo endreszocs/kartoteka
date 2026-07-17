@@ -173,19 +173,12 @@ export function AccessRequestForm() {
       return
     }
     startTransition(async () => {
-      // Opcionális igazolás feltöltése a privát bucketbe (ha van)
-      let documentPath: string | undefined
+      // A privát bucketbe csak a szerver action tölthet; a böngésző nem kap
+      // INSERT policy-t és nem állíthat elő megbízhatónak tekintett útvonalat.
+      let documentData: FormData | undefined
       if (file) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'igazolas'
-        const path = `requests/${crypto.randomUUID()}/${safeName}`
-        const { error: upErr } = await supabase.storage
-          .from('access-request-docs')
-          .upload(path, file, { contentType: file.type, upsert: false })
-        if (upErr) {
-          toast.error('A dokumentum feltöltése nem sikerült: ' + upErr.message)
-          return
-        }
-        documentPath = path
+        documentData = new FormData()
+        documentData.set('document', file)
       }
 
       // Magyar konvenció: vezetéknév + keresztnév (Szőcs Endre)
@@ -193,20 +186,22 @@ export function AccessRequestForm() {
       // A congregation_slug-ot a kiválasztott gyülekezet nevével töltjük (megjelenítéshez,
       // backward-compat); a tényleges hozzárendelés a requested_congregation_id alapján megy.
       const selectedCong = congregations.find((c) => c.id === congregationId)
-      const res = await submitAccessRequest({
-        email: form.email.trim(),
-        full_name: fullName,
-        requested_role: form.requested_role,
-        password,
-        congregation_slug: selectedCong?.name || undefined,
-        phone: form.phone.trim() || undefined,
-        justification: form.justification.trim() || undefined,
-        referrer: form.referrer.trim() || undefined,
-        requested_district_id: districtId,
-        requested_diocese_id: dioceseId,
-        requested_congregation_id: congregationId,
-        document_path: documentPath,
-      })
+      const res = await submitAccessRequest(
+        {
+          email: form.email.trim(),
+          full_name: fullName,
+          requested_role: form.requested_role,
+          password,
+          congregation_slug: selectedCong?.name || undefined,
+          phone: form.phone.trim() || undefined,
+          justification: form.justification.trim() || undefined,
+          referrer: form.referrer.trim() || undefined,
+          requested_district_id: districtId,
+          requested_diocese_id: dioceseId,
+          requested_congregation_id: congregationId,
+        },
+        documentData,
+      )
 
       if (res.success) {
         setSubmittedEmail(form.email.trim())

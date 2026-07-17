@@ -1,8 +1,13 @@
 import type { PublicSiteData } from '@/lib/public-site/site-loader'
+import { getPublicVisualTheme } from '@/lib/public-site/visual-theme-registry'
 import { ChevronDown } from 'lucide-react'
+import Image from 'next/image'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 
 export function PublicHero({ site }: { site: PublicSiteData }) {
-  const hasImage = !!site.hero_image_url
+  const visualTheme = getPublicVisualTheme(site.theme.preset_key)
+  const heroImageUrl = site.hero_image_url || visualTheme?.assets.hero || null
+  const hasImage = !!heroImageUrl
   const heroStyle = site.theme.hero_style
 
   return (
@@ -12,12 +17,22 @@ export function PublicHero({ site }: { site: PublicSiteData }) {
         <div
           className="absolute inset-0 z-0 public-anim-drift"
           style={{
-            backgroundImage: `url(${site.hero_image_url})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
             transform: 'scale(1.05)',
           }}
-        />
+        >
+          <Image
+            src={heroImageUrl}
+            alt=""
+            fill
+            preload
+            sizes="100vw"
+            unoptimized={shouldBypassPublicImageOptimization(heroImageUrl)}
+            className="object-cover"
+            style={{
+              objectPosition: visualTheme?.hero.backgroundPosition || 'center',
+            }}
+          />
+        </div>
       ) : (
         <div
           className="absolute inset-0 z-0"
@@ -35,7 +50,8 @@ export function PublicHero({ site }: { site: PublicSiteData }) {
         className="absolute inset-0 z-10"
         style={{
           background: hasImage
-            ? 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.75) 100%)'
+            ? visualTheme?.hero.overlay ||
+              'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.75) 100%)'
             : 'linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.35) 100%)',
         }}
       />
@@ -99,11 +115,16 @@ export function PublicHero({ site }: { site: PublicSiteData }) {
       <div className="relative z-20 public-container py-20 sm:py-28 lg:py-36 text-center">
         {/* Címer, ha crest stílus */}
         {site.crest_image_url && heroStyle === 'crest' && (
-          <img
-            src={site.crest_image_url}
-            alt={site.display_name}
-            className="w-24 h-24 sm:w-32 sm:h-32 mx-auto mb-8 rounded-2xl object-cover shadow-2xl ring-4 ring-white/20 public-anim-scale-in"
-          />
+          <div className="relative mx-auto mb-8 size-24 overflow-hidden rounded-2xl shadow-2xl ring-4 ring-white/20 public-anim-scale-in sm:size-32">
+            <Image
+              src={site.crest_image_url}
+              alt={`${site.display_name} címere`}
+              fill
+              sizes="(min-width: 640px) 128px, 96px"
+              unoptimized={shouldBypassPublicImageOptimization(site.crest_image_url)}
+              className="object-cover"
+            />
+          </div>
         )}
 
         {/* Kicsi welcome badge */}

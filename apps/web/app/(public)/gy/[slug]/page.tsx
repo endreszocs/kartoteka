@@ -1,13 +1,17 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { loadPublicSiteBySlug, loadPublishedPosts } from '@/lib/public-site/site-loader'
 import { loadPublishedMagazine } from '@/lib/public-site/magazine-loader'
-import { createClient } from '@/lib/supabase/server'
+import { loadPublicSiteStats } from '@/lib/public-site/stats-loader'
+import { sanitizeAboutHtml } from '@/lib/public-site/sanitize'
+import { shouldBypassPublicImageOptimization } from '@/lib/public-site/public-image'
 import { PublicHero } from '@/components/public/public-hero'
 import { PublicPostCard } from '@/components/public/public-post-card'
 import { PublicVerseBlock } from '@/components/public/public-verse-block'
 import { PublicServiceTimes } from '@/components/public/public-service-times'
 import { PublicSectionHeader } from '@/components/public/public-section-header'
+import { PublicAgeDistribution } from '@/components/public/public-age-distribution'
 import { ArrowRight, BookOpen, Newspaper, Sparkles, Users, UserCheck, Home } from 'lucide-react'
 
 export default async function CongregationHomePage({
@@ -19,39 +23,28 @@ export default async function CongregationHomePage({
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
-  const recentPosts = await loadPublishedPosts(site.congregation_id, 3)
-  const magazine = await loadPublishedMagazine(site.congregation_id)
+  const [recentPosts, magazine, stats] = await Promise.all([
+    loadPublishedPosts(site.congregation_id, 3),
+    loadPublishedMagazine(site.congregation_id, { pageSize: 1 }),
+    loadPublicSiteStats(site),
+  ])
   const latestIssue = magazine?.issues[0] || null
+  // A DB-ben levo HTML-t minden rendereleskor ujra tisztitjuk. Igy egy
+  // PostgREST-en, importon vagy regi migracion at bekerult ertek sem valhat
+  // tarolt XSS-sze, akkor sem, ha megkerulte a szerkesztesi Server Actiont.
+  const safeAboutHtml = site.about_html
+    ? sanitizeAboutHtml(site.about_html)
+    : null
 
-  // Statisztikák lekérdezése (ha be van kapcsolva)
-  const showStats = site.show_member_count || site.show_presbyter_count || site.show_family_count
-  let stats = { members: 0, presbyters: 0, families: 0 }
-  if (showStats) {
-    const supabase = await createClient()
-    const [membersRes, presbytersRes, familiesRes] = await Promise.all([
-      site.show_member_count ? supabase.from('szemely').select('*', { count: 'exact', head: true }).eq('congregation_id', site.congregation_id).eq('isvisible', true).eq('meghalt', false) : Promise.resolve({ count: 0 }),
-      site.show_presbyter_count ? supabase.from('presbiter').select('*', { count: 'exact', head: true }) : Promise.resolve({ count: 0 }),
-      // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas-számláló
-      site.show_family_count
-        ? supabase.from('haztartas').select('*', { count: 'exact', head: true })
-            .eq('congregation_id', site.congregation_id)
-            .eq('isaktiv', true)
-            .is('ervenyes_ig', null)
-        : Promise.resolve({ count: 0 }),
-    ])
-    stats = {
-      members: site.override_member_count || (membersRes as { count: number | null }).count || 0,
-      presbyters: site.override_presbyter_count || (presbytersRes as { count: number | null }).count || 0,
-      families: site.override_family_count || (familiesRes as { count: number | null }).count || 0,
-    }
-  }
+  // A számok szűk, aggregált RPC-ből jönnek; nincs publikus base-table olvasás.
+  const showCountStats = site.show_member_count || site.show_presbyter_count || site.show_family_count
 
   return (
     <>
       <PublicHero site={site} />
 
       {/* Statisztikák — dizájnos szekció */}
-      {showStats && (
+      {showCountStats && (
         <section className="public-anim-fade-up public-delay-200" style={{ padding: '3rem 0', position: 'relative', overflow: 'hidden' }}>
           {/* Háttér dekoráció */}
           <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, color-mix(in srgb, var(--public-primary) 6%, var(--public-surface)), color-mix(in srgb, var(--public-accent) 4%, var(--public-surface)))' }} />
@@ -62,8 +55,8 @@ export default async function CongregationHomePage({
             {/* Szekció fejléc */}
             <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 16px', borderRadius: '100px', background: 'color-mix(in srgb, var(--public-primary) 10%, transparent)', marginBottom: '12px' }}>
-                <Sparkles style={{ width: '14px', height: '14px', color: 'var(--public-primary)' }} />
-                <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--public-primary)' }}>Közösségünk számokban</span>
+                <Sparkles style={{ width: '14px', height: '14px', color: 'var(--public-primary-on-surface)' }} />
+                <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--public-primary-on-surface)' }}>Közösségünk számokban</span>
               </div>
             </div>
 
@@ -93,7 +86,7 @@ export default async function CongregationHomePage({
                   transition: 'transform 0.3s, box-shadow 0.3s',
                 }}>
                   <div style={{ width: '52px', height: '52px', borderRadius: '16px', margin: '0 auto 14px',
-                    background: 'linear-gradient(135deg, var(--public-accent), color-mix(in srgb, var(--public-accent) 70%, var(--public-primary)))',
+                    background: 'linear-gradient(135deg, var(--public-accent-strong), color-mix(in srgb, var(--public-accent-strong) 70%, var(--public-primary)))',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 20px -6px var(--public-accent)' }}>
                     <UserCheck style={{ width: '24px', height: '24px', color: '#fff' }} />
                   </div>
@@ -122,6 +115,13 @@ export default async function CongregationHomePage({
         </section>
       )}
 
+      {site.show_age_distribution && stats.ageDistribution && (
+        <PublicAgeDistribution
+          distribution={stats.ageDistribution}
+          themeKey={site.theme.preset_key}
+        />
+      )}
+
       {/* Napi ige */}
       <PublicVerseBlock />
 
@@ -146,7 +146,7 @@ export default async function CongregationHomePage({
             >
               <Sparkles
                 className="w-12 h-12 mx-auto mb-4 opacity-50"
-                style={{ color: 'var(--public-accent)' }}
+                style={{ color: 'var(--public-accent-on-surface)' }}
               />
               <p className="text-lg italic mb-2">Hamarosan érkeznek az első hírek.</p>
               <p className="text-sm">Nézz vissza később!</p>
@@ -158,7 +158,11 @@ export default async function CongregationHomePage({
                   key={post.id}
                   className={`public-anim-fade-up public-delay-${(idx + 1) * 100}`}
                 >
-                  <PublicPostCard post={post} slug={site.slug} />
+                  <PublicPostCard
+                    post={post}
+                    slug={site.slug}
+                    themeKey={site.theme.preset_key}
+                  />
                 </div>
               ))}
             </div>
@@ -170,7 +174,7 @@ export default async function CongregationHomePage({
       <PublicServiceTimes site={site} />
 
       {/* Rólunk teaser */}
-      {site.about_html && (
+      {safeAboutHtml && (
         <section
           className="public-section relative overflow-hidden"
           style={{
@@ -196,7 +200,7 @@ export default async function CongregationHomePage({
               <h2 className="text-white mb-6 drop-shadow-lg">Ismerj meg minket közelebbről</h2>
               <div
                 className="public-prose mx-auto text-white/90 [&_*]:text-white/90 [&_a]:text-white [&_blockquote]:border-white/40"
-                dangerouslySetInnerHTML={{ __html: site.about_html }}
+                dangerouslySetInnerHTML={{ __html: safeAboutHtml }}
               />
               <Link
                 href={`/gy/${site.slug}/rolunk`}
@@ -225,11 +229,16 @@ export default async function CongregationHomePage({
                 {/* Cover */}
                 <div className="w-full max-w-[220px] mx-auto lg:max-w-none">
                   {latestIssue.cover_image_url ? (
-                    <img
-                      src={latestIssue.cover_image_url}
-                      alt={latestIssue.issue_number}
-                      className="w-full aspect-[3/4] object-cover rounded-xl shadow-2xl"
-                    />
+                    <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl shadow-2xl">
+                      <Image
+                        src={latestIssue.cover_image_url}
+                        alt={`${latestIssue.issue_number} lapszám borítója`}
+                        fill
+                        sizes="220px"
+                        unoptimized={shouldBypassPublicImageOptimization(latestIssue.cover_image_url)}
+                        className="object-cover"
+                      />
+                    </div>
                   ) : (
                     <div
                       className="w-full aspect-[3/4] rounded-xl flex items-center justify-center shadow-2xl"
@@ -245,7 +254,7 @@ export default async function CongregationHomePage({
                 <div className="text-center lg:text-left">
                   <div
                     className="text-xs sm:text-sm font-semibold uppercase tracking-widest mb-3"
-                    style={{ color: 'var(--public-accent)' }}
+                    style={{ color: 'var(--public-accent-on-surface)' }}
                   >
                     Gyülekezeti újság · {latestIssue.issue_number}
                   </div>
@@ -261,15 +270,25 @@ export default async function CongregationHomePage({
                     </p>
                   )}
                   <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-                    <a
-                      href={latestIssue.pdf_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="public-btn public-btn-primary"
-                    >
-                      <Newspaper className="w-4 h-4" />
-                      Lapszám olvasása
-                    </a>
+                    {latestIssue.pdf_url ? (
+                      <a
+                        href={latestIssue.pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="public-btn public-btn-primary"
+                      >
+                        <Newspaper className="w-4 h-4" />
+                        Lapszám olvasása
+                      </a>
+                    ) : (
+                      <span
+                        aria-disabled="true"
+                        className="public-btn public-btn-outline cursor-not-allowed opacity-70"
+                      >
+                        <Newspaper className="w-4 h-4" />
+                        A PDF nem elérhető
+                      </span>
+                    )}
                     <Link
                       href={`/gy/${site.slug}/magazin`}
                       className="public-btn public-btn-outline"

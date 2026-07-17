@@ -33,7 +33,7 @@ export function PublicVerseBlock() {
         <figure className="max-w-3xl mx-auto text-center public-anim-fade-up">
           <Quote
             className="w-10 h-10 mx-auto mb-6 opacity-40"
-            style={{ color: 'var(--public-accent)' }}
+            style={{ color: 'var(--public-accent-on-surface)' }}
             strokeWidth={1.5}
           />
           <blockquote
@@ -44,7 +44,7 @@ export function PublicVerseBlock() {
           </blockquote>
           <figcaption
             className="mt-6 text-sm font-semibold tracking-wider uppercase"
-            style={{ color: 'var(--public-accent)' }}
+            style={{ color: 'var(--public-accent-on-surface)' }}
           >
             — {verse.ref} —
           </figcaption>

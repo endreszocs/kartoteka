@@ -140,23 +140,15 @@ export function OAuthCompleteForm({ defaultName }: OAuthCompleteFormProps) {
     setLoading(true)
 
     try {
-      // Opcionális igazolás feltöltése a privát bucketbe (ha van)
-      let documentPath: string | undefined
+      // A privát bucketbe kizárólag a szerver action tölthet. A kliens csak a
+      // nyers fájlt adja át; a szerver validálja és állítja elő az útvonalat.
+      let documentData: FormData | undefined
       if (file) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'igazolas'
-        const path = `requests/${crypto.randomUUID()}/${safeName}`
-        const { error: upErr } = await supabase.storage
-          .from('access-request-docs')
-          .upload(path, file, { contentType: file.type, upsert: false })
-        if (upErr) {
-          setFileError('A dokumentum feltöltése nem sikerült: ' + upErr.message)
-          setLoading(false)
-          return
-        }
-        documentPath = path
+        documentData = new FormData()
+        documentData.set('document', file)
       }
 
-      const result = await completeOAuthProfile({ ...data, documentPath })
+      const result = await completeOAuthProfile(data, documentData)
       if (result.error) {
         setServerError(result.error)
       } else if (result.success) {
