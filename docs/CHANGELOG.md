@@ -23,6 +23,41 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — Tagnyilvántartás: a lakcímekben megjelenik a település, és a „Házhoz irányítás" újra működik
+<!-- key: 2026-07-17-tagnyilv-pr1-telepules -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, rendszergazda -->
+<!-- version: web v0.9.89 -->
+
+### 🐛 Tagnyilvántartás — lakcím / település
+
+- **A tagok lakcímében mostantól a település is megjelenik** — eddig sok
+  (importált) tagnál csak az utca és a házszám látszott. A hiba oka az volt,
+  hogy az importáló a magyar, ékezetes településneveket másképp írta át, mint
+  ahogy az adatbázis kereste őket, ezért a település-kapcsolat üresen maradt.
+  Ez javítva lett, és a rendszer mostantól akkor is kiírja a települést, ha egy
+  régebbi importból hiányzik: ilyenkor az utcából következteti ki.
+- **A személyi kartonon az „Útvonal" gomb újra jó helyre visz** — a
+  térkép-alkalmazás mostantól a teljes címet kapja meg (településsel és
+  ország-megjelöléssel), így nem a világ másik felén lévő azonos nevű utcába
+  irányít.
+- **Az importáló helység-egyeztetése mostantól a TELJES fájlt átnézi** — eddig
+  csak az első néhány sor településeit ajánlotta fel egyeztetésre, így a
+  később előforduló falvak kimaradtak.
+- **Excel-export, tagsági igazolás, születésnapi lista, választói névjegyzék:**
+  mindenhol a helyes, teljes lakcím jelenik meg.
+
+### 🔧 Rendszergazdáknak (futtatandó SQL-ek)
+
+- `migration-docs/sql/2026-07-17-pr1-import-helyseg-fallback.sql` — az
+  import-RPC védőhálója: ha a helység-egyeztetés bármiért kihagyna egy
+  települést, a rendszer az utcából pótolja.
+- `migration-docs/sql/2026-07-17-pr1-szemely-c-helysegid-backfill.sql` — a
+  KORÁBBAN importált tagok hiányzó településeinek egyszeri pótlása (előbb az
+  ellenőrző lekérdezést futtasd, aztán az UPDATE-et!).
+
+---
+
 ## [2026-07-17] — Kiadási kísérőív: jogcím-nevek, forrás-választó (kassza/bank), aláírók a lap alján + minden PDF-mentés megjavult
 <!-- key: 2026-07-17-penzugy-f3-kiseroiv -->
 <!-- category: bugfix -->

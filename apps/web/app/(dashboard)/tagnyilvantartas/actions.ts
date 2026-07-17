@@ -10,6 +10,7 @@ import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPersonPaymentsCompat } from '@/lib/finance/payment-compat'
 import { computeJarulekForMemberYear, type JarulekDiscountRule, type JarulekExemption, type JarulekYearSetting } from '@/lib/finance/jarulek-calculation'
 import { normalizeDebtCalcMode } from '@/lib/constants/finance'
+import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 
 // ── Segéd: congregation_id a profilból ───────────────────────
 
@@ -104,7 +105,9 @@ export async function getMembers(): Promise<{
     // FONTOS: a c_tombhaz/c_lepcsohaz/c_emelet/c_ajto MARAD — a szerkesztő űrlap
     // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
     // néma adatvesztést okozna.
-    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
+    // 2026-07-17 (PR-1): az adrstreet-embed a település-fallbackhoz az utca
+    // adrlocality-ját is lehozza (ha a c_helysegid üres — import-hiba öröksége).
+    supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
     // 2026-07-17 (F1-4): a stornózott befizetés nem számít fizetettnek (bit-azonos a Tartozásokkal).
     supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null').or('stornozott.eq.false,stornozott.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
@@ -276,7 +279,9 @@ export async function getMembers(): Promise<{
   // 2026-06-30: a select most explicit oszloplista (nem '*'), ezért a pontos
   // shape nem fed át a MemberRow-val — unknown-on át castolunk (a kihagyott
   // mezőket ez az út úgysem olvassa). A MemberRow típust SZÁNDÉKOSAN nem szűkítjük.
-  const members: EnrichedMember[] = ((membersRes.data || []) as unknown as MemberRow[]).map(m => {
+  // 2026-07-17 (PR-1): település-fallback az utca-láncból (c_helysegid-hiány pótlása).
+  const members: EnrichedMember[] = ((membersRes.data || []) as unknown as MemberRow[]).map(raw => {
+    const m: MemberRow = applyStreetLocalityFallback(raw)
     const familyId = personToFamilyMap[m.id] ?? null
     const jarulek = computeJarulekForMemberYear({
       member: {
@@ -836,7 +841,7 @@ export async function searchParent(query: string, isMale: boolean | null = null)
   if (!congregationId) return []
   const parts = query.trim().split(/\s+/)
   let q = supabase.from('szemely')
-    .select('id, csaladnev, k_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+    .select('id, csaladnev, k_nev, cnp, sz_datum, c_szam, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
     .eq('congregation_id', congregationId).eq('isvisible', true)
   // Nem szűrés: null = mindkét nem (gyerek kereséshez)
   if (isMale !== null) q = q.eq('ferfi', isMale)
@@ -848,7 +853,9 @@ export async function searchParent(query: string, isMale: boolean | null = null)
   }
 
   const { data } = await q.limit(5)
-  return data || []
+  // 2026-07-17 (PR-1): település-fallback az utca-láncból a találat-listában is.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data || []) as any[]).map((row) => applyStreetLocalityFallback(row))
 }
 
 // ── Megjegyzés-mezők a személyi kartonon (2026-06-10) ────────
@@ -933,7 +940,7 @@ export async function getMemberCertificateData(szemelyId: number) {
 
   const [memberRes, keresztRes, konfirmRes, congRes] = await Promise.all([
     supabase.from('szemely')
-      .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, apjaneve, anyjaneve, c_szam, meghalt, lakhely:adrlocality!c_helysegid(name), utca:adrstreet!c_utcaid(name), szulhely:adrlocality!sz_helyid(name)')
+      .select('id, csaladnev, k_nev, szcs_nev, ferfi, sz_datum, apjaneve, anyjaneve, c_szam, meghalt, lakhely:adrlocality!c_helysegid(name), utca:adrstreet!c_utcaid(name, adrlocality!localityid(name)), szulhely:adrlocality!sz_helyid(name)')
       .eq('id', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
     supabase.from('keresztseg').select('datum, hely:adrlocality!helyid(name)').eq('id_szemely', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
     supabase.from('konfirmalas').select('datum, hely:adrlocality!helyid(name)').eq('id_szemely', szemelyId).eq('congregation_id', congregationId).maybeSingle(),
@@ -945,13 +952,18 @@ export async function getMemberCertificateData(szemelyId: number) {
     const row = Array.isArray(v) ? v[0] || null : v
     return row?.name || null
   }
+  type UtcaObj = { name: string | null; adrlocality?: NameRel }
   type MemberRow = {
     id: number; csaladnev: string | null; k_nev: string | null; szcs_nev: string | null
     ferfi: boolean | null; sz_datum: string | null; apjaneve: string | null; anyjaneve: string | null
-    c_szam: string | null; meghalt: boolean | null; lakhely: NameRel; utca: NameRel; szulhely: NameRel
+    c_szam: string | null; meghalt: boolean | null; lakhely: NameRel; utca: UtcaObj | UtcaObj[] | null; szulhely: NameRel
   }
   const m = memberRes.data as MemberRow | null
   if (!m) return null
+  // 2026-07-17 (PR-1): ha a lakhely (c_helysegid) üres, a település az utca
+  // beágyazott adrlocality-jából pótlódik.
+  const utcaObj = Array.isArray(m.utca) ? m.utca[0] || null : m.utca
+  const utcaTelepules = one(utcaObj?.adrlocality ?? null)
 
   const cong = congRes.data as { name: string | null; nev_hu: string | null; cim: string | null } | null
   const kereszt = keresztRes.data as { datum: string | null; hely: NameRel } | null
@@ -970,7 +982,7 @@ export async function getMemberCertificateData(szemelyId: number) {
       apjaneve: m.apjaneve,
       anyjaneve: m.anyjaneve,
       meghalt: !!m.meghalt,
-      lakcim: [one(m.lakhely), one(m.utca), m.c_szam].filter(Boolean).join(', ') || null,
+      lakcim: [one(m.lakhely) ?? utcaTelepules, utcaObj?.name || null, m.c_szam].filter(Boolean).join(', ') || null,
     },
     keresztseg: kereszt ? { datum: kereszt.datum, hely: one(kereszt.hely) } : null,
     konfirmacio: konfirm ? { datum: konfirm.datum, hely: one(konfirm.hely) } : null,

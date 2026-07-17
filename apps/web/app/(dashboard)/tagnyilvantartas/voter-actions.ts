@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { getVisibleDistrictName, getVisibleDistrictNameMap } from '@/lib/members/district-visibility'
+import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { logAuditEvent } from '@/lib/audit/log'
 
 /**
@@ -43,7 +44,9 @@ export async function getVoters(): Promise<VoterRow[]> {
   const prevYear = currentYear - 1
 
   const [szemelyRes, konfirmRes, csaladRes, gyerekRes, jarulekRes, bealitasRes, districtState] = await Promise.all([
-    supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+    // 2026-07-17 (PR-1): az adrstreet-embed a település-fallbackhoz az utca
+    // adrlocality-ját is lehozza (c_helysegid-hiány pótlása).
+    supabase.from('szemely').select('id, csaladnev, k_nev, ferfi, sz_datum, foglalkozas, c_szam, voter_eligible, voter_manual_override, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
       .eq('congregation_id', congId).eq('isvisible', true).eq('meghalt', false).order('csaladnev'),
     supabase.from('konfirmalas').select('id_szemely').eq('congregation_id', congId),
     // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas + haztartas_tag-ból
@@ -58,7 +61,8 @@ export async function getVoters(): Promise<VoterRow[]> {
     getVisibleDistrictNameMap(supabase, congId),
   ])
 
-  const szemelyek = (szemelyRes.data || []) as unknown as { id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; voter_eligible: boolean | null; voter_manual_override: number | null; adrlocality: { name: string } | null; adrstreet: { name: string } | null }[]
+  // 2026-07-17 (PR-1): település-fallback az utca-láncból (c_helysegid-hiány pótlása).
+  const szemelyek = ((szemelyRes.data || []) as unknown as Array<{ id: number; csaladnev: string; k_nev: string; ferfi: boolean; sz_datum: string | null; foglalkozas: string | null; c_szam: string | null; voter_eligible: boolean | null; voter_manual_override: number | null; adrlocality: { name: string } | null; adrstreet: ({ name: string; adrlocality?: { name: string } | { name: string }[] | null }) | null }>).map((row) => applyStreetLocalityFallback(row))
   const konfirmaltIds = new Set((konfirmRes.data || []).map((k: { id_szemely: number }) => k.id_szemely))
   // 2026-06-01 (hibrid család-modell Fázis 2): a haztartas-ot átkonvertáljuk
   // a régi csalad-szerkezetbe (id, id_csoport, id_ferfi, id_no) — backward-kompat.

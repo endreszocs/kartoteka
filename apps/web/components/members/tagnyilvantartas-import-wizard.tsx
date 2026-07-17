@@ -35,6 +35,8 @@ import {
   type ImportProfile,
 } from '@/lib/import/import-profiles'
 import { parseAndPreview } from '@/lib/import/batch-import-actions'
+import { normalizeNameClient } from '@/lib/import/normalize'
+import { scanMemberLocalitiesAction } from '@/lib/import/member-locality-scan-action'
 import { executeFamilyHeadImport } from '@/lib/import/family-head-import-actions'
 import { executeFamiliesFromExistingPersonsImport } from '@/lib/import/families-from-persons-import-actions'
 import { countOpenCrossMatchesForCongregation } from '@/lib/members/cross-congregation-actions'
@@ -262,6 +264,10 @@ export function TagnyilvantartasImportWizard({
   const [resolvedLocalityMap, setResolvedLocalityMap] = useState<LocalityResolutionMap>({})
   const [resolvedPostalcodes, setResolvedPostalcodes] = useState<StreetPostalcodeMap>({})
   const [importResult, setImportResult] = useState<ResultData | null>(null)
+  // 2026-07-17 (PR-1): a TELJES fájlból szkennelt helység-lista — a sample-alapú
+  // (első 5 soros) lista helyett, hogy a későbbi sorok települései se maradjanak ki.
+  const [scannedLocalityValues, setScannedLocalityValues] = useState<string[] | null>(null)
+  const [isScanningLocalities, setIsScanningLocalities] = useState(false)
 
   const [isParsing, startParsing] = useTransition()
   const [isImporting, startImporting] = useTransition()
@@ -274,6 +280,7 @@ export function TagnyilvantartasImportWizard({
       setFile(null)
       return
     }
+    setScannedLocalityValues(null)
     picked
       .arrayBuffer()
       .then((buf) =>
@@ -302,6 +309,7 @@ export function TagnyilvantartasImportWizard({
     setResolvedLocalityMap({})
     setResolvedPostalcodes({})
     setImportResult(null)
+    setScannedLocalityValues(null)
   }, [])
 
   // ─── Parse trigger (Tovább gomb a file-upload step-en) ──────────
@@ -360,6 +368,7 @@ export function TagnyilvantartasImportWizard({
     if (next) {
       setProfile(next)
       setMappingOverrides({}) // új auto-mapping a column-mapping-step-ben
+      setScannedLocalityValues(null) // a helység-oszlop változhatott → új szken kell
     }
   }, [])
 
@@ -367,6 +376,7 @@ export function TagnyilvantartasImportWizard({
   const handleOverrideChange = useCallback(
     (excelHeader: string, dbColumn: string | null) => {
       setMappingOverrides((prev) => ({ ...prev, [excelHeader]: dbColumn }))
+      setScannedLocalityValues(null) // a helység-oszlop átmappolása érvényteleníti a szkent
     },
     [],
   )
@@ -398,6 +408,10 @@ export function TagnyilvantartasImportWizard({
 
   const uniqueLocalityInputs = useMemo<string[]>(() => {
     if (!activeSheet || !helysegHeader) return []
+    // 2026-07-17 (PR-1): elsődlegesen a TELJES fájlból szkennelt lista — a
+    // sampleRows csak az első 5 sort tartalmazza, ami a helység-egyeztetést
+    // csonkává tette (a 6.+ sor települései kimaradtak → c_helysegid NULL).
+    if (scannedLocalityValues !== null) return scannedLocalityValues
     const set = new Set<string>()
     for (const row of activeSheet.sampleRows as Array<Record<string, string | number | null>>) {
       const val = row[helysegHeader]
@@ -406,7 +420,7 @@ export function TagnyilvantartasImportWizard({
       }
     }
     return Array.from(set)
-  }, [activeSheet, helysegHeader])
+  }, [activeSheet, helysegHeader, scannedLocalityValues])
 
   // ─── Becsült importálható / kihagyott ────────────────────────────
   const counts = useMemo(() => {
@@ -424,6 +438,58 @@ export function TagnyilvantartasImportWizard({
     ? Math.round((counts.importable / Math.max(activeSheet.sampleRows.length, 1)) * activeSheet.rowCount)
     : 0
   const estimatedSkipped = activeSheet ? activeSheet.rowCount - estimatedImportable : 0
+
+  // ─── Mapping → Helységek átmenet: TELJES-fájl helység-szken ──────
+  // 2026-07-17 (PR-1): a helység-egyeztető lépés eddig csak az első 5 mintasor
+  // településeit látta; itt a teljes fájlt szerver-oldalon átszkenneljük
+  // (minta: registry-locality-scan-action). Hiba esetén a régi, sample-alapú
+  // lista marad — hangos figyelmeztetéssel, nem némán.
+  const handleMappingContinue = useCallback(() => {
+    if (!file || !activeSheet) return
+    if (!helysegHeader) {
+      setStage('preview')
+      return
+    }
+    if (scannedLocalityValues !== null) {
+      setStage(scannedLocalityValues.length > 0 ? 'locality' : 'preview')
+      return
+    }
+    if (isScanningLocalities) return
+    setIsScanningLocalities(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('sheetName', activeSheet.sheetName)
+    fd.append('profileKey', profile.key)
+    fd.append('mapping', JSON.stringify(effectiveMapping))
+    scanMemberLocalitiesAction(fd)
+      .then((res) => {
+        if (res.error || !res.uniqueValues) {
+          toast.warning(
+            `A teljes fájl helység-szkennelése nem sikerült (${res.error || 'ismeretlen hiba'}) — csak a mintasorok helységei kerülnek egyeztetésre.`,
+          )
+          setStage(uniqueLocalityInputs.length > 0 ? 'locality' : 'preview')
+          return
+        }
+        setScannedLocalityValues(res.uniqueValues)
+        setStage(res.uniqueValues.length > 0 ? 'locality' : 'preview')
+      })
+      .catch(() => {
+        toast.warning(
+          'A teljes fájl helység-szkennelése megszakadt — csak a mintasorok helységei kerülnek egyeztetésre.',
+        )
+        setStage(uniqueLocalityInputs.length > 0 ? 'locality' : 'preview')
+      })
+      .finally(() => setIsScanningLocalities(false))
+  }, [
+    file,
+    activeSheet,
+    helysegHeader,
+    scannedLocalityValues,
+    isScanningLocalities,
+    profile.key,
+    effectiveMapping,
+    uniqueLocalityInputs,
+  ])
 
   // ─── Import indítás ──────────────────────────────────────────────
   const handleConfirmImport = useCallback(() => {
@@ -448,10 +514,14 @@ export function TagnyilvantartasImportWizard({
         formData.append('targetCongregationId', selectedCongId)
       }
 
-      // Helység-egyeztetés (3. lépés) — JSONB map átadása az import RPC-nek
+      // Helység-egyeztetés (3. lépés) — JSONB map átadása az import RPC-nek.
+      // 2026-07-17 (PR-1, település-P0 GYÖKÉROK-FIX): a kulcsot a SQL
+      // normalize_name-mel BIT-AZONOS normalizeNameClient képzi (unaccent!).
+      // A korábbi `toLowerCase().trim()` az ékezeteket megtartotta, ezért az
+      // RPC unaccent-es lookupja SOHA nem talált → c_helysegid NULL maradt.
       const localityMapForRpc: Record<string, number> = {}
       for (const [input, resolution] of Object.entries(resolvedLocalityMap)) {
-        const normKey = input.toLowerCase().trim().replace(/\s+/g, ' ')
+        const normKey = normalizeNameClient(input)
         if (resolution.kind === 'auto' || resolution.kind === 'manual_pick') {
           localityMapForRpc[normKey] = resolution.locality.locality_id
         } else if (resolution.kind === 'new_locality') {
@@ -759,14 +829,7 @@ export function TagnyilvantartasImportWizard({
           selectedProfileKey={profile.key}
           onProfileChange={handleProfileChange}
           onBack={() => setStage('upload')}
-          onContinue={() => {
-            // Ha vannak helységek, megyünk a 3. step-re; egyébként ugorjuk át
-            if (uniqueLocalityInputs.length > 0) {
-              setStage('locality')
-            } else {
-              setStage('preview')
-            }
-          }}
+          onContinue={handleMappingContinue}
         />
       )}
 
