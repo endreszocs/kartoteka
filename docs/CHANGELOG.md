@@ -58,7 +58,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 <!-- key: 2026-07-17-penzugy-f1-tartozas-szamitas -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, konyvelo -->
-<!-- version: web v0.9.85 -->
+<!-- version: web v0.9.86 -->
 
 ### 🐛 Pénzügy — Tartozások és díj-beállítások
 
@@ -90,6 +90,35 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 - **A foglalkozás-alapú kedvezmény százaléka is a helyes irányban számol** (a % a levonandó
   kedvezmény, nem a fizetendő összeg) — egységesen a kor- és időszaki kedvezménnyel.
+
+---
+
+## [2026-07-17] — Megújult iktató: igazolás-kiállítás, iratcsomók, irat-befotózás
+<!-- key: 2026-07-17-iktato-f6-redesign -->
+<!-- category: feature -->
+<!-- targets: lelkesz -->
+<!-- version: web v0.9.85 -->
+
+### ✨ Új funkciók
+
+- **Igazolás és hivatalos levél kiállítása a nyilvántartásból.** Keresztelési,
+  konfirmációi, esketési és egyháztagsági igazolás (vagy szabad levél) készíthető
+  úgy, hogy a rendszer a kiválasztott személyek — akár házaspár — adatait
+  (születés, szülők, keresztelés, konfirmálás, házasságkötés) magától kitölti
+  az anyakönyvből.
+- **Magyar és román hivatalos fejléc** az egyházközség adataival (név, cím,
+  CIF, elérhetőségek, címer) — élő A4-előnézettel.
+- **„Kiállítás és iktatás" egy gombbal:** a dokumentum hivatalos iratszámot kap
+  és azonnal bekerül az iktatókönyvbe — ugyanaz a szám többé nem adható ki
+  kétszer. Iktatás nélküli nyomtatásra nem kerül iratszám a papírra.
+- **Iratcsomók:** az iktatott iratok dossziékba rendezhetők, a csomóról
+  leltár nyomtatható (egyben vagy ügykörök szerint csoportosítva); a lezárt
+  csomó tartalma nem módosítható a feloldásáig.
+- **Papíralapú iratok befotózása:** telefonnal fotózva vagy fájlból feltöltve
+  több oldal csatolható egy irathoz (biztonságos, privát tárolással), vagy
+  csak címmel-adatokkal jelezhető a papír-irat.
+- **Iktató-áttekintő** a lista fölött: iratok száma, bejövő/kimenő bontás,
+  elintézetlenek, havi eloszlás.
 
 ---
 

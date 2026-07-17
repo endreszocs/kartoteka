@@ -41,6 +41,8 @@ const CATEGORIES: HelpCategory[] = [
   { id: 'loose', label: 'Szálas iratok (B.)', Icon: FolderTree, short: '18 fő egység és alegységei' },
   { id: 'retention', label: 'Megőrzés (F.Á. vs É.Á.)', Icon: FolderArchive, short: 'Folyamatos és éves lezárás' },
   { id: 'electronic', label: 'Elektronikus anyagok (C.)', Icon: HardDrive, short: 'Digitális dokumentumok' },
+  // 2026-07-17 (F6): az app saját iktató-funkcióinak rövid útmutatója
+  { id: 'digital', label: 'Kartotéka-funkciók', Icon: FileText, short: 'Kiállítás, iratcsomók, befotózás' },
 ]
 
 export function IktatoHelp() {
@@ -105,6 +107,7 @@ export function IktatoHelp() {
             {active === 'loose' && <LooseContent />}
             {active === 'retention' && <RetentionContent />}
             {active === 'electronic' && <ElectronicContent />}
+            {active === 'digital' && <DigitalContent />}
           </div>
         </main>
       </div>
@@ -200,7 +203,7 @@ function GeneralContent() {
         <em>„gondoskodik a jegyzőkönyvek, aranykönyv, Historia Domus, szolgálati napló,
         egyházi anyakönyvek, családkönyvek, egyéb nyilvántartások előírások szerinti
         vezetéséről... Köteles a lelkészi iroda teendőit a szabályzatok értelmében
-        ellátni. Teljesíti az egyházi ügyvitel reá háruló feladatait."</em>
+        ellátni. Teljesíti az egyházi ügyvitel reá háruló feladatait.”</em>
       </p>
 
       <S>Ki vehet részt az adminisztrációban?</S>
@@ -288,8 +291,8 @@ function ArchivesContent() {
       <S>Iratok megsemmisítése</S>
       <p>
         <strong>Tilos iratokat megsemmisíteni</strong> vagy gondatlanság miatt veszni
-        hagyni. Még a tárgytalanná vált családkönyvi lapokat is megőrizzük („meghaltak"
-        és „eltávozottak" csoportban). A klenódiumok, textíliák, történeti értékű iratok
+        hagyni. Még a tárgytalanná vált családkönyvi lapokat is megőrizzük („meghaltak”
+        és „eltávozottak” csoportban). A klenódiumok, textíliák, történeti értékű iratok
         és könyvek selejtezése egyenesen <strong>tilos</strong>.
       </p>
 
@@ -316,13 +319,13 @@ function ArchivesContent() {
         <li>
           <strong>2024-től kezdődő iratanyag</strong> — az új, jelenleg érvényes
           ügykörjegyzék szerint (Igazgatótanács 66/2023. számú határozata alapján).
-          Részletes útmutató lásd „Kötetes anyag" és „Szálas iratok" kategóriák.
+          Részletes útmutató lásd „Kötetes anyag” és „Szálas iratok” kategóriák.
         </li>
         <li>
           <strong>Kötetes anyag</strong> — külön egységként kezeljük, mert a kötetek
           legtöbbje a fenti évköröket túlhaladja. A jelenleg használt köteteket a 2024-es
           ügykörjegyzék szerint, a korábbi köteteket kronologikusan vagy tematikusan
-          csoportosítva. Lehetőleg <strong>„lábra állítva"</strong> tároljuk.
+          csoportosítva. Lehetőleg <strong>„lábra állítva”</strong> tároljuk.
         </li>
       </ol>
 
@@ -357,7 +360,7 @@ function BasicsContent() {
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li>Az oldalon üresen maradt sorokat (az utolsó sor kivételével) áthúzzuk.</li>
-        <li>Az utolsó sorba beírjuk: <em>„Lezárva 202_. december 31-én."</em></li>
+        <li>Az utolsó sorba beírjuk: <em>„Lezárva 202_. december 31-én.”</em></li>
         <li>Aláírja a <strong>lelkipásztor és a (fő)gondnok</strong>.</li>
         <li>A következő év iktatását új oldalon kezdjük 1. sorszámmal.</li>
       </ul>
@@ -392,7 +395,7 @@ function BasicsContent() {
         rögzíteni. A PDF útmutató szerint <strong>a válaszirat ugyanazt az iktatószámot
         kapja</strong>, mint a megkeresés, és együtt kerülnek irattárba. Ha a megkeresés
         az egyházközségből indul, akkor a kimenő irat új sorszámot kap, és az iktatókönyv
-        9. rovatában rögzítjük: „lásd …" (a válaszlevél iktatószámával).
+        9. rovatában rögzítjük: „lásd …” (a válaszlevél iktatószámával).
       </p>
     </>
   )
@@ -438,10 +441,10 @@ function RegisterContent() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             <tr><td className="px-3 py-2 font-mono">1</td><td className="px-3 py-2 font-medium">Iktatószám</td><td className="px-3 py-2 text-slate-600">Évente új számozás (1-től). Pl. <C>2026/1</C>.</td></tr>
-            <tr><td className="px-3 py-2 font-mono">2</td><td className="px-3 py-2 font-medium">Beérkezett irat hivatalos száma + kelte</td><td className="px-3 py-2 text-slate-600">A küldő intézmény saját iktatószáma. Pl. „Esperesi 479/2023., 2023. ápr. 28."</td></tr>
+            <tr><td className="px-3 py-2 font-mono">2</td><td className="px-3 py-2 font-medium">Beérkezett irat hivatalos száma + kelte</td><td className="px-3 py-2 text-slate-600">A küldő intézmény saját iktatószáma. Pl. „Esperesi 479/2023., 2023. ápr. 28.”</td></tr>
             <tr><td className="px-3 py-2 font-mono">3</td><td className="px-3 py-2 font-medium">Beérkezés ideje</td><td className="px-3 py-2 text-slate-600">A felső sorba — amikor a mi hivatalunkba érkezett.</td></tr>
             <tr><td className="px-3 py-2 font-mono">4</td><td className="px-3 py-2 font-medium">Mellékletek száma</td><td className="px-3 py-2 text-slate-600">Ha melléklet nincs, üresen hagyjuk.</td></tr>
-            <tr><td className="px-3 py-2 font-mono">5</td><td className="px-3 py-2 font-medium">Küldő neve</td><td className="px-3 py-2 text-slate-600">Pl. „Dési Református Egyházmegye Esperesi Hivatala".</td></tr>
+            <tr><td className="px-3 py-2 font-mono">5</td><td className="px-3 py-2 font-medium">Küldő neve</td><td className="px-3 py-2 text-slate-600">Pl. „Dési Református Egyházmegye Esperesi Hivatala”.</td></tr>
             <tr>
               <td className="px-3 py-2 font-mono">6</td>
               <td className="px-3 py-2 font-medium">Az ügy rövid tartalma + válasz</td>
@@ -458,8 +461,8 @@ function RegisterContent() {
                 ha a választás megtörtént. Ha a következő évben történik, az évet is beírjuk.
               </td>
             </tr>
-            <tr><td className="px-3 py-2 font-mono">8</td><td className="px-3 py-2 font-medium">Irattári szám</td><td className="px-3 py-2 text-slate-600">Az ügykörjegyzék-pont száma (pl. „1.", „6/1.", „13/2."). Lásd Kötetes / Szálas iratok kategóriák.</td></tr>
-            <tr><td className="px-3 py-2 font-mono">9</td><td className="px-3 py-2 font-medium">Hivatkozás más iktatószámra</td><td className="px-3 py-2 text-slate-600">Különösen kimenő iratoknál. Pl. „lásd 36/2023" — a válaszlevél kapja a megkeresés iktatószámát.</td></tr>
+            <tr><td className="px-3 py-2 font-mono">8</td><td className="px-3 py-2 font-medium">Irattári szám</td><td className="px-3 py-2 text-slate-600">Az ügykörjegyzék-pont száma (pl. „1.”, „6/1.”, „13/2.”). Lásd Kötetes / Szálas iratok kategóriák.</td></tr>
+            <tr><td className="px-3 py-2 font-mono">9</td><td className="px-3 py-2 font-medium">Hivatkozás más iktatószámra</td><td className="px-3 py-2 text-slate-600">Különösen kimenő iratoknál. Pl. „lásd 36/2023” — a válaszlevél kapja a megkeresés iktatószámát.</td></tr>
           </tbody>
         </table>
       </div>
@@ -611,7 +614,7 @@ function BoundContent() {
       <Sub>Formai követelmények</Sub>
       <ul className="list-disc pl-5 space-y-1">
         <li>Sűrű sorokban írjuk (ne lehessen sorok közé beírni)</li>
-        <li>A „K. m. f." + aláírások nem kerülhetnek önmagukban új oldalra</li>
+        <li>A „K. m. f.” + aláírások nem kerülhetnek önmagukban új oldalra</li>
         <li>Sortávolság: szimpla. Bal margó: 2-2,5 cm. Jobb margó: 1-1,5 cm. Alsó-felső margó: 2,5-3 cm</li>
         <li>Sorkizárt rendezés, szükség esetén elválasztás</li>
       </ul>
@@ -637,7 +640,7 @@ function BoundContent() {
       <ul className="list-disc pl-5 space-y-1">
         <li>Nem-egyházközségi keresztelést sorszám nélkül vezetjük, és jelentjük a szülők lelkipásztori hivatalának.</li>
         <li>Az adatokat az eseményt követő <strong>5. napon belül</strong> be kell vezetni.</li>
-        <li>Az „állami anyakönyvi szám" rovatba a <em>Certificat de naştere</em> alján található számot írjuk.</li>
+        <li>Az „állami anyakönyvi szám” rovatba a <em>Certificat de naştere</em> alján található számot írjuk.</li>
         <li>A születési bizonyítvány előzetes bemutatása nélkül NEM keresztelünk.</li>
         <li>Beceneveket (Bözsi, Pityu, Baba) nem írunk be.</li>
         <li>A gyermek <strong>törvénytelen</strong>, ha szülei polgárilag nincsenek összeházasodva.</li>
@@ -654,7 +657,7 @@ function BoundContent() {
       <Sub>III/3. Esketési anyakönyv</Sub>
       <p>
         Az állami anyakönyvi szám a <em>Certificat de căsătorie</em> aljáról:{' '}
-        <em>„Căsătoria a fost trecută în registrul stării civile la nr. …"</em>
+        <em>„Căsătoria a fost trecută în registrul stării civile la nr. …”</em>
       </p>
       <Callout tone="amber">
         A polgári házasságkötést igazoló irat felmutatása nélkül <strong>NEM
@@ -662,7 +665,7 @@ function BoundContent() {
       </Callout>
       <Sub>III/4. Temetési anyakönyv</Sub>
       <ul className="list-disc pl-5 space-y-1">
-        <li>Az egyházközség birtokában lévő temetőbe temetésnél elkérjük a polgármesteri „<em>Adeverință</em>"-t — ennek számát (deces nr.) írjuk be az állami anyakönyvi szám rovatába.</li>
+        <li>Az egyházközség birtokában lévő temetőbe temetésnél elkérjük a polgármesteri „<em>Adeverință</em>”-t — ennek számát (deces nr.) írjuk be az állami anyakönyvi szám rovatába.</li>
         <li>Az Adeverința-t iktatjuk és a <strong>2-es iratgyűjtőbe</strong> tesszük (anyakönyvi levelezés).</li>
         <li>A halotti anyakönyvi kivonatot (Certificat de deces) — eredetiben vagy másolatban — NEM tároljuk.</li>
         <li>A halott születési időpontját a személyazonossági igazolványból vagy a CNP-ből írjuk ki.</li>
@@ -886,7 +889,7 @@ function LooseContent() {
       <S>9. Pénzügyi igazoló iratok — É.Á.</S>
       <p>
         Külön dossziéba: <strong>9/1.</strong> Pénztári (készpénz): kifizetési bizonylatok,
-        számlák, pénztárnapló („kasszakönyv"), kifizetést kísérő iratok.{' '}
+        számlák, pénztárnapló („kasszakönyv”), kifizetést kísérő iratok.{' '}
         <strong>9/2.</strong> Banki: átutalási szelvény, számla, számlakivonat, banknapló,
         megrendelőlap. Minden kiadási nyugta mellé csatolni kell a{' '}
         <strong>kiadási utalványt</strong> (lelkipásztor + (fő)gondnok aláírja).
@@ -1087,6 +1090,101 @@ function ElectronicContent() {
         Igazgatótanácsának <strong>66/2023. számú határozata</strong>. A 14. Egyházi
         Adminisztrációs útmutató a teljes, hivatalos szabályozást tartalmazza.
       </p>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 10. Kartotéka-funkciók (2026-07-17, F6) — az app saját iktató-eszközei
+// ─────────────────────────────────────────────────────────────────────────
+
+function DigitalContent() {
+  return (
+    <>
+      <p>
+        Az Iktató modul a hagyományos iktatókönyv-vezetésen túl három digitális
+        eszközt is ad: <strong>igazolás/levél-kiállítást automatikus iktatással</strong>,{' '}
+        <strong>iratcsomó-kezelést leltár-nyomtatással</strong> és az iratok{' '}
+        <strong>befotózását / csatolmányait</strong>.
+      </p>
+
+      <S>Igazolás / levél kiállítása — automatikus iktatással</S>
+      <p>
+        {'Az „Iktatott iratok" fül '}<Pill tone="teal">Igazolás / levél kiállítása</Pill>{' '}
+        gombja hivatalos iratot készít sablonból vagy szabad levélként:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          A <strong>személy-kereső</strong> a tagnyilvántartásból dolgozik — a kiválasztott
+          személy(ek) anyakönyvi adatai (keresztelés, konfirmálás, házasság) automatikusan
+          töltik a sablon-mezőket.
+        </li>
+        <li>
+          A <strong>hivatalos levélfej</strong> magyarul vagy románul készül a gyülekezet
+          beállított adataiból (név, cím, CIF, elérhetőségek, címer).
+        </li>
+        <li>
+          A <strong>{'„Kiállítás és iktatás"'}</strong> gomb kimenő iratként, a MAI kelttel,
+          az aktuális évi iktatókönyvbe iktatja a dokumentumot — a sorszámot a rendszer
+          adja, és a kiosztott iktatószám a nyomtatott iraton is megjelenik.
+        </li>
+        <li>
+          Iktatás <em>nélküli</em> nyomtatás is lehetséges, de a szabályzat szerint minden
+          kimenő iratot iktatni kell — az app erre figyelmeztet.
+        </li>
+      </ul>
+      <Callout tone="teal">
+        Ne feledd: a kinyomtatott iratot a lelkipásztor és a (fő)gondnok írja alá, az
+        aláírt <strong>másodpéldány</strong> pedig az irattárba kerül.
+      </Callout>
+
+      <S>Iratcsomók és leltár</S>
+      <p>
+        Az <Pill tone="violet">Iratcsomók</Pill> fülön évenként hozhatók létre csomók —
+        egy csomó egy <strong>fizikai dossziénak</strong> felel meg {'(pl. „Esperesi levelezés").'}
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          Az iratok a sor <strong>{'„Csomóba"'}</strong> gombjával vagy az Iratcsomók fülön
+          rendezhetők csomóba; a besorolás az iratlistában címkeként látszik.
+        </li>
+        <li>
+          A megtelt dosszié csomója <strong>lezárható</strong> — lezárt csomóba nem kerülhet
+          új irat, amíg fel nem oldod. Törölni csak üres csomót lehet.
+        </li>
+        <li>
+          A <strong>{'„Leltár nyomtatása"'}</strong> A4-es iratjegyzéket készít a csomó tartalmáról
+          (egyben vagy ügykör szerint csoportosítva) — ez felel meg a lezárási eljárásban
+          előírt, dosszié elejére teendő <em>iratjegyzéknek</em>.
+        </li>
+      </ul>
+
+      <S>Befotózás, csatolmányok, papíralapú jelzés</S>
+      <p>
+        Minden iktatott irathoz csatolható digitális másolat a sor{' '}
+        <strong>gemkapocs</strong> ikonjával (a szám a csatolmányok darabszáma) vagy a
+        szerkesztő-ablak alján:
+      </p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>
+          <strong>Befotózás</strong>: telefonon a hátsó kamera nyílik — az irat oldalai
+          egyenként fotózhatók be.
+        </li>
+        <li>
+          <strong>Fájl feltöltése</strong>: JPEG, PNG, WebP kép vagy PDF, fájlonként
+          legfeljebb 10 MB. A fájlok privát tárhelyre kerülnek, megnyitásuk időben
+          korlátozott, védett linkkel történik.
+        </li>
+        <li>
+          <strong>{'„Csak metaadat"'}</strong>: ha az irat csak papíron létezik, fájl nélkül is
+          rögzíthető a léte (megnevezéssel, megjegyzéssel) — így a nyilvántartás teljes marad.
+        </li>
+      </ul>
+      <Callout tone="amber">
+        A digitális másolat <strong>NEM helyettesíti</strong> az eredeti papír irat
+        előírás szerinti irattári megőrzését — a befotózás a gyors visszakeresést és a
+        biztonsági másolatot szolgálja.
+      </Callout>
     </>
   )
 }

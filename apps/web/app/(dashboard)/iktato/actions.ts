@@ -13,10 +13,33 @@ async function getCongId() {
 export async function getFilingEntries(year: number, direction: string): Promise<FilingEntry[]> {
   const { supabase, congId } = await getCongId()
   if (!congId) return []
-  let query = supabase.from('iktato').select('*').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
-  if (direction === 'incoming' || direction === 'outgoing') query = query.eq('direction', direction)
-  const { data } = await query.order('sequence_number', { ascending: false })
-  return (data || []) as unknown as FilingEntry[]
+  // 2026-07-17 (F6): a PostgREST alapértelmezetten legfeljebb 1000 sort ad
+  // vissza kérésenként — egy 1000+ iratos évnél a lista, a keresés ÉS az
+  // iktatókönyv-nyomtatás is némán csonkulna (K6 óta mindig direction='all'
+  // töltődik, az irány-szűrés kliens-oldali). Ezért 1000-es range-oldalakban
+  // lapozunk, amíg rövid oldal nem érkezik (F4-minta: munkanaplo/actions.ts
+  // getWorklogs). A másodlagos .order('id') a determinisztikus lapozáshoz
+  // kell: nélküle az oldalhatáron sor maradhatna ki vagy duplázódhatna.
+  const PAGE_SIZE = 1000
+  const all: FilingEntry[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    let query = supabase.from('iktato').select('*').eq('congregation_id', congId).eq('year', year).eq('deleted', false)
+    if (direction === 'incoming' || direction === 'outgoing') query = query.eq('direction', direction)
+    const { data, error } = await query
+      .order('sequence_number', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) {
+      // A meglévő kontraktus szerint hiba esetén üres lista megy vissza —
+      // részleges (csonka) listát viszont NEM adunk, az lenne a néma csonkulás.
+      console.warn('[getFilingEntries] lekérdezés hiba:', error.message)
+      return []
+    }
+    const page = (data || []) as unknown as FilingEntry[]
+    all.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return all
 }
 
 /**
@@ -92,6 +115,13 @@ export async function saveFilingEntry(data: FilingEntryInput) {
     record.sequence_number = nextSeq as number
     const { error } = await supabase.from('iktato').insert([record])
     if (error) return { error: `Hiba: ${error.message}` }
+    revalidatePath('/iktato')
+    // 2026-07-17 (F6 review): az insert-ág visszaadja a ténylegesen kiosztott
+    // sorszámot — a kiállító dialógus (certificate-issue-dialog) ebből képzi
+    // az iratszámot. A korábbi (tárgy + kelt) alapú visszakeresés párhuzamos
+    // iktatásnál MÁSIK irat számát találhatta meg. Az update-ág és a többi
+    // hívó (filing-main) csak a success/error mezőt nézi — őket nem érinti.
+    return { success: true, year, sequenceNumber: nextSeq as number }
   }
   revalidatePath('/iktato')
   return { success: true }
