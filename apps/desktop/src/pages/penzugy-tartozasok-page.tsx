@@ -73,8 +73,11 @@ export function PenzugyTartozasokPage() {
 
       // Egyházfenntartási (101.01) befizetések szűrése a kategória-térképpel,
       // a motor `JarulekPaymentLike` alakjára képezve (mint a web).
+      // 2026-07-17 (F1-4, web-azonos): a stornózott befizetés nem számít fizetettnek —
+      // a szűrés ITT történik (a közös getLocalBefizetesek-ben NEM, mert a tranzakció-
+      // listák a stornót szándékosan megjelenítik).
       const maintenancePayments: JarulekPaymentLike[] = befizetesek
-        .filter((b) => (bevCelMap[b.id_befizetescel] || '').startsWith('101.01'))
+        .filter((b) => !b.stornozott && (bevCelMap[b.id_befizetescel] || '').startsWith('101.01'))
         .map((b) => ({
           id_szemely: b.id_szemely ?? null,
           id_csalad: b.id_csalad ?? null,

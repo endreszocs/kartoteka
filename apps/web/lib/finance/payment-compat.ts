@@ -17,6 +17,9 @@ export interface PaymentDetailsRow {
   iratszam?: string | null
   nyugtaszam?: string | null
   bizonylatszam?: string | null
+  /** 2026-07-17 (F1-4): a hátralék-bontás kiszűri a stornót; a régi séma-fallback
+   *  variánsok nem kérik le → undefined = nem stornózott. */
+  stornozott?: boolean | null
   befizetescel?: PaymentGoalRef
   befizetescelkod?: string | null
 }
@@ -103,20 +106,23 @@ export async function fetchPersonPaymentsCompat(
   supabase: SupabaseClient,
   personId: number,
 ): Promise<PaymentDetailsRow[]> {
+  // 2026-07-17 (F1-1): az `id_szamadasicel`-es variáns az ELSŐ — a szamadasicel-nek
+  // nincs `kod` oszlopa az éles sémában, a kod-os variánsok csak történelmi
+  // fallbackként maradnak (régi sémák), így nem égetünk el egy bukó kört minden híváskor.
   const rows = await fetchCompatRows<PaymentDetailsRow & { befizetescel?: PaymentGoalRef | PaymentGoalRef[] }>([
     () =>
       supabase
         .from('befizetes')
-        .select('id, datum, osszeg, fizetettev, nyugta, iratszam, befizetescel(nev, szamadasicel(kod))')
+        .select(
+          'id, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+        )
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
         .order('datum', { ascending: false }),
     () =>
       supabase
         .from('befizetes')
-        .select(
-          'id, datum, osszeg, fizetettev, nyugta, iratszam, befizetescel(nev, id_szamadasicel, szamadasicel(id))',
-        )
+        .select('id, datum, osszeg, fizetettev, nyugta, iratszam, stornozott, befizetescel(nev, szamadasicel(kod))')
         .eq('id_szemely', personId)
         .or('deleted.eq.false,deleted.is.null')
         .order('datum', { ascending: false }),
@@ -165,11 +171,12 @@ export async function fetchFamilyPaymentsCompat(
     szemely?: NameRef | NameRef[]
     befizetescel?: PaymentGoalRef | PaymentGoalRef[]
   }>([
+    // 2026-07-17 (F1-1): id_szamadasicel-es variáns először (lásd fetchPersonPaymentsCompat).
     () =>
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -179,7 +186,7 @@ export async function fetchFamilyPaymentsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .eq('id_csalad', familyId)
         .or('deleted.eq.false,deleted.is.null')
@@ -229,11 +236,12 @@ export async function fetchPaymentsByMemberIdsCompat(
     szemely?: NameRef | NameRef[]
     befizetescel?: PaymentGoalRef | PaymentGoalRef[]
   }>([
+    // 2026-07-17 (F1-1): id_szamadasicel-es variáns először (lásd fetchPersonPaymentsCompat).
     () =>
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
+          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')
@@ -243,7 +251,7 @@ export async function fetchPaymentsByMemberIdsCompat(
       supabase
         .from('befizetes')
         .select(
-          'id, osszeg, datum, fizetettev, nyugta, iratszam, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, id_szamadasicel, szamadasicel(id))',
+          'id, osszeg, datum, fizetettev, nyugta, iratszam, stornozott, forrasa, szemely:szemely!id_szemely(csaladnev, k_nev), befizetescel(nev, szamadasicel(kod))',
         )
         .in('id_szemely', memberIds)
         .or('deleted.eq.false,deleted.is.null')

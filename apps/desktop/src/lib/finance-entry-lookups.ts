@@ -28,12 +28,17 @@ import { getDesktopSupabase } from './supabase'
 import { isOnlineWithSession } from './use-session-online'
 
 // ── Web-azonos helperek (a befizetés-cél kódjának kibontása + egyházfenntartás-szűrő) ──
-type PaymentGoalCodeRef = { szamadasicel?: { kod: string | null } | { kod: string | null }[] | null } | null
+// 2026-07-17 (F1-1 P0, web-azonos): a szamadasicel-nek NINCS `kod` oszlopa (az `id`
+// maga a kód) — a befizetescel.id_szamadasicel-t olvassuk közvetlenül.
+type PaymentGoalCodeRef = {
+  id_szamadasicel?: string | null
+  szamadasicel?: { id?: string | null; kod?: string | null } | { id?: string | null; kod?: string | null }[] | null
+} | null
 function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]): string | null {
   const g = Array.isArray(goal) ? goal[0] || null : goal || null
   const ref = g?.szamadasicel
   const c = Array.isArray(ref) ? ref[0] || null : ref || null
-  return c?.kod || null
+  return g?.id_szamadasicel || c?.id || c?.kod || null
 }
 function isChurchMaintenanceCode(code?: string | null): boolean {
   return typeof code === 'string' && code.startsWith('101.01')
@@ -250,11 +255,18 @@ export async function expectedJarulekOnline(
     if (h && h.isaktiv === true && h.ervenyes_ig == null && h.legacy_csalad_id) { familyId = h.legacy_csalad_id; break }
   }
 
+  // 2026-07-17 (F1-1 + F1-4, web-azonos): id_szamadasicel a nem létező
+  // szamadasicel(kod) helyett + a stornózott befizetés nem számít fizetettnek.
   let payQ = supabase.from('befizetes')
-    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
-    .eq('congregation_id', congregationId).eq('fizetettev', year).or('deleted.eq.false,deleted.is.null')
+    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)')
+    .eq('congregation_id', congregationId).eq('fizetettev', year)
+    .or('deleted.eq.false,deleted.is.null')
+    .or('stornozott.eq.false,stornozott.is.null')
   payQ = familyId != null ? payQ.or(`id_szemely.eq.${personId},id_csalad.eq.${familyId}`) : payQ.eq('id_szemely', personId)
-  const { data: payData } = await payQ
+  const { data: payData, error: payError } = await payQ
+  if (payError) {
+    console.error('[expectedJarulekOnline] A befizetés-lekérdezés HIBÁRA FUTOTT — az auto-összeg a teljes díjat ajánlaná:', payError)
+  }
   const maintenancePayments = ((payData || []) as Array<{ id_szemely: number | null; id_csalad: number | null; datum: string | null; fizetettev: number | null; osszeg: number; befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[] }>)
     .filter((p) => isChurchMaintenanceCode(getPaymentGoalCode(p.befizetescel)))
 

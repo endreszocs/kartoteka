@@ -105,7 +105,8 @@ export async function getMembers(): Promise<{
     // (member-form-dialog) ezeket előtölti és mentéskor visszaírja, így kihagyásuk
     // néma adatvesztést okozna.
     supabase.from('szemely').select('id, cnp, csaladnev, k_nev, szcs_nev, namepattern, allapot, ferfi, sz_datum, foglalkozas, vallas, telefon, email, meghalt, member_status, gdpr_consent_at, photo_consent, mailing_consent, social_profil_url, apjaneve, anyjaneve, megjegyzes, c_szam, c_tombhaz, c_lepcsohaz, c_emelet, c_ajto, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)').eq('congregation_id', congregationId).eq('isvisible', true).order('id', { ascending: false }),
-    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null'),
+    // 2026-07-17 (F1-4): a stornózott befizetés nem számít fizetettnek (bit-azonos a Tartozásokkal).
+    supabase.from('befizetes').select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)').eq('congregation_id', congregationId).eq('fizetettev', currentYear).or('deleted.eq.false,deleted.is.null').or('stornozott.eq.false,stornozott.is.null'),
     // 2026-04-30 (Endre kérése): "Aktív tag = református VAGY bármikor fizetett
     // egyházfenntartást." Ez a query MINDEN évre kéri a befizetéseket (csak az
     // egyházfenntartási kódra), hogy a "valaha fizetett" Set-et fel tudjuk építeni.
@@ -167,6 +168,14 @@ export async function getMembers(): Promise<{
   }
 
   // Fizetők
+  // 2026-07-17 (F1-1 hibaosztály): a fizetett-státusz lekérdezés hibája ne legyen
+  // néma — különben minden tag fizetetlennek látszana a listán.
+  if (paymentsRes.error) {
+    console.error(
+      '[tagnyilvantartas/lista] A fizetett-státusz befizetés-lekérdezése HIBÁRA FUTOTT — minden tag fizetetlennek látszana!',
+      paymentsRes.error,
+    )
+  }
   const paidPersonIds: number[] = []
   const paidFamilyIds: number[] = []
   const currentYearPayments = (paymentsRes.data || []) as Array<{
@@ -343,7 +352,10 @@ export async function getMemberDetails(id: number, familyId?: number | null) {
     if (!acc.some((item) => item.id === payment.id)) acc.push(payment)
     return acc
   }, [])
-  const jarulekPayments = allPayments.filter((payment) => isChurchMaintenanceCode(payment.befizetescelkod))
+  // 2026-07-17 (F1-4): a stornózott befizetés a hátralék-bontásba nem számít bele —
+  // bit-azonosan a Tartozások listával (a befizetés-TÖRTÉNET listája viszont
+  // változatlanul minden sort mutat).
+  const jarulekPayments = allPayments.filter((payment) => !payment.stornozott && isChurchMaintenanceCode(payment.befizetescelkod))
 
   const exemptions = (exemptionsRes.data || []) as Array<{
     id_szemely: number | null

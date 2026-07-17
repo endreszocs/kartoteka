@@ -269,11 +269,16 @@ function getOccupationAdjustedFee(
       if (keywords.length === 0) return
       if (!keywords.includes(memberOccupation)) return
 
+      // 2026-07-17 (F1-6): a v0.9.76-os %=LEVONANDÓ szemantika a foglalkozás-ágból
+      // kimaradt — itt még fizetendőként számolt (20% kedvezmény → 44 RON fizetendő
+      // 176 helyett). A mai mentés-utak foglalkozásra csak fix_osszeg-et írnak, így
+      // ez az ág csak legacy DB-sorral él — de a kanonikus motorban a szemantikának
+      // egységesnek kell lennie a kor/időszak ággal (applyPercentDiscount).
       const candidate =
         discount.fix_osszeg != null
           ? normalizeAmount(discount.fix_osszeg)
           : discount.szazalek != null
-            ? Math.round((baseFee * normalizeAmount(discount.szazalek)) / 100)
+            ? applyPercentDiscount(baseFee, discount.szazalek)
             : baseFee
 
       if (candidate < bestAmount) {

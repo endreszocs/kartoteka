@@ -144,35 +144,119 @@ async function requireActiveCongregation(id: string) {
 
 async function getAnnualFeeRowsCompat(congregationId: string) {
   const supabase = await createClient()
-  const result = await supabase
-    .from('congregation_annual_fees')
-    .select('*')
-    .eq('congregation_id', congregationId)
-    .order('year', { ascending: false })
+  // 2026-07-17 (F1-3): a panel a MOTOR által ténylegesen használt `bealitas`
+  // év-sorokat mutatja (elsődleges forrás) — korábban a congregation_annual_fees-t
+  // olvasta, amit a tartozás-számítás sosem használt, így a panel „működni
+  // látszott", miközben a rögzített díjak hatástalanok voltak. A legacy sorok
+  // csak azokra az évekre jelennek meg, amelyekhez nincs bealitas sor (a régen
+  // rögzített díj nem tűnik el; újramentéskor átkerül a bealitas-ba).
+  const [bealitasRes, legacyRes] = await Promise.all([
+    supabase
+      .from('bealitas')
+      .select('id, eves_jarulek, jarulek_kedvezmenyes, jarulek_hatarid')
+      .eq('congregation_id', congregationId),
+    supabase
+      .from('congregation_annual_fees')
+      .select('*')
+      .eq('congregation_id', congregationId)
+      .order('year', { ascending: false }),
+  ])
 
-  if (result.error) {
-    if (isMissingRelationError(result.error)) {
-      return {
-        rows: [],
-        schemaReady: false,
-        warning:
-          'Az éves egyházfenntartási előzményekhez még futtatni kell a `migration-docs/sql/2026-04-09-profile-and-congregation-extensions.sql` és a `migration-docs/sql/2026-04-09-extension-table-policies.sql` fájlokat.',
-      }
-    }
+  if (bealitasRes.error) throw new Error(bealitasRes.error.message)
 
-    if (isPermissionError(result.error)) {
-      return {
-        rows: [],
-        schemaReady: false,
-        warning:
-          'Az éves előzmények táblája már létezik, de az aktuális adatbázis-jogosultság nem engedi az olvasását. Futtasd le a `migration-docs/sql/2026-04-09-extension-table-policies.sql` fájlt.',
-      }
-    }
-
-    throw new Error(result.error.message)
+  const rows: Array<{
+    year: number
+    eves_jarulek: number
+    jarulek_kedvezmenyes: number | null
+    jarulek_hatarid: string | null
+    note: string | null
+  }> = []
+  const seenYears = new Set<number>()
+  for (const b of (bealitasRes.data || []) as Array<{ id: string; eves_jarulek: number | null; jarulek_kedvezmenyes: number | null; jarulek_hatarid: string | null }>) {
+    const year = Number(b.id)
+    if (!Number.isFinite(year) || year < 1900) continue
+    seenYears.add(year)
+    rows.push({
+      year,
+      eves_jarulek: Number(b.eves_jarulek) || 0,
+      jarulek_kedvezmenyes: b.jarulek_kedvezmenyes == null ? null : Number(b.jarulek_kedvezmenyes) || 0,
+      jarulek_hatarid: b.jarulek_hatarid || null,
+      note: null,
+    })
   }
 
-  return { rows: result.data || [], schemaReady: true }
+  let warning: string | undefined
+  if (legacyRes.error) {
+    if (isMissingRelationError(legacyRes.error)) {
+      warning =
+        'Az éves egyházfenntartási előzményekhez még futtatni kell a `migration-docs/sql/2026-04-09-profile-and-congregation-extensions.sql` és a `migration-docs/sql/2026-04-09-extension-table-policies.sql` fájlokat.'
+    } else if (isPermissionError(legacyRes.error)) {
+      warning =
+        'Az éves előzmények táblája már létezik, de az aktuális adatbázis-jogosultság nem engedi az olvasását. Futtasd le a `migration-docs/sql/2026-04-09-extension-table-policies.sql` fájlt.'
+    } else {
+      warning = legacyRes.error.message
+    }
+  } else {
+    for (const row of (legacyRes.data || []) as Array<Record<string, unknown>>) {
+      const year = Number(row.year)
+      if (!Number.isFinite(year) || seenYears.has(year)) continue
+      rows.push({
+        year,
+        eves_jarulek: Number(row.eves_jarulek) || 0,
+        jarulek_kedvezmenyes: row.jarulek_kedvezmenyes == null ? null : Number(row.jarulek_kedvezmenyes) || 0,
+        jarulek_hatarid: typeof row.jarulek_hatarid === 'string' ? row.jarulek_hatarid : null,
+        note: 'Régi rögzítés — mentsd újra, hogy a számítás is figyelembe vegye.',
+      })
+    }
+  }
+
+  rows.sort((a, b) => b.year - a.year)
+  return { rows, schemaReady: true, ...(warning ? { warning } : {}) }
+}
+
+// 2026-07-17 (F1-2 P0): a Beállítások-ablak díjmezői CSAK a congregations táblát
+// írták, miközben a Tartozás-motor kizárólag a bealitas év-sorból számol (az csak
+// az év ELSŐ pénzügy-megnyitásakor másolódik át egyszer) — az év közbeni
+// díj/kedvezmény/határidő-módosítás így némán hatástalan volt. Ez a helper a
+// meglévő aktuális évi bealitas sort szinkronban tartja. Ha nincs év-sor, nem hoz
+// létre (az első pénzügy-megnyitás a friss congregations-értékekből teszi meg);
+// véglegesített évhez nem nyúl. Visszatérés: figyelmeztető szöveg vagy null.
+async function syncFeeSettingsToCurrentYearBealitas(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  congregationId: string,
+  fees: { evesJarulek?: number | null; jarulekKedvezmenyes?: number | null; jarulekHatarid?: string | null },
+): Promise<string | null> {
+  const yearId = String(new Date().getFullYear())
+  const { data: row, error } = await supabase
+    .from('bealitas')
+    .select('id, budget_finalized, accounting_finalized')
+    .eq('congregation_id', congregationId)
+    .eq('id', yearId)
+    .maybeSingle()
+  // A select-hiba ≠ „nincs év-sor": hibánál jelezzük, hogy a szinkron elmaradt,
+  // különben a díjmódosítás némán nem érne el a Tartozás-motorig.
+  if (error) {
+    console.error('[syncFeeSettings] A bealitas év-sor olvasása hibázott:', error)
+    return `A gyülekezeti alapadat mentve, de az idei (${yearId}) pénzügyi beállítás ellenőrzése nem sikerült: ${error.message}`
+  }
+  if (!row) return null
+  if (row.budget_finalized || row.accounting_finalized) {
+    return `Figyelem: a(z) ${yearId}. évi beállítás véglegesítve van, ezért a díjmódosítás az idei számításokra nem hat.`
+  }
+  const updates: Record<string, unknown> = {}
+  if (fees.evesJarulek != null) updates.eves_jarulek = fees.evesJarulek
+  if (fees.jarulekKedvezmenyes != null) updates.jarulek_kedvezmenyes = fees.jarulekKedvezmenyes
+  if (fees.jarulekHatarid) updates.jarulek_hatarid = fees.jarulekHatarid
+  if (Object.keys(updates).length === 0) return null
+  const { error: updateError } = await supabase
+    .from('bealitas')
+    .update(updates)
+    .eq('congregation_id', congregationId)
+    .eq('id', yearId)
+  if (updateError) {
+    return `A gyülekezeti alapadat mentve, de az aktuális évi (${yearId}) pénzügyi beállítás frissítése nem sikerült: ${updateError.message}`
+  }
+  return null
 }
 
 export async function updateCongregation(data: z.infer<typeof congregationSchema>) {
@@ -225,8 +309,20 @@ export async function updateCongregation(data: z.infer<typeof congregationSchema
 
   if (error) return { error: `Hiba: ${error.message}` }
 
+  // 2026-07-17 (F1-2): a díjmezők átvezetése az aktuális évi bealitas sorba,
+  // hogy a Tartozások/auto-összeg azonnal az új értékekkel számoljon.
+  const syncWarning = await syncFeeSettingsToCurrentYearBealitas(supabase, parsed.data.id, {
+    evesJarulek: parsed.data.evesJarulek,
+    jarulekKedvezmenyes: parsed.data.jarulekKedvezmenyes,
+    jarulekHatarid: parsed.data.jarulekHatarid,
+  })
+
   revalidatePath('/', 'layout')
-  return { success: 'A gyülekezet adatai sikeresen frissültek.' }
+  return {
+    success: syncWarning
+      ? `A gyülekezet adatai sikeresen frissültek. ${syncWarning}`
+      : 'A gyülekezet adatai sikeresen frissültek.',
+  }
 }
 
 export async function getDioceses() {
@@ -1229,6 +1325,15 @@ export async function saveCongregationSetup(
   }
 
   if (updateError) return { error: updateError.message }
+
+  // 2026-07-17 (F1-2): a setup-varázsló díjmezői is szinkronba kerülnek az aktuális
+  // évi bealitas sorral (ugyanaz az ok, mint az updateCongregation-nél).
+  const feeSyncWarning = await syncFeeSettingsToCurrentYearBealitas(access.supabase, parsed.data.id, {
+    evesJarulek: parsed.data.eves_jarulek,
+    jarulekKedvezmenyes: parsed.data.jarulek_kedvezmenyes,
+    jarulekHatarid: parsed.data.jarulek_hatarid,
+  })
+  if (feeSyncWarning) console.warn('[saveCongregationSetup]', feeSyncWarning)
 
   revalidatePath('/dashboard')
   revalidatePath('/penzugy')

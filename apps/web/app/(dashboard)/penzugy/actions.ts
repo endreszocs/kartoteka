@@ -186,15 +186,25 @@ async function assertYearsNotFinalizedDirect(
   return null
 }
 
+// 2026-07-17 (F1-1 P0): a szamadasicel táblában NINCS `kod` oszlop (az `id` maga a
+// kód, pl. '101.01') — a korábbi `befizetescel(szamadasicel(kod))` beágyazás miatt
+// a PostgREST az EGÉSZ befizetés-lekérdezést hibára buktatta, a `(data || [])` pedig
+// némán üres tömbre esett → minden tag paid=0-val, teljes hátralékosként jelent meg
+// (ugyanaz a hibaosztály, mint a v0.9.78-as szemely-select). A befizetescel saját
+// `id_szamadasicel` oszlopát olvassuk — bit-azonos a tagnyilvántartás mintájával.
 type PaymentGoalCodeRef = {
-  szamadasicel?: { kod: string | null } | { kod: string | null }[] | null
+  id_szamadasicel?: string | null
+  szamadasicel?:
+    | { id?: string | null; kod?: string | null }
+    | { id?: string | null; kod?: string | null }[]
+    | null
 } | null
 
 function getPaymentGoalCode(goal?: PaymentGoalCodeRef | PaymentGoalCodeRef[]) {
   const normalizedGoal = Array.isArray(goal) ? goal[0] || null : goal || null
   const goalCodeRef = normalizedGoal?.szamadasicel
   const normalizedCodeRef = Array.isArray(goalCodeRef) ? goalCodeRef[0] || null : goalCodeRef || null
-  return normalizedCodeRef?.kod || null
+  return normalizedGoal?.id_szamadasicel || normalizedCodeRef?.id || normalizedCodeRef?.kod || null
 }
 
 function isChurchMaintenanceCode(code?: string | null) {
@@ -1018,12 +1028,16 @@ export async function initFinance(year: number) {
       .select('id, csaladnev, k_nev, sz_datum, foglalkozas, meghalt, member_status')
       .eq('congregation_id', congregationId)
       .eq('isvisible', true),
+    // 2026-07-17 (F1-1 + F1-4): id_szamadasicel a nem létező szamadasicel(kod) helyett;
+    // + a STORNÓZOTT befizetés nem számít fizetettnek (a stornó eddig „Rendezett"-nek
+    // mutatta a tagot, miközben a könyvelési listákból helyesen kimaradt).
     supabase
       .from('befizetes')
-      .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
+      .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)')
       .eq('congregation_id', congregationId)
       .eq('fizetettev', year)
-      .or('deleted.eq.false,deleted.is.null'),
+      .or('deleted.eq.false,deleted.is.null')
+      .or('stornozott.eq.false,stornozott.is.null'),
     supabase.from('felmentes').select('id_szemely, id_csalad, kezdete, vege').eq('congregation_id', congregationId),
     // 2026-06-01 (hibrid család-modell Fázis 2): új haztartas_tag-ból mapping
     supabase.from('haztartas_tag')
@@ -1320,6 +1334,14 @@ export async function initFinance(year: number) {
     console.error(
       '[initFinance] A tagok lekérdezése HIBÁRA FUTOTT — a Tartozások lista üres lesz!',
       membersRes.error,
+    )
+  }
+  // 2026-07-17 (F1-1): ugyanaz a hibaosztály a befizetés-ágon — ha ez hibázik,
+  // minden tag teljes hátralékosnak látszik. Némán eddig senki nem vette észre.
+  if (debtPaymentsRes.error) {
+    console.error(
+      '[initFinance] A tartozás-befizetések lekérdezése HIBÁRA FUTOTT — minden tag fizetetlennek látszana!',
+      debtPaymentsRes.error,
     )
   }
 
@@ -2375,14 +2397,20 @@ export async function getExpectedJarulek(
   }
 
   // 2. fázis: a tag (és családja) egyházfenntartás-befizetései az adott ÉVRE (fizetettev=year).
+  // 2026-07-17 (F1-1 + F1-4): id_szamadasicel a nem létező szamadasicel(kod) helyett
+  // + stornó-szűrés — bit-azonos az initFinance Tartozás-lekérdezésével.
   let payQ = supabase.from('befizetes')
-    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(szamadasicel(kod))')
+    .select('id_szemely, id_csalad, datum, fizetettev, osszeg, befizetescel(id_szamadasicel)')
     .eq('congregation_id', congregationId)
     .eq('fizetettev', year)
     .or('deleted.eq.false,deleted.is.null')
+    .or('stornozott.eq.false,stornozott.is.null')
   // FONTOS: id_csalad.eq.null tilos Supabase-ben — ha nincs család, csak személyre szűrünk.
   payQ = familyId != null ? payQ.or(`id_szemely.eq.${personId},id_csalad.eq.${familyId}`) : payQ.eq('id_szemely', personId)
-  const { data: payData } = await payQ
+  const { data: payData, error: payError } = await payQ
+  if (payError) {
+    console.error('[getExpectedJarulek] A befizetés-lekérdezés HIBÁRA FUTOTT — az auto-összeg a teljes díjat ajánlaná:', payError)
+  }
   const maintenancePayments = ((payData || []) as Array<{
     id_szemely: number | null; id_csalad: number | null; datum: string | null; fizetettev: number | null; osszeg: number; befizetescel?: PaymentGoalCodeRef | PaymentGoalCodeRef[]
   }>).filter((p) => isChurchMaintenanceCode(getPaymentGoalCode(p.befizetescel)))
@@ -2471,15 +2499,20 @@ export async function createYearlySettings(
   jarulekHatarid: string,
   // A render-útvonal (page.tsx) NEM hívhat revalidatePath-ot renderelés közben (Next 16
   // hiba). Onnan revalidate:false-szal hívjuk; a kliens-modalból marad az alapértelmezett true.
-  opts?: { revalidate?: boolean },
+  // 2026-07-17 (F1-3): jarulekKedvezmenyes felülbírálás — a visszamenőleges év-sorokhoz
+  // (saveAnnualFee) 0 kell (régi évekhez nincs kedvezmény), egyébként a congregations-ből jön.
+  opts?: { revalidate?: boolean; jarulekKedvezmenyes?: number },
 ) {
   const { supabase, congregationId } = await getProfileCongregation()
   if (!congregationId) return { error: 'Nincs bejelentkezett felhasználó.' }
 
   const yearId = String(year)
+  // 2026-07-17 (F1-5): a jarulek_kedvezmenyes-t is átvesszük a gyülekezeti alapadatból —
+  // korábban fixen 0 került az új év sorába, így az onboardingban beállított
+  // kedvezményes alapösszeg (korai fizetés) minden következő évben némán elveszett.
   const { data: congregation } = await supabase
     .from('congregations')
-    .select('adrstreet_id, adrlocality_id')
+    .select('adrstreet_id, adrlocality_id, jarulek_kedvezmenyes')
     .eq('id', congregationId)
     .maybeSingle()
   let streetId = Number(congregation?.adrstreet_id) || null
@@ -2499,7 +2532,7 @@ export async function createYearlySettings(
     congregation_id: congregationId,
     eves_jarulek: evesJarulek,
     jarulek_hatarid: jarulekHatarid || '07-01',
-    jarulek_kedvezmenyes: 0,
+    jarulek_kedvezmenyes: opts?.jarulekKedvezmenyes ?? (Number(congregation?.jarulek_kedvezmenyes) || 0),
     aktiv: true,
     isszemelyibefizetes: false,
     isszulokkulon: false,
@@ -2522,16 +2555,22 @@ export async function createYearlySettings(
     nyito_bank: 0,
   }
 
+  // 2026-07-17 (F1 hardening): ignoreDuplicates — ez a függvény LÉTREHOZ, sosem ír
+  // felül. Korábban sima upsert volt: egy verseny-helyzetben (a hívó „nincs sor"
+  // ellenőrzése és az upsert közt létrejövő sor) a teljes basePayload ráíródott a
+  // meglévő sorra, kinullázva a véglegesítés-zászlókat és a záró-adatokat.
   let { error } = await supabase
     .from('bealitas')
-    .upsert([basePayload], { onConflict: 'id,congregation_id' })
+    .upsert([basePayload], { onConflict: 'id,congregation_id', ignoreDuplicates: true })
 
   if (error && shouldRetryLegacySettingsInsert(error.message)) {
+    // Bármely meglévő év-sor jó mintának a NOT NULL mezők pótlásához (a basePayload
+    // úgyis mindent felülír, ami számít) — a korábbi .lt('id', yearId) szűrő
+    // visszamenőleges évnél elakadt, ha csak újabb év-sor létezett.
     const { data: previousSettings } = await supabase
       .from('bealitas')
       .select('*')
       .eq('congregation_id', congregationId)
-      .lt('id', yearId)
       .order('id', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -2543,7 +2582,7 @@ export async function createYearlySettings(
       }
       const retry = await supabase
         .from('bealitas')
-        .upsert([legacyCompatiblePayload], { onConflict: 'id,congregation_id' })
+        .upsert([legacyCompatiblePayload], { onConflict: 'id,congregation_id', ignoreDuplicates: true })
       error = retry.error
     }
   }
