@@ -43,6 +43,34 @@ import {
 
 const SESSION_STORAGE_KEY = 'kartoteka-presentation-session'
 
+/**
+ * 2026-07-17 (F2-1): a prezentáció-nyomtatás print-CSS-e (kartoteka.css) mostantól
+ * a body `kt-presentation-print` osztálya mögött él — különben a globális
+ * „mindent elrejtünk" szabály az összes többi oldal ablakon belüli nyomtatását
+ * (pl. nyugta) üres lapra vitte. Az @page A4 landscape szelektorral nem
+ * scope-olható, ezért ideiglenes <style>-ként injektáljuk print idejére.
+ */
+function printPresentation() {
+  const PAGE_STYLE_ID = 'kt-presentation-page-style'
+  document.body.classList.add('kt-presentation-print')
+  let pageStyle = document.getElementById(PAGE_STYLE_ID)
+  if (!pageStyle) {
+    pageStyle = document.createElement('style')
+    pageStyle.id = PAGE_STYLE_ID
+    pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }'
+    document.head.appendChild(pageStyle)
+  }
+  const cleanup = () => {
+    document.body.classList.remove('kt-presentation-print')
+    document.getElementById(PAGE_STYLE_ID)?.remove()
+    window.removeEventListener('afterprint', cleanup)
+  }
+  window.addEventListener('afterprint', cleanup)
+  // Tartalék: ha az afterprint nem érkezne meg (egyes webview-k), késleltetett takarítás.
+  window.setTimeout(cleanup, 60_000)
+  window.print()
+}
+
 interface PresentationStudioProps {
   initialData: PresentationData
 }
@@ -337,7 +365,7 @@ export function PresentationStudio({ initialData }: PresentationStudioProps) {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setGoalsDialogOpen(true)}><Target className="mr-2 size-4" />Célok</Button>
             <Button variant="outline" size="sm" onClick={() => setOptionsDialogOpen(true)}><Sparkles className="mr-2 size-4" />Beállítások</Button>
-            <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 size-4" />Nyomtatás</Button>
+            <Button variant="outline" size="sm" onClick={printPresentation}><Printer className="mr-2 size-4" />Nyomtatás</Button>
             <Button variant="outline" size="sm" onClick={() => setCastDialogOpen(true)}><MonitorPlay className="mr-2 size-4" />Kivetítő</Button>
             <Button size="sm" onClick={() => void enterFullscreen()}><Maximize2 className="mr-2 size-4" />Vetítés</Button>
           </div>

@@ -514,11 +514,17 @@
 }
 
 /* ──────────────────────────────────────────────────────────────
-   Presentation Studio — print mode (2026-04-21r)
+   Presentation Studio — print mode (2026-04-21r, scope-olva 2026-07-17)
    A kartoteka-print-root egy Portal a document.body-ban.
-   A visibility: hidden trükk: minden mást elrejtünk nyomtatáskor,
-   csak a print-root látszódik — kiküszöböli a szülő-fa print-
-   rejtési szabályait és bárhonnan nyomtathatunk.
+
+   ⚠️ 2026-07-17 (F2-1 P0): a blokk korábban FELTÉTEL NÉLKÜL futott minden
+   oldalon — a `body > *:not(.kartoteka-print-root){display:none}` az összes
+   ablakon belüli nyomtatást (pl. nyugta/chitanță) ÜRES LAPRA vitte, mert a
+   print-root csak a prezentáció-oldalon létezik. Mostantól a szabályok CSAK
+   akkor élnek, ha a body-n rajta van a `kt-presentation-print` osztály — ezt
+   a presentation-studio Nyomtatás gombja teszi fel print előtt és veszi le
+   utána. Az @page A4 landscape szabály (ami szelektorral nem scope-olható)
+   szintén a gombból injektálódik ideiglenes <style>-ként.
    ────────────────────────────────────────────────────────────── */
 
 /* Képernyőn a print-root rejtve */
@@ -527,22 +533,17 @@
 }
 
 @media print {
-  @page {
-    size: A4 landscape;
-    margin: 0;
-  }
-
-  body {
+  body.kt-presentation-print {
     background: white !important;
   }
 
   /* Mindent eltüntetünk nyomtatáskor — csak a print-root látszik */
-  body > *:not(.kartoteka-print-root) {
+  body.kt-presentation-print > *:not(.kartoteka-print-root) {
     display: none !important;
   }
 
   /* A print-root átveszi a teljes lapot */
-  .kartoteka-print-root {
+  body.kt-presentation-print .kartoteka-print-root {
     display: block !important;
     position: absolute;
     top: 0;
@@ -553,13 +554,13 @@
   }
 
   /* Egy slide = egy A4 landscape lap */
-  .kartoteka-print-slide {
+  body.kt-presentation-print .kartoteka-print-slide {
     width: 297mm;
     height: 210mm;
     overflow: hidden;
     page-break-after: always;
   }
-  .kartoteka-print-slide:last-child {
+  body.kt-presentation-print .kartoteka-print-slide:last-child {
     page-break-after: auto;
   }
 }

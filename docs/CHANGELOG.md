@@ -23,6 +23,37 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-17] — A nyugta-nyomtatás megjavult: előnézet, levehető „másolat"-jelölés, egyházkerületi címer és évszám a nyugtán
+<!-- key: 2026-07-17-penzugy-f2-nyugta-nyomtatas -->
+<!-- category: bugfix -->
+<!-- targets: lelkesz, gondnok, konyvelo -->
+<!-- version: web v0.9.87 -->
+
+### 🐛 Pénzügy — Nyugta (chitanță) nyomtatása
+
+- **A nyugta-nyomtatás eddig üres lapot adott.** Egy, a prezentációs modulhoz készült
+  globális nyomtatási szabály minden ablakon belüli nyomtatáskor elrejtette az egész
+  alkalmazást — a nyugta így sosem került papírra. A szabály mostantól kizárólag a
+  prezentáció nyomtatásakor él; a nyugta (és minden más) nyomtatás felszabadult.
+
+- **Nyomtatás előtt mostantól előnézet jelenik meg.** A Kassza fülön a kiállítás vagy
+  újranyomtatás gombja már nem „vaktában" nyomtat: látod a kész nyugtát, és onnan
+  indítod a nyomtatást — a címer és minden adat garantáltan betöltve kerül papírra.
+
+- **A „— másolat —" jelölés az előnézetben egy kis X-szel levehető.** Alapból rajta van
+  a nyomaton, de ha az eredeti példányt nyomtatod, egy kattintással eltüntethető
+  (és vissza is kapcsolható).
+
+- **A háttér-címer az egyházkerülethez igazodik:** erdélyi (EREK) gyülekezetnél az EREK,
+  királyhágómelléki gyülekezetnél a KEREK címer jelenik meg — a nyugta román fejléce is
+  a saját kerület nevét írja.
+
+- **A nyugtán mostantól mindig szerepel, melyik évre szólt a befizetés** (pl.
+  „Egyházfenntartói járulék 2024") — eddig az évszám lemaradt, és a bizonylat nem
+  igazolta, melyik évi tartozást rendezte a tag.
+
+---
+
 ## [2026-07-17] — A Tartozások mostantól helyesen számolnak: a befizetések és a beállított díjak/kedvezmények tényleg érvényesülnek
 <!-- key: 2026-07-17-penzugy-f1-tartozas-szamitas -->
 <!-- category: bugfix -->

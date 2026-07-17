@@ -121,6 +121,13 @@ export async function autoIssueChitantaForBefizetesUseCase(
     if (bc?.nev) reprezentand = String(bc.nev)
     if (bc?.nevro) reprezentandRo = String(bc.nevro)
   }
+  // 2026-07-17 (F2-3, Q4 döntés): a fizetett év MINDIG a reprezentand része —
+  // bit-azonos a web actionnel (apps/web chitanta-actions.ts).
+  const fizetettEv = Number(befizetes.fizetettev) || null
+  if (fizetettEv) {
+    if (reprezentand && !reprezentand.includes(String(fizetettEv))) reprezentand = `${reprezentand} ${fizetettEv}`
+    if (reprezentandRo && !reprezentandRo.includes(String(fizetettEv))) reprezentandRo = `${reprezentandRo} ${fizetettEv}`
+  }
 
   // 4. Atomikus szám-lefoglalás az aktív tömbből
   const szamlaDatum =
