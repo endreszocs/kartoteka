@@ -322,4 +322,18 @@ export const PLACEHOLDER_DOCS: Array<{
   { key: 'feleseg_nev', label: 'Feleség neve', auto: false, description: 'A házastárs felesége' },
   { key: 'eskuvo_datuma', label: 'Esküvő dátuma', auto: false, description: 'A házasságkötés dátuma' },
   { key: 'indoklas', label: 'Indoklás', auto: false, description: 'Az igazolás kiállítási oka' },
+  // ─── 2026-07-17 (F6): az igazolás-kiállító (CertificateIssueDialog) személy-alapú
+  // placeholderei. auto:false — a régi FilingTemplateGenerator ezekhez nem tölt
+  // értéket (ott kézzel tölthetők); az új kiállító az anyakönyvből tölti őket.
+  { key: 'nevek', label: 'Nevek (összes kiválasztott)', auto: false, description: 'Az igazolás-kiállítóban kiválasztott összes személy neve összefűzve' },
+  { key: 'vallas', label: 'Vallás', auto: false, description: 'A személy vallása (anyakönyvből)' },
+  { key: 'kereszteles_helye', label: 'Keresztelés helye', auto: false, description: 'A keresztelés helye (anyakönyvből)' },
+  { key: 'keresztszulok', label: 'Keresztszülők', auto: false, description: 'A keresztszülők neve (anyakönyvből)' },
+  { key: 'hazastars_nev', label: 'Házastárs neve', auto: false, description: 'A házastárs teljes neve (anyakönyvből)' },
+  { key: 'nev_2', label: 'Név (2. személy)', auto: false, description: 'A második kiválasztott személy teljes neve' },
+  { key: 'szul_datum_2', label: 'Születési dátum (2. személy)', auto: false, description: 'A második személy születési dátuma' },
+  { key: 'apja_neve_2', label: 'Apja neve (2. személy)', auto: false, description: 'A második személy apjának neve' },
+  { key: 'anyja_neve_2', label: 'Anyja neve (2. személy)', auto: false, description: 'A második személy anyjának neve' },
+  { key: 'kereszteles_datuma_2', label: 'Keresztelés dátuma (2. személy)', auto: false, description: 'A második személy keresztelésének dátuma' },
+  { key: 'konfirmalas_datuma_2', label: 'Konfirmálás dátuma (2. személy)', auto: false, description: 'A második személy konfirmálásának dátuma' },
 ]
