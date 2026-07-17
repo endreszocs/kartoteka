@@ -133,7 +133,9 @@ function getMembershipPresentation(member: EnrichedMember) {
 function buildDirectionsUrl(member: EnrichedMember) {
   const destination = joinAddress(member)
   if (!destination || destination === 'Nincs rögzítve') return null
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`
+  // 2026-07-17 (PR-1): ország-kontexus a query-ben — település nélküli/azonos nevű
+  // utcáknál a Google különben a világ bármely pontjára irányíthat.
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destination}, România`)}`
 }
 
 function getRelationName(

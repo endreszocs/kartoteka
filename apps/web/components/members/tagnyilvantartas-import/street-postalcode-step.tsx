@@ -30,6 +30,9 @@ import {
   findStreetsWithPostalcode,
   type StreetCandidate,
 } from '@/lib/import/street-postalcode-actions'
+// 2026-07-17 (PR-1): a normalize-helper a közös lib-be került, hogy a helység-map
+// kulcsképzés és a postakód-kulcsképzés bitre azonos legyen a SQL normalize_name-mel.
+import { normalizeNameClient } from '@/lib/import/normalize'
 import type { LocalityResolutionMap } from './locality-match-step'
 
 // ─── Típusok ─────────────────────────────────────────────────────────────
@@ -61,16 +64,6 @@ interface MultiPostalGroup {
   localityId: number | null
   isMulti: boolean
   uniqueStreets: Array<{ utca: string; rowCount: number; key: string }>
-}
-
-// Helper: normalize-name szimulálás kliensoldalon (a SQL-ével konzisztens)
-function normalizeNameClient(input: string): string {
-  return input
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 // ─── Komponens ───────────────────────────────────────────────────────────

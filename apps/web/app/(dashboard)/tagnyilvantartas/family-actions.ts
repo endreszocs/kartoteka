@@ -6,6 +6,7 @@ import { familySchema, type FamilyInput } from '@/lib/validations/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
 import { fetchFamilyPaymentsCompat, fetchPaymentsByMemberIdsCompat } from '@/lib/finance/payment-compat'
 import { getVisibleDistrictState, sanitizeDistrictReference } from '@/lib/members/district-visibility'
+import { applyStreetLocalityFallback } from '@/lib/members/street-locality-fallback'
 import { logAuditEvent } from '@/lib/audit/log'
 import { syncRegistryWorklogLink } from '@/lib/worklog/registry-sync'
 
@@ -605,7 +606,7 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   const parts = query.trim().split(/\s+/)
 
   let q = supabase.from('szemely')
-    .select('id, csaladnev, k_nev, ferfi, sz_datum, c_szam, c_utcaid, c_helysegid, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name)')
+    .select('id, csaladnev, k_nev, ferfi, sz_datum, c_szam, c_utcaid, c_helysegid, adrlocality!c_helysegid(name), adrstreet!c_utcaid(name, adrlocality!localityid(name))')
     .eq('congregation_id', congregationId).eq('isvisible', true).eq('meghalt', false)
 
   if (role === 'ferfi') q = q.eq('ferfi', true)
@@ -614,8 +615,11 @@ export async function searchFamilyMember(query: string, role: 'ferfi' | 'no' | '
   if (parts.length === 1) q = q.or(`csaladnev.ilike.%${parts[0]}%,k_nev.ilike.%${parts[0]}%`)
   else q = q.ilike('csaladnev', `%${parts[0]}%`).ilike('k_nev', `%${parts.slice(1).join(' ')}%`)
 
-  const { data: members } = await q.limit(10)
-  if (!members?.length) return []
+  const { data: membersRaw } = await q.limit(10)
+  // 2026-07-17 (PR-1): település-fallback az utca-láncból a kereső-találatokban is.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const members = ((membersRaw || []) as any[]).map((row) => applyStreetLocalityFallback(row))
+  if (!members.length) return []
 
   // Házasok kiszűrése
   const { data: allFamilies } = await supabase.from('csalad').select('id_ferfi, id_no')
@@ -840,14 +844,15 @@ export async function getEnrichedMemberById(id: number, familyId: number | null)
   if (!congregationId) return null
   const { data, error } = await supabase
     .from('szemely')
-    .select('*, adrstreet!c_utcaid(name), adrlocality!c_helysegid(name)')
+    .select('*, adrstreet!c_utcaid(name, adrlocality!localityid(name)), adrlocality!c_helysegid(name)')
     .eq('id', id)
     .eq('congregation_id', congregationId)
     .maybeSingle()
   if (error || !data) return null
 
   return {
-    ...data,
+    // 2026-07-17 (PR-1): település-fallback az utca-láncból (c_helysegid-hiány pótlása).
+    ...applyStreetLocalityFallback(data as Parameters<typeof applyStreetLocalityFallback>[0]),
     paymentStatus: 'rendezve',
     familyId,
     pendingTransfer: null,
