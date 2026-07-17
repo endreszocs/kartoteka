@@ -74,20 +74,22 @@ export function VotersTab() {
   // 2026-06-30 (perf): a 4 KPI-számláló egyetlen memoizált menetbe vonva — korábban
   // 4 teljes .filter() futott MINDEN renderkor (pl. minden gépelésnél a keresőben).
   // A teljes voters halmazon dolgozik (nem a szűrt listán), ezért [voters] a függőség.
-  const { fizetoCount, maleCount, femaleCount, eligibleCount } = useMemo(() => {
-    let fizeto = 0, male = 0, female = 0, eligible = 0
+  // 2026-07-17 (PR-2, D1): az „Összes választó" a KANONIKUS névjegyzék-tagság
+  // (jogosult ÉS fizetett-vagy-felmentett), nem a puszta járulékfizetés.
+  const { canonCount, maleCount, femaleCount, eligibleCount } = useMemo(() => {
+    let canon = 0, male = 0, female = 0, eligible = 0
     for (const v of voters) {
-      if (v.jarulekFizeto) { fizeto++; if (v.ferfi) male++; else female++ }
+      if (v.nevjegyzekTag) { canon++; if (v.ferfi) male++; else female++ }
       if (v.eligible) eligible++
     }
-    return { fizetoCount: fizeto, maleCount: male, femaleCount: female, eligibleCount: eligible }
+    return { canonCount: canon, maleCount: male, femaleCount: female, eligibleCount: eligible }
   }, [voters])
 
   return (
     <div className="space-y-4">
       {/* KPI kártyák */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={fizetoCount} label="Összes választó" />
+        <KpiCard icon={<Users className="w-5 h-5" />} gradient="from-blue-500 to-indigo-600" value={canonCount} label="Összes választó" />
         <KpiCard icon={<User className="w-5 h-5" />} gradient="from-blue-400 to-blue-500" value={maleCount} label="Férfi" />
         <KpiCard icon={<UserRound className="w-5 h-5" />} gradient="from-pink-500 to-rose-500" value={femaleCount} label="Nő" />
         <KpiCard icon={<ScaleIcon className="w-5 h-5" />} gradient="from-emerald-500 to-green-600" value={eligibleCount} label="Jogosult (névjegyzék)" />
@@ -121,12 +123,15 @@ export function VotersTab() {
           variant="outline"
           className="rounded-xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
           onClick={async () => {
-            if (!confirm('Beküldöd a választók névjegyzékét az egyházmegyének?')) return
+            if (!confirm(`Beküldöd a választók névjegyzékét az egyházmegyének? (${canonCount} fő)`)) return
             const year = new Date().getFullYear()
-            const snapshot = { voterCount: filtered.length, year }
+            // 2026-07-17 (PR-2 F1.5): a beküldött létszám a KANONIKUS definíció
+            // (jogosult ÉS fizetett-vagy-felmentett), NEM a képernyőn épp aktív
+            // szűrők (pl. keresőmező) eredménye — a definíció a snapshotba kerül.
+            const snapshot = { voterCount: canonCount, year, rule: 'eligible_and_paid_or_exempt' }
             const result = await submitDocument('valasztok_nevjegyzeke', year, snapshot)
             if ('error' in result && result.error) toast.error(result.error)
-            else toast.success('Választók névjegyzéke beküldve az egyházmegyének!')
+            else toast.success(`Választók névjegyzéke beküldve az egyházmegyének (${canonCount} fő)!`)
           }}
         >
           <Send className="mr-1 size-3.5" />

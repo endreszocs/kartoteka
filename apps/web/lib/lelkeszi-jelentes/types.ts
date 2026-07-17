@@ -79,7 +79,9 @@ export const JELENTES_MEZOK: JelentesMezo[] = [
   { id: 'I.9', fejezet: 'I', label: 'Általános szaporulat / apadás (keresztelt + betért + beköltözött − temetett − kitért − kiköltözött)', tipus: 'szam', auto: true, egyseg: 'fő' },
   // szemely tábla (isvisible, élő, nem kizárt member_status)
   { id: 'I.10', fejezet: 'I', label: 'Lélekszám december 31-én', tipus: 'szam', auto: true, egyseg: 'fő' },
-  { id: 'I.11', fejezet: 'I', label: 'Választói névjegyzékben szereplők', tipus: 'szam', auto: false, egyseg: 'fő' },
+  // 2026-07-17 (PR-2 F1.7): auto — a perzisztált voter_eligible flagből számol
+  // (a lelkész felülírhatja, mint minden auto-mezőt).
+  { id: 'I.11', fejezet: 'I', label: 'Választói névjegyzékben szereplők', tipus: 'szam', auto: true, egyseg: 'fő' },
   { id: 'I.12', fejezet: 'I', label: 'Családok — egyező vallású', tipus: 'szam', auto: false, egyseg: 'család' },
   { id: 'I.13', fejezet: 'I', label: 'Családok — vegyes vallású', tipus: 'szam', auto: false, egyseg: 'család' },
   { id: 'I.14', fejezet: 'I', label: 'Özvegyek', tipus: 'szam', auto: false, egyseg: 'fő' },

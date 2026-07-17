@@ -94,6 +94,14 @@ export async function printToPdf(
     'body > *:not(.html2pdf__overlay){visibility:hidden!important}body{background:#fff!important}'
   document.head.appendChild(veil)
 
+  // 2026-07-17 (PR-2 F2.2, canvas-limit őr): a html2canvas EGY canvasra rendereli
+  // a teljes dokumentumot; a Chromium canvas-dimenzió plafonja ~32 767px. Hosszú
+  // (10+ oldalas) nyomtatványnál a fix scale:3 ezt túllépné → csonka/üres PDF.
+  // A skálát a mért tartalom-magassághoz igazítjuk (rövid dokumentumnál marad 3).
+  const MAX_CANVAS_PX = 30000
+  const contentHeight = Math.max(iframeDoc.body.scrollHeight, 1)
+  const safeScale = Math.max(1.25, Math.min(3, MAX_CANVAS_PX / contentHeight))
+
   const opt = {
     margin: options?.margin || [0, 0],
     filename,
@@ -101,7 +109,7 @@ export async function printToPdf(
     // (A korábbi JPEG/scale:2 adott „fapados", elmosódott eredményt.)
     image: { type: 'png' },
     html2canvas: {
-      scale: 3,
+      scale: safeScale,
       useCORS: true,
       letterRendering: true,
       backgroundColor: '#ffffff',

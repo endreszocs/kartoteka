@@ -41,11 +41,17 @@ export function VoterPrintDialog({
   const [prevPartial, setPrevPartial] = useState(false)
   const [currFull, setCurrFull] = useState(true)
   const [currPartial, setCurrPartial] = useState(false)
+  // 2026-07-17 (PR-2, D1+D2 döntés): a hivatalos névjegyzék alapból CSAK a
+  // választói jogosultakat tartalmazza (18+, konfirmált, aktív, kézi
+  // felülbírálással) — kikapcsolható; a felmentett fizetettnek számít.
+  const [onlyEligible, setOnlyEligible] = useState(true)
+  const [includeExempt, setIncludeExempt] = useState(true)
   const [printing, setPrinting] = useState(false)
   const [sendingToPrinter, setSendingToPrinter] = useState(false)
   const [congregationName, setCongregationName] = useState('Gyülekezet')
   const [address, setAddress] = useState<string | null>(null)
   const [phone, setPhone] = useState<string | null>(null)
+  const [city, setCity] = useState<string | null>(null)
   const [loadingCtx, setLoadingCtx] = useState(false)
 
   // Első megnyitáskor — gyülekezet kontextus (fejléchez)
@@ -58,6 +64,7 @@ export function VoterPrintDialog({
       setCongregationName(ctx.congregationName)
       setAddress(ctx.address)
       setPhone(ctx.phone)
+      setCity(ctx.city)
       setLoadingCtx(false)
     })
     return () => { cancelled = true }
@@ -65,17 +72,28 @@ export function VoterPrintDialog({
 
   const filteredVoters = useMemo(() => {
     return voters.filter(v => {
+      // Jogosultsági alapszűrő (D2: default BE, kikapcsolható)
+      if (onlyEligible && !v.eligible) return false
       const prevFullMatch = prevFull && v.expectedPrevYear > 0 && v.paidPrevYearSum >= v.expectedPrevYear
       const prevPartialMatch = prevPartial && v.paidPrevYearSum > 0 && (v.expectedPrevYear === 0 || v.paidPrevYearSum < v.expectedPrevYear)
       const currFullMatch = currFull && v.expectedCurrentYear > 0 && v.paidCurrentYearSum >= v.expectedCurrentYear
       const currPartialMatch = currPartial && v.paidCurrentYearSum > 0 && (v.expectedCurrentYear === 0 || v.paidCurrentYearSum < v.expectedCurrentYear)
-      return prevFullMatch || prevPartialMatch || currFullMatch || currPartialMatch
+      // D1: a felmentett fizetettnek számít
+      const exemptMatch = includeExempt && v.felmentett
+      return prevFullMatch || prevPartialMatch || currFullMatch || currPartialMatch || exemptMatch
     })
-  }, [voters, prevFull, prevPartial, currFull, currPartial])
+  }, [voters, prevFull, prevPartial, currFull, currPartial, onlyEligible, includeExempt])
+
+  // Hiányzó éves járulék-beállítás felismerése (üres-lista zsákutca magyarázata)
+  const expectedPrev = voters[0]?.expectedPrevYear ?? 0
+  const expectedCurr = voters[0]?.expectedCurrentYear ?? 0
+  const missingYearSettings: number[] = []
+  if (voters.length > 0 && expectedPrev === 0) missingYearSettings.push(currentYear - 1)
+  if (voters.length > 0 && expectedCurr === 0) missingYearSettings.push(currentYear)
 
   const report = useMemo(() => {
     const voterData = filteredVoters.map(v => ({
-      name: `${v.csaladnev} ${v.nev.replace(v.csaladnev, '').trim()}`.trim() || v.nev,
+      name: v.nev,
       occupation: v.foglalkozas || null,
       address: v.lakcim || null,
       settlement: v.lakhely || null,
@@ -86,8 +104,9 @@ export function VoterPrintDialog({
       congregationName,
       address,
       phone,
+      city,
     })
-  }, [filteredVoters, currentYear, congregationName, address, phone])
+  }, [filteredVoters, currentYear, congregationName, address, phone, city])
 
   async function handlePdf() {
     setPrinting(true)
@@ -119,7 +138,7 @@ export function VoterPrintDialog({
     }
   }
 
-  const anyFilter = prevFull || prevPartial || currFull || currPartial
+  const anyFilter = prevFull || prevPartial || currFull || currPartial || includeExempt
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -152,6 +171,36 @@ export function VoterPrintDialog({
               </div>
 
               <div className="space-y-2">
+                <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 cursor-pointer hover:border-emerald-300 transition">
+                  <input
+                    type="checkbox"
+                    checked={onlyEligible}
+                    onChange={e => setOnlyEligible(e.target.checked)}
+                    className="mt-0.5 rounded"
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-slate-700">
+                      Csak <strong>választói jogosultak</strong>
+                    </div>
+                    <div className="text-[11px] text-slate-400">18+, konfirmált, aktív tag (a kézi felülbírálás szerint)</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 cursor-pointer hover:border-emerald-300 transition">
+                  <input
+                    type="checkbox"
+                    checked={includeExempt}
+                    onChange={e => setIncludeExempt(e.target.checked)}
+                    className="mt-0.5 rounded"
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-slate-700">
+                      <strong>Felmentettek</strong> is (fizetettnek számítanak)
+                    </div>
+                    <div className="text-[11px] text-slate-400">Érvényes felmentéssel rendelkezők befizetés nélkül is</div>
+                  </div>
+                </label>
+
                 <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-blue-300 hover:bg-blue-50/40 transition">
                   <input
                     type="checkbox"
@@ -226,6 +275,15 @@ export function VoterPrintDialog({
               {!anyFilter && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-800">
                   Legalább egy szűrőt be kell kapcsolni a névjegyzékhez.
+                </div>
+              )}
+
+              {missingYearSettings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-800">
+                  A(z) <strong>{missingYearSettings.join(', ')}</strong> évre nincs éves
+                  járulék beállítva — a „teljesen fizette&rdquo; szűrők erre az évre nem
+                  adnak találatot. A járulékot a Pénzügy → Beállítások (éves
+                  beállítás) alatt rögzítheted.
                 </div>
               )}
 
