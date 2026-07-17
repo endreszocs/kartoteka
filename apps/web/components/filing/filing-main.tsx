@@ -1,7 +1,18 @@
 ﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Files, Lock, Unlock, Copy as CopyIcon, AlertCircle } from 'lucide-react'
+import {
+  AlertCircle,
+  Copy as CopyIcon,
+  Files,
+  FolderArchive,
+  FolderInput,
+  Lock,
+  Paperclip,
+  Stamp,
+  Unlock,
+  X,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -13,13 +24,15 @@ import {
   getFilingEntries,
   saveFilingEntry,
   deleteFilingEntry,
-  getFilingStats,
   getNextSequenceNumber,
   closeFilingYear,
   reopenFilingYear,
   getYearClosure,
 } from '@/app/(dashboard)/iktato/actions'
-import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS, FILING_FOLDER_LABELS } from '@/lib/constants/filing'
+import { assignEntryToCsomo, listIratcsomok } from '@/app/(dashboard)/iktato/csomo-actions'
+import type { FilingEntryWithCsomo, IratcsomoWithCount } from '@/lib/iktato/csomo-types'
+import { createClient } from '@/lib/supabase/client'
+import { FILING_DIRECTIONS, FILING_DIRECTION_LABELS, FILING_FOLDERS } from '@/lib/constants/filing'
 import type { FilingDirection, FilingEntry, IktatoYearlyClosure } from '@/lib/constants/filing'
 import {
   FILING_UGYKOROK,
@@ -34,6 +47,17 @@ import { FilingTemplatesTab } from './filing-templates-tab'
 import { ColorTabs } from '@/components/ui/color-tabs'
 import { IktatoHelp } from './iktato-help'
 import { printIktatoPecset, printIktatokonyv } from './iktato-print'
+import { FilingOverview } from './filing-overview'
+import { IratcsomoPanel } from './iratcsomo-panel'
+import { CsatolmanyPanel } from './csatolmany-panel'
+
+// 2026-07-17 (F6/K6): az Igazolás/levél-kiállító dialógus KATTINTÁSKORI lazy-
+// importtal töltődik (a worklog-tabs lelkészi-jelentés mintája szerint) — NEM
+// modul-szintű dynamic().catch(), mert ott egy átmeneti chunk-hiba után a
+// hibakomponens örökre beégne; így hibánál toast jelez, és a KÖVETKEZŐ
+// kattintás újra próbálja az importot. A type-only import build-kor törlődik.
+type CertificateIssueDialogComponent =
+  typeof import('./certificate-issue-dialog').CertificateIssueDialog
 
 interface FilingMainProps {
   congregationName?: string
@@ -43,19 +67,28 @@ interface FilingMainProps {
   adminImportContent?: React.ReactNode
 }
 
-type FilingTab = 'iratok' | 'sablonok' | 'help' | 'admin-import'
+type FilingTab = 'iratok' | 'csomok' | 'sablonok' | 'help' | 'admin-import'
 
 export function FilingMain({ congregationName, showAdminImport = false, adminImportContent }: FilingMainProps) {
   const currentYear = new Date().getFullYear()
   const [activeTab, setActiveTab] = useState<FilingTab>('iratok')
   const [year, setYear] = useState(currentYear)
   const [direction, setDirection] = useState<FilingDirection | 'all'>('all')
-  const [entries, setEntries] = useState<FilingEntry[]>([])
+  const [entries, setEntries] = useState<FilingEntryWithCsomo[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [stats, setStats] = useState({ total: 0, incoming: 0, outgoing: 0, pending: 0 })
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editEntry, setEditEntry] = useState<FilingEntry | null>(null)
+  const [editEntry, setEditEntry] = useState<FilingEntryWithCsomo | null>(null)
+
+  // ── 2026-07-17 (F6/K6): iratcsomók, csatolmányok, kiállító-dialógus ──
+  const [csomok, setCsomok] = useState<IratcsomoWithCount[]>([])
+  const [csatolmanyCounts, setCsatolmanyCounts] = useState<Record<string, number>>({})
+  const [csomoPickerEntry, setCsomoPickerEntry] = useState<FilingEntryWithCsomo | null>(null)
+  const [csomoAssigning, setCsomoAssigning] = useState(false)
+  const [attachmentEntry, setAttachmentEntry] = useState<FilingEntryWithCsomo | null>(null)
+  const [certOpen, setCertOpen] = useState(false)
+  const [CertDialog, setCertDialog] = useState<CertificateIssueDialogComponent | null>(null)
+  const [certChunkLoading, setCertChunkLoading] = useState(false)
 
   const [fDirection, setFDirection] = useState<FilingDirection>('incoming')
   const [fKelt, setFKelt] = useState('')
@@ -84,18 +117,60 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   const [closing, setClosing] = useState(false)
   const [reopening, setReopening] = useState(false)
 
+  /**
+   * 2026-07-17 (F6/K6): csatolmány-darabszámok a sor-jelvényekhez — egyetlen
+   * kliens-oldali, chunkolt select az iktato_csatolmany táblára (RLS-védett).
+   * Az F6-SQL lefuttatása ELŐTT a tábla még nem létezik → a hiba NÉMÁN üres
+   * darabszám-térképet ad (a gemkapocs-gomb szám nélkül is működik, és a
+   * csatolmány-panel maga hangosan jelez, ha tényleg baj van).
+   */
+  const loadCsatolmanyCounts = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) {
+      setCsatolmanyCounts({})
+      return
+    }
+    try {
+      const supabase = createClient()
+      const counts: Record<string, number> = {}
+      for (let i = 0; i < ids.length; i += 150) {
+        const chunk = ids.slice(i, i + 150)
+        const { data, error } = await supabase
+          .from('iktato_csatolmany')
+          .select('iktato_id')
+          .in('iktato_id', chunk)
+        if (error) {
+          setCsatolmanyCounts({})
+          return
+        }
+        for (const row of (data || []) as { iktato_id: string }[]) {
+          counts[row.iktato_id] = (counts[row.iktato_id] || 0) + 1
+        }
+      }
+      setCsatolmanyCounts(counts)
+    } catch {
+      setCsatolmanyCounts({})
+    }
+  }, [])
+
+  // 2026-07-17 (F6/K6): mindig az ÉV ÖSSZES irata töltődik (direction='all'),
+  // az irány-szűrés kliens-oldali — így az év-összkép (FilingOverview) és a
+  // lista egyetlen fetch-ből él, a régi getFilingStats-hívás kiesett.
   const load = useCallback(async () => {
     setLoading(true)
-    const [data, currentStats, closure] = await Promise.all([
-      getFilingEntries(year, direction),
-      getFilingStats(year),
+    const [data, closure, csomoRes] = await Promise.all([
+      getFilingEntries(year, 'all'),
       getYearClosure(year),
+      listIratcsomok(year),
     ])
-    setEntries(data)
-    setStats(currentStats)
+    setEntries(data as FilingEntryWithCsomo[])
     setYearClosure(closure)
+    // Az iratcsomó-lista a sor-címkékhez és a „Csomóba" választóhoz kell.
+    // Az F6-SQL előtt a tábla még nem létezik — ilyenkor csendben üres
+    // listával megyünk tovább (az Iratcsomók fül a saját felületén jelez).
+    setCsomok(csomoRes.error ? [] : csomoRes.csomok)
     setLoading(false)
-  }, [direction, year])
+    void loadCsatolmanyCounts(data.map((e) => e.id))
+  }, [year, loadCsatolmanyCounts])
 
   const refreshEntries = useCallback(() => {
     void load()
@@ -114,9 +189,11 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
   }, [load])
 
   const filtered = useMemo(() => {
-    if (!searchQuery) return entries
+    const byDirection =
+      direction === 'all' ? entries : entries.filter((entry) => entry.direction === direction)
+    if (!searchQuery) return byDirection
     const q = searchQuery.toLowerCase()
-    return entries.filter((entry) =>
+    return byDirection.filter((entry) =>
       [
         entry.subject,
         entry.sender_or_recipient,
@@ -129,7 +206,14 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         .toLowerCase()
         .includes(q),
     )
-  }, [entries, searchQuery])
+  }, [entries, direction, searchQuery])
+
+  // Csomó-azonosító → név térkép a sor-címkékhez és a „Csomóba" választóhoz.
+  const csomoNameById = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const csomo of csomok) map[csomo.id] = csomo.nev
+    return map
+  }, [csomok])
 
   function openDialog(entry?: FilingEntry) {
     if (entry) {
@@ -215,7 +299,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       return
     }
     const note = window.prompt(
-      `Biztosan le szeretnéd zárni a ${year}-es iktatókönyvet?\n\nA lezárás után nem lehet új bejegyzést felvenni, és a meglévőket sem szerkeszteni. A jelenleg ${stats.total} bejegyzés végleges lesz.\n\nOpcionális zárszó:`,
+      `Biztosan le szeretnéd zárni a ${year}-es iktatókönyvet?\n\nA lezárás után nem lehet új bejegyzést felvenni, és a meglévőket sem szerkeszteni. A jelenleg ${entries.length} bejegyzés végleges lesz.\n\nOpcionális zárszó:`,
       '',
     )
     if (note === null) return
@@ -304,6 +388,49 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
     }
   }
 
+  // ── 2026-07-17 (F6/K6): Igazolás/levél-kiállító megnyitása ──────────
+  // Az első hívás tölti be a lazy chunkot; hibánál toast, és a következő
+  // kattintás ÚJRA próbálja (nincs beégett hibakomponens). Siker után a
+  // komponens state-ben marad — a dialógus maga resetel nyitáskor (K4).
+  async function openCertDialog() {
+    if (CertDialog) {
+      setCertOpen(true)
+      return
+    }
+    if (certChunkLoading) return
+    setCertChunkLoading(true)
+    try {
+      const mod = await import('./certificate-issue-dialog')
+      // Függvény-formájú setState kell: a komponens maga is függvény, a sima
+      // setState updater-nek értelmezné és azonnal meghívná.
+      setCertDialog(() => mod.CertificateIssueDialog)
+      setCertOpen(true)
+    } catch (err) {
+      console.warn('[iktato] kiállító-dialógus chunk-betöltési hiba:', err)
+      toast.error('Az igazolás-kiállító most nem tölthető be — próbáld újra.')
+    } finally {
+      setCertChunkLoading(false)
+    }
+  }
+
+  // ── 2026-07-17 (F6/K6): irat iratcsomóba rendezése / kivétele ───────
+  async function handleAssignCsomo(entry: FilingEntryWithCsomo, csomoId: string | null) {
+    setCsomoAssigning(true)
+    const { error } = await assignEntryToCsomo(entry.id, csomoId)
+    setCsomoAssigning(false)
+    if (error) {
+      toast.error(error)
+      return
+    }
+    toast.success(
+      csomoId
+        ? `A(z) ${entry.year}/${entry.sequence_number} irat a csomóba került.`
+        : `A(z) ${entry.year}/${entry.sequence_number} irat kikerült a csomóból.`,
+    )
+    setCsomoPickerEntry(null)
+    refreshEntries()
+  }
+
   const yearOptions = Array.from({ length: 5 }, (_, index) => currentYear - index)
 
   return (
@@ -346,7 +473,7 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
               {yearClosure.closing_note && (
                 <>
                   {' · '}
-                  <em>„{yearClosure.closing_note}"</em>
+                  <em>„{yearClosure.closing_note}”</em>
                 </>
               )}
               <div className="text-xs mt-0.5 text-amber-800">
@@ -369,10 +496,11 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
       )}
 
       {/* 2026-05-25: ColorTabs a Hero ALATT (Tagnyilvántartás minta) — Iratok /
-          Sablonok / Súgó / Rendszergazdai importáló. */}
+          Iratcsomók / Sablonok / Súgó / Rendszergazdai importáló. */}
       <ColorTabs
         tabs={[
           { value: 'iratok', label: 'Iktatott iratok', color: 'blue' },
+          { value: 'csomok', label: 'Iratcsomók', color: 'violet' },
           { value: 'sablonok', label: 'Sablonok', color: 'amber' },
           { value: 'help', label: 'Súgó', color: 'teal' },
           ...(showAdminImport ? [
@@ -389,11 +517,36 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
         adminImportContent
       ) : activeTab === 'sablonok' ? (
         <FilingTemplatesTab />
+      ) : activeTab === 'csomok' ? (
+        /* 2026-07-17 (F6/K6): iratcsomó-fül — év-szűrővel; a hozzárendelés-
+           változás a fő iratlistát is frissíti (onChanged → refreshEntries). */
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="csomo-ev-valaszto" className="text-sm text-muted-foreground">
+              Év:
+            </label>
+            <select
+              id="csomo-ev-valaszto"
+              value={year}
+              onChange={(event) => setYear(Number(event.target.value))}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {yearOptions.map((optionYear) => (
+                <option key={optionYear} value={optionYear}>{optionYear}</option>
+              ))}
+            </select>
+          </div>
+          <IratcsomoPanel
+            year={year}
+            congregationName={congregationName}
+            onChanged={refreshEntries}
+          />
+        </div>
       ) : (
         <FilingEntriesView
           congregationName={congregationName}
+          allEntries={entries}
           filtered={filtered}
-          stats={stats}
           year={year}
           setYear={setYear}
           direction={direction}
@@ -407,6 +560,12 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           onPrintPecset={(entry) => printIktatoPecset(entry, { congregationName: congregationName || '', year })}
           onPrintIktatokonyv={() => printIktatokonyv(filtered, { congregationName: congregationName || '', year })}
           isClosed={Boolean(yearClosure)}
+          onOpenCert={() => void openCertDialog()}
+          certLoading={certChunkLoading}
+          csomoNameById={csomoNameById}
+          csatolmanyCounts={csatolmanyCounts}
+          onOpenCsatolmany={(entry) => setAttachmentEntry(entry)}
+          onOpenCsomoPicker={(entry) => setCsomoPickerEntry(entry)}
         />
       )}
 
@@ -570,6 +729,18 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
               )}
             </div>
 
+            {/* 2026-07-17 (F6/K6): csatolmányok a szerkesztő-dialógusban is —
+                csak MENTETT iratnál (új iratnak még nincs azonosítója). */}
+            {editEntry && (
+              <div className="rounded-lg border border-slate-200 p-3">
+                <CsatolmanyPanel
+                  iktatoId={editEntry.id}
+                  iktatoszam={`${editEntry.year}/${editEntry.sequence_number}`}
+                  onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
+                />
+              </div>
+            )}
+
             {yearClosure && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-1.5">
                 <Lock className="size-3.5 mt-0.5 shrink-0" />
@@ -591,6 +762,148 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── 2026-07-17 (F6/K6): csatolmány-dialógus (gemkapocs a sorban) ── */}
+      <Dialog
+        open={attachmentEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentEntry(null)
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          {/* A CsatolmanyPanel saját fejlécet hoz — a Radix-hez kötelező cím
+              képernyőolvasónak szól (sr-only). */}
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              Csatolmányok
+              {attachmentEntry ? ` — ${attachmentEntry.year}/${attachmentEntry.sequence_number}` : ''}
+            </DialogTitle>
+            <DialogDescription>
+              Az irat befotózott vagy feltöltött oldalai, illetve papíralapú jelzései.
+            </DialogDescription>
+          </DialogHeader>
+          {attachmentEntry && (
+            <CsatolmanyPanel
+              iktatoId={attachmentEntry.id}
+              iktatoszam={`${attachmentEntry.year}/${attachmentEntry.sequence_number}`}
+              onChanged={() => void loadCsatolmanyCounts(entries.map((e) => e.id))}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 2026-07-17 (F6/K6): „Csomóba" választó-dialógus ── */}
+      <Dialog
+        open={csomoPickerEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setCsomoPickerEntry(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Iratcsomóba rendezés
+              {csomoPickerEntry ? ` — ${csomoPickerEntry.year}/${csomoPickerEntry.sequence_number}` : ''}
+            </DialogTitle>
+            <DialogDescription>
+              Válaszd ki, melyik {year}. évi csomóba kerüljön az irat. A lezárt
+              csomók nem választhatók.
+            </DialogDescription>
+          </DialogHeader>
+          {csomoPickerEntry && (
+            <div className="space-y-2">
+              {csomoPickerEntry.csomo_id ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  disabled={csomoAssigning}
+                  onClick={() => void handleAssignCsomo(csomoPickerEntry, null)}
+                >
+                  <X className="size-4 mr-1.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    Kivétel a jelenlegi csomóból
+                    {csomoNameById[csomoPickerEntry.csomo_id]
+                      ? ` („${csomoNameById[csomoPickerEntry.csomo_id]}")`
+                      : ''}
+                  </span>
+                </Button>
+              ) : null}
+              {csomok.length === 0 ? (
+                <div className="rounded-md border border-dashed border-input p-4 text-sm text-muted-foreground">
+                  {year}. évben még nincs iratcsomó — előbb hozz létre egyet az
+                  Iratcsomók fülön.
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto px-1 py-0"
+                    onClick={() => {
+                      setCsomoPickerEntry(null)
+                      setActiveTab('csomok')
+                    }}
+                  >
+                    Ugrás az Iratcsomók fülre
+                  </Button>
+                </div>
+              ) : (
+                <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+                  {csomok.map((csomo) => {
+                    const isCurrent = csomo.id === csomoPickerEntry.csomo_id
+                    return (
+                      <li key={csomo.id}>
+                        <Button
+                          type="button"
+                          variant={isCurrent ? 'secondary' : 'outline'}
+                          className="w-full justify-start"
+                          disabled={csomoAssigning || csomo.lezarva || isCurrent}
+                          title={
+                            csomo.lezarva
+                              ? 'A csomó lezárva — előbb old fel az Iratcsomók fülön.'
+                              : isCurrent
+                                ? 'Az irat már ebben a csomóban van.'
+                                : undefined
+                          }
+                          onClick={() => void handleAssignCsomo(csomoPickerEntry, csomo.id)}
+                        >
+                          <FolderArchive className="size-4 mr-1.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-left">{csomo.nev}</span>
+                          <span className="ml-2 shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {csomo.iratSzam} irat
+                          </span>
+                          {csomo.lezarva ? <Lock className="size-3.5 ml-1.5 shrink-0" /> : null}
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 2026-07-17 (F6/K6): a kiállító-chunk betöltése alatti visszajelzés —
+          a pointer-events-none KÖTELEZŐ: a backdrop csak vizuális jelzés,
+          chunk-hiba esetén sem ragadhat kattinthatatlan overlay a képernyőn. */}
+      {certChunkLoading && (
+        <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-foreground/30 p-4">
+          <div className="rounded-2xl border border-border bg-card px-6 py-4 text-sm text-muted-foreground shadow-lg">
+            Igazolás-kiállító betöltése…
+          </div>
+        </div>
+      )}
+
+      {/* 2026-07-17 (F6/K6): az Igazolás/levél-kiállító — csak az első sikeres
+          chunk-betöltés után mountolódik; önhordó, nyitáskor maga resetel és
+          tölti az adatait (K4-kontraktus). Sikeres iktatás → lista-frissítés. */}
+      {CertDialog && (
+        <CertDialog
+          open={certOpen}
+          onOpenChange={setCertOpen}
+          year={year}
+          onIssued={refreshEntries}
+        />
+      )}
     </>
   )
 }
@@ -601,8 +914,9 @@ export function FilingMain({ congregationName, showAdminImport = false, adminImp
 
 interface FilingEntriesViewProps {
   congregationName?: string
-  filtered: FilingEntry[]
-  stats: { total: number; incoming: number; outgoing: number; pending: number }
+  /** 2026-07-17 (F6/K6): az év ÖSSZES irata — az év-összképnek (FilingOverview). */
+  allEntries: FilingEntryWithCsomo[]
+  filtered: FilingEntryWithCsomo[]
   year: number
   setYear: (y: number) => void
   direction: FilingDirection | 'all'
@@ -611,7 +925,7 @@ interface FilingEntriesViewProps {
   setSearchQuery: (q: string) => void
   yearOptions: number[]
   loading: boolean
-  openDialog: (entry?: FilingEntry) => void
+  openDialog: (entry?: FilingEntryWithCsomo) => void
   handleDelete: (id: string) => void
   /** 2026-05-28: Iktatópecsét nyomtatás call-back. */
   onPrintPecset?: (entry: FilingEntry) => void
@@ -619,11 +933,23 @@ interface FilingEntriesViewProps {
   onPrintIktatokonyv?: () => void
   /** 2026-05-29 Fázis 3: lezárt-e az évi iktatókönyv (az "+ Új irat" gombhoz). */
   isClosed?: boolean
+  /** 2026-07-17 (F6/K6): Igazolás/levél-kiállító megnyitása (lazy chunk). */
+  onOpenCert: () => void
+  /** A kiállító-chunk épp töltődik (gomb-visszajelzéshez). */
+  certLoading?: boolean
+  /** Csomó-azonosító → név (a sor-címkékhez). */
+  csomoNameById: Record<string, string>
+  /** Iktató-id → csatolmány-darabszám (a gemkapocs-jelvényhez). */
+  csatolmanyCounts: Record<string, number>
+  /** Csatolmány-dialógus nyitása az adott irathoz. */
+  onOpenCsatolmany: (entry: FilingEntryWithCsomo) => void
+  /** „Csomóba" választó nyitása az adott irathoz. */
+  onOpenCsomoPicker: (entry: FilingEntryWithCsomo) => void
 }
 
 function FilingEntriesView({
+  allEntries,
   filtered,
-  stats,
   year,
   setYear,
   direction,
@@ -637,15 +963,21 @@ function FilingEntriesView({
   onPrintPecset,
   onPrintIktatokonyv,
   isClosed = false,
+  onOpenCert,
+  certLoading = false,
+  csomoNameById,
+  csatolmanyCounts,
+  onOpenCsatolmany,
+  onOpenCsomoPicker,
 }: FilingEntriesViewProps) {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Összes" value={String(stats.total)} />
-        <StatCard label="Érkező" value={String(stats.incoming)} accent="text-blue-600" />
-        <StatCard label="Kimenő" value={String(stats.outgoing)} accent="text-orange-600" />
-        <StatCard label="Függőben" value={String(stats.pending)} accent="text-amber-600" />
-      </div>
+      {/* 2026-07-17 (F6/K3+K6): év-összkép a régi 4 stat-kártya HELYETT —
+          stat-kártyák (érkező/kimenő, elintézetlen, iratcsomóban, ügykörök)
+          + havi mini-oszlopdiagram, mindig a teljes évből számolva.
+          Üres évnél nem renderelünk: a lista EmptyFirstRecord-ja (CTA-val)
+          az egyetlen üres-állapot — nem duplázzuk a kártyákat. */}
+      {allEntries.length > 0 && <FilingOverview entries={allEntries} year={year} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap gap-1">
@@ -663,12 +995,22 @@ function FilingEntriesView({
         </select>
 
         <Input placeholder="Keresés..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="w-full sm:w-56" />
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           {onPrintIktatokonyv && (
             <Button size="sm" variant="outline" onClick={onPrintIktatokonyv}>
               Iktatókönyv nyomtatás
             </Button>
           )}
+          {/* 2026-07-17 (F6/K6): igazolás/hivatalos levél kiállítása sablonból,
+              anyakönyvi adatokkal — a mentés automatikusan iktat (kimenő). */}
+          <Button
+            size="sm"
+            onClick={onOpenCert}
+            disabled={certLoading}
+          >
+            <Stamp className="size-3.5 mr-1.5" />
+            {certLoading ? 'Betöltés…' : 'Igazolás / levél kiállítása'}
+          </Button>
           <Button
             size="sm"
             onClick={() => openDialog()}
@@ -702,7 +1044,7 @@ function FilingEntriesView({
                 <th className="hidden p-2 text-left md:table-cell">Feladó / címzett</th>
                 <th className="hidden p-2 text-left lg:table-cell">Ügykör</th>
                 <th className="p-2 text-center">Elintézés</th>
-                <th className="w-36 p-2" />
+                <th className="w-52 p-2" />
               </tr>
             </thead>
             <tbody>
@@ -710,11 +1052,21 @@ function FilingEntriesView({
                 <tr key={entry.id} className="border-b hover:bg-slate-50">
                   <td className="p-2 font-mono text-xs">{entry.year}/{entry.sequence_number}</td>
                   <td className="p-2 text-xs text-muted-foreground">{entry.kelt?.split('T')[0]}</td>
-                  <td className="max-w-[260px] truncate p-2 font-medium">
-                    {entry.subject}
+                  <td className="max-w-[260px] p-2 font-medium">
+                    <span className="block truncate">{entry.subject}</span>
                     {entry.external_ref_szam && (
                       <div className="text-[10px] font-normal text-slate-500 font-mono">ext: {entry.external_ref_szam}</div>
                     )}
+                    {/* 2026-07-17 (F6/K6): csomó-jelzés — a csomo_id az F6-SQL
+                        előtt undefined, ilyenkor nincs címke. */}
+                    {entry.csomo_id ? (
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] font-normal text-violet-700">
+                        <FolderArchive className="size-3 shrink-0" aria-hidden />
+                        <span className="truncate">
+                          {csomoNameById[entry.csomo_id] || 'Iratcsomóban'}
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="hidden p-2 text-xs text-muted-foreground md:table-cell">{entry.sender_or_recipient || '—'}</td>
                   <td className="hidden p-2 lg:table-cell">
@@ -729,6 +1081,31 @@ function FilingEntriesView({
                   <td className="p-2 text-center">{entry.elintezes_ideje ? 'Kész' : 'Nyitott'}</td>
                   <td className="p-2">
                     <div className="flex justify-end gap-1">
+                      {/* 2026-07-17 (F6/K6): csatolmányok (gemkapocs + darabszám) */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-xs text-slate-600"
+                        onClick={() => onOpenCsatolmany(entry)}
+                        title="Csatolmányok — befotózott/feltöltött oldalak"
+                        aria-label={`Csatolmányok — ${entry.year}/${entry.sequence_number}`}
+                      >
+                        <Paperclip className="size-3.5" aria-hidden />
+                        {csatolmanyCounts[entry.id] ? (
+                          <span className="ml-0.5 tabular-nums">{csatolmanyCounts[entry.id]}</span>
+                        ) : null}
+                      </Button>
+                      {/* 2026-07-17 (F6/K6): iratcsomóba rendezés */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-xs text-violet-700"
+                        onClick={() => onOpenCsomoPicker(entry)}
+                        title="Iratcsomóba rendezés"
+                        aria-label={`Iratcsomóba rendezés — ${entry.year}/${entry.sequence_number}`}
+                      >
+                        <FolderInput className="size-3.5" aria-hidden />
+                      </Button>
                       {onPrintPecset && (
                         <Button
                           variant="ghost"
@@ -751,14 +1128,5 @@ function FilingEntriesView({
         </div>
       )}
     </>
-  )
-}
-
-function StatCard({ label, value, accent = 'text-slate-800' }: { label: string; value: string; accent?: string }) {
-  return (
-    <div className="card-raised p-3 text-center">
-      <p className={`text-2xl font-bold ${accent}`}>{value}</p>
-      <p className="text-xs text-slate-400">{label}</p>
-    </div>
   )
 }
