@@ -27,7 +27,7 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 <!-- key: 2026-07-17-penzugy-f2-nyugta-nyomtatas -->
 <!-- category: bugfix -->
 <!-- targets: lelkesz, gondnok, konyvelo -->
-<!-- version: web v0.9.86 -->
+<!-- version: web v0.9.87 -->
 
 ### 🐛 Pénzügy — Nyugta (chitanță) nyomtatása
 
