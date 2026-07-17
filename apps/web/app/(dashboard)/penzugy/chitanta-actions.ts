@@ -206,6 +206,14 @@ export async function autoIssueChitantaForBefizetes(
     if (bc?.nev) reprezentand = String(bc.nev)
     if (bc?.nevro) reprezentandRo = String(bc.nevro)
   }
+  // 2026-07-17 (F2-3, Q4 döntés): a fizetett év MINDIG a reprezentand része —
+  // a nyugta e nélkül nem igazolta, melyik évre szólt a befizetés (pl. 2024-es
+  // elmaradás 2026-ban rendezve). Bit-azonos a core use-case-szel (desktop-út).
+  const fizetettEv = Number(befizetes.fizetettev) || null
+  if (fizetettEv) {
+    if (reprezentand && !reprezentand.includes(String(fizetettEv))) reprezentand = `${reprezentand} ${fizetettEv}`
+    if (reprezentandRo && !reprezentandRo.includes(String(fizetettEv))) reprezentandRo = `${reprezentandRo} ${fizetettEv}`
+  }
 
   // 4. Nyomdai + gyülekezeti szám lefoglalása az aktív tömbből (atomi RPC)
   const szamlaDatum = (befizetes.datum as string)?.split('T')[0] || new Date().toISOString().slice(0, 10)

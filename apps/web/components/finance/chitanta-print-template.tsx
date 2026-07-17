@@ -67,6 +67,26 @@ function formatRoHeaderName(
   return `${prefix.toUpperCase()} ${name.toUpperCase()}`
 }
 
+/**
+ * 2026-07-17 (Q3 döntés): a háttér-címer egyházkerület-függő — Királyhágómelléki
+ * (KREK / Eparhia Reformată de pe lângă Piatra Craiului) gyülekezetnél a KEREK
+ * címer, különben az EREK. Mindkét asset a public-ban él (a splash is használja).
+ */
+function districtEmblemSrc(data: ChitantaPrintData): string {
+  const district = stripDiacritics(`${data.egyhazkeruletNevHu || ''} ${data.egyhazkeruletNevRo || ''}`)
+  return district.includes('kiralyhago') || district.includes('piatra craiului')
+    ? '/KEREK.png'
+    : '/EREK.png'
+}
+
+/** A kerület román fejléc-sora — adatból; ha nincs RO név, a kerület-felismerés dönt. */
+function districtRoHeader(data: ChitantaPrintData): string {
+  if (data.egyhazkeruletNevRo) return data.egyhazkeruletNevRo.toUpperCase()
+  return districtEmblemSrc(data) === '/KEREK.png'
+    ? 'EPARHIA REFORMATĂ DE PE LÂNGĂ PIATRA CRAIULUI'
+    : 'EPARHIA REFORMATĂ DIN ARDEAL'
+}
+
 export function ChitantaPrintTemplate({ data, copyWatermark, dualMode }: Props) {
   // Dual mode: A5 portrait lap, két nyugta egymás alatt szaggatott vágóvonallal.
   // A felhasználó kettéverja a vágóvonal mentén → egyik az átvevőnek, másik
@@ -140,7 +160,7 @@ function ChitantaSingle({ data, copyWatermark }: { data: ChitantaPrintData; copy
         }
       `}</style>
 
-      {/* EREK címer háttér-vízjel — mindig megjelenik, diszkréten */}
+      {/* Egyházkerületi címer háttér-vízjel (EREK/KEREK) — mindig megjelenik, diszkréten */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
@@ -151,7 +171,7 @@ function ChitantaSingle({ data, copyWatermark }: { data: ChitantaPrintData; copy
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/EREK.png"
+          src={districtEmblemSrc(data)}
           alt=""
           style={{
             width: '75%',
@@ -183,7 +203,7 @@ function ChitantaSingle({ data, copyWatermark }: { data: ChitantaPrintData; copy
       <div className="grid grid-cols-[2fr_1fr] gap-3 border-b border-slate-300 pb-2 relative" style={{ zIndex: 2 }}>
         <div className="space-y-0.5 text-[9pt] leading-tight">
           <div className="font-bold uppercase tracking-tight">
-            EPARHIA REFORMATĂ DIN ARDEAL
+            {districtRoHeader(data)}
           </div>
           <div className="italic text-slate-700">
             {data.egyhazkeruletNevHu || 'ERDÉLYI REFORMÁTUS EGYHÁZKERÜLET'}
@@ -492,7 +512,7 @@ function ChitantaInnerContent({
 
   return (
     <>
-      {/* EREK címer háttér-vízjel — középen, max 50mm magasan, hogy ne vágódjon el */}
+      {/* Egyházkerületi címer háttér-vízjel (EREK/KEREK) — középen, max 70mm, hogy ne vágódjon el */}
       <div
         aria-hidden
         style={{
@@ -509,7 +529,7 @@ function ChitantaInnerContent({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/EREK.png"
+          src={districtEmblemSrc(data)}
           alt=""
           style={{
             maxWidth: '70mm',
@@ -543,7 +563,7 @@ function ChitantaInnerContent({
       {/* Fejléc — kompakt, A4 szélességre igazítva (telefon eltávolítva) */}
       <div className="grid grid-cols-[2fr_1fr] gap-3 border-b border-slate-300 pb-2 mb-2 text-[9pt] leading-tight relative" style={{ zIndex: 2 }}>
         <div>
-          <div className="font-bold uppercase">EPARHIA REFORMATĂ DIN ARDEAL</div>
+          <div className="font-bold uppercase">{districtRoHeader(data)}</div>
           <div className="italic text-slate-700">
             {data.egyhazkeruletNevHu || 'ERDÉLYI REFORMÁTUS EGYHÁZKERÜLET'}
           </div>
