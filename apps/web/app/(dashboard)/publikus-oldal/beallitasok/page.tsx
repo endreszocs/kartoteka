@@ -8,6 +8,7 @@ import type { PublicSiteThemeOption } from '@/components/admin/public-site/publi
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 import { suggestSlug } from '@/lib/public-site/slug'
+import { PUBLIC_VISUAL_THEME_KEYS } from '@/lib/public-site/visual-theme-registry'
 
 export const metadata: Metadata = {
   title: 'Weboldal-beállítások · Kartotéka',
@@ -48,6 +49,7 @@ export default async function PublicSiteSettingsPage() {
         'id, preset_key, display_name, description, colors, typography, hero_style',
       )
       .eq('is_active', true)
+      .in('preset_key', [...PUBLIC_VISUAL_THEME_KEYS])
       .order('sort_order'),
   ])
 
@@ -68,6 +70,9 @@ export default async function PublicSiteSettingsPage() {
 
   const site = siteResult.data
   const themes = (themesResult.data ?? []) as PublicSiteThemeOption[]
+  const initialThemeId = themes.some((theme) => theme.id === site?.theme_id)
+    ? site?.theme_id ?? ''
+    : themes[0]?.id ?? ''
   const defaultSlug = site?.slug || suggestSlug(access.congregationName || 'gyulekezet')
   const defaultName = site?.display_name || access.congregationName || 'Gyülekezet'
 
@@ -130,7 +135,7 @@ export default async function PublicSiteSettingsPage() {
             tagline: site?.tagline ?? '',
             hero_image_url: site?.hero_image_url ?? '',
             crest_image_url: site?.crest_image_url ?? '',
-            theme_id: site?.theme_id ?? themes[0]?.id ?? '',
+            theme_id: initialThemeId,
             custom_primary_color: site?.custom_primary_color ?? '',
             custom_accent_color: site?.custom_accent_color ?? '',
             contact_email: site?.contact_email ?? '',

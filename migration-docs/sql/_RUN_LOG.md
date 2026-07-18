@@ -19,6 +19,22 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – filmszerű honlaptéma és publikus témaolvasás (2026-07-18)
+
+- [x] 2026-07-18 — **`2026-07-17-public-site-v2-themes.sql`** ✅ LEFUTOTT
+       A négysoros produkciós eredmény igazolta mind a négy aktív témát; a
+       `filmszeru-tortenet` preset `sort_order=4` értékkel létrejött. A seed
+       tiszta, idempotens DML; policyt és grantet nem módosított.
+
+- [ ] **`2026-07-17-public-site-read-security.sql`** — REVIEW-DRAFT / BLOKKOLT
+       Nem része a filmszerű téma kiadásának. Csak a teljes tagiportál-P0 és
+       workflow cutover után futtatható. A 2026-07-18-i téves próbafutás a
+       hiányzó `KARTOTEKA_P0_AUTH_ISOLATION_V1` exact marker preflightján
+       fail-closed leállt; a tranzakció teljesen visszagördült, részleges
+       adatbázis-módosítás nem maradt.
+
+---
+
 ## 🔴 PENDING – publikus oldal adatvezérelt alkalmak és sitemap (2026-07-18)
 
 - [ ] **`2026-07-18-public-site-content-and-sitemap.sql`** — PENDING (még nem futott)

@@ -14,6 +14,9 @@ import { PublicVerseBlock } from '@/components/public/public-verse-block'
 import { PublicServiceTimes } from '@/components/public/public-service-times'
 import { PublicSectionHeader } from '@/components/public/public-section-header'
 import { PublicAgeDistribution } from '@/components/public/public-age-distribution'
+import { PublicCinematicHome } from '@/components/public/public-cinematic-home'
+import { CINEMATIC_PUBLIC_THEME_KEY } from '@/lib/public-site/visual-theme-registry'
+import { isMemberPortalAuthEnabled } from './tagi-portal/auth-enabled'
 import { ArrowRight, BookOpen, Newspaper, Sparkles, Users, UserCheck, Home } from 'lucide-react'
 
 export default async function CongregationHomePage({
@@ -40,6 +43,20 @@ export default async function CongregationHomePage({
 
   // A számok szűk, aggregált RPC-ből jönnek; nincs publikus base-table olvasás.
   const showCountStats = site.show_member_count || site.show_presbyter_count || site.show_family_count
+
+  if (site.theme.preset_key === CINEMATIC_PUBLIC_THEME_KEY) {
+    return (
+      <PublicCinematicHome
+        site={site}
+        recentPosts={recentPosts}
+        magazine={magazine}
+        stats={stats}
+        ageDistribution={stats.ageDistribution}
+        safeAboutHtml={safeAboutHtml}
+        memberPortalEnabled={isMemberPortalAuthEnabled()}
+      />
+    )
+  }
 
   return (
     <>

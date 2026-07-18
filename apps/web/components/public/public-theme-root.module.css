@@ -2,6 +2,7 @@
   isolation: isolate;
 }
 
+.root[data-public-theme="filmszeru-tortenet"],
 .root[data-public-theme="elo-kert"],
 .root[data-public-theme="csendes-parokia"],
 .root[data-public-theme="zsoltaros-orokseg"] {
@@ -18,6 +19,27 @@
       transparent 30rem
     );
   background-repeat: no-repeat;
+}
+
+/* Filmszeru tortenet: a kezdolap sajat shellt kap, az aloldalak sotet-zold,
+   arany reszletekkel folytatjak ugyanazt az arculatot. */
+.root[data-public-theme="filmszeru-tortenet"] {
+  --public-theme-card-shadow: 0 24px 58px -38px
+    color-mix(in srgb, var(--public-primary) 58%, transparent);
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-card) {
+  border-radius: max(var(--public-radius), 1.25rem);
+  box-shadow: var(--public-theme-card-shadow);
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-btn) {
+  border-radius: 999px;
+}
+
+.root[data-public-theme="filmszeru-tortenet"] :global(.public-site-header) {
+  box-shadow: 0 12px 42px -32px
+    color-mix(in srgb, var(--public-primary) 78%, transparent);
 }
 
 /* Elo kert: levegos, kozossegi, latszolag retegzett feluletek. */
@@ -117,6 +139,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .root[data-public-theme="filmszeru-tortenet"] :global(.public-card:hover),
   .root[data-public-theme="elo-kert"] :global(.public-card:hover),
   .root[data-public-theme="csendes-parokia"] :global(.public-card:hover),
   .root[data-public-theme="zsoltaros-orokseg"] :global(.public-card:hover) {

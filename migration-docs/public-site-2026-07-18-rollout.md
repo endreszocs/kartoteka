@@ -7,16 +7,32 @@ Ez a kiegészítés két kiadási hibát zár le:
 - a `sitemap.xml` a `public_sites` közvetlen anonim olvasásának visszavonása
   után is működik, de csak a keresők számára engedélyezett útvonalakat kapja meg.
 
-## Kötelező sorrend
+## Filmszerű téma — külön, nem breaking kiadás
+
+A `migration-docs/sql/2026-07-17-public-site-v2-themes.sql` tiszta,
+idempotens DML seed. A négy támogatott témát kezeli, policyt, grantet, Authot és
+gyülekezeti adatot nem módosít, ezért a jelenlegi publikus oldal mellett önállóan
+futtatható. A 2026-07-18-i produkciós futás négy aktív sort igazolt, köztük a
+`filmszeru-tortenet` presetet.
+
+A filmszerű téma frontendkiadásához **nem szabad** lefuttatni a
+`2026-07-17-public-site-read-security.sql` fájlt. Az továbbra is REVIEW-DRAFT,
+és csak a teljes tagiportál-P0/workflow cutover után telepíthető. A
+2026-07-18-i téves próbafutás a P0-marker preflightján leállt és a tranzakció
+teljesen visszagördült.
+
+## Kötelező sorrend — csak a későbbi alkalmak + sitemap cutoverhez
 
 1. Futtasd le és ellenőrizd a teljes 2026-07-17-es tagi portál migrációs láncot.
-2. Futtasd a `migration-docs/sql/2026-07-17-public-site-v2-themes.sql` fájlt.
-3. Futtasd a `migration-docs/sql/2026-07-17-public-site-read-security.sql` fájlt.
-4. Közvetlenül utána futtasd a
+2. Közvetlenül utána futtasd, illetve ellenőrizd a
+   `migration-docs/sql/2026-07-17-public-site-read-security.sql` teljes
+   postflightját. Ez garantálja a szűk anon és staff témaolvasást.
+3. Közvetlenül utána futtasd a
    `migration-docs/sql/2026-07-18-public-site-content-and-sitemap.sql` fájlt.
-5. Csak a postflightok sikeres lefutása után telepítsd a webes release-t.
+4. Csak a postflightok sikeres lefutása után telepítsd az alkalmak + sitemap
+   cutoverre épülő webes release-t.
 
-A 4. és 5. lépést nem szabad felcserélni. A frontend ugyan visszafelé
+A 3. és 4. lépést nem szabad felcserélni. A frontend ugyan visszafelé
 kompatibilis, de a 2026-07-17-es hardening és a 2026-07-18-as sitemap RPC közötti
 állapotban a sitemap biztonságosan üres lehet.
 
@@ -71,6 +87,16 @@ order by site_slug, route_kind, content_slug nulls first;
 select slug, service_times
 from public.public_sites
 where slug = 'baratosi-reformatus-egyhazkozseg';
+
+select preset_key, display_name, sort_order, is_active
+from public.public_site_themes
+where preset_key in (
+  'filmszeru-tortenet',
+  'elo-kert',
+  'csendes-parokia',
+  'zsoltaros-orokseg'
+)
+order by sort_order;
 ```
 
 Elvárt eredmény:
@@ -80,6 +106,8 @@ Elvárt eredmény:
 - a sitemap csak `robots_index=true`, aktív és publikált gyülekezetet,
   publikált bejegyzést és publikált lapszámot listáz;
 - nem jelenik meg személyes adat vagy belső gyülekezeti azonosító a sitemapben.
+- a témalekérdezés pontosan négy aktív sort ad, elsőként a „Filmszerű
+  történet” sablonnal.
 
 ## Visszaállítás
 

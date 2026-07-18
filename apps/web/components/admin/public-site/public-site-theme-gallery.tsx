@@ -92,7 +92,7 @@ function ThemePreview({ visual, theme, isSelected }: ThemePreviewProps) {
   )
 }
 
-/** A három jóváhagyott, generált képes téma szerveroldali galériája. */
+/** A jóváhagyott, generált képes témák szerveroldali galériája. */
 export function PublicSiteThemeGallery({
   themes,
   selectedThemeId,
@@ -101,7 +101,7 @@ export function PublicSiteThemeGallery({
   const themesByPreset = new Map(themes.map((theme) => [theme.preset_key, theme]))
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {Object.values(PUBLIC_VISUAL_THEMES).map((visual) => {
         const theme = themesByPreset.get(visual.key)
         const isSelected = Boolean(theme && selectedThemeId === theme.id)
