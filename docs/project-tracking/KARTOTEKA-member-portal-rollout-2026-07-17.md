@@ -13,8 +13,9 @@ amíg az alábbi adatbázis- és Auth-ellenőrzések hiánytalanul le nem futnak
 - A kliens által küldött szerepkör vagy személyazonosító nem jogosultsági forrás.
 - A tag módosítási javaslata csak lelkészi elfogadás után kerül a `szemely`
   rekordba, verzióütközés-védelemmel.
-- A `MEMBER_PORTAL_AUTH_ENABLED` kapcsoló fail-closed: migráció előtt a tagi
-  menüpont és az Auth-oldal nem jelenik meg, tagi RPC nem fut.
+- A `MEMBER_PORTAL_AUTH_ENABLED` és `MEMBER_PORTAL_SCHEMA_READY` kettős kapu
+  fail-closed: migráció előtt a tagi menüpont és az Auth-oldal nem jelenik meg,
+  tagi RPC nem fut. Mindkettőnek pontosan `true` értékűnek kell lennie.
 
 ## Kötelező futtatási sorrend a Supabase SQL Editorban
 
@@ -59,12 +60,14 @@ Első kódtelepítéskor:
 
 ```text
 MEMBER_PORTAL_AUTH_ENABLED=false
+MEMBER_PORTAL_SCHEMA_READY=false
 ```
 
 A migrációk és a háromszereplős Auth/RLS próba után:
 
 ```text
 MEMBER_PORTAL_AUTH_ENABLED=true
+MEMBER_PORTAL_SCHEMA_READY=true
 NEWSLETTER_WORKER_SECRET=<legalább 32 véletlen karakter>
 NEWSLETTER_WORKER_ENDPOINT=https://<production-host>/api/internal/member-newsletters
 NEWSLETTER_WORKER_BATCH_SIZE=10
@@ -105,7 +108,8 @@ A cron ugyanazt a `NEWSLETTER_WORKER_SECRET` és `NEWSLETTER_WORKER_ENDPOINT`
 
 ## Visszaállítási terv
 
-- Első védelmi lépés: `MEMBER_PORTAL_AUTH_ENABLED=false`, majd Railway restart.
+- Első védelmi lépés: `MEMBER_PORTAL_SCHEMA_READY=false` (vagy
+  `MEMBER_PORTAL_AUTH_ENABLED=false`), majd Railway restart.
   Ez elrejti az Auth-belépést és leállítja a webes tagi műveleteket.
 - A cron service külön leállítható; a már várólistás levelek az adatbázisban
   megmaradnak.
