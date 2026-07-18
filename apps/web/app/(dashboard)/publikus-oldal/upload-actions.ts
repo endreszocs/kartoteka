@@ -15,6 +15,7 @@ import {
   MAX_PDF_SIZE,
 } from '@/lib/public-site/storage'
 import { validateSlug } from '@/lib/public-site/slug'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
 
 /**
  * Biztonsági: UUID validátor a magazin issueId-hez.
@@ -26,8 +27,19 @@ function isValidUuid(value: string): boolean {
   return typeof value === 'string' && UUID_REGEX.test(value)
 }
 
+function withCacheVersion(publicUrl: string): string {
+  const url = new URL(publicUrl)
+  url.searchParams.set('v', Date.now().toString(36))
+  return url.toString()
+}
+
 interface UploadResult {
   url?: string
+  error?: string
+}
+
+interface CleanupResult {
+  success?: boolean
   error?: string
 }
 
@@ -45,6 +57,9 @@ type UploadTarget =
 export async function uploadPublicSiteImage(formData: FormData): Promise<UploadResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod publikus média feltöltéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
@@ -69,16 +84,16 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
     return { error: `A fájl túl nagy (max ${MAX_IMAGE_SIZE / 1024 / 1024} MB).` }
   }
 
-  const safeName = sanitizeFilename(file.name)
-
   let path: string
   switch (target.kind) {
-    case 'hero':
-      path = heroImagePath(congregationId, safeName)
+    case 'hero': {
+      path = heroImagePath(congregationId, sanitizeFilename(file.name))
       break
-    case 'crest':
-      path = crestImagePath(congregationId, safeName)
+    }
+    case 'crest': {
+      path = crestImagePath(congregationId, sanitizeFilename(file.name))
       break
+    }
     case 'post-cover': {
       // Path traversal védelem: slug validáció
       if (typeof target.postSlug !== 'string') {
@@ -88,7 +103,11 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
       if (!slugCheck.valid) {
         return { error: slugCheck.error || 'Érvénytelen poszt slug.' }
       }
-      path = postCoverImagePath(congregationId, target.postSlug, safeName)
+      path = postCoverImagePath(
+        congregationId,
+        target.postSlug,
+        sanitizeFilename(file.name),
+      )
       break
     }
     case 'magazine-cover': {
@@ -96,7 +115,9 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
       if (!isValidUuid(target.issueId)) {
         return { error: 'Érvénytelen lapszám azonosító.' }
       }
-      path = magazineIssuePath(congregationId, target.issueId, safeName)
+      // Egy lapszámhoz egyetlen borító-slot tartozik. A determinisztikus név
+      // miatt egy új feltöltés felülírja a régit, nem hoz létre árva fájlokat.
+      path = magazineIssuePath(congregationId, target.issueId, 'cover')
       break
     }
     default:
@@ -110,9 +131,10 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
     return { error: 'Érvénytelen útvonal.' }
   }
 
-  // Hero és crest: engedjük a felülírást (ugyanaz a slot)
-  // Post-cover és magazine-cover: a sanitizeFilename timestamp-et ad, így nem ütközik
-  const allowUpsert = target.kind === 'hero' || target.kind === 'crest'
+  // Hero, crest és magazinborító egy-egy felülírható slot. A posztborítók
+  // továbbra is egyedi, időbélyeges fájlnevet kapnak.
+  const allowUpsert =
+    target.kind === 'hero' || target.kind === 'crest' || target.kind === 'magazine-cover'
 
   const { error } = await access.supabase.storage
     .from(PUBLIC_SITE_MEDIA_BUCKET)
@@ -128,7 +150,12 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
     .from(PUBLIC_SITE_MEDIA_BUCKET)
     .getPublicUrl(path)
 
-  return { url: urlData.publicUrl }
+  return {
+    url:
+      target.kind === 'magazine-cover'
+        ? withCacheVersion(urlData.publicUrl)
+        : urlData.publicUrl,
+  }
 }
 
 /**
@@ -137,6 +164,9 @@ export async function uploadPublicSiteImage(formData: FormData): Promise<UploadR
 export async function uploadMagazinePdf(formData: FormData): Promise<UploadResult> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod magazin feltöltéséhez.' }
+  }
   const congregationId = access.effectiveCongregationId
   if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
 
@@ -158,8 +188,9 @@ export async function uploadMagazinePdf(formData: FormData): Promise<UploadResul
     return { error: `A fájl túl nagy (max ${MAX_PDF_SIZE / 1024 / 1024} MB).` }
   }
 
-  const safeName = sanitizeFilename(file.name)
-  const path = magazineIssuePath(congregationId, issueId, safeName)
+  // Egy lapszámhoz egyetlen PDF-slot tartozik. Újrafeltöltéskor felülírjuk,
+  // így megszakadt vagy megismételt próbálkozás sem halmoz árva objektumokat.
+  const path = magazineIssuePath(congregationId, issueId, 'issue.pdf')
 
   // Defense in depth
   if (!path.startsWith(`${congregationId}/`) || path.includes('..')) {
@@ -170,7 +201,7 @@ export async function uploadMagazinePdf(formData: FormData): Promise<UploadResul
     .from(PUBLIC_MAGAZINES_BUCKET)
     .upload(path, file, {
       cacheControl: '3600',
-      upsert: false,
+      upsert: true,
       contentType: file.type,
     })
 
@@ -180,5 +211,86 @@ export async function uploadMagazinePdf(formData: FormData): Promise<UploadResul
     .from(PUBLIC_MAGAZINES_BUCKET)
     .getPublicUrl(path)
 
-  return { url: urlData.publicUrl }
+  return { url: withCacheVersion(urlData.publicUrl) }
+}
+
+/**
+ * Eltávolítja egy lapszám gyülekezethez kötött PDF- és borítófájljait.
+ *
+ * A kliens csak a lapszám UUID-jét küldi. A gyülekezeti prefixet minden
+ * esetben a szerveroldali, ellenőrzött hozzáférési kontextusból képezzük,
+ * ezért más gyülekezet mappája nem célozható meg.
+ */
+export async function cleanupMagazineIssueUploads(
+  issueId: string,
+): Promise<CleanupResult> {
+  const access = await getEffectiveAccessContext()
+  if (!access.user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  if (!canAccessPublicSiteAdmin(access, 'write')) {
+    return { error: 'Nincs jogosultságod magazinfájlok törléséhez.' }
+  }
+  const congregationId = access.effectiveCongregationId
+  if (!congregationId) return { error: 'Nincs aktív gyülekezet.' }
+  if (!isValidUuid(issueId)) return { error: 'Érvénytelen lapszám azonosító.' }
+
+  const prefix = `${congregationId}/${issueId}`
+  const cleanupErrors: string[] = []
+  const buckets = [PUBLIC_MAGAZINES_BUCKET, PUBLIC_SITE_MEDIA_BUCKET] as const
+  const pageSize = 100
+  const maxObjectsPerBucket = 1000
+
+  for (const bucket of buckets) {
+    const objectPaths: string[] = []
+    let offset = 0
+    let listingFailed = false
+
+    while (offset < maxObjectsPerBucket) {
+      const { data, error } = await access.supabase.storage
+        .from(bucket)
+        .list(prefix, {
+          limit: pageSize,
+          offset,
+          sortBy: { column: 'name', order: 'asc' },
+        })
+
+      if (error) {
+        cleanupErrors.push(`${bucket}: a fájllista nem olvasható (${error.message})`)
+        listingFailed = true
+        break
+      }
+
+      const objects = data ?? []
+      for (const object of objects) {
+        if (object.id && object.name) objectPaths.push(`${prefix}/${object.name}`)
+      }
+
+      if (objects.length < pageSize) break
+      offset += objects.length
+    }
+
+    if (listingFailed) continue
+    if (offset >= maxObjectsPerBucket) {
+      cleanupErrors.push(`${bucket}: túl sok fájl található a lapszám mappájában`)
+      continue
+    }
+
+    for (let index = 0; index < objectPaths.length; index += pageSize) {
+      const { error } = await access.supabase.storage
+        .from(bucket)
+        .remove(objectPaths.slice(index, index + pageSize))
+
+      if (error) {
+        cleanupErrors.push(`${bucket}: a fájlok nem törölhetők (${error.message})`)
+        break
+      }
+    }
+  }
+
+  if (cleanupErrors.length > 0) {
+    return {
+      error: `A lapszám fájljainak takarítása nem fejeződött be: ${cleanupErrors.join('; ')}`,
+    }
+  }
+
+  return { success: true }
 }

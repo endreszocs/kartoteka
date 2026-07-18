@@ -1,8 +1,26 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
-import { loadPublishedMagazine } from '@/lib/public-site/magazine-loader'
-import { Newspaper, Download } from 'lucide-react'
+import {
+  loadPublishedMagazine,
+  PUBLIC_MAGAZINE_PAGE_SIZE,
+} from '@/lib/public-site/magazine-loader'
+import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
+import { ChevronLeft, ChevronRight, Newspaper, Download } from 'lucide-react'
+
+function parsePage(value: string | string[] | undefined): number {
+  const rawValue = Array.isArray(value) ? value[0] : value
+  if (!rawValue || !/^\d+$/.test(rawValue)) return 1
+
+  const parsedValue = Number(rawValue)
+  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : 1
+}
+
+function archivePageHref(slug: string, page: number): string {
+  const archivePath = `/gy/${slug}/magazin`
+  return page <= 1 ? archivePath : `${archivePath}?oldal=${page}`
+}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return ''
@@ -18,14 +36,21 @@ function formatDate(dateStr: string | null): string {
 
 export default async function MagazinePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ oldal?: string | string[] }>
 }) {
-  const { slug } = await params
+  const [{ slug }, query] = await Promise.all([params, searchParams])
+  const requestedPage = parsePage(query.oldal)
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
-  const data = await loadPublishedMagazine(site.congregation_id)
+  const data = await loadPublishedMagazine(site.congregation_id, {
+    page: requestedPage,
+    pageSize: PUBLIC_MAGAZINE_PAGE_SIZE,
+  })
+  const currentPage = data?.pagination.page ?? requestedPage
 
   return (
     <>
@@ -59,7 +84,7 @@ export default async function MagazinePage({
 
       <section className="public-section">
         <div className="public-container">
-          {!data || data.issues.length === 0 ? (
+          {!data || (currentPage === 1 && data.issues.length === 0) ? (
             <div
               className="rounded-[var(--public-radius)] p-12 sm:p-20 text-center max-w-2xl mx-auto public-anim-fade-up"
               style={{
@@ -69,7 +94,7 @@ export default async function MagazinePage({
             >
               <Newspaper
                 className="w-16 h-16 mx-auto mb-6 opacity-40"
-                style={{ color: 'var(--public-accent)' }}
+                style={{ color: 'var(--public-accent-on-surface)' }}
               />
               <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
                 Hamarosan elérhető lesz az első lapszám
@@ -77,6 +102,29 @@ export default async function MagazinePage({
               <p className="italic">
                 Dolgozunk rajta — nézz vissza hamarosan!
               </p>
+            </div>
+          ) : data.issues.length === 0 ? (
+            <div
+              className="mx-auto max-w-2xl rounded-[var(--public-radius)] p-10 text-center public-anim-fade-up sm:p-14"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--public-soft) 50%, transparent)',
+                color: 'var(--public-muted)',
+              }}
+            >
+              <Newspaper
+                className="mx-auto mb-5 h-14 w-14 opacity-40"
+                style={{ color: 'var(--public-accent-on-surface)' }}
+              />
+              <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
+                Ezen az oldalon nincs több lapszám
+              </h3>
+              <Link
+                href={archivePageHref(site.slug, currentPage - 1)}
+                className="public-btn public-btn-outline mt-4 min-h-11"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Vissza az előző oldalra
+              </Link>
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -91,11 +139,15 @@ export default async function MagazinePage({
                   }}
                 >
                   {issue.cover_image_url ? (
-                    <div className="aspect-[3/4] overflow-hidden">
-                      <img
+                    <div className="relative aspect-[3/4] overflow-hidden">
+                      <Image
                         src={issue.cover_image_url}
-                        alt={issue.issue_number}
-                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        alt={`${issue.issue_number} lapszám borítója`}
+                        fill
+                        sizes="(min-width: 1280px) 370px, (min-width: 1024px) 30vw, (min-width: 640px) 45vw, calc(100vw - 2rem)"
+                        loading="lazy"
+                        unoptimized={shouldBypassMagazineImageOptimization(issue.cover_image_url)}
+                        className="object-cover transition-transform duration-700 group-hover:scale-110"
                       />
                     </div>
                   ) : (
@@ -122,13 +174,13 @@ export default async function MagazinePage({
                   <div className="p-5 sm:p-6">
                     <div
                       className="text-xs font-semibold uppercase tracking-widest mb-2"
-                      style={{ color: 'var(--public-accent)' }}
+                      style={{ color: 'var(--public-accent-on-surface)' }}
                     >
                       {issue.issue_number}
                     </div>
                     {issue.title && (
                       <h3
-                        className="mb-2 transition-colors group-hover:[color:var(--public-primary)] leading-tight"
+                        className="mb-2 transition-colors group-hover:[color:var(--public-primary-on-surface)] leading-tight"
                         style={{ color: 'var(--public-ink)' }}
                       >
                         {issue.title}
@@ -144,7 +196,7 @@ export default async function MagazinePage({
                     )}
                     <div
                       className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold"
-                      style={{ color: 'var(--public-primary)' }}
+                      style={{ color: 'var(--public-primary-on-surface)' }}
                     >
                       <Download className="w-3.5 h-3.5" />
                       Megnyitom
@@ -153,6 +205,43 @@ export default async function MagazinePage({
                 </Link>
               ))}
             </div>
+          )}
+
+          {data && (data.issues.length > 0 || currentPage > 1) && (
+            <nav
+              aria-label="Magazin archívum lapozása"
+              className="mt-10 flex flex-col items-center justify-between gap-4 rounded-[var(--public-radius)] border px-4 py-4 sm:flex-row sm:px-5"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--public-surface) 94%, white)',
+                borderColor: 'color-mix(in srgb, var(--public-ink) 8%, transparent)',
+              }}
+            >
+              <p className="text-center text-sm sm:text-left" style={{ color: 'var(--public-muted)' }}>
+                {currentPage}. oldal · oldalanként legfeljebb {data.pagination.pageSize} lapszám
+              </p>
+              <div className="flex w-full gap-2 sm:w-auto">
+                {data.pagination.hasPrevious && (
+                  <Link
+                    href={archivePageHref(site.slug, currentPage - 1)}
+                    rel="prev"
+                    className="public-btn public-btn-outline min-h-11 flex-1 px-4 sm:flex-none"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Előző
+                  </Link>
+                )}
+                {data.pagination.hasNext && (
+                  <Link
+                    href={archivePageHref(site.slug, currentPage + 1)}
+                    rel="next"
+                    className="public-btn public-btn-outline min-h-11 flex-1 px-4 sm:flex-none"
+                  >
+                    Következő
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                )}
+              </div>
+            </nav>
           )}
         </div>
       </section>

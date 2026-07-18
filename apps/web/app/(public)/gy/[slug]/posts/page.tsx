@@ -59,7 +59,7 @@ export default async function PostsIndexPage({
             >
               <Newspaper
                 className="w-16 h-16 mx-auto mb-6 opacity-40"
-                style={{ color: 'var(--public-accent)' }}
+                style={{ color: 'var(--public-accent-on-surface)' }}
               />
               <h3 className="mb-3" style={{ color: 'var(--public-ink)' }}>
                 Hamarosan érkeznek az első bejegyzések
@@ -75,7 +75,11 @@ export default async function PostsIndexPage({
                   key={post.id}
                   className={`public-anim-fade-up public-delay-${((idx % 3) + 1) * 100}`}
                 >
-                  <PublicPostCard post={post} slug={site.slug} />
+                  <PublicPostCard
+                    post={post}
+                    slug={site.slug}
+                    themeKey={site.theme.preset_key}
+                  />
                 </div>
               ))}
             </div>

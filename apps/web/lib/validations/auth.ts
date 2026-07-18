@@ -74,11 +74,6 @@ export const oauthCompleteSchema = z.object({
     .string()
     .optional()
     .or(z.literal('')),
-  // Opcionális feltöltött igazolás útvonala (access-request-docs bucket).
-  documentPath: z
-    .string()
-    .optional()
-    .or(z.literal('')),
   serviceStartedAt: z
     .string()
     .optional()

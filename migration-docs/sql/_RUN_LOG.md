@@ -19,6 +19,18 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## 🔴 PENDING – publikus oldal adatvezérelt alkalmak és sitemap (2026-07-18)
+
+- [ ] **`2026-07-18-public-site-content-and-sitemap.sql`** — PENDING (még nem futott)
+       Indok: a 2026-07-17-es tagi portál és `public-site-read-security` lánc
+       sikeres postflightjára, majd felhasználói SQL Editor-jóváhagyásra vár.
+       Hatás: validált `public_sites.service_times` JSONB, privát SECURITY DEFINER
+       olvasók és két szűk, anon SECURITY INVOKER RPC a publikus contexthez és
+       sitemaphez. Kötelező sorrend:
+       `migration-docs/public-site-2026-07-18-rollout.md`.
+
+---
+
 ## 🔵 DIAGNOSZTIKA — csak OLVAS (SELECT), 2026-06-19
 
 Az import-párosítás audithoz. Nem módosítanak semmit; futtasd a Supabase SQL editorban,

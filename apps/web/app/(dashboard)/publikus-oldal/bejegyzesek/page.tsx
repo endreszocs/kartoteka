@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { FileEdit, Plus } from 'lucide-react'
+import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
+import { PublicSiteAdminNav } from '@/components/admin/public-site/public-site-admin-nav'
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -25,6 +27,8 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 export default async function PublicPostsListPage() {
   const access = await getEffectiveAccessContext()
   if (!access.user) redirect('/login')
+  if (!canAccessPublicSiteAdmin(access, 'read')) redirect('/publikus-oldal')
+  const canWrite = canAccessPublicSiteAdmin(access, 'write')
   const congregationId = access.effectiveCongregationId
   if (!congregationId) redirect('/publikus-oldal')
 
@@ -35,8 +39,8 @@ export default async function PublicPostsListPage() {
     .order('updated_at', { ascending: false })
 
   return (
-    <div className="max-w-5xl mx-auto py-8">
-      <header className="flex items-center justify-between mb-6">
+    <div className="mx-auto max-w-5xl space-y-5 py-4 sm:py-8">
+      <header className="card-raised flex flex-col gap-4 p-5 sm:flex-row sm:items-end sm:justify-between sm:p-6">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
             <FileEdit className="w-6 h-6 text-emerald-600" />
@@ -46,38 +50,40 @@ export default async function PublicPostsListPage() {
             <p className="text-sm text-slate-500">A publikus oldalon megjelenő hírek és blog posztok</p>
           </div>
         </div>
-        <Link
-          href="/publikus-oldal/bejegyzesek/uj"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 text-white font-semibold shadow-sm shadow-emerald-200 hover:bg-emerald-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Új bejegyzés
-        </Link>
+        {canWrite ? (
+          <Link
+            href="/publikus-oldal/bejegyzesek/uj"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Új bejegyzés
+          </Link>
+        ) : null}
       </header>
+
+      <PublicSiteAdminNav active="posts" canWrite={canWrite} />
 
       {!posts || posts.length === 0 ? (
         <div className="card-raised p-12 text-center">
           <FileEdit className="w-12 h-12 mx-auto mb-4 text-emerald-500" />
           <h2 className="font-heading text-xl text-slate-800 mb-2">Még nincs egy bejegyzés sem</h2>
           <p className="text-slate-500 mb-6">Írd meg az első hírt a gyülekezetedről!</p>
-          <Link
-            href="/publikus-oldal/bejegyzesek/uj"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Első bejegyzés írása
-          </Link>
+          {canWrite ? (
+            <Link
+              href="/publikus-oldal/bejegyzesek/uj"
+              className="inline-flex min-h-11 items-center gap-2 rounded-full bg-emerald-700 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Első bejegyzés írása
+            </Link>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
           {posts.map((post) => {
             const status = STATUS_LABEL[post.status] || STATUS_LABEL.draft
-            return (
-              <Link
-                key={post.id}
-                href={`/publikus-oldal/bejegyzesek/${post.id}`}
-                className="card-raised p-5 flex items-center justify-between gap-4 hover:shadow-md transition-shadow"
-              >
+            const rowContent = (
+              <>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.color}`}>
@@ -88,14 +94,36 @@ export default async function PublicPostsListPage() {
                   {post.excerpt && (
                     <p className="text-sm text-slate-500 line-clamp-1">{post.excerpt}</p>
                   )}
-                  <div className="text-xs text-slate-400 mt-1">
+                  <div className="text-xs text-slate-500 mt-1">
                     {post.status === 'published'
                       ? `Publikálva: ${formatDate(post.published_at)}`
                       : `Módosítva: ${formatDate(post.updated_at)}`}
                   </div>
                 </div>
-                <span className="text-slate-300 text-sm">→</span>
+                <span
+                  aria-hidden="true"
+                  className={canWrite ? 'text-sm text-slate-400' : 'hidden'}
+                >
+                  →
+                </span>
+              </>
+            )
+
+            return canWrite ? (
+              <Link
+                key={post.id}
+                href={`/publikus-oldal/bejegyzesek/${post.id}`}
+                className="card-raised flex min-h-20 items-center justify-between gap-4 p-4 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-500/20 focus-visible:ring-offset-2 sm:p-5"
+              >
+                {rowContent}
               </Link>
+            ) : (
+              <article
+                key={post.id}
+                className="card-raised flex min-h-20 items-center justify-between gap-4 p-4 sm:p-5"
+              >
+                {rowContent}
+              </article>
             )
           })}
         </div>

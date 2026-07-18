@@ -1,7 +1,9 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { loadPublicSiteBySlug } from '@/lib/public-site/site-loader'
 import { loadPublishedMagazine, loadPublishedIssue } from '@/lib/public-site/magazine-loader'
+import { shouldBypassMagazineImageOptimization } from '@/lib/public-site/magazine-image'
 import { Download, ArrowLeft, Newspaper } from 'lucide-react'
 
 function formatDate(dateStr: string | null): string {
@@ -28,7 +30,9 @@ export default async function IssueDetailPage({
   const site = await loadPublicSiteBySlug(slug)
   if (!site) notFound()
 
-  const magazineData = await loadPublishedMagazine(site.congregation_id)
+  const magazineData = await loadPublishedMagazine(site.congregation_id, {
+    includeIssues: false,
+  })
   if (!magazineData) notFound()
 
   const issue = await loadPublishedIssue(magazineData.magazine.id, decodedIssueNumber)
@@ -40,8 +44,8 @@ export default async function IssueDetailPage({
         {/* Back link */}
         <Link
           href={`/gy/${site.slug}/magazin`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium mb-8 group public-anim-fade-up"
-          style={{ color: 'var(--public-primary)' }}
+          className="group mb-8 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium public-anim-fade-up"
+          style={{ color: 'var(--public-primary-on-surface)' }}
         >
           <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
           Vissza a magazin archívumhoz
@@ -51,11 +55,17 @@ export default async function IssueDetailPage({
           {/* Cover */}
           <div className="mx-auto w-full public-anim-fade-up">
             {issue.cover_image_url ? (
-              <img
-                src={issue.cover_image_url}
-                alt={issue.issue_number}
-                className="w-full rounded-[var(--public-radius)] shadow-2xl public-card"
-              />
+              <div className="public-card relative aspect-[3/4] overflow-hidden rounded-[var(--public-radius)] shadow-2xl">
+                <Image
+                  src={issue.cover_image_url}
+                  alt={`${issue.issue_number} lapszám borítója`}
+                  fill
+                  sizes="(min-width: 768px) 360px, calc(100vw - 2rem)"
+                  preload
+                  unoptimized={shouldBypassMagazineImageOptimization(issue.cover_image_url)}
+                  className="object-cover"
+                />
+              </div>
             ) : (
               <div
                 className="aspect-[3/4] rounded-[var(--public-radius)] flex items-center justify-center shadow-2xl relative overflow-hidden public-card"
@@ -98,7 +108,7 @@ export default async function IssueDetailPage({
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-widest mb-5"
               style={{
                 backgroundColor: 'color-mix(in srgb, var(--public-accent) 15%, transparent)',
-                color: 'var(--public-accent)',
+                color: 'var(--public-accent-on-surface)',
               }}
             >
               <Newspaper className="w-3.5 h-3.5" />
@@ -127,15 +137,21 @@ export default async function IssueDetailPage({
               </div>
             )}
 
-            <a
-              href={issue.pdf_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="public-btn public-btn-primary"
-            >
-              <Download className="w-5 h-5" />
-              PDF letöltése
-            </a>
+            {issue.pdf_url ? (
+              <a
+                href={issue.pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="public-btn public-btn-primary"
+              >
+                <Download className="w-5 h-5" />
+                PDF letöltése
+              </a>
+            ) : (
+              <p role="status" className="text-sm font-medium text-amber-800">
+                A lapszám PDF-hivatkozása nem biztonságos vagy már nem elérhető.
+              </p>
+            )}
           </div>
         </article>
       </div>

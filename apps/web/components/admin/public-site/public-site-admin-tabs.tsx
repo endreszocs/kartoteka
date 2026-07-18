@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react'
-import { Globe, Settings, FileEdit, Newspaper } from 'lucide-react'
+import { Globe } from 'lucide-react'
 import { ColorTabs } from '@/components/ui/color-tabs'
 
 interface PublicSiteAdminTabsProps {

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OAuthCompleteForm } from '@/components/auth/oauth-complete-form'
-import { isMasterAdmin } from '@/lib/auth/roles'
+import { resolvePostLoginDestination } from '@/lib/auth/post-login-destination'
 
 export default async function OAuthCompletePage() {
   const supabase = await createClient()
@@ -10,27 +10,27 @@ export default async function OAuthCompletePage() {
   // Ha nincs bejelentkezve → login
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, status, role, congregation_id, diocese_id, full_name')
-    .eq('id', user.id)
-    .single()
+  // A saját státuszt és kérelmet kizárólag az auth.uid()-hoz kötött,
+  // e-mail-paraméter nélküli staff_my_access_request_state() RPC oldja fel.
+  const destination = await resolvePostLoginDestination(supabase, user)
 
-  const master = isMasterAdmin(user.email)
-  const isActive = profile?.status === 'active'
+  if (destination === 'home') redirect('/valassz-profilt')
 
-  // Aktív (vagy master) → kész, mehet tovább
-  if (master || isActive) redirect('/valassz-profilt')
-
-  // Nem aktív, de az org-adatokat már kitöltötte (van egyházmegye) → csak
-  // jóváhagyásra vár; ne mutassuk újra az űrlapot.
-  if (profile?.diocese_id) {
+  // Már beadott kérelemnél (vagy nem ellenőrizhető állapotnál) fail closed:
+  // ne mutassuk újra az űrlapot, és ne tartsuk meg a pending sessiont.
+  if (destination === 'pending') {
     await supabase.auth.signOut()
     redirect('/login?error=pending')
   }
 
-  // Egyébként (hiányos vagy hiányzó profil) → kiegészítő űrlap.
-  // Név előtöltése a profilból vagy az OAuth-metaadatokból.
+  // Csak a P0 allowlisten szereplő, nem jogosultsági profilmezőt olvassuk az
+  // űrlap előtöltéséhez. Státusz/szerepkör/scope nincs ebben a lekérdezésben.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', user.id)
+    .maybeSingle()
+
   const defaultName =
     profile?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || ''
 

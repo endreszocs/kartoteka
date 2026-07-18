@@ -63,10 +63,14 @@ export function PostEditor({ initial }: Props) {
       <section className="card-raised p-6">
         <div className="grid gap-4">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label
+              htmlFor="public-post-title"
+              className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5"
+            >
               Cím *
             </label>
             <input
+              id="public-post-title"
               type="text"
               value={form.title}
               onChange={(e) => handleTitleChange(e.target.value)}
@@ -77,10 +81,14 @@ export function PostEditor({ initial }: Props) {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label
+              htmlFor="public-post-slug"
+              className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5"
+            >
               Slug (URL rész) *
             </label>
             <input
+              id="public-post-slug"
               type="text"
               value={form.slug}
               onChange={(e) => update('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
@@ -91,10 +99,14 @@ export function PostEditor({ initial }: Props) {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label
+              htmlFor="public-post-excerpt"
+              className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5"
+            >
               Rövid kivonat (excerpt)
             </label>
             <textarea
+              id="public-post-excerpt"
               value={form.excerpt || ''}
               onChange={(e) => update('excerpt', e.target.value)}
               rows={2}
@@ -135,6 +147,7 @@ export function PostEditor({ initial }: Props) {
         <TiptapEditor
           content={form.body_markdown}
           onChange={(html) => update('body_markdown', html)}
+          ariaLabel="Bejegyzés tartalma"
           placeholder="Kezdj el írni... Használd a felső eszköztárat a formázáshoz."
         />
       </section>
@@ -147,19 +160,19 @@ export function PostEditor({ initial }: Props) {
               type="button"
               onClick={handleDelete}
               disabled={isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-red-600 hover:bg-red-50 font-medium disabled:opacity-60 transition-colors"
+              className="inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-600/25 focus-visible:ring-offset-2 disabled:opacity-60"
             >
               <Trash2 className="w-4 h-4" />
               Törlés
             </button>
           )}
         </div>
-        <div className="flex gap-3">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
           <button
             type="button"
             onClick={() => handleSave('draft')}
             disabled={isPending}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60 transition-colors"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 px-5 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-500/25 focus-visible:ring-offset-2 disabled:opacity-60 sm:w-auto"
           >
             <Save className="w-4 h-4" />
             Mentés piszkozatként
@@ -168,7 +181,7 @@ export function PostEditor({ initial }: Props) {
             type="button"
             onClick={() => handleSave('published')}
             disabled={isPending}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-emerald-600 text-white font-semibold shadow-sm shadow-emerald-200 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-emerald-700 px-6 py-2.5 font-semibold text-white shadow-sm shadow-emerald-200 transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-700/25 focus-visible:ring-offset-2 disabled:opacity-60 sm:w-auto"
           >
             <Send className="w-4 h-4" />
             {form.status === 'published' ? 'Módosítás publikálása' : 'Publikálás'}

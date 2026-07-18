@@ -23,6 +23,116 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-18] — Élőbb gyülekezeti honlap, egyszerűbb tartalomkezelés
+<!-- key: 2026-07-18-public-site-visual-content -->
+<!-- category: improvement -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag, latogato -->
+
+### 🎨 Látványosabb nyilvános gyülekezeti oldal
+
+- **A legfontosabb információk rögtön a nyitóképen láthatók:** a következő
+  alkalom, a közösségi meghívás és a találkozási hely három jól olvasható,
+  lebegő kártyán jelenik meg. A kártyák telefonon sem takarják a fő szöveget,
+  nagyobb képernyőn pedig hangsúlyosan a nyitókép elé kerülnek.
+
+- **Az „Élő kert” arculat több saját, egyedileg készített képet és finom
+  animációt kapott:** a nyitókép után a közösségi élet, a református örökség
+  és a személyes meghívás külön képi fejezetben jelenik meg. A mozgások a
+  látogató akadálymentességi beállítását tiszteletben tartják.
+
+- **Mindhárom választható arculat továbbra is használható:** a lelkipásztor a
+  számára megfelelő témát választja ki, a honlap pedig telefonon, tableten és
+  számítógépen is az adott képernyőhöz igazodik.
+
+### 🗓️ Egyszerűbb lelkészi szerkesztés
+
+- **A gyülekezeti alkalmak most már valóban szerkeszthetők:** megadható a nap,
+  az időpont, az alkalom neve, helyszíne és rövid megjegyzése; a sorrend is
+  átrendezhető. A nyilvános oldal kizárólag a mentett adatokat mutatja, ezért
+  más gyülekezethez tartozó vagy feltételezett időpont nem jelenhet meg.
+
+- **A gyülekezeti újság feltöltése közvetlenebb lett:** az új lapszám PDF-je
+  és borítóképe a kezelőfelületről tölthető fel, látható folyamat- és
+  hibaüzenetekkel. A kézzel megadott hivatkozás lehetősége is megmaradt. A
+  mentés és a bezárás megvárja a feltöltés végét; a „Mégse” gombbal elvetett
+  vagy törölt lapszámhoz tartozó fájlokat a rendszer is kitakarítja. Egy
+  törölt lapszám akkor sem marad látható, ha a háttértár átmenetileg nem
+  elérhető.
+
+- **A bemutatkozó szöveg eszköztára egyértelműbb:** csak olyan formázásokat
+  kínál, amelyeket a biztonságos megjelenítés valóban megőriz.
+
+### 🔒 Megbízhatóbb nyilvános működés
+
+- **A keresőknek szánt oldaltérkép személyes adatok nélkül készül:** csak a
+  közzétett, keresőindexelésre engedélyezett gyülekezeti oldalak, hírek és
+  lapszámok kerülhetnek bele.
+
+- **A bevezetés visszafelé kompatibilis és biztonságosan kikapcsolható:** a
+  publikus oldal a szükséges adatbázis-frissítés alatt is elérhető marad. A
+  Tagi portál csak a teljes adatbázis- és jogosultsági ellenőrzés után
+  kapcsolható be; addig zárt állapotban marad.
+
+### 🔧 Rendszergazdáknak
+
+- A teljes alkalomszerkesztéshez és az új oldaltérképhez a
+  `migration-docs/sql/2026-07-18-public-site-content-and-sitemap.sql`
+  migrációt a hozzá tartozó rollout-dokumentum sorrendjében kell futtatni.
+
+---
+
+## [2026-07-17] — Megújult gyülekezeti weboldal és biztonságos tagi portál
+<!-- key: 2026-07-17-public-site-member-portal -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag -->
+
+### ✨ Nyilvános gyülekezeti oldal
+
+- **Három teljes arculat közül választhat a lelkipásztor:** az Élő kert friss és
+  közösségi, a Csendes parókia meleg és otthonos, a Zsoltáros örökség pedig
+  elegáns, hagyományőrző megjelenést ad. Mindháromhoz saját, egyedileg
+  készített háttérkép tartozik.
+
+- **A teljes oldal telefonról indul, de tableten és számítógépen is kényelmes:**
+  nagy érintési felületek, jól olvasható szövegek, akadálymentes navigáció,
+  megújult hírek, magazin, bemutatkozás, alkalmak és gyülekezeti statisztikák.
+
+- **Részletesebb lelkészi kezelőfelület készült:** az arculat, a színek, a
+  nyitókép, a hírek és a magazin egy egységes, mobilbarát felületről gondozható.
+
+### 👥 Tagi portál
+
+- **A gyülekezeti tag a saját gyülekezete oldalán regisztrálhat.** Az e-mailes
+  megerősítés után a kérelem a lelkipásztorhoz kerül, aki név, születési adat és
+  elérhetőség alapján a megfelelő nyilvántartott személyhez kapcsolhatja.
+
+- **Jóváhagyás után a tag kizárólag a saját adatait látja:** személyes adatlap,
+  jóváhagyott családi kapcsolatok és csak a saját nevéhez könyvelt befizetések.
+  Más családtag vagy gyülekezeti tag pénzügyi adata nem jelenhet meg.
+
+- **Az adatváltozás nem írja felül csendben a nyilvántartást.** A tag módosítási
+  kérelmet küld, a lelkipásztor pedig tételesen jóváhagyja vagy indoklással
+  elutasítja; csak a jóváhagyott változás kerül be a kartotékba.
+
+- **A lelkipásztor hírlevelet küldhet a regisztrált tagoknak.** Csak az kap
+  levelet, aki ezt saját maga engedélyezte; a rendszer külön kezeli a hirdetéseket
+  és az eseményeket, naplózza a kézbesítést, és sikertelen küldésnél biztonságosan
+  újrapróbálható.
+
+### 🔒 Adatvédelem és biztonságos bevezetés
+
+- **A lelkészi és a tagi fiók ugyanazt a megbízható beléptetést használja, de
+  az adataik és jogosultságaik teljesen elkülönülnek.** A tag nem kaphat lelkészi
+  hozzáférést, és minden személyes lekérés a saját fiókhoz és gyülekezethez
+  van kötve.
+
+- **A funkció fokozatosan, ellenőrzött bekapcsolással indul.** A nyilvános oldalak
+  a telepítés alatt is elérhetők maradnak, a Tagi portál menüpont pedig csak az
+  adatbázis-biztonsági ellenőrzések és a próbabejelentkezések sikeres lezárása után
+  jelenik meg.
+
+---
+
 ## [2026-07-17] — Választók névjegyzéke: a jogosultság-számítás megjavult, a nyomtatvány A4-pontos lett oldalszámokkal
 <!-- key: 2026-07-17-tagnyilv-pr2-valasztoi -->
 <!-- category: bugfix -->

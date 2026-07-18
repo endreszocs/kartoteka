@@ -26,7 +26,7 @@ export function PublicSectionHeader({
         {eyebrow && (
           <div
             className="text-xs sm:text-sm font-semibold tracking-widest uppercase mb-3 public-anim-fade-up"
-            style={{ color: 'var(--public-accent)' }}
+            style={{ color: 'var(--public-accent-on-surface)' }}
           >
             {eyebrow}
           </div>
@@ -51,7 +51,7 @@ export function PublicSectionHeader({
         <Link
           href={linkHref}
           className="inline-flex items-center gap-1 text-sm sm:text-base font-semibold group public-anim-fade-up public-delay-200"
-          style={{ color: 'var(--public-primary)' }}
+          style={{ color: 'var(--public-primary-on-surface)' }}
         >
           {linkLabel}
           <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
