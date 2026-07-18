@@ -22,7 +22,10 @@ import { PublicSiteAdminNav } from '@/components/admin/public-site/public-site-a
 import { PublicSiteThemeGallery } from '@/components/admin/public-site/public-site-theme-gallery'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
 import { canAccessPublicSiteAdmin } from '@/lib/public-site/admin-access'
-import { getPublicVisualTheme } from '@/lib/public-site/visual-theme-registry'
+import {
+  getPublicVisualTheme,
+  PUBLIC_VISUAL_THEME_KEYS,
+} from '@/lib/public-site/visual-theme-registry'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
@@ -117,6 +120,7 @@ export default async function PublikusOldalPage() {
       .from('public_site_themes')
       .select('id, preset_key, display_name')
       .eq('is_active', true)
+      .in('preset_key', [...PUBLIC_VISUAL_THEME_KEYS])
       .order('sort_order'),
     access.supabase
       .from('public_posts')
@@ -641,10 +645,10 @@ export default async function PublikusOldalPage() {
               Arculat
             </p>
             <h2 id="themes-heading" className="font-heading text-xl text-slate-900">
-              Három generált képes téma
+              Négy generált képes téma
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
-              Mindhárom megjelenés mobilra, tabletre és asztali képernyőre tervezett.
+              Mind a négy megjelenés mobilra, tabletre és asztali képernyőre tervezett.
             </p>
           </div>
           {canWrite && !themesResult.error ? (

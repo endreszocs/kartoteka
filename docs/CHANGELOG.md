@@ -23,6 +23,39 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-07-18] — Választhatóvá vált a filmszerű gyülekezeti honlap
+<!-- key: 2026-07-18-cinematic-public-site-theme -->
+<!-- category: feature -->
+<!-- targets: lelkesz, gyulekezeti_munkatars, gyulekezeti_tag, latogato -->
+
+### ✨ Új, negyedik honlaparculat
+
+- **A „Filmszerű történet” most már a Weboldal-beállítások között is
+  kiválasztható:** nem külön fejlesztői látványterv többé, hanem ugyanolyan
+  menthető gyülekezeti sablon, mint az Élő kert, a Csendes parókia és a
+  Zsoltáros örökség.
+
+- **A látvány minden gyülekezet saját adataival működik:** a név, a mottó, a
+  következő alkalom, a cím, az elérhetőségek, a hírek, a magazin és a
+  közzétett statisztikák automatikusan a nyilvántartott adatokból kerülnek a
+  nagyképes, finoman animált oldalra. Hiányzó adat helyett nem jelenik meg
+  kitalált időpont vagy mintaelérhetőség.
+
+- **Telefonon is teljes marad a honlap:** a gyors információs kártyák rögtön a
+  nyitókép után következnek, a Hírek, Magazin, Rólunk és – bekapcsolás után –
+  a Tagi portál mobilról is elérhető. A mozgáscsökkentést kérő látogatóknál az
+  animációk kikapcsolnak.
+
+### 🔧 Bevezetési megjegyzés
+
+- A negyedik téma megjelenéséhez a
+  `migration-docs/sql/2026-07-17-public-site-v2-themes.sql` átdolgozott,
+  idempotens seedjét újra kell futtatni, majd a publikus olvasási biztonsági
+  ellenőrzést is le kell zárni. A seed már nem módosít RLS-policyt vagy
+  adatbázis-jogosultságot.
+
+---
+
 ## [2026-07-18] — Élőbb gyülekezeti honlap, egyszerűbb tartalomkezelés
 <!-- key: 2026-07-18-public-site-visual-content -->
 <!-- category: improvement -->

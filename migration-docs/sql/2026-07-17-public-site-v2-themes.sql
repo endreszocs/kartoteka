@@ -1,6 +1,7 @@
--- Public site V2: a harom jovahagyott, kepes tema idempotens seedje.
--- A fajl a public_site_themes sorokat es azok aktiv-presetekre szukitett
--- olvasasi policyjat/grantjet kezeli. Authot es gyulekezeti adatot nem modosit.
+-- Public site V2: a negy jovahagyott, kepes tema idempotens seedje.
+-- Kizarolag a rendszerpresetek sorait kezeli. Policyt es grantet szandekosan
+-- nem modosit, igy a public-site-read-security hardening elott es utan is
+-- biztonsagosan ujrafuttathato. Authot es gyulekezeti adatot nem modosit.
 
 BEGIN;
 
@@ -12,7 +13,7 @@ BEGIN
 END
 $$;
 
-INSERT INTO public.public_site_themes (
+INSERT INTO public.public_site_themes AS theme (
   preset_key,
   display_name,
   description,
@@ -24,6 +25,17 @@ INSERT INTO public.public_site_themes (
   is_active
 )
 VALUES
+  (
+    'filmszeru-tortenet',
+    'Filmszerű történet',
+    'Nagyképes, finoman animált és magával ragadó történetmesélő megjelenés.',
+    '{"primary":"#0a241b","accent":"#d9ad62","surface":"#f5f0e5","ink":"#17251f","muted":"#66766e","soft":"#e8e0d2"}'::jsonb,
+    '{"heading_font":"Cormorant Garamond","body_font":"Inter"}'::jsonb,
+    'photo',
+    '1.25rem',
+    4,
+    true
+  ),
   (
     'elo-kert',
     'Élő kert',
@@ -66,28 +78,54 @@ SET
   hero_style = EXCLUDED.hero_style,
   border_radius = EXCLUDED.border_radius,
   sort_order = EXCLUDED.sort_order,
-  is_active = EXCLUDED.is_active;
+  is_active = EXCLUDED.is_active
+WHERE ROW(
+  theme.display_name,
+  theme.description,
+  theme.colors,
+  theme.typography,
+  theme.hero_style,
+  theme.border_radius,
+  theme.sort_order,
+  theme.is_active
+) IS DISTINCT FROM ROW(
+  EXCLUDED.display_name,
+  EXCLUDED.description,
+  EXCLUDED.colors,
+  EXCLUDED.typography,
+  EXCLUDED.hero_style,
+  EXCLUDED.border_radius,
+  EXCLUDED.sort_order,
+  EXCLUDED.is_active
+);
 
--- A live export szerint a tablan az RLS aktiv, de nincs SELECT policy. Grant
--- onmagaban ezert nem eleg: anon klienssel minden tema lathatatlan lenne, es a
--- publikus loader fallback arculatra esne. Csak az aktiv presetek olvashatok.
-ALTER TABLE public.public_site_themes ENABLE ROW LEVEL SECURITY;
+DO $postflight$
+DECLARE
+  v_theme_count integer;
+  v_all_active boolean;
+BEGIN
+  SELECT count(*), bool_and(is_active)
+    INTO v_theme_count, v_all_active
+  FROM public.public_site_themes
+  WHERE preset_key IN (
+    'filmszeru-tortenet',
+    'elo-kert',
+    'csendes-parokia',
+    'zsoltaros-orokseg'
+  );
 
-DROP POLICY IF EXISTS public_site_themes_public_read
-  ON public.public_site_themes;
-CREATE POLICY public_site_themes_public_read
-  ON public.public_site_themes
-  FOR SELECT
-  TO anon, authenticated
-  USING (is_active = true);
-
-REVOKE INSERT, UPDATE, DELETE ON TABLE public.public_site_themes
-  FROM anon, authenticated;
-GRANT SELECT ON TABLE public.public_site_themes TO anon, authenticated;
+  IF v_theme_count <> 4 OR NOT coalesce(v_all_active, false) THEN
+    RAISE EXCEPTION
+      'Public-site V2 theme postflight failed: count=%, all_active=%',
+      v_theme_count,
+      v_all_active;
+  END IF;
+END
+$postflight$;
 
 COMMIT;
 
--- Ellenorzes: pontosan harom aktiv sort kell visszaadnia.
+-- Ellenorzes: pontosan negy aktiv sort kell visszaadnia.
 SELECT
   preset_key,
   display_name,
@@ -98,5 +136,10 @@ SELECT
   sort_order,
   is_active
 FROM public.public_site_themes
-WHERE preset_key IN ('elo-kert', 'csendes-parokia', 'zsoltaros-orokseg')
+WHERE preset_key IN (
+  'filmszeru-tortenet',
+  'elo-kert',
+  'csendes-parokia',
+  'zsoltaros-orokseg'
+)
 ORDER BY sort_order;

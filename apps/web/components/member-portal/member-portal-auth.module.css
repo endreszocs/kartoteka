@@ -34,6 +34,12 @@
   --mp-mobile-panel-radius: 2rem;
 }
 
+:global([data-public-theme='filmszeru-tortenet']) .authPage {
+  --mp-card-radius: 1.5rem;
+  --mp-control-radius: 1rem;
+  --mp-mobile-panel-radius: 1.75rem;
+}
+
 :global([data-public-theme='csendes-parokia']) .authPage {
   --mp-card-radius: 1.25rem;
   --mp-control-radius: 0.78rem;

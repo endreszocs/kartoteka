@@ -6,7 +6,7 @@ import { PublicSitePreview } from '@/components/public/public-site-preview'
 export const metadata: Metadata = {
   title: 'Nyilvános gyülekezeti weboldal — fejlesztői előnézet',
   description:
-    'Adatbázis-független, kizárólag fejlesztési célú előnézet a nyilvános gyülekezeti weboldal három témájához.',
+    'Adatbázis-független, kizárólag fejlesztési célú előnézet a nyilvános gyülekezeti weboldal négy témájához.',
   robots: {
     index: false,
     follow: false,

@@ -51,6 +51,22 @@
   --dash-radius: 1.1rem;
 }
 
+.dashboardPage[data-dashboard-theme="filmszeru-tortenet"] {
+  --dash-bg: #f3eee3;
+  --dash-surface: #fffdf7;
+  --dash-surface-soft: #e8e0d2;
+  --dash-ink: #17251f;
+  --dash-muted: #66766e;
+  --dash-primary: #0a241b;
+  --dash-primary-strong: #071a14;
+  --dash-primary-soft: #dce6df;
+  --dash-accent: #a67831;
+  --dash-accent-soft: #f4e7cb;
+  --dash-border: #d6d7cf;
+  --dash-shadow: 0 24px 64px -44px rgb(7 26 20 / 58%);
+  --dash-radius: 1.25rem;
+}
+
 .dashboardPage[data-dashboard-theme="zsoltaros-orokseg"] {
   --dash-bg: #f2f0e9;
   --dash-surface: #fffefb;

@@ -69,6 +69,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const THEME_HERO: Record<string, string> = {
+  "filmszeru-tortenet": "/public-site/themes/elo-kert/baratosi-hero-v2.png",
   "elo-kert": "/public-site/themes/elo-kert/hero.png",
   "csendes-parokia": "/public-site/themes/csendes-parokia/hero.png",
   "zsoltaros-orokseg": "/public-site/themes/zsoltaros-orokseg/hero.png",

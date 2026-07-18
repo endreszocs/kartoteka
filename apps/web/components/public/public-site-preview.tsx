@@ -18,6 +18,7 @@ import {
   type PublicSiteTheme,
 } from '@/lib/public-site/theme-presets'
 import {
+  CINEMATIC_PUBLIC_THEME_KEY,
   PUBLIC_VISUAL_THEMES,
   type PublicVisualThemeKey,
 } from '@/lib/public-site/visual-theme-registry'
@@ -35,22 +36,19 @@ import { PublicThemeRoot } from './public-theme-root'
 import styles from './public-site-preview.module.css'
 
 const PREVIEW_SLUG = 'dev-preview/public-site'
-const CINEMATIC_MODE = 'baratosi-cinematic' as const
-
-type PreviewMode = typeof CINEMATIC_MODE | PublicVisualThemeKey
 
 const PREVIEW_MODE_OPTIONS: readonly {
-  key: PreviewMode
+  key: PublicVisualThemeKey
   displayName: string
   eyebrow: string
   image: string
   featured?: boolean
 }[] = [
   {
-    key: CINEMATIC_MODE,
-    displayName: 'Barátosi film',
-    eyebrow: 'Új · elsődleges koncepció',
-    image: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
+    key: CINEMATIC_PUBLIC_THEME_KEY,
+    displayName: PUBLIC_VISUAL_THEMES[CINEMATIC_PUBLIC_THEME_KEY].displayName,
+    eyebrow: PUBLIC_VISUAL_THEMES[CINEMATIC_PUBLIC_THEME_KEY].adminPreview.eyebrow,
+    image: PUBLIC_VISUAL_THEMES[CINEMATIC_PUBLIC_THEME_KEY].assets.hero,
     featured: true,
   },
   {
@@ -74,6 +72,25 @@ const PREVIEW_MODE_OPTIONS: readonly {
 ]
 
 const PREVIEW_THEMES: Readonly<Record<PublicVisualThemeKey, PublicSiteTheme>> = {
+  [CINEMATIC_PUBLIC_THEME_KEY]: {
+    id: 'preview-filmszeru-tortenet',
+    preset_key: CINEMATIC_PUBLIC_THEME_KEY,
+    display_name: 'Filmszerű történet',
+    description: 'Nagyképes, finoman animált és magával ragadó történetmesélés.',
+    colors: {
+      primary: '#0a241b',
+      accent: '#d9ad62',
+      surface: '#f5f0e5',
+      ink: '#17251f',
+      muted: '#66766e',
+      soft: '#e8e0d2',
+    },
+    typography: { heading_font: 'Cormorant Garamond', body_font: 'Inter' },
+    hero_style: 'photo',
+    border_radius: '1.25rem',
+    sort_order: 4,
+    is_active: true,
+  },
   'elo-kert': {
     id: 'preview-elo-kert',
     preset_key: 'elo-kert',
@@ -263,9 +280,11 @@ function keepPreviewNavigationLocal(event: MouseEvent<HTMLDivElement>) {
 }
 
 export function PublicSitePreview() {
-  const [activeMode, setActiveMode] = useState<PreviewMode>(CINEMATIC_MODE)
-  const isCinematic = activeMode === CINEMATIC_MODE
-  const activeTheme: PublicVisualThemeKey = isCinematic ? 'elo-kert' : activeMode
+  const [activeMode, setActiveMode] = useState<PublicVisualThemeKey>(
+    CINEMATIC_PUBLIC_THEME_KEY,
+  )
+  const isCinematic = activeMode === CINEMATIC_PUBLIC_THEME_KEY
+  const activeTheme = activeMode
   const theme = PREVIEW_THEMES[activeTheme]
   const site = buildPreviewSite(theme)
   const activeModeLabel = PREVIEW_MODE_OPTIONS.find(
@@ -322,7 +341,7 @@ export function PublicSitePreview() {
         onClickCapture={keepPreviewNavigationLocal}
       >
         {isCinematic ? (
-          <PublicSiteCinematicPreview site={site} />
+          <PublicSiteCinematicPreview site={site} recentPosts={PREVIEW_POSTS} />
         ) : (
           <PublicThemeRoot presetKey={activeTheme}>
           <a className={styles.skipLink} href="#public-preview-main">

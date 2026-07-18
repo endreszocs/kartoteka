@@ -40,14 +40,8 @@ export default async function CongregationSiteLayout({
     site.custom_accent_color,
   )
   const memberPortalEnabled = isMemberPortalAuthEnabled()
-  const publicHeader = (
+  const publicThemeBase = (
     <>
-      <a
-        href="#public-main-content"
-        className="fixed left-4 top-3 z-[100000] -translate-y-24 rounded-xl bg-[var(--public-primary)] px-4 py-2 font-semibold text-white shadow-xl transition-transform focus:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--public-primary)] motion-reduce:transition-none"
-      >
-        Ugrás a fő tartalomra
-      </a>
       <style>{`
         .public-site-root {
           ${cssVariables}
@@ -266,7 +260,17 @@ export default async function CongregationSiteLayout({
           }
         }
       `}</style>
+    </>
+  )
 
+  const publicHeader = (
+    <>
+      <a
+        href="#public-main-content"
+        className="fixed left-4 top-3 z-[100000] -translate-y-24 rounded-xl bg-[var(--public-primary)] px-4 py-2 font-semibold text-white shadow-xl transition-transform focus:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--public-primary)] motion-reduce:transition-none"
+      >
+        Ugrás a fő tartalomra
+      </a>
       <PublicSiteHeader
         site={site}
         memberPortalEnabled={memberPortalEnabled}
@@ -278,6 +282,8 @@ export default async function CongregationSiteLayout({
     <PublicRouteFrame
       publicFooter={<PublicSiteFooter site={site} />}
       publicHeader={publicHeader}
+      publicHomePath={`/gy/${site.slug}`}
+      publicThemeBase={publicThemeBase}
       memberDashboardPath={`/gy/${site.slug}/tagi-fiok`}
       presetKey={site.theme.preset_key}
     >

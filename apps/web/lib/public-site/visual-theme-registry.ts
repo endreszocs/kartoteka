@@ -7,7 +7,10 @@
  * A kulcsok kozvetlenul a public_site_themes.preset_key ertekeivel egyeznek.
  */
 
+export const CINEMATIC_PUBLIC_THEME_KEY = 'filmszeru-tortenet' as const
+
 export const PUBLIC_VISUAL_THEME_KEYS = [
+  CINEMATIC_PUBLIC_THEME_KEY,
   'elo-kert',
   'csendes-parokia',
   'zsoltaros-orokseg',
@@ -49,6 +52,25 @@ function themeAssets(key: PublicVisualThemeKey): PublicVisualThemeAssets {
 export const PUBLIC_VISUAL_THEMES: Readonly<
   Record<PublicVisualThemeKey, PublicVisualThemeDefinition>
 > = {
+  [CINEMATIC_PUBLIC_THEME_KEY]: {
+    key: CINEMATIC_PUBLIC_THEME_KEY,
+    displayName: 'Filmszerű történet',
+    assets: {
+      hero: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
+      community: '/public-site/themes/elo-kert/baratosi-community-v2.png',
+      heritage: '/public-site/themes/elo-kert/baratosi-heritage-v2.png',
+      invitation: '/public-site/themes/elo-kert/baratosi-hero-v2.png',
+    },
+    adminPreview: {
+      eyebrow: 'Nagyképes történetmesélés',
+      summary: 'Magával ragadó, finoman animált és filmszerű gyülekezeti honlap.',
+    },
+    hero: {
+      backgroundPosition: '63% center',
+      overlay:
+        'linear-gradient(180deg, rgba(4, 14, 11, 0.5) 0%, rgba(4, 15, 11, 0.9) 100%)',
+    },
+  },
   'elo-kert': {
     key: 'elo-kert',
     displayName: 'Élő kert',
